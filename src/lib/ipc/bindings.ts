@@ -24,11 +24,19 @@ export const commands = {
 	 *  calls within that window are zero-network.
 	 */
 	listVersions: () => typedError<VersionEntry[], Error>(__TAURI_INVOKE("list_versions")),
+	/**
+	 *  Install a Minecraft version: downloads the per-version JSON,
+	 *  libraries, assets, and client.jar. Emits `installProgress` events
+	 *  throughout. Idempotent — files already present with matching SHA-1
+	 *  are skipped.
+	 */
+	installVersion: (versionId: string) => typedError<null, Error>(__TAURI_INVOKE("install_version", { versionId })),
 };
 
 /** Events */
 export const events = {
 	downloadProgress: makeEvent<DownloadProgress>("download-progress"),
+	installProgress: makeEvent<InstallProgress>("install-progress"),
 };
 
 /* Types */
@@ -80,6 +88,17 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 
 export type Greeting = {
 	message: string,
+};
+
+export type InstallPhase = "manifest" | "libraries" | "assets" | "client" | "complete";
+
+export type InstallProgress = {
+	version_id: string,
+	phase: InstallPhase,
+	files_done: number,
+	files_total: number,
+	/**  Cumulative bytes within the current phase. */
+	bytes_done: number | null,
 };
 
 /**

@@ -6,6 +6,7 @@
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import NetworkPopover from '$lib/network/NetworkPopover.svelte';
+  import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import { onMount } from 'svelte';
 
   let account = $state<Account | null>(null);
@@ -19,6 +20,9 @@
   let versionsError = $state<string | null>(null);
   let showSnapshots = $state(false);
   let selectedId = $state<string | null>(null);
+
+  let installing = $state(false);
+  let installError = $state<string | null>(null);
 
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
@@ -96,63 +100,90 @@
             : 'alpha';
     return `${v.id} (${type})`;
   }
+
+  async function onInstall() {
+    if (!selectedId) return;
+    installing = true;
+    installError = null;
+    const result = await commands.installVersion(selectedId);
+    installing = false;
+    if (result.status === 'error') {
+      installError = errorMessage(result.error);
+    }
+  }
 </script>
 
-<main class="relative p-8 flex flex-col gap-6 items-start">
-  <div class="absolute right-4 top-4">
-    <button
-      class="text-sm border rounded px-2 py-1 hover:bg-neutral-100"
-      onclick={() => (networkOpen = !networkOpen)}
-    >
-      🌐 Network
-    </button>
-    <NetworkPopover bind:open={networkOpen} />
+<main class="relative min-h-screen flex flex-col">
+  <div class="flex-1 p-8 flex flex-col gap-6 items-start">
+    <div class="absolute right-4 top-4">
+      <button
+        class="text-sm border rounded px-2 py-1 hover:bg-neutral-100"
+        onclick={() => (networkOpen = !networkOpen)}
+      >
+        🌐 Network
+      </button>
+      <NetworkPopover bind:open={networkOpen} />
+    </div>
+
+    <h1 class="text-2xl font-bold">FTlauncher</h1>
+
+    <section class="flex flex-col gap-2">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Account</h2>
+      <label class="flex flex-col gap-1">
+        <span class="text-sm">Your name</span>
+        <input
+          class="border rounded px-2 py-1 w-64"
+          bind:value={nameDraft}
+          onblur={saveName}
+          onkeydown={onKey}
+          placeholder="Type a name and press Enter"
+          disabled={saving}
+        />
+      </label>
+      {#if account}
+        <p class="text-xs text-neutral-500 font-mono">UUID: {account.uuid}</p>
+      {/if}
+      {#if saveError}
+        <p class="text-xs text-red-700">Could not save: {saveError}</p>
+      {/if}
+    </section>
+
+    <section class="flex flex-col gap-2">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Version</h2>
+      {#if versionsLoading}
+        <p class="text-sm text-neutral-500">Loading versions…</p>
+      {:else if versionsError}
+        <p class="text-sm text-red-700">Could not load versions: {versionsError}</p>
+      {:else}
+        <div class="flex items-center gap-3">
+          <select class="border rounded px-2 py-1 w-64" bind:value={selectedId}>
+            {#each visibleVersions as v}
+              <option value={v.id}>{formatVersionLabel(v)}</option>
+            {/each}
+          </select>
+          <label class="text-sm flex items-center gap-1">
+            <input type="checkbox" bind:checked={showSnapshots} />
+            Show snapshots
+          </label>
+        </div>
+        <p class="text-xs text-neutral-500">
+          {visibleVersions.length} version{visibleVersions.length === 1 ? '' : 's'} available
+        </p>
+        <div class="flex items-center gap-3">
+          <button
+            class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
+            disabled={!selectedId || installing}
+            onclick={onInstall}
+          >
+            {installing ? 'Installing…' : `Install ${selectedId ?? ''}`}
+          </button>
+          {#if installError}
+            <span class="text-xs text-red-700">{installError}</span>
+          {/if}
+        </div>
+      {/if}
+    </section>
   </div>
 
-  <h1 class="text-2xl font-bold">FTlauncher</h1>
-
-  <section class="flex flex-col gap-2">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Account</h2>
-    <label class="flex flex-col gap-1">
-      <span class="text-sm">Your name</span>
-      <input
-        class="border rounded px-2 py-1 w-64"
-        bind:value={nameDraft}
-        onblur={saveName}
-        onkeydown={onKey}
-        placeholder="Type a name and press Enter"
-        disabled={saving}
-      />
-    </label>
-    {#if account}
-      <p class="text-xs text-neutral-500 font-mono">UUID: {account.uuid}</p>
-    {/if}
-    {#if saveError}
-      <p class="text-xs text-red-700">Could not save: {saveError}</p>
-    {/if}
-  </section>
-
-  <section class="flex flex-col gap-2">
-    <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Version</h2>
-    {#if versionsLoading}
-      <p class="text-sm text-neutral-500">Loading versions…</p>
-    {:else if versionsError}
-      <p class="text-sm text-red-700">Could not load versions: {versionsError}</p>
-    {:else}
-      <div class="flex items-center gap-3">
-        <select class="border rounded px-2 py-1 w-64" bind:value={selectedId}>
-          {#each visibleVersions as v}
-            <option value={v.id}>{formatVersionLabel(v)}</option>
-          {/each}
-        </select>
-        <label class="text-sm flex items-center gap-1">
-          <input type="checkbox" bind:checked={showSnapshots} />
-          Show snapshots
-        </label>
-      </div>
-      <p class="text-xs text-neutral-500">
-        {visibleVersions.length} version{visibleVersions.length === 1 ? '' : 's'} available
-      </p>
-    {/if}
-  </section>
+  <PhaseStatusRow />
 </main>

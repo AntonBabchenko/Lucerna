@@ -16,8 +16,12 @@ pub fn run() {
             commands::get_account,
             commands::set_offline_account,
             commands::list_versions,
+            commands::install_version,
         ])
-        .events(collect_events![network::DownloadProgress]);
+        .events(collect_events![
+            network::DownloadProgress,
+            versions::InstallProgress,
+        ]);
 
     #[cfg(debug_assertions)]
     builder

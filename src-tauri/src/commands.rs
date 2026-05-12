@@ -48,6 +48,19 @@ pub async fn list_versions() -> Result<Vec<crate::versions::VersionEntry>, crate
     crate::versions::list_manifest().await
 }
 
+/// Install a Minecraft version: downloads the per-version JSON,
+/// libraries, assets, and client.jar. Emits `installProgress` events
+/// throughout. Idempotent — files already present with matching SHA-1
+/// are skipped.
+#[tauri::command]
+#[specta::specta]
+pub async fn install_version(
+    app: tauri::AppHandle,
+    version_id: String,
+) -> Result<(), crate::error::Error> {
+    crate::versions::install_version(&version_id, &app).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
