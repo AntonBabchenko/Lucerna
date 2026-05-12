@@ -1,0 +1,45 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Tauri
+/src-tauri/target/
+/src-tauri/Cargo.lock.bak
+/src-tauri/gen/
+.tauri/
+
+# Frontend (UI framework TBD — covers common bases)
+/node_modules/
+/dist/
+/build/
+.vite/
+.svelte-kit/
+.solid/
+
+# Environments and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+KEYS.priv
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude Code — personal-scope settings only
+.claude/settings.local.json
+
+# Logs and ephemera
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
