@@ -31,6 +31,8 @@ hex = "0.4.3"
 reqwest = { version = "0.13.3", default-features = false, features = ["rustls", "json", "stream"] }
 futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
 tokio = { version = "1.52.3", features = ["fs", "io-util"] }
+uuid = "1.23.1"
+md-5 = "0.11.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

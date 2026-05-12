@@ -8,6 +8,22 @@ export const commands = {
 	greet: (name: string) => __TAURI_INVOKE<Greeting>("greet", { name }),
 	/**  Return the most recent network activity entries (up to 200). */
 	networkActivity: () => __TAURI_INVOKE<AuditEntry[]>("network_activity"),
+	/**  Return the currently persisted account, or `None` if not set. */
+	getAccount: () => typedError<{
+	name: string,
+	/**  UUID as canonical hyphenated string ("xxxxxxxx-xxxx-..."). */
+	uuid: string,
+} | null, Error>(__TAURI_INVOKE("get_account")),
+	/**
+	 *  Persist an offline account for the given display name. The UUID is
+	 *  derived deterministically.
+	 */
+	setOfflineAccount: (name: string) => typedError<Account, Error>(__TAURI_INVOKE("set_offline_account", { name })),
+	/**
+	 *  Fetch the Mojang version manifest. Cached for 5 minutes — repeated
+	 *  calls within that window are zero-network.
+	 */
+	listVersions: () => typedError<VersionEntry[], Error>(__TAURI_INVOKE("list_versions")),
 };
 
 /** Events */
@@ -16,6 +32,12 @@ export const events = {
 };
 
 /* Types */
+export type Account = {
+	name: string,
+	/**  UUID as canonical hyphenated string ("xxxxxxxx-xxxx-..."). */
+	uuid: string,
+};
+
 export type AuditEntry = {
 	/**
 	 *  Milliseconds since Unix epoch, as `f64` so JavaScript's `number`
@@ -54,11 +76,40 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string };
+
 export type Greeting = {
 	message: string,
 };
 
+/**
+ *  What the UI sees per entry. We strip the cryptographic and
+ *  compliance fields the launcher core needs but the UI doesn't.
+ */
+export type VersionEntry = {
+	id: string,
+	version_type: VersionType,
+	/**  ISO-8601 string from Mojang, e.g. "2023-12-07T12:00:00+00:00". */
+	release_date: string,
+	/**
+	 *  URL to the per-version JSON. Stored so slice 4 doesn't have to
+	 *  re-fetch the manifest to know where to install from.
+	 */
+	url: string,
+};
+
+export type VersionType = "release" | "snapshot" | "old_alpha" | "old_beta";
+
 /* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
+
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
 
 function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deserialize?: (payload: any) => T) {

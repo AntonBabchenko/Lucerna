@@ -20,6 +20,34 @@ pub fn network_activity() -> Vec<crate::network::AuditEntry> {
     crate::network::recent()
 }
 
+/// Return the currently persisted account, or `None` if not set.
+#[tauri::command]
+#[specta::specta]
+pub fn get_account(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::accounts::Account>, crate::error::Error> {
+    crate::accounts::get_current(&app)
+}
+
+/// Persist an offline account for the given display name. The UUID is
+/// derived deterministically.
+#[tauri::command]
+#[specta::specta]
+pub fn set_offline_account(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<crate::accounts::Account, crate::error::Error> {
+    crate::accounts::set_offline(&app, &name)
+}
+
+/// Fetch the Mojang version manifest. Cached for 5 minutes — repeated
+/// calls within that window are zero-network.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_versions() -> Result<Vec<crate::versions::VersionEntry>, crate::error::Error> {
+    crate::versions::list_manifest().await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

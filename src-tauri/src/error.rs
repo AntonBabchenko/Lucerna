@@ -22,14 +22,14 @@ pub enum Error {
         got: String,
     },
 
-    #[error("Java spawn failed: {0}")]
-    JavaSpawn(String),
+    #[error("Java spawn failed: {details}")]
+    JavaSpawn { details: String },
 
     #[error("Account not set — enter your name first")]
     AccountNotSet,
 
-    #[error("Version {0} not found in manifest")]
-    UnknownVersion(String),
+    #[error("Version {id} not found in manifest")]
+    UnknownVersion { id: String },
 
     #[error("Unsupported platform: {os}/{arch}")]
     UnsupportedPlatform { os: String, arch: String },
