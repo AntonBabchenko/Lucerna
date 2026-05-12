@@ -9,18 +9,20 @@ Cargo.lock.bak
 /src-tauri/gen/
 .tauri/
 
-# Frontend (UI framework TBD — covers common bases)
+# Frontend (Svelte 5 + SvelteKit + Vite)
 /node_modules/
 /dist/
 /build/
+/package/
 .vite/
 .svelte-kit/
-.solid/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
 
 # Environments and secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 *.pem
 *.key
 KEYS.priv

@@ -1,0 +1,7 @@
+node_modules
+build
+dist
+.svelte-kit
+src-tauri/target
+src/lib/ipc/bindings.ts
+pnpm-lock.yaml

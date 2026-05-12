@@ -28,18 +28,35 @@ No "small fix" exception. A bugfix is still a feature in this sense — it still
 - **Merges:** squash merge into `main`.
 - **Tags:** `vMAJOR.MINOR.PATCH` for releases (semver).
 
-## Repo layout (skeleton, fills in as project grows)
+## Repo layout
 
 ```
-src-tauri/    Rust backend — launcher core
-src/          UI — web stack chosen in a separate brainstorm
-docs/         specs, plans, principles
-.github/      CI workflows, release pipelines
+src-tauri/                 Rust backend — launcher core, Tauri shell
+src-tauri/src/commands.rs  Tauri commands exposed to UI (typed via tauri-specta)
+src/                       SvelteKit UI (Svelte 5 runes + TypeScript)
+src/routes/                SvelteKit file-based routes (single-page launcher)
+src/lib/ipc/bindings.ts    Generated TS bindings from tauri-specta — do not edit
+src/app.css                Tailwind imports + minimal global CSS
+src/app.html               SvelteKit HTML shell (page title lives here)
+static/                    Static assets served at root
+tools/                     Small CI/dev helper scripts (Node, .mjs)
+tests/                     Vitest unit tests
+docs/                      Principles, security, superpowers/specs, superpowers/plans
+.github/                   CI workflows (added later)
 ```
 
 ## Entry-point commands
 
-Filled in after the first scaffold lands. Today this repo is documentation only; nothing builds.
+- `pnpm install`           install Node deps.
+- `pnpm tauri dev`         run launcher in dev mode (Vite + Rust + Tauri webview).
+- `pnpm tauri build`       build a release binary.
+- `pnpm typecheck`         svelte-kit sync + svelte-check.
+- `pnpm test`              run Vitest once.
+- `pnpm test:watch`        Vitest watch mode.
+- `pnpm lint`              Biome + Prettier (Svelte) + no-network-calls gate.
+- `pnpm lint:no-network`   only the no-network-calls gate.
+- `pnpm format`            auto-format with Biome + Prettier (Svelte).
+- `cargo test` (in `src-tauri/`)   Rust unit tests.
 
 ## Auto-memory location
 
