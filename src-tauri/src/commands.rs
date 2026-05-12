@@ -13,6 +13,13 @@ pub fn greet(name: String) -> Greeting {
     }
 }
 
+/// Return the most recent network activity entries (up to 200).
+#[tauri::command]
+#[specta::specta]
+pub fn network_activity() -> Vec<crate::network::AuditEntry> {
+    crate::network::recent()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,10 +1,15 @@
 mod commands;
+pub mod error;
+pub mod network;
+pub mod paths;
 
-use tauri_specta::{collect_commands, Builder};
+use tauri_specta::{collect_commands, collect_events, Builder};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = Builder::<tauri::Wry>::new().commands(collect_commands![commands::greet]);
+    let builder = Builder::<tauri::Wry>::new()
+        .commands(collect_commands![commands::greet, commands::network_activity])
+        .events(collect_events![network::DownloadProgress]);
 
     #[cfg(debug_assertions)]
     builder

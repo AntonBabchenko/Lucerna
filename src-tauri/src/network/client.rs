@@ -1,0 +1,53 @@
+//! The one `reqwest::Client` instance for the whole process. Reusing a
+//! single client enables connection pooling and shared TLS session
+//! cache.
+//!
+//! The User-Agent identifies FTlauncher and the launcher version so
+//! upstream hosts (Mojang, Modrinth) can see what client is hitting
+//! their endpoints. This is the only identifying header we send.
+
+use std::sync::OnceLock;
+use std::time::Duration;
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn build_client() -> reqwest::Client {
+    let version = env!("CARGO_PKG_VERSION");
+    let user_agent =
+        format!("FTlauncher/{version} (+https://github.com/AntonBabchenko/FTlauncher)");
+    reqwest::Client::builder()
+        .user_agent(user_agent)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()
+        // Builder failure means the system TLS stack is broken — there's
+        // no graceful recovery and no caller can do anything sensible.
+        .expect("failed to build reqwest client")
+}
+
+pub fn http() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(build_client)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_returns_same_instance_on_repeat() {
+        let a = http();
+        let b = http();
+        assert!(std::ptr::eq(a, b));
+    }
+
+    #[test]
+    fn user_agent_built_with_package_version() {
+        let v = env!("CARGO_PKG_VERSION");
+        let expected =
+            format!("FTlauncher/{v} (+https://github.com/AntonBabchenko/FTlauncher)");
+        assert!(expected.starts_with("FTlauncher/"));
+        assert!(expected.contains(v));
+    }
+}

@@ -25,4 +25,15 @@ serde_json = "1"
 specta-typescript = "0.0.12"
 specta = { version = "2.0.0-rc.25", default-features = false, features = ["function", "derive"] }
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
+thiserror = "2.0.18"
+sha1 = "0.11.0"
+hex = "0.4.3"
+reqwest = { version = "0.13.3", default-features = false, features = ["rustls", "json", "stream"] }
+futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
+tokio = { version = "1.52.3", features = ["fs", "io-util"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["full"] }
+wiremock = "0.6.5"
 
