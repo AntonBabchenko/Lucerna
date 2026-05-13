@@ -2,6 +2,7 @@ mod commands;
 pub mod accounts;
 pub mod error;
 pub mod jre;
+pub mod launch;
 pub mod network;
 pub mod paths;
 pub mod versions;
@@ -18,10 +19,14 @@ pub fn run() {
             commands::set_offline_account,
             commands::list_versions,
             commands::install_version,
+            commands::install_and_launch,
+            commands::stop_minecraft,
         ])
         .events(collect_events![
             network::DownloadProgress,
             versions::InstallProgress,
+            launch::ProcessSpawned,
+            launch::ProcessExited,
         ]);
 
     #[cfg(debug_assertions)]

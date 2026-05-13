@@ -30,9 +30,10 @@ sha1 = "0.11.0"
 hex = "0.4.3"
 reqwest = { version = "0.13.3", default-features = false, features = ["rustls", "json", "stream"] }
 futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
-tokio = { version = "1.52.3", features = ["fs", "io-util"] }
+tokio = { version = "1.52.3", features = ["fs", "io-util", "process", "rt", "rt-multi-thread", "macros"] }
 uuid = "1.23.1"
 md-5 = "0.11.0"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

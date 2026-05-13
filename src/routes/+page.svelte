@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     commands,
+    events,
     type Account,
     type Error as IpcError,
     type VersionEntry,
@@ -23,6 +24,10 @@
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
+  let running = $state<{ pid: number; version_id: string } | null>(null);
+  let exited = $state<{ code: number; log_path: string } | null>(null);
+  let spawnUnlisten: (() => void) | null = null;
+  let exitUnlisten: (() => void) | null = null;
 
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
@@ -36,6 +41,8 @@
         return `Hash mismatch for ${e.path}`;
       case 'java_spawn':
         return `Java spawn failed: ${e.details}`;
+      case 'already_running':
+        return 'Minecraft is already running';
       case 'account_not_set':
         return 'Account not set — enter your name first';
       case 'unknown_version':
@@ -48,6 +55,24 @@
   }
 
   onMount(async () => {
+    events.processSpawned
+      .listen((event) => {
+        running = { pid: event.payload.pid, version_id: event.payload.version_id };
+        exited = null;
+      })
+      .then((u) => {
+        spawnUnlisten = u;
+      });
+
+    events.processExited
+      .listen((event) => {
+        running = null;
+        exited = { code: event.payload.code, log_path: event.payload.log_path };
+      })
+      .then((u) => {
+        exitUnlisten = u;
+      });
+
     const accountResult = await commands.getAccount();
     if (accountResult.status === 'ok') {
       account = accountResult.data;
@@ -101,12 +126,19 @@
     return `${v.id} (${type})`;
   }
 
-  async function onInstall() {
+  async function onPlay() {
     if (!selectedId) return;
     installing = true;
     installError = null;
-    const result = await commands.installVersion(selectedId);
+    const result = await commands.installAndLaunch(selectedId);
     installing = false;
+    if (result.status === 'error') {
+      installError = errorMessage(result.error);
+    }
+  }
+
+  async function onStop() {
+    const result = await commands.stopMinecraft();
     if (result.status === 'error') {
       installError = errorMessage(result.error);
     }
@@ -170,15 +202,32 @@
           {visibleVersions.length} version{visibleVersions.length === 1 ? '' : 's'} available
         </p>
         <div class="flex items-center gap-3">
-          <button
-            class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
-            disabled={!selectedId || installing}
-            onclick={onInstall}
-          >
-            {installing ? 'Installing…' : `Install ${selectedId ?? ''}`}
-          </button>
+          {#if running}
+            <button
+              class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+              onclick={onStop}
+            >
+              Stop
+            </button>
+            <span class="text-sm font-mono">
+              Running {running.version_id} (PID {running.pid})
+            </span>
+          {:else}
+            <button
+              class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
+              disabled={!selectedId || installing}
+              onclick={onPlay}
+            >
+              {installing ? 'Working…' : `Play ${selectedId ?? ''}`}
+            </button>
+          {/if}
           {#if installError}
             <span class="text-xs text-red-700">{installError}</span>
+          {/if}
+          {#if exited && !running}
+            <span class="text-xs text-neutral-600">
+              Exited (code {exited.code})
+            </span>
           {/if}
         </div>
       {/if}

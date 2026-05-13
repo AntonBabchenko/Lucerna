@@ -40,7 +40,12 @@ The project exists because other launchers serves a real use-case (offline play,
 
 ### Appendix A — documented processes
 
-Filled in as the launcher gains the ability to spawn processes. Today: none. When the first launch path lands, this list grows to include `java` / `javaw` (or the bundled Java runtime) plus any auxiliary helpers, each with its purpose and lifetime.
+| Process | Purpose | Spawn site | Lifetime | Stdin / stdout / stderr |
+|---|---|---|---|---|
+| `javaw.exe` (bundled JRE) | Runs the Minecraft client | `launch::spawn::start` | Until the user closes MC or clicks Stop in the launcher | stdin closed; stdout+stderr → `<instance>/logs/launch-<timestamp>.log` |
+| `taskkill.exe` (Windows built-in) | Terminates the running `javaw.exe` and its children when the user clicks Stop | `launch::spawn::stop` | One-shot; exits as soon as the kill request is issued | stdin/stdout/stderr not captured (one-shot system utility) |
+
+The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary watchdog, no helper process. The Java runtime is exactly the one Mojang publishes via the JRE manifest (slice 5), and the Minecraft jar is exactly the one Mojang serves at `piston-data.mojang.com` (slice 4).
 
 ## Part B — Technical principles
 

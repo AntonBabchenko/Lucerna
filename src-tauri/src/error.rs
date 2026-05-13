@@ -25,6 +25,9 @@ pub enum Error {
     #[error("Java spawn failed: {details}")]
     JavaSpawn { details: String },
 
+    #[error("Minecraft is already running")]
+    AlreadyRunning,
+
     #[error("Account not set — enter your name first")]
     AccountNotSet,
 

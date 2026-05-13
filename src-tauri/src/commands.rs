@@ -61,6 +61,28 @@ pub async fn install_version(
     crate::versions::install_version(&version_id, &app).await
 }
 
+/// Install (idempotently) and then launch the given Minecraft version.
+/// Emits `installProgress` during install and `processSpawned` /
+/// `processExited` around the run.
+#[tauri::command]
+#[specta::specta]
+pub async fn install_and_launch(
+    app: tauri::AppHandle,
+    version_id: String,
+) -> Result<u32, crate::error::Error> {
+    crate::versions::install_version(&version_id, &app).await?;
+    let account = crate::accounts::get_current(&app)?
+        .ok_or(crate::error::Error::AccountNotSet)?;
+    crate::launch::start(&version_id, &account, &app).await
+}
+
+/// Kill the running Minecraft process if any. Idempotent.
+#[tauri::command]
+#[specta::specta]
+pub fn stop_minecraft() -> Result<(), crate::error::Error> {
+    crate::launch::stop()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

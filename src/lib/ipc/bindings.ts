@@ -31,12 +31,22 @@ export const commands = {
 	 *  are skipped.
 	 */
 	installVersion: (versionId: string) => typedError<null, Error>(__TAURI_INVOKE("install_version", { versionId })),
+	/**
+	 *  Install (idempotently) and then launch the given Minecraft version.
+	 *  Emits `installProgress` during install and `processSpawned` /
+	 *  `processExited` around the run.
+	 */
+	installAndLaunch: (versionId: string) => typedError<number, Error>(__TAURI_INVOKE("install_and_launch", { versionId })),
+	/**  Kill the running Minecraft process if any. Idempotent. */
+	stopMinecraft: () => typedError<null, Error>(__TAURI_INVOKE("stop_minecraft")),
 };
 
 /** Events */
 export const events = {
 	downloadProgress: makeEvent<DownloadProgress>("download-progress"),
 	installProgress: makeEvent<InstallProgress>("install-progress"),
+	processExited: makeEvent<ProcessExited>("process-exited"),
+	processSpawned: makeEvent<ProcessSpawned>("process-spawned"),
 };
 
 /* Types */
@@ -84,7 +94,7 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string };
 
 export type Greeting = {
 	message: string,
@@ -99,6 +109,22 @@ export type InstallProgress = {
 	files_total: number,
 	/**  Cumulative bytes within the current phase. */
 	bytes_done: number | null,
+};
+
+export type ProcessExited = {
+	version_id: string,
+	/**
+	 *  Process exit code. `-1` when the process was terminated by a
+	 *  signal (no code available from the OS).
+	 */
+	code: number,
+	/**  Absolute path to the launch log file for this run. */
+	log_path: string,
+};
+
+export type ProcessSpawned = {
+	version_id: string,
+	pid: number,
 };
 
 /**
