@@ -90,7 +90,7 @@ export type Greeting = {
 	message: string,
 };
 
-export type InstallPhase = "manifest" | "libraries" | "assets" | "client" | "complete";
+export type InstallPhase = "manifest" | "jre" | "libraries" | "assets" | "client" | "complete";
 
 export type InstallProgress = {
 	version_id: string,

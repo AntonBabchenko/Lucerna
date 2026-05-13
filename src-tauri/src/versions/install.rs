@@ -18,6 +18,7 @@ use tauri_specta::Event;
 #[serde(rename_all = "snake_case")]
 pub enum InstallPhase {
     Manifest,
+    Jre,
     Libraries,
     Assets,
     Client,
@@ -50,9 +51,40 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     let details = ensure_version_json(version_id, app).await?;
     emit(app, version_id, InstallPhase::Manifest, 1, 1, 0.0);
 
-    // Detect platform
+    // Detect platform (used by libraries below; JRE has its own
+    // platform detection inside the jre module).
     let os = current_os();
     let arch = current_arch();
+
+    // Phase 1b: JRE. Pre-1.13 versions have no `javaVersion` field;
+    // fall back to Mojang's `jre-legacy` (Java 8) which is what
+    // Prism Launcher does and what those MC versions need.
+    let component = details
+        .java_version
+        .as_ref()
+        .map(|jv| jv.component.as_str())
+        .unwrap_or(crate::jre::DEFAULT_LEGACY_COMPONENT)
+        .to_string();
+    emit(app, version_id, InstallPhase::Jre, 0, 1, 0.0);
+    {
+        let app_clone = app.clone();
+        let version_id_owned = version_id.to_string();
+        crate::jre::ensure_jre(&component, app, move |done, total, bytes| {
+            InstallProgress {
+                version_id: version_id_owned.clone(),
+                phase: InstallPhase::Jre,
+                files_done: done,
+                files_total: total,
+                bytes_done: bytes as f64,
+            }
+            .emit(&app_clone)
+            .ok();
+        })
+        .await?;
+    }
+    // No explicit "Jre done" emit — the per-file callback fires
+    // total/total on the last file. For a fully-cached install,
+    // ensure_jre's marker-fast-path itself emits (1, 1, 0).
 
     // Phase 2: libraries
     let lib_count = details.libraries.len() as u32;

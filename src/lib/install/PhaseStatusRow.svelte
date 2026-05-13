@@ -22,6 +22,8 @@
     switch (p) {
       case 'manifest':
         return 'Fetching version metadata';
+      case 'jre':
+        return 'Installing Java runtime';
       case 'libraries':
         return 'Downloading libraries';
       case 'assets':

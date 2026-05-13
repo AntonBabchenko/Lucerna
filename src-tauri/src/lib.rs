@@ -1,6 +1,7 @@
 mod commands;
 pub mod accounts;
 pub mod error;
+pub mod jre;
 pub mod network;
 pub mod paths;
 pub mod versions;
