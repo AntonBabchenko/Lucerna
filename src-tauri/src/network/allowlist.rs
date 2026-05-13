@@ -43,6 +43,11 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "api.github.com",
     "api.modrinth.com",
     "api.curseforge.com",
+    // v0.2.0 — Fabric + Quilt loader meta and library mirrors.
+    "meta.fabricmc.net",
+    "maven.fabricmc.net",
+    "meta.quiltmc.org",
+    "maven.quiltmc.org",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -156,8 +161,23 @@ mod tests {
         assert!(patterns.contains(&"*.mojang.com"));
         assert!(patterns.contains(&"*.minecraft.net"));
         assert!(patterns.contains(&"api.github.com"));
-        // Exactly the documented count (7 rows in PRINCIPLES.md table
-        // when expanded; we list them flat).
-        assert_eq!(patterns.len(), 7);
+        // v0.2.0 additions
+        assert!(patterns.contains(&"meta.fabricmc.net"));
+        assert!(patterns.contains(&"maven.fabricmc.net"));
+        assert!(patterns.contains(&"meta.quiltmc.org"));
+        assert!(patterns.contains(&"maven.quiltmc.org"));
+        // Exactly the documented count (7 from v0.1.0 + 4 from v0.2.0).
+        assert_eq!(patterns.len(), 11);
+    }
+
+    #[test]
+    fn fabric_quilt_hosts_are_allowed() {
+        assert!(is_host_allowed("meta.fabricmc.net"));
+        assert!(is_host_allowed("maven.fabricmc.net"));
+        assert!(is_host_allowed("meta.quiltmc.org"));
+        assert!(is_host_allowed("maven.quiltmc.org"));
+        // Exact-match — these are not wildcards.
+        assert!(!is_host_allowed("evil.meta.fabricmc.net"));
+        assert!(!is_host_allowed("evilmeta.fabricmc.net"));
     }
 }

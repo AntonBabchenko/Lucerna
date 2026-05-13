@@ -83,7 +83,16 @@ fn substitution_map<'a>(
         "game_assets",
         input.assets_dir.to_string_lossy().into_owned(),
     );
-    m.insert("assets_index_name", input.details.assets.clone());
+    // After ensure_version_json, assets and asset_index are always Some
+    // (vanilla parent provides them; loader profiles inherit via merge_inherits).
+    m.insert(
+        "assets_index_name",
+        input
+            .details
+            .assets
+            .clone()
+            .expect("merged JSON should have assets — vanilla parent must provide it"),
+    );
     m.insert("classpath", classpath.to_string());
     m.insert(
         "natives_directory",

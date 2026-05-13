@@ -31,6 +31,8 @@ The project exists because other launchers serves a real use-case (offline play,
    | `api.github.com/repos/AntonBabchenko/FTlauncher/releases` | Launcher self-update check | on, off-able |
    | `api.modrinth.com` | Modrinth mod browser | requested on first open of mod browser |
    | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
+   | `meta.fabricmc.net`, `maven.fabricmc.net` | Fabric loader meta + libraries | on when user picks Fabric loader |
+   | `meta.quiltmc.org`, `maven.quiltmc.org` | Quilt loader meta + libraries | on when user picks Quilt loader |
 
    The list in code (`src-tauri/src/network/allowlist.rs`) is the single source of truth. A CI test asserts this table matches that file.
 
@@ -74,14 +76,19 @@ The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary w
    - No hard cap on total dependency tree size, but more than 500 transitive crates is a red flag worth pausing for.
    - **npm deps follow the same rule.** A new package requires PR justification (why, alternatives, tree size). `strict-peer-dependencies=true` in `.npmrc`. Build scripts run only when explicitly allowed in `pnpm-workspace.yaml` (`pnpm approve-builds`). Telemetry-shipping packages are rejected outright.
 
-6. **Errors are real.**
+6. **File integrity.**
+   - Every byte downloaded onto disk is verified by SHA-1 against an upstream-published checksum.
+   - **Exception (v0.2.0):** Fabric and Quilt loader meta endpoints publish profile JSONs that reference loader libraries by `name + url` only — no per-file checksum is exposed. Those libraries are fetched over HTTPS on a trust-on-first-use basis. The exception is opt-in (the user explicitly picks Fabric or Quilt) and scoped to the four hosts in the Part A allowlist table.
+   - Vanilla Minecraft libraries, assets, JREs, and the client jar are always SHA-1-verified — no exception there.
+
+7. **Errors are real.**
    - `thiserror` for typed errors in library modules.
    - `anyhow` in application / main code.
    - No `.unwrap()` in production code unless paired with a comment proving the case is unreachable.
 
-7. **Comments explain WHY.** Names explain WHAT. Comments explain non-obvious constraints, invariants, or workarounds. No `// added for issue #123`. No `// removed feature X` markers — deleted code is gone; commit history records why.
+8. **Comments explain WHY.** Names explain WHAT. Comments explain non-obvious constraints, invariants, or workarounds. No `// added for issue #123`. No `// removed feature X` markers — deleted code is gone; commit history records why.
 
-8. **Testing.**
+9. **Testing.**
    - Unit tests mandatory for: manifest parsers, version JSON parsing, launch argument construction, authentication flows.
    - Integration tests for the full pipeline: select version → download → launch → exit cleanly.
    - UI tests are pragmatic, not mandatory. Test what a user can name as a behavior, not pixel positions.

@@ -27,6 +27,8 @@ pub fn run() {
             commands::read_log_file,
             commands::latest_crash,
             commands::open_mods_folder,
+            commands::list_fabric_loaders,
+            commands::list_quilt_loaders,
         ])
         .events(collect_events![
             network::DownloadProgress,

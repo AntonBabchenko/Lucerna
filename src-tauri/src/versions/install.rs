@@ -100,9 +100,16 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     );
 
     // Phase 3: assets
+    // After ensure_version_json returns, the merged JSON always has
+    // asset_index as Some — vanilla parent supplies it; loader profiles
+    // inherit it via merge_inherits.
+    let asset_index = details
+        .asset_index
+        .as_ref()
+        .expect("merged JSON should have assetIndex — vanilla parent must provide it");
     let app_clone = app.clone();
     let version_id_owned = version_id.to_string();
-    super::assets::ensure_assets(&details.asset_index, app, move |done, total, bytes| {
+    super::assets::ensure_assets(asset_index, app, move |done, total, bytes| {
         InstallProgress {
             version_id: version_id_owned.clone(),
             phase: InstallPhase::Assets,
@@ -116,8 +123,13 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     .await?;
 
     // Phase 4: client
+    // Same invariant: vanilla parent always supplies downloads.
+    let client_download = details
+        .downloads
+        .as_ref()
+        .expect("merged JSON should have downloads — vanilla parent must provide it");
     emit(app, version_id, InstallPhase::Client, 0, 1, 0.0);
-    super::client::ensure_client(version_id, &details.downloads.client, app).await?;
+    super::client::ensure_client(version_id, &client_download.client, app).await?;
     emit(app, version_id, InstallPhase::Client, 1, 1, 0.0);
 
     emit(app, version_id, InstallPhase::Complete, 1, 1, 0.0);
@@ -126,21 +138,65 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
 
 /// Fetch + cache the per-version JSON. Stored at
 /// `<versions_dir>/<id>/<id>.json`.
+///
+/// Handles two id flavours:
+/// 1. Vanilla — looked up in the Mojang manifest.
+/// 2. Synthesised loader id (`fabric-loader-...`, `quilt-loader-...`)
+///    — recursively resolves the parent and merges via
+///    `versions::resolve::merge_inherits`. Recursion depth capped at
+///    4 to defend against loop-shaped `inheritsFrom` chains.
 async fn ensure_version_json(
     version_id: &str,
     app: &tauri::AppHandle,
 ) -> Result<VersionDetails> {
+    ensure_version_json_inner(version_id, app, 0).await
+}
+
+const MAX_INHERITS_DEPTH: u32 = 4;
+
+#[async_recursion::async_recursion]
+async fn ensure_version_json_inner(
+    version_id: &str,
+    app: &tauri::AppHandle,
+    depth: u32,
+) -> Result<VersionDetails> {
+    if depth > MAX_INHERITS_DEPTH {
+        return Err(Error::io(
+            "<resolve>",
+            format!("inheritsFrom chain too deep (>{MAX_INHERITS_DEPTH}) starting at {version_id}"),
+        ));
+    }
+
     let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let path = dir.join(version_id).join(format!("{version_id}.json"));
 
-    // If file exists, parse it (no SHA check here — the manifest
-    // provides one but a re-download on every install is wasteful;
-    // hash-mismatch is caught at file-write time within download_with_sha).
+    // Disk fast-path — both vanilla and synth ids share this.
     if let Ok(raw) = tokio::fs::read_to_string(&path).await {
-        return parse(&raw).map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")));
+        return parse(&raw)
+            .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")));
     }
 
-    // Not on disk — look up the URL in the manifest.
+    // Synthetic id dispatch
+    if let Some((loader, loader_ver, mc_ver)) =
+        crate::versions::loaders::parse_synth_id(version_id)
+    {
+        let child = crate::versions::loaders::fetch_profile(loader, &mc_ver, &loader_ver).await?;
+        let parent = ensure_version_json_inner(&mc_ver, app, depth + 1).await?;
+        let merged = crate::versions::resolve::merge_inherits(child, parent);
+        let text = serde_json::to_string(&merged)
+            .map_err(|e| Error::io(path.display().to_string(), format!("serialise: {e}")))?;
+        if let Some(parent_dir) = path.parent() {
+            tokio::fs::create_dir_all(parent_dir)
+                .await
+                .map_err(|e| Error::io(parent_dir.display().to_string(), e))?;
+        }
+        tokio::fs::write(&path, &text)
+            .await
+            .map_err(|e| Error::io(path.display().to_string(), e))?;
+        return Ok(merged);
+    }
+
+    // Vanilla path — manifest lookup + fetch.
     let entries = list_manifest().await?;
     let entry = entries
         .iter()
@@ -149,16 +205,14 @@ async fn ensure_version_json(
             id: version_id.to_string(),
         })?;
 
-    // Stream the JSON via get_json — it's audited.
     let json: serde_json::Value = get_json(&entry.url, "versions").await?;
     let text = serde_json::to_string(&json)
         .map_err(|e| Error::io(path.display().to_string(), format!("serialise: {e}")))?;
 
-    // Persist to disk
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
+    if let Some(parent_dir) = path.parent() {
+        tokio::fs::create_dir_all(parent_dir)
             .await
-            .map_err(|e| Error::io(parent.display().to_string(), e))?;
+            .map_err(|e| Error::io(parent_dir.display().to_string(), e))?;
     }
     tokio::fs::write(&path, &text)
         .await
@@ -233,5 +287,13 @@ mod tests {
         };
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains(r#""phase":"assets""#), "got: {json}");
+    }
+
+    #[test]
+    fn max_inherits_depth_is_four() {
+        // Smoke check that the cap is non-trivial. The actual cap is
+        // exercised by an integration test (loaders_integration.rs).
+        assert!(MAX_INHERITS_DEPTH >= 2, "must allow at least loader → vanilla");
+        assert!(MAX_INHERITS_DEPTH <= 10, "must not be unboundedly large");
     }
 }

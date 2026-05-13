@@ -34,6 +34,9 @@ pub enum Error {
     #[error("Version {id} not found in manifest")]
     UnknownVersion { id: String },
 
+    #[error("{loader} does not support Minecraft {mc_version}")]
+    LoaderUnavailable { loader: String, mc_version: String },
+
     #[error("Unsupported platform: {os}/{arch}")]
     UnsupportedPlatform { os: String, arch: String },
 
@@ -86,5 +89,17 @@ mod tests {
         // tag: "kind" + snake_case rename → "hash_mismatch"
         assert!(json.contains(r#""kind":"hash_mismatch""#), "got: {json}");
         assert!(json.contains(r#""expected":"aaa""#));
+    }
+
+    #[test]
+    fn loader_unavailable_serializes_with_tag() {
+        let e = Error::LoaderUnavailable {
+            loader: "fabric".into(),
+            mc_version: "1.6.4".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"loader_unavailable""#), "got: {json}");
+        assert!(json.contains(r#""loader":"fabric""#), "got: {json}");
+        assert!(json.contains(r#""mc_version":"1.6.4""#), "got: {json}");
     }
 }

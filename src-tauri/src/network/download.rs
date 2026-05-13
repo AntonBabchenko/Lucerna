@@ -132,7 +132,7 @@ pub async fn download_with_sha(
         status: Some(status.as_u16()),
     });
 
-    if got_hex != expected_sha_hex {
+    if !expected_sha_hex.is_empty() && got_hex != expected_sha_hex {
         // Drop the bad file so a retry starts fresh.
         let _ = tokio::fs::remove_file(dest).await;
         return Err(Error::HashMismatch {
@@ -224,7 +224,7 @@ pub async fn download_no_emit(
         status: Some(status.as_u16()),
     });
 
-    if got_hex != expected_sha_hex {
+    if !expected_sha_hex.is_empty() && got_hex != expected_sha_hex {
         let _ = tokio::fs::remove_file(dest).await;
         return Err(Error::HashMismatch {
             path: dest.display().to_string(),
@@ -233,4 +233,56 @@ pub async fn download_no_emit(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn empty_expected_sha_skips_verification() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/loader-lib.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"fake jar bytes"))
+            .mount(&server)
+            .await;
+
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("loader-lib.jar");
+        let url = format!("{}/loader-lib.jar", server.uri());
+
+        let result = download_no_emit(&url, &dest, "", "test").await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+
+        assert!(result.is_ok(), "expected ok, got {result:?}");
+        assert!(dest.exists());
+        let written = std::fs::read(&dest).unwrap();
+        assert_eq!(written, b"fake jar bytes");
+    }
+
+    #[tokio::test]
+    async fn nonempty_sha_mismatch_still_errors() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"hello"))
+            .mount(&server)
+            .await;
+
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        let url = format!("{}/x.jar", server.uri());
+
+        let result = download_no_emit(&url, &dest, "0000000000000000000000000000000000000000", "test").await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+
+        assert!(matches!(result, Err(Error::HashMismatch { .. })));
+        assert!(!dest.exists(), "bad file should be removed after sha mismatch");
+    }
 }

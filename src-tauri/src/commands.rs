@@ -155,6 +155,28 @@ pub async fn open_mods_folder(app: tauri::AppHandle) -> Result<(), crate::error:
     Ok(())
 }
 
+/// List Fabric loader versions compatible with `mc_id`. Sorted
+/// newest-first by build. Empty list → `Error::LoaderUnavailable`.
+/// Cached 5 minutes per `mc_id`.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_fabric_loaders(
+    mc_id: String,
+) -> Result<Vec<crate::versions::LoaderVersion>, crate::error::Error> {
+    crate::versions::loaders::list_loaders(crate::versions::Loader::Fabric, &mc_id).await
+}
+
+/// List Quilt loader versions compatible with `mc_id`. Same semantics
+/// as `list_fabric_loaders`. Stability is inferred from the version
+/// string (Quilt meta does not expose a `stable` flag).
+#[tauri::command]
+#[specta::specta]
+pub async fn list_quilt_loaders(
+    mc_id: String,
+) -> Result<Vec<crate::versions::LoaderVersion>, crate::error::Error> {
+    crate::versions::loaders::list_loaders(crate::versions::Loader::Quilt, &mc_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -76,6 +76,18 @@ export const commands = {
 	 *  carries a caveat below the button.
 	 */
 	openModsFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder")),
+	/**
+	 *  List Fabric loader versions compatible with `mc_id`. Sorted
+	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
+	 *  Cached 5 minutes per `mc_id`.
+	 */
+	listFabricLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_fabric_loaders", { mcId })),
+	/**
+	 *  List Quilt loader versions compatible with `mc_id`. Same semantics
+	 *  as `list_fabric_loaders`. Stability is inferred from the version
+	 *  string (Quilt meta does not expose a `stable` flag).
+	 */
+	listQuiltLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_quilt_loaders", { mcId })),
 };
 
 /** Events */
@@ -140,7 +152,7 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string };
 
 export type Greeting = {
 	message: string,
@@ -155,6 +167,12 @@ export type InstallProgress = {
 	files_total: number,
 	/**  Cumulative bytes within the current phase. */
 	bytes_done: number | null,
+};
+
+export type LoaderVersion = {
+	version: string,
+	stable: boolean,
+	build: number,
 };
 
 export type LogFileMeta = {

@@ -5,6 +5,7 @@
     type Account,
     type CrashReport,
     type Error as IpcError,
+    type LoaderVersion,
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import NetworkPopover from '$lib/network/NetworkPopover.svelte';
@@ -23,6 +24,20 @@
   let versionsError = $state<string | null>(null);
   let showSnapshots = $state(false);
   let selectedId = $state<string | null>(null);
+
+  type LoaderKind = 'vanilla' | 'fabric' | 'quilt';
+  let loaderKind = $state<LoaderKind>('vanilla');
+  let loaderVersions = $state<LoaderVersion[]>([]);
+  let loaderVersion = $state<string | null>(null);
+  let loaderLoading = $state(false);
+  let loaderError = $state<string | null>(null);
+  let loaderMetaOffline = $state(false);
+
+  let effectiveVersionId = $derived(
+    loaderKind === 'vanilla' || !selectedId || !loaderVersion
+      ? selectedId
+      : `${loaderKind}-loader-${loaderVersion}-${selectedId}`,
+  );
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
@@ -57,6 +72,8 @@
         return `Version ${e.id} not found in manifest`;
       case 'unsupported_platform':
         return `Unsupported platform: ${e.os}/${e.arch}`;
+      case 'loader_unavailable':
+        return `${e.loader} does not support Minecraft ${e.mc_version}`;
       case 'io':
         return `IO error at ${e.path}: ${e.details}`;
     }
@@ -111,6 +128,43 @@
     versionsLoading = false;
   });
 
+  $effect(() => {
+    // Reset + refetch whenever the MC version OR loader kind changes.
+    if (loaderKind === 'vanilla' || !selectedId) {
+      loaderVersions = [];
+      loaderVersion = null;
+      loaderError = null;
+      loaderLoading = false;
+      loaderMetaOffline = false;
+      return;
+    }
+    const mc = selectedId;
+    const kind = loaderKind;
+    loaderLoading = true;
+    loaderError = null;
+    loaderMetaOffline = false;
+    (async () => {
+      const result =
+        kind === 'fabric'
+          ? await commands.listFabricLoaders(mc)
+          : await commands.listQuiltLoaders(mc);
+      // Discard the result if the user changed selection while waiting.
+      if (selectedId !== mc || loaderKind !== kind) {
+        return;
+      }
+      if (result.status === 'ok') {
+        loaderVersions = result.data;
+        const firstStable = result.data.find((v) => v.stable);
+        loaderVersion = (firstStable ?? result.data[0])?.version ?? null;
+      } else {
+        loaderVersions = [];
+        loaderVersion = null;
+        loaderError = errorMessage(result.error);
+      }
+      loaderLoading = false;
+    })();
+  });
+
   async function saveName() {
     const trimmed = nameDraft.trim();
     if (trimmed.length === 0) return;
@@ -146,10 +200,10 @@
   }
 
   async function onPlay() {
-    if (!selectedId) return;
+    if (!effectiveVersionId) return;
     installing = true;
     installError = null;
-    const result = await commands.installAndLaunch(selectedId);
+    const result = await commands.installAndLaunch(effectiveVersionId);
     installing = false;
     if (result.status === 'error') {
       installError = errorMessage(result.error);
@@ -291,6 +345,41 @@
         <p class="text-xs text-neutral-500">
           {visibleVersions.length} version{visibleVersions.length === 1 ? '' : 's'} available
         </p>
+        <div class="flex items-center gap-3 mt-2">
+          <label class="text-sm flex items-center gap-2">
+            Loader:
+            <select class="border rounded px-2 py-1 w-32" bind:value={loaderKind}>
+              <option value="vanilla">Vanilla</option>
+              <option value="fabric">Fabric</option>
+              <option value="quilt">Quilt</option>
+            </select>
+          </label>
+          {#if loaderKind !== 'vanilla'}
+            <label class="text-sm flex items-center gap-2">
+              Version:
+              {#if loaderLoading}
+                <span class="text-xs text-neutral-500 italic">Loading…</span>
+              {:else if loaderError}
+                <span class="text-xs text-red-700">{loaderError}</span>
+              {:else}
+                <select
+                  class="border rounded px-2 py-1 w-48"
+                  bind:value={loaderVersion}
+                  disabled={loaderVersions.length === 0}
+                >
+                  {#each loaderVersions as lv}
+                    <option value={lv.version}>
+                      {lv.version}{lv.stable ? '' : ' (beta)'}
+                    </option>
+                  {/each}
+                </select>
+              {/if}
+              {#if loaderMetaOffline}
+                <span class="text-xs text-neutral-500 italic">(offline — using cached list)</span>
+              {/if}
+            </label>
+          {/if}
+        </div>
         <div class="flex items-center gap-3">
           {#if running}
             <button
@@ -305,10 +394,14 @@
           {:else}
             <button
               class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-              disabled={!selectedId || installing || !nameDraft.trim()}
+              disabled={!effectiveVersionId ||
+                installing ||
+                !nameDraft.trim() ||
+                loaderLoading ||
+                (loaderKind !== 'vanilla' && !loaderVersion)}
               onclick={onPlay}
             >
-              {installing ? 'Working…' : `Play ${selectedId ?? ''}`}
+              {installing ? 'Working…' : `Play ${effectiveVersionId ?? ''}`}
             </button>
           {/if}
           {#if installError}
@@ -352,8 +445,10 @@
         {/if}
       </div>
       <p class="text-xs text-neutral-500 italic">
-        Vanilla Minecraft doesn't load mods. Fabric/Quilt support arrives in v0.2.0; Forge/NeoForge
-        in v0.4.0.
+        Vanilla Minecraft doesn't load mods — pick a loader (Fabric or Quilt) above first. Forge / NeoForge support arrives in v0.4.0.
+      </p>
+      <p class="text-xs text-neutral-500 italic">
+        All launches currently share one Minecraft folder. Switching loader or MC version while mods are installed may surface Fabric cache quirks — per-profile isolation arrives in v0.3.0.
       </p>
     </section>
   </div>

@@ -16,19 +16,29 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VersionDetails {
     pub id: String,
+    /// Synthesised version ids (Fabric/Quilt loaders) point at their
+    /// vanilla parent here. Resolved by `versions::install::ensure_version_json`
+    /// via `versions::resolve::merge_inherits` before the rest of the pipeline runs.
+    #[serde(rename = "inheritsFrom", default)]
+    pub inherits_from: Option<String>,
     #[serde(rename = "mainClass")]
     pub main_class: String,
     /// Java component name — `"java-runtime-gamma"`, etc. Used by
     /// slice 5 (JRE). Absent for very old MC versions.
     #[serde(rename = "javaVersion", default)]
     pub java_version: Option<JavaVersion>,
-    #[serde(rename = "assetIndex")]
-    pub asset_index: AssetIndexRef,
-    /// `assets` field — usually equals `assetIndex.id` but historically
-    /// differed in `legacy` / `pre-1.6`. Drives the assets directory layout.
-    pub assets: String,
+    /// Absent in Fabric/Quilt loader profiles — provided by the vanilla
+    /// parent via `inheritsFrom`. After `merge_inherits` this is always
+    /// `Some`; callers downstream of `ensure_version_json` may `.expect()`.
+    #[serde(rename = "assetIndex", default)]
+    pub asset_index: Option<AssetIndexRef>,
+    /// See `asset_index` — same absence/presence contract.
+    #[serde(default)]
+    pub assets: Option<String>,
     pub libraries: Vec<Library>,
-    pub downloads: Downloads,
+    /// See `asset_index` — same absence/presence contract.
+    #[serde(default)]
+    pub downloads: Option<Downloads>,
     /// 1.13+ — present alongside `minecraftArguments` for transition
     /// versions; we prefer this when present.
     #[serde(default)]
@@ -77,6 +87,15 @@ pub struct Library {
     pub name: String,
     #[serde(default)]
     pub downloads: Option<LibraryDownloads>,
+    /// Mojang-style "external maven library" pointer. Set by Fabric/Quilt
+    /// loader libraries; vanilla MC libraries always have `downloads`
+    /// instead. When `downloads = None` and `url = Some(base)`, the
+    /// launcher computes the maven path from `name` and fetches from
+    /// `<base><maven_path>` WITHOUT SHA-1 verification (the loader meta
+    /// does not expose per-file checksums — TOFU exception documented
+    /// in PRINCIPLES.md Part B item #6).
+    #[serde(default)]
+    pub url: Option<String>,
     #[serde(default)]
     pub rules: Option<Vec<Rule>>,
     /// Native classifier mapping (legacy — Forge etc. still use this).
@@ -263,7 +282,9 @@ mod tests {
         assert_eq!(v.id, "1.20.4");
         assert_eq!(v.main_class, "net.minecraft.client.main.Main");
         assert_eq!(v.java_version.as_ref().unwrap().component, "java-runtime-gamma");
-        assert_eq!(v.asset_index.id, "12");
+        assert_eq!(v.asset_index.as_ref().expect("asset_index present in vanilla").id, "12");
+        assert_eq!(v.assets.as_deref().expect("assets present in vanilla"), "12");
+        assert!(v.downloads.as_ref().expect("downloads present in vanilla").client.sha1 == "ccc");
         assert_eq!(v.libraries.len(), 2);
         assert!(v.arguments.is_some());
         assert!(v.minecraft_arguments.is_none());
@@ -307,5 +328,82 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].action, RuleAction::Allow);
         assert_eq!(rules[0].os.as_ref().unwrap().name.as_deref(), Some("windows"));
+    }
+
+    /// Matches the real Fabric API shape: loader profiles do NOT include
+    /// `assetIndex`, `assets`, or `downloads` — those come from the
+    /// vanilla parent via `inheritsFrom`.
+    const FIXTURE_FABRIC_PROFILE: &str = r#"{
+      "id": "fabric-loader-0.15.7-1.20.4",
+      "inheritsFrom": "1.20.4",
+      "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient",
+      "libraries": [
+        {
+          "name": "net.fabricmc:fabric-loader:0.15.7",
+          "url": "https://maven.fabricmc.net/"
+        },
+        {
+          "name": "net.fabricmc:sponge-mixin:0.13.4+mixin.0.8.5",
+          "url": "https://maven.fabricmc.net/"
+        }
+      ],
+      "arguments": {
+        "jvm": [],
+        "game": []
+      }
+    }"#;
+
+    #[test]
+    fn parses_fabric_profile_with_inherits_from() {
+        let v = parse(FIXTURE_FABRIC_PROFILE).expect("parse fabric profile");
+        assert_eq!(v.id, "fabric-loader-0.15.7-1.20.4");
+        assert_eq!(v.inherits_from.as_deref(), Some("1.20.4"));
+        assert_eq!(v.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(v.libraries.len(), 2);
+        let loader_lib = &v.libraries[0];
+        assert!(loader_lib.downloads.is_none(), "loader libs have no downloads block");
+        assert_eq!(loader_lib.url.as_deref(), Some("https://maven.fabricmc.net/"));
+        // Loader profiles must NOT include these — vanilla parent provides them.
+        assert!(v.asset_index.is_none(), "loader profile has no assetIndex");
+        assert!(v.assets.is_none(), "loader profile has no assets");
+        assert!(v.downloads.is_none(), "loader profile has no downloads");
+    }
+
+    #[test]
+    fn vanilla_libraries_have_no_url_field() {
+        let v = parse(FIXTURE_1_20_4).expect("parse");
+        for lib in &v.libraries {
+            assert!(lib.url.is_none(), "vanilla lib should not carry maven base url: {}", lib.name);
+        }
+    }
+
+    /// Regression test: real Fabric/Quilt profile endpoints return JSON
+    /// WITHOUT `assetIndex`, `assets`, or `downloads`. Before this fix,
+    /// parsing such a profile would fail with "missing field `assetIndex`".
+    #[test]
+    fn parses_loader_profile_missing_asset_fields() {
+        // Stripped-down profile matching real Fabric meta shape exactly.
+        let raw = r#"{
+          "id": "fabric-loader-0.10.6+build.214-1.20.4",
+          "inheritsFrom": "1.20.4",
+          "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient",
+          "libraries": [
+            {
+              "name": "net.fabricmc:fabric-loader:0.10.6+build.214",
+              "url": "https://maven.fabricmc.net/"
+            }
+          ],
+          "arguments": {
+            "jvm": ["-DFabricMcEmu=net.minecraft.client.main.Main"],
+            "game": []
+          }
+        }"#;
+        let v = parse(raw).expect("should parse without assetIndex/assets/downloads");
+        assert_eq!(v.id, "fabric-loader-0.10.6+build.214-1.20.4");
+        assert_eq!(v.inherits_from.as_deref(), Some("1.20.4"));
+        assert!(v.asset_index.is_none(), "no assetIndex in loader profile");
+        assert!(v.assets.is_none(), "no assets in loader profile");
+        assert!(v.downloads.is_none(), "no downloads in loader profile");
+        assert_eq!(v.libraries.len(), 1);
     }
 }

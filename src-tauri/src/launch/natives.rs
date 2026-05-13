@@ -122,6 +122,7 @@ mod tests {
                 artifact: None,
                 classifiers: Some(classifiers),
             }),
+            url: None,
             rules: None,
             natives: Some(natives),
         }
@@ -177,6 +178,7 @@ mod tests {
         let lib = Library {
             name: "com.mojang:authlib:3.x".into(),
             downloads: None,
+            url: None,
             rules: None,
             natives: None,
         };
