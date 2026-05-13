@@ -63,6 +63,13 @@ export const commands = {
 	 */
 	preview: string,
 } | null, Error>(__TAURI_INVOKE("latest_crash")),
+	/**
+	 *  Ensure the default instance's `mods/` directory exists, then open
+	 *  it in the OS file manager (Explorer on Windows). Idempotent —
+	 *  safe to click repeatedly. Vanilla MC does not load mods; the UI
+	 *  carries a caveat below the button.
+	 */
+	openModsFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder")),
 };
 
 /** Events */

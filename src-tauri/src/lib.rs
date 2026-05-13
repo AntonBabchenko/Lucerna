@@ -25,6 +25,7 @@ pub fn run() {
             commands::list_log_files,
             commands::read_log_file,
             commands::latest_crash,
+            commands::open_mods_folder,
         ])
         .events(collect_events![
             network::DownloadProgress,

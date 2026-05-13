@@ -125,6 +125,27 @@ pub fn latest_crash(
     crate::logs::files::latest_crash(&app)
 }
 
+/// Ensure the default instance's `mods/` directory exists, then open
+/// it in the OS file manager (Explorer on Windows). Idempotent —
+/// safe to click repeatedly. Vanilla MC does not load mods; the UI
+/// carries a caveat below the button.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_mods_folder(app: tauri::AppHandle) -> Result<(), crate::error::Error> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = crate::paths::mods_dir(&app, "default")
+        .map_err(|e| crate::error::Error::io("<mods_dir>", e))?;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| {
+            crate::error::Error::io(dir.display().to_string(), format!("opener: {e}"))
+        })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

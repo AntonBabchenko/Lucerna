@@ -34,6 +34,7 @@
   let logsOpen = $state(false);
   let logsInitialPath = $state<string | null>(null);
   let crashReport = $state<CrashReport | null>(null);
+  let modsError = $state<string | null>(null);
 
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
@@ -163,6 +164,14 @@
     logsInitialPath = crashReport.path;
     logsOpen = true;
   }
+
+  async function onOpenMods() {
+    modsError = null;
+    const result = await commands.openModsFolder();
+    if (result.status === 'error') {
+      modsError = errorMessage(result.error);
+    }
+  }
 </script>
 
 <main class="relative min-h-screen flex flex-col">
@@ -283,6 +292,22 @@
           {/if}
         </div>
       {/if}
+    </section>
+
+    <section class="flex flex-col gap-2">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Mods</h2>
+      <div class="flex items-center gap-3">
+        <button class="border rounded px-3 py-1 text-sm hover:bg-neutral-100" onclick={onOpenMods}>
+          📂 Open mods folder
+        </button>
+        {#if modsError}
+          <span class="text-xs text-red-700">{modsError}</span>
+        {/if}
+      </div>
+      <p class="text-xs text-neutral-500 italic">
+        Vanilla Minecraft doesn't load mods. Fabric/Quilt support arrives in v0.2.0; Forge/NeoForge
+        in v0.4.0.
+      </p>
     </section>
   </div>
 
