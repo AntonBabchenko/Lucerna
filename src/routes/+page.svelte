@@ -3,11 +3,13 @@
     commands,
     events,
     type Account,
+    type CrashReport,
     type Error as IpcError,
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import NetworkPopover from '$lib/network/NetworkPopover.svelte';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
+  import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import { onMount } from 'svelte';
 
   let account = $state<Account | null>(null);
@@ -28,6 +30,10 @@
   let exited = $state<{ code: number; log_path: string } | null>(null);
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
+
+  let logsOpen = $state(false);
+  let logsInitialPath = $state<string | null>(null);
+  let crashReport = $state<CrashReport | null>(null);
 
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
@@ -65,9 +71,17 @@
       });
 
     events.processExited
-      .listen((event) => {
+      .listen(async (event) => {
         running = null;
         exited = { code: event.payload.code, log_path: event.payload.log_path };
+        if (event.payload.code !== 0) {
+          const result = await commands.latestCrash();
+          if (result.status === 'ok' && result.data) {
+            crashReport = result.data;
+          }
+        } else {
+          crashReport = null;
+        }
       })
       .then((u) => {
         exitUnlisten = u;
@@ -143,11 +157,23 @@
       installError = errorMessage(result.error);
     }
   }
+
+  function openCrashInLogs() {
+    if (!crashReport) return;
+    logsInitialPath = crashReport.path;
+    logsOpen = true;
+  }
 </script>
 
 <main class="relative min-h-screen flex flex-col">
   <div class="flex-1 p-8 flex flex-col gap-6 items-start">
-    <div class="absolute right-4 top-4">
+    <div class="absolute right-4 top-4 flex items-center gap-2">
+      <button
+        class="text-sm border rounded px-2 py-1 hover:bg-neutral-100"
+        onclick={() => (logsOpen = !logsOpen)}
+      >
+        📜 Logs
+      </button>
       <button
         class="text-sm border rounded px-2 py-1 hover:bg-neutral-100"
         onclick={() => (networkOpen = !networkOpen)}
@@ -155,9 +181,35 @@
         🌐 Network
       </button>
       <NetworkPopover bind:open={networkOpen} />
+      <LogsPopover bind:open={logsOpen} initialPath={logsInitialPath} />
     </div>
 
     <h1 class="text-2xl font-bold">FTlauncher</h1>
+
+    {#if crashReport}
+      <div
+        class="w-full max-w-2xl bg-red-50 border border-red-300 text-red-800 px-3 py-2 rounded flex items-center justify-between gap-3"
+      >
+        <span class="text-sm">
+          Minecraft crashed.
+          <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
+        </span>
+        <div class="flex items-center gap-2">
+          <button
+            class="text-xs bg-red-600 text-white rounded px-2 py-1 hover:bg-red-700"
+            onclick={openCrashInLogs}
+          >
+            View crash report
+          </button>
+          <button
+            class="text-xs border border-red-400 rounded px-2 py-1 hover:bg-red-100"
+            onclick={() => (crashReport = null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    {/if}
 
     <section class="flex flex-col gap-2">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Account</h2>

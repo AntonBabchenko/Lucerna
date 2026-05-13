@@ -3,6 +3,7 @@ pub mod accounts;
 pub mod error;
 pub mod jre;
 pub mod launch;
+pub mod logs;
 pub mod network;
 pub mod paths;
 pub mod versions;
@@ -21,6 +22,9 @@ pub fn run() {
             commands::install_version,
             commands::install_and_launch,
             commands::stop_minecraft,
+            commands::list_log_files,
+            commands::read_log_file,
+            commands::latest_crash,
         ])
         .events(collect_events![
             network::DownloadProgress,

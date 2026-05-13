@@ -83,6 +83,48 @@ pub fn stop_minecraft() -> Result<(), crate::error::Error> {
     crate::launch::stop()
 }
 
+/// List every log file under the default instance's three documented
+/// roots. Sorted by mtime descending.
+#[tauri::command]
+#[specta::specta]
+pub fn list_log_files(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::logs::files::LogFileMeta>, crate::error::Error> {
+    crate::logs::files::list_log_files(&app)
+}
+
+/// Read up to `max_bytes` of a log file. `max_bytes` is clamped to
+/// `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
+/// under one of the three allowed log roots — anything else is
+/// rejected with `Error::Io`.
+#[tauri::command]
+#[specta::specta]
+pub fn read_log_file(
+    app: tauri::AppHandle,
+    path: String,
+    max_bytes: f64,
+) -> Result<String, crate::error::Error> {
+    let roots = crate::logs::files::allowed_roots(&app)?;
+    let path = std::path::PathBuf::from(&path);
+    crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
+    let cap = if !max_bytes.is_finite() || max_bytes < 0.0 {
+        0
+    } else {
+        max_bytes as u64
+    };
+    crate::logs::read::read_with_cap(&path, cap)
+}
+
+/// Newest crash report (if any). Used by the UI to show a banner on
+/// non-zero MC exit.
+#[tauri::command]
+#[specta::specta]
+pub fn latest_crash(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::logs::files::CrashReport>, crate::error::Error> {
+    crate::logs::files::latest_crash(&app)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

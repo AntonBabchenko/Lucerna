@@ -39,6 +39,30 @@ export const commands = {
 	installAndLaunch: (versionId: string) => typedError<number, Error>(__TAURI_INVOKE("install_and_launch", { versionId })),
 	/**  Kill the running Minecraft process if any. Idempotent. */
 	stopMinecraft: () => typedError<null, Error>(__TAURI_INVOKE("stop_minecraft")),
+	/**
+	 *  List every log file under the default instance's three documented
+	 *  roots. Sorted by mtime descending.
+	 */
+	listLogFiles: () => typedError<LogFileMeta[], Error>(__TAURI_INVOKE("list_log_files")),
+	/**
+	 *  Read up to `max_bytes` of a log file. `max_bytes` is clamped to
+	 *  `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
+	 *  under one of the three allowed log roots — anything else is
+	 *  rejected with `Error::Io`.
+	 */
+	readLogFile: (path: string, maxBytes: number | null) => typedError<string, Error>(__TAURI_INVOKE("read_log_file", { path, maxBytes })),
+	/**
+	 *  Newest crash report (if any). Used by the UI to show a banner on
+	 *  non-zero MC exit.
+	 */
+	latestCrash: () => typedError<{
+	path: string,
+	/**
+	 *  First ~500 chars of the crash report — enough to show the
+	 *  stack-trace head in a banner without loading the full file.
+	 */
+	preview: string,
+} | null, Error>(__TAURI_INVOKE("latest_crash")),
 };
 
 /** Events */
@@ -79,6 +103,15 @@ export type AuditEntry = {
 	status: number | null,
 };
 
+export type CrashReport = {
+	path: string,
+	/**
+	 *  First ~500 chars of the crash report — enough to show the
+	 *  stack-trace head in a banner without loading the full file.
+	 */
+	preview: string,
+};
+
 /**
  *  Progress event emitted during a download. The UI subscribes via
  *  `listen<DownloadProgress>("download:progress", ...)`.
@@ -110,6 +143,17 @@ export type InstallProgress = {
 	/**  Cumulative bytes within the current phase. */
 	bytes_done: number | null,
 };
+
+export type LogFileMeta = {
+	path: string,
+	name: string,
+	source: LogSource,
+	/**  f64 because specta-typescript 0.0.12 forbids u64. */
+	size_bytes: number | null,
+	modified_unix_ms: number | null,
+};
+
+export type LogSource = "game" | "crash" | "launcher";
 
 export type ProcessExited = {
 	version_id: string,
