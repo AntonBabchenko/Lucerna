@@ -3,12 +3,19 @@
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
   let entries = $state<AuditEntry[]>([]);
+  let violations = $state<AuditEntry[]>([]);
   let loading = $state(false);
+  let filteringViolations = $state(false);
 
   async function refresh() {
     loading = true;
     try {
-      entries = await commands.networkActivity();
+      const [all, vs] = await Promise.all([
+        commands.networkActivity(),
+        commands.networkAuditViolations(),
+      ]);
+      entries = all;
+      violations = vs;
     } finally {
       loading = false;
     }
@@ -19,6 +26,8 @@
       refresh();
     }
   });
+
+  let displayed = $derived(filteringViolations ? violations : entries);
 
   function formatTs(ms: number | null): string {
     if (ms === null) return '—';
@@ -42,9 +51,27 @@
       <button class="text-xs underline" onclick={refresh} disabled={loading}>Refresh</button>
     </header>
 
+    {#if violations.length > 0}
+      <div
+        class="bg-red-50 border-b border-red-300 px-3 py-2 text-xs flex items-center justify-between gap-2"
+      >
+        <span class="text-red-800">
+          ⚠ {violations.length} request{violations.length === 1 ? '' : 's'} hit hosts outside the allowlist.
+        </span>
+        <button
+          class="text-xs border border-red-400 rounded px-2 py-0.5 hover:bg-red-100 text-red-800 whitespace-nowrap"
+          onclick={() => (filteringViolations = !filteringViolations)}
+        >
+          {filteringViolations ? 'Show all' : 'Show only violations'}
+        </button>
+      </div>
+    {/if}
+
     <div class="overflow-auto flex-1 text-xs font-mono">
-      {#if entries.length === 0}
-        <div class="px-3 py-4 text-neutral-500">No activity yet.</div>
+      {#if displayed.length === 0}
+        <div class="px-3 py-4 text-neutral-500">
+          {filteringViolations ? 'No allowlist violations.' : 'No activity yet.'}
+        </div>
       {:else}
         <table class="w-full">
           <thead class="bg-neutral-50 sticky top-0">
@@ -58,7 +85,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each entries as e}
+            {#each displayed as e}
               <tr class="border-b border-neutral-100">
                 <td class="px-2 py-1">{formatTs(e.ts)}</td>
                 <td class="px-2 py-1">{e.method}</td>

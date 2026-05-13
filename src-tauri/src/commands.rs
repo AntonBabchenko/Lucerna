@@ -20,6 +20,15 @@ pub fn network_activity() -> Vec<crate::network::AuditEntry> {
     crate::network::recent()
 }
 
+/// Audit entries whose host is NOT on the documented allowlist
+/// (per `docs/PRINCIPLES.md` Part A item #2). UI shows a red banner
+/// in the Network popover when this returns non-empty.
+#[tauri::command]
+#[specta::specta]
+pub fn network_audit_violations() -> Vec<crate::network::AuditEntry> {
+    crate::network::audit_violations()
+}
+
 /// Return the currently persisted account, or `None` if not set.
 #[tauri::command]
 #[specta::specta]

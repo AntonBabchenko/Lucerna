@@ -8,6 +8,12 @@ export const commands = {
 	greet: (name: string) => __TAURI_INVOKE<Greeting>("greet", { name }),
 	/**  Return the most recent network activity entries (up to 200). */
 	networkActivity: () => __TAURI_INVOKE<AuditEntry[]>("network_activity"),
+	/**
+	 *  Audit entries whose host is NOT on the documented allowlist
+	 *  (per `docs/PRINCIPLES.md` Part A item #2). UI shows a red banner
+	 *  in the Network popover when this returns non-empty.
+	 */
+	networkAuditViolations: () => __TAURI_INVOKE<AuditEntry[]>("network_audit_violations"),
 	/**  Return the currently persisted account, or `None` if not set. */
 	getAccount: () => typedError<{
 	name: string,

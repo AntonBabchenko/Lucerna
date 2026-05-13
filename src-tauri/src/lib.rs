@@ -16,6 +16,7 @@ pub fn run() {
         .commands(collect_commands![
             commands::greet,
             commands::network_activity,
+            commands::network_audit_violations,
             commands::get_account,
             commands::set_offline_account,
             commands::list_versions,

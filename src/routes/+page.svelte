@@ -35,6 +35,7 @@
   let logsInitialPath = $state<string | null>(null);
   let crashReport = $state<CrashReport | null>(null);
   let modsError = $state<string | null>(null);
+  let violationsCount = $state(0);
 
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
@@ -83,10 +84,13 @@
         } else {
           crashReport = null;
         }
+        await refreshViolations();
       })
       .then((u) => {
         exitUnlisten = u;
       });
+
+    await refreshViolations();
 
     const accountResult = await commands.getAccount();
     if (accountResult.status === 'ok') {
@@ -172,6 +176,13 @@
       modsError = errorMessage(result.error);
     }
   }
+
+  async function refreshViolations() {
+    const v = await commands.networkAuditViolations();
+    if (Array.isArray(v)) {
+      violationsCount = v.length;
+    }
+  }
 </script>
 
 <main class="relative min-h-screen flex flex-col">
@@ -184,10 +195,19 @@
         📜 Logs
       </button>
       <button
-        class="text-sm border rounded px-2 py-1 hover:bg-neutral-100"
-        onclick={() => (networkOpen = !networkOpen)}
+        class="text-sm border rounded px-2 py-1 hover:bg-neutral-100 relative"
+        onclick={() => {
+          networkOpen = !networkOpen;
+          if (!networkOpen) void refreshViolations();
+        }}
       >
         🌐 Network
+        {#if violationsCount > 0}
+          <span
+            class="absolute -top-1 -right-1 inline-block w-2.5 h-2.5 bg-red-600 rounded-full"
+            aria-label="{violationsCount} allowlist violations"
+          ></span>
+        {/if}
       </button>
       <NetworkPopover bind:open={networkOpen} />
       <LogsPopover bind:open={logsOpen} initialPath={logsInitialPath} />
@@ -237,7 +257,16 @@
         <p class="text-xs text-neutral-500 font-mono">UUID: {account.uuid}</p>
       {/if}
       {#if saveError}
-        <p class="text-xs text-red-700">Could not save: {saveError}</p>
+        <p class="text-xs text-red-700 flex items-center gap-2">
+          Could not save: {saveError}
+          <button
+            class="text-neutral-500 hover:text-neutral-800"
+            onclick={() => (saveError = null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </p>
       {/if}
     </section>
 
@@ -276,14 +305,23 @@
           {:else}
             <button
               class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-              disabled={!selectedId || installing}
+              disabled={!selectedId || installing || !nameDraft.trim()}
               onclick={onPlay}
             >
               {installing ? 'Working…' : `Play ${selectedId ?? ''}`}
             </button>
           {/if}
           {#if installError}
-            <span class="text-xs text-red-700">{installError}</span>
+            <span class="text-xs text-red-700 flex items-center gap-1">
+              {installError}
+              <button
+                class="text-neutral-500 hover:text-neutral-800"
+                onclick={() => (installError = null)}
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </span>
           {/if}
           {#if exited && !running}
             <span class="text-xs text-neutral-600">
@@ -301,7 +339,16 @@
           📂 Open mods folder
         </button>
         {#if modsError}
-          <span class="text-xs text-red-700">{modsError}</span>
+          <span class="text-xs text-red-700 flex items-center gap-1">
+            {modsError}
+            <button
+              class="text-neutral-500 hover:text-neutral-800"
+              onclick={() => (modsError = null)}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </span>
         {/if}
       </div>
       <p class="text-xs text-neutral-500 italic">
