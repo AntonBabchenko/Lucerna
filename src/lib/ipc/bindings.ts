@@ -14,17 +14,19 @@ export const commands = {
 	 *  in the Network popover when this returns non-empty.
 	 */
 	networkAuditViolations: () => __TAURI_INVOKE<AuditEntry[]>("network_audit_violations"),
-	/**  Return the currently persisted account, or `None` if not set. */
-	getAccount: () => typedError<{
-	name: string,
-	/**  UUID as canonical hyphenated string ("xxxxxxxx-xxxx-..."). */
-	uuid: string,
-} | null, Error>(__TAURI_INVOKE("get_account")),
+	/**  List all stored accounts. */
+	listAccounts: () => typedError<Account[], Error>(__TAURI_INVOKE("list_accounts")),
+	/**  Currently active account, or None if no account is set. */
+	getActiveAccount: () => typedError<Account | null, Error>(__TAURI_INVOKE("get_active_account")),
+	/**  Set the active account by id. Errors AccountNotSet if id is unknown. */
+	setActiveAccount: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_account", { id })),
 	/**
-	 *  Persist an offline account for the given display name. The UUID is
-	 *  derived deterministically.
+	 *  Remove an account. If it was active, the next account becomes active;
+	 *  if none remain, active_id becomes None.
 	 */
-	setOfflineAccount: (name: string) => typedError<Account, Error>(__TAURI_INVOKE("set_offline_account", { name })),
+	removeAccount: (id: string) => typedError<null, Error>(__TAURI_INVOKE("remove_account", { id })),
+	/**  Add an offline account. Idempotent — same name produces same UUID. */
+	addOfflineAccount: (name: string) => typedError<Account, Error>(__TAURI_INVOKE("add_offline_account", { name })),
 	/**
 	 *  Fetch the Mojang version manifest. Cached for 5 minutes — repeated
 	 *  calls within that window are zero-network.
@@ -100,9 +102,14 @@ export const events = {
 
 /* Types */
 export type Account = {
+	/**  Local UUID v4. */
+	id: string,
+	/**  Display name (MC username). */
 	name: string,
-	/**  UUID as canonical hyphenated string ("xxxxxxxx-xxxx-..."). */
+	/**  MC UUID, canonical hyphenated form. */
 	uuid: string,
+	/**  Unix seconds. `None` for offline (never expires). */
+	expires_at: number | null,
 };
 
 export type AuditEntry = {

@@ -29,24 +29,45 @@ pub fn network_audit_violations() -> Vec<crate::network::AuditEntry> {
     crate::network::audit_violations()
 }
 
-/// Return the currently persisted account, or `None` if not set.
+/// List all stored accounts.
 #[tauri::command]
 #[specta::specta]
-pub fn get_account(
-    app: tauri::AppHandle,
-) -> Result<Option<crate::accounts::Account>, crate::error::Error> {
-    crate::accounts::get_current(&app)
+pub fn list_accounts(app: tauri::AppHandle) -> Result<Vec<crate::accounts::store::Account>, crate::error::Error> {
+    crate::accounts::list_accounts(&app)
 }
 
-/// Persist an offline account for the given display name. The UUID is
-/// derived deterministically.
+/// Currently active account, or None if no account is set.
 #[tauri::command]
 #[specta::specta]
-pub fn set_offline_account(
+pub fn get_active_account(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::accounts::store::Account>, crate::error::Error> {
+    crate::accounts::get_active_account(&app)
+}
+
+/// Set the active account by id. Errors AccountNotSet if id is unknown.
+#[tauri::command]
+#[specta::specta]
+pub fn set_active_account(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+    crate::accounts::set_active_account(&app, &id)
+}
+
+/// Remove an account. If it was active, the next account becomes active;
+/// if none remain, active_id becomes None.
+#[tauri::command]
+#[specta::specta]
+pub fn remove_account(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+    crate::accounts::remove_account(&app, &id)
+}
+
+/// Add an offline account. Idempotent — same name produces same UUID.
+#[tauri::command]
+#[specta::specta]
+pub fn add_offline_account(
     app: tauri::AppHandle,
     name: String,
-) -> Result<crate::accounts::Account, crate::error::Error> {
-    crate::accounts::set_offline(&app, &name)
+) -> Result<crate::accounts::store::Account, crate::error::Error> {
+    crate::accounts::add_offline_account(&app, &name)
 }
 
 /// Fetch the Mojang version manifest. Cached for 5 minutes — repeated
@@ -80,7 +101,7 @@ pub async fn install_and_launch(
     version_id: String,
 ) -> Result<u32, crate::error::Error> {
     crate::versions::install_version(&version_id, &app).await?;
-    let account = crate::accounts::get_current(&app)?
+    let account = crate::accounts::get_active_account(&app)?
         .ok_or(crate::error::Error::AccountNotSet)?;
     crate::launch::start(&version_id, &account, &app).await
 }

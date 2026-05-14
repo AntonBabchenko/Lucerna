@@ -13,10 +13,13 @@
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import { onMount } from 'svelte';
 
-  let account = $state<Account | null>(null);
-  let nameDraft = $state('');
-  let saving = $state(false);
-  let saveError = $state<string | null>(null);
+  let accounts = $state<Account[]>([]);
+  let activeAccount = $state<Account | null>(null);
+  let showAddOfflineInput = $state(false);
+  let offlineNameDraft = $state('');
+  let offlineNameError = $state<string | null>(null);
+  let listAccountsError = $state<string | null>(null);
+  let removeError = $state<string | null>(null);
   let networkOpen = $state(false);
 
   let versions = $state<VersionEntry[]>([]);
@@ -79,6 +82,19 @@
     }
   }
 
+  async function refreshAccounts() {
+    const list = await commands.listAccounts();
+    if (list.status === 'ok') {
+      accounts = list.data;
+    } else {
+      listAccountsError = errorMessage(list.error);
+    }
+    const active = await commands.getActiveAccount();
+    if (active.status === 'ok') {
+      activeAccount = active.data;
+    }
+  }
+
   onMount(async () => {
     events.processSpawned
       .listen((event) => {
@@ -109,13 +125,7 @@
 
     await refreshViolations();
 
-    const accountResult = await commands.getAccount();
-    if (accountResult.status === 'ok') {
-      account = accountResult.data;
-      nameDraft = accountResult.data?.name ?? '';
-    } else {
-      saveError = errorMessage(accountResult.error);
-    }
+    await refreshAccounts();
 
     const versionsResult = await commands.listVersions();
     if (versionsResult.status === 'ok') {
@@ -165,26 +175,44 @@
     })();
   });
 
-  async function saveName() {
-    const trimmed = nameDraft.trim();
-    if (trimmed.length === 0) return;
-    if (trimmed === account?.name) return;
-    saving = true;
-    saveError = null;
-    const result = await commands.setOfflineAccount(trimmed);
-    if (result.status === 'ok') {
-      account = result.data;
-    } else {
-      saveError = errorMessage(result.error);
+  async function onAddOfflineSubmit() {
+    const trimmed = offlineNameDraft.trim();
+    if (trimmed.length === 0) {
+      offlineNameError = 'Name cannot be empty';
+      return;
     }
-    saving = false;
+    offlineNameError = null;
+    const result = await commands.addOfflineAccount(trimmed);
+    if (result.status === 'ok') {
+      await commands.setActiveAccount(result.data.id);
+      await refreshAccounts();
+      showAddOfflineInput = false;
+      offlineNameDraft = '';
+    } else {
+      offlineNameError = errorMessage(result.error);
+    }
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      (e.currentTarget as HTMLInputElement).blur();
+  async function onSelectAccount(id: string) {
+    const result = await commands.setActiveAccount(id);
+    if (result.status === 'ok') {
+      await refreshAccounts();
     }
+  }
+
+  async function onRemoveActive() {
+    if (!activeAccount) return;
+    removeError = null;
+    const result = await commands.removeAccount(activeAccount.id);
+    if (result.status === 'ok') {
+      await refreshAccounts();
+    } else {
+      removeError = errorMessage(result.error);
+    }
+  }
+
+  function formatAccountLabel(a: Account): string {
+    return `${a.name} (offline)`;
   }
 
   function formatVersionLabel(v: VersionEntry): string {
@@ -296,31 +324,91 @@
 
     <section class="flex flex-col gap-2">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Account</h2>
-      <label class="flex flex-col gap-1">
-        <span class="text-sm">Your name</span>
-        <input
-          class="border rounded px-2 py-1 w-64"
-          bind:value={nameDraft}
-          onblur={saveName}
-          onkeydown={onKey}
-          placeholder="Type a name and press Enter"
-          disabled={saving}
-        />
-      </label>
-      {#if account}
-        <p class="text-xs text-neutral-500 font-mono">UUID: {account.uuid}</p>
+      {#if accounts.length === 0}
+        <p class="text-sm text-neutral-500">No accounts yet — add one below.</p>
+      {:else}
+        <div class="flex items-center gap-2">
+          <label class="text-sm">Active:</label>
+          <select
+            class="border rounded px-2 py-1 w-64"
+            value={activeAccount?.id ?? ''}
+            onchange={(e) => onSelectAccount((e.currentTarget as HTMLSelectElement).value)}
+          >
+            {#each accounts as a}
+              <option value={a.id}>{formatAccountLabel(a)}</option>
+            {/each}
+          </select>
+          <button
+            class="border rounded px-2 py-1 text-xs hover:bg-neutral-100"
+            onclick={onRemoveActive}
+            disabled={!activeAccount}
+          >
+            Remove
+          </button>
+        </div>
+        {#if activeAccount}
+          <p class="text-xs text-neutral-500 font-mono">UUID: {activeAccount.uuid}</p>
+        {/if}
+        {#if removeError}
+          <p class="text-xs text-red-700">
+            {removeError}
+            <button
+              class="text-neutral-500 hover:text-neutral-800"
+              onclick={() => (removeError = null)}>×</button
+            >
+          </p>
+        {/if}
       {/if}
-      {#if saveError}
-        <p class="text-xs text-red-700 flex items-center gap-2">
-          Could not save: {saveError}
+
+      <div class="flex items-center gap-2 mt-2">
+        <button
+          class="border rounded px-3 py-1 text-sm hover:bg-neutral-100"
+          onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
+        >
+          + Add offline account
+        </button>
+      </div>
+      <p class="text-xs text-neutral-500 italic">
+        Microsoft account login is deferred — coming back after v0.5.0 (mod browser).
+      </p>
+      {#if listAccountsError}
+        <p class="text-xs text-red-700">
+          {listAccountsError}
           <button
             class="text-neutral-500 hover:text-neutral-800"
-            onclick={() => (saveError = null)}
-            aria-label="Dismiss"
+            onclick={() => (listAccountsError = null)}>×</button
           >
-            ×
-          </button>
         </p>
+      {/if}
+      {#if showAddOfflineInput}
+        <div class="flex items-center gap-2 mt-1">
+          <input
+            class="border rounded px-2 py-1 w-48 text-sm"
+            placeholder="Player name"
+            bind:value={offlineNameDraft}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onAddOfflineSubmit();
+              }
+            }}
+          />
+          <button
+            class="border rounded px-2 py-1 text-sm hover:bg-neutral-100"
+            onclick={onAddOfflineSubmit}>Add</button
+          >
+          <button
+            class="text-sm text-neutral-500 hover:text-neutral-800"
+            onclick={() => {
+              showAddOfflineInput = false;
+              offlineNameDraft = '';
+              offlineNameError = null;
+            }}>Cancel</button
+          >
+        </div>
+        {#if offlineNameError}
+          <p class="text-xs text-red-700">{offlineNameError}</p>
+        {/if}
       {/if}
     </section>
 
@@ -396,7 +484,7 @@
               class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
               disabled={!effectiveVersionId ||
                 installing ||
-                !nameDraft.trim() ||
+                !activeAccount ||
                 loaderLoading ||
                 (loaderKind !== 'vanilla' && !loaderVersion)}
               onclick={onPlay}
@@ -445,10 +533,12 @@
         {/if}
       </div>
       <p class="text-xs text-neutral-500 italic">
-        Vanilla Minecraft doesn't load mods — pick a loader (Fabric or Quilt) above first. Forge / NeoForge support arrives in v0.4.0.
+        Vanilla Minecraft doesn't load mods — pick a loader (Fabric or Quilt) above first. Forge /
+        NeoForge support arrives in v0.4.0.
       </p>
       <p class="text-xs text-neutral-500 italic">
-        All launches currently share one Minecraft folder. Switching loader or MC version while mods are installed may surface Fabric cache quirks — per-profile isolation arrives in v0.3.0.
+        All launches currently share one Minecraft folder. Switching loader or MC version while mods
+        are installed may surface Fabric cache quirks — per-profile isolation arrives in v0.3.0.
       </p>
     </section>
   </div>

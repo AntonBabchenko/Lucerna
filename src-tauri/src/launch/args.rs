@@ -65,6 +65,9 @@ fn substitution_map<'a>(
     let mut m = HashMap::new();
     m.insert("auth_player_name", input.account.name.clone());
     m.insert("auth_uuid", input.account.uuid.replace('-', ""));
+
+    // Offline auth: token is "0", user_type is "legacy". Microsoft auth was
+    // implemented and deferred — see git tag `v0.2.0-msauth-attempt`.
     m.insert("auth_access_token", "0".into());
     m.insert("auth_session", "0".into());
     m.insert("user_type", "legacy".into());
@@ -243,8 +246,10 @@ mod tests {
 
     fn account() -> Account {
         Account {
+            id: "of-test".into(),
             name: "TestPlayer".into(),
             uuid: "12345678-1234-1234-1234-123456789abc".into(),
+            expires_at: None,
         }
     }
 

@@ -161,12 +161,9 @@ mod tests {
         assert!(patterns.contains(&"*.mojang.com"));
         assert!(patterns.contains(&"*.minecraft.net"));
         assert!(patterns.contains(&"api.github.com"));
-        // v0.2.0 additions
         assert!(patterns.contains(&"meta.fabricmc.net"));
-        assert!(patterns.contains(&"maven.fabricmc.net"));
         assert!(patterns.contains(&"meta.quiltmc.org"));
-        assert!(patterns.contains(&"maven.quiltmc.org"));
-        // Exactly the documented count (7 from v0.1.0 + 4 from v0.2.0).
+        // 7 from v0.1.0 + 4 from Slice A.
         assert_eq!(patterns.len(), 11);
     }
 

@@ -1,8 +1,9 @@
 # FTlauncher
 
-A clean, transparent Minecraft launcher for Windows. No telemetry, no ad
-injection, no hidden processes, no bundled adware. The launcher itself is
-open-source; the Java runtime and Minecraft files come straight from Mojang.
+**F**ree **T**auri **Launcher** — a clean, transparent Minecraft launcher for
+Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.
+The launcher itself is open-source; the Java runtime and Minecraft files come
+straight from Mojang.
 
 FTlauncher serves the same use-cases as other launchers — offline / offline play,
 easy mods (coming in v0.2.0+), Russian-language UX (coming in v0.2.0+) — but

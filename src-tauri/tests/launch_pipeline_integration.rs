@@ -39,8 +39,10 @@ const FIXTURE: &str = r#"{
 fn full_argv_for_1_20_4_has_all_required_pieces() {
     let details = parse(FIXTURE).expect("parse");
     let account = Account {
+        id: "of-test-1".into(),
         name: "IntegrationTester".into(),
         uuid: "aaaabbbb-cccc-dddd-eeee-ffff00112233".into(),
+        expires_at: None,
     };
     let input = ArgvInput {
         details: &details,
