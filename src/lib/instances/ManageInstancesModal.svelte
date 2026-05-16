@@ -22,12 +22,20 @@
     onChanged: () => void;
   } = $props();
 
-  const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt'];
+  const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge'];
 
   let selectedId = $state<string | null>(null);
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
   let modalError = $state<string | null>(null);
+
+  // Snapshot toggle for the MC version pickers. Off by default —
+  // most users want stable releases. Shared across the create form
+  // and the detail editor so flipping it once applies to both.
+  let showSnapshots = $state(false);
+  let visibleVersions = $derived(
+    versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
+  );
 
   // Create form state.
   let draftName = $state('');
@@ -49,6 +57,25 @@
     }
   });
 
+  // Create-form mirror of the home-screen effect: refetch + auto-pick a
+  // recommended loader version whenever the user changes loader or MC in
+  // the draft, regardless of order. Without this the dropdown stays
+  // empty if the user clicks Fabric/Quilt/Forge before picking an MC
+  // version, and `draftLoaderVersion` stays null — submitCreate would
+  // then create an instance in a broken state that errors with
+  // `NoVersionSelected` at install time.
+  $effect(() => {
+    if (!createMode) return;
+    const kind = draftLoader;
+    const mc = draftMc;
+    if (kind === 'vanilla' || !mc) {
+      draftLoaderVersions = [];
+      draftLoaderVersion = null;
+      return;
+    }
+    void loadLoaderVersionsFor(kind, mc, 'create');
+  });
+
   function ipcErrorMessage(e: IpcError): string {
     return JSON.stringify(e);
   }
@@ -66,7 +93,9 @@
     const list =
       loader === 'fabric'
         ? await commands.listFabricLoaders(mc)
-        : await commands.listQuiltLoaders(mc);
+        : loader === 'quilt'
+          ? await commands.listQuiltLoaders(mc)
+          : await commands.listForgeLoaders(mc);
     if (list.status === 'ok') {
       if (target === 'create') {
         draftLoaderVersions = list.data;
@@ -92,6 +121,18 @@
   async function submitCreate() {
     if (!draftName.trim()) {
       modalError = 'Name is required';
+      return;
+    }
+    if (draftLoader !== 'vanilla' && !draftMc) {
+      modalError = 'Pick a Minecraft version first';
+      return;
+    }
+    if (draftLoader !== 'vanilla' && !draftLoaderVersion) {
+      // The $effect that loads loader versions hasn't picked a default
+      // yet (still in flight, or list_loaders returned empty for this
+      // loader/MC combo). Either way: refuse to persist a broken
+      // loader/null-version pair — the user must resolve it first.
+      modalError = `${draftLoader} has no compatible version for Minecraft ${draftMc}`;
       return;
     }
     const result = await commands.createInstance(
@@ -131,10 +172,23 @@
   async function setLoader(kind: LoaderKind) {
     if (!selected) return;
     let lv: string | null = null;
-    if (kind !== 'vanilla' && selected.mc_version) {
+    if (kind !== 'vanilla') {
+      if (!selected.mc_version) {
+        modalError = 'Pick a Minecraft version first';
+        return;
+      }
       await loadLoaderVersionsFor(kind, selected.mc_version, 'detail');
       const stable = loaderVersionsDetail.find((l) => l.stable);
       lv = (stable ?? loaderVersionsDetail[0])?.version ?? null;
+      if (lv === null) {
+        // list_loaders returned empty (or errored — modalError is
+        // already set). Refuse to persist a broken loader/null-version
+        // combination; the user can pick a different loader or MC.
+        if (!modalError) {
+          modalError = `${kind} does not support Minecraft ${selected.mc_version}`;
+        }
+        return;
+      }
     }
     const result = await commands.setInstanceLoader(selected.id, kind, lv);
     if (result.status === 'ok') onChanged();
@@ -210,7 +264,8 @@
               }}
             >
               <div class="font-medium">
-                {i.ready ? '✓' : '↓'} {i.name}
+                {i.ready ? '✓' : '↓'}
+                {i.name}
                 {#if i.id === activeInstance?.id}
                   <span class="text-xs text-neutral-500">(active)</span>
                 {/if}
@@ -235,15 +290,19 @@
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">Minecraft version</label>
             <select
-              class="border rounded px-2 py-1 w-full mb-3"
+              class="border rounded px-2 py-1 w-full mb-1"
               value={draftMc}
               onchange={(e) => (draftMc = (e.currentTarget as HTMLSelectElement).value)}
             >
               <option value="">-- Choose MC version --</option>
-              {#each versions.filter((v) => v.version_type === 'release') as v}
+              {#each visibleVersions as v}
                 <option value={v.id}>{v.id}</option>
               {/each}
             </select>
+            <label class="text-xs flex items-center gap-1 mb-3">
+              <input type="checkbox" bind:checked={showSnapshots} />
+              Show snapshots
+            </label>
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">Loader</label>
             <div class="flex gap-1 mb-3">
@@ -257,8 +316,8 @@
                     if (lk !== 'vanilla' && draftMc) {
                       await loadLoaderVersionsFor(lk, draftMc, 'create');
                     }
-                  }}
-                >{lk}</button>
+                  }}>{lk}</button
+                >
               {/each}
             </div>
 
@@ -267,11 +326,12 @@
               <select
                 class="border rounded px-2 py-1 w-full mb-3"
                 value={draftLoaderVersion ?? ''}
-                onchange={(e) => (draftLoaderVersion = (e.currentTarget as HTMLSelectElement).value)}
+                onchange={(e) =>
+                  (draftLoaderVersion = (e.currentTarget as HTMLSelectElement).value)}
               >
                 {#each draftLoaderVersions as lv}
                   <option value={lv.version}>
-                    {lv.version}{lv.stable ? '' : ' (beta)'}
+                    {lv.version}{lv.stable ? ' (recommended)' : ''}
                   </option>
                 {/each}
               </select>
@@ -291,7 +351,9 @@
           {:else if selected}
             <h3 class="font-semibold mb-3">
               {selected.name}
-              {#if selected.id === activeInstance?.id}<span class="text-xs text-neutral-500">(active)</span>{/if}
+              {#if selected.id === activeInstance?.id}<span class="text-xs text-neutral-500"
+                  >(active)</span
+                >{/if}
             </h3>
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">Name</label>
@@ -303,15 +365,19 @@
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">Minecraft version</label>
             <select
-              class="border rounded px-2 py-1 w-full mb-3"
+              class="border rounded px-2 py-1 w-full mb-1"
               value={selected.mc_version}
               onchange={(e) => setMc((e.currentTarget as HTMLSelectElement).value)}
             >
               <option value="">-- Choose MC version --</option>
-              {#each versions.filter((v) => v.version_type === 'release') as v}
+              {#each visibleVersions as v}
                 <option value={v.id}>{v.id}</option>
               {/each}
             </select>
+            <label class="text-xs flex items-center gap-1 mb-3">
+              <input type="checkbox" bind:checked={showSnapshots} />
+              Show snapshots
+            </label>
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">Loader</label>
             <div class="flex gap-1 mb-3">
@@ -320,8 +386,8 @@
                   class="flex-1 border rounded px-2 py-1 text-xs"
                   class:bg-blue-600={selected.loader === lk}
                   class:text-white={selected.loader === lk}
-                  onclick={() => setLoader(lk)}
-                >{lk}</button>
+                  onclick={() => setLoader(lk)}>{lk}</button
+                >
               {/each}
             </div>
 
@@ -334,7 +400,7 @@
               >
                 {#each loaderVersionsDetail as lv}
                   <option value={lv.version}>
-                    {lv.version}{lv.stable ? '' : ' (beta)'}
+                    {lv.version}{lv.stable ? ' (recommended)' : ''}
                   </option>
                 {/each}
               </select>
@@ -383,7 +449,9 @@
               </div>
             </div>
           {:else}
-            <p class="text-neutral-500 text-sm">Pick an instance on the left, or click + New instance.</p>
+            <p class="text-neutral-500 text-sm">
+              Pick an instance on the left, or click + New instance.
+            </p>
           {/if}
 
           {#if modalError}

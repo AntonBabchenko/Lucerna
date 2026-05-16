@@ -1,6 +1,7 @@
 mod commands;
 pub mod accounts;
 pub mod error;
+pub mod forge;
 pub mod instances;
 pub mod jre;
 pub mod launch;
@@ -33,6 +34,7 @@ pub fn run() {
             commands::open_mods_folder,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
+            commands::list_forge_loaders,
             // Multi-instance (v0.3.0):
             commands::list_instances,
             commands::get_active_instance,

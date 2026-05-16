@@ -35,6 +35,10 @@ pub fn effective_version_id(instance: &InstanceFile) -> Option<String> {
             .loader_version
             .as_deref()
             .map(|lv| synth_id(Loader::Quilt, lv, &instance.mc_version)),
+        LoaderKind::Forge => instance
+            .loader_version
+            .as_deref()
+            .map(|lv| synth_id(Loader::Forge, lv, &instance.mc_version)),
     }
 }
 

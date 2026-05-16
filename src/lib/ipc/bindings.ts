@@ -17,7 +17,19 @@ export const commands = {
 	/**  List all stored accounts. */
 	listAccounts: () => typedError<Account[], Error>(__TAURI_INVOKE("list_accounts")),
 	/**  Currently active account, or None if no account is set. */
-	getActiveAccount: () => typedError<Account | null, Error>(__TAURI_INVOKE("get_active_account")),
+	getActiveAccount: () => typedError<{
+	/**
+	 *  Local UUID v4 — disambiguates entries; key suffix for any per-account
+	 *  secret storage (currently unused; reserved for the deferred MS auth).
+	 */
+	id: string,
+	/**  Display name (MC username). */
+	name: string,
+	/**  MC UUID, canonical hyphenated form. */
+	uuid: string,
+	/**  Unix seconds. `None` for offline (never expires). */
+	expires_at: number | null,
+} | null, Error>(__TAURI_INVOKE("get_active_account")),
 	/**  Set the active account by id. Errors AccountNotSet if id is unknown. */
 	setActiveAccount: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_account", { id })),
 	/**
@@ -56,7 +68,7 @@ export const commands = {
 	/**
 	 *  Read up to `max_bytes` of a log file. `max_bytes` is clamped to
 	 *  `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
-	 *  under one of the three allowed log roots — anything else is
+	 *  under one of SOME instance's allowed log roots — anything else is
 	 *  rejected with `Error::Io`.
 	 */
 	readLogFile: (path: string, maxBytes: number | null) => typedError<string, Error>(__TAURI_INVOKE("read_log_file", { path, maxBytes })),
@@ -64,11 +76,18 @@ export const commands = {
 	 *  Newest crash report (if any) for `instance_id`. Used by the UI to
 	 *  show a banner on non-zero MC exit.
 	 */
-	latestCrash: (instanceId: string) => typedError<CrashReport | null, Error>(__TAURI_INVOKE("latest_crash", { instanceId })),
+	latestCrash: (instanceId: string) => typedError<{
+	path: string,
+	/**
+	 *  First ~500 chars of the crash report — enough to show the
+	 *  stack-trace head in a banner without loading the full file.
+	 */
+	preview: string,
+} | null, Error>(__TAURI_INVOKE("latest_crash", { instanceId })),
 	/**
 	 *  Ensure `<instance>/.minecraft/mods/` exists, then open it in the OS
-	 *  file manager (Explorer on Windows). Idempotent — safe to click
-	 *  repeatedly. Vanilla MC does not load mods; the UI carries a caveat.
+	 *  file manager. Idempotent — safe to click repeatedly. Vanilla MC
+	 *  does not load mods; the UI carries a caveat below the button.
 	 */
 	openModsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder", { instanceId })),
 	/**
@@ -83,21 +102,50 @@ export const commands = {
 	 *  string (Quilt meta does not expose a `stable` flag).
 	 */
 	listQuiltLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_quilt_loaders", { mcId })),
-	/** All instances on disk with precomputed `ready` status. Sorted oldest-first by `created_unix_ms`. */
+	/**
+	 *  List Forge loader versions compatible with `mc_id`. Cached
+	 *  5 minutes per MC version. Empty list → `LoaderUnavailable`.
+	 */
+	listForgeLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_forge_loaders", { mcId })),
+	/**
+	 *  All instances on disk with precomputed `ready` status. Sorted
+	 *  oldest-first by `created_unix_ms`.
+	 */
 	listInstances: () => typedError<InstanceWithStatus[], Error>(__TAURI_INVOKE("list_instances")),
-	/** Currently active instance, or `null` if no instances exist. */
-	getActiveInstance: () => typedError<InstanceWithStatus | null, Error>(__TAURI_INVOKE("get_active_instance")),
-	/** Set the active instance by id. Errors `InstanceNotFound` if id is unknown. */
+	/**  Currently active instance, or `None` if no instances exist. */
+	getActiveInstance: () => typedError<{
+	id: string,
+	name: string,
+	mc_version: string,
+	loader: LoaderKind,
+	loader_version: string | null,
+	max_heap_mb: number,
+	extra_jvm_args: string,
+	created_unix_ms: number | null,
+	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
+	ready: boolean,
+} | null, Error>(__TAURI_INVOKE("get_active_instance")),
+	/**  Set the active instance by id. Errors `InstanceNotFound` if id is unknown. */
 	setActiveInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_instance", { id })),
-	/** Create a new instance. */
+	/**
+	 *  Create a new instance. Generates a UUID, mkdirs `.minecraft/`,
+	 *  writes `instance.json`. Defaults: `max_heap_mb=2048`, `extra_jvm_args=""`.
+	 */
 	createInstance: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("create_instance", { name, mcVersion, loader, loaderVersion })),
-	/** Delete an instance. Errors `LastInstance` if it's the only one. */
+	/**
+	 *  Delete an instance. If it was active, auto-switches to oldest remaining.
+	 *  Errors `LastInstance` if it's the only one left.
+	 */
 	deleteInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("delete_instance", { id })),
 	setInstanceName: (id: string, name: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_name", { id, name })),
 	setInstanceVersion: (id: string, mcVersion: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_version", { id, mcVersion })),
 	setInstanceLoader: (id: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_loader", { id, loader, loaderVersion })),
 	setInstanceMemory: (id: string, maxHeapMb: number) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_memory", { id, maxHeapMb })),
 	setInstanceJvmArgs: (id: string, args: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_jvm_args", { id, args })),
+	/**
+	 *  Ensure `<instance>/.minecraft/` exists, then open it in the OS
+	 *  file manager.
+	 */
 	openInstanceFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("open_instance_folder", { id })),
 };
 
@@ -111,7 +159,10 @@ export const events = {
 
 /* Types */
 export type Account = {
-	/**  Local UUID v4. */
+	/**
+	 *  Local UUID v4 — disambiguates entries; key suffix for any per-account
+	 *  secret storage (currently unused; reserved for the deferred MS auth).
+	 */
 	id: string,
 	/**  Display name (MC username). */
 	name: string,
@@ -168,13 +219,13 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string };
 
 export type Greeting = {
 	message: string,
 };
 
-export type InstallPhase = "manifest" | "jre" | "libraries" | "assets" | "client" | "complete";
+export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | "assets" | "client" | "complete";
 
 export type InstallProgress = {
 	version_id: string,
@@ -183,10 +234,15 @@ export type InstallProgress = {
 	files_total: number,
 	/**  Cumulative bytes within the current phase. */
 	bytes_done: number | null,
+	/**
+	 *  Free-form sub-step label shown by the UI during long-running
+	 *  phases (currently only `ForgeInstall`). `None` for phases that
+	 *  don't have meaningful sub-steps.
+	 */
+	current_step: string | null,
 };
 
-export type LoaderKind = "vanilla" | "fabric" | "quilt";
-
+/**  What the UI sees per row in the instance dropdown. */
 export type InstanceWithStatus = {
 	id: string,
 	name: string,
@@ -195,10 +251,12 @@ export type InstanceWithStatus = {
 	loader_version: string | null,
 	max_heap_mb: number,
 	extra_jvm_args: string,
-	created_unix_ms: number,
-	/** True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
+	created_unix_ms: number | null,
+	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
 	ready: boolean,
 };
+
+export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge";
 
 export type LoaderVersion = {
 	version: string,

@@ -48,6 +48,11 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "maven.fabricmc.net",
     "meta.quiltmc.org",
     "maven.quiltmc.org",
+    // v0.4.0 — Forge meta + installer mirrors. neoforged is added now
+    // for v0.4.1 to avoid touching this list twice.
+    "maven.minecraftforge.net",
+    "files.minecraftforge.net",
+    "maven.neoforged.net",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -176,8 +181,11 @@ mod tests {
         assert!(patterns.contains(&"api.github.com"));
         assert!(patterns.contains(&"meta.fabricmc.net"));
         assert!(patterns.contains(&"meta.quiltmc.org"));
-        // 7 from v0.1.0 + 4 from Slice A.
-        assert_eq!(patterns.len(), 11);
+        assert!(patterns.contains(&"maven.minecraftforge.net"));
+        assert!(patterns.contains(&"files.minecraftforge.net"));
+        assert!(patterns.contains(&"maven.neoforged.net"));
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0.
+        assert_eq!(patterns.len(), 14);
     }
 
     #[test]

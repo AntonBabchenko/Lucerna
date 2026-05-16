@@ -22,6 +22,8 @@
     switch (p) {
       case 'manifest':
         return 'Fetching version metadata';
+      case 'forge_install':
+        return 'Installing Forge';
       case 'jre':
         return 'Installing Java runtime';
       case 'libraries':
@@ -59,6 +61,9 @@
         {/if}
       </span>
     </div>
+    {#if progress.current_step}
+      <p class="text-xs text-neutral-600">{progress.current_step}</p>
+    {/if}
     {#if progress.phase !== 'complete'}
       <div class="h-1.5 bg-neutral-200 rounded overflow-hidden">
         <div

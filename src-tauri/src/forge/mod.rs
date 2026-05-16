@@ -1,0 +1,17 @@
+//! Forge / NeoForge loader support. See
+//! `docs/superpowers/specs/2026-05-16-forge-loader-design.md`.
+//!
+//! The Forge installer pipeline is reimplemented in Rust (no
+//! `java -jar installer.jar` shell-out). Three installer eras are
+//! handled by sibling modules under `installer::`:
+//!   - `legacy`        — MC 1.6.x — 1.12.2
+//!   - `transitional`  — MC 1.13.x — 1.16.x (Phase 2)
+//!   - `modern`        — MC 1.17.x+ (Phase 3)
+
+pub mod flavor;
+pub mod meta;
+pub mod profile;
+pub mod installer;
+
+pub use flavor::ForgeFlavor;
+pub use installer::install as install_forge;

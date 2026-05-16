@@ -18,6 +18,7 @@ use tauri_specta::Event;
 #[serde(rename_all = "snake_case")]
 pub enum InstallPhase {
     Manifest,
+    ForgeInstall,
     Jre,
     Libraries,
     Assets,
@@ -33,6 +34,10 @@ pub struct InstallProgress {
     pub files_total: u32,
     /// Cumulative bytes within the current phase.
     pub bytes_done: f64,
+    /// Free-form sub-step label shown by the UI during long-running
+    /// phases (currently only `ForgeInstall`). `None` for phases that
+    /// don't have meaningful sub-steps.
+    pub current_step: Option<String>,
 }
 
 /// Drive the full install pipeline for `version_id`.
@@ -76,6 +81,7 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
                 files_done: done,
                 files_total: total,
                 bytes_done: bytes as f64,
+                current_step: None,
             }
             .emit(&app_clone)
             .ok();
@@ -116,6 +122,7 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
             files_done: done,
             files_total: total,
             bytes_done: bytes as f64,
+            current_step: None,
         }
         .emit(&app_clone)
         .ok();
@@ -180,7 +187,31 @@ async fn ensure_version_json_inner(
     if let Some((loader, loader_ver, mc_ver)) =
         crate::versions::loaders::parse_synth_id(version_id)
     {
-        let child = crate::versions::loaders::fetch_profile(loader, &mc_ver, &loader_ver).await?;
+        if loader == crate::versions::loaders::Loader::Forge {
+            InstallProgress {
+                version_id: version_id.to_string(),
+                phase: InstallPhase::ForgeInstall,
+                files_done: 0,
+                files_total: 1,
+                bytes_done: 0.0,
+                current_step: Some(format!("Installing Forge {loader_ver} for {mc_ver}")),
+            }
+            .emit(app)
+            .ok();
+        }
+        let child = crate::versions::loaders::fetch_profile(loader, &mc_ver, &loader_ver, app).await?;
+        if loader == crate::versions::loaders::Loader::Forge {
+            InstallProgress {
+                version_id: version_id.to_string(),
+                phase: InstallPhase::ForgeInstall,
+                files_done: 1,
+                files_total: 1,
+                bytes_done: 0.0,
+                current_step: None,
+            }
+            .emit(app)
+            .ok();
+        }
         let parent = ensure_version_json_inner(&mc_ver, app, depth + 1).await?;
         let merged = crate::versions::resolve::merge_inherits(child, parent);
         let text = serde_json::to_string(&merged)
@@ -255,6 +286,7 @@ fn emit(
         files_done: done,
         files_total: total,
         bytes_done: bytes,
+        current_step: None,
     }
     .emit(app)
     .ok();
@@ -284,9 +316,39 @@ mod tests {
             files_done: 100,
             files_total: 600,
             bytes_done: 12345.0,
+            current_step: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains(r#""phase":"assets""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_install_phase_serializes_as_snake_case() {
+        let p = InstallProgress {
+            version_id: "forge-49.0.49-1.20.4".into(),
+            phase: InstallPhase::ForgeInstall,
+            files_done: 1,
+            files_total: 5,
+            bytes_done: 0.0,
+            current_step: Some("Running BinaryPatcher".into()),
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains(r#""phase":"forge_install""#), "got: {json}");
+        assert!(json.contains(r#""current_step":"Running BinaryPatcher""#), "got: {json}");
+    }
+
+    #[test]
+    fn install_progress_default_current_step_is_none() {
+        let p = InstallProgress {
+            version_id: "1.20.4".into(),
+            phase: InstallPhase::Assets,
+            files_done: 0,
+            files_total: 0,
+            bytes_done: 0.0,
+            current_step: None,
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains(r#""current_step":null"#), "got: {json}");
     }
 
     #[test]

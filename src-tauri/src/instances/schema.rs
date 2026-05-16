@@ -18,6 +18,7 @@ pub enum LoaderKind {
     Vanilla,
     Fabric,
     Quilt,
+    Forge,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -156,5 +157,23 @@ mod tests {
         assert_eq!(w.mc_version, s.mc_version);
         assert_eq!(w.loader, s.loader);
         assert!(w.ready);
+    }
+
+    #[test]
+    fn loader_kind_serializes_forge_as_snake_case() {
+        let json = serde_json::to_string(&LoaderKind::Forge).unwrap();
+        assert_eq!(json, r#""forge""#);
+    }
+
+    #[test]
+    fn forge_with_loader_version_roundtrip() {
+        let mut s = sample();
+        s.loader = LoaderKind::Forge;
+        s.loader_version = Some("49.0.49".into());
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""loader":"forge""#), "got: {json}");
+        assert!(json.contains(r#""loader_version":"49.0.49""#), "got: {json}");
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
     }
 }

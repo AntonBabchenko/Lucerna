@@ -17,6 +17,7 @@
 //! and contain no `-`.
 
 pub mod fabric;
+pub mod forge;
 pub mod quilt;
 
 use crate::error::{Error, Result};
@@ -31,6 +32,7 @@ use std::time::{Duration, Instant};
 pub enum Loader {
     Fabric,
     Quilt,
+    Forge,
 }
 
 impl Loader {
@@ -38,6 +40,9 @@ impl Loader {
         match self {
             Loader::Fabric => "fabric-loader-",
             Loader::Quilt => "quilt-loader-",
+            // Forge has no "-loader-" infix; the synth_id is `forge-<fv>-<mc>`.
+            // Returned prefix is the part BEFORE <fv>.
+            Loader::Forge => "forge-",
         }
     }
 
@@ -45,6 +50,7 @@ impl Loader {
         match self {
             Loader::Fabric => "fabric",
             Loader::Quilt => "quilt",
+            Loader::Forge => "forge",
         }
     }
 }
@@ -64,15 +70,24 @@ pub fn synth_id(loader: Loader, loader_ver: &str, mc_ver: &str) -> String {
 /// Parse a synthetic id into its components. Returns `None` for vanilla
 /// ids and malformed inputs.
 pub fn parse_synth_id(id: &str) -> Option<(Loader, String, String)> {
-    let (loader, rest) = if let Some(r) = id.strip_prefix("fabric-loader-") {
-        (Loader::Fabric, r)
-    } else if let Some(r) = id.strip_prefix("quilt-loader-") {
-        (Loader::Quilt, r)
-    } else {
-        return None;
-    };
-    // `rest = "<loader_ver>-<mc_ver>"`. Loader versions are SemVer
-    // (`0.15.7`) and never contain `-`; MC ids may contain `-`.
+    // Fabric / Quilt: "<loader>-loader-<lv>-<mc>". Loader version is
+    // SemVer-shaped (no `-`); MC may contain `-`.
+    if let Some(rest) = id.strip_prefix("fabric-loader-") {
+        return parse_fabric_quilt_rest(Loader::Fabric, rest);
+    }
+    if let Some(rest) = id.strip_prefix("quilt-loader-") {
+        return parse_fabric_quilt_rest(Loader::Quilt, rest);
+    }
+    // Forge: "forge-<fv>-<mc>". Forge version never contains `-`;
+    // MC may. After the prefix, split on the FIRST `-` whose right
+    // side starts with a digit (MC versions always start with a digit).
+    if let Some(rest) = id.strip_prefix("forge-") {
+        return parse_forge_rest(Loader::Forge, rest);
+    }
+    None
+}
+
+fn parse_fabric_quilt_rest(loader: Loader, rest: &str) -> Option<(Loader, String, String)> {
     let dash = rest.find('-')?;
     let loader_ver = &rest[..dash];
     let mc_ver = &rest[dash + 1..];
@@ -80,6 +95,26 @@ pub fn parse_synth_id(id: &str) -> Option<(Loader, String, String)> {
         return None;
     }
     Some((loader, loader_ver.to_string(), mc_ver.to_string()))
+}
+
+fn parse_forge_rest(loader: Loader, rest: &str) -> Option<(Loader, String, String)> {
+    // Find the first `-` whose right side starts with a digit. Forge
+    // versions are dot-and-digit only; once we hit `-<digit>`, the right
+    // side is the MC id (which always begins with a digit).
+    let bytes = rest.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'-'
+            && i + 1 < bytes.len()
+            && bytes[i + 1].is_ascii_digit()
+        {
+            let fv = &rest[..i];
+            let mc = &rest[i + 1..];
+            if !fv.is_empty() && !mc.is_empty() {
+                return Some((loader, fv.to_string(), mc.to_string()));
+            }
+        }
+    }
+    None
 }
 
 // ---- Loader-version list cache (5-min TTL) ----------------------------------
@@ -113,6 +148,7 @@ pub async fn list_loaders(loader: Loader, mc_id: &str) -> Result<Vec<LoaderVersi
     let entries = match loader {
         Loader::Fabric => fabric::list(mc_id).await?,
         Loader::Quilt => quilt::list(mc_id).await?,
+        Loader::Forge => forge::list(mc_id).await?,
     };
 
     if entries.is_empty() {
@@ -141,10 +177,12 @@ pub async fn fetch_profile(
     loader: Loader,
     mc_id: &str,
     loader_ver: &str,
+    app: &tauri::AppHandle,
 ) -> Result<VersionDetails> {
     match loader {
         Loader::Fabric => fabric::profile(mc_id, loader_ver).await,
         Loader::Quilt => quilt::profile(mc_id, loader_ver).await,
+        Loader::Forge => forge::profile(mc_id, loader_ver, app).await,
     }
 }
 
@@ -206,6 +244,43 @@ mod tests {
         assert!(parse_synth_id("fabric-loader-0.15.7-").is_none());
         assert!(parse_synth_id("fabric-loader--1.20.4").is_none());
         assert!(parse_synth_id("").is_none());
-        assert!(parse_synth_id("forge-loader-47.0.0-1.20.4").is_none());
+        // Unknown loader prefix — neoforge ships in v0.4.1.
+        assert!(parse_synth_id("neoforge-loader-47.0.0-1.20.4").is_none());
+    }
+
+    #[test]
+    fn synth_id_forge_round_trip() {
+        let id = synth_id(Loader::Forge, "49.0.49", "1.20.4");
+        assert_eq!(id, "forge-49.0.49-1.20.4");
+        let (l, lv, mv) = parse_synth_id(&id).unwrap();
+        assert_eq!(l, Loader::Forge);
+        assert_eq!(lv, "49.0.49");
+        assert_eq!(mv, "1.20.4");
+    }
+
+    #[test]
+    fn parse_synth_id_forge_with_legacy_4segment_version() {
+        let (l, lv, mv) = parse_synth_id("forge-14.23.5.2860-1.12.2").unwrap();
+        assert_eq!(l, Loader::Forge);
+        assert_eq!(lv, "14.23.5.2860");
+        assert_eq!(mv, "1.12.2");
+    }
+
+    #[test]
+    fn parse_synth_id_forge_handles_mc_with_pre1_suffix() {
+        // Forge versions never contain `-`; MC may. Split on the FIRST `-`
+        // whose right side starts with a digit. That distinguishes
+        // "forge-<fv>" from the trailing "<mc>" part.
+        let (l, lv, mv) = parse_synth_id("forge-49.0.0-1.20.4-pre1").unwrap();
+        assert_eq!(l, Loader::Forge);
+        assert_eq!(lv, "49.0.0");
+        assert_eq!(mv, "1.20.4-pre1");
+    }
+
+    #[test]
+    fn parse_synth_id_rejects_forge_without_components() {
+        assert!(parse_synth_id("forge-").is_none());
+        assert!(parse_synth_id("forge-49.0.49-").is_none());
+        assert!(parse_synth_id("forge--1.20.4").is_none());
     }
 }

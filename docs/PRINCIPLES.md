@@ -33,6 +33,9 @@ The project exists because other launchers serves a real use-case (offline play,
    | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
    | `meta.fabricmc.net`, `maven.fabricmc.net` | Fabric loader meta + libraries | on when user picks Fabric loader |
    | `meta.quiltmc.org`, `maven.quiltmc.org` | Quilt loader meta + libraries | on when user picks Quilt loader |
+   | `maven.minecraftforge.net` | Forge installer JARs + library/processor mavens | on when user picks Forge loader |
+   | `files.minecraftforge.net` | Forge `promotions_slim.json` (recommended/latest tags) | on when user picks Forge loader |
+   | `maven.neoforged.net` | NeoForge installer + library mavens | on when user picks NeoForge loader (v0.4.1) |
 
    The list in code (`src-tauri/src/network/allowlist.rs`) is the single source of truth. A CI test asserts this table matches that file.
 

@@ -51,6 +51,24 @@ pub enum Error {
 
     #[error("Instance {id} not found")]
     InstanceNotFound { id: String },
+
+    #[error("Forge promotions info unavailable for {flavor}")]
+    ForgePromotionsUnavailable { flavor: String },
+
+    #[error("Forge maven-metadata.xml could not be parsed: {details}")]
+    ForgeMavenMetadataParseFailed { details: String },
+
+    #[error("Forge installer for {mc}-{fv} is corrupted: {details}")]
+    ForgeInstallerCorrupted { mc: String, fv: String, details: String },
+
+    #[error("This Forge version uses an unsupported processor: {coord}")]
+    ForgeUnsupportedProcessor { coord: String },
+
+    #[error("Forge installation failed during {processor}: {details}")]
+    ForgePatcherFailed { processor: String, details: String },
+
+    #[error("Mappings for Minecraft {mc} are unavailable")]
+    ForgeMappingsMissing { mc: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -134,5 +152,69 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains(r#""kind":"instance_not_found""#), "got: {json}");
         assert!(json.contains(r#""id":"3f4a-bbbb""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_promotions_unavailable_serializes_with_tag() {
+        let e = Error::ForgePromotionsUnavailable {
+            flavor: "forge".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"forge_promotions_unavailable""#), "got: {json}");
+        assert!(json.contains(r#""flavor":"forge""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_maven_metadata_parse_failed_carries_details() {
+        let e = Error::ForgeMavenMetadataParseFailed {
+            details: "unexpected EOF".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"forge_maven_metadata_parse_failed""#), "got: {json}");
+        assert!(json.contains(r#""details":"unexpected EOF""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_installer_corrupted_carries_context() {
+        let e = Error::ForgeInstallerCorrupted {
+            mc: "1.20.4".into(),
+            fv: "49.0.49".into(),
+            details: "missing install_profile.json".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"forge_installer_corrupted""#), "got: {json}");
+        assert!(json.contains(r#""mc":"1.20.4""#), "got: {json}");
+        assert!(json.contains(r#""fv":"49.0.49""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_unsupported_processor_carries_coord() {
+        let e = Error::ForgeUnsupportedProcessor {
+            coord: "net.example:tool:1.0".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"forge_unsupported_processor""#), "got: {json}");
+        assert!(json.contains(r#""coord":"net.example:tool:1.0""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_patcher_failed_carries_processor_name() {
+        let e = Error::ForgePatcherFailed {
+            processor: "BinaryPatcher".into(),
+            details: "lzma decode error".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"forge_patcher_failed""#), "got: {json}");
+        assert!(json.contains(r#""processor":"BinaryPatcher""#), "got: {json}");
+    }
+
+    #[test]
+    fn forge_mappings_missing_carries_mc() {
+        let e = Error::ForgeMappingsMissing {
+            mc: "1.20.4".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"forge_mappings_missing""#), "got: {json}");
+        assert!(json.contains(r#""mc":"1.20.4""#), "got: {json}");
     }
 }

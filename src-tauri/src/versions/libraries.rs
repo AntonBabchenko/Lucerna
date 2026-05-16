@@ -76,7 +76,7 @@ pub fn artifacts_to_install(
     }
     let mut out = Vec::with_capacity(2);
 
-    if let Some(dl) = lib.downloads.as_ref() {
+    if let Some(dl) = lib.downloads.as_ref().filter(|dl| dl.artifact.is_some() || dl.classifiers.is_some()) {
         // Vanilla path — full downloads block with SHA-1.
         if let Some(art) = dl.artifact.as_ref() {
             out.push((art.path.clone(), art.url.clone(), art.sha1.clone(), art.size));
@@ -100,10 +100,27 @@ pub fn artifacts_to_install(
             // and Content-Length is treated as advisory only.
             out.push((rel_path, full_url, String::new(), 0));
         }
+    } else {
+        // Library entry with neither a `downloads.artifact` block nor a
+        // `url`. Legacy Forge's `versionInfo.libraries` ships entries
+        // like `{"name": "net.minecraft:launchwrapper:1.12", "serverreq": true}`
+        // with no download info at all — Forge assumes the file is
+        // available from Mojang's library server. The same fallback
+        // also covers child-overrides like Forge bumping `guava` to a
+        // version vanilla doesn't ship: `dedupe_by_maven_coord` lets
+        // the child entry win and the child entry has no downloads
+        // block. libraries.minecraft.net hosts every required jar.
+        if let Some((rel_path, full_url)) =
+            maven_path_and_url(&lib.name, MOJANG_LIBRARIES_FALLBACK_URL)
+        {
+            out.push((rel_path, full_url, String::new(), 0));
+        }
     }
 
     out
 }
+
+const MOJANG_LIBRARIES_FALLBACK_URL: &str = "https://libraries.minecraft.net/";
 
 /// Parse a `group:artifact:version` (Mojang/Maven coord) into the
 /// relative maven path and a full URL under `base`.
@@ -347,15 +364,31 @@ mod tests {
     }
 
     #[test]
-    fn library_with_no_downloads_and_no_url_returns_empty() {
+    fn library_with_no_downloads_and_no_url_falls_back_to_mojang_libraries() {
+        // Legacy Forge libraries arrive as `{"name": "g:a:v", "serverreq": true}`
+        // with neither a `downloads.artifact` block nor a `url`. Mojang
+        // hosts every required jar at libraries.minecraft.net, so we
+        // synthesise the URL there. Without this fallback MC fails
+        // ClassNotFound on `net.minecraft.launchwrapper.Launch` at boot.
         let lib = Library {
-            name: "net.fabricmc:fabric-loader:0.15.7".into(),
+            name: "net.minecraft:launchwrapper:1.12".into(),
             downloads: None,
             url: None,
             rules: None,
             natives: None,
         };
-        assert!(artifacts_to_install(&lib, "windows", "x64").is_empty());
+        let out = artifacts_to_install(&lib, "windows", "x64");
+        assert_eq!(out.len(), 1, "expected exactly one artifact, got {out:?}");
+        let (rel, url, sha, size) = &out[0];
+        assert_eq!(rel, "net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar");
+        assert_eq!(
+            url,
+            "https://libraries.minecraft.net/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar"
+        );
+        // TOFU mode: SHA empty + size 0 → download_with_sha skips
+        // verification and Content-Length is treated as advisory.
+        assert!(sha.is_empty());
+        assert_eq!(*size, 0);
     }
 
     #[tokio::test]
