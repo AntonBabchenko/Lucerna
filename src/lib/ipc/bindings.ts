@@ -40,18 +40,19 @@ export const commands = {
 	 */
 	installVersion: (versionId: string) => typedError<null, Error>(__TAURI_INVOKE("install_version", { versionId })),
 	/**
-	 *  Install (idempotently) and then launch the given Minecraft version.
-	 *  Emits `installProgress` during install and `processSpawned` /
+	 *  Install (idempotently) and then launch the given instance. Resolves
+	 *  version+loader from `instance.json` server-side. Emits
+	 *  `installProgress` during install and `processSpawned` /
 	 *  `processExited` around the run.
 	 */
-	installAndLaunch: (versionId: string) => typedError<number, Error>(__TAURI_INVOKE("install_and_launch", { versionId })),
+	installAndLaunch: (instanceId: string) => typedError<number, Error>(__TAURI_INVOKE("install_and_launch", { instanceId })),
 	/**  Kill the running Minecraft process if any. Idempotent. */
 	stopMinecraft: () => typedError<null, Error>(__TAURI_INVOKE("stop_minecraft")),
 	/**
-	 *  List every log file under the default instance's three documented
-	 *  roots. Sorted by mtime descending.
+	 *  List every log file under `instance_id`'s three documented roots.
+	 *  Sorted by mtime descending.
 	 */
-	listLogFiles: () => typedError<LogFileMeta[], Error>(__TAURI_INVOKE("list_log_files")),
+	listLogFiles: (instanceId: string) => typedError<LogFileMeta[], Error>(__TAURI_INVOKE("list_log_files", { instanceId })),
 	/**
 	 *  Read up to `max_bytes` of a log file. `max_bytes` is clamped to
 	 *  `[64 KB, 100 MB]`; `0` becomes the 5 MB default. `path` must be
@@ -60,24 +61,16 @@ export const commands = {
 	 */
 	readLogFile: (path: string, maxBytes: number | null) => typedError<string, Error>(__TAURI_INVOKE("read_log_file", { path, maxBytes })),
 	/**
-	 *  Newest crash report (if any). Used by the UI to show a banner on
-	 *  non-zero MC exit.
+	 *  Newest crash report (if any) for `instance_id`. Used by the UI to
+	 *  show a banner on non-zero MC exit.
 	 */
-	latestCrash: () => typedError<{
-	path: string,
+	latestCrash: (instanceId: string) => typedError<CrashReport | null, Error>(__TAURI_INVOKE("latest_crash", { instanceId })),
 	/**
-	 *  First ~500 chars of the crash report — enough to show the
-	 *  stack-trace head in a banner without loading the full file.
+	 *  Ensure `<instance>/.minecraft/mods/` exists, then open it in the OS
+	 *  file manager (Explorer on Windows). Idempotent — safe to click
+	 *  repeatedly. Vanilla MC does not load mods; the UI carries a caveat.
 	 */
-	preview: string,
-} | null, Error>(__TAURI_INVOKE("latest_crash")),
-	/**
-	 *  Ensure the default instance's `mods/` directory exists, then open
-	 *  it in the OS file manager (Explorer on Windows). Idempotent —
-	 *  safe to click repeatedly. Vanilla MC does not load mods; the UI
-	 *  carries a caveat below the button.
-	 */
-	openModsFolder: () => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder")),
+	openModsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder", { instanceId })),
 	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
@@ -90,6 +83,22 @@ export const commands = {
 	 *  string (Quilt meta does not expose a `stable` flag).
 	 */
 	listQuiltLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_quilt_loaders", { mcId })),
+	/** All instances on disk with precomputed `ready` status. Sorted oldest-first by `created_unix_ms`. */
+	listInstances: () => typedError<InstanceWithStatus[], Error>(__TAURI_INVOKE("list_instances")),
+	/** Currently active instance, or `null` if no instances exist. */
+	getActiveInstance: () => typedError<InstanceWithStatus | null, Error>(__TAURI_INVOKE("get_active_instance")),
+	/** Set the active instance by id. Errors `InstanceNotFound` if id is unknown. */
+	setActiveInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_instance", { id })),
+	/** Create a new instance. */
+	createInstance: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("create_instance", { name, mcVersion, loader, loaderVersion })),
+	/** Delete an instance. Errors `LastInstance` if it's the only one. */
+	deleteInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("delete_instance", { id })),
+	setInstanceName: (id: string, name: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_name", { id, name })),
+	setInstanceVersion: (id: string, mcVersion: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_version", { id, mcVersion })),
+	setInstanceLoader: (id: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_loader", { id, loader, loaderVersion })),
+	setInstanceMemory: (id: string, maxHeapMb: number) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_memory", { id, maxHeapMb })),
+	setInstanceJvmArgs: (id: string, args: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_jvm_args", { id, args })),
+	openInstanceFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("open_instance_folder", { id })),
 };
 
 /** Events */
@@ -159,7 +168,7 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string };
 
 export type Greeting = {
 	message: string,
@@ -174,6 +183,21 @@ export type InstallProgress = {
 	files_total: number,
 	/**  Cumulative bytes within the current phase. */
 	bytes_done: number | null,
+};
+
+export type LoaderKind = "vanilla" | "fabric" | "quilt";
+
+export type InstanceWithStatus = {
+	id: string,
+	name: string,
+	mc_version: string,
+	loader: LoaderKind,
+	loader_version: string | null,
+	max_heap_mb: number,
+	extra_jvm_args: string,
+	created_unix_ms: number,
+	/** True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
+	ready: boolean,
 };
 
 export type LoaderVersion = {

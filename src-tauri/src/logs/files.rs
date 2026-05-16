@@ -1,17 +1,14 @@
-//! File enumeration + crash detection.
+//! File enumeration + crash detection — scoped to a single instance.
 //!
-//! Three roots under the default instance:
-//! - `<instance>/.minecraft/logs/`        → LogSource::Game
-//! - `<instance>/.minecraft/crash-reports/` → LogSource::Crash
-//! - `<instance>/logs/`                    → LogSource::Launcher
+//! Three roots under `<app_data_dir>/instances/<id>/`:
+//! - `.minecraft/logs/`         → LogSource::Game
+//! - `.minecraft/crash-reports/` → LogSource::Crash
+//! - `logs/`                    → LogSource::Launcher
 
 use crate::error::{Error, Result};
-use crate::paths::instance_dir;
 use serde::Serialize;
 use specta::Type;
 use std::path::{Path, PathBuf};
-
-const DEFAULT_INSTANCE: &str = "default";
 
 #[derive(Debug, Clone, Serialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -41,11 +38,14 @@ pub struct CrashReport {
 
 const CRASH_PREVIEW_CHARS: usize = 500;
 
-/// Return the three log roots under the default instance. Roots that
-/// don't exist on disk yet (fresh install) are NOT created — callers
-/// must treat absence as "no files," not an error.
-pub fn allowed_roots(app: &tauri::AppHandle) -> Result<Vec<PathBuf>> {
-    let inst = instance_dir(app, DEFAULT_INSTANCE)
+/// Return the three log roots under `instance_id`. Roots that don't
+/// exist on disk yet (fresh install) are NOT created — callers must
+/// treat absence as "no files," not an error.
+pub fn allowed_roots(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Vec<PathBuf>> {
+    let inst = crate::paths::instance_dir(app, instance_id)
         .map_err(|e| Error::io("<instance_dir>", e))?;
     Ok(vec![
         inst.join(".minecraft").join("logs"),
@@ -56,8 +56,11 @@ pub fn allowed_roots(app: &tauri::AppHandle) -> Result<Vec<PathBuf>> {
 
 /// Enumerate every log file across the three roots. Missing roots are
 /// silently skipped. Sorted by mtime descending (newest first).
-pub fn list_log_files(app: &tauri::AppHandle) -> Result<Vec<LogFileMeta>> {
-    let roots = allowed_roots(app)?;
+pub fn list_log_files(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Vec<LogFileMeta>> {
+    let roots = allowed_roots(app, instance_id)?;
     let mut out: Vec<LogFileMeta> = Vec::new();
     for (i, root) in roots.iter().enumerate() {
         let source = match i {
@@ -112,8 +115,11 @@ fn list_root_into(root: &Path, source: LogSource, out: &mut Vec<LogFileMeta>) {
 
 /// Newest `crash-*.txt` in the crash-reports dir, with a short
 /// preview. Returns Ok(None) when no crash reports exist.
-pub fn latest_crash(app: &tauri::AppHandle) -> Result<Option<CrashReport>> {
-    let roots = allowed_roots(app)?;
+pub fn latest_crash(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Option<CrashReport>> {
+    let roots = allowed_roots(app, instance_id)?;
     let crash_root = &roots[1];
     let Ok(entries) = std::fs::read_dir(crash_root) else {
         return Ok(None);

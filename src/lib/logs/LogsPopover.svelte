@@ -4,9 +4,11 @@
   let {
     open = $bindable(false),
     initialPath = null as string | null,
+    instanceId = null as string | null,
   }: {
     open: boolean;
     initialPath?: string | null;
+    instanceId?: string | null;
   } = $props();
 
   const CAP_STORAGE_KEY = 'ftl.logs.cap_bytes';
@@ -48,8 +50,12 @@
   });
 
   async function reloadList() {
+    if (!instanceId) {
+      files = [];
+      return;
+    }
     listError = null;
-    const result = await commands.listLogFiles();
+    const result = await commands.listLogFiles(instanceId);
     if (result.status === 'ok') {
       files = result.data;
     } else {

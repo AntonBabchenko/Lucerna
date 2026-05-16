@@ -1,6 +1,7 @@
 mod commands;
 pub mod accounts;
 pub mod error;
+pub mod instances;
 pub mod jre;
 pub mod launch;
 pub mod logs;
@@ -32,6 +33,18 @@ pub fn run() {
             commands::open_mods_folder,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
+            // Multi-instance (v0.3.0):
+            commands::list_instances,
+            commands::get_active_instance,
+            commands::set_active_instance,
+            commands::create_instance,
+            commands::delete_instance,
+            commands::set_instance_name,
+            commands::set_instance_version,
+            commands::set_instance_loader,
+            commands::set_instance_memory,
+            commands::set_instance_jvm_args,
+            commands::open_instance_folder,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -51,6 +64,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
+            // One-shot instance migration. Non-fatal on error — the UI has
+            // an empty-state fallback that lets the user manually recover
+            // by creating an instance through the Manage modal.
+            if let Err(e) = instances::migrate::migrate_or_seed(app.handle()) {
+                eprintln!("[setup] instances::migrate_or_seed failed: {e}");
+            }
             builder.mount_events(app);
             Ok(())
         })

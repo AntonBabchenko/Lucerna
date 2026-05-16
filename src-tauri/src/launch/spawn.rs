@@ -8,10 +8,14 @@
 
 use crate::accounts::Account;
 use crate::error::{Error, Result};
+use crate::instances::schema::InstanceFile;
 use crate::jre::java_executable_path;
 use crate::launch::args::{build_argv, ArgvInput};
 use crate::launch::natives::extract_natives;
-use crate::paths::{assets_dir, instance_dir, libraries_dir, versions_dir};
+use crate::paths::{
+    assets_dir, instance_logs_dir, instance_natives_dir, libraries_dir, minecraft_dir,
+    versions_dir,
+};
 use crate::versions::version_json::{parse, VersionDetails};
 use serde::Serialize;
 use specta::Type;
@@ -20,7 +24,6 @@ use std::sync::{Mutex, OnceLock};
 use tauri::AppHandle;
 use tauri_specta::Event;
 
-const DEFAULT_INSTANCE: &str = "default";
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ProcessSpawned {
@@ -56,11 +59,14 @@ pub fn is_running() -> bool {
         .is_some()
 }
 
-/// Spawn Minecraft for `version_id`. Returns the OS PID. Emits
-/// `ProcessSpawned` immediately and `ProcessExited` when the child
-/// terminates.
+/// Spawn Minecraft for `instance`. `effective_version_id` is what
+/// `versions::install_version` was called with (e.g. `"1.20.4"` for
+/// vanilla, `"fabric-loader-0.16.5-1.20.4"` for Fabric). Returns the
+/// OS PID. Emits `ProcessSpawned` immediately and `ProcessExited` when
+/// the child terminates.
 pub async fn start(
-    version_id: &str,
+    instance: &InstanceFile,
+    effective_version_id: &str,
     account: &Account,
     app: &AppHandle,
 ) -> Result<u32> {
@@ -74,17 +80,18 @@ pub async fn start(
     let versions = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let libraries = libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
     let assets = assets_dir(app).map_err(|e| Error::io("<assets_dir>", e))?;
-    let instance = instance_dir(app, DEFAULT_INSTANCE)
-        .map_err(|e| Error::io("<instance_dir>", e))?;
-    let game_dir = instance.join(".minecraft");
-    let natives_dir = instance.join("natives");
-    let logs_dir = instance.join("logs");
+    let game_dir = minecraft_dir(app, &instance.id)
+        .map_err(|e| Error::io("<minecraft_dir>", e))?;
+    let natives_dir = instance_natives_dir(app, &instance.id)
+        .map_err(|e| Error::io("<instance_natives_dir>", e))?;
+    let logs_dir = instance_logs_dir(app, &instance.id)
+        .map_err(|e| Error::io("<instance_logs_dir>", e))?;
     let client_jar = versions
-        .join(version_id)
-        .join(format!("{version_id}.jar"));
+        .join(effective_version_id)
+        .join(format!("{effective_version_id}.jar"));
     let version_json_path = versions
-        .join(version_id)
-        .join(format!("{version_id}.json"));
+        .join(effective_version_id)
+        .join(format!("{effective_version_id}.json"));
 
     let version_json_str = tokio::fs::read_to_string(&version_json_path)
         .await
@@ -115,7 +122,7 @@ pub async fn start(
         .await
         .map_err(|e| Error::io(logs_dir.display().to_string(), e))?;
 
-    let argv = build_argv(&ArgvInput {
+    let argv_from_manifest = build_argv(&ArgvInput {
         details: &details,
         account,
         java_path: java_path.clone(),
@@ -127,6 +134,20 @@ pub async fn start(
         os,
         arch,
     })?;
+
+    // Prepend custom JVM args: `-Xmx<max_heap_mb>m` plus whitespace-
+    // split `extra_jvm_args`. Both go in BEFORE the manifest's JVM
+    // args, so a manifest-supplied flag can override the user's
+    // setting if it needs to (spec decision).
+    let mut argv: Vec<String> =
+        vec![format!("-Xmx{}m", instance.max_heap_mb)];
+    argv.extend(
+        instance
+            .extra_jvm_args
+            .split_whitespace()
+            .map(String::from),
+    );
+    argv.extend(argv_from_manifest);
 
     let log_path = logs_dir.join(format!("{}-launch.log", local_iso_stamp()));
     let log_file = std::fs::File::create(&log_path)
@@ -149,7 +170,7 @@ pub async fn start(
         details: "spawned but no PID available".into(),
     })?;
 
-    let version_id_owned = version_id.to_string();
+    let version_id_owned = effective_version_id.to_string();
     let log_path_owned = log_path.clone();
 
     {
@@ -166,9 +187,6 @@ pub async fn start(
     }
     .emit(app);
 
-    // Exit watcher: owns the child by move; awaits it; emits the exit
-    // event; clears state. `stop()` kills by PID separately — no
-    // shared ownership of the child needed.
     let app_clone = app.clone();
     tokio::spawn(async move {
         let exit_code = child

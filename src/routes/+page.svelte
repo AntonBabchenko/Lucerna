@@ -5,12 +5,15 @@
     type Account,
     type CrashReport,
     type Error as IpcError,
+    type InstanceWithStatus,
+    type LoaderKind,
     type LoaderVersion,
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import NetworkPopover from '$lib/network/NetworkPopover.svelte';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
+  import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import { onMount } from 'svelte';
 
   let accounts = $state<Account[]>([]);
@@ -26,21 +29,22 @@
   let versionsLoading = $state(true);
   let versionsError = $state<string | null>(null);
   let showSnapshots = $state(false);
-  let selectedId = $state<string | null>(null);
 
-  type LoaderKind = 'vanilla' | 'fabric' | 'quilt';
-  let loaderKind = $state<LoaderKind>('vanilla');
+  let instances = $state<InstanceWithStatus[]>([]);
+  let activeInstance = $state<InstanceWithStatus | null>(null);
+  let instancesError = $state<string | null>(null);
+
   let loaderVersions = $state<LoaderVersion[]>([]);
-  let loaderVersion = $state<string | null>(null);
   let loaderLoading = $state(false);
   let loaderError = $state<string | null>(null);
   let loaderMetaOffline = $state(false);
 
-  let effectiveVersionId = $derived(
-    loaderKind === 'vanilla' || !selectedId || !loaderVersion
-      ? selectedId
-      : `${loaderKind}-loader-${loaderVersion}-${selectedId}`,
-  );
+  let manageOpen = $state(false);
+
+  // Derived from activeInstance — the source of truth.
+  let selectedId = $derived(activeInstance?.mc_version ?? null);
+  let loaderKind = $derived<LoaderKind>(activeInstance?.loader ?? 'vanilla');
+  let loaderVersion = $derived(activeInstance?.loader_version ?? null);
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
@@ -77,6 +81,12 @@
         return `Unsupported platform: ${e.os}/${e.arch}`;
       case 'loader_unavailable':
         return `${e.loader} does not support Minecraft ${e.mc_version}`;
+      case 'last_instance':
+        return 'Cannot delete the last instance — at least one must remain';
+      case 'no_version_selected':
+        return 'Pick a Minecraft version first';
+      case 'instance_not_found':
+        return `Instance ${e.id} not found`;
       case 'io':
         return `IO error at ${e.path}: ${e.details}`;
     }
@@ -96,6 +106,8 @@
   }
 
   onMount(async () => {
+    void refreshInstances();
+
     events.processSpawned
       .listen((event) => {
         running = { pid: event.payload.pid, version_id: event.payload.version_id };
@@ -109,8 +121,9 @@
       .listen(async (event) => {
         running = null;
         exited = { code: event.payload.code, log_path: event.payload.log_path };
-        if (event.payload.code !== 0) {
-          const result = await commands.latestCrash();
+        void refreshInstances();
+        if (event.payload.code !== 0 && activeInstance) {
+          const result = await commands.latestCrash(activeInstance.id);
           if (result.status === 'ok' && result.data) {
             crashReport = result.data;
           }
@@ -130,49 +143,10 @@
     const versionsResult = await commands.listVersions();
     if (versionsResult.status === 'ok') {
       versions = versionsResult.data;
-      const firstRelease = versions.find((v) => v.version_type === 'release');
-      selectedId = firstRelease?.id ?? versions[0]?.id ?? null;
     } else {
       versionsError = errorMessage(versionsResult.error);
     }
     versionsLoading = false;
-  });
-
-  $effect(() => {
-    // Reset + refetch whenever the MC version OR loader kind changes.
-    if (loaderKind === 'vanilla' || !selectedId) {
-      loaderVersions = [];
-      loaderVersion = null;
-      loaderError = null;
-      loaderLoading = false;
-      loaderMetaOffline = false;
-      return;
-    }
-    const mc = selectedId;
-    const kind = loaderKind;
-    loaderLoading = true;
-    loaderError = null;
-    loaderMetaOffline = false;
-    (async () => {
-      const result =
-        kind === 'fabric'
-          ? await commands.listFabricLoaders(mc)
-          : await commands.listQuiltLoaders(mc);
-      // Discard the result if the user changed selection while waiting.
-      if (selectedId !== mc || loaderKind !== kind) {
-        return;
-      }
-      if (result.status === 'ok') {
-        loaderVersions = result.data;
-        const firstStable = result.data.find((v) => v.stable);
-        loaderVersion = (firstStable ?? result.data[0])?.version ?? null;
-      } else {
-        loaderVersions = [];
-        loaderVersion = null;
-        loaderError = errorMessage(result.error);
-      }
-      loaderLoading = false;
-    })();
   });
 
   async function onAddOfflineSubmit() {
@@ -227,14 +201,95 @@
     return `${v.id} (${type})`;
   }
 
+  async function refreshInstances() {
+    instancesError = null;
+    const list = await commands.listInstances();
+    if (list.status === 'ok') {
+      instances = list.data;
+    } else {
+      instancesError = errorMessage(list.error);
+      instances = [];
+    }
+    const active = await commands.getActiveInstance();
+    if (active.status === 'ok') {
+      activeInstance = active.data;
+    } else {
+      activeInstance = null;
+    }
+  }
+
+  async function onSelectInstance(id: string) {
+    const result = await commands.setActiveInstance(id);
+    if (result.status === 'error') {
+      instancesError = errorMessage(result.error);
+      return;
+    }
+    await refreshInstances();
+  }
+
+  async function onSetMcVersion(mcVersion: string) {
+    if (!activeInstance) return;
+    const result = await commands.setInstanceVersion(activeInstance.id, mcVersion);
+    if (result.status === 'ok') {
+      activeInstance = result.data;
+      instances = instances.map((i) => (i.id === result.data.id ? result.data : i));
+    } else {
+      installError = errorMessage(result.error);
+    }
+  }
+
+  async function onSelectLoader(kind: LoaderKind) {
+    if (!activeInstance) return;
+    let lv: string | null = null;
+    if (kind !== 'vanilla' && activeInstance.mc_version) {
+      const list =
+        kind === 'fabric'
+          ? await commands.listFabricLoaders(activeInstance.mc_version)
+          : await commands.listQuiltLoaders(activeInstance.mc_version);
+      if (list.status === 'ok') {
+        loaderVersions = list.data;
+        loaderMetaOffline = false;
+        loaderError = null;
+        const stable = list.data.find((l) => l.stable);
+        lv = (stable ?? list.data[0])?.version ?? null;
+      } else {
+        loaderError = errorMessage(list.error);
+        return;
+      }
+    }
+    const result = await commands.setInstanceLoader(activeInstance.id, kind, lv);
+    if (result.status === 'ok') {
+      activeInstance = result.data;
+      instances = instances.map((i) => (i.id === result.data.id ? result.data : i));
+    } else {
+      installError = errorMessage(result.error);
+    }
+  }
+
+  async function onSelectLoaderVersion(version: string) {
+    if (!activeInstance) return;
+    const result = await commands.setInstanceLoader(
+      activeInstance.id,
+      activeInstance.loader,
+      version,
+    );
+    if (result.status === 'ok') {
+      activeInstance = result.data;
+      instances = instances.map((i) => (i.id === result.data.id ? result.data : i));
+    }
+  }
+
   async function onPlay() {
-    if (!effectiveVersionId) return;
+    if (!activeInstance) return;
+    if (activeInstance.mc_version === '') return;
     installing = true;
     installError = null;
-    const result = await commands.installAndLaunch(effectiveVersionId);
+    const result = await commands.installAndLaunch(activeInstance.id);
     installing = false;
     if (result.status === 'error') {
       installError = errorMessage(result.error);
+    } else {
+      await refreshInstances();
     }
   }
 
@@ -253,7 +308,8 @@
 
   async function onOpenMods() {
     modsError = null;
-    const result = await commands.openModsFolder();
+    if (!activeInstance) return;
+    const result = await commands.openModsFolder(activeInstance.id);
     if (result.status === 'error') {
       modsError = errorMessage(result.error);
     }
@@ -292,7 +348,7 @@
         {/if}
       </button>
       <NetworkPopover bind:open={networkOpen} />
-      <LogsPopover bind:open={logsOpen} initialPath={logsInitialPath} />
+      <LogsPopover bind:open={logsOpen} initialPath={logsInitialPath} instanceId={activeInstance?.id ?? null} />
     </div>
 
     <h1 class="text-2xl font-bold">FTlauncher</h1>
@@ -413,6 +469,44 @@
     </section>
 
     <section class="flex flex-col gap-2">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Instance</h2>
+      {#if instances.length === 0}
+        <div class="text-sm text-neutral-700 bg-neutral-100 border border-neutral-300 rounded px-3 py-2">
+          No instances found — create one to get started.
+          <button
+            class="ml-2 bg-blue-600 text-white text-xs rounded px-2 py-1 hover:bg-blue-700"
+            onclick={() => (manageOpen = true)}
+          >
+            + Create
+          </button>
+        </div>
+      {:else}
+        <div class="flex items-center gap-2">
+          <select
+            class="border rounded px-2 py-1 w-64"
+            value={activeInstance?.id ?? ''}
+            onchange={(e) => onSelectInstance((e.currentTarget as HTMLSelectElement).value)}
+          >
+            {#each instances as i}
+              <option value={i.id}>
+                {i.ready ? '✓' : '↓'} {i.name} · {i.loader} {i.mc_version || '(pick MC)'}
+              </option>
+            {/each}
+          </select>
+          <button
+            class="border rounded px-2 py-1 text-xs hover:bg-neutral-100"
+            onclick={() => (manageOpen = true)}
+          >
+            ⚙ Manage
+          </button>
+        </div>
+        {#if instancesError}
+          <p class="text-xs text-red-700">{instancesError}</p>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="flex flex-col gap-2">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Version</h2>
       {#if versionsLoading}
         <p class="text-sm text-neutral-500">Loading versions…</p>
@@ -420,7 +514,12 @@
         <p class="text-sm text-red-700">Could not load versions: {versionsError}</p>
       {:else}
         <div class="flex items-center gap-3">
-          <select class="border rounded px-2 py-1 w-64" bind:value={selectedId}>
+          <select
+            class="border rounded px-2 py-1 w-64"
+            value={selectedId ?? ''}
+            onchange={(e) => onSetMcVersion((e.currentTarget as HTMLSelectElement).value)}
+            disabled={!activeInstance}
+          >
             {#each visibleVersions as v}
               <option value={v.id}>{formatVersionLabel(v)}</option>
             {/each}
@@ -436,7 +535,12 @@
         <div class="flex items-center gap-3 mt-2">
           <label class="text-sm flex items-center gap-2">
             Loader:
-            <select class="border rounded px-2 py-1 w-32" bind:value={loaderKind}>
+            <select
+              class="border rounded px-2 py-1 w-32"
+              value={loaderKind}
+              onchange={(e) => onSelectLoader((e.currentTarget as HTMLSelectElement).value as LoaderKind)}
+              disabled={!activeInstance}
+            >
               <option value="vanilla">Vanilla</option>
               <option value="fabric">Fabric</option>
               <option value="quilt">Quilt</option>
@@ -452,7 +556,8 @@
               {:else}
                 <select
                   class="border rounded px-2 py-1 w-48"
-                  bind:value={loaderVersion}
+                  value={loaderVersion ?? ''}
+                  onchange={(e) => onSelectLoaderVersion((e.currentTarget as HTMLSelectElement).value)}
                   disabled={loaderVersions.length === 0}
                 >
                   {#each loaderVersions as lv}
@@ -474,22 +579,33 @@
               class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
               onclick={onStop}
             >
-              Stop
+              ⏹ Stop
             </button>
             <span class="text-sm font-mono">
               Running {running.version_id} (PID {running.pid})
             </span>
+          {:else if !activeInstance}
+            <button class="bg-neutral-300 text-neutral-600 px-3 py-1 rounded cursor-not-allowed" disabled>
+              No instance
+            </button>
+          {:else if activeInstance.mc_version === ''}
+            <button
+              class="bg-neutral-300 text-neutral-600 px-3 py-1 rounded cursor-not-allowed"
+              disabled
+              title="Pick a Minecraft version first"
+            >
+              Play {activeInstance.name}
+            </button>
+          {:else if installing}
+            <button class="bg-blue-400 text-white px-3 py-1 rounded cursor-not-allowed" disabled>
+              Working…
+            </button>
           {:else}
             <button
-              class="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 disabled:opacity-50"
-              disabled={!effectiveVersionId ||
-                installing ||
-                !activeAccount ||
-                loaderLoading ||
-                (loaderKind !== 'vanilla' && !loaderVersion)}
+              class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
               onclick={onPlay}
             >
-              {installing ? 'Working…' : `Play ${effectiveVersionId ?? ''}`}
+              {activeInstance.ready ? 'Play' : 'Install'} {activeInstance.name}
             </button>
           {/if}
           {#if installError}
@@ -544,4 +660,12 @@
   </div>
 
   <PhaseStatusRow />
+
+  <ManageInstancesModal
+    bind:open={manageOpen}
+    bind:instances
+    bind:activeInstance
+    versions={versions}
+    onChanged={refreshInstances}
+  />
 </main>
