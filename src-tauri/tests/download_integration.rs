@@ -7,6 +7,7 @@
 use ftlauncher_lib::error::Error;
 use ftlauncher_lib::network::audit::{clear_for_test, recent};
 use sha1::{Digest, Sha1};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::tempdir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -17,8 +18,19 @@ fn sha1_hex(bytes: &[u8]) -> String {
     hex::encode(h.finalize())
 }
 
+// All tests in this binary share the process-global audit ring buffer
+// (clear_for_test + recent). Serialize them so cargo's parallel runner
+// doesn't interleave clear/record/read across tests.
+fn audit_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[tokio::test]
 async fn download_succeeds_when_hash_matches() {
+    let _g = audit_lock();
     clear_for_test();
     let body = b"hello, ftlauncher";
     let expected_sha = sha1_hex(body);
@@ -51,6 +63,7 @@ async fn download_succeeds_when_hash_matches() {
 
 #[tokio::test]
 async fn download_fails_on_hash_mismatch_and_deletes_file() {
+    let _g = audit_lock();
     clear_for_test();
     let body = b"different content";
     let wrong_sha = sha1_hex(b"not this");
@@ -83,6 +96,7 @@ async fn download_fails_on_hash_mismatch_and_deletes_file() {
 
 #[tokio::test]
 async fn http_error_status_returns_network_error_and_logs() {
+    let _g = audit_lock();
     clear_for_test();
     let server = MockServer::start().await;
     Mock::given(method("GET"))

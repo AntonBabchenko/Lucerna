@@ -86,6 +86,18 @@ fn host_is_allowed_for(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::MutexGuard;
+
+    // Serializes tests in this module: they all mutate the process-global
+    // ring buffer via clear_for_test(), so cargo's default parallel runner
+    // interleaves them and flakes assertions. A module-local mutex guard
+    // gives each test exclusive access without pulling in serial_test.
+    fn test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     fn entry(url: &str) -> AuditEntry {
         AuditEntry {
@@ -100,6 +112,7 @@ mod tests {
 
     #[test]
     fn record_then_recent_returns_in_order() {
+        let _g = test_lock();
         clear_for_test();
         record(entry("https://a/"));
         record(entry("https://b/"));
@@ -111,6 +124,7 @@ mod tests {
 
     #[test]
     fn ring_buffer_evicts_oldest_at_capacity() {
+        let _g = test_lock();
         clear_for_test();
         for i in 0..(MAX_ENTRIES + 5) {
             record(entry(&format!("https://x/{i}")));
@@ -124,6 +138,7 @@ mod tests {
 
     #[test]
     fn audit_violations_empty_when_all_hosts_allowed() {
+        let _g = test_lock();
         clear_for_test();
         record(entry("https://auth.mojang.com/x"));
         record(entry("https://api.github.com/repos/y"));
@@ -133,6 +148,7 @@ mod tests {
 
     #[test]
     fn audit_violations_flags_disallowed_host() {
+        let _g = test_lock();
         clear_for_test();
         record(entry("https://evil.example/x"));
         record(entry("https://auth.mojang.com/y"));
@@ -143,6 +159,7 @@ mod tests {
 
     #[test]
     fn audit_violations_flags_malformed_url() {
+        let _g = test_lock();
         clear_for_test();
         record(entry("not a url"));
         let v = audit_violations();
@@ -151,6 +168,7 @@ mod tests {
 
     #[test]
     fn audit_violations_flags_urls_without_host() {
+        let _g = test_lock();
         clear_for_test();
         record(entry("file:///etc/passwd"));
         record(entry("data:text/plain,hi"));

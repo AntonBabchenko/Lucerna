@@ -15,8 +15,20 @@
 
 use ftlauncher_lib::network::{audit_violations, clear_audit_for_test};
 use ftlauncher_lib::versions::{clear_manifest_cache_for_test, list_manifest};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// Serializes the tests in this binary: they mutate
+// FTLAUNCHER_EXTRA_ALLOWED_HOSTS / FTLAUNCHER_MANIFEST_URL_OVERRIDE
+// and the process-global audit ring buffer, all shared across cargo's
+// parallel test threads.
+fn test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 const FIXTURE: &str = r#"{
   "latest": {"release": "1.20.4", "snapshot": "1.20.4"},
@@ -50,6 +62,7 @@ async fn run_list_manifest_against(mock: &MockServer) {
 
 #[tokio::test]
 async fn audit_has_zero_violations_with_localhost_in_extra_allowed() {
+    let _g = test_lock();
     clear_audit_for_test();
     std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1,localhost");
     let mock = MockServer::start().await;
@@ -64,6 +77,7 @@ async fn audit_has_zero_violations_with_localhost_in_extra_allowed() {
 
 #[tokio::test]
 async fn audit_flags_localhost_without_override() {
+    let _g = test_lock();
     clear_audit_for_test();
     std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
     let mock = MockServer::start().await;
@@ -82,6 +96,7 @@ async fn audit_flags_localhost_without_override() {
 
 #[tokio::test]
 async fn synthesised_evil_entry_is_flagged() {
+    let _g = test_lock();
     clear_audit_for_test();
     // Record a manual audit entry as if some module had made an
     // outbound request. Then assert the query flags it.

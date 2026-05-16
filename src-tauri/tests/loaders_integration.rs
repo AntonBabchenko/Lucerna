@@ -11,8 +11,20 @@
 use ftlauncher_lib::error::Error;
 use ftlauncher_lib::versions::loaders::{list_loaders, parse_synth_id, Loader};
 use ftlauncher_lib::versions::{clear_manifest_cache_for_test, list_manifest};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// Serializes the tests in this binary that mutate
+// FTLAUNCHER_FABRIC_META_OVERRIDE / FTLAUNCHER_QUILT_META_OVERRIDE /
+// FTLAUNCHER_EXTRA_ALLOWED_HOSTS and the loaders cache, all process-global
+// and shared across cargo's parallel test threads.
+fn test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn fabric_list_fixture() -> String {
     r#"[
@@ -30,6 +42,7 @@ fn quilt_list_fixture() -> String {
 
 #[tokio::test]
 async fn scenario_1_fabric_loader_list_happy_path() {
+    let _g = test_lock();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v2/versions/loader/1.20.4"))
@@ -54,6 +67,7 @@ async fn scenario_1_fabric_loader_list_happy_path() {
 
 #[tokio::test]
 async fn scenario_2_loader_unavailable_when_meta_empty() {
+    let _g = test_lock();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v2/versions/loader/1.6.4"))
@@ -78,6 +92,7 @@ async fn scenario_2_loader_unavailable_when_meta_empty() {
 
 #[tokio::test]
 async fn scenario_3_cache_hit_zero_second_call() {
+    let _g = test_lock();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v2/versions/loader/1.20.4"))
@@ -101,6 +116,7 @@ async fn scenario_3_cache_hit_zero_second_call() {
 
 #[tokio::test]
 async fn scenario_4_quilt_loader_list_happy_path() {
+    let _g = test_lock();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v3/versions/loader/1.20.4"))

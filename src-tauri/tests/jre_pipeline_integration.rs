@@ -12,8 +12,18 @@
 use ftlauncher_lib::jre::manifest::{
     clear_cache_for_test, fetch_top_level, mojang_platform_key, pick_component,
 };
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// Serializes the tests in this binary that mutate
+// FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE and the JRE manifest cache.
+fn test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 const TOP_LEVEL_FIXTURE: &str = r#"{
   "windows-x64": {
@@ -45,6 +55,7 @@ const TOP_LEVEL_FIXTURE: &str = r#"{
 
 #[tokio::test]
 async fn fetches_top_level_via_env_override_and_caches() {
+    let _g = test_lock();
     clear_cache_for_test();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -75,6 +86,7 @@ async fn fetches_top_level_via_env_override_and_caches() {
 
 #[tokio::test]
 async fn pick_component_falls_through_to_unknown_version_for_missing_component() {
+    let _g = test_lock();
     clear_cache_for_test();
     let server = MockServer::start().await;
     Mock::given(method("GET"))

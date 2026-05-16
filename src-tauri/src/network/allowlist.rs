@@ -88,6 +88,17 @@ fn host_matches_pattern(host: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    // Serializes the env-var tests below: they mutate
+    // FTLAUNCHER_EXTRA_ALLOWED_HOSTS, which is process-global and shared
+    // across cargo's parallel test threads.
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn wildcard_matches_subdomain() {
@@ -141,6 +152,7 @@ mod tests {
 
     #[test]
     fn env_override_enables_extra_hosts() {
+        let _g = env_lock();
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         assert!(is_host_allowed("127.0.0.1"));
         assert!(is_host_allowed("localhost"));
@@ -149,6 +161,7 @@ mod tests {
 
     #[test]
     fn env_override_empty_is_noop() {
+        let _g = env_lock();
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "");
         assert!(!is_host_allowed("127.0.0.1"));
         assert!(!is_host_allowed(""));
