@@ -45,3 +45,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Superpowers brainstorm session artifacts (visual companion mockups)
+.superpowers/
