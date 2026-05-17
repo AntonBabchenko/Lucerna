@@ -9,6 +9,14 @@ pub fn assemble_from_transitional(version_details: VersionDetails) -> VersionDet
     version_details
 }
 
+/// Modern-era VersionDetails assembly seam. Phase 3 keeps this as a
+/// pass-through identical to `assemble_from_transitional`; future work
+/// (NeoForge bootstrap shim, additional Forge bootstrap layers) can
+/// extend this without touching `installer/modern.rs`.
+pub fn assemble_from_modern(version_details: VersionDetails) -> VersionDetails {
+    version_details
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -25,5 +33,19 @@ mod tests {
         let parsed = parse(raw).unwrap();
         let assembled = assemble_from_transitional(parsed.clone());
         assert_eq!(assembled.id, parsed.id);
+    }
+
+    #[test]
+    fn assemble_from_modern_is_idempotent() {
+        let raw = r#"{
+            "id": "1.20.4-forge-49.0.49",
+            "inheritsFrom": "1.20.4",
+            "mainClass": "net.minecraftforge.bootstrap.ForgeBootstrap",
+            "libraries": []
+        }"#;
+        let parsed = parse(raw).unwrap();
+        let assembled = assemble_from_modern(parsed.clone());
+        assert_eq!(assembled.id, parsed.id);
+        assert_eq!(assembled.main_class, "net.minecraftforge.bootstrap.ForgeBootstrap");
     }
 }

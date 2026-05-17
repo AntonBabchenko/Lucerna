@@ -35,13 +35,26 @@ fn merge_arguments(parent: Option<Arguments>, child: Option<Arguments>) -> Optio
     }
 }
 
-/// `parent ++ child` deduped by maven coord `group:artifact` (version
-/// dropped). Child wins ties.
+/// `parent ++ child` deduped by maven coord. Child wins ties.
+///
+/// Dedup key:
+///   - For entries with NO rules: `group:artifact[:classifier]` (version
+///     dropped). This is the common case — child profiles intentionally
+///     override parent's plain libraries (e.g. Fabric bumps `asm` from 9.3
+///     to 9.6). Child wins.
+///   - For entries WITH rules: `group:artifact[:classifier]:version`. Some
+///     vanilla MC versions (notably 1.7–1.12) ship multiple library entries
+///     with the SAME `group:artifact` but different VERSIONS gated by
+///     platform rules — e.g. 1.12.2 ships `lwjgl:2.9.4-nightly-20150209` for
+///     Windows/Linux AND `lwjgl:2.9.2-nightly-20140822` for macOS. A
+///     version-blind dedup collapses them into the last-inserted entry,
+///     which on Windows ends up being the osx-only one → lwjgl missing
+///     from classpath → `NoClassDefFoundError: org/lwjgl/opengl/...`.
 fn dedupe_by_maven_coord(parent: Vec<Library>, child: Vec<Library>) -> Vec<Library> {
     let mut by_coord: HashMap<String, Library> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for lib in parent.into_iter().chain(child.into_iter()) {
-        let coord = coord_of(&lib.name);
+        let coord = coord_of_lib(&lib);
         if !by_coord.contains_key(&coord) {
             order.push(coord.clone());
         }
@@ -53,21 +66,26 @@ fn dedupe_by_maven_coord(parent: Vec<Library>, child: Vec<Library>) -> Vec<Libra
         .collect()
 }
 
-fn coord_of(name: &str) -> String {
-    // Mojang vanilla 1.20.4 stores LWJGL natives as separate library
-    // entries with 4-segment names like
-    // `org.lwjgl:lwjgl-glfw:3.3.2:natives-windows-x86`. The main JAR
-    // entry shares the first two segments with every native variant —
-    // dedup by `group:artifact` alone would collapse 7 entries (main +
-    // 6 platform natives) into one slot, dropping the main JAR.
-    // Including the classifier in the key keeps them distinct.
-    let mut parts = name.splitn(4, ':');
+fn coord_of_lib(lib: &Library) -> String {
+    // Modern MC (1.13+) stores LWJGL natives as separate 4-segment library
+    // entries (`org.lwjgl:lwjgl-glfw:3.3.2:natives-windows-x86`) — dedup by
+    // `group:artifact` alone would collapse 7 entries into one slot.
+    // Including the classifier keeps them distinct.
+    //
+    // Legacy MC (1.7–1.12) sometimes ships multiple entries at the same
+    // `group:artifact[:classifier]` but with different VERSIONS, gated by
+    // rules. Treat rule-bearing entries as version-distinct.
+    let mut parts = lib.name.splitn(4, ':');
     let g = parts.next().unwrap_or("");
     let a = parts.next().unwrap_or("");
-    let _v = parts.next().unwrap_or(""); // version is intentionally ignored
-    match parts.next() {
-        Some(classifier) => format!("{g}:{a}:{classifier}"),
-        None => format!("{g}:{a}"),
+    let v = parts.next().unwrap_or("");
+    let classifier = parts.next();
+    let has_rules = lib.rules.as_ref().is_some_and(|r| !r.is_empty());
+    match (classifier, has_rules) {
+        (Some(c), true) => format!("{g}:{a}:{c}:{v}"),
+        (Some(c), false) => format!("{g}:{a}:{c}"),
+        (None, true) => format!("{g}:{a}::{v}"),
+        (None, false) => format!("{g}:{a}"),
     }
 }
 
@@ -76,6 +94,7 @@ mod tests {
     use super::*;
     use crate::versions::version_json::{
         Argument, ArgumentValue, AssetIndexRef, DownloadEntry, Downloads, JavaVersion, Library,
+        Rule, RuleAction,
     };
 
     fn vanilla_lib(name: &str) -> Library {
@@ -245,6 +264,66 @@ mod tests {
     #[test]
     fn argument_value_types_exist() {
         let _ = ArgumentValue::Single("x".into());
+    }
+
+    /// Regression for the loader-matrix bug: vanilla 1.12.2 manifest ships
+    /// two `org.lwjgl.lwjgl:lwjgl` entries with DIFFERENT versions, gated
+    /// by platform rules — 2.9.4-nightly-20150209 (allow all, disallow osx)
+    /// and 2.9.2-nightly-20140822 (osx only). Version-blind dedup collapses
+    /// them to the last-inserted (osx-only) → on Windows the lwjgl jar is
+    /// filtered out by `should_install` and `NoClassDefFoundError:
+    /// org/lwjgl/opengl/OpenGLException` blows up at MC startup.
+    #[test]
+    fn dedupe_keeps_rule_bearing_same_coord_different_versions() {
+        let osx_only_rule = Rule {
+            action: RuleAction::Allow,
+            os: Some(crate::versions::version_json::OsRule {
+                name: Some("osx".into()),
+                version: None,
+                arch: None,
+            }),
+            features: None,
+        };
+        let non_osx_rules = vec![
+            Rule { action: RuleAction::Allow, os: None, features: None },
+            Rule {
+                action: RuleAction::Disallow,
+                os: Some(crate::versions::version_json::OsRule {
+                    name: Some("osx".into()),
+                    version: None,
+                    arch: None,
+                }),
+                features: None,
+            },
+        ];
+        let lwjgl_main = Library {
+            name: "org.lwjgl.lwjgl:lwjgl:2.9.4-nightly-20150209".into(),
+            downloads: None,
+            url: None,
+            rules: Some(non_osx_rules),
+            natives: None,
+        };
+        let lwjgl_osx = Library {
+            name: "org.lwjgl.lwjgl:lwjgl:2.9.2-nightly-20140822".into(),
+            downloads: None,
+            url: None,
+            rules: Some(vec![osx_only_rule]),
+            natives: None,
+        };
+        let parent = VersionDetails {
+            libraries: vec![lwjgl_main, lwjgl_osx],
+            ..vanilla_parent()
+        };
+        let merged = merge_inherits(fabric_child(), parent);
+        let names: Vec<&str> = merged.libraries.iter().map(|l| l.name.as_str()).collect();
+        assert!(
+            names.contains(&"org.lwjgl.lwjgl:lwjgl:2.9.4-nightly-20150209"),
+            "Windows/Linux lwjgl entry must survive dedup; got {names:?}"
+        );
+        assert!(
+            names.contains(&"org.lwjgl.lwjgl:lwjgl:2.9.2-nightly-20140822"),
+            "OSX lwjgl entry must survive dedup; got {names:?}"
+        );
     }
 
     /// Regression for the slice-12 e2e bug: vanilla 1.20.4 stores LWJGL

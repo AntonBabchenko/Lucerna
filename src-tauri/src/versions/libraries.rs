@@ -77,7 +77,13 @@ pub fn artifacts_to_install(
     let mut out = Vec::with_capacity(2);
 
     if let Some(dl) = lib.downloads.as_ref().filter(|dl| dl.artifact.is_some() || dl.classifiers.is_some()) {
-        // Vanilla path — full downloads block with SHA-1.
+        // Vanilla path — full downloads block with SHA-1. Empty URL means
+        // the artifact is produced locally (e.g. modern-era Forge ships
+        // `net.minecraftforge:forge:<mc>-<fv>:client` in version.json with
+        // `url=""`; this is the `{PATCHED}` output of binarypatcher, not
+        // a downloadable jar). We STILL emit the tuple — it's needed for
+        // classpath construction at launch. The download path
+        // (`ensure_libraries`) skips empty-URL entries separately.
         if let Some(art) = dl.artifact.as_ref() {
             out.push((art.path.clone(), art.url.clone(), art.sha1.clone(), art.size));
         }
@@ -93,7 +99,7 @@ pub fn artifacts_to_install(
                 }
             }
         }
-    } else if let Some(base) = lib.url.as_deref() {
+    } else if let Some(base) = lib.url.as_deref().filter(|s| !s.is_empty()) {
         // Fabric/Quilt path — synthesise maven path from `name`.
         if let Some((rel_path, full_url)) = maven_path_and_url(&lib.name, base) {
             // SHA empty + size 0 → download_with_sha skips verification
@@ -166,6 +172,27 @@ pub async fn ensure_libraries(
     for lib in libs {
         for (rel_path, url, sha1, _size) in artifacts_to_install(lib, os, arch) {
             let dest = root.join(&rel_path);
+            if url.is_empty() {
+                // Locally-produced artifact (e.g. modern-era Forge's `{PATCHED}`
+                // client jar = `net.minecraftforge:forge:<mc>-<fv>:client`).
+                // The published SHA1 in version.json refers to Forge's
+                // reference installer's exact JAR output; our local Java
+                // binarypatcher produces semantically-identical class bytes
+                // but JAR packing (entry order, deflate parameters, zip
+                // timestamps) is non-deterministic across JVMs / runs, so
+                // the file SHA1 won't bytewise-match the reference. Trust
+                // by existence (TOFU) — the install pipeline made it.
+                if tokio::fs::metadata(&dest).await.is_ok() {
+                    continue;
+                }
+                return Err(crate::error::Error::io(
+                    dest.display().to_string(),
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "locally-produced library missing — Forge install may not have completed",
+                    ),
+                ));
+            }
             if file_matches_sha(&dest, &sha1).await {
                 continue;
             }
@@ -389,6 +416,60 @@ mod tests {
         // verification and Content-Length is treated as advisory.
         assert!(sha.is_empty());
         assert_eq!(*size, 0);
+    }
+
+    #[test]
+    fn artifacts_to_install_emits_empty_url_tuple_for_locally_produced_artifact() {
+        // Modern-era Forge version.json carries the patched-client artifact
+        // (`net.minecraftforge:forge:<mc>-<fv>:client`) with an EMPTY url —
+        // it's produced locally by the install pipeline, not downloaded.
+        // `artifacts_to_install` STILL emits the tuple so that `build_classpath`
+        // at launch time gets the path. `ensure_libraries` filters the download
+        // attempt itself.
+        let lib = Library {
+            name: "net.minecraftforge:forge:1.20.4-49.0.49:client".into(),
+            downloads: Some(LibraryDownloads {
+                artifact: Some(Artifact {
+                    path: "net/minecraftforge/forge/1.20.4-49.0.49/forge-1.20.4-49.0.49-client.jar".into(),
+                    url: String::new(), // empty — locally-produced artifact
+                    sha1: "bb498cfb18f84b4ef090a8241cae252062d39257".into(),
+                    size: 0,
+                }),
+                classifiers: None,
+            }),
+            url: None,
+            rules: None,
+            natives: None,
+        };
+        let out = artifacts_to_install(&lib, "windows", "x64");
+        assert_eq!(out.len(), 1, "URL-less artifact must still yield one tuple for classpath; got {out:?}");
+        assert_eq!(out[0].0, "net/minecraftforge/forge/1.20.4-49.0.49/forge-1.20.4-49.0.49-client.jar");
+        assert_eq!(out[0].1, "", "URL is preserved as empty string for downstream filter");
+    }
+
+    #[test]
+    fn artifacts_to_install_skips_empty_top_level_url() {
+        // Defensive: a Library with `url = ""` (empty string, not None) and no
+        // `downloads` block. Without the empty-string filter, the fabric-style
+        // branch would synthesise a maven URL starting with `/` and download
+        // would fail.
+        let lib = Library {
+            name: "net.minecraftforge:forge:1.20.4-49.0.49:client".into(),
+            downloads: None,
+            url: Some(String::new()),
+            rules: None,
+            natives: None,
+        };
+        let out = artifacts_to_install(&lib, "windows", "x64");
+        // Falls through to the libraries.minecraft.net fallback — that's the
+        // existing Phase 1 behavior for `url: None`. With `url: Some("")` we
+        // also want the fallback path, NOT a `https:///g/path/...` URL.
+        assert_eq!(out.len(), 1);
+        assert!(
+            out[0].1.starts_with("https://libraries.minecraft.net/"),
+            "empty url should hit Mojang fallback; got {}",
+            out[0].1
+        );
     }
 
     #[tokio::test]

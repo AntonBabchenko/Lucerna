@@ -10,3 +10,7 @@ fccafccf8ad4ce6d9f008e786b48ff53172bf9de  forge-1.7.10-10.13.4.1614-installer.ja
 # 1.16.5 + Forge 36.2.42 — transitional era reference (Phase 2).
 # Standard maven layout (no <mc>-<fv>-<mc> quirk).
 e09ecf910e4d5eae12fb3564d9b7de212c1958b2  forge-1.16.5-36.2.42-installer.jar
+
+# 1.20.4 + Forge 49.0.49 — modern era reference (Phase 3).
+# Standard maven layout (no <mc>-<fv>-<mc> quirk).
+07e7462885d67f19b5f6771cd7ead99130ae564b  forge-1.20.4-49.0.49-installer.jar

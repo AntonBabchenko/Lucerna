@@ -518,3 +518,13 @@ mod tests {
         assert!(libs[1].url.is_none()); // falls back to libraries.minecraft.net
     }
 }
+
+/// Public re-export so `installer::modern` can call the same helper.
+/// Phase 2 kept this private as an internal detail of `install`; modern
+/// era shares the exact same maven-tree extraction logic.
+pub async fn extract_installer_maven_tree_pub(
+    installer_bytes: &[u8],
+    libs_root: &std::path::Path,
+) -> Result<()> {
+    extract_installer_maven_tree(installer_bytes, libs_root).await
+}

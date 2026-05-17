@@ -8,6 +8,9 @@
 //!   - net.minecraftforge:jarsplitter — pure-Rust
 //!   - net.md-5:SpecialSource — Java subprocess (byte-fidelity required)
 //!   - net.minecraftforge:binarypatcher — pure-Rust
+//!
+//! Phase 3 adds a fifth processor:
+//!   - net.minecraftforge:ForgeAutoRenamingTool — Java subprocess (byte-fidelity required)
 
 use crate::error::{Error, Result};
 use std::path::PathBuf;
@@ -16,6 +19,7 @@ pub mod installertools;
 pub mod jarsplitter;
 pub mod specialsource;
 pub mod binarypatcher;
+pub mod fart;
 
 #[derive(Debug, Clone)]
 pub struct ProcessorContext {
@@ -44,6 +48,7 @@ pub async fn run_processor(
         ("net.minecraftforge", "installertools", c) => installertools::run(c, args, ctx).await,
         ("net.minecraftforge", "jarsplitter", _) => jarsplitter::run(args, ctx).await,
         ("net.minecraftforge", "binarypatcher", _) => binarypatcher::run(args, ctx).await,
+        ("net.minecraftforge", "ForgeAutoRenamingTool", _) => fart::run(args, ctx).await,
         _ => Err(Error::ForgeUnsupportedProcessor {
             coord: coord.to_string(),
         }),

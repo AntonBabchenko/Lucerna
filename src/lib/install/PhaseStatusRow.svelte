@@ -72,7 +72,7 @@
         ></div>
       </div>
     {:else}
-      <p class="text-xs text-green-700">Ready (launching arrives in slice 6)</p>
+      <p class="text-xs text-green-700">Install complete — launching Minecraft…</p>
     {/if}
   </div>
 {/if}

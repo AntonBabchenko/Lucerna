@@ -35,6 +35,22 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
             "--clean" => clean = it.next().cloned(),
             "--output" => output = it.next().cloned(),
             "--apply" => apply = it.next().cloned(),
+            // binarypatcher 1.2.0+ bool flags. The presence of either of
+            // these triggers the Java shell-out route in `run` (1.0.12's
+            // pure-Rust impl can't reproduce 1.2.0+ semantics). For 1.0.12
+            // they're absent, and the Rust path runs as before.
+            //   --unpatched: include unpatched classes from --clean.
+            //   --data:      include non-class data entries.
+            //   --store:     binarypatcher 1.3.0+ (Forge 26.1.x / MC 26.1.x);
+            //                changes how patches are persisted.
+            "--unpatched" => { /* accepted, no-op for our parser; passed through to Java */ }
+            "--data" => { /* accepted, no-op for our parser; passed through to Java */ }
+            "--store" => { /* accepted, no-op for our parser; passed through to Java */ }
+            // binarypatcher 1.3.0+ value-bearing flag.
+            //   --marker <path>: writes a sentinel file after patching;
+            //                    used by Forge bootstrap to skip already-
+            //                    patched jars on relaunch.
+            "--marker" => { let _ = it.next(); /* swallow value; passed through to Java */ }
             other => return Err(patcher_fail("binarypatcher", &format!("unknown flag: {other}"))),
         }
     }
@@ -341,9 +357,30 @@ fn copy_from_source(source: &[u8], offset: usize, length: usize, out: &mut Vec<u
     Ok(())
 }
 
-pub async fn run(args: Vec<String>, _ctx: &ProcessorContext) -> Result<()> {
+pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
     use std::io::{Read, Write};
     let parsed = parse_args(&args)?;
+
+    // Modern-era 1.20.4+ install profiles invoke binarypatcher 1.2.0
+    // with `--data --unpatched` flags. The 1.2.0 binpatch wire format and
+    // GDiff payload semantics differ subtly from 1.0.12 (the version Phase 2
+    // covers): observed during e2e — patches reference offsets past the
+    // FART output end, indicating the 1.2.0 reference implementation does
+    // extra processing on `--clean` before patching (or its binpatch entries
+    // carry additional header bytes we don't parse). Re-implementing 1.2.0's
+    // exact behavior pure-Rust would re-create the same byte-fidelity quagmire
+    // the SpecialSource → FART pivot already solved. Per
+    // `docs/superpowers/specs/2026-05-16-forge-loader-design.md#addendum-2026-05-17-b--specialsource-shell-out`,
+    // bytecode-rewriting processors that produce inputs to / outputs from
+    // byte-offset-encoded patches shell out to the canonical Java tool.
+    //
+    // Routing key: presence of either 1.2.0 flag. Phase 2's transitional
+    // pipeline (binarypatcher 1.0.12) emits neither and stays on the pure-Rust
+    // path that has been e2e-validated against 1.16.5.
+    let is_v1_2_0 = args.iter().any(|a| a == "--data" || a == "--unpatched");
+    if is_v1_2_0 {
+        return run_via_java(&args, ctx).await;
+    }
 
     // 1. Load + decompress patches.
     let lzma_bytes = tokio::fs::read(&parsed.apply).await.map_err(|e| {
@@ -455,6 +492,54 @@ pub async fn run(args: Vec<String>, _ctx: &ProcessorContext) -> Result<()> {
     Ok(())
 }
 
+/// Modern-era (binarypatcher 1.2.0+) Java-subprocess shell-out. Mirrors
+/// `forge::patcher::specialsource::run` / `forge::patcher::fart::run`. Spawns
+/// `java -cp <ctx.classpath joined> net.minecraftforge.binarypatcher.ConsoleTool <args>`.
+async fn run_via_java(args: &[String], ctx: &ProcessorContext) -> Result<()> {
+    use std::path::PathBuf;
+    let java_bin = ctx
+        .java_bin
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("java"));
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let cp: String = ctx
+        .classpath
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(sep);
+
+    let mut cmd = tokio::process::Command::new(&java_bin);
+    cmd.arg("-cp").arg(&cp);
+    cmd.arg("net.minecraftforge.binarypatcher.ConsoleTool");
+    cmd.args(args);
+
+    eprintln!(
+        "binarypatcher (1.2.0): spawning {} with {} classpath entries",
+        java_bin.display(),
+        ctx.classpath.len()
+    );
+
+    let output = cmd.output().await.map_err(|e| {
+        patcher_fail("binarypatcher", &format!("spawn java: {e}"))
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(patcher_fail(
+            "binarypatcher",
+            &format!(
+                "java exit {}: stderr={} stdout={}",
+                output.status,
+                stderr.trim(),
+                stdout.trim()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +563,43 @@ mod tests {
     #[test]
     fn parse_args_unknown_flag_errors() {
         assert!(parse_args(&vec!["--mysterious".into()]).is_err());
+    }
+
+    #[test]
+    fn parse_args_accepts_v1_2_0_flags() {
+        let raw = vec![
+            "--clean".into(), "/c".into(),
+            "--output".into(), "/o".into(),
+            "--apply".into(), "/p".into(),
+            "--data".into(),
+            "--unpatched".into(),
+        ];
+        let parsed = parse_args(&raw).expect("1.2.0 flags must parse");
+        assert_eq!(parsed.clean, "/c");
+        assert_eq!(parsed.output, "/o");
+        assert_eq!(parsed.apply, "/p");
+    }
+
+    #[test]
+    fn parse_args_accepts_v1_3_0_flags() {
+        // Forge 26.1.x / MC 26.1.x ships binarypatcher 1.3.0 with two new
+        // flags: `--store` (bool) and `--marker <path>` (value-bearing).
+        // Our parser must accept both so the Java shell-out route can
+        // forward them; the routing key `--data || --unpatched` still
+        // triggers the Java path.
+        let raw = vec![
+            "--clean".into(), "/c".into(),
+            "--output".into(), "/o".into(),
+            "--apply".into(), "/p".into(),
+            "--data".into(),
+            "--unpatched".into(),
+            "--store".into(),
+            "--marker".into(), ".forge_patched_minecraft".into(),
+        ];
+        let parsed = parse_args(&raw).expect("1.3.0 flags must parse");
+        assert_eq!(parsed.clean, "/c");
+        assert_eq!(parsed.output, "/o");
+        assert_eq!(parsed.apply, "/p");
     }
 
     // ── GDiff + parse_binpatch tests ──────────────────────────────────────────

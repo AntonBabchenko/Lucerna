@@ -4,7 +4,7 @@
 
 pub mod legacy;
 pub mod transitional;
-// pub mod modern;        // Phase 3
+pub mod modern;
 
 use crate::error::{Error, Result};
 use crate::forge::ForgeFlavor;
@@ -60,9 +60,7 @@ pub async fn install(
     match era {
         Era::Legacy => legacy::install(&install_profile, &bytes, mc, fv, app).await,
         Era::Transitional => transitional::install(&install_profile, &bytes, mc, fv, app).await,
-        Era::Modern => Err(Error::ForgeUnsupportedProcessor {
-            coord: format!("<modern-era for {mc}-{fv}, Phase 3 — not yet shipped>"),
-        }),
+        Era::Modern => modern::install(&install_profile, &bytes, mc, fv, app).await,
     }
 }
 

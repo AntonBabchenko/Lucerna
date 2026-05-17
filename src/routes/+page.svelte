@@ -12,7 +12,7 @@
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -47,6 +47,24 @@
   let crashReport = $state<CrashReport | null>(null);
   let modsError = $state<string | null>(null);
   let violationsCount = $state(0);
+
+  // Whenever the active instance changes, clear per-instance error banners.
+  // They refer to the previously-active instance and confuse the user when
+  // they switch context (e.g. fix one instance's setup by switching to
+  // another, only to still see the old error).
+  let lastActiveId: string | null = null;
+  $effect(() => {
+    const newId = activeInstance?.id ?? null;
+    untrack(() => {
+      if (newId !== lastActiveId) {
+        lastActiveId = newId;
+        installError = null;
+        modsError = null;
+        exited = null;
+        crashReport = null;
+      }
+    });
+  });
 
   function errorMessage(e: IpcError): string {
     switch (e.kind) {
@@ -209,6 +227,8 @@
       return;
     }
     await refreshInstances();
+    // The $effect watching activeInstance.id clears per-instance error
+    // banners (installError, modsError, exited, crashReport) automatically.
   }
 
   async function onPlay() {

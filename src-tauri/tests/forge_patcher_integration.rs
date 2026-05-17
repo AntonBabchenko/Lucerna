@@ -98,3 +98,77 @@ async fn binarypatcher_golden_or_skip() {
     run_processor("net.minecraftforge:binarypatcher:1.0.12", args, &ctx).await.expect("binarypatcher");
     assert!(out.exists());
 }
+
+// ── Phase 3 additions ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn installertools_merge_mapping_classes_only() {
+    let dir = tempdir().unwrap();
+    let left = dir.path().join("left.tsrg");
+    let right = dir.path().join("right.txt");
+    let out = dir.path().join("merged.tsrg");
+    std::fs::write(&left, "a net/srg/A\nb net/srg/B\n").unwrap();
+    std::fs::write(&right, "com.example.Named -> a:\n    int n -> q\n").unwrap();
+
+    let ctx = ProcessorContext {
+        classpath: vec![],
+        cache_dir: dir.path().to_path_buf(),
+        java_bin: None,
+    };
+    let args = vec![
+        "--task".into(), "MERGE_MAPPING".into(),
+        "--left".into(), left.display().to_string(),
+        "--right".into(), right.display().to_string(),
+        "--output".into(), out.display().to_string(),
+        "--classes".into(),
+        "--reverse-right".into(),
+    ];
+    run_processor("net.minecraftforge:installertools:1.4.0", args, &ctx)
+        .await
+        .expect("merge");
+    let merged = std::fs::read_to_string(&out).unwrap();
+    assert!(merged.contains("a com/example/Named"));
+    assert!(merged.contains("b net/srg/B"));
+}
+
+#[tokio::test]
+async fn installertools_bundler_extract_returns_server_only_error() {
+    let dir = tempdir().unwrap();
+    let ctx = ProcessorContext {
+        classpath: vec![],
+        cache_dir: dir.path().to_path_buf(),
+        java_bin: None,
+    };
+    let args = vec!["--task".into(), "BUNDLER_EXTRACT".into()];
+    let err = run_processor("net.minecraftforge:installertools:1.4.0", args, &ctx)
+        .await
+        .unwrap_err();
+    match err {
+        ftlauncher_lib::error::Error::ForgeUnsupportedProcessor { coord } => {
+            assert!(coord.contains("BUNDLER_EXTRACT"));
+            assert!(coord.contains("server-only") || coord.contains("client install"));
+        }
+        other => panic!("expected ForgeUnsupportedProcessor, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn fart_rejects_missing_required_args() {
+    let dir = tempdir().unwrap();
+    let ctx = ProcessorContext {
+        classpath: vec![],
+        cache_dir: dir.path().to_path_buf(),
+        java_bin: None,
+    };
+    let args = vec!["--ann-fix".into()];
+    let err = run_processor("net.minecraftforge:ForgeAutoRenamingTool:1.0.6", args, &ctx)
+        .await
+        .unwrap_err();
+    match err {
+        ftlauncher_lib::error::Error::ForgePatcherFailed { processor, details } => {
+            assert_eq!(processor, "fart");
+            assert!(details.contains("missing --input"));
+        }
+        other => panic!("expected ForgePatcherFailed, got {other:?}"),
+    }
+}
