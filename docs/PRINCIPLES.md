@@ -50,6 +50,16 @@ The project exists because other launchers serves a real use-case (offline play,
 | `javaw.exe` (bundled JRE) | Runs the Minecraft client | `launch::spawn::start` | Until the user closes MC or clicks Stop in the launcher | stdin closed; stdout+stderr → `<instance>/logs/launch-<timestamp>.log` |
 | `taskkill.exe` (Windows built-in) | Terminates the running `javaw.exe` and its children when the user clicks Stop | `launch::spawn::stop` | One-shot; exits as soon as the kill request is issued | stdin/stdout/stderr not captured (one-shot system utility) |
 | `explorer.exe` (or OS-default file manager) | Opens a user-clicked folder (currently `<instance>/.minecraft/mods/`) in the OS file manager | `tauri_plugin_opener::OpenerExt::open_path` via the `open_mods_folder` Tauri command | One-shot; the file manager opens (or focuses) a window and the spawn handle exits immediately | stdin/stdout/stderr not captured (GUI process) |
+| `java.exe` (bundled JRE, via `-cp`) | Runs SpecialSource bytecode remapper during Forge transitional-era (1.13–1.16) install. Produces byte-identical SRG output that Forge's binarypatcher COPY commands expect. | `forge::patcher::specialsource::run` | One-shot; exits when remapping is complete. Runs once per Forge install, before play. | stdin closed; stdout+stderr captured and surfaced as install error if exit code ≠ 0 |
+
+**Selective Java subprocess invocation is permitted during install for bytecode-rewriting processors** (SpecialSource for transitional Forge era, FART for modern Forge era). These specific tools produce outputs that Forge's pre-computed binary patches reference via byte-offset COPY commands; any byte-level divergence breaks the install. Reverse-engineering Java's exact output is impractical, so we shell out to the canonical Java implementation.
+
+This does NOT permit:
+- Running the full Forge `installer.jar` headlessly.
+- Spawning Java for any installer step that does not require byte-fidelity (installertools, jarsplitter, binarypatcher all remain pure-Rust).
+- Modifying the Minecraft client at runtime.
+
+Every Java subprocess spawned during install is a single processor invocation with bounded args, and is visible in the Processes panel.
 
 The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary watchdog, no helper process. The Java runtime is exactly the one Mojang publishes via the JRE manifest (slice 5), and the Minecraft jar is exactly the one Mojang serves at `piston-data.mojang.com` (slice 4).
 

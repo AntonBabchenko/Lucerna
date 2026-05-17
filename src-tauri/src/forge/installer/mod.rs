@@ -3,7 +3,7 @@
 //! the era handlers.
 
 pub mod legacy;
-// pub mod transitional;  // Phase 2
+pub mod transitional;
 // pub mod modern;        // Phase 3
 
 use crate::error::{Error, Result};
@@ -59,9 +59,7 @@ pub async fn install(
     let era = detect_era(&install_profile);
     match era {
         Era::Legacy => legacy::install(&install_profile, &bytes, mc, fv, app).await,
-        Era::Transitional => Err(Error::ForgeUnsupportedProcessor {
-            coord: format!("<transitional-era for {mc}-{fv}, Phase 2 — not yet shipped>"),
-        }),
+        Era::Transitional => transitional::install(&install_profile, &bytes, mc, fv, app).await,
         Era::Modern => Err(Error::ForgeUnsupportedProcessor {
             coord: format!("<modern-era for {mc}-{fv}, Phase 3 — not yet shipped>"),
         }),

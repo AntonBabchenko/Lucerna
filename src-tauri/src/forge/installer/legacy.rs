@@ -78,30 +78,8 @@ pub fn extract_universal_jar_bytes(
     Ok((file_path.to_string(), buf))
 }
 
-/// Resolve a Mojang/Maven coordinate `g:a:v[:classifier]` into the
-/// relative path used by `<libraries_dir>`:
-/// `g/path/a/v/a-v[-classifier].jar`. Mirrors
-/// `versions::libraries::maven_path_and_url` so the library resolver
-/// finds the file we place here.
-pub fn maven_coord_to_relative_path(coord: &str) -> Option<String> {
-    let parts: Vec<&str> = coord.split(':').collect();
-    if parts.len() < 3 {
-        return None;
-    }
-    let group_path = parts[0].replace('.', "/");
-    let artifact = parts[1];
-    let version = parts[2];
-    let classifier = parts
-        .get(3)
-        .map(|c| format!("-{c}"))
-        .unwrap_or_default();
-    if group_path.is_empty() || artifact.is_empty() || version.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "{group_path}/{artifact}/{version}/{artifact}-{version}{classifier}.jar"
-    ))
-}
+/// Re-exported from `forge::patcher` — two eras now need this helper.
+pub use crate::forge::patcher::maven_coord_to_relative_path;
 
 pub async fn install(
     install_profile: &serde_json::Value,
@@ -194,41 +172,6 @@ mod tests {
         assert_eq!(details.main_class, "net.minecraft.launchwrapper.Launch");
         let m = details.minecraft_arguments.expect("minecraftArguments");
         assert!(m.contains("FMLTweaker"));
-    }
-
-    #[test]
-    fn maven_coord_to_relative_path_three_segments_no_classifier() {
-        let p = maven_coord_to_relative_path("net.minecraftforge:forge:1.7.10-10.13.4.1614-1.7.10");
-        assert_eq!(
-            p.as_deref(),
-            Some("net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10.jar")
-        );
-    }
-
-    #[test]
-    fn maven_coord_to_relative_path_four_segments_with_classifier() {
-        // Even though Phase 1 legacy installer doesn't emit a classifier
-        // (install.path is plain g:a:v), other parts of the pipeline may
-        // — keep classifier handling correct.
-        let p = maven_coord_to_relative_path("org.lwjgl:lwjgl:3.3.1:natives-windows");
-        assert_eq!(
-            p.as_deref(),
-            Some("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar")
-        );
-    }
-
-    #[test]
-    fn maven_coord_to_relative_path_rejects_under_three_segments() {
-        assert_eq!(maven_coord_to_relative_path("net.minecraftforge:forge"), None);
-        assert_eq!(maven_coord_to_relative_path("foo"), None);
-        assert_eq!(maven_coord_to_relative_path(""), None);
-    }
-
-    #[test]
-    fn maven_coord_to_relative_path_rejects_empty_segment() {
-        assert_eq!(maven_coord_to_relative_path(":artifact:1.0"), None);
-        assert_eq!(maven_coord_to_relative_path("group::1.0"), None);
-        assert_eq!(maven_coord_to_relative_path("group:artifact:"), None);
     }
 
     #[test]

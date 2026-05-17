@@ -12,6 +12,8 @@ pub mod flavor;
 pub mod meta;
 pub mod profile;
 pub mod installer;
+pub mod patcher;
+pub mod mappings;
 
 pub use flavor::ForgeFlavor;
 pub use installer::install as install_forge;

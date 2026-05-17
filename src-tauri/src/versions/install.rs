@@ -152,7 +152,7 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
 ///    — recursively resolves the parent and merges via
 ///    `versions::resolve::merge_inherits`. Recursion depth capped at
 ///    4 to defend against loop-shaped `inheritsFrom` chains.
-async fn ensure_version_json(
+pub(crate) async fn ensure_version_json(
     version_id: &str,
     app: &tauri::AppHandle,
 ) -> Result<VersionDetails> {
@@ -252,7 +252,7 @@ async fn ensure_version_json_inner(
     parse(&text).map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))
 }
 
-fn current_os() -> &'static str {
+pub(crate) fn current_os() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"
     } else if cfg!(target_os = "macos") {
@@ -262,7 +262,7 @@ fn current_os() -> &'static str {
     }
 }
 
-fn current_arch() -> &'static str {
+pub(crate) fn current_arch() -> &'static str {
     if cfg!(target_arch = "x86_64") {
         "x64"
     } else if cfg!(target_arch = "aarch64") {

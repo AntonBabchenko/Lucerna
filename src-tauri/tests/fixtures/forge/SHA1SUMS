@@ -6,3 +6,7 @@
 # (legacy `<mc>-<fv>-<mc>` quirk); fetch.ps1 strips the trailing `-<mc>` when
 # storing locally so the integration test can use a stable name.
 fccafccf8ad4ce6d9f008e786b48ff53172bf9de  forge-1.7.10-10.13.4.1614-installer.jar
+
+# 1.16.5 + Forge 36.2.42 — transitional era reference (Phase 2).
+# Standard maven layout (no <mc>-<fv>-<mc> quirk).
+e09ecf910e4d5eae12fb3564d9b7de212c1958b2  forge-1.16.5-36.2.42-installer.jar
