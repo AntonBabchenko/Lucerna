@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "FTlauncher",
-        "width": 1024,
-        "height": 680
+        "width": 820,
+        "height": 680,
+        "minWidth": 820,
+        "minHeight": 680
       }
     ],
     "security": {

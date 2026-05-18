@@ -3,10 +3,11 @@
     commands,
     type InstanceWithStatus,
     type LoaderKind,
-    type LoaderVersion,
     type VersionEntry,
     type Error as IpcError,
   } from '$lib/ipc/bindings';
+  import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import { displayLoader } from '$lib/instances/loader-display';
 
   let {
     open = $bindable(),
@@ -22,12 +23,11 @@
     onChanged: () => void;
   } = $props();
 
-  const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];
-
   let selectedId = $state<string | null>(null);
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
   let modalError = $state<string | null>(null);
+  let deleteConfirmOpen = $state(false);
 
   // Snapshot toggle for the MC version pickers. Off by default —
   // most users want stable releases. Shared across the create form
@@ -41,74 +41,44 @@
   let draftName = $state('');
   let draftMc = $state('');
   let draftLoader = $state<LoaderKind>('vanilla');
-  let draftLoaderVersions = $state<LoaderVersion[]>([]);
   let draftLoaderVersion = $state<string | null>(null);
 
   // Detail form state — reactive to `selected`.
   let nameDraft = $state('');
-  let loaderVersionsDetail = $state<LoaderVersion[]>([]);
 
   $effect(() => {
     if (selected) {
       nameDraft = selected.name;
-      if (selected.loader !== 'vanilla' && selected.mc_version) {
-        void loadLoaderVersionsFor(selected.loader, selected.mc_version, 'detail');
-      }
     }
   });
 
-  // Create-form mirror of the home-screen effect: refetch + auto-pick a
-  // recommended loader version whenever the user changes loader or MC in
-  // the draft, regardless of order. Without this the dropdown stays
-  // empty if the user clicks Fabric/Quilt/Forge before picking an MC
-  // version, and `draftLoaderVersion` stays null — submitCreate would
-  // then create an instance in a broken state that errors with
-  // `NoVersionSelected` at install time.
+  // Auto-clear stale modalError when the user navigates away from
+  // whatever caused it — switching instances, opening/closing the
+  // create form, or picking a different MC/loader in create draft.
+  // Without this, a "quilt has no version for 26.1.2" error from a
+  // previous attempt would linger on top of an unrelated screen.
+  let createDisabledReason = $derived.by(() => {
+    if (!createMode) return '';
+    if (!draftName.trim()) return 'Enter a name';
+    if (!draftMc) return 'Pick a Minecraft version first';
+    if (draftLoader !== 'vanilla' && !draftLoaderVersion)
+      return `${displayLoader(draftLoader)} does not support Minecraft ${draftMc} — try another version or loader`;
+    return '';
+  });
   $effect(() => {
-    if (!createMode) return;
-    const kind = draftLoader;
-    const mc = draftMc;
-    if (kind === 'vanilla' || !mc) {
-      draftLoaderVersions = [];
-      draftLoaderVersion = null;
-      return;
-    }
-    void loadLoaderVersionsFor(kind, mc, 'create');
+    // Track everything that should reset the error:
+    void selectedId;
+    void createMode;
+    void draftMc;
+    void draftLoader;
+    modalError = null;
   });
 
   function ipcErrorMessage(e: IpcError): string {
+    if (e.kind === 'instance_name_empty') return 'Name cannot be empty';
+    if (e.kind === 'instance_name_too_long')
+      return `Name is too long: ${e.actual}/${e.max} characters`;
     return JSON.stringify(e);
-  }
-
-  async function loadLoaderVersionsFor(
-    loader: LoaderKind,
-    mc: string,
-    target: 'detail' | 'create',
-  ) {
-    if (loader === 'vanilla' || !mc) {
-      if (target === 'create') draftLoaderVersions = [];
-      else loaderVersionsDetail = [];
-      return;
-    }
-    const list =
-      loader === 'fabric'
-        ? await commands.listFabricLoaders(mc)
-        : loader === 'quilt'
-          ? await commands.listQuiltLoaders(mc)
-          : loader === 'neoforge'
-            ? await commands.listNeoforgeLoaders(mc)
-            : await commands.listForgeLoaders(mc);
-    if (list.status === 'ok') {
-      if (target === 'create') {
-        draftLoaderVersions = list.data;
-        const stable = list.data.find((l) => l.stable);
-        draftLoaderVersion = (stable ?? list.data[0])?.version ?? null;
-      } else {
-        loaderVersionsDetail = list.data;
-      }
-    } else {
-      modalError = ipcErrorMessage(list.error);
-    }
   }
 
   function openCreate() {
@@ -130,11 +100,10 @@
       return;
     }
     if (draftLoader !== 'vanilla' && !draftLoaderVersion) {
-      // The $effect that loads loader versions hasn't picked a default
-      // yet (still in flight, or list_loaders returned empty for this
-      // loader/MC combo). Either way: refuse to persist a broken
-      // loader/null-version pair — the user must resolve it first.
-      modalError = `${draftLoader} has no compatible version for Minecraft ${draftMc}`;
+      // Belt-and-braces: the Create button is also disabled in this
+      // state via createDisabledReason. This branch catches the
+      // in-flight race where load() hasn't resolved yet.
+      modalError = `${displayLoader(draftLoader)} does not support Minecraft ${draftMc} — try another version or loader`;
       return;
     }
     const result = await commands.createInstance(
@@ -171,35 +140,13 @@
     else modalError = ipcErrorMessage(result.error);
   }
 
-  async function setLoader(kind: LoaderKind) {
+  async function commitLoader(kind: LoaderKind, version: string | null) {
     if (!selected) return;
-    let lv: string | null = null;
-    if (kind !== 'vanilla') {
-      if (!selected.mc_version) {
-        modalError = 'Pick a Minecraft version first';
-        return;
-      }
-      await loadLoaderVersionsFor(kind, selected.mc_version, 'detail');
-      const stable = loaderVersionsDetail.find((l) => l.stable);
-      lv = (stable ?? loaderVersionsDetail[0])?.version ?? null;
-      if (lv === null) {
-        // list_loaders returned empty (or errored — modalError is
-        // already set). Refuse to persist a broken loader/null-version
-        // combination; the user can pick a different loader or MC.
-        if (!modalError) {
-          modalError = `${kind} does not support Minecraft ${selected.mc_version}`;
-        }
-        return;
-      }
+    if (kind !== 'vanilla' && !selected.mc_version) {
+      modalError = 'Pick a Minecraft version first';
+      return;
     }
-    const result = await commands.setInstanceLoader(selected.id, kind, lv);
-    if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
-  }
-
-  async function setLoaderVersion(v: string) {
-    if (!selected) return;
-    const result = await commands.setInstanceLoader(selected.id, selected.loader, v);
+    const result = await commands.setInstanceLoader(selected.id, kind, version);
     if (result.status === 'ok') onChanged();
     else modalError = ipcErrorMessage(result.error);
   }
@@ -241,7 +188,14 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') close();
+    if (e.key !== 'Escape') return;
+    // Escape closes the delete-confirm overlay first if it's open;
+    // otherwise it closes the whole Manage modal.
+    if (deleteConfirmOpen) {
+      deleteConfirmOpen = false;
+    } else {
+      close();
+    }
   }
 </script>
 
@@ -273,7 +227,7 @@
                 {/if}
               </div>
               <div class="text-xs text-neutral-500">
-                {i.loader} · {i.mc_version || '(pick MC)'}
+                {displayLoader(i.loader)} · {i.mc_version || '(pick MC)'}
               </div>
             </button>
           {/each}
@@ -287,8 +241,15 @@
         <section class="flex-1 overflow-y-auto p-4">
           {#if createMode}
             <h3 class="font-semibold mb-3">New instance</h3>
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Name</label>
-            <input class="border rounded px-2 py-1 w-full mb-3" bind:value={draftName} />
+            <label class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between">
+              <span>Name</span>
+              <span class="text-neutral-400 normal-case font-normal">{draftName.length}/32</span>
+            </label>
+            <input
+              class="border rounded px-2 py-1 w-full mb-3"
+              maxlength="32"
+              bind:value={draftName}
+            />
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">Minecraft version</label>
             <select
@@ -306,45 +267,20 @@
               Show snapshots
             </label>
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Loader</label>
-            <div class="flex gap-1 mb-3">
-              {#each LOADER_KINDS as lk}
-                <button
-                  class="flex-1 border rounded px-2 py-1 text-xs"
-                  class:bg-blue-600={draftLoader === lk}
-                  class:text-white={draftLoader === lk}
-                  onclick={async () => {
-                    draftLoader = lk;
-                    if (lk !== 'vanilla' && draftMc) {
-                      await loadLoaderVersionsFor(lk, draftMc, 'create');
-                    }
-                  }}>{lk}</button
-                >
-              {/each}
-            </div>
-
-            {#if draftLoader !== 'vanilla' && draftLoaderVersions.length > 0}
-              <label class="block text-xs uppercase text-neutral-600 mb-1">Loader version</label>
-              <select
-                class="border rounded px-2 py-1 w-full mb-3"
-                value={draftLoaderVersion ?? ''}
-                onchange={(e) =>
-                  (draftLoaderVersion = (e.currentTarget as HTMLSelectElement).value)}
-              >
-                {#each draftLoaderVersions as lv}
-                  <option value={lv.version}>
-                    {lv.version}{lv.stable ? ' (recommended)' : ''}
-                  </option>
-                {/each}
-              </select>
-            {/if}
+            <LoaderPicker
+              mc={draftMc}
+              bind:loader={draftLoader}
+              bind:loaderVersion={draftLoaderVersion}
+            />
 
             <div class="flex justify-end gap-2 mt-4">
               <button class="border rounded px-3 py-1 text-sm" onclick={() => (createMode = false)}>
                 Cancel
               </button>
               <button
-                class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700"
+                class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:bg-neutral-300 disabled:cursor-not-allowed"
+                disabled={!!createDisabledReason}
+                title={createDisabledReason}
                 onclick={submitCreate}
               >
                 Create
@@ -358,9 +294,13 @@
                 >{/if}
             </h3>
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Name</label>
+            <label class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between">
+              <span>Name</span>
+              <span class="text-neutral-400 normal-case font-normal">{nameDraft.length}/32</span>
+            </label>
             <input
               class="border rounded px-2 py-1 w-full mb-3"
+              maxlength="32"
               bind:value={nameDraft}
               onblur={commitName}
             />
@@ -381,32 +321,16 @@
               Show snapshots
             </label>
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Loader</label>
-            <div class="flex gap-1 mb-3">
-              {#each LOADER_KINDS as lk}
-                <button
-                  class="flex-1 border rounded px-2 py-1 text-xs"
-                  class:bg-blue-600={selected.loader === lk}
-                  class:text-white={selected.loader === lk}
-                  onclick={() => setLoader(lk)}>{lk}</button
-                >
-              {/each}
-            </div>
-
-            {#if selected.loader !== 'vanilla' && loaderVersionsDetail.length > 0}
-              <label class="block text-xs uppercase text-neutral-600 mb-1">Loader version</label>
-              <select
-                class="border rounded px-2 py-1 w-full mb-3"
-                value={selected.loader_version ?? ''}
-                onchange={(e) => setLoaderVersion((e.currentTarget as HTMLSelectElement).value)}
-              >
-                {#each loaderVersionsDetail as lv}
-                  <option value={lv.version}>
-                    {lv.version}{lv.stable ? ' (recommended)' : ''}
-                  </option>
-                {/each}
-              </select>
-            {/if}
+            <LoaderPicker
+              mc={selected.mc_version}
+              loader={selected.loader}
+              loaderVersion={selected.loader_version}
+              onchange={async (l, v) => {
+                if (l !== selected!.loader || v !== selected!.loader_version) {
+                  await commitLoader(l, v);
+                }
+              }}
+            />
 
             <label class="block text-xs uppercase text-neutral-600 mb-1">
               Memory (max heap): {selected.max_heap_mb} MB
@@ -438,7 +362,7 @@
                   class="border border-red-300 text-red-700 rounded px-3 py-1 text-xs hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   disabled={instances.length <= 1}
                   title={instances.length <= 1 ? 'Cannot delete the last instance' : ''}
-                  onclick={deleteSelected}
+                  onclick={() => (deleteConfirmOpen = true)}
                 >
                   🗑 Delete
                 </button>
@@ -463,4 +387,37 @@
       </div>
     </div>
   </div>
+
+  {#if deleteConfirmOpen && selected}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+      <div class="bg-white rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
+        <h3 class="font-semibold text-base">Delete instance?</h3>
+        <p class="text-sm text-neutral-700">
+          Delete <span class="font-mono font-semibold">{selected.name}</span>?
+        </p>
+        <p class="text-sm text-neutral-600">
+          This permanently removes the instance directory including its
+          <span class="font-mono">.minecraft/</span> folder — saved worlds, installed mods, configs, resource
+          packs, screenshots. This cannot be undone.
+        </p>
+        <div class="flex justify-end gap-2 mt-2">
+          <button
+            class="border rounded px-3 py-1 text-sm"
+            onclick={() => (deleteConfirmOpen = false)}
+          >
+            Cancel
+          </button>
+          <button
+            class="bg-red-600 text-white rounded px-3 py-1 text-sm hover:bg-red-700"
+            onclick={async () => {
+              deleteConfirmOpen = false;
+              await deleteSelected();
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}

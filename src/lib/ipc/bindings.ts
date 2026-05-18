@@ -52,12 +52,19 @@ export const commands = {
 	 */
 	installVersion: (versionId: string) => typedError<null, Error>(__TAURI_INVOKE("install_version", { versionId })),
 	/**
-	 *  Install (idempotently) and then launch the given instance. Resolves
-	 *  version+loader from `instance.json` server-side. Emits
-	 *  `installProgress` during install and `processSpawned` /
-	 *  `processExited` around the run.
+	 *  Install (idempotently) the given instance's version. Does NOT launch
+	 *  — the UI shows an Install button when the instance is not ready and
+	 *  a Play button once it is. Emits `installProgress` during the run.
+	 *  Resolves version+loader from `instance.json` server-side.
 	 */
-	installAndLaunch: (instanceId: string) => typedError<number, Error>(__TAURI_INVOKE("install_and_launch", { instanceId })),
+	installInstance: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("install_instance", { instanceId })),
+	/**
+	 *  Launch the given instance. Assumes it is already installed (the UI
+	 *  only shows the Play button when `instance.ready == true`). Emits
+	 *  `processSpawned` / `processExited` around the run. Resolves
+	 *  version+loader from `instance.json` server-side.
+	 */
+	launchInstance: (instanceId: string) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId })),
 	/**  Kill the running Minecraft process if any. Idempotent. */
 	stopMinecraft: () => typedError<null, Error>(__TAURI_INVOKE("stop_minecraft")),
 	/**
@@ -224,7 +231,7 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number };
 
 export type Greeting = {
 	message: string,

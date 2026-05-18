@@ -1,0 +1,90 @@
+import { fireEvent, render } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
+import Sidebar from '$lib/layout/Sidebar.svelte';
+
+const sampleAccount: Account = {
+  id: 'a1',
+  name: 'Tester',
+  uuid: '00000000-0000-0000-0000-000000000000',
+  expires_at: null,
+};
+const sampleInstance: InstanceWithStatus = {
+  id: 'i1',
+  name: 'Default',
+  mc_version: '1.20.1',
+  loader: 'vanilla',
+  loader_version: null,
+  ready: true,
+  max_heap_mb: 4096,
+  extra_jvm_args: '',
+  created_unix_ms: null,
+};
+
+describe('Sidebar', () => {
+  it('renders FTlauncher title', () => {
+    const { getByText } = render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        violationsCount: 0,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenNetwork: vi.fn(),
+      },
+    });
+    expect(getByText('FTlauncher')).toBeTruthy();
+  });
+
+  it('lists accounts and emits select on change', async () => {
+    const onSelectAccount = vi.fn();
+    const { getByDisplayValue } = render(Sidebar, {
+      props: {
+        accounts: [sampleAccount],
+        activeAccount: sampleAccount,
+        instances: [sampleInstance],
+        activeInstance: sampleInstance,
+        violationsCount: 0,
+        onSelectAccount,
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenNetwork: vi.fn(),
+      },
+    });
+    const select = getByDisplayValue(/Tester/) as HTMLSelectElement;
+    expect(select).toBeTruthy();
+  });
+
+  it('shows a red dot when violationsCount > 0', () => {
+    const { container } = render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        violationsCount: 3,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenNetwork: vi.fn(),
+      },
+    });
+    const dot = container.querySelector('[aria-label*="violations"]');
+    expect(dot).toBeTruthy();
+  });
+});

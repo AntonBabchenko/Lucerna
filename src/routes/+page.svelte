@@ -12,12 +12,13 @@
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+  import Sidebar from '$lib/layout/Sidebar.svelte';
+  import MainTabs from '$lib/layout/MainTabs.svelte';
   import { onMount, untrack } from 'svelte';
+  import { displayLoader } from '$lib/instances/loader-display';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
-  let showAddOfflineInput = $state(false);
-  let offlineNameDraft = $state('');
   let offlineNameError = $state<string | null>(null);
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
@@ -83,7 +84,7 @@
       case 'unsupported_platform':
         return `Unsupported platform: ${e.os}/${e.arch}`;
       case 'loader_unavailable':
-        return `${e.loader} does not support Minecraft ${e.mc_version}`;
+        return `${displayLoader(e.loader as import('$lib/ipc/bindings').LoaderKind)} does not support Minecraft ${e.mc_version}`;
       case 'last_instance':
         return 'Cannot delete the last instance — at least one must remain';
       case 'no_version_selected':
@@ -104,6 +105,10 @@
         return `Forge patcher "${e.processor}" failed: ${e.details}`;
       case 'forge_mappings_missing':
         return `Forge mappings for ${e.mc} are not available`;
+      case 'instance_name_empty':
+        return 'Instance name cannot be empty';
+      case 'instance_name_too_long':
+        return `Instance name is too long: ${e.actual}/${e.max} characters`;
     }
   }
 
@@ -163,24 +168,6 @@
     }
   });
 
-  async function onAddOfflineSubmit() {
-    const trimmed = offlineNameDraft.trim();
-    if (trimmed.length === 0) {
-      offlineNameError = 'Name cannot be empty';
-      return;
-    }
-    offlineNameError = null;
-    const result = await commands.addOfflineAccount(trimmed);
-    if (result.status === 'ok') {
-      await commands.setActiveAccount(result.data.id);
-      await refreshAccounts();
-      showAddOfflineInput = false;
-      offlineNameDraft = '';
-    } else {
-      offlineNameError = errorMessage(result.error);
-    }
-  }
-
   async function onSelectAccount(id: string) {
     const result = await commands.setActiveAccount(id);
     if (result.status === 'ok') {
@@ -197,10 +184,6 @@
     } else {
       removeError = errorMessage(result.error);
     }
-  }
-
-  function formatAccountLabel(a: Account): string {
-    return `${a.name} (offline)`;
   }
 
   async function refreshInstances() {
@@ -231,18 +214,34 @@
     // banners (installError, modsError, exited, crashReport) automatically.
   }
 
-  async function onPlay() {
+  async function onInstall() {
     if (!activeInstance) return;
     if (activeInstance.mc_version === '') return;
     installing = true;
     installError = null;
-    const result = await commands.installAndLaunch(activeInstance.id);
+    const result = await commands.installInstance(activeInstance.id);
     installing = false;
     if (result.status === 'error') {
       installError = errorMessage(result.error);
     } else {
+      // Refresh so `activeInstance.ready` flips to true and the button
+      // swaps from blue Install to green Play. No auto-launch — the
+      // user clicks Play explicitly.
       await refreshInstances();
     }
+  }
+
+  async function onPlay() {
+    if (!activeInstance) return;
+    if (activeInstance.mc_version === '') return;
+    if (!activeInstance.ready) return;
+    installError = null;
+    const result = await commands.launchInstance(activeInstance.id);
+    if (result.status === 'error') {
+      installError = errorMessage(result.error);
+    }
+    // processSpawned event sets `running` once MC starts; processExited
+    // clears it. No need to refresh state here.
   }
 
   async function onStop() {
@@ -275,43 +274,48 @@
   }
 </script>
 
-<main class="relative min-h-screen flex flex-col">
-  <div class="flex-1 p-8 flex flex-col gap-6 items-start">
-    <div class="absolute right-4 top-4 flex items-center gap-2">
-      <button
-        class="text-sm border rounded px-2 py-1 hover:bg-neutral-100"
-        onclick={() => (logsOpen = !logsOpen)}
-      >
-        📜 Logs
-      </button>
-      <button
-        class="text-sm border rounded px-2 py-1 hover:bg-neutral-100 relative"
-        onclick={() => {
-          networkOpen = !networkOpen;
-          if (!networkOpen) void refreshViolations();
-        }}
-      >
-        🌐 Network
-        {#if violationsCount > 0}
-          <span
-            class="absolute -top-1 -right-1 inline-block w-2.5 h-2.5 bg-red-600 rounded-full"
-            aria-label="{violationsCount} allowlist violations"
-          ></span>
-        {/if}
-      </button>
-      <NetworkPopover bind:open={networkOpen} />
-      <LogsPopover
-        bind:open={logsOpen}
-        initialPath={logsInitialPath}
-        instanceId={activeInstance?.id ?? null}
-      />
-    </div>
+<main
+  class="grid h-screen overflow-hidden"
+  style="grid-template-columns: 240px 1fr; grid-template-rows: 1fr auto;"
+>
+  <div class="col-start-1 row-start-1 overflow-hidden">
+    <Sidebar
+      {accounts}
+      {activeAccount}
+      {instances}
+      {activeInstance}
+      {violationsCount}
+      {onSelectAccount}
+      onRemoveAccount={onRemoveActive}
+      onAddOffline={async (name) => {
+        if (!name) {
+          offlineNameError = 'Name cannot be empty';
+          return;
+        }
+        offlineNameError = null;
+        const result = await commands.addOfflineAccount(name);
+        if (result.status === 'ok') {
+          await commands.setActiveAccount(result.data.id);
+          await refreshAccounts();
+        } else {
+          offlineNameError = errorMessage(result.error);
+        }
+      }}
+      {onSelectInstance}
+      onOpenManage={() => (manageOpen = true)}
+      {onOpenMods}
+      onOpenLogs={() => (logsOpen = !logsOpen)}
+      onOpenNetwork={() => {
+        networkOpen = !networkOpen;
+        if (!networkOpen) void refreshViolations();
+      }}
+    />
+  </div>
 
-    <h1 class="text-2xl font-bold">FTlauncher</h1>
-
+  <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
     {#if crashReport}
       <div
-        class="w-full max-w-2xl bg-red-50 border border-red-300 text-red-800 px-3 py-2 rounded flex items-center justify-between gap-3"
+        class="bg-red-50 border-b border-red-200 text-red-800 px-4 py-2 flex items-center justify-between gap-3"
       >
         <span class="text-sm">
           Minecraft crashed.
@@ -334,248 +338,157 @@
       </div>
     {/if}
 
-    <section class="flex flex-col gap-2">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Account</h2>
-      {#if accounts.length === 0}
-        <p class="text-sm text-neutral-500">No accounts yet — add one below.</p>
-      {:else}
-        <div class="flex items-center gap-2">
-          <label class="text-sm">Active:</label>
-          <select
-            class="border rounded px-2 py-1 w-64"
-            value={activeAccount?.id ?? ''}
-            onchange={(e) => onSelectAccount((e.currentTarget as HTMLSelectElement).value)}
-          >
-            {#each accounts as a}
-              <option value={a.id}>{formatAccountLabel(a)}</option>
-            {/each}
-          </select>
-          <button
-            class="border rounded px-2 py-1 text-xs hover:bg-neutral-100"
-            onclick={onRemoveActive}
-            disabled={!activeAccount}
-          >
-            Remove
-          </button>
-        </div>
-        {#if activeAccount}
-          <p class="text-xs text-neutral-500 font-mono">UUID: {activeAccount.uuid}</p>
-        {/if}
-        {#if removeError}
-          <p class="text-xs text-red-700">
-            {removeError}
-            <button
-              class="text-neutral-500 hover:text-neutral-800"
-              onclick={() => (removeError = null)}>×</button
-            >
-          </p>
-        {/if}
-      {/if}
-
-      <div class="flex items-center gap-2 mt-2">
-        <button
-          class="border rounded px-3 py-1 text-sm hover:bg-neutral-100"
-          onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
-        >
-          + Add offline account
-        </button>
-      </div>
-      <p class="text-xs text-neutral-500 italic">
-        Microsoft account login is deferred — coming back after v0.5.0 (mod browser).
-      </p>
-      {#if listAccountsError}
-        <p class="text-xs text-red-700">
-          {listAccountsError}
-          <button
-            class="text-neutral-500 hover:text-neutral-800"
-            onclick={() => (listAccountsError = null)}>×</button
-          >
-        </p>
-      {/if}
-      {#if showAddOfflineInput}
-        <div class="flex items-center gap-2 mt-1">
-          <input
-            class="border rounded px-2 py-1 w-48 text-sm"
-            placeholder="Player name"
-            bind:value={offlineNameDraft}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                onAddOfflineSubmit();
-              }
-            }}
-          />
-          <button
-            class="border rounded px-2 py-1 text-sm hover:bg-neutral-100"
-            onclick={onAddOfflineSubmit}>Add</button
-          >
-          <button
-            class="text-sm text-neutral-500 hover:text-neutral-800"
-            onclick={() => {
-              showAddOfflineInput = false;
-              offlineNameDraft = '';
-              offlineNameError = null;
-            }}>Cancel</button
-          >
-        </div>
-        {#if offlineNameError}
-          <p class="text-xs text-red-700">{offlineNameError}</p>
-        {/if}
-      {/if}
-    </section>
-
-    <section class="flex flex-col gap-2">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Instance</h2>
-      {#if instances.length === 0}
-        <div
-          class="text-sm text-neutral-700 bg-neutral-100 border border-neutral-300 rounded px-3 py-2"
-        >
-          No instances found — create one to get started.
-          <button
-            class="ml-2 bg-blue-600 text-white text-xs rounded px-2 py-1 hover:bg-blue-700"
-            onclick={() => (manageOpen = true)}
-          >
-            + Create
-          </button>
-        </div>
-      {:else}
-        <div class="flex items-center gap-2">
-          <select
-            class="border rounded px-2 py-1 w-64"
-            value={activeInstance?.id ?? ''}
-            onchange={(e) => onSelectInstance((e.currentTarget as HTMLSelectElement).value)}
-          >
-            {#each instances as i}
-              <option value={i.id}>
-                {i.ready ? '✓' : '↓'}
-                {i.name} · {i.loader}
-                {i.mc_version || '(pick MC)'}
-              </option>
-            {/each}
-          </select>
-          <button
-            class="border rounded px-2 py-1 text-xs hover:bg-neutral-100"
-            onclick={() => (manageOpen = true)}
-          >
-            ⚙ Manage
-          </button>
-        </div>
-        {#if instancesError}
-          <p class="text-xs text-red-700">{instancesError}</p>
-        {/if}
-      {/if}
-    </section>
-
-    {#if activeInstance}
-      <section class="flex flex-col gap-2">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">
-          Configuration
-        </h2>
-        <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
-          <span class="text-neutral-500">Minecraft</span>
-          <span class="font-mono">{activeInstance.mc_version || '(not set)'}</span>
-          <span class="text-neutral-500">Loader</span>
-          <span class="font-mono">
-            {activeInstance.loader}{#if activeInstance.loader_version}
-              · {activeInstance.loader_version}
-            {/if}
-          </span>
-        </div>
-        <p class="text-xs text-neutral-500">
-          Edit version, loader, memory and JVM args via
-          <button
-            type="button"
-            class="underline hover:text-neutral-800"
-            onclick={() => (manageOpen = true)}>Manage</button
-          >.
-        </p>
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <div class="flex items-center gap-3">
-          {#if running}
-            <button
-              class="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
-              onclick={onStop}
-            >
-              ⏹ Stop
-            </button>
-            <span class="text-sm font-mono">
-              Running {running.version_id} (PID {running.pid})
-            </span>
-          {:else if activeInstance.mc_version === ''}
-            <button
-              class="bg-neutral-300 text-neutral-600 px-3 py-1 rounded cursor-not-allowed"
-              disabled
-              title="Pick a Minecraft version first"
-            >
-              Play {activeInstance.name}
-            </button>
-          {:else if installing}
-            <button class="bg-blue-400 text-white px-3 py-1 rounded cursor-not-allowed" disabled>
-              Working…
-            </button>
-          {:else}
-            <button
-              class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-              onclick={onPlay}
-            >
-              {activeInstance.ready ? 'Play' : 'Install'}
-              {activeInstance.name}
-            </button>
-          {/if}
-          {#if installError}
-            <span class="text-xs text-red-700 flex items-center gap-1">
-              {installError}
+    <MainTabs>
+      {#snippet overview()}
+        <div class="p-6 flex flex-col gap-4">
+          {#if offlineNameError}
+            <p class="text-xs text-red-700">
+              {offlineNameError}
               <button
                 class="text-neutral-500 hover:text-neutral-800"
-                onclick={() => (installError = null)}
-                aria-label="Dismiss"
+                onclick={() => (offlineNameError = null)}
+                aria-label="Dismiss">×</button
               >
-                ×
-              </button>
-            </span>
+            </p>
           {/if}
-          {#if exited && !running}
-            <span class="text-xs text-neutral-600">
-              Exited (code {exited.code})
-            </span>
+          {#if listAccountsError}
+            <p class="text-xs text-red-700">
+              {listAccountsError}
+              <button
+                class="text-neutral-500 hover:text-neutral-800"
+                onclick={() => (listAccountsError = null)}>×</button
+              >
+            </p>
+          {/if}
+          {#if removeError}
+            <p class="text-xs text-red-700">
+              {removeError}
+              <button
+                class="text-neutral-500 hover:text-neutral-800"
+                onclick={() => (removeError = null)}>×</button
+              >
+            </p>
+          {/if}
+          {#if instancesError}
+            <p class="text-xs text-red-700">{instancesError}</p>
+          {/if}
+          {#if versionsError}
+            <p class="text-xs text-red-700">{versionsError}</p>
+          {/if}
+          {#if activeInstance}
+            <div class="flex flex-col gap-1">
+              <div class="text-xs uppercase tracking-wide text-neutral-500">Configuration</div>
+              <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+                <span class="text-neutral-500">Minecraft</span>
+                <span class="font-mono">{activeInstance.mc_version || '(not set)'}</span>
+                <span class="text-neutral-500">Loader</span>
+                <span class="font-mono">
+                  {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
+                    · {activeInstance.loader_version}
+                  {/if}
+                </span>
+                <span class="text-neutral-500">Memory</span>
+                <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
+              </div>
+              <p class="text-xs text-neutral-500">
+                Edit via
+                <button
+                  type="button"
+                  class="underline hover:text-neutral-800"
+                  onclick={() => (manageOpen = true)}>Manage</button
+                >.
+              </p>
+            </div>
+
+            <div class="flex items-center gap-4 mt-2">
+              {#if running}
+                <button
+                  class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 font-semibold"
+                  onclick={onStop}
+                >
+                  Stop
+                </button>
+                <span class="text-sm font-mono"
+                  >Running {running.version_id} (PID {running.pid})</span
+                >
+              {:else if activeInstance.mc_version === ''}
+                <button
+                  class="bg-neutral-300 text-neutral-600 px-4 py-2 rounded cursor-not-allowed font-semibold"
+                  disabled
+                  title="Pick a Minecraft version first"
+                >
+                  Play
+                </button>
+              {:else if installing}
+                <button
+                  class="bg-blue-400 text-white px-4 py-2 rounded cursor-not-allowed font-semibold"
+                  disabled
+                >
+                  Working…
+                </button>
+              {:else if !activeInstance.ready}
+                <button
+                  class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-semibold"
+                  onclick={onInstall}
+                >
+                  Install
+                </button>
+              {:else}
+                <button
+                  class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 font-semibold"
+                  onclick={onPlay}
+                >
+                  Play
+                </button>
+              {/if}
+              {#if installError}
+                <span class="text-xs text-red-700 flex items-center gap-1">
+                  {installError}
+                  <button
+                    class="text-neutral-500 hover:text-neutral-800"
+                    onclick={() => (installError = null)}
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                </span>
+              {/if}
+              {#if exited && !running}
+                <span class="text-xs text-neutral-600">Exited (code {exited.code})</span>
+              {/if}
+              {#if modsError}
+                <span class="text-xs text-red-700 flex items-center gap-1">
+                  {modsError}
+                  <button
+                    class="text-neutral-500 hover:text-neutral-800"
+                    onclick={() => (modsError = null)}
+                    aria-label="Dismiss"
+                  >
+                    ×
+                  </button>
+                </span>
+              {/if}
+            </div>
+          {:else}
+            <p class="text-sm text-neutral-500">
+              No instance selected. Create one via the sidebar.
+            </p>
           {/if}
         </div>
-      </section>
-    {/if}
-
-    <section class="flex flex-col gap-2">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-neutral-600">Mods</h2>
-      <div class="flex items-center gap-3">
-        <button class="border rounded px-3 py-1 text-sm hover:bg-neutral-100" onclick={onOpenMods}>
-          📂 Open mods folder
-        </button>
-        {#if modsError}
-          <span class="text-xs text-red-700 flex items-center gap-1">
-            {modsError}
-            <button
-              class="text-neutral-500 hover:text-neutral-800"
-              onclick={() => (modsError = null)}
-              aria-label="Dismiss"
-            >
-              ×
-            </button>
-          </span>
-        {/if}
-      </div>
-      <p class="text-xs text-neutral-500 italic">
-        Vanilla Minecraft doesn't load mods — pick a loader (Fabric, Quilt or Forge) above first.
-        NeoForge support arrives in v0.4.1.
-      </p>
-      <p class="text-xs text-neutral-500 italic">
-        All launches currently share one Minecraft folder. Switching loader or MC version while mods
-        are installed may surface Fabric cache quirks — per-profile isolation arrives in v0.3.0.
-      </p>
-    </section>
+      {/snippet}
+    </MainTabs>
   </div>
 
-  <PhaseStatusRow />
+  <div class="col-start-1 col-end-3 row-start-2">
+    <PhaseStatusRow />
+  </div>
+
+  <NetworkPopover bind:open={networkOpen} />
+  <LogsPopover
+    bind:open={logsOpen}
+    initialPath={logsInitialPath}
+    instanceId={activeInstance?.id ?? null}
+  />
 
   <ManageInstancesModal
     bind:open={manageOpen}

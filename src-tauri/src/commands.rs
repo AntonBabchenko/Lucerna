@@ -5,6 +5,28 @@ pub struct Greeting {
     pub message: String,
 }
 
+const MAX_INSTANCE_NAME_LEN: u32 = 32;
+
+/// Validate instance name at the IPC boundary.
+///
+/// Reasons live as typed Error variants so the UI doesn't string-parse.
+/// Count uses unicode scalar values (chars), not bytes — a 32-char
+/// cyrillic name is 64 bytes but 32 graphemes, and that's fine.
+fn validate_instance_name(name: &str) -> Result<(), crate::error::Error> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(crate::error::Error::InstanceNameEmpty);
+    }
+    let count = trimmed.chars().count() as u32;
+    if count > MAX_INSTANCE_NAME_LEN {
+        return Err(crate::error::Error::InstanceNameTooLong {
+            max: MAX_INSTANCE_NAME_LEN,
+            actual: count,
+        });
+    }
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn greet(name: String) -> Greeting {
@@ -91,34 +113,58 @@ pub async fn install_version(
     crate::versions::install_version(&version_id, &app).await
 }
 
-/// Install (idempotently) and then launch the given instance. Resolves
-/// version+loader from `instance.json` server-side. Emits
-/// `installProgress` during install and `processSpawned` /
-/// `processExited` around the run.
+/// Install (idempotently) the given instance's version. Does NOT launch
+/// — the UI shows an Install button when the instance is not ready and
+/// a Play button once it is. Emits `installProgress` during the run.
+/// Resolves version+loader from `instance.json` server-side.
 #[tauri::command]
 #[specta::specta]
-pub async fn install_and_launch(
+pub async fn install_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<(), crate::error::Error> {
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+    crate::versions::install_version(&effective_id, &app).await
+}
+
+/// Launch the given instance. Assumes it is already installed (the UI
+/// only shows the Play button when `instance.ready == true`). Emits
+/// `processSpawned` / `processExited` around the run. Resolves
+/// version+loader from `instance.json` server-side.
+#[tauri::command]
+#[specta::specta]
+pub async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<u32, crate::error::Error> {
-    // Early existence check — gives a clean InstanceNotFound rather than
-    // a generic Io error if the directory is missing.
-    let all = crate::instances::list_instances_with_status(&app)?;
-    if !all.iter().any(|i| i.id == instance_id) {
-        return Err(crate::error::Error::InstanceNotFound { id: instance_id });
-    }
-
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     let json_path = crate::paths::instance_json(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
     let instance = crate::instances::store::read_instance_json(&json_path)?;
-
-    let effective_id = crate::instances::status::effective_version_id(&instance)
-        .ok_or(crate::error::Error::NoVersionSelected)?;
-
-    crate::versions::install_version(&effective_id, &app).await?;
     let account = crate::accounts::get_active_account(&app)?
         .ok_or(crate::error::Error::AccountNotSet)?;
     crate::launch::start(&instance, &effective_id, &account, &app).await
+}
+
+/// Shared prelude for install_instance and launch_instance: confirm the
+/// instance exists, read its JSON, and resolve the effective version id.
+/// Returns the version id only; callers that need the full Instance read
+/// it again (cheap; same file on disk).
+fn resolve_instance_effective_id(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<String, crate::error::Error> {
+    let all = crate::instances::list_instances_with_status(app)?;
+    if !all.iter().any(|i| i.id == instance_id) {
+        return Err(crate::error::Error::InstanceNotFound {
+            id: instance_id.to_string(),
+        });
+    }
+    let json_path = crate::paths::instance_json(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
+    let instance = crate::instances::store::read_instance_json(&json_path)?;
+    crate::instances::status::effective_version_id(&instance)
+        .ok_or(crate::error::Error::NoVersionSelected)
 }
 
 /// Kill the running Minecraft process if any. Idempotent.
@@ -282,6 +328,7 @@ pub fn create_instance(
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    validate_instance_name(&name)?;
     crate::instances::create_instance(&app, name, mc_version, loader, loader_version)
 }
 
@@ -303,6 +350,7 @@ pub fn set_instance_name(
     id: String,
     name: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    validate_instance_name(&name)?;
     crate::instances::set_instance_name(&app, &id, name)
 }
 
@@ -361,11 +409,82 @@ pub async fn open_instance_folder(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Error;
 
     #[test]
     fn greet_includes_name() {
         let g = greet("World".to_string());
         assert!(g.message.contains("World"));
         assert!(g.message.contains("FTlauncher"));
+    }
+
+    #[test]
+    fn validate_accepts_normal_name() {
+        assert!(validate_instance_name("My Pack").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty() {
+        assert!(matches!(
+            validate_instance_name(""),
+            Err(Error::InstanceNameEmpty)
+        ));
+    }
+
+    #[test]
+    fn validate_rejects_whitespace_only() {
+        assert!(matches!(
+            validate_instance_name("   \t  "),
+            Err(Error::InstanceNameEmpty)
+        ));
+    }
+
+    #[test]
+    fn validate_trims_leading_trailing_whitespace_for_length_check() {
+        // 32 chars surrounded by spaces — trimmed length is 32, valid.
+        let name = format!("  {}  ", "a".repeat(32));
+        assert!(validate_instance_name(&name).is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_exactly_32_chars() {
+        assert!(validate_instance_name(&"a".repeat(32)).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_33_chars() {
+        let result = validate_instance_name(&"a".repeat(33));
+        assert!(matches!(
+            result,
+            Err(Error::InstanceNameTooLong { max: 32, actual: 33 })
+        ));
+    }
+
+    #[test]
+    fn validate_counts_unicode_scalar_values_not_bytes() {
+        // 30 cyrillic chars = 60 bytes in UTF-8 but 30 scalars — valid.
+        assert!(validate_instance_name(&"я".repeat(30)).is_ok());
+        // 33 cyrillic chars = 66 bytes — should still reject as 33 too long.
+        let result = validate_instance_name(&"я".repeat(33));
+        assert!(matches!(
+            result,
+            Err(Error::InstanceNameTooLong { max: 32, actual: 33 })
+        ));
+    }
+
+    // These tests verify the validate_instance_name call site — they do
+    // NOT exercise the full Tauri command path (no AppHandle available
+    // in unit tests). For full integration use the matrix harness.
+
+    #[test]
+    fn validate_rejects_at_create_call_site_path() {
+        // The shape we want: anyone calling validate_instance_name
+        // before reaching crate::instances::create_instance gets the
+        // correct typed error. The function's a private guard, so this
+        // is a behavioural assertion via the public helper.
+        let r = validate_instance_name("");
+        assert!(matches!(r, Err(Error::InstanceNameEmpty)));
+        let r = validate_instance_name(&"x".repeat(33));
+        assert!(matches!(r, Err(Error::InstanceNameTooLong { .. })));
     }
 }

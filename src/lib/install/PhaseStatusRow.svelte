@@ -51,28 +51,23 @@
 </script>
 
 {#if progress}
-  <div class="border-t bg-neutral-50 px-4 py-2 flex flex-col gap-1">
-    <div class="flex items-center justify-between text-sm">
-      <span class="font-medium">{phaseLabel(progress.phase)}</span>
-      <span class="text-xs text-neutral-600 font-mono">
-        {progress.files_done}/{progress.files_total}
-        {#if progress.bytes_done && progress.bytes_done > 0}
-          · {formatBytes(progress.bytes_done)}
-        {/if}
-      </span>
-    </div>
-    {#if progress.current_step}
-      <p class="text-xs text-neutral-600">{progress.current_step}</p>
-    {/if}
+  <div class="border-t bg-neutral-50 px-4 py-1 flex items-center gap-3 text-xs">
+    <span class="font-medium text-neutral-900">{phaseLabel(progress.phase)}</span>
+    <span class="text-neutral-600 font-mono">
+      {progress.files_done}/{progress.files_total}
+      {#if progress.bytes_done && progress.bytes_done > 0}
+        · {formatBytes(progress.bytes_done)}
+      {/if}
+    </span>
     {#if progress.phase !== 'complete'}
-      <div class="h-1.5 bg-neutral-200 rounded overflow-hidden">
+      <div class="flex-1 h-1 bg-neutral-200 rounded overflow-hidden">
         <div
           class="h-full bg-blue-600 transition-all"
           style="width: {percent(progress.files_done, progress.files_total)}%"
         ></div>
       </div>
     {:else}
-      <p class="text-xs text-green-700">Install complete — launching Minecraft…</p>
+      <span class="text-green-700">— click Play to launch</span>
     {/if}
   </div>
 {/if}

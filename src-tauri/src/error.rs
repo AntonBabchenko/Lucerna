@@ -69,6 +69,12 @@ pub enum Error {
 
     #[error("Mappings for Minecraft {mc} are unavailable")]
     ForgeMappingsMissing { mc: String },
+
+    #[error("Instance name cannot be empty")]
+    InstanceNameEmpty,
+
+    #[error("Instance name is too long: {actual} characters (max {max})")]
+    InstanceNameTooLong { max: u32, actual: u32 },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -216,5 +222,21 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains(r#""kind":"forge_mappings_missing""#), "got: {json}");
         assert!(json.contains(r#""mc":"1.20.4""#), "got: {json}");
+    }
+
+    #[test]
+    fn instance_name_empty_serializes_with_tag() {
+        let e = Error::InstanceNameEmpty;
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"instance_name_empty""#), "got: {json}");
+    }
+
+    #[test]
+    fn instance_name_too_long_carries_max_and_actual() {
+        let e = Error::InstanceNameTooLong { max: 32, actual: 50 };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"instance_name_too_long""#), "got: {json}");
+        assert!(json.contains(r#""max":32"#), "got: {json}");
+        assert!(json.contains(r#""actual":50"#), "got: {json}");
     }
 }
