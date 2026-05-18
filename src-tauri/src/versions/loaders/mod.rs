@@ -18,6 +18,7 @@
 
 pub mod fabric;
 pub mod forge;
+pub mod neoforge;
 pub mod quilt;
 
 use crate::error::{Error, Result};
@@ -33,6 +34,7 @@ pub enum Loader {
     Fabric,
     Quilt,
     Forge,
+    NeoForge,
 }
 
 impl Loader {
@@ -43,6 +45,8 @@ impl Loader {
             // Forge has no "-loader-" infix; the synth_id is `forge-<fv>-<mc>`.
             // Returned prefix is the part BEFORE <fv>.
             Loader::Forge => "forge-",
+            // NeoForge follows the same no-infix shape: `neoforge-<nv>-<mc>`.
+            Loader::NeoForge => "neoforge-",
         }
     }
 
@@ -51,6 +55,17 @@ impl Loader {
             Loader::Fabric => "fabric",
             Loader::Quilt => "quilt",
             Loader::Forge => "forge",
+            Loader::NeoForge => "neoforge",
+        }
+    }
+
+    /// User-facing capitalised label for display in progress messages and UI.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Loader::Fabric => "Fabric",
+            Loader::Quilt => "Quilt",
+            Loader::Forge => "Forge",
+            Loader::NeoForge => "NeoForge",
         }
     }
 }
@@ -84,6 +99,10 @@ pub fn parse_synth_id(id: &str) -> Option<(Loader, String, String)> {
     if let Some(rest) = id.strip_prefix("forge-") {
         return parse_forge_rest(Loader::Forge, rest);
     }
+    // NeoForge: "neoforge-<nv>-<mc>". Same no-infix shape as Forge.
+    if let Some(rest) = id.strip_prefix("neoforge-") {
+        return parse_forge_rest(Loader::NeoForge, rest);
+    }
     None
 }
 
@@ -98,9 +117,11 @@ fn parse_fabric_quilt_rest(loader: Loader, rest: &str) -> Option<(Loader, String
 }
 
 fn parse_forge_rest(loader: Loader, rest: &str) -> Option<(Loader, String, String)> {
-    // Find the first `-` whose right side starts with a digit. Forge
-    // versions are dot-and-digit only; once we hit `-<digit>`, the right
-    // side is the MC id (which always begins with a digit).
+    // Find the first `-` whose right side starts with a digit. Forge and
+    // NeoForge versions are dot-and-digit only (e.g. `49.0.49`, `20.4.245`),
+    // so the loader-version part must also start with a digit. MC versions
+    // always begin with a digit too (e.g. `1.20.4`, `24w08a` — snapshot ids
+    // start with a 2-digit year).
     let bytes = rest.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {
         if b == b'-'
@@ -109,7 +130,13 @@ fn parse_forge_rest(loader: Loader, rest: &str) -> Option<(Loader, String, Strin
         {
             let fv = &rest[..i];
             let mc = &rest[i + 1..];
-            if !fv.is_empty() && !mc.is_empty() {
+            // Reject if the loader-version part doesn't start with a digit.
+            // This prevents `neoforge-loader-47.0.0-1.20.4` from being
+            // misidentified as NeoForge with loader_ver="loader".
+            if !fv.is_empty()
+                && !mc.is_empty()
+                && fv.as_bytes()[0].is_ascii_digit()
+            {
                 return Some((loader, fv.to_string(), mc.to_string()));
             }
         }
@@ -149,6 +176,7 @@ pub async fn list_loaders(loader: Loader, mc_id: &str) -> Result<Vec<LoaderVersi
         Loader::Fabric => fabric::list(mc_id).await?,
         Loader::Quilt => quilt::list(mc_id).await?,
         Loader::Forge => forge::list(mc_id).await?,
+        Loader::NeoForge => neoforge::list(mc_id).await?,
     };
 
     if entries.is_empty() {
@@ -183,6 +211,7 @@ pub async fn fetch_profile(
         Loader::Fabric => fabric::profile(mc_id, loader_ver).await,
         Loader::Quilt => quilt::profile(mc_id, loader_ver).await,
         Loader::Forge => forge::profile(mc_id, loader_ver, app).await,
+        Loader::NeoForge => neoforge::profile(mc_id, loader_ver, app).await,
     }
 }
 
@@ -244,7 +273,8 @@ mod tests {
         assert!(parse_synth_id("fabric-loader-0.15.7-").is_none());
         assert!(parse_synth_id("fabric-loader--1.20.4").is_none());
         assert!(parse_synth_id("").is_none());
-        // Unknown loader prefix — neoforge ships in v0.4.1.
+        // NeoForge ids use `neoforge-<nv>-<mc>` (no `-loader-` infix).
+        // The infix-style id below is malformed for both old and v0.4.1 parsers.
         assert!(parse_synth_id("neoforge-loader-47.0.0-1.20.4").is_none());
     }
 
@@ -282,5 +312,44 @@ mod tests {
         assert!(parse_synth_id("forge-").is_none());
         assert!(parse_synth_id("forge-49.0.49-").is_none());
         assert!(parse_synth_id("forge--1.20.4").is_none());
+    }
+
+    #[test]
+    fn synth_id_neoforge_round_trip() {
+        let id = synth_id(Loader::NeoForge, "20.4.245", "1.20.4");
+        assert_eq!(id, "neoforge-20.4.245-1.20.4");
+        let (l, lv, mv) = parse_synth_id(&id).unwrap();
+        assert_eq!(l, Loader::NeoForge);
+        assert_eq!(lv, "20.4.245");
+        assert_eq!(mv, "1.20.4");
+    }
+
+    #[test]
+    fn parse_synth_id_neoforge_handles_mc_with_pre1_suffix() {
+        let (l, lv, mv) = parse_synth_id("neoforge-21.1.0-1.21.1-pre1").unwrap();
+        assert_eq!(l, Loader::NeoForge);
+        assert_eq!(lv, "21.1.0");
+        assert_eq!(mv, "1.21.1-pre1");
+    }
+
+    #[test]
+    fn parse_synth_id_rejects_neoforge_without_components() {
+        assert!(parse_synth_id("neoforge-").is_none());
+        assert!(parse_synth_id("neoforge-20.4.245-").is_none());
+        assert!(parse_synth_id("neoforge--1.20.4").is_none());
+    }
+
+    #[test]
+    fn loader_neoforge_as_str_is_neoforge() {
+        assert_eq!(Loader::NeoForge.as_str(), "neoforge");
+        assert_eq!(Loader::NeoForge.as_synth_prefix(), "neoforge-");
+    }
+
+    #[test]
+    fn loader_display_name_capitalises() {
+        assert_eq!(Loader::Fabric.display_name(), "Fabric");
+        assert_eq!(Loader::Quilt.display_name(), "Quilt");
+        assert_eq!(Loader::Forge.display_name(), "Forge");
+        assert_eq!(Loader::NeoForge.display_name(), "NeoForge");
     }
 }

@@ -11,6 +11,13 @@
 //!
 //! Phase 3 adds a fifth processor:
 //!   - net.minecraftforge:ForgeAutoRenamingTool — Java subprocess (byte-fidelity required)
+//!
+//! v0.4.1 (NeoForge ADDENDUM A) adds coord-based arms for NeoForge's
+//! `net.neoforged.*` group alongside the `net.minecraftforge.*` arms:
+//!   - net.neoforged:AutoRenamingTool — Java subprocess (ART, replaces FART)
+//!   - net.neoforged.installertools:installertools — same sub-task dispatch as Forge
+//!   - net.neoforged.installertools:jarsplitter — same pure-Rust jarsplitter
+//!   - net.neoforged.installertools:binarypatcher — Java subprocess (coord-based, ADDENDUM B)
 
 use crate::error::{Error, Result};
 use std::path::PathBuf;
@@ -20,6 +27,7 @@ pub mod jarsplitter;
 pub mod specialsource;
 pub mod binarypatcher;
 pub mod fart;
+pub mod art;
 
 #[derive(Debug, Clone)]
 pub struct ProcessorContext {
@@ -44,11 +52,18 @@ pub async fn run_processor(
     let (group, artifact, _version, classifier) = parsed;
 
     match (group.as_str(), artifact.as_str(), classifier.as_deref()) {
+        // Forge processors (v0.4.0)
         ("net.md-5", "SpecialSource", _) => specialsource::run(args, ctx).await,
         ("net.minecraftforge", "installertools", c) => installertools::run(c, args, ctx).await,
         ("net.minecraftforge", "jarsplitter", _) => jarsplitter::run(args, ctx).await,
         ("net.minecraftforge", "binarypatcher", _) => binarypatcher::run(args, ctx).await,
         ("net.minecraftforge", "ForgeAutoRenamingTool", _) => fart::run(args, ctx).await,
+        // NeoForge processors (v0.4.1 ADDENDUM A — different maven group)
+        ("net.neoforged", "AutoRenamingTool", _) => art::run(args, ctx).await,
+        ("net.neoforged.installertools", "installertools", c) => installertools::run(c, args, ctx).await,
+        ("net.neoforged.installertools", "jarsplitter", _) => jarsplitter::run(args, ctx).await,
+        // NeoForge binarypatcher 2.1.2 — coord-based Java routing (ADDENDUM B)
+        ("net.neoforged.installertools", "binarypatcher", _) => binarypatcher::run_neoforge(args, ctx).await,
         _ => Err(Error::ForgeUnsupportedProcessor {
             coord: coord.to_string(),
         }),
@@ -68,10 +83,14 @@ pub fn parse_maven_coord(coord: &str) -> Option<(String, String, String, Option<
     ))
 }
 
-/// Resolve a maven coordinate `g:a:v[:classifier]` into the relative
-/// path used by `<libraries_dir>`: `g/path/a/v/a-v[-classifier].jar`.
+/// Resolve a maven coordinate `g:a:v[:classifier][@ext]` into the relative
+/// path used by `<libraries_dir>`: `g/path/a/v/a-v[-classifier].<ext>`.
 /// Moved here from `forge::installer::legacy` because two eras now
 /// need it; legacy.rs re-exports for backward compatibility.
+///
+/// The `@ext` annotation (e.g. `@jar`, `@zip`) is stripped from the version
+/// or classifier field before building the path. NeoForge installertools 2.1.2
+/// appends `@jar` to every classpath coord — this function handles that case.
 pub fn maven_coord_to_relative_path(coord: &str) -> Option<String> {
     let parts: Vec<&str> = coord.split(':').collect();
     if parts.len() < 3 {
@@ -79,14 +98,31 @@ pub fn maven_coord_to_relative_path(coord: &str) -> Option<String> {
     }
     let group_path = parts[0].replace('.', "/");
     let artifact = parts[1];
-    let version = parts[2];
-    let classifier = parts.get(3).map(|c| format!("-{c}")).unwrap_or_default();
+    // Strip @ext from version; default extension is "jar".
+    let (version, ext) = strip_at_ext(parts[2]);
+    // Strip @ext from classifier too (if present).
+    let classifier = parts.get(3).map(|c| {
+        let (c_base, _) = strip_at_ext(c);
+        format!("-{c_base}")
+    }).unwrap_or_default();
     if group_path.is_empty() || artifact.is_empty() || version.is_empty() {
         return None;
     }
     Some(format!(
-        "{group_path}/{artifact}/{version}/{artifact}-{version}{classifier}.jar"
+        "{group_path}/{artifact}/{version}/{artifact}-{version}{classifier}.{ext}"
     ))
+}
+
+/// Strip the `@ext` suffix from a maven coord segment.
+/// Returns `(stripped, ext)` where ext defaults to `"jar"`.
+fn strip_at_ext(s: &str) -> (&str, &str) {
+    if let Some(at) = s.rfind('@') {
+        let (base, ext) = s.split_at(at);
+        let ext_val = &ext[1..];
+        (base, if ext_val.is_empty() { "jar" } else { ext_val })
+    } else {
+        (s, "jar")
+    }
 }
 
 pub fn patcher_fail(processor: &str, cause: &dyn std::fmt::Display) -> Error {
@@ -137,6 +173,43 @@ mod tests {
         let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
         let err = run_processor("com.example:unknown:1.0", vec![], &ctx).await.unwrap_err();
         assert!(matches!(err, Error::ForgeUnsupportedProcessor { .. }));
+    }
+
+    // ── NeoForge dispatch tests (ADDENDUM A + B) ──────────────────────────────
+
+    #[tokio::test]
+    async fn neoforged_art_routes_to_art_module() {
+        // Verify dispatch: we expect parse_args to error on empty args
+        // (missing --input), which proves we reached art::run rather than
+        // returning ForgeUnsupportedProcessor.
+        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
+        let err = run_processor("net.neoforged:AutoRenamingTool:1.0.13:all", vec![], &ctx).await.unwrap_err();
+        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to art module, got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn neoforged_jarsplitter_routes_to_jarsplitter() {
+        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
+        let err = run_processor("net.neoforged.installertools:jarsplitter:2.1.2", vec![], &ctx).await.unwrap_err();
+        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to jarsplitter module, got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn neoforged_installertools_routes_to_installertools() {
+        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
+        let err = run_processor("net.neoforged.installertools:installertools:2.1.2", vec![], &ctx).await.unwrap_err();
+        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to installertools module, got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn neoforged_binarypatcher_routes_to_binarypatcher() {
+        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
+        let err = run_processor("net.neoforged.installertools:binarypatcher:2.1.2", vec![], &ctx).await.unwrap_err();
+        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to binarypatcher module, got: {err:?}");
     }
 
     #[test]

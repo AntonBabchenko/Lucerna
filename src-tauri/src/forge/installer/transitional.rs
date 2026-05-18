@@ -409,10 +409,13 @@ pub fn classpath_coords_to_libraries(coords: &[String]) -> Vec<crate::versions::
     coords.iter().map(|c| crate::versions::version_json::Library {
         name: c.clone(),
         // For Forge-specific processors (jar coords like net.minecraftforge:installertools)
-        // hint the Forge maven. The libraries.minecraft.net fallback in Phase 1's
-        // ensure_libraries will use this URL if present, falling back otherwise.
+        // hint the Forge maven. For NeoForge processors (net.neoforged.* group),
+        // hint maven.neoforged.net. The libraries.minecraft.net fallback in
+        // ensure_libraries is used for everything else (e.g. org.ow2.asm:asm).
         url: if c.starts_with("net.minecraftforge:") || c.starts_with("de.oceanlabs.mcp:") {
             Some("https://maven.minecraftforge.net/".into())
+        } else if c.starts_with("net.neoforged.installertools:") || c.starts_with("net.neoforged:") {
+            Some("https://maven.neoforged.net/releases/".into())
         } else {
             None
         },

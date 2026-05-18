@@ -39,6 +39,10 @@ pub fn effective_version_id(instance: &InstanceFile) -> Option<String> {
             .loader_version
             .as_deref()
             .map(|lv| synth_id(Loader::Forge, lv, &instance.mc_version)),
+        LoaderKind::NeoForge => instance
+            .loader_version
+            .as_deref()
+            .map(|lv| synth_id(Loader::NeoForge, lv, &instance.mc_version)),
     }
 }
 
@@ -131,5 +135,20 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("1.20.4")).unwrap();
         std::fs::write(dir.path().join("1.20.4/1.20.4.jar"), b"fake").unwrap();
         assert!(!ready_status(dir.path(), &inst));
+    }
+
+    #[test]
+    fn neoforge_effective_id_uses_synth_format() {
+        let inst = make("1.20.4", LoaderKind::NeoForge, Some("20.4.245"));
+        assert_eq!(
+            effective_version_id(&inst),
+            Some("neoforge-20.4.245-1.20.4".into())
+        );
+    }
+
+    #[test]
+    fn neoforge_without_loader_version_gives_none() {
+        let inst = make("1.20.4", LoaderKind::NeoForge, None);
+        assert_eq!(effective_version_id(&inst), None);
     }
 }

@@ -128,12 +128,16 @@ pub fn artifacts_to_install(
 
 const MOJANG_LIBRARIES_FALLBACK_URL: &str = "https://libraries.minecraft.net/";
 
-/// Parse a `group:artifact:version` (Mojang/Maven coord) into the
+/// Parse a `group:artifact:version[:classifier][@ext]` Maven coord into the
 /// relative maven path and a full URL under `base`.
 ///
 /// Example: `("net.fabricmc:fabric-loader:0.15.7", "https://maven.fabricmc.net/")`
 ///       → `("net/fabricmc/fabric-loader/0.15.7/fabric-loader-0.15.7.jar",
 ///           "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.15.7/fabric-loader-0.15.7.jar")`
+///
+/// The `@ext` annotation (e.g. `9.3@jar`, `1.0:all@jar`) is stripped — `@jar`
+/// is the default artifact type and should not appear in the path or filename.
+/// Non-`jar` extensions (e.g. `@zip`) replace the `.jar` suffix.
 fn maven_path_and_url(name: &str, base: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = name.split(':').collect();
     if parts.len() < 3 {
@@ -141,22 +145,45 @@ fn maven_path_and_url(name: &str, base: &str) -> Option<(String, String)> {
     }
     let group = parts[0];
     let artifact = parts[1];
-    let version = parts[2];
+
+    // Strip `@ext` from version (and, if present, classifier).
+    // NeoForge installertools 2.1.2 appends `@jar` to every classpath entry,
+    // e.g. `org.ow2.asm:asm:9.3@jar`. The `@jar` is the Maven default type
+    // and must be stripped before building the path.
+    let (version, ext) = strip_at_ext(parts[2]);
     // Optional 4th segment is a classifier (`g:a:v:classifier`); we
     // include it in the filename if present. Fabric/Quilt rarely use
     // classifiers but handle the case for future-proofing.
-    let classifier = parts.get(3).copied();
+    // Classifier may also carry an `@ext` suffix.
+    let classifier = parts.get(3).map(|c| {
+        let (c_stripped, _) = strip_at_ext(c);
+        c_stripped.to_string()
+    });
 
     let group_path = group.replace('.', "/");
-    let file_name = match classifier {
-        Some(c) => format!("{artifact}-{version}-{c}.jar"),
-        None => format!("{artifact}-{version}.jar"),
+    let file_name = match classifier.as_deref().filter(|c| !c.is_empty()) {
+        Some(c) => format!("{artifact}-{version}-{c}.{ext}"),
+        None => format!("{artifact}-{version}.{ext}"),
     };
     let rel_path = format!("{group_path}/{artifact}/{version}/{file_name}");
 
     let base_trimmed = base.trim_end_matches('/');
     let full_url = format!("{base_trimmed}/{rel_path}");
     Some((rel_path, full_url))
+}
+
+/// Strip the `@ext` suffix from a maven coord segment.
+/// Returns `(stripped, ext)` where ext defaults to `"jar"`.
+/// Examples: `"9.3@jar"` → `("9.3", "jar")`,  `"1.0"` → `("1.0", "jar")`,
+///           `"1.0@zip"` → `("1.0", "zip")`.
+fn strip_at_ext(s: &str) -> (&str, &str) {
+    if let Some(at) = s.rfind('@') {
+        let (base, ext) = s.split_at(at);
+        let ext = &ext[1..]; // strip the '@'
+        (base, if ext.is_empty() { "jar" } else { ext })
+    } else {
+        (s, "jar")
+    }
 }
 
 /// Download all libraries that should install on the current platform.

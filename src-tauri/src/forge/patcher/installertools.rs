@@ -1,6 +1,17 @@
 //! installertools — Forge's multi-tool. First CLI arg is `--task <NAME>`.
 //! Sub-commands implemented in Phase 2: EXTRACT_FILES (this task),
 //! MCP_DATA (Task 7), BUNDLER_EXTRACT (Task 8, Phase 3 stub).
+//!
+//! v0.4.1 NeoForge matrix fix: PROCESS_MINECRAFT_JAR (NeoForge ≥ 21.10)
+//! replaced the old ART + binarypatcher two-step in the 21.x installer. It
+//! is implemented inside the installertools fatjar itself (unlike the
+//! older ART / binarypatcher which are separate JARs). We shell out to
+//! Java rather than re-implementing the bytecode remapping in Rust, same
+//! rationale as ART and binarypatcher.
+//!
+//! Main-Class: `net.neoforged.installertools.ConsoleTool` (same ConsoleTool
+//! that routes all tasks). The classpath already contains the fatjar —
+//! we reuse it directly.
 
 use crate::error::Result;
 use crate::forge::patcher::{patcher_fail, ProcessorContext};
@@ -16,6 +27,9 @@ pub async fn run(_classifier: Option<&str>, args: Vec<String>, ctx: &ProcessorCo
         "BUNDLER_EXTRACT" => bundler_extract(&args, ctx).await,
         "DOWNLOAD_MOJMAPS" => download_mojmaps(&args, ctx).await,
         "MERGE_MAPPING" => merge_mapping(&args, ctx).await,
+        // NeoForge ≥ 21.10: PROCESS_MINECRAFT_JAR replaces the separate ART +
+        // binarypatcher two-step. Shell out to Java (byte-fidelity required).
+        "PROCESS_MINECRAFT_JAR" => process_minecraft_jar_via_java(&args, ctx).await,
         other => Err(crate::error::Error::ForgeUnsupportedProcessor {
             coord: format!("net.minecraftforge:installertools (task={other})"),
         }),
@@ -178,6 +192,60 @@ async fn bundler_extract(_args: &[String], _ctx: &ProcessorContext) -> Result<()
     })
 }
 
+/// Shell out to the `installertools:4.0.6:fatjar` for `PROCESS_MINECRAFT_JAR`.
+///
+/// NeoForge ≥ 21.10 replaced the separate ART + binarypatcher two-step with a
+/// single all-in-one task inside `installertools` itself. The JAR's Main-Class
+/// is `net.neoforged.installertools.ConsoleTool`, which re-routes via `--task`.
+/// The classpath is already resolved by `run_processor`'s dispatch path (the
+/// fatjar is in `p.classpath`) so we reuse it directly.
+///
+/// Byte-fidelity is required (bytecode remapping + binary patching combined),
+/// so we must shell out rather than reimplement.
+async fn process_minecraft_jar_via_java(args: &[String], ctx: &ProcessorContext) -> Result<()> {
+    let java_bin = ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"));
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let cp: String = ctx
+        .classpath
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(sep);
+
+    const MAIN_CLASS: &str = "net.neoforged.installertools.ConsoleTool";
+
+    let mut cmd = tokio::process::Command::new(&java_bin);
+    cmd.arg("-cp").arg(&cp);
+    cmd.arg(MAIN_CLASS);
+    cmd.args(args);
+
+    eprintln!(
+        "installertools: spawning {} with {} classpath entries (task=PROCESS_MINECRAFT_JAR, main={})",
+        java_bin.display(),
+        ctx.classpath.len(),
+        MAIN_CLASS,
+    );
+
+    let output = cmd.output().await.map_err(|e| {
+        patcher_fail("installertools::PROCESS_MINECRAFT_JAR", &format!("spawn java: {e}"))
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(patcher_fail(
+            "installertools::PROCESS_MINECRAFT_JAR",
+            &format!(
+                "java exit {}: stderr={} stdout={}",
+                output.status,
+                stderr.trim(),
+                stdout.trim()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     use tokio::fs;
     let version = read_flag(args, "--version").ok_or_else(|| {
@@ -314,26 +382,33 @@ pub(crate) fn sanitize_proguard_mappings(input: &str) -> String {
 }
 
 async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
-    use std::collections::HashMap;
     use tokio::fs;
-    let left = read_flag(args, "--left").ok_or_else(|| {
-        patcher_fail("installertools::MERGE_MAPPING", &"missing --left")
-    })?;
-    let right = read_flag(args, "--right").ok_or_else(|| {
-        patcher_fail("installertools::MERGE_MAPPING", &"missing --right")
-    })?;
+    // installertools 2.x used `--left/--right/--reverse-right`;
+    // installertools 3.0.13+ (NeoForge 21.8+) renamed these to
+    // `--merge/--base/--reverse-base` with identical semantics
+    // (merge=left=overlay, base=right=foundation, reverse-base
+    // flips the base side's direction). Older arg names also lost
+    // the `--classes/--fields/--methods` flags — 3.x always merges
+    // all kinds. Accept both naming conventions.
+    let left = read_flag(args, "--left")
+        .or_else(|| read_flag(args, "--merge"))
+        .ok_or_else(|| {
+            patcher_fail("installertools::MERGE_MAPPING", &"missing --left/--merge")
+        })?;
+    let right = read_flag(args, "--right")
+        .or_else(|| read_flag(args, "--base"))
+        .ok_or_else(|| {
+            patcher_fail("installertools::MERGE_MAPPING", &"missing --right/--base")
+        })?;
     let output = read_flag(args, "--output").ok_or_else(|| {
         patcher_fail("installertools::MERGE_MAPPING", &"missing --output")
     })?;
-    let classes_only = args.iter().any(|a| a == "--classes");
-    let reverse_right = args.iter().any(|a| a == "--reverse-right");
-
-    if !classes_only {
-        return Err(patcher_fail(
-            "installertools::MERGE_MAPPING",
-            &"member-level merge not supported (Phase 3 covers --classes only — 1.20.4 only invokes the class-only mode)",
-        ));
-    }
+    // 3.x always merges classes+fields+methods (no toggles); 2.x had explicit flags.
+    let is_3x_naming = args.iter().any(|a| a == "--merge" || a == "--base" || a == "--reverse-base");
+    let merge_classes = is_3x_naming || args.iter().any(|a| a == "--classes");
+    let merge_fields  = is_3x_naming || args.iter().any(|a| a == "--fields");
+    let merge_methods = is_3x_naming || args.iter().any(|a| a == "--methods");
+    let reverse_right = args.iter().any(|a| a == "--reverse-right" || a == "--reverse-base");
 
     let left_text = fs::read_to_string(&left).await.map_err(|e| {
         patcher_fail("installertools::MERGE_MAPPING", &format!("read {left}: {e}"))
@@ -342,49 +417,134 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
         patcher_fail("installertools::MERGE_MAPPING", &format!("read {right}: {e}"))
     })?;
 
-    // Parse right (Proguard) as obf→named class map.
-    let right_map: HashMap<String, String> =
-        parse_proguard_class_headers(&right_text, reverse_right);
+    // Parse right (Proguard) mapping.
+    // class_map: obf_class → mojang_class (when reverse_right=true)
+    // field_map: (obf_class, obf_field) → mojang_field_name
+    // method_map: (obf_class, obf_method_name, obf_descriptor) → mojang_method_name
+    //   Descriptors in Proguard use source (Mojang) class names; we translate
+    //   them back to obfuscated descriptors so keys match the TSRG descriptor.
+    let (class_map, field_map, method_map) =
+        parse_proguard_full(&right_text, reverse_right);
 
     // Detect TSRG version of left input. v2 opens with `tsrg2 <name1> ...`;
-    // v1 has no header. We preserve the input format so that downstream
-    // srgutils (FART's mapping loader) chooses its v2 code path when the
-    // input was v2 — emitting v1 confuses it (and produced wrong FART output
-    // empirically during e2e).
+    // v1 has no header.
     let header_line: Option<&str> = left_text
         .lines()
         .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'));
     let is_v2 = header_line.is_some_and(|l| l.split_whitespace().next() == Some("tsrg2"));
 
-    // Walk left line-by-line. `--classes` semantic per srgutils 0.5.x:
-    //   - tsrg2 header: preserved verbatim (declares column count).
-    //   - Class-header lines: replace the 2nd column (srg name) with right's
-    //     named lookup; keep all other columns (e.g. v2's id column).
-    //   - Member lines (start with tab): pass through UNCHANGED — `--classes`
-    //     means right contributes only class-level info; member mappings
-    //     carry over from left as-is. Required so FART rewrites field/method
-    //     names internally — without them, the binarypatcher patches reference
-    //     a different (correctly-renamed) byte layout that we'd never produce.
-    //   - Empty/comment lines: dropped.
+    // Output format: Java installertools MERGE_MAPPING always writes `tsrg2 left right`
+    // as the header (regardless of input column names) and strips the trailing `id`
+    // column from every line — producing exactly 2 name slots (obf + merged-name).
+    // This is what downstream ART/srgutils expects.
     let mut out = String::with_capacity(left_text.len());
+    if is_v2 {
+        out.push_str("tsrg2 left right\n");
+    }
+
+    // Current obf class (used as key into field/method maps).
+    let mut current_obf_class = String::new();
+
     for line in left_text.lines() {
         if line.is_empty() || line.trim_start().starts_with('#') {
             continue;
         }
-        if line.starts_with('\t') || line.starts_with(' ') {
-            // Member line (TSRG v1 or v2) — verbatim.
-            out.push_str(line);
-            out.push('\n');
+
+        // Detect indentation level.
+        let tab_depth = line.chars().take_while(|c| *c == '\t').count();
+
+        if tab_depth >= 2 {
+            // Nested parameter line (TSRG v2) or `static` keyword.
+            // Java tool strips the trailing id column from param lines.
+            // Format: \t\tstatic   → emit as-is (1 token)
+            //         \t\tidx obf param_name [id] → emit first 3 tokens only
+            let content = &line[2..]; // strip 2 leading tabs
+            let tokens: Vec<&str> = content.split_whitespace().collect();
+            out.push('\t');
+            out.push('\t');
+            if tokens.is_empty() {
+                out.push('\n');
+                continue;
+            }
+            if tokens[0] == "static" {
+                out.push_str("static\n");
+            } else {
+                // idx obf param_name [id] → only first 3 tokens
+                for (i, tok) in tokens.iter().take(3).enumerate() {
+                    if i > 0 { out.push(' '); }
+                    out.push_str(tok);
+                }
+                out.push('\n');
+            }
             continue;
         }
+
+        if tab_depth == 1 {
+            // Member line.
+            let trimmed = &line[1..]; // strip leading tab
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.is_empty() {
+                continue;
+            }
+
+            // TSRG v2 field:  obf_name  srg_name  [id]
+            // TSRG v2 method: obf_name  descriptor  srg_name  [id]
+            // Distinguish field vs method by checking parts[1] for '(' prefix.
+            let is_method = parts.get(1).map(|p| p.starts_with('(')).unwrap_or(false);
+
+            if is_method && parts.len() >= 3 {
+                // parts: [obf_name, descriptor, srg_name, id?]
+                let obf_name = parts[0];
+                let descriptor = parts[1];
+                let srg_name = parts[2];
+                let named = if merge_methods {
+                    // Key includes the obfuscated descriptor for disambiguation
+                    // when a class has multiple overloads with the same obf name.
+                    let key = (current_obf_class.clone(), obf_name.to_string(), descriptor.to_string());
+                    method_map.get(&key).map(String::as_str).unwrap_or(srg_name)
+                } else {
+                    srg_name
+                };
+                // Always emit exactly: \tobf descriptor named  (id stripped)
+                out.push('\t');
+                out.push_str(obf_name);
+                out.push(' ');
+                out.push_str(descriptor);
+                out.push(' ');
+                out.push_str(named);
+                out.push('\n');
+            } else if !is_method && parts.len() >= 2 {
+                // parts: [obf_name, srg_name, id?]
+                let obf_name = parts[0];
+                let srg_name = parts[1];
+                let named = if merge_fields {
+                    let key = (current_obf_class.clone(), obf_name.to_string());
+                    field_map.get(&key).map(String::as_str).unwrap_or(srg_name)
+                } else {
+                    srg_name
+                };
+                // Always emit exactly: \tobf named  (id stripped)
+                out.push('\t');
+                out.push_str(obf_name);
+                out.push(' ');
+                out.push_str(named);
+                out.push('\n');
+            } else {
+                // 1-token member line (unusual but pass through first token only).
+                out.push('\t');
+                out.push_str(parts[0]);
+                out.push('\n');
+            }
+            continue;
+        }
+
+        // tab_depth == 0: class-header line or tsrg2 header.
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.is_empty() {
             continue;
         }
         if parts[0] == "tsrg2" {
-            // v2 header — preserve so srgutils uses the v2 code path.
-            out.push_str(line);
-            out.push('\n');
+            // v2 header — already written above; skip the input header line.
             continue;
         }
         if parts.len() < 2 {
@@ -393,17 +553,19 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
         }
         let obf = parts[0];
         let srg = parts[1];
-        let named = right_map.get(obf).map(String::as_str).unwrap_or(srg);
+
+        // Track current obf class for member lookups below.
+        current_obf_class = obf.to_string();
+
+        let named = if merge_classes {
+            class_map.get(obf).map(String::as_str).unwrap_or(srg)
+        } else {
+            srg
+        };
+        // Always emit exactly: obf named  (id stripped, only 2 columns)
         out.push_str(obf);
         out.push(' ');
         out.push_str(named);
-        // For TSRG v2, preserve any trailing columns (e.g. the `id` slot).
-        if is_v2 {
-            for extra in &parts[2..] {
-                out.push(' ');
-                out.push_str(extra);
-            }
-        }
         out.push('\n');
     }
 
@@ -471,6 +633,213 @@ pub(crate) fn parse_proguard_class_headers(body: &str, reverse: bool) -> std::co
         }
     }
     out
+}
+
+/// Parse a Proguard mapping into class, field, and method lookup tables.
+///
+/// Returns `(class_map, field_map, method_map)` where:
+/// - `class_map`: obf_class_name → mojang_class_name  (when `reverse=true`)
+/// - `field_map`: (obf_class, obf_field_name) → mojang_field_name
+/// - `method_map`: (obf_class, obf_method_name, obf_descriptor) → mojang_method_name
+///
+/// Proguard format (reverse_right=true means mojang→obf, reversed to obf→mojang):
+/// ```text
+/// com.example.Foo -> a:
+///     int myField -> b
+///     int:12:void myMethod(int) -> c
+/// ```
+/// After reversal: class `a` → `com/example/Foo`, field `(a, b)` → `myField`,
+/// method `(a, c, "(I)V")` → `myMethod`.
+///
+/// Note: method_map keys include the **obfuscated** JVM descriptor. Proguard
+/// descriptors are written using Mojang/source class names; we translate them
+/// back to obfuscated names via the class map so that they match TSRG descriptors.
+/// This is required for correct disambiguation of overloaded methods.
+fn parse_proguard_full(
+    body: &str,
+    reverse: bool,
+) -> (
+    std::collections::HashMap<String, String>,
+    std::collections::HashMap<(String, String), String>,
+    std::collections::HashMap<(String, String, String), String>,
+) {
+    use std::collections::HashMap;
+    let mut class_map: HashMap<String, String> = HashMap::new();
+    // named_to_obf: mojang-class-name → obf-class-name, used to convert
+    // Proguard source descriptors to obfuscated JVM descriptors.
+    let mut named_to_obf: HashMap<String, String> = HashMap::new();
+    let mut field_map: HashMap<(String, String), String> = HashMap::new();
+    let mut method_map: HashMap<(String, String, String), String> = HashMap::new();
+
+    // ── Pass 1: build class maps ─────────────────────────────────────────────
+    for line in body.lines() {
+        if line.starts_with('#') || line.is_empty()
+            || line.starts_with(' ') || line.starts_with('\t')
+        {
+            continue;
+        }
+        let Some(arrow_pos) = line.find(" -> ") else { continue };
+        let named = line[..arrow_pos].replace('.', "/");
+        let after = &line[arrow_pos + 4..];
+        let obf = after.trim_end_matches(':').replace('.', "/");
+        if reverse {
+            class_map.insert(obf.clone(), named.clone());
+        } else {
+            class_map.insert(named.clone(), obf.clone());
+        }
+        // Always build named_to_obf regardless of `reverse` — we need it to
+        // translate Proguard source-type descriptors to obfuscated descriptors.
+        named_to_obf.insert(named, obf);
+    }
+
+    // ── Pass 2: build field and method maps ──────────────────────────────────
+    let mut current_obf_class = String::new();
+    for line in body.lines() {
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with(' ') || line.starts_with('\t') {
+            // Member line.
+            if current_obf_class.is_empty() {
+                continue;
+            }
+            let trimmed = line.trim();
+            let Some(arrow_pos) = trimmed.find(" -> ") else { continue };
+            let left_part = &trimmed[..arrow_pos];
+            let right_part = &trimmed[arrow_pos + 4..];
+            let obf_member = right_part.trim();
+            let left_stripped = strip_line_number_prefix(left_part);
+
+            if let Some(paren_pos) = left_stripped.find('(') {
+                // Method: "return_type mojang_name(args,...)"
+                let before_paren = &left_stripped[..paren_pos];
+                let args_end = left_stripped.rfind(')').unwrap_or(left_stripped.len());
+                let args_str = &left_stripped[paren_pos + 1..args_end];
+                let parts: Vec<&str> = before_paren.split_whitespace().collect();
+                let return_type = parts.first().copied().unwrap_or("void");
+                let mojang_name = parts.last().copied().unwrap_or("");
+                if !mojang_name.is_empty() && !obf_member.is_empty() {
+                    // Compute the obfuscated JVM descriptor by translating
+                    // Proguard source class names → obfuscated names.
+                    let obf_descriptor = build_obf_descriptor(return_type, args_str, &named_to_obf);
+                    if reverse {
+                        method_map.insert(
+                            (current_obf_class.clone(), obf_member.to_string(), obf_descriptor),
+                            mojang_name.to_string(),
+                        );
+                    } else {
+                        method_map.insert(
+                            (current_obf_class.clone(), mojang_name.to_string(), obf_descriptor),
+                            obf_member.to_string(),
+                        );
+                    }
+                }
+            } else {
+                // Field: "type mojang_name"
+                let mojang_name = left_stripped.split_whitespace().last().unwrap_or("");
+                if !mojang_name.is_empty() && !obf_member.is_empty() {
+                    if reverse {
+                        field_map.insert(
+                            (current_obf_class.clone(), obf_member.to_string()),
+                            mojang_name.to_string(),
+                        );
+                    } else {
+                        field_map.insert(
+                            (current_obf_class.clone(), mojang_name.to_string()),
+                            obf_member.to_string(),
+                        );
+                    }
+                }
+            }
+        } else {
+            // Class header line.
+            let Some(arrow_pos) = line.find(" -> ") else { continue };
+            let after = &line[arrow_pos + 4..];
+            let obf = after.trim_end_matches(':').replace('.', "/");
+            current_obf_class = obf;
+        }
+    }
+
+    (class_map, field_map, method_map)
+}
+
+/// Build an obfuscated JVM method descriptor from Proguard source-type strings.
+///
+/// Proguard uses Java source type names (e.g. `int`, `net.minecraft.WorldVersion`).
+/// TSRG descriptors use obfuscated JVM type names (e.g. `I`, `Lad;`).
+/// We convert each source type via `named_to_obf` (mojang_class → obf_class).
+///
+/// Examples:
+/// - `return_type="void", args="net.minecraft.WorldVersion"` → `"(Lad;)V"`
+/// - `return_type="org.joml.Quaternionf", args="float"` → `"(F)Lorg/joml/Quaternionf;"`
+///   (org.joml.Quaternionf is not in named_to_obf, so falls back to its JVM form)
+fn build_obf_descriptor(return_type: &str, args_str: &str, named_to_obf: &std::collections::HashMap<String, String>) -> String {
+    let args: Vec<&str> = if args_str.trim().is_empty() {
+        vec![]
+    } else {
+        args_str.split(',').collect()
+    };
+    let mut desc = String::with_capacity(args.len() * 4 + 4);
+    desc.push('(');
+    for arg in &args {
+        source_type_to_jvm_token(arg.trim(), named_to_obf, &mut desc);
+    }
+    desc.push(')');
+    source_type_to_jvm_token(return_type.trim(), named_to_obf, &mut desc);
+    desc
+}
+
+/// Append the JVM type descriptor token for a single Java source type.
+/// `type_str` may be a primitive, a qualified class name, or either with `[]` suffixes.
+fn source_type_to_jvm_token(type_str: &str, named_to_obf: &std::collections::HashMap<String, String>, out: &mut String) {
+    let (base, dims) = {
+        let mut s = type_str;
+        let mut d = 0usize;
+        while s.ends_with("[]") {
+            s = &s[..s.len() - 2];
+            d += 1;
+        }
+        (s, d)
+    };
+    for _ in 0..dims {
+        out.push('[');
+    }
+    match base {
+        "boolean" => out.push('Z'),
+        "byte"    => out.push('B'),
+        "char"    => out.push('C'),
+        "short"   => out.push('S'),
+        "int"     => out.push('I'),
+        "long"    => out.push('J'),
+        "float"   => out.push('F'),
+        "double"  => out.push('D'),
+        "void"    => out.push('V'),
+        _         => {
+            let jvm_class = base.replace('.', "/");
+            let obf_class = named_to_obf.get(&jvm_class).map(String::as_str).unwrap_or(&jvm_class);
+            out.push('L');
+            out.push_str(obf_class);
+            out.push(';');
+        }
+    }
+}
+
+/// Strip the leading "start:end:" or "start:" line-number prefix from a
+/// Proguard method descriptor. E.g. "12:34:void" → "void", "void" → "void".
+fn strip_line_number_prefix(s: &str) -> &str {
+    // Count leading numeric:numeric: segments.
+    let mut rest = s;
+    loop {
+        // Does rest start with digits followed by ':'?
+        let colon = rest.find(':');
+        match colon {
+            Some(i) if rest[..i].chars().all(|c| c.is_ascii_digit()) => {
+                rest = &rest[i + 1..];
+            }
+            _ => break,
+        }
+    }
+    rest
 }
 
 #[cfg(test)]
@@ -585,6 +954,31 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn process_minecraft_jar_does_not_return_unsupported_processor() {
+        // PROCESS_MINECRAFT_JAR (NeoForge ≥ 21.10) must NOT return
+        // ForgeUnsupportedProcessor — it should attempt the Java shell-out.
+        // With an empty classpath and no real installertools fatjar, it will
+        // fail with ForgePatcherFailed (spawn failed or non-zero exit), not
+        // ForgeUnsupportedProcessor. That proves dispatch reached the Java
+        // shell-out path.
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: Some(PathBuf::from("java")),
+        };
+        let args = vec![
+            "--task".into(), "PROCESS_MINECRAFT_JAR".into(),
+            "--input".into(), "/nonexistent/mc.jar".into(),
+            "--output".into(), "/nonexistent/patched.jar".into(),
+        ];
+        let err = run(None, args, &ctx).await.unwrap_err();
+        assert!(
+            !matches!(err, crate::error::Error::ForgeUnsupportedProcessor { .. }),
+            "PROCESS_MINECRAFT_JAR must not return ForgeUnsupportedProcessor; got: {err:?}"
+        );
+    }
+
     #[test]
     fn sanitize_drops_package_info_blocks() {
         let raw = "\
@@ -678,10 +1072,11 @@ com.example.Bar -> c:\n\
     }
 
     #[tokio::test]
-    async fn merge_mapping_v2_input_preserves_header_and_columns() {
-        // 1.20.4 mcp_config shape: tsrg2 header with `obf srg id` slots.
-        // Verify our merged output keeps the v2 header so srgutils picks
-        // its v2 code path on the FART side.
+    async fn merge_mapping_v2_input_produces_left_right_header_and_strips_id() {
+        // Java installertools MERGE_MAPPING always writes `tsrg2 left right` header
+        // and strips the trailing `id` column from every line — producing exactly
+        // 2 name slots (obf + merged-name). We must match that format exactly so
+        // that downstream ART reads the merged mapping correctly.
         let dir = tempfile::tempdir().unwrap();
         let left = dir.path().join("left.tsrg");
         let right = dir.path().join("right.txt");
@@ -691,7 +1086,7 @@ tsrg2 obf srg id\n\
 a net/minecraft/srg/A 12345\n\
 \tfoo srg_foo 67\n\
 \tbar ()V srg_bar 89\n\
-\t\t0 paramName 99\n\
+\t\t0 o paramName 99\n\
 b net/minecraft/srg/B 6789\n\
 ").unwrap();
         std::fs::write(&right, "com.example.Named -> a:\n    int n -> q\nother.Skipped -> z:\n").unwrap();
@@ -708,23 +1103,23 @@ b net/minecraft/srg/B 6789\n\
         run(None, args, &ctx).await.expect("merge");
 
         let merged = std::fs::read_to_string(&output).unwrap();
-        // tsrg2 header is preserved.
-        assert!(merged.starts_with("tsrg2 obf srg id\n"), "tsrg2 header missing: {merged}");
-        // Class `a` present in right's reversed map → use named, id preserved.
-        assert!(merged.contains("a com/example/Named 12345\n"), "got: {merged}");
-        // Class `b` absent from right → SRG fallback, id preserved.
-        assert!(merged.contains("b net/minecraft/srg/B 6789\n"), "got: {merged}");
-        // Member lines preserved verbatim (with id column intact for v2).
-        assert!(merged.contains("\tfoo srg_foo 67\n"), "field line lost: {merged}");
-        assert!(merged.contains("\tbar ()V srg_bar 89\n"), "method line lost: {merged}");
-        // Param line preserved (`\t\t...`) — FART may read it.
-        assert!(merged.contains("\t\t0 paramName 99\n"), "param line lost: {merged}");
+        // tsrg2 header is `tsrg2 left right` (not the original column names).
+        assert!(merged.starts_with("tsrg2 left right\n"), "tsrg2 header wrong: {merged}");
+        // Class `a` present in right's reversed map → use named; id stripped.
+        assert!(merged.contains("a com/example/Named\n"), "got: {merged}");
+        // Class `b` absent from right → SRG fallback; id stripped.
+        assert!(merged.contains("b net/minecraft/srg/B\n"), "got: {merged}");
+        // Member lines: id stripped.
+        assert!(merged.contains("\tfoo srg_foo\n"), "field line wrong: {merged}");
+        assert!(merged.contains("\tbar ()V srg_bar\n"), "method line wrong: {merged}");
+        // Param line: first 3 tokens kept, id stripped.
+        assert!(merged.contains("\t\t0 o paramName\n"), "param line wrong: {merged}");
     }
 
     #[tokio::test]
     async fn merge_mapping_tsrg_v1_input_passes_members_through() {
         // Phase 2 1.16.5 mcp_config is TSRG v1 (no header, 2 name slots). Verify
-        // we don't accidentally add a tsrg2 header or strip columns.
+        // we don't accidentally add a tsrg2 header or corrupt v1 member lines.
         let dir = tempfile::tempdir().unwrap();
         let left = dir.path().join("left.tsrg");
         let right = dir.path().join("right.txt");
@@ -748,34 +1143,111 @@ a net/minecraft/srg/A\n\
         run(None, args, &ctx).await.expect("merge");
 
         let merged = std::fs::read_to_string(&output).unwrap();
-        // Class line: srg fallback (right is empty), v1 shape.
+        // Class line: srg fallback (right is empty), v1 shape (no id to strip).
         assert!(merged.contains("a net/minecraft/srg/A\n"), "got: {merged}");
-        // Field + method lines verbatim.
+        // Field + method lines pass through.
         assert!(merged.contains("\tfoo srg_foo\n"), "field line lost: {merged}");
         assert!(merged.contains("\tbar ()V srg_bar\n"), "method line lost: {merged}");
-        // No tsrg2 header was synthesised.
+        // No tsrg2 header was synthesised for v1 input.
         assert!(!merged.contains("tsrg2"), "stale tsrg2 header leaked: {merged}");
     }
 
     #[tokio::test]
-    async fn merge_mapping_member_merge_rejected() {
+    async fn merge_mapping_fields_methods_accepted() {
+        // Regression guard: --fields --methods are supported (v0.4.1 NeoForge).
+        // With no --classes, class names in left pass through unchanged.
+        // id column is stripped; header becomes `tsrg2 left right`.
         let dir = tempfile::tempdir().unwrap();
         let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let left = dir.path().join("left.tsrg");
+        let right = dir.path().join("right.txt");
+        let output = dir.path().join("merged.tsrg");
+        std::fs::write(&left, "\
+tsrg2 obf srg id\n\
+a net/minecraft/srg/A 12345\n\
+\tb srg_b 67\n\
+\tc ()V srg_c 89\n\
+").unwrap();
+        std::fs::write(&right, "com.example.Named -> a:\n    int mojField -> b\n    void mojMethod() -> c\nother.Skipped -> z:\n").unwrap();
         let args = vec![
             "--task".into(), "MERGE_MAPPING".into(),
-            "--left".into(), "/nonexistent/left".into(),
-            "--right".into(), "/nonexistent/right".into(),
-            "--output".into(), dir.path().join("o.tsrg").display().to_string(),
-            // No --classes — member merge requested, not supported in Phase 3.
+            "--left".into(), left.display().to_string(),
+            "--right".into(), right.display().to_string(),
+            "--output".into(), output.display().to_string(),
+            "--fields".into(),
+            "--methods".into(),
             "--reverse-right".into(),
         ];
-        let err = run(None, args, &ctx).await.unwrap_err();
-        match err {
-            crate::error::Error::ForgePatcherFailed { processor, details } => {
-                assert_eq!(processor, "installertools::MERGE_MAPPING");
-                assert!(details.contains("--classes only"));
-            }
-            other => panic!("got {other:?}"),
-        }
+        run(None, args, &ctx).await.expect("merge with fields+methods should succeed");
+        let merged = std::fs::read_to_string(&output).unwrap();
+        // Header is `tsrg2 left right`.
+        assert!(merged.starts_with("tsrg2 left right\n"), "header: {merged}");
+        // Without --classes, class names are left unchanged (srg name, id stripped).
+        assert!(merged.contains("a net/minecraft/srg/A\n"), "class line: {merged}");
+        // With --fields, field name is replaced with Mojang name; id stripped.
+        assert!(merged.contains("\tb mojField\n"), "field merge: {merged}");
+        // With --methods, method name is replaced with Mojang name; id stripped.
+        assert!(merged.contains("\tc ()V mojMethod\n"), "method merge: {merged}");
+    }
+
+    #[tokio::test]
+    async fn merge_mapping_accepts_installertools_3x_arg_naming() {
+        // NeoForge 21.8+ ships installertools:3.0.13 which renamed:
+        //   --left          → --merge
+        //   --right         → --base
+        //   --reverse-right → --reverse-base
+        //   --classes/--fields/--methods dropped (3.x always merges all kinds)
+        // Verify the parser accepts the new shape and produces an
+        // implicit-all-merge output (classes + fields + methods all
+        // resolved from the reversed base).
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let left = dir.path().join("left.tsrg");
+        let right = dir.path().join("right.txt");
+        let output = dir.path().join("merged.tsrg");
+        // Same inputs as `merge_mapping_fields_methods_accepted` — only
+        // arg-name flavor differs.
+        std::fs::write(&left, "\
+tsrg2 obf srg id\n\
+a net/minecraft/srg/A 12345\n\
+\tb srg_b 67\n\
+\tc ()V srg_c 89\n\
+").unwrap();
+        std::fs::write(&right, "com.example.Named -> a:\n    int mojField -> b\n    void mojMethod() -> c\nother.Skipped -> z:\n").unwrap();
+        let args = vec![
+            "--task".into(), "MERGE_MAPPING".into(),
+            "--merge".into(), left.display().to_string(),
+            "--base".into(), right.display().to_string(),
+            "--output".into(), output.display().to_string(),
+            "--reverse-base".into(),
+        ];
+        run(None, args, &ctx).await.expect("merge with 3.x arg shape");
+
+        let merged = std::fs::read_to_string(&output).unwrap();
+        // Canonical tsrg2 header + id column stripped.
+        assert!(merged.starts_with("tsrg2 left right\n"), "header: {merged}");
+        // 3.x merges classes (implicit), so SRG name is replaced with Mojang form.
+        assert!(merged.contains("a com/example/Named\n"), "class merge (3.x implicit): {merged}");
+        // 3.x merges fields + methods implicitly too.
+        assert!(merged.contains("\tb mojField\n"), "field merge (3.x implicit): {merged}");
+        assert!(merged.contains("\tc ()V mojMethod\n"), "method merge (3.x implicit): {merged}");
+    }
+
+    #[tokio::test]
+    async fn merge_mapping_3x_missing_required_args_errors_cleanly() {
+        // 3.x arg names with one missing should produce a clean error
+        // mentioning both naming conventions so the diagnostic is
+        // useful regardless of which version the caller used.
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let only_merge = vec![
+            "--task".into(), "MERGE_MAPPING".into(),
+            "--merge".into(), "/tmp/left.tsrg".into(),
+            "--output".into(), "/tmp/out.tsrg".into(),
+        ];
+        let err = run(None, only_merge, &ctx).await.unwrap_err();
+        let s = format!("{err:?}");
+        assert!(s.contains("--right") && s.contains("--base"),
+            "error should mention both naming conventions: {s}");
     }
 }

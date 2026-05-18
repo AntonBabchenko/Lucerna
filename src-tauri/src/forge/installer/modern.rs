@@ -193,13 +193,189 @@ pub async fn install(
     }
 
     // 8. Assemble final VersionDetails (modern seam — pass-through for now).
-    Ok(crate::forge::profile::assemble_from_modern(version_details))
+    let mut version_details = crate::forge::profile::assemble_from_modern(version_details);
+
+    // 9. ADDENDUM D: NeoForge omits the patched-client library entry from
+    //    version.json. Forge listed it as a URL-less library so the classpath
+    //    builder picked it up; NeoForge installs would otherwise launch without
+    //    the patched artifact on classpath → NoClassDefFoundError at boot.
+    //    Inject a synthetic URL-less library entry if absent.
+    inject_patched_library_if_missing(&mut version_details, &profile)?;
+
+    Ok(version_details)
+}
+
+/// If `version_details.libraries` doesn't already contain the patched-client
+/// artifact (the case for NeoForge installs), inject a URL-less library entry
+/// for it so the launch-path classpath builder picks it up (ADDENDUM D).
+///
+/// **NeoForge skip:** NeoForge's bootstrap launcher reads `--fml.neoForgeVersion <v>`
+/// from the command line and auto-discovers the patched client jar itself.
+/// Injecting the `:client` jar onto `-cp` causes FML 4.0.42 / securejarhandler 3.0.8
+/// to promote it to a JPMS module named `neoforge`, which collides with the universal
+/// jar (also module `neoforge`) → `java.lang.module.ResolutionException` at launch.
+/// FML 2.0.17 (NeoForge 20.4.x) merged duplicate modules and masked the bug, but the
+/// bootstrap auto-discovery makes our injection redundant for all NeoForge versions.
+fn inject_patched_library_if_missing(
+    version_details: &mut crate::versions::version_json::VersionDetails,
+    profile: &super::transitional::InstallProfile,
+) -> crate::error::Result<()> {
+    use crate::versions::version_json::Library;
+
+    // Resolve the patched-client coord from data.PATCHED.client.
+    let Some(patched_coord) = profile
+        .data
+        .get("PATCHED")
+        .and_then(|entry| {
+            entry.client.strip_prefix('[').and_then(|s| s.strip_suffix(']'))
+        })
+        .map(|s| s.to_string())
+    else {
+        // No PATCHED entry — unusual but not fatal (legacy era doesn't have one).
+        return Ok(());
+    };
+
+    // NeoForge: bootstrap auto-discovers the patched client via the
+    // --fml.neoForgeVersion cmdline arg. Injecting :client on -cp causes
+    // FML 4.0.42 / securejarhandler 3.0.8 to promote it to a SecureJar
+    // with module name "neoforge", colliding with the universal jar
+    // (also module "neoforge") → java.lang.module.ResolutionException.
+    // 20.4.x's FML 2.0.17 merged duplicates and didn't surface the bug,
+    // but the bootstrap auto-discovery makes our injection redundant
+    // for all NeoForge versions.
+    if patched_coord.starts_with("net.neoforged:") {
+        eprintln!(
+            "neoforge: skipping {{PATCHED}} injection ({patched_coord}) — bootstrap auto-discovers"
+        );
+        return Ok(());
+    }
+
+    // Check if already present (Forge case — already URL-less in version.json).
+    let already_present = version_details
+        .libraries
+        .iter()
+        .any(|lib| lib.name == patched_coord);
+    if already_present {
+        return Ok(());
+    }
+
+    // Inject URL-less synthetic entry. url=Some("") → existing ensure_libraries
+    // TOFU path treats it as locally-produced and checks by existence only.
+    version_details.libraries.push(Library {
+        name: patched_coord.clone(),
+        url: Some(String::new()),
+        downloads: None,
+        natives: None,
+        rules: None,
+    });
+    eprintln!(
+        "forge: injected {{PATCHED}} library entry ({patched_coord}) (ADDENDUM D)"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    // Production code is covered by:
-    //   - forge_modern_era_integration.rs (no-network shield)
-    //   - forge_modern_era_e2e.rs         (#[ignore]'d full pipeline)
-    // No unit tests here — install() is irreducible glue.
+    use super::*;
+    use crate::forge::installer::transitional::{DataEntry, InstallProfile, ProcessorEntry};
+    use crate::versions::version_json::{Library, VersionDetails};
+    use std::collections::HashMap;
+
+    fn fake_profile(patched_coord: &str) -> InstallProfile {
+        let mut data = HashMap::new();
+        data.insert(
+            "PATCHED".to_string(),
+            DataEntry {
+                client: format!("[{patched_coord}]"),
+                server: format!("[{patched_coord}:server]"),
+            },
+        );
+        InstallProfile {
+            spec: 1,
+            profile: "test".into(),
+            version: "test-1.20.4".into(),
+            minecraft: "1.20.4".into(),
+            path: None,
+            data,
+            processors: vec![],
+            libraries: vec![],
+        }
+    }
+
+    fn empty_version_details() -> VersionDetails {
+        VersionDetails {
+            id: "test".into(),
+            inherits_from: Some("1.20.4".into()),
+            main_class: "test.Main".into(),
+            libraries: vec![],
+            arguments: None,
+            minecraft_arguments: None,
+            java_version: None,
+            downloads: None,
+            asset_index: None,
+            assets: None,
+        }
+    }
+
+    #[test]
+    fn injects_when_missing_for_forge() {
+        // Forge uses net.minecraftforge: coords — injection must happen.
+        let profile = fake_profile("net.minecraftforge:forge:1.20.4-49.0.49:client");
+        let mut vd = empty_version_details();
+        inject_patched_library_if_missing(&mut vd, &profile).unwrap();
+        assert_eq!(vd.libraries.len(), 1);
+        assert_eq!(vd.libraries[0].name, "net.minecraftforge:forge:1.20.4-49.0.49:client");
+        assert_eq!(vd.libraries[0].url.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn skips_injection_for_neoforge() {
+        // NeoForge bootstrap auto-discovers the :client jar via --fml.neoForgeVersion.
+        // Injecting it onto -cp causes a JPMS module name collision.
+        // Verify the skip for both 20.4.x (FML 2.x) and 21.1.x (FML 4.x).
+        for coord in &[
+            "net.neoforged:neoforge:20.4.251:client",
+            "net.neoforged:neoforge:21.1.230:client",
+        ] {
+            let profile = fake_profile(coord);
+            let mut vd = empty_version_details();
+            inject_patched_library_if_missing(&mut vd, &profile).unwrap();
+            assert_eq!(
+                vd.libraries.len(), 0,
+                "must not inject for NeoForge coord {coord}"
+            );
+        }
+    }
+
+    #[test]
+    fn idempotent_when_already_present_for_forge() {
+        let profile = fake_profile("net.minecraftforge:forge:1.20.4-49.0.49:client");
+        let mut vd = empty_version_details();
+        vd.libraries.push(Library {
+            name: "net.minecraftforge:forge:1.20.4-49.0.49:client".into(),
+            url: Some(String::new()),
+            downloads: None,
+            natives: None,
+            rules: None,
+        });
+        inject_patched_library_if_missing(&mut vd, &profile).unwrap();
+        assert_eq!(vd.libraries.len(), 1, "must not duplicate existing entry");
+    }
+
+    #[test]
+    fn no_patched_entry_is_no_op() {
+        let profile = InstallProfile {
+            spec: 1,
+            profile: "test".into(),
+            version: "test".into(),
+            minecraft: "1.16.5".into(),
+            path: None,
+            data: HashMap::new(),
+            processors: vec![],
+            libraries: vec![],
+        };
+        let mut vd = empty_version_details();
+        inject_patched_library_if_missing(&mut vd, &profile).unwrap();
+        assert_eq!(vd.libraries.len(), 0);
+    }
 }

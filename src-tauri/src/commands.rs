@@ -232,6 +232,16 @@ pub async fn list_forge_loaders(
     crate::versions::loaders::list_loaders(crate::versions::Loader::Forge, &mc_id).await
 }
 
+/// List NeoForge loader versions compatible with `mc_id`. Cached
+/// 5 minutes per MC version. Empty list → `LoaderUnavailable`.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_neoforge_loaders(
+    mc_id: String,
+) -> Result<Vec<crate::versions::LoaderVersion>, crate::error::Error> {
+    crate::versions::loaders::list_loaders(crate::versions::Loader::NeoForge, &mc_id).await
+}
+
 /// All instances on disk with precomputed `ready` status. Sorted
 /// oldest-first by `created_unix_ms`.
 #[tauri::command]

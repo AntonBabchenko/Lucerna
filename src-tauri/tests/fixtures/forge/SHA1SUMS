@@ -14,3 +14,11 @@ e09ecf910e4d5eae12fb3564d9b7de212c1958b2  forge-1.16.5-36.2.42-installer.jar
 # 1.20.4 + Forge 49.0.49 — modern era reference (Phase 3).
 # Standard maven layout (no <mc>-<fv>-<mc> quirk).
 07e7462885d67f19b5f6771cd7ead99130ae564b  forge-1.20.4-49.0.49-installer.jar
+
+# NeoForge for MC 1.20.4 — v0.4.1 reference (audit pin from commit 19eb2cd).
+# Maven host: maven.neoforged.net/releases/net/neoforged/neoforge
+# Layout: <nv>-only in maven path (no <mc>-<nv> prefix unlike Forge).
+8b80db7063076a31be74dc3df3506185cbb370b9  neoforge-20.4.251-installer.jar
+
+# NeoForge for MC 1.21.1 — v0.4.1 reference (audit pin from commit 19eb2cd).
+edccc1ec906cc3df17324a31dd1990b24a39558e  neoforge-21.1.230-installer.jar

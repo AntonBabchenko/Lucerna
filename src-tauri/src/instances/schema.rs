@@ -19,6 +19,8 @@ pub enum LoaderKind {
     Fabric,
     Quilt,
     Forge,
+    #[serde(rename = "neoforge")]
+    NeoForge,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -173,6 +175,24 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""loader":"forge""#), "got: {json}");
         assert!(json.contains(r#""loader_version":"49.0.49""#), "got: {json}");
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
+    }
+
+    #[test]
+    fn loader_kind_serializes_neoforge_as_neoforge() {
+        let json = serde_json::to_string(&LoaderKind::NeoForge).unwrap();
+        assert_eq!(json, r#""neoforge""#);
+    }
+
+    #[test]
+    fn neoforge_with_loader_version_roundtrip() {
+        let mut s = sample();
+        s.loader = LoaderKind::NeoForge;
+        s.loader_version = Some("20.4.245".into());
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
+        assert!(json.contains(r#""loader_version":"20.4.245""#), "got: {json}");
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }

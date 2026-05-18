@@ -22,7 +22,7 @@
     onChanged: () => void;
   } = $props();
 
-  const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge'];
+  const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];
 
   let selectedId = $state<string | null>(null);
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
@@ -95,7 +95,9 @@
         ? await commands.listFabricLoaders(mc)
         : loader === 'quilt'
           ? await commands.listQuiltLoaders(mc)
-          : await commands.listForgeLoaders(mc);
+          : loader === 'neoforge'
+            ? await commands.listNeoforgeLoaders(mc)
+            : await commands.listForgeLoaders(mc);
     if (list.status === 'ok') {
       if (target === 'create') {
         draftLoaderVersions = list.data;

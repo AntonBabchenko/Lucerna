@@ -86,9 +86,15 @@ pub async fn start(
         .map_err(|e| Error::io("<instance_natives_dir>", e))?;
     let logs_dir = instance_logs_dir(app, &instance.id)
         .map_err(|e| Error::io("<instance_logs_dir>", e))?;
+    // Vanilla MC client.jar lives at `versions/<mc>/<mc>.jar` only — see
+    // `versions::install` comment. For synth installs, resolve to the parent
+    // MC id so we don't reference the orphaned synth-path jar.
+    let client_jar_id = crate::versions::loaders::parse_synth_id(effective_version_id)
+        .map(|(_loader, _lv, mc)| mc)
+        .unwrap_or_else(|| effective_version_id.to_string());
     let client_jar = versions
-        .join(effective_version_id)
-        .join(format!("{effective_version_id}.jar"));
+        .join(&client_jar_id)
+        .join(format!("{client_jar_id}.jar"));
     let version_json_path = versions
         .join(effective_version_id)
         .join(format!("{effective_version_id}.json"));

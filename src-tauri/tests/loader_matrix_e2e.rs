@@ -57,6 +57,7 @@ impl MatrixLoader {
             MatrixLoader::Real(Loader::Fabric) => "fabric",
             MatrixLoader::Real(Loader::Quilt) => "quilt",
             MatrixLoader::Real(Loader::Forge) => "forge",
+            MatrixLoader::Real(Loader::NeoForge) => "neoforge",
         }
     }
 }
@@ -74,6 +75,9 @@ const MC_VERSIONS_DEFAULT: &[&str] = &[
     "1.18.2",   // first MC requiring Java 17, modern Forge era
     "1.19.4",   // pre-1.20 stable
     "1.20.4",   // current "modern stable" used by Phase 3 e2e
+    "1.21",     // Mojang publishes the .0 release without the patch suffix (manifest id is "1.21", not "1.21.0")
+    "1.21.1",   // NeoForge 21.1.x boundary (FML 4.0.42, no merge); caught by manual gate 2026-05-17
+    "1.21.8",   // installertools:3.0.13 MERGE_MAPPING arg rename (--merge/--base) boundary
     "1.21.10",  // 1.21.x stable
     "1.21.11",  // very latest at audit time
 ];
@@ -83,6 +87,20 @@ fn mc_versions() -> Vec<String> {
         Ok(s) if !s.trim().is_empty() => s.split(',').map(|s| s.trim().to_string()).collect(),
         _ => MC_VERSIONS_DEFAULT.iter().map(|s| s.to_string()).collect(),
     }
+}
+
+/// NeoForge applies to MC >= 1.20.1. Returns `false` for 1.20.0 (NeoForge
+/// fork happened at 1.20.1) and any MC below 1.20.
+fn neoforge_applies(mc: &str) -> bool {
+    let parts: Vec<u32> = mc.split('.').filter_map(|s| s.parse().ok()).collect();
+    let major = parts.first().copied().unwrap_or(0);
+    let minor = parts.get(1).copied().unwrap_or(0);
+    let patch = parts.get(2).copied().unwrap_or(0);
+    if major > 1 { return true; }
+    if major < 1 { return false; }
+    if minor > 20 { return true; }
+    if minor < 20 { return false; }
+    patch >= 1
 }
 
 /// Per-MC loader applicability.
@@ -97,7 +115,36 @@ fn loaders_for(mc: &str) -> Vec<MatrixLoader> {
     if mm >= (1, 6) {
         out.push(MatrixLoader::Real(Loader::Forge));
     }
+    if neoforge_applies(mc) {
+        out.push(MatrixLoader::Real(Loader::NeoForge));
+    }
     out
+}
+
+#[cfg(test)]
+mod loaders_for_tests {
+    use super::*;
+    use ftlauncher_lib::versions::loaders::Loader;
+
+    #[test]
+    fn neoforge_excluded_for_1_20_0() {
+        assert!(!loaders_for("1.20.0").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+    }
+
+    #[test]
+    fn neoforge_included_for_1_20_1() {
+        assert!(loaders_for("1.20.1").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+    }
+
+    #[test]
+    fn neoforge_included_for_1_21_x() {
+        assert!(loaders_for("1.21.10").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+    }
+
+    #[test]
+    fn neoforge_excluded_for_1_16_5() {
+        assert!(!loaders_for("1.16.5").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+    }
 }
 
 // ─── Combo + Outcome types ──────────────────────────────────────────────────
@@ -179,6 +226,9 @@ impl Paths {
     }
     fn installer_jar(&self, mc: &str, fv: &str) -> PathBuf {
         self.root.join("forge").join("installers").join(format!("{mc}-{fv}.jar"))
+    }
+    fn installer_jar_neoforge(&self, nv: &str) -> PathBuf {
+        self.root.join("forge").join("installers").join(format!("neoforge-{nv}.jar"))
     }
     fn game_dir(&self, version_id: &str) -> PathBuf {
         self.root.join("game").join(version_id)
@@ -341,7 +391,7 @@ async fn fetch_loader_profile_directly(combo: &Combo) -> Result<VersionDetails, 
     let base = match inner {
         Loader::Fabric => "https://meta.fabricmc.net/v2",
         Loader::Quilt => "https://meta.quiltmc.org/v3",
-        Loader::Forge => unreachable!("forge handled separately"),
+        Loader::Forge | Loader::NeoForge => unreachable!("forge/neoforge handled separately"),
     };
     let url = format!("{base}/versions/loader/{}/{}/profile/json", combo.mc, combo.loader_version);
     let stage = format!("{}-profile", combo.loader.as_label());
@@ -458,6 +508,40 @@ async fn install_forge(combo: &Combo, paths: &Paths) -> Result<VersionDetails, I
         Era::Transitional => install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, false).await,
         Era::Modern => install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, true).await,
     }
+}
+
+async fn install_neoforge(combo: &Combo, paths: &Paths) -> Result<VersionDetails, InstallError> {
+    // 1. Vanilla parent (NeoForge inherits from it, same as Forge).
+    let vanilla = install_vanilla(&combo.mc, paths).await?;
+    let _ = vanilla;
+
+    // 2. Download NeoForge installer.
+    // NeoForge layout: maven.neoforged.net/releases/.../neoforge/<nv>/neoforge-<nv>-installer.jar.
+    // No <mc>-<fv>-<mc> quirk (only ever modern-era MC versions).
+    let nv = &combo.loader_version;
+    let installer_path = paths.installer_jar_neoforge(nv);
+    if tokio::fs::metadata(&installer_path).await.is_err() {
+        let url = format!(
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge/{nv}/neoforge-{nv}-installer.jar"
+        );
+        download_file(&url, &installer_path, "").await?;
+    }
+    let installer_bytes = tokio::fs::read(&installer_path).await.map_err(|e| InstallError {
+        stage: "neoforge-installer-read".into(),
+        error: format!("{}: {e}", installer_path.display()),
+    })?;
+
+    // 3. Parse install_profile + dispatch by era.
+    // NeoForge is always modern (spec=1).
+    let profile_value = read_install_profile(&installer_bytes)?;
+    let era = detect_era(&profile_value);
+    if era != Era::Modern {
+        return Err(InstallError {
+            stage: "neoforge-era".into(),
+            error: format!("NeoForge installer must be modern era; got {:?}", era),
+        });
+    }
+    install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, true).await
 }
 
 fn forge_path_segment(mc: &str, fv: &str) -> String {
@@ -1101,6 +1185,7 @@ async fn loader_matrix_e2e() {
                 install_fabric_or_quilt(combo, &paths).await
             }
             MatrixLoader::Real(Loader::Forge) => install_forge(combo, &paths).await,
+            MatrixLoader::Real(Loader::NeoForge) => install_neoforge(combo, &paths).await,
         };
         let outcome = match details {
             Ok(d) => {

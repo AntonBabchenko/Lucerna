@@ -108,6 +108,11 @@ export const commands = {
 	 */
 	listForgeLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_forge_loaders", { mcId })),
 	/**
+	 *  List NeoForge loader versions compatible with `mc_id`. Cached
+	 *  5 minutes per MC version. Empty list → `LoaderUnavailable`.
+	 */
+	listNeoforgeLoaders: (mcId: string) => typedError<LoaderVersion[], Error>(__TAURI_INVOKE("list_neoforge_loaders", { mcId })),
+	/**
 	 *  All instances on disk with precomputed `ready` status. Sorted
 	 *  oldest-first by `created_unix_ms`.
 	 */
@@ -256,7 +261,7 @@ export type InstanceWithStatus = {
 	ready: boolean,
 };
 
-export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge";
+export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
 
 export type LoaderVersion = {
 	version: string,

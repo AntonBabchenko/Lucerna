@@ -358,7 +358,28 @@ fn copy_from_source(source: &[u8], offset: usize, length: usize, out: &mut Vec<u
 }
 
 pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
+    // Forge default — flag-based routing for back-compat with 1.0.12 Rust path.
+    run_impl(args, ctx, false).await
+}
+
+/// NeoForge's binarypatcher 2.1.2 has no `--data`/`--unpatched` flags but
+/// still requires the Java shell-out path (pure-Rust 1.0.12 semantics produce
+/// wrong output for 2.x format). Coord-based dispatch from `run_processor`
+/// calls this entry with `is_neoforge=true` (ADDENDUM B).
+pub async fn run_neoforge(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
+    run_impl(args, ctx, true).await
+}
+
+async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) -> Result<()> {
     use std::io::{Read, Write};
+
+    // Coord-based force-Java route for NeoForge (ADDENDUM B). Skip Rust path
+    // entirely — NeoForge binarypatcher 2.x JAR is incompatible with the
+    // pure-Rust 1.0.12 GDiff path.
+    if is_neoforge {
+        return run_via_java(&args, ctx, true).await;
+    }
+
     let parsed = parse_args(&args)?;
 
     // Modern-era 1.20.4+ install profiles invoke binarypatcher 1.2.0
@@ -379,7 +400,7 @@ pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
     // path that has been e2e-validated against 1.16.5.
     let is_v1_2_0 = args.iter().any(|a| a == "--data" || a == "--unpatched");
     if is_v1_2_0 {
-        return run_via_java(&args, ctx).await;
+        return run_via_java(&args, ctx, false).await;
     }
 
     // 1. Load + decompress patches.
@@ -492,10 +513,13 @@ pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
     Ok(())
 }
 
-/// Modern-era (binarypatcher 1.2.0+) Java-subprocess shell-out. Mirrors
-/// `forge::patcher::specialsource::run` / `forge::patcher::fart::run`. Spawns
-/// `java -cp <ctx.classpath joined> net.minecraftforge.binarypatcher.ConsoleTool <args>`.
-async fn run_via_java(args: &[String], ctx: &ProcessorContext) -> Result<()> {
+/// Java-subprocess shell-out for binarypatcher 1.2.0+ (Forge) and 2.1.2
+/// (NeoForge). Spawns `java -cp <ctx.classpath joined> <main-class> <args>`.
+///
+/// Main-Class:
+///   - Forge `net.minecraftforge:binarypatcher:1.2.0+` → `net.minecraftforge.binarypatcher.ConsoleTool`
+///   - NeoForge `net.neoforged.installertools:binarypatcher:2.1.2` → `net.neoforged.binarypatcher.ConsoleTool`
+async fn run_via_java(args: &[String], ctx: &ProcessorContext, is_neoforge: bool) -> Result<()> {
     use std::path::PathBuf;
     let java_bin = ctx
         .java_bin
@@ -509,15 +533,23 @@ async fn run_via_java(args: &[String], ctx: &ProcessorContext) -> Result<()> {
         .collect::<Vec<_>>()
         .join(sep);
 
+    // Select the main class by flavor (ADDENDUM B).
+    let main_class = if is_neoforge {
+        "net.neoforged.binarypatcher.ConsoleTool"
+    } else {
+        "net.minecraftforge.binarypatcher.ConsoleTool"
+    };
+
     let mut cmd = tokio::process::Command::new(&java_bin);
     cmd.arg("-cp").arg(&cp);
-    cmd.arg("net.minecraftforge.binarypatcher.ConsoleTool");
+    cmd.arg(main_class);
     cmd.args(args);
 
     eprintln!(
-        "binarypatcher (1.2.0): spawning {} with {} classpath entries",
+        "binarypatcher: spawning {} with {} classpath entries (main={})",
         java_bin.display(),
-        ctx.classpath.len()
+        ctx.classpath.len(),
+        main_class,
     );
 
     let output = cmd.output().await.map_err(|e| {

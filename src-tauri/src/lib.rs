@@ -35,6 +35,7 @@ pub fn run() {
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
             commands::list_forge_loaders,
+            commands::list_neoforge_loaders,
             // Multi-instance (v0.3.0):
             commands::list_instances,
             commands::get_active_instance,

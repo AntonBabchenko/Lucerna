@@ -131,6 +131,14 @@ impl Promotions {
     }
 }
 
+#[doc(hidden)]
+#[cfg(test)]
+impl Promotions {
+    pub(crate) fn insert_for_test(&mut self, mc: String, fv: String) {
+        self.by_mc.insert(mc, fv);
+    }
+}
+
 /// Parse promotions_slim.json. Returns `ForgePromotionsUnavailable` if
 /// the JSON is malformed — callers can downgrade this to a non-fatal
 /// "stability info unavailable" UI hint.
@@ -158,12 +166,30 @@ pub fn parse_promotions(body: &str) -> Result<Promotions> {
 
 // ---- version sort + LoaderVersion build --------------------------
 
-/// Parse Forge version string `MAJOR.MINOR.PATCH.BUILD` into a 4-tuple
-/// for lex compare. Missing trailing segments default to 0; non-numeric
-/// segments default to 0 (defensive — string-sort fallback would order
-/// pre-release weirdly).
+/// True if `fv` lacks a pre-release marker (no `-beta`, `-rc`, `-alpha`,
+/// `-snapshot` suffix). NeoForge and Quilt use these markers to distinguish
+/// release from prerelease; Forge versions are all releases (no suffix).
+pub(crate) fn is_release(fv: &str) -> bool {
+    let lower = fv.to_ascii_lowercase();
+    !(lower.contains("-beta")
+        || lower.contains("-rc")
+        || lower.contains("-alpha")
+        || lower.contains("-snapshot"))
+}
+
+/// Parse version string into `(MAJOR, MINOR, PATCH, BUILD)` for lex compare.
+/// Strips trailing `-beta`/`-rc`/`-alpha`/`-snapshot` markers before parsing
+/// numeric segments so prerelease versions sort within their numeric band
+/// (not down to (0,0,0,0)).
 pub(crate) fn version_parts(v: &str) -> (u32, u32, u32, u32) {
-    let mut it = v.split('.');
+    let trimmed = match v.find('-') {
+        Some(idx) if v[idx..].to_ascii_lowercase().starts_with("-beta")
+            || v[idx..].to_ascii_lowercase().starts_with("-rc")
+            || v[idx..].to_ascii_lowercase().starts_with("-alpha")
+            || v[idx..].to_ascii_lowercase().starts_with("-snapshot") => &v[..idx],
+        _ => v,
+    };
+    let mut it = trimmed.split('.');
     let parse = |s: Option<&str>| s.and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
     (
         parse(it.next()),
@@ -189,7 +215,27 @@ pub(crate) fn build_loader_versions(
     let recommended = promos.recommended_for(mc_id);
     let mut filtered: Vec<&MavenEntry> =
         entries.iter().filter(|e| e.mc == mc_id).collect();
-    filtered.sort_by(|a, b| version_parts(&b.fv).cmp(&version_parts(&a.fv)));
+    // Sort by `(major, minor, patch, is_release, beta_or_build)` desc — release sorts
+    // above prerelease in the same patch band. `is_release` becomes the 4th component
+    // because version_parts already covers the leading 3 numeric segments.
+    filtered.sort_by(|a, b| {
+        let (a_v, b_v) = (version_parts(&a.fv), version_parts(&b.fv));
+        b_v.cmp(&a_v)
+            .then_with(|| is_release(&b.fv).cmp(&is_release(&a.fv)))
+    });
+
+    // Stable tagging: if promotions explicitly recommended an entry, that wins.
+    // Otherwise (NeoForge or any flavor with absent promotions), the top non-beta
+    // entry gets stable=true. Only ONE entry total is ever stable.
+    let promo_stable_fv = recommended.map(|s| s.to_string());
+    let fallback_stable_fv: Option<String> = if promo_stable_fv.is_none() {
+        filtered
+            .iter()
+            .find(|e| is_release(&e.fv))
+            .map(|e| e.fv.clone())
+    } else {
+        None
+    };
 
     let mut raw_by_fv =
         std::collections::HashMap::<String, String>::with_capacity(filtered.len());
@@ -197,14 +243,77 @@ pub(crate) fn build_loader_versions(
         .into_iter()
         .map(|e| {
             raw_by_fv.insert(e.fv.clone(), e.raw.clone());
+            let stable = promo_stable_fv.as_deref() == Some(e.fv.as_str())
+                || fallback_stable_fv.as_deref() == Some(e.fv.as_str());
             crate::versions::loaders::LoaderVersion {
                 version: e.fv.clone(),
-                stable: Some(e.fv.as_str()) == recommended,
+                stable,
                 build: 0,
             }
         })
         .collect();
     (loader_versions, raw_by_fv)
+}
+
+// ---- NeoForge maven-metadata.xml parsing -------------------------
+
+/// Parse NeoForge's `maven-metadata.xml` into `MavenEntry` records.
+///
+/// NeoForge uses a **version-only** maven layout: each `<version>` tag
+/// is the NeoForge version alone (e.g. `20.4.167`, `21.10.64`,
+/// `20.4.0-beta`). The MC version is *encoded in the first two numeric
+/// segments* of the NeoForge version using the rule:
+///
+/// ```text
+/// NeoForge A.B.C[suffix]  →  MC 1.A.B
+/// ```
+///
+/// So `20.4.251` → MC `1.20.4`, `21.10.64` → MC `1.21.10`, etc.
+/// Entries where the first two segments cannot be parsed as integers
+/// are silently dropped.
+pub fn parse_neoforge_maven_metadata(xml: &str) -> Result<Vec<MavenEntry>> {
+    let parsed: MavenMetadata = xml_from_str(xml).map_err(|e| {
+        Error::ForgeMavenMetadataParseFailed {
+            details: format!("{e}"),
+        }
+    })?;
+    let mut out = Vec::with_capacity(parsed.versioning.versions.versions.len());
+    for entry in parsed.versioning.versions.versions {
+        if let Some(maven_entry) = parse_neoforge_entry(&entry) {
+            out.push(maven_entry);
+        }
+    }
+    Ok(out)
+}
+
+/// Parse a single NeoForge maven version string into a `MavenEntry`.
+///
+/// Format: `<A>.<B>.<C>` or `<A>.<B>.<C>-beta` (and similar pre-release suffixes).
+/// Derives MC id as `1.<A>.<B>`. Returns `None` for malformed entries.
+fn parse_neoforge_entry(entry: &str) -> Option<MavenEntry> {
+    // Strip any pre-release suffix for the purpose of extracting A.B.
+    // We keep the full entry string as `fv` (including -beta/-rc) so the
+    // version dropdown shows pre-release markers to the user.
+    let numeric_part = match entry.find('-') {
+        Some(idx) => &entry[..idx],
+        None => entry,
+    };
+
+    let mut it = numeric_part.splitn(3, '.');
+    let a: u32 = it.next()?.parse().ok()?;
+    let b: u32 = it.next()?.parse().ok()?;
+    // Third segment may or may not be present — we only need A.B for the MC id.
+    // Discard: we already have it in `entry` as `fv`.
+    let _ = it.next();
+
+    let mc = format!("1.{a}.{b}");
+    // `fv` is the full NeoForge version string (including any -beta suffix).
+    // `raw` == `fv` for NeoForge: there is no `<mc>-<fv>-<mc>` quirk.
+    Some(MavenEntry {
+        mc,
+        fv: entry.to_string(),
+        raw: entry.to_string(),
+    })
 }
 
 // ---- public API: list_versions -----------------------------------
@@ -283,7 +392,12 @@ pub async fn list_versions(
     let xml = crate::network::get_text(&meta_url, "forge/meta")
         .await
         .map_err(|e| Error::network(meta_url.clone(), format!("{e:?}")))?;
-    let pairs = parse_maven_metadata(&xml)?;
+    // NeoForge uses a version-only maven layout (no `<mc>-<fv>` prefix).
+    // Forge uses the classic `<mc>-<fv>` format. Dispatch accordingly.
+    let pairs = match flavor {
+        ForgeFlavor::NeoForge => parse_neoforge_maven_metadata(&xml)?,
+        ForgeFlavor::Forge => parse_maven_metadata(&xml)?,
+    };
 
     // Fetch promotions (optional). Failure → empty promotions table
     // (versions still listed, just none marked recommended).
@@ -601,7 +715,9 @@ mod tests {
     }
 
     #[test]
-    fn build_loader_versions_with_no_promotions_marks_none_stable() {
+    fn build_loader_versions_with_no_promotions_top_gets_stable() {
+        // With no promotions feed, the fallback rule kicks in: the top non-beta
+        // entry is tagged stable=true (mirrors the NeoForge / Quilt behaviour).
         let entries = vec![
             entry("1.7.10", "10.13.4.1614", "1.7.10-10.13.4.1614-1.7.10"),
             entry("1.7.10", "10.13.2.1291", "1.7.10-10.13.2.1291-1.7.10"),
@@ -609,7 +725,9 @@ mod tests {
         let promos = Promotions::default();
         let (out, raw) = build_loader_versions(&entries, "1.7.10", &promos);
         assert_eq!(out.len(), 2);
-        assert!(out.iter().all(|lv| !lv.stable));
+        // Top entry (highest version, no beta suffix) is stable; lower is not.
+        assert!(out[0].stable, "top non-beta should be stable when no promotions");
+        assert!(!out[1].stable);
         // Raw index preserves the legacy-quirk maven path for URL building.
         assert_eq!(
             raw.get("10.13.4.1614").map(String::as_str),
@@ -632,5 +750,128 @@ mod tests {
             raw.get("10.13.4.1614").map(String::as_str),
             Some("1.7.10-10.13.4.1614-1.7.10")
         );
+    }
+
+    #[test]
+    fn neoforge_top_non_beta_gets_stable_when_promotions_empty() {
+        // Synthetic NeoForge entries for MC 1.20.4. Only the top non-beta should be stable.
+        let entries = vec![
+            MavenEntry { mc: "1.20.4".into(), fv: "20.4.245".into(), raw: "20.4.245".into() },
+            MavenEntry { mc: "1.20.4".into(), fv: "20.4.240-beta".into(), raw: "20.4.240-beta".into() },
+            MavenEntry { mc: "1.20.4".into(), fv: "20.4.236".into(), raw: "20.4.236".into() },
+        ];
+        let empty_promos = Promotions::default();
+        let (list, _raw_by_fv) = build_loader_versions(&entries, "1.20.4", &empty_promos);
+        // Sort: 20.4.245 (top non-beta), 20.4.240-beta, 20.4.236
+        assert_eq!(list[0].version, "20.4.245");
+        assert!(list[0].stable, "top non-beta should be stable");
+        assert!(!list[1].stable, "beta should not be stable");
+        assert!(!list[2].stable, "lower non-beta should not be stable");
+        // Only one stable entry total.
+        assert_eq!(list.iter().filter(|l| l.stable).count(), 1);
+    }
+
+    #[test]
+    fn neoforge_beta_sort_below_stable_in_same_patch_band() {
+        // Direct sort assertion: 20.4.236 (release) > 20.4.236-beta.
+        // version_parts must classify -beta correctly.
+        let entries = vec![
+            MavenEntry { mc: "1.20.4".into(), fv: "20.4.236-beta".into(), raw: "20.4.236-beta".into() },
+            MavenEntry { mc: "1.20.4".into(), fv: "20.4.236".into(), raw: "20.4.236".into() },
+        ];
+        let (list, _) = build_loader_versions(&entries, "1.20.4", &Promotions::default());
+        assert_eq!(list[0].version, "20.4.236", "release sorts before beta in same patch band");
+        assert_eq!(list[1].version, "20.4.236-beta");
+    }
+
+    #[test]
+    fn forge_promotions_path_unchanged_for_recommended_tag() {
+        // Regression guard: when promotions has a recommendation, that entry is stable
+        // — the new fallback should NOT override the promotions decision.
+        let entries = vec![
+            MavenEntry { mc: "1.20.4".into(), fv: "49.0.49".into(), raw: "1.20.4-49.0.49".into() },
+            MavenEntry { mc: "1.20.4".into(), fv: "49.0.50".into(), raw: "1.20.4-49.0.50".into() },
+        ];
+        let mut promos = Promotions::default();
+        promos.insert_for_test("1.20.4".into(), "49.0.49".into());
+        let (list, _) = build_loader_versions(&entries, "1.20.4", &promos);
+        // 49.0.50 sorts first by version, but 49.0.49 is the promotions-recommended one.
+        let stable: Vec<_> = list.iter().filter(|l| l.stable).collect();
+        assert_eq!(stable.len(), 1);
+        assert_eq!(stable[0].version, "49.0.49");
+    }
+
+    // ---- NeoForge maven-metadata parsing ---------------------------------
+
+    const NEOFORGE_FIXTURE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>net.neoforged</groupId>
+  <artifactId>neoforge</artifactId>
+  <versioning>
+    <versions>
+      <version>20.4.167</version>
+      <version>20.4.251</version>
+      <version>20.4.0-beta</version>
+      <version>21.10.63</version>
+      <version>21.10.64</version>
+      <version>21.11.42</version>
+      <version>21.1.230</version>
+    </versions>
+  </versioning>
+</metadata>"#;
+
+    #[test]
+    fn parse_neoforge_maven_metadata_decodes_mc_from_version() {
+        let parsed = parse_neoforge_maven_metadata(NEOFORGE_FIXTURE).expect("parse");
+        assert_eq!(parsed.len(), 7);
+
+        // 20.4.x → MC 1.20.4
+        let e = parsed.iter().find(|e| e.fv == "20.4.167").unwrap();
+        assert_eq!(e.mc, "1.20.4");
+        assert_eq!(e.raw, "20.4.167");
+
+        let e = parsed.iter().find(|e| e.fv == "20.4.251").unwrap();
+        assert_eq!(e.mc, "1.20.4");
+
+        // Pre-release: fv retains -beta; mc still 1.20.4.
+        let e = parsed.iter().find(|e| e.fv == "20.4.0-beta").unwrap();
+        assert_eq!(e.mc, "1.20.4");
+        assert_eq!(e.raw, "20.4.0-beta");
+
+        // 21.10.x → MC 1.21.10
+        let e = parsed.iter().find(|e| e.fv == "21.10.64").unwrap();
+        assert_eq!(e.mc, "1.21.10");
+
+        // 21.11.x → MC 1.21.11
+        let e = parsed.iter().find(|e| e.fv == "21.11.42").unwrap();
+        assert_eq!(e.mc, "1.21.11");
+
+        // 21.1.x → MC 1.21.1
+        let e = parsed.iter().find(|e| e.fv == "21.1.230").unwrap();
+        assert_eq!(e.mc, "1.21.1");
+    }
+
+    #[test]
+    fn parse_neoforge_maven_metadata_filters_for_mc() {
+        let parsed = parse_neoforge_maven_metadata(NEOFORGE_FIXTURE).expect("parse");
+        let (versions, _) = build_loader_versions(&parsed, "1.20.4", &Promotions::default());
+        // Expect 3 entries for 1.20.4: 20.4.251, 20.4.167, 20.4.0-beta.
+        assert_eq!(versions.len(), 3, "should have 3 entries for 1.20.4");
+        // Top non-beta (20.4.251) is stable.
+        assert_eq!(versions[0].version, "20.4.251");
+        assert!(versions[0].stable);
+        assert!(!versions[1].stable);
+        assert!(!versions[2].stable);
+    }
+
+    #[test]
+    fn parse_neoforge_maven_metadata_filters_for_1_21_10() {
+        let parsed = parse_neoforge_maven_metadata(NEOFORGE_FIXTURE).expect("parse");
+        let (versions, _) = build_loader_versions(&parsed, "1.21.10", &Promotions::default());
+        assert_eq!(versions.len(), 2);
+        assert_eq!(versions[0].version, "21.10.64");
+        assert!(versions[0].stable);
+        assert_eq!(versions[1].version, "21.10.63");
+        assert!(!versions[1].stable);
     }
 }

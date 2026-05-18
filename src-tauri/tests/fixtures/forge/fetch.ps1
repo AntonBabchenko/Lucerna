@@ -36,27 +36,40 @@ foreach ($line in $lines) {
         }
     }
 
-    # Derive download URL from filename pattern forge-<mc>-<fv>-installer.jar.
-    if ($name -notmatch "^forge-([^-]+(?:-[^-]+)?)-([0-9.]+)-installer\.jar$") {
+    # Derive download URL from filename pattern.
+    #   Forge:    forge-<mc>-<fv>-installer.jar
+    #   NeoForge: neoforge-<nv>-installer.jar  (no <mc> in filename — encoded by major.minor pair)
+    if ($name -match "^forge-([^-]+(?:-[^-]+)?)-([0-9.]+)-installer\.jar$") {
+        $flavor = "forge"
+        $mc = $matches[1]
+        $fv = $matches[2]
+    } elseif ($name -match "^neoforge-([0-9.]+(?:-beta|-rc[0-9]+)?)-installer\.jar$") {
+        $flavor = "neoforge"
+        $fv = $matches[1]
+        $mc = $null
+    } else {
         throw "Cannot derive URL for unrecognized filename: $name"
     }
-    $mc = $matches[1]
-    $fv = $matches[2]
 
-    # Some MC ranges (1.7.10, parts of 1.9) use the legacy
-    # `<mc>-<fv>-<mc>` quirk in maven paths. The Rust meta layer
-    # detects this at runtime via maven-metadata.xml; here we use a
-    # static allowlist of known affected MCs to keep the script
-    # offline-deterministic. If you add a new fixture and hit a 404,
-    # extend this set.
-    $quirkMcs = @("1.7.10")
-    $rawSegment = "${mc}-${fv}"
-    $rawName = $name
-    if ($quirkMcs -contains $mc) {
-        $rawSegment = "${mc}-${fv}-${mc}"
-        $rawName = "forge-${rawSegment}-installer.jar"
+    if ($flavor -eq "forge") {
+        # Some MC ranges (1.7.10, parts of 1.9) use the legacy
+        # `<mc>-<fv>-<mc>` quirk in maven paths. The Rust meta layer
+        # detects this at runtime via maven-metadata.xml; here we use a
+        # static allowlist of known affected MCs to keep the script
+        # offline-deterministic. If you add a new fixture and hit a 404,
+        # extend this set.
+        $quirkMcs = @("1.7.10")
+        $rawSegment = "${mc}-${fv}"
+        $rawName = $name
+        if ($quirkMcs -contains $mc) {
+            $rawSegment = "${mc}-${fv}-${mc}"
+            $rawName = "forge-${rawSegment}-installer.jar"
+        }
+        $url = "https://maven.minecraftforge.net/net/minecraftforge/forge/${rawSegment}/${rawName}"
+    } else {
+        # NeoForge: maven.neoforged.net/releases/.../neoforge/<nv>/neoforge-<nv>-installer.jar.
+        $url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/${fv}/neoforge-${fv}-installer.jar"
     }
-    $url = "https://maven.minecraftforge.net/net/minecraftforge/forge/${rawSegment}/${rawName}"
 
     Write-Output "downloading: $url"
     Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing

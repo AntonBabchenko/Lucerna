@@ -136,7 +136,17 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
         .as_ref()
         .expect("merged JSON should have downloads — vanilla parent must provide it");
     emit(app, version_id, InstallPhase::Client, 0, 1, 0.0);
-    super::client::ensure_client(version_id, &client_download.client, app).await?;
+    // Vanilla MC client.jar must live at `versions/<mc>/<mc>.jar` only.
+    // For synth installs (Fabric/Quilt/Forge/NeoForge), route to the parent
+    // MC's id; otherwise the vanilla client would be duplicated at
+    // `versions/<synth>/<synth>.jar`, where it conflicts with NeoForge 21.x's
+    // FML 4.0.42 module-name heuristic (which takes the filename's first
+    // dash-segment as the module name → `neoforge` → collides with the
+    // universal jar that's also module `neoforge`).
+    let client_dest_id = crate::versions::loaders::parse_synth_id(version_id)
+        .map(|(_loader, _lv, mc)| mc)
+        .unwrap_or_else(|| version_id.to_string());
+    super::client::ensure_client(&client_dest_id, &client_download.client, app).await?;
     emit(app, version_id, InstallPhase::Client, 1, 1, 0.0);
 
     emit(app, version_id, InstallPhase::Complete, 1, 1, 0.0);
@@ -187,20 +197,29 @@ async fn ensure_version_json_inner(
     if let Some((loader, loader_ver, mc_ver)) =
         crate::versions::loaders::parse_synth_id(version_id)
     {
-        if loader == crate::versions::loaders::Loader::Forge {
+        if matches!(
+            loader,
+            crate::versions::loaders::Loader::Forge | crate::versions::loaders::Loader::NeoForge
+        ) {
             InstallProgress {
                 version_id: version_id.to_string(),
                 phase: InstallPhase::ForgeInstall,
                 files_done: 0,
                 files_total: 1,
                 bytes_done: 0.0,
-                current_step: Some(format!("Installing Forge {loader_ver} for {mc_ver}")),
+                current_step: Some(format!(
+                    "Installing {} {loader_ver} for {mc_ver}",
+                    loader.display_name()
+                )),
             }
             .emit(app)
             .ok();
         }
         let child = crate::versions::loaders::fetch_profile(loader, &mc_ver, &loader_ver, app).await?;
-        if loader == crate::versions::loaders::Loader::Forge {
+        if matches!(
+            loader,
+            crate::versions::loaders::Loader::Forge | crate::versions::loaders::Loader::NeoForge
+        ) {
             InstallProgress {
                 version_id: version_id.to_string(),
                 phase: InstallPhase::ForgeInstall,
