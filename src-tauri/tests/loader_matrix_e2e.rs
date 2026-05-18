@@ -883,6 +883,15 @@ async fn launch_and_watch(
         expires_at: None,
     };
 
+    // Mirror production spawn.rs: Forge/NeoForge ship a patched MC in
+    // libraries and the loader's own MinecraftLocator finds it; adding the
+    // vanilla jar to the classpath duplicates net.minecraft.* and triggers
+    // a JPMS ResolutionException on the BootstrapLauncher / ForgeBootstrap
+    // module-path. Vanilla/Fabric/Quilt do need it on the classpath.
+    let client_jar = match combo.loader {
+        MatrixLoader::Real(Loader::Forge) | MatrixLoader::Real(Loader::NeoForge) => None,
+        _ => Some(paths.versions().join(&synth).join(format!("{synth}.jar"))),
+    };
     let argv_input = ftlauncher_lib::launch::args::ArgvInput {
         details,
         account: &account,
@@ -891,7 +900,7 @@ async fn launch_and_watch(
         assets_dir: paths.assets(),
         natives_dir: natives_dir.clone(),
         game_dir: game_dir.clone(),
-        client_jar: paths.versions().join(&synth).join(format!("{synth}.jar")),
+        client_jar,
         os,
         arch,
     };

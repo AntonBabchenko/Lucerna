@@ -8,6 +8,7 @@
   } from '$lib/ipc/bindings';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { formatError } from '$lib/ipc/format-error';
 
   let {
     open = $bindable(),
@@ -75,10 +76,14 @@
   });
 
   function ipcErrorMessage(e: IpcError): string {
+    // Modal-local shorter wording for the two name-validation cases (the
+    // modal context makes "Instance" redundant). Everything else
+    // delegates to the shared formatError so no IPC variant leaks raw
+    // JSON if e.g. openInstanceFolder returns Error::Io.
     if (e.kind === 'instance_name_empty') return 'Name cannot be empty';
     if (e.kind === 'instance_name_too_long')
       return `Name is too long: ${e.actual}/${e.max} characters`;
-    return JSON.stringify(e);
+    return formatError(e);
   }
 
   function openCreate() {
@@ -241,18 +246,25 @@
         <section class="flex-1 overflow-y-auto p-4">
           {#if createMode}
             <h3 class="font-semibold mb-3">New instance</h3>
-            <label class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between">
+            <label
+              for="create-name"
+              class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between"
+            >
               <span>Name</span>
               <span class="text-neutral-400 normal-case font-normal">{draftName.length}/32</span>
             </label>
             <input
+              id="create-name"
               class="border rounded px-2 py-1 w-full mb-3"
               maxlength="32"
               bind:value={draftName}
             />
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Minecraft version</label>
+            <label for="create-mc-version" class="block text-xs uppercase text-neutral-600 mb-1"
+              >Minecraft version</label
+            >
             <select
+              id="create-mc-version"
               class="border rounded px-2 py-1 w-full mb-1"
               value={draftMc}
               onchange={(e) => (draftMc = (e.currentTarget as HTMLSelectElement).value)}
@@ -294,19 +306,26 @@
                 >{/if}
             </h3>
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between">
+            <label
+              for="detail-name"
+              class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between"
+            >
               <span>Name</span>
               <span class="text-neutral-400 normal-case font-normal">{nameDraft.length}/32</span>
             </label>
             <input
+              id="detail-name"
               class="border rounded px-2 py-1 w-full mb-3"
               maxlength="32"
               bind:value={nameDraft}
               onblur={commitName}
             />
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Minecraft version</label>
+            <label for="detail-mc-version" class="block text-xs uppercase text-neutral-600 mb-1"
+              >Minecraft version</label
+            >
             <select
+              id="detail-mc-version"
               class="border rounded px-2 py-1 w-full mb-1"
               value={selected.mc_version}
               onchange={(e) => setMc((e.currentTarget as HTMLSelectElement).value)}
@@ -332,10 +351,11 @@
               }}
             />
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">
+            <label for="detail-memory" class="block text-xs uppercase text-neutral-600 mb-1">
               Memory (max heap): {selected.max_heap_mb} MB
             </label>
             <input
+              id="detail-memory"
               type="range"
               min="1024"
               max="8192"
@@ -345,8 +365,11 @@
               class="w-full mb-3"
             />
 
-            <label class="block text-xs uppercase text-neutral-600 mb-1">Extra JVM args</label>
+            <label for="detail-jvm-args" class="block text-xs uppercase text-neutral-600 mb-1"
+              >Extra JVM args</label
+            >
             <input
+              id="detail-jvm-args"
               class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
               placeholder="-XX:+UseG1GC -XX:MaxGCPauseMillis=200"
               value={selected.extra_jvm_args}

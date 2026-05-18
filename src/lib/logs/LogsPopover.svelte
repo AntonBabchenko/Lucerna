@@ -192,10 +192,11 @@
           Reload
         </button>
         <button
-          class="text-xs border rounded px-2 py-0.5 hover:bg-neutral-100"
+          class="text-neutral-500 hover:text-neutral-800 text-lg leading-none px-1"
+          aria-label="Close"
           onclick={() => (open = false)}
         >
-          Close
+          ×
         </button>
       </div>
     </header>

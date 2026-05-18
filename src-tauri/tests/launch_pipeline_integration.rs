@@ -60,9 +60,9 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         game_dir: PathBuf::from(
             "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/instances/default/.minecraft",
         ),
-        client_jar: PathBuf::from(
+        client_jar: Some(PathBuf::from(
             "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/versions/1.20.4/1.20.4.jar",
-        ),
+        )),
         os: "windows",
         arch: "x64",
     };
@@ -106,7 +106,7 @@ fn classpath_with_one_lib_uses_semicolon_on_windows() {
     let cp = build_classpath(
         &details.libraries,
         std::path::Path::new("C:/libs"),
-        std::path::Path::new("C:/client.jar"),
+        Some(std::path::Path::new("C:/client.jar")),
         "windows",
         "x64",
     );

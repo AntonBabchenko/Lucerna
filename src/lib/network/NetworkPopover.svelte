@@ -43,12 +43,37 @@
 </script>
 
 {#if open}
+  <!-- Invisible click-catcher backdrop. Clicking anywhere outside the
+       popover closes it. Escape on the same element also closes
+       (so keyboard users can dismiss after clicking the trigger). -->
   <div
-    class="absolute right-2 top-12 w-[520px] max-h-[60vh] bg-white border rounded shadow-lg overflow-hidden flex flex-col"
+    class="fixed inset-0 z-40"
+    role="button"
+    tabindex="-1"
+    aria-label="Close Network Activity"
+    onclick={() => (open = false)}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') open = false;
+    }}
+  ></div>
+  <!-- Anchored bottom-left, above the sidebar's Logs/Network button row
+       (sidebar is 240 px wide, bottom row sits at ~bottom-2). The popover
+       grows upward from there with a 60vh ceiling. -->
+  <div
+    class="fixed bottom-14 left-3 w-[520px] max-h-[60vh] bg-white border rounded shadow-lg overflow-hidden flex flex-col z-50"
   >
     <header class="px-3 py-2 border-b flex items-center justify-between">
       <span class="font-semibold text-sm">Network Activity</span>
-      <button class="text-xs underline" onclick={refresh} disabled={loading}>Refresh</button>
+      <div class="flex items-center gap-3">
+        <button class="text-xs underline" onclick={refresh} disabled={loading}>Refresh</button>
+        <button
+          class="text-neutral-500 hover:text-neutral-800 text-lg leading-none px-1"
+          aria-label="Close"
+          onclick={() => (open = false)}
+        >
+          ×
+        </button>
+      </div>
     </header>
 
     {#if violations.length > 0}

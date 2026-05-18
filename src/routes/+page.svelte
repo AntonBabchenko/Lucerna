@@ -16,6 +16,7 @@
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { formatError } from '$lib/ipc/format-error';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -67,57 +68,12 @@
     });
   });
 
-  function errorMessage(e: IpcError): string {
-    switch (e.kind) {
-      case 'network':
-        return `Network error fetching ${e.url}: ${e.details}`;
-      case 'hash_mismatch':
-        return `Hash mismatch for ${e.path}`;
-      case 'java_spawn':
-        return `Java spawn failed: ${e.details}`;
-      case 'already_running':
-        return 'Minecraft is already running';
-      case 'account_not_set':
-        return 'Account not set — enter your name first';
-      case 'unknown_version':
-        return `Version ${e.id} not found in manifest`;
-      case 'unsupported_platform':
-        return `Unsupported platform: ${e.os}/${e.arch}`;
-      case 'loader_unavailable':
-        return `${displayLoader(e.loader as import('$lib/ipc/bindings').LoaderKind)} does not support Minecraft ${e.mc_version}`;
-      case 'last_instance':
-        return 'Cannot delete the last instance — at least one must remain';
-      case 'no_version_selected':
-        return 'Pick a Minecraft version first';
-      case 'instance_not_found':
-        return `Instance ${e.id} not found`;
-      case 'io':
-        return `IO error at ${e.path}: ${e.details}`;
-      case 'forge_promotions_unavailable':
-        return `Forge promotions feed for ${e.flavor} is unavailable — versions will not be marked recommended`;
-      case 'forge_maven_metadata_parse_failed':
-        return `Failed to parse Forge maven-metadata.xml: ${e.details}`;
-      case 'forge_installer_corrupted':
-        return `Forge installer for ${e.mc}-${e.fv} is corrupted: ${e.details}`;
-      case 'forge_unsupported_processor':
-        return `This Forge version uses an unsupported processor: ${e.coord}`;
-      case 'forge_patcher_failed':
-        return `Forge patcher "${e.processor}" failed: ${e.details}`;
-      case 'forge_mappings_missing':
-        return `Forge mappings for ${e.mc} are not available`;
-      case 'instance_name_empty':
-        return 'Instance name cannot be empty';
-      case 'instance_name_too_long':
-        return `Instance name is too long: ${e.actual}/${e.max} characters`;
-    }
-  }
-
   async function refreshAccounts() {
     const list = await commands.listAccounts();
     if (list.status === 'ok') {
       accounts = list.data;
     } else {
-      listAccountsError = errorMessage(list.error);
+      listAccountsError = formatError(list.error);
     }
     const active = await commands.getActiveAccount();
     if (active.status === 'ok') {
@@ -164,7 +120,7 @@
     if (versionsResult.status === 'ok') {
       versions = versionsResult.data;
     } else {
-      versionsError = errorMessage(versionsResult.error);
+      versionsError = formatError(versionsResult.error);
     }
   });
 
@@ -182,7 +138,7 @@
     if (result.status === 'ok') {
       await refreshAccounts();
     } else {
-      removeError = errorMessage(result.error);
+      removeError = formatError(result.error);
     }
   }
 
@@ -192,7 +148,7 @@
     if (list.status === 'ok') {
       instances = list.data;
     } else {
-      instancesError = errorMessage(list.error);
+      instancesError = formatError(list.error);
       instances = [];
     }
     const active = await commands.getActiveInstance();
@@ -206,7 +162,7 @@
   async function onSelectInstance(id: string) {
     const result = await commands.setActiveInstance(id);
     if (result.status === 'error') {
-      instancesError = errorMessage(result.error);
+      instancesError = formatError(result.error);
       return;
     }
     await refreshInstances();
@@ -222,7 +178,7 @@
     const result = await commands.installInstance(activeInstance.id);
     installing = false;
     if (result.status === 'error') {
-      installError = errorMessage(result.error);
+      installError = formatError(result.error);
     } else {
       // Refresh so `activeInstance.ready` flips to true and the button
       // swaps from blue Install to green Play. No auto-launch — the
@@ -238,7 +194,7 @@
     installError = null;
     const result = await commands.launchInstance(activeInstance.id);
     if (result.status === 'error') {
-      installError = errorMessage(result.error);
+      installError = formatError(result.error);
     }
     // processSpawned event sets `running` once MC starts; processExited
     // clears it. No need to refresh state here.
@@ -247,7 +203,7 @@
   async function onStop() {
     const result = await commands.stopMinecraft();
     if (result.status === 'error') {
-      installError = errorMessage(result.error);
+      installError = formatError(result.error);
     }
   }
 
@@ -262,7 +218,7 @@
     if (!activeInstance) return;
     const result = await commands.openModsFolder(activeInstance.id);
     if (result.status === 'error') {
-      modsError = errorMessage(result.error);
+      modsError = formatError(result.error);
     }
   }
 
@@ -298,7 +254,7 @@
           await commands.setActiveAccount(result.data.id);
           await refreshAccounts();
         } else {
-          offlineNameError = errorMessage(result.error);
+          offlineNameError = formatError(result.error);
         }
       }}
       {onSelectInstance}

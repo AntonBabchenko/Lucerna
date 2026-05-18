@@ -3,18 +3,36 @@
   import { onMount } from 'svelte';
 
   let progress = $state<InstallProgress | null>(null);
-  let unlisten: (() => void) | null = null;
+  let unlisteners: Array<() => void> = [];
 
   onMount(() => {
     events.installProgress
       .listen((event) => {
         progress = event.payload;
       })
-      .then((u) => {
-        unlisten = u;
-      });
+      .then((u) => unlisteners.push(u));
+
+    // Clear install progress when MC starts — the install context is
+    // over once a process is spawned.
+    events.processSpawned
+      .listen(() => {
+        progress = null;
+      })
+      .then((u) => unlisteners.push(u));
+
+    // Also clear on exit — covers the crash-before-menu-marker case
+    // where progress.phase was 'complete' but the row would otherwise
+    // linger with "click Play to launch" competing with the crash
+    // banner for attention.
+    events.processExited
+      .listen(() => {
+        progress = null;
+      })
+      .then((u) => unlisteners.push(u));
+
     return () => {
-      unlisten?.();
+      for (const u of unlisteners) u();
+      unlisteners = [];
     };
   });
 

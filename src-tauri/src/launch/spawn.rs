@@ -89,12 +89,32 @@ pub async fn start(
     // Vanilla MC client.jar lives at `versions/<mc>/<mc>.jar` only — see
     // `versions::install` comment. For synth installs, resolve to the parent
     // MC id so we don't reference the orphaned synth-path jar.
-    let client_jar_id = crate::versions::loaders::parse_synth_id(effective_version_id)
-        .map(|(_loader, _lv, mc)| mc)
+    //
+    // Forge / NeoForge ship a patched MC inside their libraries (under
+    // `libraries/net/minecraft/client/.../client-*-srg.jar`) which the
+    // loader's own discovery (MinecraftLocator etc.) picks up. Adding the
+    // vanilla jar to the classpath on top duplicates the `net.minecraft.*`
+    // bytecode and, on modern Java module-path bootstraps
+    // (cpw.mods.bootstraplauncher.BootstrapLauncher / ForgeBootstrap),
+    // crashes with a JPMS ResolutionException:
+    //   Module minecraft contains package net.minecraft.obfuscate,
+    //   module _1._20._4 exports package net.minecraft.obfuscate to minecraft
+    // Vanilla / Fabric / Quilt do need the vanilla jar on the classpath
+    // (no patched MC; loader transforms bytecode at runtime).
+    let synth = crate::versions::loaders::parse_synth_id(effective_version_id);
+    let client_jar_id = synth
+        .as_ref()
+        .map(|(_loader, _lv, mc)| mc.clone())
         .unwrap_or_else(|| effective_version_id.to_string());
-    let client_jar = versions
-        .join(&client_jar_id)
-        .join(format!("{client_jar_id}.jar"));
+    let client_jar: Option<PathBuf> = match synth.as_ref().map(|(loader, _, _)| loader) {
+        Some(crate::versions::loaders::Loader::Forge)
+        | Some(crate::versions::loaders::Loader::NeoForge) => None,
+        _ => Some(
+            versions
+                .join(&client_jar_id)
+                .join(format!("{client_jar_id}.jar")),
+        ),
+    };
     let version_json_path = versions
         .join(effective_version_id)
         .join(format!("{effective_version_id}.json"));

@@ -8,7 +8,7 @@
 //! dropdown.
 
 use crate::instances::schema::{InstanceFile, LoaderKind};
-use crate::versions::loaders::{synth_id, Loader};
+use crate::versions::loaders::{parse_synth_id, synth_id, Loader};
 use std::path::Path;
 
 /// What version id this instance launches as.
@@ -46,14 +46,39 @@ pub fn effective_version_id(instance: &InstanceFile) -> Option<String> {
     }
 }
 
-/// True iff the effective version's client JAR exists at
-/// `<versions_dir>/<id>/<id>.jar`. Cheap (single stat call). If
-/// `effective_version_id` is None, returns false.
+/// True iff the effective version's install artefacts exist on disk:
+/// the profile JSON for the effective id AND the vanilla MC client jar
+/// that launch will read. Two cheap stat calls. If `effective_version_id`
+/// is None, returns false.
+///
+/// Two checks because:
+/// - The profile JSON proves install_version was called for THIS exact
+///   (mc, loader, loader_version) combo — catches the case where the
+///   user switches loader version via Manage without clicking Install
+///   again. Without this check, an unrelated vanilla install of the
+///   parent MC would falsely satisfy the jar-only check.
+/// - The client jar lives at `versions/<parent_mc>/<parent_mc>.jar`
+///   even for synth ids (Fabric/Quilt/Forge/NeoForge) per the v0.4.1
+///   invariant in install.rs and spawn.rs (vanilla MC jar is never
+///   duplicated under a synth dir). Resolve through parse_synth_id so
+///   this check matches what launch::spawn looks for.
 pub fn ready_status(versions_dir: &Path, instance: &InstanceFile) -> bool {
-    let Some(id) = effective_version_id(instance) else {
+    let Some(effective_id) = effective_version_id(instance) else {
         return false;
     };
-    versions_dir.join(&id).join(format!("{id}.jar")).is_file()
+    let profile_json = versions_dir
+        .join(&effective_id)
+        .join(format!("{effective_id}.json"));
+    if !profile_json.is_file() {
+        return false;
+    }
+    let client_jar_id = parse_synth_id(&effective_id)
+        .map(|(_loader, _lv, mc)| mc)
+        .unwrap_or_else(|| effective_id.clone());
+    versions_dir
+        .join(&client_jar_id)
+        .join(format!("{client_jar_id}.jar"))
+        .is_file()
 }
 
 #[cfg(test)]
@@ -119,13 +144,77 @@ mod tests {
     }
 
     #[test]
-    fn ready_true_when_jar_present() {
+    fn ready_true_when_profile_json_and_jar_present() {
+        // Vanilla: profile json at versions/<mc>/<mc>.json and jar at
+        // versions/<mc>/<mc>.jar — both required.
         let dir = tempdir().unwrap();
         let inst = make("1.20.4", LoaderKind::Vanilla, None);
-        let jar_dir = dir.path().join("1.20.4");
-        std::fs::create_dir_all(&jar_dir).unwrap();
-        std::fs::write(jar_dir.join("1.20.4.jar"), b"fake").unwrap();
+        let mc_dir = dir.path().join("1.20.4");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(mc_dir.join("1.20.4.json"), b"{}").unwrap();
+        std::fs::write(mc_dir.join("1.20.4.jar"), b"fake").unwrap();
         assert!(ready_status(dir.path(), &inst));
+    }
+
+    #[test]
+    fn ready_false_when_only_jar_no_profile_json() {
+        // Vanilla MC parent jar without the version's own profile json
+        // is not "ready" — the launch path needs the profile to read
+        // libraries, javaVersion, etc.
+        let dir = tempdir().unwrap();
+        let inst = make("1.20.4", LoaderKind::Vanilla, None);
+        let mc_dir = dir.path().join("1.20.4");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(mc_dir.join("1.20.4.jar"), b"fake").unwrap();
+        assert!(!ready_status(dir.path(), &inst));
+    }
+
+    #[test]
+    fn ready_true_for_fabric_when_synth_json_and_parent_mc_jar_present() {
+        // Synth instances need BOTH: the synth profile JSON at
+        // versions/<synth>/<synth>.json (proves install_version was called
+        // for THIS exact loader+MC combo) AND the parent MC client jar at
+        // versions/<parent_mc>/<parent_mc>.jar (per v0.4.1 invariant —
+        // never duplicated under the synth dir).
+        let dir = tempdir().unwrap();
+        let inst = make("1.20.4", LoaderKind::Fabric, Some("0.16.5"));
+        let synth_dir = dir.path().join("fabric-loader-0.16.5-1.20.4");
+        std::fs::create_dir_all(&synth_dir).unwrap();
+        std::fs::write(synth_dir.join("fabric-loader-0.16.5-1.20.4.json"), b"{}").unwrap();
+        let mc_dir = dir.path().join("1.20.4");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(mc_dir.join("1.20.4.jar"), b"fake").unwrap();
+        assert!(ready_status(dir.path(), &inst));
+    }
+
+    #[test]
+    fn ready_false_for_fabric_when_synth_json_missing_even_if_parent_mc_jar_present() {
+        // The common breakage: user changes loader version (or creates
+        // a fabric instance with the same MC as an existing vanilla),
+        // never clicks Install. The parent MC jar is present from the
+        // unrelated install, but the synth profile JSON for THIS combo
+        // was never written — must read as not ready.
+        let dir = tempdir().unwrap();
+        let inst = make("1.20.4", LoaderKind::Fabric, Some("0.16.5"));
+        let mc_dir = dir.path().join("1.20.4");
+        std::fs::create_dir_all(&mc_dir).unwrap();
+        std::fs::write(mc_dir.join("1.20.4.jar"), b"fake").unwrap();
+        assert!(!ready_status(dir.path(), &inst));
+    }
+
+    #[test]
+    fn ready_false_for_fabric_when_synth_jar_only_present() {
+        // Defensive: even if a leftover synth-named jar exists (from
+        // pre-v0.4.1 installs that duplicated the vanilla jar), the
+        // resolution must follow the parent-mc path, so without the
+        // parent jar the instance is not ready.
+        let dir = tempdir().unwrap();
+        let inst = make("1.20.4", LoaderKind::Fabric, Some("0.16.5"));
+        let synth_dir = dir.path().join("fabric-loader-0.16.5-1.20.4");
+        std::fs::create_dir_all(&synth_dir).unwrap();
+        std::fs::write(synth_dir.join("fabric-loader-0.16.5-1.20.4.json"), b"{}").unwrap();
+        std::fs::write(synth_dir.join("fabric-loader-0.16.5-1.20.4.jar"), b"fake").unwrap();
+        assert!(!ready_status(dir.path(), &inst));
     }
 
     #[test]

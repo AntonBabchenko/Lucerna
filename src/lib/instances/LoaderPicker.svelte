@@ -6,14 +6,18 @@
     type Error as IpcError,
   } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { formatError } from '$lib/ipc/format-error';
 
   function formatLoaderError(e: IpcError): string {
+    // Picker keeps shorter wording for the 3 variants it surfaces most
+    // often; everything else delegates so no raw JSON if e.g. a loader
+    // cache IO error reaches the picker.
     if (e.kind === 'loader_unavailable')
       return `${displayLoader(e.loader as LoaderKind)} does not support Minecraft ${e.mc_version}`;
     if (e.kind === 'network') return `Network error fetching ${e.url}: ${e.details}`;
     if (e.kind === 'forge_promotions_unavailable')
       return `Forge promotions feed for ${e.flavor} is unavailable`;
-    return JSON.stringify(e);
+    return formatError(e);
   }
 
   const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];

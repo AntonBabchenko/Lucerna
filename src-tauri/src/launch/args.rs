@@ -26,7 +26,12 @@ pub struct ArgvInput<'a> {
     pub assets_dir: PathBuf,
     pub natives_dir: PathBuf,
     pub game_dir: PathBuf,
-    pub client_jar: PathBuf,
+    /// Vanilla MC client jar to append to the classpath. `None` for
+    /// loader installs that ship a patched MC in their libraries
+    /// (Forge / NeoForge — adding vanilla here duplicates the MC
+    /// bytecode and triggers a JPMS ResolutionException on modern
+    /// Java 9+ module path bootstraps).
+    pub client_jar: Option<PathBuf>,
     pub os: &'static str,
     pub arch: &'static str,
 }
@@ -36,7 +41,7 @@ pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
     let classpath = build_classpath(
         &input.details.libraries,
         &input.libraries_dir,
-        &input.client_jar,
+        input.client_jar.as_deref(),
         input.os,
         input.arch,
     );
@@ -119,12 +124,16 @@ fn classpath_sep(os: &str) -> &'static str {
     }
 }
 
-/// Join all platform-applicable library artifact paths plus the client
-/// jar with the OS's classpath separator.
+/// Join all platform-applicable library artifact paths with the OS's
+/// classpath separator. Optionally appends `client_jar` — pass `None`
+/// for Forge / NeoForge installs whose libraries already include a
+/// patched MC (adding vanilla there duplicates the bytecode and on
+/// modern Java module-path bootstraps triggers a JPMS
+/// ResolutionException for `net.minecraft.*` packages).
 pub fn build_classpath(
     libs: &[Library],
     libraries_dir: &Path,
-    client_jar: &Path,
+    client_jar: Option<&Path>,
     os: &str,
     arch: &str,
 ) -> String {
@@ -136,7 +145,9 @@ pub fn build_classpath(
             libraries_dir.join(rel_path).to_string_lossy().into_owned()
         })
         .collect();
-    parts.push(client_jar.to_string_lossy().into_owned());
+    if let Some(cj) = client_jar {
+        parts.push(cj.to_string_lossy().into_owned());
+    }
     parts.join(sep)
 }
 
@@ -305,7 +316,7 @@ mod tests {
             assets_dir: PathBuf::from("C:/assets"),
             natives_dir: PathBuf::from("C:/instance/natives"),
             game_dir: PathBuf::from("C:/instance/.minecraft"),
-            client_jar: PathBuf::from("C:/versions/1.20.4/1.20.4.jar"),
+            client_jar: Some(PathBuf::from("C:/versions/1.20.4/1.20.4.jar")),
             os: "windows",
             arch: "x64",
         }
@@ -418,10 +429,19 @@ mod tests {
         let cp = build_classpath(
             &libs,
             Path::new("C:/libs"),
-            Path::new("C:/client.jar"),
+            Some(Path::new("C:/client.jar")),
             "windows",
             "x64",
         );
         assert_eq!(cp, "C:/client.jar");
+    }
+
+    #[test]
+    fn build_classpath_skips_client_jar_when_none() {
+        // Forge / NeoForge installs pass None to avoid duplicating the
+        // patched MC bytecode on the JPMS module path.
+        let libs = vec![];
+        let cp = build_classpath(&libs, Path::new("C:/libs"), None, "windows", "x64");
+        assert_eq!(cp, "");
     }
 }

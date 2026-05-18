@@ -60,9 +60,13 @@ export const commands = {
 	installInstance: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("install_instance", { instanceId })),
 	/**
 	 *  Launch the given instance. Assumes it is already installed (the UI
-	 *  only shows the Play button when `instance.ready == true`). Emits
-	 *  `processSpawned` / `processExited` around the run. Resolves
-	 *  version+loader from `instance.json` server-side.
+	 *  only enables Play when `instance.ready == true`, which checks the
+	 *  effective version's profile JSON + parent MC client jar). Does NOT
+	 *  re-run install_version — earlier attempts to add it as a safety net
+	 *  re-hashed every library and asset on every click, surfacing as a
+	 *  visible "Downloading…" flash. If launch fails on missing files, the
+	 *  error surfaces and the user can click Install (Manage → re-pick the
+	 *  loader, or the Install button reappears once ready_status flips).
 	 */
 	launchInstance: (instanceId: string) => typedError<number, Error>(__TAURI_INVOKE("launch_instance", { instanceId })),
 	/**  Kill the running Minecraft process if any. Idempotent. */
