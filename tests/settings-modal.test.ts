@@ -46,4 +46,18 @@ describe('SettingsModal', () => {
       'false',
     );
   });
+
+  it('exposes an About tab that mounts the AboutPanel', async () => {
+    settingsOpen.value = { tab: 'curseforge' };
+    render(SettingsModal);
+    const aboutTab = screen.getByRole('tab', { name: 'About' });
+    await fireEvent.click(aboutTab);
+    expect(aboutTab.getAttribute('aria-selected')).toBe('true');
+    // Disclaimer comes from the panel, sourced from the shared constant.
+    expect(
+      screen.getByText(
+        /NOT AN OFFICIAL MINECRAFT PRODUCT\. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT\./,
+      ),
+    ).toBeTruthy();
+  });
 });

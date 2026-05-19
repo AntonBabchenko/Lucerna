@@ -1,13 +1,16 @@
 # FTlauncher
 
-**F**ree **T**auri **Launcher** — a clean, transparent Minecraft launcher for
-Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.
-The launcher itself is open-source; the Java runtime and Minecraft files come
-straight from Mojang.
+> **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
-FTlauncher serves the same use-cases as other launchers — offline / offline play,
-easy mods (coming in v0.2.0+), Russian-language UX (coming in v0.2.0+) — but
-without any of the hostile behaviour those launchers ship by default.
+**F**ree **T**auri **Launcher** — a clean, transparent open-source Minecraft launcher for
+Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.
+The launcher itself is open-source under GPL-3.0-or-later; the Java runtime and Minecraft
+files come straight from Mojang and are never modified.
+
+FTlauncher supports both Microsoft / Xbox Live sign-in and offline play (LAN sessions,
+single-player without internet, development testing) as equal first-class options.
+Mod loaders supported: Fabric, Quilt, Forge, NeoForge. Mod browsing via the official
+Modrinth and CurseForge APIs (mod browser ships in v0.5.0).
 
 The principles that constrain every decision live in
 [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply-chain stance

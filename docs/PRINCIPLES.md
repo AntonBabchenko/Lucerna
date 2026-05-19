@@ -4,7 +4,7 @@ This document is the FTlauncher product and technical constitution. Decisions th
 
 ## Part A — Product values
 
-The project exists because other launchers serves a real use-case (offline play, easy mods, Russian-language UX) but the way other launchers delivers that use-case is hostile to users: telemetry, hidden processes, ad injection into the Minecraft client, bundled adware. FTlauncher delivers the same use-case without any of that.
+FTlauncher exists to give players a transparent open-source Minecraft launcher: telemetry-free, with no ad injection into the game, no hidden processes, and no bundled adware. The launcher never modifies the Minecraft client jar; the Minecraft we run is the Minecraft Mojang ships. Microsoft / Xbox Live and offline accounts are treated as equal first-class options for legitimate use cases (LAN play, single-player without internet, development testing, players who own Minecraft but prefer not to keep a network session live). Historically, the Russian / CIS launcher market has been dominated by clients that pair convenient mod-loader and instance UX with intrusive telemetry, ad injection, and bundled adware; we ship the convenient UX without the intrusive parts. That is the entire mission.
 
 ### Hard rules — what we never do
 

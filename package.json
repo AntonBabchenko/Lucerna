@@ -1,7 +1,7 @@
 {
   "name": "ftlauncher",
   "version": "0.1.0",
-  "description": "Clean, transparent Minecraft launcher (transparent).",
+  "description": "Free Tauri Launcher — a clean, transparent open-source Minecraft launcher for Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {

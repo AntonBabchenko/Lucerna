@@ -10,6 +10,7 @@
   // The CurseForge tab mounts CurseForgeKeyForm (Task 19); the Storage
   // tab mounts StoragePanel (Task 20). Both are self-contained — the
   // shell only routes between them.
+  import AboutPanel from './AboutPanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
   import StoragePanel from './StoragePanel.svelte';
   import { settingsOpen, type SettingsTab } from './state.svelte';
@@ -85,12 +86,26 @@
         >
           Storage
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === 'about'}
+          class="px-3 py-1 text-sm rounded -mb-px"
+          class:font-medium={active === 'about'}
+          class:border-b-2={active === 'about'}
+          class:border-blue-600={active === 'about'}
+          onclick={() => (active = 'about')}
+        >
+          About
+        </button>
       </div>
       <div class="p-4">
         {#if active === 'curseforge'}
           <CurseForgeKeyForm />
-        {:else}
+        {:else if active === 'storage'}
           <StoragePanel />
+        {:else}
+          <AboutPanel />
         {/if}
       </div>
     </div>
