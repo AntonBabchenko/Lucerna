@@ -28,13 +28,30 @@ pub struct Installed {
 /// Progress emitter — caller supplies the function that turns a
 /// progress tick into a Tauri event. Lets us unit-test the pipeline
 /// without depending on `tauri::AppHandle`.
-pub type ProgressFn = Box<dyn Fn(InstallPhase, u64, Option<u64>) + Send + Sync>;
+pub type ProgressFn = Box<dyn Fn(ModInstallPhase, u64, Option<u64>) + Send + Sync>;
 
-#[derive(Debug, Clone, Copy)]
-pub enum InstallPhase {
+/// Coarse-grained phase for a single mod install tick. Named with the
+/// `Mod-` prefix at the type level (not just via `#[specta(rename)]`)
+/// because the bindings exporter dedupes on the Rust type name and
+/// `versions::install::InstallPhase` already owns the short name.
+#[derive(Debug, Clone, Copy, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ModInstallPhase {
     Downloading,
     Verifying,
     Copying,
+}
+
+/// Per-tick IPC payload bundled over a `Channel<ProgressTick>`. Carries
+/// the same shape as the internal `ProgressFn` callback, but converted
+/// to `f64` (specta forbids BigInt-style `u64` exports). Used by the
+/// modpack import command to forward per-mod ticks to the UI without
+/// allocating an Event variant per modpack import session.
+#[derive(Debug, Clone, Copy, serde::Serialize, specta::Type)]
+pub struct ProgressTick {
+    pub phase: ModInstallPhase,
+    pub current: f64,
+    pub total: Option<f64>,
 }
 
 pub async fn install_one(
@@ -68,7 +85,7 @@ pub async fn install_one(
     if !cached {
         // 2. Cold download
         progress(
-            InstallPhase::Downloading,
+            ModInstallPhase::Downloading,
             0,
             Some(version.primary_file.size as u64),
         );
@@ -107,7 +124,7 @@ pub async fn install_one(
                 .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
             total_written += bytes.len() as u64;
             progress(
-                InstallPhase::Downloading,
+                ModInstallPhase::Downloading,
                 total_written,
                 Some(version.primary_file.size as u64),
             );
@@ -116,7 +133,7 @@ pub async fn install_one(
             .await
             .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
         drop(f);
-        progress(InstallPhase::Verifying, total_written, Some(total_written));
+        progress(ModInstallPhase::Verifying, total_written, Some(total_written));
         let got = hex::encode(hasher.finalize());
         if !got.eq_ignore_ascii_case(&sha_lower) {
             fs::remove_file(&tmp).await.ok();
@@ -131,7 +148,7 @@ pub async fn install_one(
     }
 
     // 3. Copy into instance
-    progress(InstallPhase::Copying, 0, None);
+    progress(ModInstallPhase::Copying, 0, None);
     let dest_dir = installed::mods_dir(instance_root);
     fs::create_dir_all(&dest_dir)
         .await

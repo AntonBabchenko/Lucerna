@@ -334,6 +334,13 @@
       instanceId={activeInstance?.id ?? null}
       mcVersion={activeInstance?.mc_version ?? null}
       loader={activeInstance?.loader ?? null}
+      {instances}
+      onSwitchInstance={(id) => {
+        void onSelectInstance(id);
+      }}
+      onListChanged={() => {
+        void refreshInstances();
+      }}
     >
       {#snippet overview()}
         <div class="p-6 flex flex-col gap-4">

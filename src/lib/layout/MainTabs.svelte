@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
+  import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import { modBrowserNav } from '$lib/settings/state.svelte';
 
   type Tab = 'overview' | 'mod_browser' | 'modpacks';
@@ -10,11 +12,17 @@
     instanceId = null,
     mcVersion = null,
     loader = null,
+    instances = [],
+    onSwitchInstance = () => {},
+    onListChanged = () => {},
   }: {
     overview?: Snippet;
     instanceId?: string | null;
     mcVersion?: string | null;
     loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
+    instances?: InstanceWithStatus[];
+    onSwitchInstance?: (id: string) => void;
+    onListChanged?: () => void;
   } = $props();
 
   let active = $state<Tab>('overview');
@@ -73,9 +81,6 @@
       onclick={() => (active = 'modpacks')}
     >
       Modpacks
-      <span class="ml-1 text-[10px] bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded-full">
-        soon
-      </span>
     </button>
   </div>
 
@@ -87,9 +92,17 @@
     {:else if active === 'mod_browser'}
       <ModBrowserTab {instanceId} {mcVersion} {loader} />
     {:else if active === 'modpacks'}
-      <div class="p-8 text-center text-neutral-400 text-sm">
-        Coming in v0.5.0 modpack import slice.
-      </div>
+      <ModpacksTab
+        {instances}
+        onInstanceCreated={(id) => {
+          onSwitchInstance(id);
+          // Open instance / post-import — user expects to land on the
+          // active instance's home view, not stay on the (now stale)
+          // Modpacks tab.
+          active = 'overview';
+        }}
+        {onListChanged}
+      />
     {/if}
   </div>
 </div>

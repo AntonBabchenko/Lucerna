@@ -65,6 +65,13 @@ pub fn run() {
             commands::mods_clear_curseforge_key,
             commands::mods_cache_size_bytes,
             commands::mods_clear_cache,
+            // Modpack import (v0.5.0 sub-feature 4):
+            commands::modpack_inspect,
+            commands::modpack_import,
+            commands::modpack_search,
+            commands::modpack_fetch_to_temp,
+            commands::modpack_status,
+            commands::modpack_restore_file,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -87,6 +94,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             // One-shot instance migration. Non-fatal on error — the UI has

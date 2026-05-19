@@ -19,6 +19,11 @@ const sampleInstance: InstanceWithStatus = {
   max_heap_mb: 4096,
   extra_jvm_args: '',
   created_unix_ms: null,
+  mrpack_name: null,
+  mrpack_version: null,
+  mrpack_project_id: null,
+  mrpack_source: null,
+  mrpack_summary: null,
 };
 
 describe('Sidebar', () => {

@@ -100,4 +100,30 @@ describe('formatError', () => {
     });
     expect(msg).toContain('jei.jar');
   });
+
+  it('formats every Modpack* variant', () => {
+    expect(formatError({ kind: 'modpack_format_unknown' } as never)).toBe(
+      'This file is not a recognised modpack (.mrpack or CurseForge .zip).',
+    );
+    expect(formatError({ kind: 'modpack_invalid_archive', details: 'bad zip' } as never)).toContain(
+      'bad zip',
+    );
+    expect(
+      formatError({
+        kind: 'modpack_partial_failure',
+        instance_id: 'a',
+        failed: [['m', 'r']],
+      } as never),
+    ).toContain('1 mod(s) skipped');
+    expect(formatError({ kind: 'modpack_no_files_selected' } as never)).toBe(
+      'Select at least one mod before importing.',
+    );
+    expect(
+      formatError({
+        kind: 'modpack_mod_distribution_disabled',
+        mod_name: 'FooMod',
+        project_url: 'https://...',
+      } as never),
+    ).toContain('FooMod');
+  });
 });

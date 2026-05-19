@@ -333,7 +333,17 @@ pub fn create_instance(
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
     validate_instance_name(&name)?;
-    crate::instances::create_instance(&app, name, mc_version, loader, loader_version)
+    crate::instances::create_instance(
+        &app,
+        name,
+        mc_version,
+        loader,
+        loader_version,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 /// Delete an instance. If it was active, auto-switches to oldest remaining.
@@ -621,18 +631,18 @@ pub async fn mods_install_with_deps(
     let project_id_for_progress = primary_v.project_id.clone();
     let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
         let payload = match phase {
-            crate::mods::install::InstallPhase::Downloading => ModInstallProgress::Downloading {
+            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
                 bytes_total: total.map(|t| t as f64),
             },
-            crate::mods::install::InstallPhase::Verifying => ModInstallProgress::Verifying {
+            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
                 bytes_done: done as f64,
             },
-            crate::mods::install::InstallPhase::Copying => ModInstallProgress::Copying {
+            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
                 instance_id: instance_id_for_progress.clone(),
                 project_id: project_id_for_progress.clone(),
             },
@@ -822,6 +832,327 @@ pub async fn mods_clear_cache(app: tauri::AppHandle) -> crate::error::Result<f64
     let dd = data_dir(&app)?;
     let n = crate::mods::cache::clear(&dd).await?;
     Ok(n as f64)
+}
+
+// =========================================================================
+// Modpack import (v0.5.0 sub-feature 4)
+// =========================================================================
+
+use crate::mods::modpack;
+use crate::mods::modpack::schema::{
+    ModpackProgress, ModpackSearchPage, ModpackSort, ModpackStatus, ModpackSummary,
+};
+use tauri::ipc::Channel;
+use tauri::Manager;
+
+/// Read a `.mrpack` / `.zip` from disk and return a parsed summary
+/// (resolved mod files, overrides count, loader, mc version). The UI
+/// uses this for the picker dialog before the user commits to import.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::error::Error> {
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: path.clone(),
+            details: e.to_string(),
+        })?;
+    let http = reqwest::Client::new();
+    modpack::import::inspect(&bytes, &http, "https://api.curseforge.com").await
+}
+
+/// Run the full import: create an instance, download every selected
+/// mod (subject to license / distribution allowance), then optionally
+/// extract overrides into the instance's `.minecraft/`. Streams two
+/// kinds of progress over typed channels:
+/// - `on_progress`: coarse-grained `ModpackProgress` phases.
+/// - `on_install_progress`: per-mod `ProgressTick` (download / verify
+///   / copy bytes). The per-mod stream is keyed by phase only, not by
+///   `project_id` — the UI correlates it with the `InstallingMod`
+///   phase emitted on `on_progress`.
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub async fn modpack_import(
+    app: tauri::AppHandle,
+    path: String,
+    selected_shas: Vec<String>,
+    apply_overrides: bool,
+    // Optional provenance hints from the Browse sub-tab. When the user
+    // imports straight off a `ModpackHit` the UI already has these and
+    // can pass them through, letting the orchestrator skip a Modrinth
+    // /v2/version round-trip. Drag-drop imports pass `null` and the
+    // orchestrator auto-looks-up.
+    hint_project_id: Option<String>,
+    hint_source: Option<crate::mods::platform::ModSource>,
+    on_progress: Channel<ModpackProgress>,
+    on_install_progress: Channel<crate::mods::install::ProgressTick>,
+) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: path.clone(),
+            details: e.to_string(),
+        })?;
+    let http = reqwest::Client::new();
+    let install_progress: crate::mods::install::ProgressFn =
+        Box::new(move |phase, current, total| {
+            let _ = on_install_progress.send(crate::mods::install::ProgressTick {
+                phase,
+                current: current as f64,
+                total: total.map(|t| t as f64),
+            });
+        });
+    modpack::import::import(
+        &app,
+        &bytes,
+        &selected_shas,
+        apply_overrides,
+        &http,
+        "https://api.curseforge.com",
+        hint_project_id,
+        hint_source,
+        &|p| {
+            let _ = on_progress.send(p);
+        },
+        install_progress,
+    )
+    .await
+}
+
+/// Search Modrinth's modpack catalogue. CurseForge modpack search is
+/// not yet wired up (sub-feature 3 only covered mods); this command
+/// returns the Modrinth `ModpackSearchPage` only.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_search(
+    query: String,
+    page: u32,
+    mc_version: Option<String>,
+    loader: Option<crate::mods::platform::LoaderKind>,
+    sort: ModpackSort,
+) -> Result<ModpackSearchPage, crate::error::Error> {
+    let http = reqwest::Client::new();
+    modpack::search::search(
+        &http,
+        "https://api.modrinth.com",
+        &query,
+        page,
+        mc_version.as_deref(),
+        loader,
+        sort,
+    )
+    .await
+}
+
+/// Pull a Modrinth modpack version's primary `.mrpack` file to a temp
+/// path under the OS temp dir. Returns the absolute path so the UI can
+/// hand it straight to `modpack_inspect` / `modpack_import`. UUID is
+/// used so concurrent imports don't collide. The temp file is left in
+/// place after import — the OS cleans up temp dirs eventually, and a
+/// successful import has already copied every byte that matters into
+/// the instance.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_fetch_to_temp(
+    app: tauri::AppHandle,
+    project_id: String,
+    version_id: String,
+) -> Result<String, crate::error::Error> {
+    let http = reqwest::Client::new();
+    let url = format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
+    let resp = http
+        .get(&url)
+        .header(reqwest::header::USER_AGENT, "AntonBabchenko/FTlauncher")
+        .send()
+        .await
+        .map_err(|e| crate::error::Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
+    if !resp.status().is_success() {
+        return Err(crate::error::Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status()),
+        });
+    }
+    #[derive(serde::Deserialize)]
+    struct V {
+        files: Vec<F>,
+    }
+    #[derive(serde::Deserialize)]
+    struct F {
+        url: String,
+        filename: String,
+        primary: bool,
+    }
+    let v: V = resp.json().await.map_err(|e| crate::error::Error::ModsDecode {
+        platform: "modrinth".into(),
+        details: e.to_string(),
+    })?;
+    let f = v
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or_else(|| v.files.iter().find(|f| f.filename.ends_with(".mrpack")))
+        .ok_or(crate::error::Error::ModpackManifestInvalid {
+            format: "modrinth".into(),
+            details: "no primary .mrpack file on version".into(),
+        })?;
+    let dl = http
+        .get(&f.url)
+        .send()
+        .await
+        .map_err(|e| crate::error::Error::ModsNetwork {
+            url: f.url.clone(),
+            details: e.to_string(),
+        })?;
+    let bytes = dl
+        .bytes()
+        .await
+        .map_err(|e| crate::error::Error::ModsNetwork {
+            url: f.url.clone(),
+            details: e.to_string(),
+        })?;
+    let temp_dir = app
+        .path()
+        .temp_dir()
+        .map_err(|e| crate::error::Error::Io {
+            path: "<temp>".into(),
+            details: e.to_string(),
+        })?
+        .join("ftlauncher")
+        .join("modpack");
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: temp_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
+    let dest = temp_dir.join(format!("{}.mrpack", uuid::Uuid::new_v4()));
+    tokio::fs::write(&dest, &bytes)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: dest.display().to_string(),
+            details: e.to_string(),
+        })?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// Return the pack-origin snapshot + a live diff for a pack-imported
+/// instance. Returns `None` for instances that were manually created
+/// (no .mrpack/.zip ever ran through the import pipeline) and for
+/// pre-bundle-2 imports that pre-date the `pack_origin` field. Single
+/// IPC round-trip combines `get_pack_origin` + the modified-check so
+/// the UI doesn't have to make two calls per card.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_status(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Option<ModpackStatus>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let origin = match crate::mods::installed::get_pack_origin(&inst_root).await? {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    Ok(Some(crate::mods::modpack::import::compute_status(
+        origin, &installed,
+    )))
+}
+
+/// Re-install a single file that was part of the original pack but is
+/// no longer in the instance (= it shows up in `ModpackStatus.removed_files`).
+/// Looks the file up by `sha1` in the frozen origin snapshot,
+/// synthesises a `ModVersion` from the snapshot fields, and calls
+/// `install_one`. Errors `ModsNotFound { source: "pack_origin" }` if
+/// `sha1` is not in the origin (= caller has stale data, or the
+/// instance has no origin at all).
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_restore_file(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1: String,
+) -> crate::error::Result<InstalledMod> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+    let origin = crate::mods::installed::get_pack_origin(&inst_root)
+        .await?
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        })?;
+    let file = origin
+        .files
+        .iter()
+        .find(|f| f.sha1.eq_ignore_ascii_case(&sha1))
+        .cloned()
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        })?;
+    // Bundled-from-overrides entries carry no URL — the bytes lived
+    // inside the .mrpack archive and we don't keep that archive after
+    // import. Tell the UI to gray out / disable the Restore button via
+    // a typed error instead of trying to install_one a no-URL file.
+    if file.url.is_empty() {
+        return Err(crate::error::Error::ModpackBundledNoUrl {
+            mod_name: file.name.clone(),
+        });
+    }
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    let mv = crate::mods::modpack::import::pack_origin_file_to_mod_version(
+        &file,
+        &mc_version,
+        loader,
+    );
+
+    // Re-use the same per-mod progress wiring as `mods_install_with_deps`
+    // so the UI surfaces the same Downloading/Verifying/Copying states.
+    let app_for_progress = app.clone();
+    let instance_id_for_progress = instance_id.clone();
+    let project_id_for_progress = mv.project_id.clone();
+    let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+        let payload = match phase {
+            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+                bytes_total: total.map(|t| t as f64),
+            },
+            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+            },
+            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+            },
+        };
+        let _ = payload.emit(&app_for_progress);
+    });
+
+    let http = reqwest::Client::new();
+    crate::mods::install::install_one(&http, &dd, &inst_root, mv.clone(), &prog).await?;
+    let _ = ModInstalled {
+        instance_id: instance_id.clone(),
+        sha1: file.sha1.clone(),
+        filename: file.filename.clone(),
+        name: file.name.clone(),
+    }
+    .emit(&app);
+
+    // The freshly-installed file now appears in the registry. Pull it
+    // back out so the UI gets the canonical InstalledMod (with the
+    // RFC3339 installed_at timestamp set by the install pipeline).
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    installed
+        .into_iter()
+        .find(|m| m.sha1.eq_ignore_ascii_case(&file.sha1))
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "installed".into(),
+        })
 }
 
 #[cfg(test)]

@@ -81,6 +81,34 @@ export function formatError(e: IpcError): string {
       return `Couldn't write to mod cache: ${e.details}`;
     case 'mods_instance_path':
       return `Couldn't write to instance at ${e.path}: ${e.details}`;
+    case 'modpack_invalid_archive':
+      return `Modpack archive is invalid: ${e.details}`;
+    case 'modpack_format_unknown':
+      return 'This file is not a recognised modpack (.mrpack or CurseForge .zip).';
+    case 'modpack_manifest_invalid':
+      return `${e.format} modpack manifest is invalid: ${e.details}`;
+    case 'modpack_unsupported_manifest_version':
+      return `${e.format} modpack uses unsupported manifest version ${e.version}.`;
+    case 'modpack_unsupported_loader':
+      return `${e.format} modpack declares unsupported loader: ${e.loader_id}`;
+    case 'modpack_download_host_not_allowed':
+      return `Modpack file ${e.file_path} references ${e.host} which is not on the network allowlist.`;
+    case 'modpack_sha1_unavailable':
+      return `Modpack file ${e.mod_name} has no SHA-1 in the manifest — cannot verify integrity.`;
+    case 'modpack_mod_distribution_disabled':
+      return `${e.mod_name} cannot be auto-installed by third-party launchers. Download manually from ${e.project_url}.`;
+    case 'modpack_overrides_path_escape':
+      return `Modpack overrides entry tried to escape the instance directory: ${e.entry}`;
+    case 'modpack_overrides_too_large':
+      return `Modpack overrides entry ${e.entry} exceeds the safety cap (${e.size} bytes; cap is ${e.cap}).`;
+    case 'modpack_no_files_selected':
+      return 'Select at least one mod before importing.';
+    case 'modpack_instance_creation_failed':
+      return `Could not create instance for modpack: ${e.details}`;
+    case 'modpack_partial_failure':
+      return `Modpack imported with ${e.failed.length} mod(s) skipped — see the post-install banner for details.`;
+    case 'modpack_bundled_no_url':
+      return `'${e.mod_name}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.`;
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

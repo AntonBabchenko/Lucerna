@@ -15,9 +15,40 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
+use crate::mods::modpack::schema::EnvSupport;
 use crate::mods::platform::{InstalledMod, ModSource};
 
 const FILE_VERSION: u32 = 1;
+
+/// Snapshot of the mods the user selected at modpack-import time, kept
+/// in `installed-mods.json` alongside the live entries so the launcher
+/// can later diff "what's still here" vs "what was added/removed" without
+/// re-parsing the original .mrpack/.zip. Pre-bundle-2 imports and
+/// manually-created instances have `pack_origin = None` on disk.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+pub struct PackOrigin {
+    pub project_id: Option<String>,
+    pub source: ModSource,
+    pub project_name: String,
+    pub version: String,
+    pub files: Vec<PackOriginFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+pub struct PackOriginFile {
+    pub sha1: String,
+    pub name: String,
+    pub filename: String,
+    pub install_path: String,
+    pub url: String,
+    /// f64 not u64 — specta forbids BigInt-style exports. 2^53 bytes is
+    /// far beyond any plausible mod jar size.
+    pub size: f64,
+    pub project_id: String,
+    pub version_id: String,
+    pub env_client: EnvSupport,
+    pub source: ModSource,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct OnDisk {
@@ -25,6 +56,8 @@ struct OnDisk {
     version: u32,
     #[serde(default)]
     mods: Vec<InstalledMod>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pack_origin: Option<PackOrigin>,
 }
 
 fn default_version() -> u32 { FILE_VERSION }
@@ -55,11 +88,11 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
 async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error> {
     let path = registry_path(instance_root);
     if !fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
-        return Ok(OnDisk { version: FILE_VERSION, mods: vec![] });
+        return Ok(OnDisk { version: FILE_VERSION, mods: vec![], pack_origin: None });
     }
     let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
     // Corrupt JSON: treat as empty; reconcile will rebuild from disk.
-    Ok(serde_json::from_slice::<OnDisk>(&bytes).unwrap_or(OnDisk { version: FILE_VERSION, mods: vec![] }))
+    Ok(serde_json::from_slice::<OnDisk>(&bytes).unwrap_or(OnDisk { version: FILE_VERSION, mods: vec![], pack_origin: None }))
 }
 
 async fn write(instance_root: &Path, state: &OnDisk) -> Result<(), Error> {
@@ -178,6 +211,23 @@ pub async fn set_enabled(instance_root: &Path, sha1: &str, enabled: bool) -> Res
     write(instance_root, &state).await
 }
 
+/// Persist the modpack-origin snapshot for the instance. Read-modify-
+/// write: preserves the existing `mods` list. Called once after a
+/// successful import; the bundled file set is immutable thereafter.
+pub async fn set_pack_origin(instance_root: &Path, origin: PackOrigin) -> Result<(), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    state.pack_origin = Some(origin);
+    write(instance_root, &state).await
+}
+
+/// Read the modpack-origin snapshot if one was recorded at import time.
+/// Returns `None` for manually-created instances and pre-bundle-2
+/// imports.
+pub async fn get_pack_origin(instance_root: &Path) -> Result<Option<PackOrigin>, Error> {
+    let state = read_or_empty(instance_root).await?;
+    Ok(state.pack_origin)
+}
+
 fn io_err(path: &Path, e: std::io::Error) -> Error {
     Error::ModsInstancePath { path: path.display().to_string(), details: e.to_string() }
 }
@@ -272,5 +322,83 @@ mod tests {
         let mods = list(td.path()).await.unwrap();
         assert_eq!(mods.len(), 1);
         assert_eq!(mods[0].filename, "rebuilt.jar");
+    }
+
+    fn sample_origin() -> PackOrigin {
+        PackOrigin {
+            project_id: Some("AANobbMI".into()),
+            source: ModSource::Modrinth,
+            project_name: "Simply Optimized".into(),
+            version: "1.0.0".into(),
+            files: vec![PackOriginFile {
+                sha1: "a1b2c3".into(),
+                name: "Sodium".into(),
+                filename: "sodium.jar".into(),
+                install_path: "mods/sodium.jar".into(),
+                url: "https://cdn.modrinth.com/.../sodium.jar".into(),
+                size: 1024.0,
+                project_id: "AANobbMI".into(),
+                version_id: "v1".into(),
+                env_client: EnvSupport::Required,
+                source: ModSource::Modrinth,
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn pack_origin_round_trips_through_disk() {
+        let td = TempDir::new().unwrap();
+        // Place a mod so `list()` reconciliation has something to look at.
+        place_jar(&mods_dir(td.path()), "any.jar", b"any").await;
+        // Force a write so the file exists on disk before set_pack_origin runs.
+        let _ = list(td.path()).await.unwrap();
+        let origin = sample_origin();
+        set_pack_origin(td.path(), origin.clone()).await.unwrap();
+        let got = get_pack_origin(td.path()).await.unwrap();
+        assert_eq!(got, Some(origin));
+    }
+
+    #[tokio::test]
+    async fn get_pack_origin_is_none_for_fresh_instance() {
+        let td = TempDir::new().unwrap();
+        let got = get_pack_origin(td.path()).await.unwrap();
+        assert!(got.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_pack_origin_preserves_existing_mods() {
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "fixed.jar", b"abc").await;
+        add(td.path(), InstalledMod {
+            filename: "fixed.jar".into(),
+            sha1: sha.clone(),
+            source: Some(ModSource::Modrinth),
+            project_id: Some("zzz".into()),
+            version_id: Some("yyy".into()),
+            name: "Pinned".into(),
+            version_number: Some("1.0".into()),
+            installed_at: Utc::now().to_rfc3339(),
+            enabled: true,
+        }).await.unwrap();
+        set_pack_origin(td.path(), sample_origin()).await.unwrap();
+        let mods = list(td.path()).await.unwrap();
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].name, "Pinned");
+        let origin = get_pack_origin(td.path()).await.unwrap();
+        assert!(origin.is_some());
+    }
+
+    #[tokio::test]
+    async fn loads_legacy_file_without_pack_origin_field() {
+        // Files written before bundle 2 lack the pack_origin field
+        // entirely. Default(None) + serde(default) makes them round-trip
+        // cleanly without "missing field" errors.
+        let td = TempDir::new().unwrap();
+        let dir = registry_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let legacy = br#"{"version":1,"mods":[]}"#;
+        fs::write(registry_path(td.path()), legacy).await.unwrap();
+        let origin = get_pack_origin(td.path()).await.unwrap();
+        assert!(origin.is_none());
     }
 }

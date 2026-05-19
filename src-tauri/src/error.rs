@@ -134,6 +134,51 @@ pub enum Error {
 
     #[error("Instance directory I/O error at {path}: {details}")]
     ModsInstancePath { path: String, details: String },
+
+    #[error("Modpack archive is invalid: {details}")]
+    ModpackInvalidArchive { details: String },
+
+    #[error("Modpack format unknown — no modrinth.index.json or manifest.json found")]
+    ModpackFormatUnknown,
+
+    #[error("Modpack {format} manifest is invalid: {details}")]
+    ModpackManifestInvalid { format: String, details: String },
+
+    #[error("Modpack {format} manifest version {version} is not supported")]
+    ModpackUnsupportedManifestVersion { format: String, version: u32 },
+
+    #[error("Modpack {format} declares unsupported loader: {loader_id}")]
+    ModpackUnsupportedLoader { format: String, loader_id: String },
+
+    #[error("Modpack file {file_path} references host {host} which is not on the allowlist")]
+    ModpackDownloadHostNotAllowed { host: String, file_path: String },
+
+    #[error("Modpack file {mod_name} has no SHA-1 in the manifest")]
+    ModpackSha1Unavailable { mod_name: String },
+
+    #[error("Mod '{mod_name}' cannot be distributed by third parties — download manually from {project_url}")]
+    ModpackModDistributionDisabled { mod_name: String, project_url: String },
+
+    #[error("Modpack overrides entry escapes the instance directory: {entry}")]
+    ModpackOverridesPathEscape { entry: String },
+
+    #[error("Modpack overrides entry {entry} is too large: {size} > cap {cap}")]
+    ModpackOverridesTooLarge { entry: String, size: f64, cap: f64 },
+
+    #[error("Modpack picker had no files selected")]
+    ModpackNoFilesSelected,
+
+    #[error("Modpack instance creation failed: {details}")]
+    ModpackInstanceCreationFailed { details: String },
+
+    // Display intentionally omits `failed.len()`; the FE handler renders the
+    // count from `.failed.length` (thiserror 2.0 disallows function-call
+    // expressions in `#[error("...")]` format strings).
+    #[error("Modpack import partially failed for instance {instance_id}")]
+    ModpackPartialFailure { instance_id: String, failed: Vec<(String, String)> },
+
+    #[error("Mod '{mod_name}' was bundled inside the .mrpack archive and cannot be restored automatically — re-import the pack to recover it")]
+    ModpackBundledNoUrl { mod_name: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -334,5 +379,32 @@ mod tests {
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_filename_conflict""#));
         assert!(j.contains(r#""filename":"jei.jar""#));
+    }
+
+    #[test]
+    fn modpack_invalid_archive_serializes() {
+        let e = Error::ModpackInvalidArchive { details: "not zip".into() };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"modpack_invalid_archive""#), "got: {json}");
+        assert!(json.contains(r#""details":"not zip""#), "got: {json}");
+    }
+
+    #[test]
+    fn modpack_format_unknown_serializes_as_unit() {
+        let e = Error::ModpackFormatUnknown;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"modpack_format_unknown"}"#);
+    }
+
+    #[test]
+    fn modpack_partial_failure_serializes_with_list() {
+        let e = Error::ModpackPartialFailure {
+            instance_id: "abc".into(),
+            failed: vec![("mods/foo.jar".into(), "404 from cdn".into())],
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"modpack_partial_failure""#), "got: {json}");
+        assert!(json.contains(r#""instance_id":"abc""#), "got: {json}");
+        assert!(json.contains(r#""failed":[["mods/foo.jar","404 from cdn"]]"#), "got: {json}");
     }
 }

@@ -97,6 +97,11 @@ mod tests {
             max_heap_mb: 2048,
             extra_jvm_args: String::new(),
             created_unix_ms: 0.0,
+            mrpack_name: None,
+            mrpack_version: None,
+            mrpack_project_id: None,
+            mrpack_source: None,
+            mrpack_summary: None,
         }
     }
 

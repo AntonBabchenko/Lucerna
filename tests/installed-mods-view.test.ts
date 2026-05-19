@@ -96,7 +96,9 @@ import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
 
 describe('InstalledModsView', () => {
   it('renders rows with Disable button when enabled and Enable when disabled', async () => {
-    render(InstalledModsView, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
     // Yield once so the mount-time refresh() promise resolves before we
     // assert on the rendered rows.
     await new Promise((r) => setTimeout(r, 0));
@@ -108,7 +110,9 @@ describe('InstalledModsView', () => {
 
   it('calls modsUninstall when Uninstall clicked', async () => {
     const mod = await import('$lib/ipc/bindings');
-    render(InstalledModsView, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
     await new Promise((r) => setTimeout(r, 0));
     const buttons = screen.getAllByRole('button', { name: 'Uninstall' });
     await fireEvent.click(buttons[0]!);

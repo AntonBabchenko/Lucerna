@@ -36,6 +36,26 @@ pub struct InstanceFile {
     /// f64 because specta-typescript 0.0.12 forbids u64. JS `Date.now()`
     /// values round-trip cleanly within the 2^53 safe-integer range.
     pub created_unix_ms: f64,
+    /// Origin pack display name when this instance was created via
+    /// modpack import. `None` for manually-created instances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrpack_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrpack_version: Option<String>,
+    /// Project id on the source platform (Modrinth project_id, or the
+    /// CurseForge mod id formatted as a string). Lets the Imported view
+    /// link back to the pack's page on its source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrpack_project_id: Option<String>,
+    /// Which platform the pack was sourced from. `None` for manually-
+    /// created instances; set to `Modrinth` or `Curseforge` on import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrpack_source: Option<crate::mods::platform::ModSource>,
+    /// Short description fetched from the source platform at import
+    /// time. `None` when the lookup failed (best-effort) or the source
+    /// is CurseForge (no summary backfill implemented).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrpack_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -66,6 +86,11 @@ pub struct InstanceWithStatus {
     pub created_unix_ms: f64,
     /// True iff the effective version JAR is on disk. UI shows ✓/↓ icon.
     pub ready: bool,
+    pub mrpack_name: Option<String>,
+    pub mrpack_version: Option<String>,
+    pub mrpack_project_id: Option<String>,
+    pub mrpack_source: Option<crate::mods::platform::ModSource>,
+    pub mrpack_summary: Option<String>,
 }
 
 impl InstanceWithStatus {
@@ -80,6 +105,11 @@ impl InstanceWithStatus {
             extra_jvm_args: file.extra_jvm_args.clone(),
             created_unix_ms: file.created_unix_ms,
             ready,
+            mrpack_name: file.mrpack_name.clone(),
+            mrpack_version: file.mrpack_version.clone(),
+            mrpack_project_id: file.mrpack_project_id.clone(),
+            mrpack_source: file.mrpack_source,
+            mrpack_summary: file.mrpack_summary.clone(),
         }
     }
 }
@@ -99,6 +129,11 @@ mod tests {
             max_heap_mb: 2048,
             extra_jvm_args: String::new(),
             created_unix_ms: 1_700_000_000_000.0,
+            mrpack_name: None,
+            mrpack_version: None,
+            mrpack_project_id: None,
+            mrpack_source: None,
+            mrpack_summary: None,
         }
     }
 
@@ -193,6 +228,76 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
         assert!(json.contains(r#""loader_version":"20.4.245""#), "got: {json}");
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
+    }
+
+    #[test]
+    fn instance_file_deserializes_old_json_with_no_mrpack_fields() {
+        let json = r#"{
+            "version": 1,
+            "id": "abc",
+            "name": "Old",
+            "mc_version": "1.20.1",
+            "loader": "vanilla",
+            "loader_version": null,
+            "max_heap_mb": 2048,
+            "extra_jvm_args": "",
+            "created_unix_ms": 1700000000000.0
+        }"#;
+        let inst: InstanceFile = serde_json::from_str(json).unwrap();
+        assert_eq!(inst.mrpack_name, None);
+        assert_eq!(inst.mrpack_version, None);
+    }
+
+    #[test]
+    fn instance_file_serializes_skip_none_mrpack_fields() {
+        let s = sample();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("mrpack_name"), "got: {json}");
+        assert!(!json.contains("mrpack_version"), "got: {json}");
+    }
+
+    #[test]
+    fn instance_file_roundtrips_with_some_mrpack_fields() {
+        let mut s = sample();
+        s.mrpack_name = Some("All The Mods 10".into());
+        s.mrpack_version = Some("1.4.7".into());
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""mrpack_name":"All The Mods 10""#), "got: {json}");
+        assert!(json.contains(r#""mrpack_version":"1.4.7""#), "got: {json}");
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
+    }
+
+    #[test]
+    fn instance_with_status_carries_mrpack_fields() {
+        let mut s = sample();
+        s.mrpack_name = Some("Fabulously Optimized".into());
+        s.mrpack_version = Some("5.9.0".into());
+        let w = InstanceWithStatus::from_file(&s, true);
+        assert_eq!(w.mrpack_name.as_deref(), Some("Fabulously Optimized"));
+        assert_eq!(w.mrpack_version.as_deref(), Some("5.9.0"));
+    }
+
+    #[test]
+    fn instance_file_serializes_skip_none_new_mrpack_fields() {
+        let s = sample();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("mrpack_project_id"), "got: {json}");
+        assert!(!json.contains("mrpack_source"), "got: {json}");
+        assert!(!json.contains("mrpack_summary"), "got: {json}");
+    }
+
+    #[test]
+    fn instance_file_roundtrips_with_full_mrpack_metadata() {
+        let mut s = sample();
+        s.mrpack_name = Some("X".into());
+        s.mrpack_version = Some("1.0".into());
+        s.mrpack_project_id = Some("ABCD1234".into());
+        s.mrpack_source = Some(crate::mods::platform::ModSource::Modrinth);
+        s.mrpack_summary = Some("A pack".into());
+        let json = serde_json::to_string(&s).unwrap();
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }

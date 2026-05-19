@@ -110,17 +110,36 @@ fn unix_ms_f64() -> f64 {
 /// Generate a UUID v4, mkdir `<instance>/.minecraft/`, write
 /// `instance.json`. Returns the new instance with its (always-false-
 /// initially) ready status.
+///
+/// `mrpack` carries the origin pack's display name and version when the
+/// instance is created via modpack import. Pass `None` for manually-
+/// created instances; the optional fields will be omitted from disk.
+///
+/// The three trailing `mrpack_*` parameters (`project_id`, `source`,
+/// `summary`) carry provenance metadata for the Imported drawer in the
+/// UI (Modpacks tab). They are best-effort — pass `None` if the import
+/// path could not look them up. `mrpack_source` is conceptually paired
+/// with `mrpack` (an import either populates both or neither).
+#[allow(clippy::too_many_arguments)]
 pub fn create_instance(
     app: &tauri::AppHandle,
     name: String,
     mc_version: String,
     loader: LoaderKind,
     loader_version: Option<String>,
+    mrpack: Option<(String, String)>,
+    mrpack_project_id: Option<String>,
+    mrpack_source: Option<crate::mods::platform::ModSource>,
+    mrpack_summary: Option<String>,
 ) -> Result<InstanceWithStatus> {
     let id = ids::new_id();
     let dir = paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
     std::fs::create_dir_all(dir.join(".minecraft"))
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
+    let (mrpack_name, mrpack_version) = match mrpack {
+        Some((n, v)) => (Some(n), Some(v)),
+        None => (None, None),
+    };
     let inst = InstanceFile {
         version: 1,
         id: id.clone(),
@@ -131,6 +150,11 @@ pub fn create_instance(
         max_heap_mb: 2048,
         extra_jvm_args: String::new(),
         created_unix_ms: unix_ms_f64(),
+        mrpack_name,
+        mrpack_version,
+        mrpack_project_id,
+        mrpack_source,
+        mrpack_summary,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
