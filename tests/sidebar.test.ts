@@ -38,6 +38,11 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenNetwork: vi.fn(),
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
       },
     });
     expect(getByText('FTlauncher')).toBeTruthy();
@@ -60,6 +65,11 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenNetwork: vi.fn(),
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
       },
     });
     const select = getByDisplayValue(/Tester/) as HTMLSelectElement;
@@ -82,6 +92,11 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenNetwork: vi.fn(),
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
       },
     });
     const dot = container.querySelector('[aria-label*="violations"]');

@@ -57,6 +57,30 @@ export function formatError(e: IpcError): string {
       return 'Instance name cannot be empty';
     case 'instance_name_too_long':
       return `Instance name is too long: ${e.actual}/${e.max} characters`;
+    case 'mods_network':
+      return `Network error talking to ${e.url}: ${e.details}`;
+    case 'mods_platform_auth':
+      return e.kind_detail === 'invalid'
+        ? 'CurseForge API key is invalid — please enter a new one in Settings'
+        : 'CurseForge requires an API key — set it in Settings';
+    case 'mods_distribution_disabled':
+      return `This mod's author has disabled third-party launcher downloads on ${e.source}.`;
+    case 'mods_not_found':
+      return `This mod is no longer available on ${e.source}.`;
+    case 'mods_decode':
+      return `Unexpected response from ${e.source}: ${e.details}`;
+    case 'mods_sha1_unavailable':
+      return "This mod's hash is missing; refusing to install.";
+    case 'mods_sha1_mismatch':
+      return `Verification failed: expected ${e.expected}, got ${e.got}`;
+    case 'mods_dependency_unresolvable':
+      return `Required dependency ${e.project_ref} is not available for this MC + loader`;
+    case 'mods_filename_conflict':
+      return `A different file named "${e.filename}" already exists in this instance — uninstall it first`;
+    case 'mods_cache_io':
+      return `Couldn't write to mod cache: ${e.details}`;
+    case 'mods_instance_path':
+      return `Couldn't write to instance at ${e.path}: ${e.details}`;
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

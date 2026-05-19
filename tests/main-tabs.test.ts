@@ -1,6 +1,19 @@
 import { fireEvent, render } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import MainTabs from '$lib/layout/MainTabs.svelte';
+
+// Task 14 made the Mod browser tab mount the real ModBrowseView, which
+// fires modsGetCurseforgeKeyStatus + modsSearch on mount. Stub both so
+// the unrelated MainTabs assertions below don't trip on tauri-api
+// errors from those background calls.
+vi.mock('$lib/ipc/bindings', () => ({
+  commands: {
+    modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
+    modsSearch: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
+  },
+}));
 
 describe('MainTabs', () => {
   it('renders the three tab labels', () => {
@@ -23,10 +36,14 @@ describe('MainTabs', () => {
     expect(browser?.getAttribute('aria-selected')).toBe('true');
   });
 
-  it('renders placeholder content for Mod browser tab', async () => {
-    const { getByText } = render(MainTabs, { props: {} });
+  it('renders ModBrowserTab when Mod browser tab is active', async () => {
+    const { getByText, getByLabelText } = render(MainTabs, { props: {} });
     await fireEvent.click(getByText('Mod browser'));
-    expect(getByText(/Coming in v0\.5\.0 mod browser slice/i)).toBeTruthy();
+    // ModBrowserTab renders the Browse / Installed sub-tabs and the
+    // Source picker — assert on those rather than placeholder text.
+    expect(getByText('Browse')).toBeTruthy();
+    expect(getByText('Installed')).toBeTruthy();
+    expect(getByLabelText('Mod source')).toBeTruthy();
   });
 
   it('renders placeholder content for Modpacks tab', async () => {

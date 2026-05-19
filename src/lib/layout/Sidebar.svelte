@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { settingsOpen } from '$lib/settings/state.svelte';
 
   let {
     accounts,
@@ -16,6 +17,11 @@
     onOpenMods,
     onOpenLogs,
     onOpenNetwork,
+    running,
+    installing,
+    onPlay,
+    onStop,
+    onInstall,
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -30,6 +36,15 @@
     onOpenMods: () => void;
     onOpenLogs: () => void;
     onOpenNetwork: () => void;
+    // Launch-state inputs (moved here from the Overview pane in
+    // +page.svelte). running !== null = MC is up; installing = an
+    // install pipeline is in flight; otherwise the button morphs
+    // between Install (not-ready) and Play (ready).
+    running: { version_id: string; pid: number } | null;
+    installing: boolean;
+    onPlay: () => void;
+    onStop: () => void;
+    onInstall: () => void;
   } = $props();
 
   let showAddOfflineInput = $state(false);
@@ -152,6 +167,51 @@
           📂 Mods
         </button>
       </div>
+
+      {#if activeInstance}
+        {#if running}
+          <button
+            type="button"
+            class="bg-red-600 hover:bg-red-700 text-white rounded px-3 py-2 text-sm font-semibold"
+            onclick={onStop}
+          >
+            Stop
+          </button>
+        {:else if activeInstance.mc_version === ''}
+          <button
+            type="button"
+            class="bg-neutral-300 text-neutral-600 rounded px-3 py-2 text-sm font-semibold cursor-not-allowed"
+            disabled
+            title="Pick a Minecraft version first"
+          >
+            Play
+          </button>
+        {:else if installing}
+          <button
+            type="button"
+            class="bg-blue-400 text-white rounded px-3 py-2 text-sm font-semibold cursor-not-allowed"
+            disabled
+          >
+            Working…
+          </button>
+        {:else if !activeInstance.ready}
+          <button
+            type="button"
+            class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-semibold"
+            onclick={onInstall}
+          >
+            Install
+          </button>
+        {:else}
+          <button
+            type="button"
+            class="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-2 text-sm font-semibold"
+            onclick={onPlay}
+          >
+            Play
+          </button>
+        {/if}
+      {/if}
     {/if}
   </div>
 
@@ -175,6 +235,15 @@
           aria-label="{violationsCount} allowlist violations"
         ></span>
       {/if}
+    </button>
+    <button
+      type="button"
+      class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+      aria-label="Settings"
+      title="Settings"
+      onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
+    >
+      Settings
     </button>
   </div>
 </aside>

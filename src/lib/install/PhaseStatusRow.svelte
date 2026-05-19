@@ -1,8 +1,14 @@
 <script lang="ts">
-  import { events, type InstallPhase, type InstallProgress } from '$lib/ipc/bindings';
+  import {
+    events,
+    type InstallPhase,
+    type InstallProgress,
+    type ModInstallProgress,
+  } from '$lib/ipc/bindings';
   import { onMount } from 'svelte';
 
   let progress = $state<InstallProgress | null>(null);
+  let modProgress = $state<ModInstallProgress | null>(null);
   let unlisteners: Array<() => void> = [];
 
   onMount(() => {
@@ -17,6 +23,7 @@
     events.processSpawned
       .listen(() => {
         progress = null;
+        modProgress = null;
       })
       .then((u) => unlisteners.push(u));
 
@@ -27,6 +34,33 @@
     events.processExited
       .listen(() => {
         progress = null;
+        modProgress = null;
+      })
+      .then((u) => unlisteners.push(u));
+
+    // Mod install pipeline — streamed phases per mod (downloading /
+    // verifying / copying). Sequence length isn't known up front
+    // (mods_install_with_deps doesn't emit a "start" event), so we
+    // just show the phase string. Counter dropped for v1.
+    events.modInstallProgress
+      .listen((event) => {
+        modProgress = event.payload;
+      })
+      .then((u) => unlisteners.push(u));
+
+    // Clear mod state once the per-mod install completes — the next
+    // modInstallProgress event will refresh it for the next mod in the
+    // dep sequence (if any).
+    events.modInstalled
+      .listen(() => {
+        modProgress = null;
+      })
+      .then((u) => unlisteners.push(u));
+
+    // Clear on failure so the row doesn't linger after an error.
+    events.modInstallFailed
+      .listen(() => {
+        modProgress = null;
       })
       .then((u) => unlisteners.push(u));
 
@@ -55,6 +89,17 @@
     }
   }
 
+  function modPhaseLabel(p: ModInstallProgress['phase']): string {
+    switch (p) {
+      case 'downloading':
+        return 'Downloading mod';
+      case 'verifying':
+        return 'Verifying mod';
+      case 'copying':
+        return 'Copying mod';
+    }
+  }
+
   function percent(done: number, total: number): number {
     if (total === 0) return 0;
     return Math.round((done / total) * 100);
@@ -68,7 +113,22 @@
   }
 </script>
 
-{#if progress}
+{#if modProgress}
+  <div class="border-t bg-neutral-50 px-4 py-1 flex items-center gap-3 text-xs">
+    <span class="font-medium text-neutral-900">{modPhaseLabel(modProgress.phase)}</span>
+    {#if modProgress.phase === 'downloading' && modProgress.bytes_total && modProgress.bytes_total > 0}
+      <span class="text-neutral-600 font-mono">
+        {percent(modProgress.bytes_done ?? 0, modProgress.bytes_total)}%
+      </span>
+      <div class="flex-1 h-1 bg-neutral-200 rounded overflow-hidden">
+        <div
+          class="h-full bg-blue-600 transition-all"
+          style="width: {percent(modProgress.bytes_done ?? 0, modProgress.bytes_total)}%"
+        ></div>
+      </div>
+    {/if}
+  </div>
+{:else if progress}
   <div class="border-t bg-neutral-50 px-4 py-1 flex items-center gap-3 text-xs">
     <span class="font-medium text-neutral-900">{phaseLabel(progress.phase)}</span>
     <span class="text-neutral-600 font-mono">

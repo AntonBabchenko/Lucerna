@@ -31,6 +31,9 @@ The project exists because other launchers serves a real use-case (offline play,
    | `api.github.com/repos/AntonBabchenko/FTlauncher/releases` | Launcher self-update check | on, off-able |
    | `api.modrinth.com` | Modrinth mod browser | requested on first open of mod browser |
    | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
+   | `cdn.modrinth.com` | Modrinth mod jar downloads | enabled when user installs from Modrinth |
+   | `edge.forgecdn.net` | CurseForge mod jar downloads (primary CDN) | enabled when user installs from CurseForge |
+   | `mediafilez.forgecdn.net` | CurseForge mod jar downloads (alternate CDN) | enabled when user installs from CurseForge |
    | `meta.fabricmc.net`, `maven.fabricmc.net` | Fabric loader meta + libraries | on when user picks Fabric loader |
    | `meta.quiltmc.org`, `maven.quiltmc.org` | Quilt loader meta + libraries | on when user picks Quilt loader |
    | `maven.minecraftforge.net` | Forge installer JARs + library/processor mavens | on when user picks Forge loader |

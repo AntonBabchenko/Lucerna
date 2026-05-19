@@ -29,6 +29,28 @@ use crate::network::get_json;
 use crate::versions::loaders::LoaderVersion;
 use crate::versions::version_json::{parse, Library, VersionDetails};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
+
+/// Quilt-aware wrapper around `get_json`. When the meta server returns
+/// 404 — which happens when Quilt has no published profile or loader
+/// list for the requested Minecraft version (common for fresh
+/// snapshots / pre-releases / future versions like 1.21.11 that mojang
+/// shipped but Quilt hasn't picked up yet) — we surface the typed
+/// `Error::LoaderUnavailable` so the UI shows "Quilt does not support
+/// Minecraft <mc>" instead of raw HTTP 404 noise. Non-404 errors fall
+/// through unchanged.
+async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Result<T> {
+    match get_json::<T>(url, initiator).await {
+        Ok(v) => Ok(v),
+        Err(Error::Network { details, .. }) if details.starts_with("HTTP 404") => {
+            Err(Error::LoaderUnavailable {
+                loader: "quilt".into(),
+                mc_version: mc.into(),
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
 
 const META_DEFAULT: &str = "https://meta.quiltmc.org";
 
@@ -69,7 +91,7 @@ struct RawLoader {
 
 pub(super) async fn list(mc: &str) -> Result<Vec<LoaderVersion>> {
     let url = format!("{}/v3/versions/loader/{mc}", meta_base());
-    let raw: Vec<RawEntry> = get_json(&url, "loaders/quilt").await?;
+    let raw: Vec<RawEntry> = fetch(&url, mc, "loaders/quilt").await?;
     // Filter out entries Quilt can't actually launch — when their meta has
     // no `hashed`/`intermediary` mappings published yet (typical for the
     // first weeks after a new MC release), the loader crashes immediately
@@ -140,7 +162,7 @@ fn sort_key(version: &str) -> (u32, u32, u32, bool, u32) {
 
 pub(super) async fn profile(mc: &str, ver: &str) -> Result<VersionDetails> {
     let url = format!("{}/v3/versions/loader/{mc}/{ver}/profile/json", meta_base());
-    let raw_json: serde_json::Value = get_json(&url, "loaders/quilt").await?;
+    let raw_json: serde_json::Value = fetch(&url, mc, "loaders/quilt").await?;
     let text = serde_json::to_string(&raw_json)
         .map_err(|e| Error::io(url.clone(), format!("serialise: {e}")))?;
     let mut details = parse(&text).map_err(|e| Error::io(url, format!("parse: {e}")))?;
@@ -186,7 +208,7 @@ fn maven_url_for_mapping(coord: &str) -> &'static str {
 /// Returns 0-2 coords (both may be present, both may be absent).
 async fn fetch_mapping_coords(mc: &str, ver: &str) -> Result<Vec<String>> {
     let url = format!("{}/v3/versions/loader/{mc}", meta_base());
-    let raw: Vec<RawEntry> = get_json(&url, "loaders/quilt/mappings").await?;
+    let raw: Vec<RawEntry> = fetch(&url, mc, "loaders/quilt/mappings").await?;
     let entry = raw
         .into_iter()
         .find(|e| e.loader.version == ver)

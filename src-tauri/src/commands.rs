@@ -410,6 +410,420 @@ pub async fn open_instance_folder(
     crate::instances::open_instance_folder(&app, &id).await
 }
 
+// =========================================================================
+// Mod browser commands (v0.5.0 sub-feature 3)
+// =========================================================================
+
+use crate::mods::curseforge::CurseForgeClient;
+use crate::mods::modrinth::ModrinthClient;
+use crate::mods::platform::*;
+
+fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
+    match source {
+        ModSource::Modrinth => Box::new(ModrinthClient::new()),
+        ModSource::Curseforge => Box::new(CurseForgeClient::new()),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_search(query: ModSearchQuery) -> crate::error::Result<ModSearchPage> {
+    platform_for(query.source).search(&query).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_project(
+    source: ModSource,
+    project_id: String,
+) -> crate::error::Result<ModProject> {
+    platform_for(source).project(&project_id).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_versions(
+    source: ModSource,
+    project_id: String,
+    mc_version: String,
+    loader: LoaderKind,
+) -> crate::error::Result<Vec<ModVersion>> {
+    platform_for(source)
+        .versions(&project_id, &mc_version, loader)
+        .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_resolve_deps(
+    version: ModVersion,
+    mc_version: String,
+    loader: LoaderKind,
+) -> crate::error::Result<ResolvedDeps> {
+    platform_for(version.source)
+        .resolve_deps(&version, &mc_version, loader)
+        .await
+}
+
+// =========================================================================
+// Mod install / list / disable / enable / uninstall (v0.5.0 sub-feature 3)
+// =========================================================================
+
+use serde::Serialize;
+use std::path::PathBuf;
+use tauri_specta::Event;
+
+/// Streamed progress for a single mod install operation. Tagged union so
+/// the UI can switch on `phase` and show a progress bar / spinner.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub enum ModInstallProgress {
+    Downloading {
+        instance_id: String,
+        project_id: String,
+        /// f64 not u64 — specta forbids BigInt-style exports.
+        bytes_done: f64,
+        bytes_total: Option<f64>,
+    },
+    Verifying {
+        instance_id: String,
+        project_id: String,
+        bytes_done: f64,
+    },
+    Copying {
+        instance_id: String,
+        project_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ModInstalled {
+    pub instance_id: String,
+    pub sha1: String,
+    pub filename: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ModUninstalled {
+    pub instance_id: String,
+    pub sha1: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ModToggle {
+    pub instance_id: String,
+    pub sha1: String,
+    /// True iff the mod is now enabled. UI uses this to drive the toggle
+    /// switch without re-querying `mods_list_installed`.
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ModInstallFailed {
+    pub instance_id: String,
+    pub project_id: String,
+    pub error: crate::error::Error,
+}
+
+/// Per-instance root, e.g. `<app_data>/instances/<id>/`. The mod install
+/// pipeline writes under `{root}/.minecraft/mods/` and tracks state in
+/// `{root}/ftlauncher/installed-mods.json`.
+fn instance_root(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<PathBuf, crate::error::Error> {
+    crate::paths::instance_dir(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance_dir>", e))
+}
+
+/// Launcher app-data directory — host of the shared mod cache.
+fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::Error> {
+    crate::paths::app_dir(app).map_err(|e| crate::error::Error::io("<app_dir>", e))
+}
+
+/// Read the active MC version + loader for an instance from
+/// `instance.json`. Returns `InstanceNotFound` if the file is missing.
+fn read_active_mc_and_loader(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<(String, LoaderKind), crate::error::Error> {
+    let all = crate::instances::list_instances_with_status(app)?;
+    if !all.iter().any(|i| i.id == instance_id) {
+        return Err(crate::error::Error::InstanceNotFound {
+            id: instance_id.to_string(),
+        });
+    }
+    let json_path = crate::paths::instance_json(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
+    let instance = crate::instances::store::read_instance_json(&json_path)?;
+    Ok((instance.mc_version, instance.loader))
+}
+
+/// Resolve a `VersionRef` to a full `ModVersion` by querying the platform
+/// for the project's available versions (filtered by MC + loader).
+async fn find_version(
+    platform: &mut Box<dyn ModPlatform>,
+    vr: &VersionRef,
+    mc: &str,
+    loader: LoaderKind,
+) -> crate::error::Result<ModVersion> {
+    let vs = platform.versions(&vr.project_id, mc, loader).await?;
+    vs.into_iter()
+        .find(|v| v.version_id == vr.version_id)
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: match vr.source {
+                ModSource::Modrinth => "modrinth",
+                ModSource::Curseforge => "curseforge",
+            }
+            .into(),
+        })
+}
+
+fn version_matches(v: &ModVersion, vr: &VersionRef) -> bool {
+    v.source == vr.source && v.project_id == vr.project_id && v.version_id == vr.version_id
+}
+
+/// Install `primary` plus all server-resolved required dependencies, plus
+/// any user-checked `optional_deps`. Emits:
+///   - `mod-install-progress` repeatedly during downloads,
+///   - `mod-installed` once per mod that lands successfully,
+///   - `mod-install-failed` if any single install errors (the run halts
+///     after the first failure; previously-installed mods are kept).
+///
+/// `primary` is a `VersionRef` (not a full `ModVersion`) so the caller
+/// doesn't need to keep a heavy struct around — we re-fetch from the
+/// platform here. This also re-validates against the live API.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_install_with_deps(
+    app: tauri::AppHandle,
+    instance_id: String,
+    primary: VersionRef,
+    optional_deps: Vec<VersionRef>,
+) -> crate::error::Result<()> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+
+    let mut platform = platform_for(primary.source);
+    let primary_v = find_version(&mut platform, &primary, &mc_version, loader).await?;
+    let resolved = platform
+        .resolve_deps(&primary_v, &mc_version, loader)
+        .await?;
+
+    // Progress callback closes over a clone of the AppHandle and the
+    // primary's project_id (used to tag every progress event so the UI
+    // can route the bar to the right card). Dep installs reuse the same
+    // project_id tag — the UI shows them as part of the same operation.
+    let app_for_progress = app.clone();
+    let instance_id_for_progress = instance_id.clone();
+    let project_id_for_progress = primary_v.project_id.clone();
+    let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+        let payload = match phase {
+            crate::mods::install::InstallPhase::Downloading => ModInstallProgress::Downloading {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+                bytes_total: total.map(|t| t as f64),
+            },
+            crate::mods::install::InstallPhase::Verifying => ModInstallProgress::Verifying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+            },
+            crate::mods::install::InstallPhase::Copying => ModInstallProgress::Copying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+            },
+        };
+        let _ = payload.emit(&app_for_progress);
+    });
+
+    // Install required deps first, then primary, then user-checked optional deps.
+    let mut install_seq: Vec<ModVersion> =
+        resolved.required.into_iter().map(|r| r.version).collect();
+    install_seq.push(primary_v.clone());
+    for opt in optional_deps {
+        if let Some(v) = resolved
+            .optional
+            .iter()
+            .find(|r| version_matches(&r.version, &opt))
+            .cloned()
+        {
+            install_seq.push(v.version);
+        }
+    }
+
+    let http = reqwest::Client::new();
+    for v in install_seq {
+        let v_project_id = v.project_id.clone();
+        match crate::mods::install::install_one(&http, &dd, &inst_root, v.clone(), &prog).await {
+            Ok(inst) => {
+                let _ = ModInstalled {
+                    instance_id: instance_id.clone(),
+                    sha1: inst.sha1,
+                    filename: inst.filename,
+                    name: inst.name,
+                }
+                .emit(&app);
+            }
+            Err(e) => {
+                let _ = ModInstallFailed {
+                    instance_id: instance_id.clone(),
+                    project_id: v_project_id,
+                    error: e.clone(),
+                }
+                .emit(&app);
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
+/// listed (with synthesized metadata if it wasn't installed via the
+/// launcher), and stale registry entries with no file on disk are dropped.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_list_installed(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Vec<InstalledMod>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    crate::mods::installed::list(&inst_root).await
+}
+
+/// Rename `<name>.jar` to `<name>.jar.disabled` and flip the registry
+/// flag so the next launch skips this mod. Emits `mod-toggle` with
+/// `enabled: false`.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_disable(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1: String,
+) -> crate::error::Result<()> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    crate::mods::install::disable(&inst_root, &sha1).await?;
+    let _ = ModToggle {
+        instance_id,
+        sha1,
+        enabled: false,
+    }
+    .emit(&app);
+    Ok(())
+}
+
+/// Inverse of `mods_disable`. Emits `mod-toggle` with `enabled: true`.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_enable(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1: String,
+) -> crate::error::Result<()> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    crate::mods::install::enable(&inst_root, &sha1).await?;
+    let _ = ModToggle {
+        instance_id,
+        sha1,
+        enabled: true,
+    }
+    .emit(&app);
+    Ok(())
+}
+
+/// Remove the jar (enabled or disabled flavor) and drop the registry
+/// entry. The shared cache copy survives. Emits `mod-uninstalled`.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_uninstall(
+    app: tauri::AppHandle,
+    instance_id: String,
+    sha1: String,
+) -> crate::error::Result<()> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    crate::mods::install::uninstall(&inst_root, &sha1).await?;
+    let _ = ModUninstalled { instance_id, sha1 }.emit(&app);
+    Ok(())
+}
+
+// =========================================================================
+// CurseForge key management + shared cache management (v0.5.0 sub-feature 3)
+// =========================================================================
+
+use crate::mods::curseforge::keyring as cf_keyring;
+
+/// Report whether a CurseForge API key is currently stored in the OS
+/// keyring. `Invalid` is reserved for future "key was rejected" surfacing —
+/// today this command only distinguishes Missing vs Set.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_get_curseforge_key_status() -> crate::error::Result<KeyStatus> {
+    Ok(match cf_keyring::get()? {
+        Some(_) => KeyStatus::Set,
+        None => KeyStatus::Missing,
+    })
+}
+
+/// Validate a candidate CurseForge API key by pinging `/v1/games/432`
+/// (the Minecraft game id) with `x-api-key`. On a non-success HTTP
+/// response we return `ModsPlatformAuth { kind: Invalid }` and do NOT
+/// persist anything. Only a successful ping causes the key to be written
+/// to the OS keyring.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_set_curseforge_key(key: String) -> crate::error::Result<()> {
+    let url = "https://api.curseforge.com/v1/games/432";
+    let resp = reqwest::Client::new()
+        .get(url)
+        .header("x-api-key", &key)
+        .send()
+        .await
+        .map_err(|e| crate::error::Error::ModsNetwork {
+            url: url.into(),
+            details: e.to_string(),
+        })?;
+    if !resp.status().is_success() {
+        return Err(crate::error::Error::ModsPlatformAuth {
+            kind: crate::error::ModsAuthKind::Invalid,
+        });
+    }
+    cf_keyring::set(&key)
+}
+
+/// Remove the stored CurseForge API key. No-op if no key is set.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_clear_curseforge_key() -> crate::error::Result<()> {
+    cf_keyring::clear()
+}
+
+/// Size in bytes of the shared mod cache directory (under the launcher's
+/// app-data dir). Used by the Settings panel to show "Cache: X MB".
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_cache_size_bytes(app: tauri::AppHandle) -> crate::error::Result<f64> {
+    // f64 not u64: specta forbids exporting BigInt-style types to TS.
+    // 2^53 bytes (~9 PiB) is far beyond any plausible mod cache size.
+    let dd = data_dir(&app)?;
+    let n = crate::mods::cache::size_bytes(&dd).await?;
+    Ok(n as f64)
+}
+
+/// Delete every cached mod jar. Returns the number of bytes reclaimed.
+/// Installed instance copies are untouched — only the shared cache.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_clear_cache(app: tauri::AppHandle) -> crate::error::Result<f64> {
+    // f64 not u64 — same reason as mods_cache_size_bytes.
+    let dd = data_dir(&app)?;
+    let n = crate::mods::cache::clear(&dd).await?;
+    Ok(n as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -163,12 +163,79 @@ export const commands = {
 	 *  file manager.
 	 */
 	openInstanceFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("open_instance_folder", { id })),
+	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
+	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
+	modsVersions: (source: ModSource, projectId: string, mcVersion: string, loader: LoaderKind) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
+	modsResolveDeps: (version: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
+	/**
+	 *  Install `primary` plus all server-resolved required dependencies, plus
+	 *  any user-checked `optional_deps`. Emits:
+	 *    - `mod-install-progress` repeatedly during downloads,
+	 *    - `mod-installed` once per mod that lands successfully,
+	 *    - `mod-install-failed` if any single install errors (the run halts
+	 *      after the first failure; previously-installed mods are kept).
+	 * 
+	 *  `primary` is a `VersionRef` (not a full `ModVersion`) so the caller
+	 *  doesn't need to keep a heavy struct around — we re-fetch from the
+	 *  platform here. This also re-validates against the live API.
+	 */
+	modsInstallWithDeps: (instanceId: string, primary: VersionRef, optionalDeps: VersionRef[]) => typedError<null, Error>(__TAURI_INVOKE("mods_install_with_deps", { instanceId, primary, optionalDeps })),
+	/**
+	 *  Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
+	 *  listed (with synthesized metadata if it wasn't installed via the
+	 *  launcher), and stale registry entries with no file on disk are dropped.
+	 */
+	modsListInstalled: (instanceId: string) => typedError<InstalledMod[], Error>(__TAURI_INVOKE("mods_list_installed", { instanceId })),
+	/**
+	 *  Rename `<name>.jar` to `<name>.jar.disabled` and flip the registry
+	 *  flag so the next launch skips this mod. Emits `mod-toggle` with
+	 *  `enabled: false`.
+	 */
+	modsDisable: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_disable", { instanceId, sha1 })),
+	/**  Inverse of `mods_disable`. Emits `mod-toggle` with `enabled: true`. */
+	modsEnable: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_enable", { instanceId, sha1 })),
+	/**
+	 *  Remove the jar (enabled or disabled flavor) and drop the registry
+	 *  entry. The shared cache copy survives. Emits `mod-uninstalled`.
+	 */
+	modsUninstall: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_uninstall", { instanceId, sha1 })),
+	/**
+	 *  Report whether a CurseForge API key is currently stored in the OS
+	 *  keyring. `Invalid` is reserved for future "key was rejected" surfacing —
+	 *  today this command only distinguishes Missing vs Set.
+	 */
+	modsGetCurseforgeKeyStatus: () => typedError<KeyStatus, Error>(__TAURI_INVOKE("mods_get_curseforge_key_status")),
+	/**
+	 *  Validate a candidate CurseForge API key by pinging `/v1/games/432`
+	 *  (the Minecraft game id) with `x-api-key`. On a non-success HTTP
+	 *  response we return `ModsPlatformAuth { kind: Invalid }` and do NOT
+	 *  persist anything. Only a successful ping causes the key to be written
+	 *  to the OS keyring.
+	 */
+	modsSetCurseforgeKey: (key: string) => typedError<null, Error>(__TAURI_INVOKE("mods_set_curseforge_key", { key })),
+	/**  Remove the stored CurseForge API key. No-op if no key is set. */
+	modsClearCurseforgeKey: () => typedError<null, Error>(__TAURI_INVOKE("mods_clear_curseforge_key")),
+	/**
+	 *  Size in bytes of the shared mod cache directory (under the launcher's
+	 *  app-data dir). Used by the Settings panel to show "Cache: X MB".
+	 */
+	modsCacheSizeBytes: () => typedError<number | null, Error>(__TAURI_INVOKE("mods_cache_size_bytes")),
+	/**
+	 *  Delete every cached mod jar. Returns the number of bytes reclaimed.
+	 *  Installed instance copies are untouched — only the shared cache.
+	 */
+	modsClearCache: () => typedError<number | null, Error>(__TAURI_INVOKE("mods_clear_cache")),
 };
 
 /** Events */
 export const events = {
 	downloadProgress: makeEvent<DownloadProgress>("download-progress"),
 	installProgress: makeEvent<InstallProgress>("install-progress"),
+	modInstallFailed: makeEvent<ModInstallFailed>("mod-install-failed"),
+	modInstallProgress: makeEvent<ModInstallProgress>("mod-install-progress"),
+	modInstalled: makeEvent<ModInstalled>("mod-installed"),
+	modToggle: makeEvent<ModToggle>("mod-toggle"),
+	modUninstalled: makeEvent<ModUninstalled>("mod-uninstalled"),
 	processExited: makeEvent<ProcessExited>("process-exited"),
 	processSpawned: makeEvent<ProcessSpawned>("process-spawned"),
 };
@@ -220,6 +287,10 @@ export type CrashReport = {
 	preview: string,
 };
 
+export type DepKind = "required" | "optional" | "incompatible" | "embedded";
+
+export type DepProjectRef = { source: "modrinth"; project_id: string; version_id: string | null } | { source: "curseforge"; mod_id: number; file_id: number | null };
+
 /**
  *  Progress event emitted during a download. The UI subscribes via
  *  `listen<DownloadProgress>("download:progress", ...)`.
@@ -235,7 +306,7 @@ export type DownloadProgress = {
 	bytes_total: number | null,
 };
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string };
 
 export type Greeting = {
 	message: string,
@@ -258,6 +329,18 @@ export type InstallProgress = {
 	current_step: string | null,
 };
 
+export type InstalledMod = {
+	filename: string,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string,
+	version_number: string | null,
+	installed_at: string,
+	enabled: boolean,
+};
+
 /**  What the UI sees per row in the instance dropdown. */
 export type InstanceWithStatus = {
 	id: string,
@@ -271,6 +354,8 @@ export type InstanceWithStatus = {
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
 	ready: boolean,
 };
+
+export type KeyStatus = "missing" | "set" | "invalid";
 
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
 
@@ -291,6 +376,109 @@ export type LogFileMeta = {
 
 export type LogSource = "game" | "crash" | "launcher";
 
+export type ModDepLink = {
+	kind: DepKind,
+	project_ref: DepProjectRef,
+};
+
+export type ModFile = {
+	filename: string,
+	url: string,
+	sha1: string | null,
+	size: number | null,
+	distribution_allowed: boolean,
+};
+
+export type ModInstallFailed = {
+	instance_id: string,
+	project_id: string,
+	error: Error,
+};
+
+/**
+ *  Streamed progress for a single mod install operation. Tagged union so
+ *  the UI can switch on `phase` and show a progress bar / spinner.
+ */
+export type ModInstallProgress = { phase: "downloading"; instance_id: string; project_id: string; 
+/**  f64 not u64 — specta forbids BigInt-style exports. */
+bytes_done: number | null; bytes_total: number | null } | { phase: "verifying"; instance_id: string; project_id: string; bytes_done: number | null } | { phase: "copying"; instance_id: string; project_id: string };
+
+export type ModInstalled = {
+	instance_id: string,
+	sha1: string,
+	filename: string,
+	name: string,
+};
+
+export type ModProject = {
+	summary: ModSummary,
+	description: string,
+	website_url: string | null,
+};
+
+export type ModSearchPage = {
+	hits: ModSummary[],
+	total: number,
+	offset: number,
+	page_size: number,
+};
+
+export type ModSearchQuery = {
+	source: ModSource,
+	query: string,
+	mc_version: string | null,
+	loader: LoaderKind | null,
+	sort: ModSort,
+	page_size: number,
+	offset: number,
+};
+
+export type ModSort = "relevance" | "downloads" | "updated";
+
+export type ModSource = "modrinth" | "curseforge";
+
+export type ModSummary = {
+	source: ModSource,
+	project_id: string,
+	slug: string | null,
+	name: string,
+	summary: string,
+	icon_url: string | null,
+	downloads: number | null,
+	author: string,
+	updated_at: string | null,
+};
+
+export type ModToggle = {
+	instance_id: string,
+	sha1: string,
+	/**
+	 *  True iff the mod is now enabled. UI uses this to drive the toggle
+	 *  switch without re-querying `mods_list_installed`.
+	 */
+	enabled: boolean,
+};
+
+export type ModUninstalled = {
+	instance_id: string,
+	sha1: string,
+};
+
+export type ModVersion = {
+	source: ModSource,
+	project_id: string,
+	version_id: string,
+	name: string,
+	version_number: string,
+	mc_versions: string[],
+	loaders: LoaderKind[],
+	primary_file: ModFile,
+	deps: ModDepLink[],
+	published_at: string | null,
+};
+
+export type ModsAuthKind = "missing" | "invalid";
+
 export type ProcessExited = {
 	version_id: string,
 	/**
@@ -307,6 +495,18 @@ export type ProcessSpawned = {
 	pid: number,
 };
 
+export type ResolvedDep = {
+	project_ref: DepProjectRef,
+	version: ModVersion,
+};
+
+export type ResolvedDeps = {
+	required: ResolvedDep[],
+	optional: ResolvedDep[],
+	incompatible: DepProjectRef[],
+	unresolvable: DepProjectRef[],
+};
+
 /**
  *  What the UI sees per entry. We strip the cryptographic and
  *  compliance fields the launcher core needs but the UI doesn't.
@@ -321,6 +521,12 @@ export type VersionEntry = {
 	 *  re-fetch the manifest to know where to install from.
 	 */
 	url: string,
+};
+
+export type VersionRef = {
+	source: ModSource,
+	project_id: string,
+	version_id: string,
 };
 
 export type VersionType = "release" | "snapshot" | "old_alpha" | "old_beta";

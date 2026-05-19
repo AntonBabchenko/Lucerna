@@ -12,11 +12,13 @@
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
+  import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
+  import { modBrowserNav } from '$lib/settings/state.svelte';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -36,6 +38,27 @@
   let instancesError = $state<string | null>(null);
 
   let manageOpen = $state(false);
+
+  // Lightweight installed-mods stats for the Overview pane. Re-fetched
+  // on instance change and whenever the launcher emits an install /
+  // uninstall / toggle event from the mod browser.
+  let installedStats = $state<{ total: number; enabled: number; disabled: number }>({
+    total: 0,
+    enabled: 0,
+    disabled: 0,
+  });
+
+  async function refreshInstalledStats(id: string | null) {
+    if (!id) {
+      installedStats = { total: 0, enabled: 0, disabled: 0 };
+      return;
+    }
+    const r = await commands.modsListInstalled(id);
+    if (r.status !== 'ok') return;
+    const total = r.data.length;
+    const enabled = r.data.filter((m) => m.enabled).length;
+    installedStats = { total, enabled, disabled: total - enabled };
+  }
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
@@ -64,6 +87,7 @@
         modsError = null;
         exited = null;
         crashReport = null;
+        void refreshInstalledStats(newId);
       }
     });
   });
@@ -92,6 +116,13 @@
       .then((u) => {
         spawnUnlisten = u;
       });
+
+    // Mod-install events refresh the Overview stats so the user can
+    // see the Total / Enabled / Disabled numbers tick up after install
+    // from the Mod browser without bouncing back through this view.
+    events.modInstalled.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
+    events.modUninstalled.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
+    events.modToggle.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
 
     events.processExited
       .listen(async (event) => {
@@ -265,6 +296,11 @@
         networkOpen = !networkOpen;
         if (!networkOpen) void refreshViolations();
       }}
+      {running}
+      {installing}
+      {onPlay}
+      {onStop}
+      {onInstall}
     />
   </div>
 
@@ -294,7 +330,11 @@
       </div>
     {/if}
 
-    <MainTabs>
+    <MainTabs
+      instanceId={activeInstance?.id ?? null}
+      mcVersion={activeInstance?.mc_version ?? null}
+      loader={activeInstance?.loader ?? null}
+    >
       {#snippet overview()}
         <div class="p-6 flex flex-col gap-4">
           {#if offlineNameError}
@@ -356,46 +396,75 @@
               </p>
             </div>
 
+            <div class="flex flex-col gap-1">
+              <div class="text-xs uppercase tracking-wide text-neutral-500">Installed mods</div>
+              {#if installedStats.total === 0}
+                <p class="text-sm text-neutral-500">
+                  No mods installed yet. Open
+                  <button
+                    type="button"
+                    class="underline hover:text-neutral-800"
+                    onclick={() => (modBrowserNav.value = { view: 'browse' })}
+                  >
+                    Mod browser
+                  </button>
+                  to add some.
+                </p>
+              {:else}
+                <div class="text-sm flex gap-3">
+                  <span
+                    >Total: <span class="font-medium text-neutral-700">{installedStats.total}</span
+                    ></span
+                  >
+                  <span
+                    >Enabled: <span class="font-medium text-green-700"
+                      >{installedStats.enabled}</span
+                    ></span
+                  >
+                  <span
+                    >Disabled: <span class="font-medium text-neutral-700"
+                      >{installedStats.disabled}</span
+                    ></span
+                  >
+                </div>
+                <p class="text-xs text-neutral-500">
+                  Manage in
+                  <button
+                    type="button"
+                    class="underline hover:text-neutral-800"
+                    onclick={() => (modBrowserNav.value = { view: 'installed' })}
+                  >
+                    Installed
+                  </button>
+                  tab.
+                </p>
+              {/if}
+            </div>
+
             <div class="flex items-center gap-4 mt-2">
               {#if running}
-                <button
-                  class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 font-semibold"
-                  onclick={onStop}
-                >
-                  Stop
-                </button>
                 <span class="text-sm font-mono"
                   >Running {running.version_id} (PID {running.pid})</span
                 >
               {:else if activeInstance.mc_version === ''}
-                <button
-                  class="bg-neutral-300 text-neutral-600 px-4 py-2 rounded cursor-not-allowed font-semibold"
-                  disabled
-                  title="Pick a Minecraft version first"
+                <span class="text-sm text-neutral-500"
+                  >Pick a Minecraft version in <button
+                    type="button"
+                    class="underline hover:text-neutral-800"
+                    onclick={() => (manageOpen = true)}>Manage</button
+                  > before installing.</span
                 >
-                  Play
-                </button>
               {:else if installing}
-                <button
-                  class="bg-blue-400 text-white px-4 py-2 rounded cursor-not-allowed font-semibold"
-                  disabled
-                >
-                  Working…
-                </button>
+                <span class="text-sm text-blue-700">Working…</span>
               {:else if !activeInstance.ready}
-                <button
-                  class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-semibold"
-                  onclick={onInstall}
+                <span class="text-sm text-neutral-500"
+                  >Click <span class="font-semibold text-neutral-700">Install</span> in the sidebar to
+                  download Minecraft + selected loader.</span
                 >
-                  Install
-                </button>
               {:else}
-                <button
-                  class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 font-semibold"
-                  onclick={onPlay}
+                <span class="text-sm text-green-700"
+                  >Ready to play — click <span class="font-semibold">Play</span> in the sidebar.</span
                 >
-                  Play
-                </button>
               {/if}
               {#if installError}
                 <span class="text-xs text-red-700 flex items-center gap-1">
@@ -453,4 +522,6 @@
     {versions}
     onChanged={refreshInstances}
   />
+
+  <SettingsModal />
 </main>

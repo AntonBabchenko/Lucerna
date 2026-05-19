@@ -6,6 +6,7 @@ pub mod instances;
 pub mod jre;
 pub mod launch;
 pub mod logs;
+pub mod mods;
 pub mod network;
 pub mod paths;
 pub mod versions;
@@ -49,12 +50,32 @@ pub fn run() {
             commands::set_instance_memory,
             commands::set_instance_jvm_args,
             commands::open_instance_folder,
+            // Mod browser (v0.5.0 sub-feature 3):
+            commands::mods_search,
+            commands::mods_project,
+            commands::mods_versions,
+            commands::mods_resolve_deps,
+            commands::mods_install_with_deps,
+            commands::mods_list_installed,
+            commands::mods_disable,
+            commands::mods_enable,
+            commands::mods_uninstall,
+            commands::mods_get_curseforge_key_status,
+            commands::mods_set_curseforge_key,
+            commands::mods_clear_curseforge_key,
+            commands::mods_cache_size_bytes,
+            commands::mods_clear_cache,
         ])
         .events(collect_events![
             network::DownloadProgress,
             versions::InstallProgress,
             launch::ProcessSpawned,
             launch::ProcessExited,
+            commands::ModInstallProgress,
+            commands::ModInstalled,
+            commands::ModUninstalled,
+            commands::ModToggle,
+            commands::ModInstallFailed,
         ]);
 
     #[cfg(debug_assertions)]

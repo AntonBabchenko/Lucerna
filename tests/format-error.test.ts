@@ -60,4 +60,44 @@ describe('formatError', () => {
     expect(formatError({ kind: 'no_version_selected' })).toBe('Pick a Minecraft version first');
     expect(formatError({ kind: 'instance_name_empty' })).toBe('Instance name cannot be empty');
   });
+
+  it('formats mods_network with url and details', () => {
+    const msg = formatError({
+      kind: 'mods_network',
+      url: 'https://api.modrinth.com/v2/search',
+      details: 'timeout',
+    });
+    expect(msg).toContain('https://api.modrinth.com/v2/search');
+    expect(msg).toContain('timeout');
+  });
+
+  it('formats mods_platform_auth missing as a key prompt', () => {
+    expect(formatError({ kind: 'mods_platform_auth', kind_detail: 'missing' })).toContain(
+      'CurseForge requires an API key',
+    );
+  });
+
+  it('formats mods_sha1_mismatch as a verification failure', () => {
+    const msg = formatError({ kind: 'mods_sha1_mismatch', expected: 'aaa', got: 'bbb' });
+    expect(msg).toContain('Verification failed');
+  });
+
+  it('formats mods_distribution_disabled with the source label', () => {
+    const msg = formatError({
+      kind: 'mods_distribution_disabled',
+      source: 'curseforge',
+      project_id: '12345',
+    });
+    expect(msg.toLowerCase()).toContain('disabled');
+  });
+
+  it('formats mods_filename_conflict with the filename', () => {
+    const msg = formatError({
+      kind: 'mods_filename_conflict',
+      filename: 'jei.jar',
+      existing_sha: '111',
+      incoming_sha: '222',
+    });
+    expect(msg).toContain('jei.jar');
+  });
 });

@@ -1,15 +1,33 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
+  import { modBrowserNav } from '$lib/settings/state.svelte';
 
   type Tab = 'overview' | 'mod_browser' | 'modpacks';
 
   let {
     overview,
+    instanceId = null,
+    mcVersion = null,
+    loader = null,
   }: {
     overview?: Snippet;
+    instanceId?: string | null;
+    mcVersion?: string | null;
+    loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
   } = $props();
 
   let active = $state<Tab>('overview');
+
+  // Honour the cross-component navigation rune (set by the Overview
+  // "Installed mods" link, possibly by other entry points later).
+  // ModBrowserTab reads the same rune to pick the sub-view, then
+  // clears it.
+  $effect(() => {
+    if (modBrowserNav.value !== null) {
+      active = 'mod_browser';
+    }
+  });
 </script>
 
 <div class="flex flex-col overflow-hidden">
@@ -41,9 +59,6 @@
       onclick={() => (active = 'mod_browser')}
     >
       Mod browser
-      <span class="ml-1 text-[10px] bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded-full">
-        soon
-      </span>
     </button>
     <button
       type="button"
@@ -70,9 +85,7 @@
         {@render overview()}
       {/if}
     {:else if active === 'mod_browser'}
-      <div class="p-8 text-center text-neutral-400 text-sm">
-        Coming in v0.5.0 mod browser slice.
-      </div>
+      <ModBrowserTab {instanceId} {mcVersion} {loader} />
     {:else if active === 'modpacks'}
       <div class="p-8 text-center text-neutral-400 text-sm">
         Coming in v0.5.0 modpack import slice.

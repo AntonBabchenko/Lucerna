@@ -27,6 +27,17 @@
   let selectedId = $state<string | null>(null);
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
+
+  // When the modal opens, default the selection to the currently-active
+  // instance (the one the user is playing on the main view). Otherwise
+  // the detail panel either shows empty state (selectedId=null) or
+  // whatever was selected in a previous session — both surprising. The
+  // user expects to manage the instance they just had open.
+  $effect(() => {
+    if (open && selectedId === null) {
+      selectedId = activeInstance?.id ?? instances[0]?.id ?? null;
+    }
+  });
   let modalError = $state<string | null>(null);
   let deleteConfirmOpen = $state(false);
 
@@ -190,6 +201,12 @@
 
   function close() {
     open = false;
+    // Reset so the next open re-derives selectedId from activeInstance
+    // (see the open-detection $effect above). Without this, closing
+    // the modal then switching the active instance on the main view
+    // and reopening would still surface the previously-selected
+    // instance, not the new active one.
+    selectedId = null;
   }
 
   function onKey(e: KeyboardEvent) {

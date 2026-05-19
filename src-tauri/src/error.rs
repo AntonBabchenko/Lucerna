@@ -9,7 +9,14 @@ use serde::Serialize;
 use specta::Type;
 use thiserror::Error as ThisError;
 
-#[derive(Debug, ThisError, Serialize, Type)]
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModsAuthKind {
+    Missing,
+    Invalid,
+}
+
+#[derive(Debug, Clone, ThisError, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
     #[error("Network error fetching {url}: {details}")]
@@ -75,6 +82,58 @@ pub enum Error {
 
     #[error("Instance name is too long: {actual} characters (max {max})")]
     InstanceNameTooLong { max: u32, actual: u32 },
+
+    #[error("Network error talking to {url}: {details}")]
+    ModsNetwork { url: String, details: String },
+
+    #[error("Mod platform auth: {kind:?}")]
+    ModsPlatformAuth {
+        // Rust field stays `kind` per spec; serialized as `kind_detail`
+        // to avoid colliding with the enum's serde `tag = "kind"`.
+        #[serde(rename = "kind_detail")]
+        kind: ModsAuthKind,
+    },
+
+    #[error("Mod {project_id} on {platform}: distribution disabled by author")]
+    ModsDistributionDisabled {
+        // Rust field renamed from `source` to `platform` because thiserror v2
+        // treats fields named `source` as `Error::source()`; on the wire and
+        // in TS bindings we keep `source` via serde rename.
+        #[serde(rename = "source")]
+        platform: String,
+        project_id: String,
+    },
+
+    #[error("Mod project not found on {platform}")]
+    ModsNotFound {
+        #[serde(rename = "source")]
+        platform: String,
+    },
+
+    #[error("Unexpected response from {platform}: {details}")]
+    ModsDecode {
+        #[serde(rename = "source")]
+        platform: String,
+        details: String,
+    },
+
+    #[error("Mod file has no SHA-1 published; refusing to install")]
+    ModsSha1Unavailable,
+
+    #[error("SHA-1 mismatch: expected {expected}, got {got}")]
+    ModsSha1Mismatch { expected: String, got: String },
+
+    #[error("Dependency {project_ref} could not be resolved for this MC + loader")]
+    ModsDependencyUnresolvable { project_ref: String },
+
+    #[error("Cannot place {filename}: a different file with this name already exists")]
+    ModsFilenameConflict { filename: String, existing_sha: String, incoming_sha: String },
+
+    #[error("Mod cache I/O error: {details}")]
+    ModsCacheIo { details: String },
+
+    #[error("Instance directory I/O error at {path}: {details}")]
+    ModsInstancePath { path: String, details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -238,5 +297,42 @@ mod tests {
         assert!(json.contains(r#""kind":"instance_name_too_long""#), "got: {json}");
         assert!(json.contains(r#""max":32"#), "got: {json}");
         assert!(json.contains(r#""actual":50"#), "got: {json}");
+    }
+
+    #[test]
+    fn mods_network_serializes_with_tag() {
+        let e = Error::ModsNetwork { url: "https://api.modrinth.com/v2/search".into(), details: "timeout".into() };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(j.contains(r#""kind":"mods_network""#), "got: {j}");
+        assert!(j.contains(r#""url":"https://api.modrinth.com/v2/search""#));
+    }
+
+    #[test]
+    fn mods_platform_auth_carries_kind() {
+        let e = Error::ModsPlatformAuth { kind: ModsAuthKind::Missing };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(j.contains(r#""kind":"mods_platform_auth""#), "got: {j}");
+        assert!(j.contains(r#""kind_detail":"missing""#), "got: {j}");
+    }
+
+    #[test]
+    fn mods_sha1_mismatch_carries_expected_and_got() {
+        let e = Error::ModsSha1Mismatch { expected: "aaa".into(), got: "bbb".into() };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(j.contains(r#""kind":"mods_sha1_mismatch""#));
+        assert!(j.contains(r#""expected":"aaa""#));
+        assert!(j.contains(r#""got":"bbb""#));
+    }
+
+    #[test]
+    fn mods_filename_conflict_carries_both_hashes() {
+        let e = Error::ModsFilenameConflict {
+            filename: "jei.jar".into(),
+            existing_sha: "111".into(),
+            incoming_sha: "222".into(),
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(j.contains(r#""kind":"mods_filename_conflict""#));
+        assert!(j.contains(r#""filename":"jei.jar""#));
     }
 }

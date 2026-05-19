@@ -53,6 +53,10 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "maven.minecraftforge.net",
     "files.minecraftforge.net",
     "maven.neoforged.net",
+    // v0.5.0 — Mod browser file CDNs.
+    "cdn.modrinth.com",
+    "edge.forgecdn.net",
+    "mediafilez.forgecdn.net",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -184,8 +188,11 @@ mod tests {
         assert!(patterns.contains(&"maven.minecraftforge.net"));
         assert!(patterns.contains(&"files.minecraftforge.net"));
         assert!(patterns.contains(&"maven.neoforged.net"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0.
-        assert_eq!(patterns.len(), 14);
+        assert!(patterns.contains(&"cdn.modrinth.com"));
+        assert!(patterns.contains(&"edge.forgecdn.net"));
+        assert!(patterns.contains(&"mediafilez.forgecdn.net"));
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0.
+        assert_eq!(patterns.len(), 17);
     }
 
     #[test]
@@ -197,5 +204,15 @@ mod tests {
         // Exact-match — these are not wildcards.
         assert!(!is_host_allowed("evil.meta.fabricmc.net"));
         assert!(!is_host_allowed("evilmeta.fabricmc.net"));
+    }
+
+    #[test]
+    fn mod_cdn_hosts_are_allowed_exact_match_only() {
+        assert!(is_host_allowed("cdn.modrinth.com"));
+        assert!(is_host_allowed("edge.forgecdn.net"));
+        assert!(is_host_allowed("mediafilez.forgecdn.net"));
+        // Exact match — not wildcards.
+        assert!(!is_host_allowed("evil.cdn.modrinth.com"));
+        assert!(!is_host_allowed("evilmediafilez.forgecdn.net"));
     }
 }

@@ -11,6 +11,24 @@ use crate::network::get_json;
 use crate::versions::loaders::LoaderVersion;
 use crate::versions::version_json::{parse, VersionDetails};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
+
+/// Fabric-aware wrapper around `get_json`. Maps 404 (returned by meta
+/// for unknown MC + loader combinations) to typed `LoaderUnavailable`
+/// so the UI shows "Fabric does not support Minecraft <mc>" instead
+/// of raw HTTP 404 text. Non-404 errors fall through.
+async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Result<T> {
+    match get_json::<T>(url, initiator).await {
+        Ok(v) => Ok(v),
+        Err(Error::Network { details, .. }) if details.starts_with("HTTP 404") => {
+            Err(Error::LoaderUnavailable {
+                loader: "fabric".into(),
+                mc_version: mc.into(),
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
 
 const META_DEFAULT: &str = "https://meta.fabricmc.net";
 
@@ -38,7 +56,7 @@ pub(super) async fn list(mc: &str) -> Result<Vec<LoaderVersion>> {
     // Fabric meta returns `[]` (HTTP 200) for unsupported MC versions —
     // never a 4xx — so empty translates to `LoaderUnavailable` in the
     // caller (`loaders::list_loaders`).
-    let raw: Vec<RawEntry> = get_json(&url, "loaders/fabric").await?;
+    let raw: Vec<RawEntry> = fetch(&url, mc, "loaders/fabric").await?;
     let mut out: Vec<LoaderVersion> = raw
         .into_iter()
         .map(|e| LoaderVersion {
@@ -55,8 +73,10 @@ pub(super) async fn list(mc: &str) -> Result<Vec<LoaderVersion>> {
 pub(super) async fn profile(mc: &str, ver: &str) -> Result<VersionDetails> {
     let url = format!("{}/v2/versions/loader/{mc}/{ver}/profile/json", meta_base());
     // Fabric meta returns a 404 with a small text body when the
-    // combination is invalid — get_json surfaces that as Error::Network.
-    let raw_json: serde_json::Value = get_json(&url, "loaders/fabric").await?;
+    // combination is invalid. `fetch` maps that to LoaderUnavailable
+    // so the UI shows a friendly "Fabric does not support …" instead
+    // of raw HTTP 404 text.
+    let raw_json: serde_json::Value = fetch(&url, mc, "loaders/fabric").await?;
     let text = serde_json::to_string(&raw_json)
         .map_err(|e| Error::io(url.clone(), format!("serialise: {e}")))?;
     parse(&text).map_err(|e| Error::io(url, format!("parse: {e}")))
