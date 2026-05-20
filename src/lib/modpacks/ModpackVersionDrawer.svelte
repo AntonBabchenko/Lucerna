@@ -1,24 +1,13 @@
 <script lang="ts">
   import { commands } from '$lib/ipc/bindings';
-  import type { ModpackHit } from '$lib/ipc/bindings';
+  import type { ModpackHit, ModpackVersionEntry } from '$lib/ipc/bindings';
+  import { formatError } from '$lib/ipc/format-error';
 
   // Right-side drawer that lists the Modrinth versions for a picked
   // modpack. Clicking Install resolves the chosen version's .mrpack to a
   // temp path (via `modpack_fetch_to_temp` on the Rust side) and hands
   // the path back to the parent, which then runs the picker dialog +
   // import pipeline (Tasks 8–9).
-  //
-  // Network chokepoint deviation:
-  //   The version-list `GET https://api.modrinth.com/v2/project/<id>/version`
-  //   is issued directly from the webview here. The project's invariant
-  //   (CLAUDE.md "Forbidden patterns") is that outbound network calls
-  //   live in the Rust `network::` module; the v0.5.0 sub-3 mod browser
-  //   already documented and accepted a couple of host-allowlisted
-  //   direct calls from Rust modules outside that chokepoint, and the
-  //   sub-4 task plan accepts the same shape on the JS side for this
-  //   read-only endpoint. Modrinth's host is on the Tauri capability
-  //   allowlist; if a later iteration tightens this, refactor to
-  //   `modpack_get_versions(project_id)` and route through `network::`.
 
   let {
     hit,
@@ -30,16 +19,7 @@
     onInstall: (tempPath: string) => void;
   } = $props();
 
-  type ModrinthVersion = {
-    id: string;
-    name: string;
-    version_number: string;
-    game_versions: string[];
-    loaders: string[];
-    date_published: string;
-  };
-
-  let versions = $state<ModrinthVersion[]>([]);
+  let versions = $state<ModpackVersionEntry[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let downloading = $state(false);
@@ -49,18 +29,13 @@
     (async () => {
       loading = true;
       error = null;
-      try {
-        const resp = await fetch(`https://api.modrinth.com/v2/project/${hit.project_id}/version`);
-        if (!resp.ok) {
-          error = `HTTP ${resp.status}`;
-          return;
-        }
-        versions = await resp.json();
-      } catch (e) {
-        error = String(e);
-      } finally {
-        loading = false;
+      const r = await commands.modpackGetVersions(hit.project_id);
+      if (r.status === 'ok') {
+        versions = r.data;
+      } else {
+        error = formatError(r.error);
       }
+      loading = false;
     })();
   });
 
@@ -69,7 +44,7 @@
     try {
       const result = await commands.modpackFetchToTemp(hit.project_id, versionId);
       if (result.status === 'ok') onInstall(result.data);
-      else error = String(result.error);
+      else error = formatError(result.error);
     } finally {
       downloading = false;
     }

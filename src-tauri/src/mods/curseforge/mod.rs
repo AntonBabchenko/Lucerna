@@ -4,8 +4,6 @@ pub mod keyring;
 mod types;
 
 use async_trait::async_trait;
-use reqwest::Client;
-use reqwest::header::HeaderValue;
 
 use crate::error::Error;
 use crate::mods::platform::*;
@@ -13,7 +11,6 @@ use crate::mods::platform::*;
 const BASE_DEFAULT: &str = "https://api.curseforge.com";
 
 pub struct CurseForgeClient {
-    http: Client,
     base: String,
     api_key: Option<String>,
 }
@@ -21,46 +18,51 @@ pub struct CurseForgeClient {
 impl CurseForgeClient {
     pub fn new() -> Self {
         Self {
-            http: Client::new(),
             base: BASE_DEFAULT.into(),
             api_key: keyring::get().ok().flatten(),
         }
     }
 
     pub fn with_base_and_key(base: impl Into<String>, key: Option<String>) -> Self {
-        Self { http: Client::new(), base: base.into(), api_key: key }
+        Self { base: base.into(), api_key: key }
     }
 
-    fn auth(&self) -> Result<HeaderValue, Error> {
-        let k = self.api_key.as_ref().ok_or(Error::ModsPlatformAuth {
+    /// The API key, validated as header-safe. `Missing` when no key is
+    /// stored; `Invalid` when the stored key contains control characters
+    /// (a paste error — a real key is an opaque printable token).
+    fn auth(&self) -> Result<&str, Error> {
+        let k = self.api_key.as_deref().ok_or(Error::ModsPlatformAuth {
             kind: crate::error::ModsAuthKind::Missing,
         })?;
-        HeaderValue::from_str(k).map_err(|_| Error::ModsPlatformAuth {
-            kind: crate::error::ModsAuthKind::Invalid,
-        })
+        if k.chars().any(|c| c.is_control()) {
+            return Err(Error::ModsPlatformAuth {
+                kind: crate::error::ModsAuthKind::Invalid,
+            });
+        }
+        Ok(k)
     }
 
-    async fn map_status<T: serde::de::DeserializeOwned>(
+    fn map_status<T: serde::de::DeserializeOwned>(
         &self,
-        resp: reqwest::Response,
+        resp: crate::network::request::HttpResponse,
         url: String,
     ) -> Result<T, Error> {
-        let status = resp.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            || status == reqwest::StatusCode::FORBIDDEN
-        {
+        if resp.status == 401 || resp.status == 403 {
             keyring::clear().ok();
             return Err(Error::ModsPlatformAuth {
                 kind: crate::error::ModsAuthKind::Invalid,
             });
         }
-        if status == reqwest::StatusCode::NOT_FOUND {
+        if resp.status == 404 {
             return Err(Error::ModsNotFound { platform: "curseforge".into() });
         }
-        if !status.is_success() {
-            return Err(Error::ModsNetwork { url, details: format!("HTTP {status}") });
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
         }
-        resp.json().await.map_err(|e| Error::ModsDecode {
+        serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
             platform: "curseforge".into(),
             details: e.to_string(),
         })
@@ -103,14 +105,10 @@ impl ModPlatform for CurseForgeClient {
             ModSort::Relevance => {}
         }
         let url = format!("{}/v1/mods/search?{}", self.base, encode_pairs(&params));
-        let resp = self
-            .http
-            .get(&url)
-            .header("x-api-key", auth)
-            .send()
+        let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-        let env: types::ListEnvelope<types::Mod> = self.map_status(resp, url).await?;
+        let env: types::ListEnvelope<types::Mod> = self.map_status(resp, url)?;
         let total = env
             .pagination
             .as_ref()
@@ -133,14 +131,10 @@ impl ModPlatform for CurseForgeClient {
     async fn project(&self, project_id: &str) -> Result<ModProject, Error> {
         let auth = self.auth()?;
         let url = format!("{}/v1/mods/{}", self.base, project_id);
-        let resp = self
-            .http
-            .get(&url)
-            .header("x-api-key", auth)
-            .send()
+        let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-        let env: types::Envelope<types::Mod> = self.map_status(resp, url).await?;
+        let env: types::Envelope<types::Mod> = self.map_status(resp, url)?;
         let summary = convert_mod_summary(env.data);
         // CF mod summary discards `links.websiteUrl` during conversion; the
         // detail drawer falls back to constructing the canonical CurseForge URL
@@ -168,14 +162,10 @@ impl ModPlatform for CurseForgeClient {
             project_id,
             encode_pairs(&params)
         );
-        let resp = self
-            .http
-            .get(&url)
-            .header("x-api-key", auth)
-            .send()
+        let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-        let env: types::ListEnvelope<types::File> = self.map_status(resp, url).await?;
+        let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
         Ok(env
             .data
             .into_iter()

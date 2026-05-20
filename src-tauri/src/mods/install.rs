@@ -6,11 +6,8 @@
 use std::path::Path;
 
 use chrono::Utc;
-use futures_util::StreamExt;
-use reqwest::Client;
 use sha1::{Digest, Sha1};
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 
 use crate::error::Error;
 use crate::mods::cache;
@@ -55,7 +52,6 @@ pub struct ProgressTick {
 }
 
 pub async fn install_one(
-    http: &Client,
     data_dir: &Path,
     instance_root: &Path,
     version: ModVersion,
@@ -83,65 +79,41 @@ pub async fn install_one(
     let cached = cache::verify_or_evict(data_dir, &sha_lower).await?;
     let cached_path = cache::cache_path_for(data_dir, &sha_lower);
     if !cached {
-        // 2. Cold download
+        let tmp = cached_path.with_extension("jar.tmp");
+        // Stream the jar through the audited chokepoint. download_inner
+        // verifies SHA-1 internally, deletes the partial on mismatch, and
+        // creates tmp's parent (the cache root) — so no explicit mkdir here.
+        crate::network::download::download_inner(
+            &version.primary_file.url,
+            &tmp,
+            &sha_lower,
+            "mods",
+            |dp| {
+                progress(
+                    ModInstallPhase::Downloading,
+                    dp.bytes_done as u64,
+                    dp.bytes_total.map(|t| t as u64),
+                );
+            },
+        )
+        .await
+        .map_err(|e| match e {
+            Error::HashMismatch { expected, got, .. } => {
+                Error::ModsSha1Mismatch { expected, got }
+            }
+            Error::Io { path, details } => Error::ModsCacheIo {
+                details: format!("{path}: {details}"),
+            },
+            Error::Network { url, details } => Error::ModsNetwork { url, details },
+            // download_inner only emits HashMismatch / Io / Network today;
+            // pass any future variant through unchanged rather than mis-mapping.
+            other => other,
+        })?;
         progress(
-            ModInstallPhase::Downloading,
-            0,
+            ModInstallPhase::Verifying,
+            version.primary_file.size as u64,
             Some(version.primary_file.size as u64),
         );
-        let resp = http
-            .get(&version.primary_file.url)
-            .send()
-            .await
-            .map_err(|e| Error::ModsNetwork {
-                url: version.primary_file.url.clone(),
-                details: e.to_string(),
-            })?;
-        if !resp.status().is_success() {
-            return Err(Error::ModsNetwork {
-                url: version.primary_file.url.clone(),
-                details: format!("HTTP {}", resp.status()),
-            });
-        }
-        let tmp = cached_path.with_extension("jar.tmp");
-        fs::create_dir_all(cache::cache_root(data_dir))
-            .await
-            .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
-        let mut f = fs::File::create(&tmp)
-            .await
-            .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
-        let mut hasher = Sha1::new();
-        let mut total_written: u64 = 0;
-        let mut stream = resp.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let bytes = chunk.map_err(|e| Error::ModsNetwork {
-                url: version.primary_file.url.clone(),
-                details: e.to_string(),
-            })?;
-            hasher.update(&bytes);
-            f.write_all(&bytes)
-                .await
-                .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
-            total_written += bytes.len() as u64;
-            progress(
-                ModInstallPhase::Downloading,
-                total_written,
-                Some(version.primary_file.size as u64),
-            );
-        }
-        f.flush()
-            .await
-            .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
-        drop(f);
-        progress(ModInstallPhase::Verifying, total_written, Some(total_written));
-        let got = hex::encode(hasher.finalize());
-        if !got.eq_ignore_ascii_case(&sha_lower) {
-            fs::remove_file(&tmp).await.ok();
-            return Err(Error::ModsSha1Mismatch {
-                expected: sha_lower,
-                got,
-            });
-        }
         fs::rename(&tmp, &cached_path)
             .await
             .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
@@ -332,15 +304,9 @@ mod tests {
             payload.len() as u64,
             "x.jar",
         );
-        let installed = install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v,
-            &nop_progress(),
-        )
-        .await
-        .unwrap();
+        let installed = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+            .await
+            .unwrap();
         assert_eq!(installed.sha1, sha);
         assert!(installed::mods_dir(td_inst.path()).join("x.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists());
@@ -363,24 +329,12 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = || fake_version(format!("{}/y.jar", s.uri()), sha.clone(), 3, "y.jar");
-        install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v(),
-            &nop_progress(),
-        )
-        .await
-        .unwrap();
-        install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v(),
-            &nop_progress(),
-        )
-        .await
-        .unwrap();
+        install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
+            .await
+            .unwrap();
+        install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -398,15 +352,9 @@ mod tests {
         fs::write(dir.join("z.jar"), b"first").await.unwrap(); // pre-existing different bytes
         let sha = hex::encode(Sha1::digest(b"second"));
         let v = fake_version(format!("{}/z.jar", s.uri()), sha, 6, "z.jar");
-        let err = install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v,
-            &nop_progress(),
-        )
-        .await
-        .unwrap_err();
+        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+            .await
+            .unwrap_err();
         matches!(err, Error::ModsFilenameConflict { .. });
     }
 
@@ -416,15 +364,9 @@ mod tests {
         let td_inst = TempDir::new().unwrap();
         let mut v = fake_version("https://example/x.jar".into(), "a".into(), 0, "x.jar");
         v.primary_file.distribution_allowed = false;
-        let err = install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v,
-            &nop_progress(),
-        )
-        .await
-        .unwrap_err();
+        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+            .await
+            .unwrap_err();
         matches!(err, Error::ModsDistributionDisabled { .. });
     }
 
@@ -441,15 +383,9 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = fake_version(format!("{}/d.jar", s.uri()), sha.clone(), 2, "d.jar");
-        install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v,
-            &nop_progress(),
-        )
-        .await
-        .unwrap();
+        install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+            .await
+            .unwrap();
         disable(td_inst.path(), &sha).await.unwrap();
         assert!(installed::mods_dir(td_inst.path())
             .join("d.jar.disabled")
@@ -472,15 +408,9 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = fake_version(format!("{}/u.jar", s.uri()), sha.clone(), 2, "u.jar");
-        install_one(
-            &Client::new(),
-            td_data.path(),
-            td_inst.path(),
-            v,
-            &nop_progress(),
-        )
-        .await
-        .unwrap();
+        install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+            .await
+            .unwrap();
         uninstall(td_inst.path(), &sha).await.unwrap();
         assert!(!installed::mods_dir(td_inst.path()).join("u.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists()); // cache survives

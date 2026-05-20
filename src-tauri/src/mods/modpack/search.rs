@@ -7,8 +7,6 @@
 //! users can still import CF modpacks via local file pick. See
 //! `docs/superpowers/specs/2026-05-19-v0.5.0-modpack-import-design.md`.
 
-use reqwest::Client;
-use reqwest::header::USER_AGENT;
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -57,7 +55,6 @@ fn urlencode(s: &str) -> String {
 }
 
 pub async fn search(
-    http: &Client,
     base: &str,
     query: &str,
     page: u32,
@@ -94,18 +91,13 @@ pub async fn search(
     let f = urlencode(&facets_json);
     let url =
         format!("{base}/v2/search?query={q}&limit={limit}&offset={offset}&index={index}&facets={f}");
-    let resp = http
-        .get(&url)
-        .header(USER_AGENT, UA)
-        .send()
+    let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
         .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-    if !resp.status().is_success() {
-        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status()) });
+    if !(200..300).contains(&resp.status) {
+        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
     }
-    let s: MrSearch = resp
-        .json()
-        .await
+    let s: MrSearch = serde_json::from_slice(&resp.body)
         .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
 
     let hits = s
@@ -170,7 +162,7 @@ mod tests {
             .mount(&s)
             .await;
 
-        let r = search(&Client::new(), &s.uri(), "test", 0, None, None, ModpackSort::Relevance)
+        let r = search(&s.uri(), "test", 0, None, None, ModpackSort::Relevance)
             .await
             .unwrap();
         assert_eq!(r.total, 1);
@@ -195,7 +187,6 @@ mod tests {
             .await;
 
         let r = search(
-            &Client::new(),
             &s.uri(),
             "x",
             0,
@@ -224,7 +215,7 @@ mod tests {
             .mount(&s)
             .await;
 
-        let r = search(&Client::new(), &s.uri(), "x", 0, None, None, ModpackSort::Downloads)
+        let r = search(&s.uri(), "x", 0, None, None, ModpackSort::Downloads)
             .await
             .unwrap();
         assert_eq!(r.total, 0);

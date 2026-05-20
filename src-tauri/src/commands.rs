@@ -665,10 +665,9 @@ pub async fn mods_install_with_deps(
         }
     }
 
-    let http = reqwest::Client::new();
     for v in install_seq {
         let v_project_id = v.project_id.clone();
-        match crate::mods::install::install_one(&http, &dd, &inst_root, v.clone(), &prog).await {
+        match crate::mods::install::install_one(&dd, &inst_root, v.clone(), &prog).await {
             Ok(inst) => {
                 let _ = ModInstalled {
                     instance_id: instance_id.clone(),
@@ -787,16 +786,13 @@ pub async fn mods_get_curseforge_key_status() -> crate::error::Result<KeyStatus>
 #[specta::specta]
 pub async fn mods_set_curseforge_key(key: String) -> crate::error::Result<()> {
     let url = "https://api.curseforge.com/v1/games/432";
-    let resp = reqwest::Client::new()
-        .get(url)
-        .header("x-api-key", &key)
-        .send()
+    let resp = crate::network::request::get(url, &[("x-api-key", key.as_str())], "mods")
         .await
         .map_err(|e| crate::error::Error::ModsNetwork {
             url: url.into(),
             details: e.to_string(),
         })?;
-    if !resp.status().is_success() {
+    if !(200..300).contains(&resp.status) {
         return Err(crate::error::Error::ModsPlatformAuth {
             kind: crate::error::ModsAuthKind::Invalid,
         });
@@ -857,8 +853,7 @@ pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::erro
             path: path.clone(),
             details: e.to_string(),
         })?;
-    let http = reqwest::Client::new();
-    modpack::import::inspect(&bytes, &http, "https://api.curseforge.com").await
+    modpack::import::inspect(&bytes, "https://api.curseforge.com").await
 }
 
 /// Run the full import: create an instance, download every selected
@@ -894,7 +889,6 @@ pub async fn modpack_import(
             path: path.clone(),
             details: e.to_string(),
         })?;
-    let http = reqwest::Client::new();
     let install_progress: crate::mods::install::ProgressFn =
         Box::new(move |phase, current, total| {
             let _ = on_install_progress.send(crate::mods::install::ProgressTick {
@@ -908,7 +902,6 @@ pub async fn modpack_import(
         &bytes,
         &selected_shas,
         apply_overrides,
-        &http,
         "https://api.curseforge.com",
         hint_project_id,
         hint_source,
@@ -932,9 +925,7 @@ pub async fn modpack_search(
     loader: Option<crate::mods::platform::LoaderKind>,
     sort: ModpackSort,
 ) -> Result<ModpackSearchPage, crate::error::Error> {
-    let http = reqwest::Client::new();
     modpack::search::search(
-        &http,
         "https://api.modrinth.com",
         &query,
         page,
@@ -959,21 +950,21 @@ pub async fn modpack_fetch_to_temp(
     project_id: String,
     version_id: String,
 ) -> Result<String, crate::error::Error> {
-    let http = reqwest::Client::new();
     let url = format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
-    let resp = http
-        .get(&url)
-        .header(reqwest::header::USER_AGENT, "AntonBabchenko/FTlauncher")
-        .send()
-        .await
-        .map_err(|e| crate::error::Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
-    if !resp.status().is_success() {
+    let resp = crate::network::request::get(
+        &url,
+        &[("user-agent", "AntonBabchenko/FTlauncher")],
+        "modpacks",
+    )
+    .await
+    .map_err(|e| crate::error::Error::ModsNetwork {
+        url: url.clone(),
+        details: e.to_string(),
+    })?;
+    if !(200..300).contains(&resp.status) {
         return Err(crate::error::Error::ModsNetwork {
             url,
-            details: format!("HTTP {}", resp.status()),
+            details: format!("HTTP {}", resp.status),
         });
     }
     #[derive(serde::Deserialize)]
@@ -986,7 +977,7 @@ pub async fn modpack_fetch_to_temp(
         filename: String,
         primary: bool,
     }
-    let v: V = resp.json().await.map_err(|e| crate::error::Error::ModsDecode {
+    let v: V = serde_json::from_slice(&resp.body).map_err(|e| crate::error::Error::ModsDecode {
         platform: "modrinth".into(),
         details: e.to_string(),
     })?;
@@ -999,16 +990,7 @@ pub async fn modpack_fetch_to_temp(
             format: "modrinth".into(),
             details: "no primary .mrpack file on version".into(),
         })?;
-    let dl = http
-        .get(&f.url)
-        .send()
-        .await
-        .map_err(|e| crate::error::Error::ModsNetwork {
-            url: f.url.clone(),
-            details: e.to_string(),
-        })?;
-    let bytes = dl
-        .bytes()
+    let bytes = crate::network::get_bytes(&f.url, "modpacks")
         .await
         .map_err(|e| crate::error::Error::ModsNetwork {
             url: f.url.clone(),
@@ -1133,8 +1115,7 @@ pub async fn modpack_restore_file(
         let _ = payload.emit(&app_for_progress);
     });
 
-    let http = reqwest::Client::new();
-    crate::mods::install::install_one(&http, &dd, &inst_root, mv.clone(), &prog).await?;
+    crate::mods::install::install_one(&dd, &inst_root, mv.clone(), &prog).await?;
     let _ = ModInstalled {
         instance_id: instance_id.clone(),
         sha1: file.sha1.clone(),
@@ -1153,6 +1134,42 @@ pub async fn modpack_restore_file(
         .ok_or_else(|| crate::error::Error::ModsNotFound {
             platform: "installed".into(),
         })
+}
+
+/// Fetch a modpack project's version list from a Modrinth-shaped base.
+/// Split out from the `modpack_get_versions` command so tests can
+/// inject a wiremock base URL.
+pub(crate) async fn fetch_modpack_versions(
+    base: &str,
+    project_id: &str,
+) -> crate::error::Result<Vec<crate::mods::modpack::schema::ModpackVersionEntry>> {
+    let url = format!("{base}/v2/project/{project_id}/version");
+    let resp = crate::network::request::get(&url, &[], "modpacks").await?;
+    if resp.status == 404 {
+        return Err(crate::error::Error::ModsNotFound {
+            platform: "modrinth".into(),
+        });
+    }
+    if !(200..300).contains(&resp.status) {
+        return Err(crate::error::Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status),
+        });
+    }
+    serde_json::from_slice(&resp.body).map_err(|e| crate::error::Error::ModsDecode {
+        platform: "modrinth".into(),
+        details: e.to_string(),
+    })
+}
+
+/// List the published versions of a Modrinth modpack project. Replaces
+/// the former direct webview `fetch` in `ModpackVersionDrawer.svelte`.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_get_versions(
+    project_id: String,
+) -> crate::error::Result<Vec<crate::mods::modpack::schema::ModpackVersionEntry>> {
+    fetch_modpack_versions("https://api.modrinth.com", &project_id).await
 }
 
 // Onboarding (v0.5.0 sub-feature 5):
@@ -1267,5 +1284,42 @@ mod tests {
         assert!(matches!(r, Err(Error::InstanceNameEmpty)));
         let r = validate_instance_name(&"x".repeat(33));
         assert!(matches!(r, Err(Error::InstanceNameTooLong { .. })));
+    }
+
+    #[tokio::test]
+    async fn modpack_get_versions_parses_modrinth_list() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/abc/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{"id":"v1","name":"Pack 1.0","version_number":"1.0",
+                     "game_versions":["1.20.1"],"loaders":["fabric"],
+                     "date_published":"2026-05-01T00:00:00Z"}]"#,
+            ))
+            .mount(&server)
+            .await;
+        let entries =
+            crate::commands::fetch_modpack_versions(&server.uri(), "abc").await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "v1");
+        assert_eq!(entries[0].game_versions, vec!["1.20.1"]);
+    }
+
+    #[tokio::test]
+    async fn modpack_get_versions_non_2xx_is_error() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/missing/version"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let err = crate::commands::fetch_modpack_versions(&server.uri(), "missing")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, crate::error::Error::ModsNotFound { .. }), "got: {err:?}");
     }
 }

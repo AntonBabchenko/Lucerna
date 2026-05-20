@@ -33,12 +33,21 @@ fn buffer() -> &'static Mutex<VecDeque<AuditEntry>> {
     BUFFER.get_or_init(|| Mutex::new(VecDeque::with_capacity(MAX_ENTRIES)))
 }
 
-pub fn record(entry: AuditEntry) {
-    let mut buf = buffer().lock().expect("audit buffer mutex poisoned");
-    if buf.len() == MAX_ENTRIES {
+/// Push `entry`, evicting the oldest first if the buffer is at `max`.
+/// Pulled out of `record` so the capacity/eviction behaviour can be
+/// unit-tested on a local `VecDeque` — without touching the
+/// process-global buffer, which parallel tests in other modules also
+/// write to.
+fn push_capped(buf: &mut VecDeque<AuditEntry>, entry: AuditEntry, max: usize) {
+    if buf.len() == max {
         buf.pop_front();
     }
     buf.push_back(entry);
+}
+
+pub fn record(entry: AuditEntry) {
+    let mut buf = buffer().lock().expect("audit buffer mutex poisoned");
+    push_capped(&mut buf, entry, MAX_ENTRIES);
 }
 
 pub fn recent() -> Vec<AuditEntry> {
@@ -88,10 +97,13 @@ mod tests {
     use super::*;
     use std::sync::MutexGuard;
 
-    // Serializes tests in this module: they all mutate the process-global
-    // ring buffer via clear_for_test(), so cargo's default parallel runner
-    // interleaves them and flakes assertions. A module-local mutex guard
-    // gives each test exclusive access without pulling in serial_test.
+    // Serializes this module's tests so their `-probe` audit entries do not
+    // pile up in the shared 200-slot ring buffer fast enough to evict one
+    // another under concurrent `record()` traffic from other test modules.
+    // The tests are isolation-correct without this lock (each filters
+    // `recent()` / `audit_violations()` to its own unique `-probe` URLs),
+    // but the lock keeps buffer pressure bounded. A module-local mutex
+    // guard does this without pulling in serial_test.
     fn test_lock() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -110,69 +122,99 @@ mod tests {
         }
     }
 
+    // The tests below assert only on their OWN, unique-URL entries —
+    // filtered out of the process-global buffer by a `-probe` suffix.
+    // They never assert exact global counts, so a concurrent `record()`
+    // from another module's parallel test cannot break them. They also
+    // do NOT call `clear_for_test()`: clearing the shared buffer is a
+    // cross-module hazard (it can wipe an entry another module's test
+    // just recorded). `ring_buffer_evicts_oldest_at_capacity` is fully
+    // isolated — it exercises `push_capped` on a local `VecDeque`.
+
     #[test]
     fn record_then_recent_returns_in_order() {
         let _g = test_lock();
-        clear_for_test();
-        record(entry("https://a/"));
-        record(entry("https://b/"));
-        let got = recent();
-        assert_eq!(got.len(), 2);
-        assert_eq!(got[0].url, "https://a/");
-        assert_eq!(got[1].url, "https://b/");
+        record(entry("https://order-probe-1/"));
+        record(entry("https://order-probe-2/"));
+        let mine: Vec<_> = recent()
+            .into_iter()
+            .filter(|e| e.url.starts_with("https://order-probe-"))
+            .collect();
+        assert_eq!(mine.len(), 2);
+        assert_eq!(mine[0].url, "https://order-probe-1/");
+        assert_eq!(mine[1].url, "https://order-probe-2/");
     }
 
     #[test]
     fn ring_buffer_evicts_oldest_at_capacity() {
-        let _g = test_lock();
-        clear_for_test();
+        // Fully isolated: exercises eviction on a LOCAL VecDeque, so it
+        // touches no global state and needs no test_lock/clear_for_test.
+        let mut buf = VecDeque::new();
         for i in 0..(MAX_ENTRIES + 5) {
-            record(entry(&format!("https://x/{i}")));
+            push_capped(&mut buf, entry(&format!("https://x/{i}")), MAX_ENTRIES);
         }
-        let got = recent();
-        assert_eq!(got.len(), MAX_ENTRIES);
+        assert_eq!(buf.len(), MAX_ENTRIES);
         // First five were evicted: oldest remaining should be /5.
-        assert_eq!(got[0].url, "https://x/5");
-        assert_eq!(got[MAX_ENTRIES - 1].url, format!("https://x/{}", MAX_ENTRIES + 4));
+        assert_eq!(buf[0].url, "https://x/5");
+        assert_eq!(buf[MAX_ENTRIES - 1].url, format!("https://x/{}", MAX_ENTRIES + 4));
     }
 
     #[test]
     fn audit_violations_empty_when_all_hosts_allowed() {
         let _g = test_lock();
-        clear_for_test();
-        record(entry("https://auth.mojang.com/x"));
-        record(entry("https://api.github.com/repos/y"));
+        record(entry("https://auth.mojang.com/allowed-probe-1"));
+        record(entry("https://api.github.com/allowed-probe-2"));
         let v = audit_violations();
-        assert!(v.is_empty(), "expected no violations, got {v:?}");
+        assert!(
+            !v.iter().any(|e| e.url == "https://auth.mojang.com/allowed-probe-1"),
+            "allowed mojang URL flagged as violation, got {v:?}"
+        );
+        assert!(
+            !v.iter().any(|e| e.url == "https://api.github.com/allowed-probe-2"),
+            "allowed github URL flagged as violation, got {v:?}"
+        );
     }
 
     #[test]
     fn audit_violations_flags_disallowed_host() {
         let _g = test_lock();
-        clear_for_test();
-        record(entry("https://evil.example/x"));
-        record(entry("https://auth.mojang.com/y"));
+        record(entry("https://evil-probe.example/x"));
+        record(entry("https://auth.mojang.com/probe-y"));
         let v = audit_violations();
-        assert_eq!(v.len(), 1);
-        assert!(v[0].url.contains("evil.example"));
+        assert!(
+            v.iter().any(|e| e.url.contains("evil-probe.example")),
+            "disallowed host not flagged, got {v:?}"
+        );
+        assert!(
+            !v.iter().any(|e| e.url.contains("auth.mojang.com/probe-y")),
+            "allowed host flagged as violation, got {v:?}"
+        );
     }
 
     #[test]
     fn audit_violations_flags_malformed_url() {
         let _g = test_lock();
-        clear_for_test();
-        record(entry("not a url"));
+        record(entry("not a url probe-xyz"));
         let v = audit_violations();
-        assert_eq!(v.len(), 1);
+        assert!(
+            v.iter().any(|e| e.url == "not a url probe-xyz"),
+            "malformed url not flagged, got {v:?}"
+        );
     }
 
     #[test]
     fn audit_violations_flags_urls_without_host() {
         let _g = test_lock();
-        clear_for_test();
-        record(entry("file:///etc/passwd"));
-        record(entry("data:text/plain,hi"));
+        record(entry("file:///etc/passwd-probe"));
+        record(entry("data:text/plain,probe"));
         let v = audit_violations();
-        assert_eq!(v.len(), 2, "got: {v:?}");
+        assert!(
+            v.iter().any(|e| e.url == "file:///etc/passwd-probe"),
+            "file:// url not flagged, got {v:?}"
+        );
+        assert!(
+            v.iter().any(|e| e.url == "data:text/plain,probe"),
+            "data: url not flagged, got {v:?}"
+        );
     }
 }

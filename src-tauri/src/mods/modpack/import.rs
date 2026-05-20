@@ -1,8 +1,6 @@
 //! Orchestrates: inspect → resolve name → create_instance → install N mods
 //! → extract overrides. Emits typed progress events at each phase.
 
-use reqwest::Client;
-
 use crate::error::Error;
 use crate::mods::install::{install_one, ProgressFn};
 use crate::mods::installed::{PackOrigin, PackOriginFile};
@@ -14,13 +12,12 @@ use crate::mods::platform::{ModFile, ModSource, ModVersion};
 
 pub async fn inspect(
     bytes: &[u8],
-    http: &Client,
     cf_base: &str,
 ) -> Result<ModpackSummary, Error> {
     let fmt = detect_format(bytes)?;
     match fmt {
         ModpackFormat::Modrinth => mr_parse::parse(bytes),
-        ModpackFormat::Curseforge => cf_parse::parse(bytes, http, cf_base).await,
+        ModpackFormat::Curseforge => cf_parse::parse(bytes, cf_base).await,
     }
 }
 
@@ -167,7 +164,6 @@ pub async fn import(
     bytes: &[u8],
     selected_shas: &[String],
     apply_overrides: bool,
-    http: &Client,
     cf_base: &str,
     // Browse-flow hints. When the import was kicked off from the
     // Modpacks → Browse sub-tab the UI already knows the source
@@ -183,7 +179,7 @@ pub async fn import(
     install_progress: ProgressFn,
 ) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
     on_progress(ModpackProgress::Inspecting);
-    let summary = inspect(bytes, http, cf_base).await?;
+    let summary = inspect(bytes, cf_base).await?;
 
     if selected_shas.is_empty() {
         return Err(Error::ModpackNoFilesSelected);
@@ -218,7 +214,7 @@ pub async fn import(
     ) {
         // Browse-flow hint matches the parser-detected source: trust it.
         (Some(pid), Some(crate::mods::platform::ModSource::Modrinth), ModpackFormat::Modrinth) => {
-            let desc = fetch_modrinth_description(http, pid).await.unwrap_or(None);
+            let desc = fetch_modrinth_description(pid).await.unwrap_or(None);
             (Some(pid.to_string()), desc, parser_source)
         }
         (Some(pid), Some(crate::mods::platform::ModSource::Curseforge), ModpackFormat::Curseforge) => {
@@ -228,7 +224,7 @@ pub async fn import(
         // Modrinth pack with no/mismatched hint: do the version→project
         // lookup via the API.
         (_, _, ModpackFormat::Modrinth) => {
-            let (pid, desc) = fetch_modrinth_metadata(http, &summary.version)
+            let (pid, desc) = fetch_modrinth_metadata(&summary.version)
                 .await
                 .unwrap_or((None, None));
             (pid, desc, parser_source)
@@ -287,7 +283,7 @@ pub async fn import(
             deps: vec![],
             published_at: None,
         };
-        if let Err(e) = install_one(http, &data_dir, &instance_root, mv, &install_progress).await {
+        if let Err(e) = install_one(&data_dir, &instance_root, mv, &install_progress).await {
             failures.push((file.install_path.clone(), e.to_string()));
         }
     }
@@ -353,25 +349,28 @@ pub async fn import(
 /// `.unwrap_or((None, None))` so a 404 or transient network failure can
 /// never abort an otherwise-successful import.
 async fn fetch_modrinth_metadata(
-    http: &Client,
     version_id: &str,
 ) -> Result<(Option<String>, Option<String>), Error> {
     #[derive(serde::Deserialize)]
     struct V { project_id: String }
 
     let v_url = format!("https://api.modrinth.com/v2/version/{version_id}");
-    let v_resp = http.get(&v_url)
-        .header(reqwest::header::USER_AGENT, "AntonBabchenko/FTlauncher")
-        .send().await
-        .map_err(|e| Error::ModsNetwork { url: v_url.clone(), details: e.to_string() })?;
-    if !v_resp.status().is_success() {
+    let v_resp = crate::network::request::get(
+        &v_url,
+        &[("user-agent", "AntonBabchenko/FTlauncher")],
+        "modpacks",
+    )
+    .await
+    .map_err(|e| Error::ModsNetwork { url: v_url.clone(), details: e.to_string() })?;
+    if !(200..300).contains(&v_resp.status) {
         return Ok((None, None));
     }
-    let v: V = v_resp.json().await.map_err(|e| Error::ModsDecode {
-        platform: "modrinth".into(), details: e.to_string()
+    let v: V = serde_json::from_slice(&v_resp.body).map_err(|e| Error::ModsDecode {
+        platform: "modrinth".into(),
+        details: e.to_string(),
     })?;
     let project_id = v.project_id;
-    let desc = fetch_modrinth_description(http, &project_id).await?;
+    let desc = fetch_modrinth_description(&project_id).await?;
     Ok((Some(project_id), desc))
 }
 
@@ -379,22 +378,25 @@ async fn fetch_modrinth_metadata(
 /// project_id is already known (browse-flow hint), and as the second
 /// hop of `fetch_modrinth_metadata`. Same silent-on-failure semantics.
 async fn fetch_modrinth_description(
-    http: &Client,
     project_id: &str,
 ) -> Result<Option<String>, Error> {
     #[derive(serde::Deserialize)]
     struct P { description: Option<String> }
 
     let p_url = format!("https://api.modrinth.com/v2/project/{project_id}");
-    let p_resp = http.get(&p_url)
-        .header(reqwest::header::USER_AGENT, "AntonBabchenko/FTlauncher")
-        .send().await
-        .map_err(|e| Error::ModsNetwork { url: p_url.clone(), details: e.to_string() })?;
-    if !p_resp.status().is_success() {
+    let p_resp = crate::network::request::get(
+        &p_url,
+        &[("user-agent", "AntonBabchenko/FTlauncher")],
+        "modpacks",
+    )
+    .await
+    .map_err(|e| Error::ModsNetwork { url: p_url.clone(), details: e.to_string() })?;
+    if !(200..300).contains(&p_resp.status) {
         return Ok(None);
     }
-    let p: P = p_resp.json().await.map_err(|e| Error::ModsDecode {
-        platform: "modrinth".into(), details: e.to_string()
+    let p: P = serde_json::from_slice(&p_resp.body).map_err(|e| Error::ModsDecode {
+        platform: "modrinth".into(),
+        details: e.to_string(),
     })?;
     Ok(p.description)
 }

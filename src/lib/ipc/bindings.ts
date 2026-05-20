@@ -307,6 +307,11 @@ export const commands = {
 	 */
 	modpackRestoreFile: (instanceId: string, sha1: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("modpack_restore_file", { instanceId, sha1 })),
 	/**
+	 *  List the published versions of a Modrinth modpack project. Replaces
+	 *  the former direct webview `fetch` in `ModpackVersionDrawer.svelte`.
+	 */
+	modpackGetVersions: (projectId: string) => typedError<ModpackVersionEntry[], Error>(__TAURI_INVOKE("modpack_get_versions", { projectId })),
+	/**
 	 *  Read the persisted app-level settings (currently: onboarding state).
 	 *  Returns `AppFile::default()` if `app.json` is missing — a fresh
 	 *  install has never written settings.
@@ -699,6 +704,20 @@ export type ModpackUnresolvable = {
 	reason: UnresolvableReason,
 	mod_name: string,
 	manual_action_url: string,
+};
+
+/**
+ *  One entry in a modpack project's version list, as shown in the
+ *  modpack version drawer. Mirrors the subset of the Modrinth
+ *  `/v2/project/<id>/version` response the UI consumes.
+ */
+export type ModpackVersionEntry = {
+	id: string,
+	name: string,
+	version_number: string,
+	game_versions: string[],
+	loaders: string[],
+	date_published: string,
 };
 
 export type ModsAuthKind = "missing" | "invalid";

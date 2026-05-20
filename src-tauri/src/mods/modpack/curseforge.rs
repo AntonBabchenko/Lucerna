@@ -3,7 +3,6 @@
 
 use std::io::{Cursor, Read};
 
-use reqwest::Client;
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -72,7 +71,6 @@ struct CfHash {
 
 pub async fn parse(
     bytes: &[u8],
-    http: &Client,
     base_url: &str,
 ) -> Result<ModpackSummary, Error> {
     let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
@@ -114,16 +112,23 @@ pub async fn parse(
     let body = serde_json::json!({
         "fileIds": m.files.iter().map(|f| f.file_id).collect::<Vec<_>>()
     });
-    let resp = http.post(&url)
-        .header("x-api-key", &key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-    if !resp.status().is_success() {
-        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status()) });
+    // `request::post` takes a raw byte body — serialise the JSON here and
+    // set content-type explicitly (reqwest's `.json()` did both).
+    // unreachable: serialising a `serde_json::Value` to bytes is infallible
+    // (no non-string map keys, no IO). Per CLAUDE.md `.unwrap()` rule.
+    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let resp = crate::network::request::post(
+        &url,
+        &[("x-api-key", key.as_str()), ("content-type", "application/json")],
+        &body_bytes,
+        "modpacks",
+    )
+    .await
+    .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+    if !(200..300).contains(&resp.status) {
+        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
     }
-    let bulk: CfBulkResp = resp.json().await.map_err(|e| Error::ModsDecode {
+    let bulk: CfBulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "curseforge".into(),
         details: e.to_string(),
     })?;
@@ -279,7 +284,7 @@ mod tests {
             .mount(&s).await;
 
         let zip = make_cf_zip(&sample_manifest());
-        let r = parse(&zip, &Client::new(), &s.uri()).await.unwrap();
+        let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
         assert_eq!(r.format, ModpackFormat::Curseforge);
         assert_eq!(r.loader, LoaderKind::Forge);
@@ -315,7 +320,7 @@ mod tests {
             .mount(&s).await;
 
         let zip = make_cf_zip(&sample_manifest());
-        let r = parse(&zip, &Client::new(), &s.uri()).await.unwrap();
+        let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
         assert_eq!(r.files.len(), 1);
         assert_eq!(r.unresolvable.len(), 1);
@@ -328,7 +333,7 @@ mod tests {
         let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         install_test_key();
         let zip = make_cf_zip(&sample_manifest().replace("\"manifestVersion\": 1", "\"manifestVersion\": 2"));
-        let r = parse(&zip, &Client::new(), "http://unused").await;
+        let r = parse(&zip, "http://unused").await;
         clear_test_key();
         assert!(matches!(r, Err(Error::ModpackUnsupportedManifestVersion { version: 2, .. })));
     }
@@ -338,7 +343,7 @@ mod tests {
         let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         install_test_key();
         let zip = make_cf_zip(&sample_manifest().replace("forge-47.2.0", "junk-1.0"));
-        let r = parse(&zip, &Client::new(), "http://unused").await;
+        let r = parse(&zip, "http://unused").await;
         clear_test_key();
         assert!(matches!(r, Err(Error::ModpackUnsupportedLoader { .. })));
     }
@@ -366,7 +371,7 @@ mod tests {
             .mount(&s).await;
 
         let zip = make_cf_zip(&sample_manifest());
-        let r = parse(&zip, &Client::new(), &s.uri()).await;
+        let r = parse(&zip, &s.uri()).await;
         clear_test_key();
         assert!(matches!(r, Err(Error::ModpackSha1Unavailable { .. })));
     }

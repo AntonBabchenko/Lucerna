@@ -3,8 +3,6 @@
 mod types;
 
 use async_trait::async_trait;
-use reqwest::Client;
-use reqwest::header::USER_AGENT;
 
 use crate::error::Error;
 use crate::mods::platform::*;
@@ -13,18 +11,17 @@ const BASE_DEFAULT: &str = "https://api.modrinth.com";
 const UA: &str = "AntonBabchenko/FTlauncher (github.com/AntonBabchenko/FTlauncher)";
 
 pub struct ModrinthClient {
-    http: Client,
     base: String,
 }
 
 impl ModrinthClient {
     pub fn new() -> Self {
-        Self { http: Client::new(), base: BASE_DEFAULT.into() }
+        Self { base: BASE_DEFAULT.into() }
     }
 
     /// Tests inject a wiremock URL here.
     pub fn with_base(base: impl Into<String>) -> Self {
-        Self { http: Client::new(), base: base.into() }
+        Self { base: base.into() }
     }
 
     fn loader_facet(loader: LoaderKind) -> &'static str {
@@ -72,23 +69,16 @@ impl ModPlatform for ModrinthClient {
             Self::sort_key(q.sort),
             urlencode(&facets_json),
         );
-        let resp = self
-            .http
-            .get(&url)
-            .header(USER_AGENT, UA)
-            .send()
+        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-        let status = resp.status();
-        if status == reqwest::StatusCode::NOT_FOUND {
+        if resp.status == 404 {
             return Err(Error::ModsNotFound { platform: "modrinth".into() });
         }
-        if !status.is_success() {
-            return Err(Error::ModsNetwork { url, details: format!("HTTP {status}") });
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
         }
-        let body: types::SearchResponse = resp
-            .json()
-            .await
+        let body: types::SearchResponse = serde_json::from_slice(&resp.body)
             .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
         Ok(ModSearchPage {
             hits: body
@@ -114,19 +104,16 @@ impl ModPlatform for ModrinthClient {
 
     async fn project(&self, project_id: &str) -> Result<ModProject, Error> {
         let url = format!("{}/v2/project/{}", self.base, project_id);
-        let resp = self
-            .http
-            .get(&url)
-            .header(USER_AGENT, UA)
-            .send()
+        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        if resp.status == 404 {
             return Err(Error::ModsNotFound { platform: "modrinth".into() });
         }
-        let p: types::Project = resp
-            .json()
-            .await
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+        }
+        let p: types::Project = serde_json::from_slice(&resp.body)
             .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
         Ok(ModProject {
             summary: ModSummary {
@@ -160,16 +147,13 @@ impl ModPlatform for ModrinthClient {
             urlencode(&loaders),
             urlencode(&games),
         );
-        let resp = self
-            .http
-            .get(&url)
-            .header(USER_AGENT, UA)
-            .send()
+        let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
-        let raws: Vec<types::Version> = resp
-            .json()
-            .await
+        if !(200..300).contains(&resp.status) {
+            return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+        }
+        let raws: Vec<types::Version> = serde_json::from_slice(&resp.body)
             .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
         Ok(raws.into_iter().map(convert_version).collect())
     }

@@ -135,3 +135,16 @@ pub struct ModpackStatus {
     /// here so the UI doesn't have to.
     pub is_modified: bool,
 }
+
+/// One entry in a modpack project's version list, as shown in the
+/// modpack version drawer. Mirrors the subset of the Modrinth
+/// `/v2/project/<id>/version` response the UI consumes.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct ModpackVersionEntry {
+    pub id: String,
+    pub name: String,
+    pub version_number: String,
+    pub game_versions: Vec<String>,
+    pub loaders: Vec<String>,
+    pub date_published: String,
+}

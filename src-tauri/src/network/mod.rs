@@ -10,6 +10,7 @@ pub mod bytes;
 pub mod client;
 pub mod download;
 pub mod json;
+pub mod request;
 pub mod text;
 
 pub use audit::{audit_violations, clear_for_test as clear_audit_for_test, recent, record, AuditEntry};

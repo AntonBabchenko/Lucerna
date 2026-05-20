@@ -44,18 +44,23 @@ fn audit_partial(url: &str, initiator: &str, bytes_done: f64, status: u16) {
     });
 }
 
-/// Download `url` to `dest`, verify SHA-1 equals `expected_sha_hex`,
-/// emit progress events, and record the call in the audit log.
+/// Shared streaming-download core used by the `download_with_sha` /
+/// `download_no_emit` wrappers AND directly by callers that need a
+/// progress callback without a Tauri `AppHandle` (e.g. `mods::install`).
+/// Streams the body of `url` to `dest`, hashing SHA-1 as it goes;
+/// verifies against `expected_sha_hex` after the last byte (empty
+/// `expected_sha_hex` skips verification); records an `AuditEntry`;
+/// calls `emit` once per chunk with cumulative progress.
+/// `Err(HashMismatch)` deletes the partial file.
 ///
-/// `initiator` is the module name that triggered the download
-/// (e.g. `"versions"`, `"jre"`, `"assets"`) — appears in the
-/// Network Activity panel so users can see what asked for what.
-pub async fn download_with_sha(
-    app: &tauri::AppHandle,
+/// `download_with_sha` / `download_no_emit` are thin wrappers that
+/// supply the `emit` closure (Tauri-event emission, or a no-op).
+pub(crate) async fn download_inner(
     url: &str,
     dest: &Path,
     expected_sha_hex: &str,
     initiator: &str,
+    mut emit: impl FnMut(DownloadProgress),
 ) -> Result<()> {
     let resp = http().get(url).send().await.map_err(|e| {
         record(AuditEntry {
@@ -109,14 +114,11 @@ pub async fn download_with_sha(
         })?;
         bytes_done += chunk.len() as f64;
 
-        // Emit best-effort; if the UI isn't listening, dropping the
-        // event is fine.
-        let _ = DownloadProgress {
+        emit(DownloadProgress {
             url: url.to_string(),
             bytes_done,
             bytes_total,
-        }
-        .emit(app);
+        });
     }
     file.flush()
         .await
@@ -145,14 +147,31 @@ pub async fn download_with_sha(
     Ok(())
 }
 
+/// Download `url` to `dest`, verify SHA-1 equals `expected_sha_hex`,
+/// emit a `DownloadProgress` Tauri event per chunk, and record the call
+/// in the audit log.
+///
+/// `initiator` is the module name that triggered the download
+/// (e.g. `"versions"`, `"jre"`, `"assets"`) — appears in the
+/// Network Activity panel so users can see what asked for what.
+pub async fn download_with_sha(
+    app: &tauri::AppHandle,
+    url: &str,
+    dest: &Path,
+    expected_sha_hex: &str,
+    initiator: &str,
+) -> Result<()> {
+    download_inner(url, dest, expected_sha_hex, initiator, |p| {
+        // Best-effort: if the UI isn't listening, dropping the event is fine.
+        let _ = p.emit(app);
+    })
+    .await
+}
+
 /// Same as `download_with_sha` but without event emission. Exposed for
 /// integration tests that cannot construct a real `tauri::AppHandle`.
 /// Not registered as a Tauri command; production callers always use
 /// `download_with_sha`.
-///
-/// TODO(slice-4): collapse with `download_with_sha` via an inner generic
-/// `download_inner(emit: impl FnMut(DownloadProgress))` once a real
-/// consumer (asset/version install) lands.
 #[doc(hidden)]
 pub async fn download_no_emit(
     url: &str,
@@ -160,79 +179,7 @@ pub async fn download_no_emit(
     expected_sha_hex: &str,
     initiator: &str,
 ) -> Result<()> {
-    let resp = http().get(url).send().await.map_err(|e| {
-        record(AuditEntry {
-            ts: now_ms(),
-            method: "GET".into(),
-            url: url.into(),
-            initiator: initiator.into(),
-            bytes: None,
-            status: None,
-        });
-        Error::network(url, e)
-    })?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        record(AuditEntry {
-            ts: now_ms(),
-            method: "GET".into(),
-            url: url.into(),
-            initiator: initiator.into(),
-            bytes: None,
-            status: Some(status.as_u16()),
-        });
-        return Err(Error::network(url, format!("HTTP {status}")));
-    }
-
-    if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| Error::io(parent.display().to_string(), e))?;
-    }
-    let mut file = File::create(dest)
-        .await
-        .map_err(|e| Error::io(dest.display().to_string(), e))?;
-
-    let mut hasher = Sha1::new();
-    let mut bytes_done: f64 = 0.0;
-    let status_code = status.as_u16();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            audit_partial(url, initiator, bytes_done, status_code);
-            Error::network(url, e)
-        })?;
-        hasher.update(&chunk);
-        file.write_all(&chunk).await.map_err(|e| {
-            audit_partial(url, initiator, bytes_done, status_code);
-            Error::io(dest.display().to_string(), e)
-        })?;
-        bytes_done += chunk.len() as f64;
-    }
-    file.flush()
-        .await
-        .map_err(|e| Error::io(dest.display().to_string(), e))?;
-
-    let got_hex = hex::encode(hasher.finalize());
-    record(AuditEntry {
-        ts: now_ms(),
-        method: "GET".into(),
-        url: url.into(),
-        initiator: initiator.into(),
-        bytes: Some(bytes_done),
-        status: Some(status.as_u16()),
-    });
-
-    if !expected_sha_hex.is_empty() && got_hex != expected_sha_hex {
-        let _ = tokio::fs::remove_file(dest).await;
-        return Err(Error::HashMismatch {
-            path: dest.display().to_string(),
-            expected: expected_sha_hex.to_string(),
-            got: got_hex,
-        });
-    }
-    Ok(())
+    download_inner(url, dest, expected_sha_hex, initiator, |_| {}).await
 }
 
 #[cfg(test)]
