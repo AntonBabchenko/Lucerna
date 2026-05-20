@@ -37,14 +37,14 @@ describe('ImportProgressView', () => {
     expect(getByText(/Creating instance All The Mods 9/)).toBeTruthy();
   });
 
-  it('renders "Installing mod N/M: name" for the installing-mod phase', () => {
+  it('renders "Installing file N/M: name" for the installing-file phase', () => {
     const { getByText } = render(ImportProgressView, {
       props: {
-        phase: { phase: 'installing_mod', current: 3, total: 12, mod_name: 'Sodium' },
+        phase: { phase: 'installing_file', current: 3, total: 12, file_name: 'Sodium' },
         modBytes: null,
       },
     });
-    expect(getByText(/Installing mod 3\/12: Sodium/)).toBeTruthy();
+    expect(getByText(/Installing file 3\/12: Sodium/)).toBeTruthy();
   });
 
   it('renders the extracting-overrides phase counter', () => {
@@ -60,7 +60,7 @@ describe('ImportProgressView', () => {
   it('renders the bytes progress bar when modBytes has a total', () => {
     const { container } = render(ImportProgressView, {
       props: {
-        phase: { phase: 'installing_mod', current: 1, total: 3, mod_name: 'Iris' },
+        phase: { phase: 'installing_file', current: 1, total: 3, file_name: 'Iris' },
         modBytes: { phase: 'downloading', current: 50, total: 100 },
       },
     });
@@ -73,7 +73,7 @@ describe('ImportProgressView', () => {
   it('hides the bytes bar when total is null (verify/copy phases)', () => {
     const { container } = render(ImportProgressView, {
       props: {
-        phase: { phase: 'installing_mod', current: 1, total: 3, mod_name: 'Iris' },
+        phase: { phase: 'installing_file', current: 1, total: 3, file_name: 'Iris' },
         modBytes: { phase: 'verifying', current: null, total: null },
       },
     });

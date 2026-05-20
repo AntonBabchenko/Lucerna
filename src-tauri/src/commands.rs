@@ -863,7 +863,7 @@ pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::erro
 /// - `on_progress`: coarse-grained `ModpackProgress` phases.
 /// - `on_install_progress`: per-mod `ProgressTick` (download / verify
 ///   / copy bytes). The per-mod stream is keyed by phase only, not by
-///   `project_id` — the UI correlates it with the `InstallingMod`
+///   `project_id` — the UI correlates it with the `InstallingFile`
 ///   phase emitted on `on_progress`.
 #[tauri::command]
 #[specta::specta]
@@ -1039,8 +1039,23 @@ pub async fn modpack_status(
         None => return Ok(None),
     };
     let installed = crate::mods::installed::list(&inst_root).await?;
+    // Asset (non-mods/) origin files: an asset is "present" iff its file
+    // exists at the declared path under the instance's .minecraft/.
+    let mc_dir = inst_root.join(".minecraft");
+    let mut asset_present: std::collections::HashSet<String> = Default::default();
+    for f in &origin.files {
+        if !f.install_path.starts_with("mods/")
+            && tokio::fs::try_exists(mc_dir.join(&f.install_path))
+                .await
+                .unwrap_or(false)
+        {
+            asset_present.insert(f.install_path.clone());
+        }
+    }
     Ok(Some(crate::mods::modpack::import::compute_status(
-        origin, &installed,
+        origin,
+        &installed,
+        &asset_present,
     )))
 }
 
@@ -1057,7 +1072,7 @@ pub async fn modpack_restore_file(
     app: tauri::AppHandle,
     instance_id: String,
     sha1: String,
-) -> crate::error::Result<InstalledMod> {
+) -> crate::error::Result<()> {
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
     let origin = crate::mods::installed::get_pack_origin(&inst_root)
@@ -1082,18 +1097,11 @@ pub async fn modpack_restore_file(
             mod_name: file.name.clone(),
         });
     }
-    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
-    let mv = crate::mods::modpack::import::pack_origin_file_to_mod_version(
-        &file,
-        &mc_version,
-        loader,
-    );
-
     // Re-use the same per-mod progress wiring as `mods_install_with_deps`
     // so the UI surfaces the same Downloading/Verifying/Copying states.
     let app_for_progress = app.clone();
     let instance_id_for_progress = instance_id.clone();
-    let project_id_for_progress = mv.project_id.clone();
+    let project_id_for_progress = file.project_id.clone();
     let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
         let payload = match phase {
             crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
@@ -1115,7 +1123,26 @@ pub async fn modpack_restore_file(
         let _ = payload.emit(&app_for_progress);
     });
 
-    crate::mods::install::install_one(&dd, &inst_root, mv.clone(), &prog).await?;
+    if file.install_path.starts_with("mods/") {
+        let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+        let mv = crate::mods::modpack::import::pack_origin_file_to_mod_version(
+            &file,
+            &mc_version,
+            loader,
+        );
+        crate::mods::install::install_one(&dd, &inst_root, mv, &prog).await?;
+    } else {
+        crate::mods::install::install_asset(
+            &dd,
+            &inst_root,
+            &file.url,
+            &file.sha1,
+            file.size,
+            &file.install_path,
+            &prog,
+        )
+        .await?;
+    }
     let _ = ModInstalled {
         instance_id: instance_id.clone(),
         sha1: file.sha1.clone(),
@@ -1123,17 +1150,7 @@ pub async fn modpack_restore_file(
         name: file.name.clone(),
     }
     .emit(&app);
-
-    // The freshly-installed file now appears in the registry. Pull it
-    // back out so the UI gets the canonical InstalledMod (with the
-    // RFC3339 installed_at timestamp set by the install pipeline).
-    let installed = crate::mods::installed::list(&inst_root).await?;
-    installed
-        .into_iter()
-        .find(|m| m.sha1.eq_ignore_ascii_case(&file.sha1))
-        .ok_or_else(|| crate::error::Error::ModsNotFound {
-            platform: "installed".into(),
-        })
+    Ok(())
 }
 
 /// Fetch a modpack project's version list from a Modrinth-shaped base.

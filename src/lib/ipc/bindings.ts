@@ -244,7 +244,7 @@ export const commands = {
 	 *  - `on_progress`: coarse-grained `ModpackProgress` phases.
 	 *  - `on_install_progress`: per-mod `ProgressTick` (download / verify
 	 *    / copy bytes). The per-mod stream is keyed by phase only, not by
-	 *    `project_id` — the UI correlates it with the `InstallingMod`
+	 *    `project_id` — the UI correlates it with the `InstallingFile`
 	 *    phase emitted on `on_progress`.
 	 */
 	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, onProgress, onInstallProgress })),
@@ -305,7 +305,7 @@ export const commands = {
 	 *  `sha1` is not in the origin (= caller has stale data, or the
 	 *  instance has no origin at all).
 	 */
-	modpackRestoreFile: (instanceId: string, sha1: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("modpack_restore_file", { instanceId, sha1 })),
+	modpackRestoreFile: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_restore_file", { instanceId, sha1 })),
 	/**
 	 *  List the published versions of a Modrinth modpack project. Replaces
 	 *  the former direct webview `fetch` in `ModpackVersionDrawer.svelte`.
@@ -637,7 +637,7 @@ export type ModpackHit = {
  *  `install_progress` channel from sub-3 so PhaseStatusRow + the
  *  import progress view can both render fine-grained state.
  */
-export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_mod"; current: number; total: number; mod_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "done"; instance_id: string };
+export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "done"; instance_id: string };
 
 export type ModpackSearchPage = {
 	hits: ModpackHit[],
@@ -805,7 +805,7 @@ export type ResolvedDeps = {
 	unresolvable: DepProjectRef[],
 };
 
-export type UnresolvableReason = "distribution_disabled" | "host_not_allowed";
+export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path";
 
 /**
  *  What the UI sees per entry. We strip the cryptographic and

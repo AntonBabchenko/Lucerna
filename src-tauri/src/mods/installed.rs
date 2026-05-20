@@ -18,7 +18,7 @@ use crate::error::Error;
 use crate::mods::modpack::schema::EnvSupport;
 use crate::mods::platform::{InstalledMod, ModSource};
 
-const FILE_VERSION: u32 = 1;
+const FILE_VERSION: u32 = 2;
 
 /// Snapshot of the mods the user selected at modpack-import time, kept
 /// in `installed-mods.json` alongside the live entries so the launcher
@@ -220,11 +220,30 @@ pub async fn set_pack_origin(instance_root: &Path, origin: PackOrigin) -> Result
     write(instance_root, &state).await
 }
 
+/// One-shot migration for `installed-mods.json`. Schema v1 imports
+/// recorded non-`mods/` `pack_origin` entries for files that were never
+/// installed (the v1 pipeline ignored `install_path`). Drop them and
+/// bump the schema version so the migration runs exactly once. Returns
+/// true if `state` was changed (the caller must then persist it).
+fn migrate(state: &mut OnDisk) -> bool {
+    if state.version >= FILE_VERSION {
+        return false;
+    }
+    if let Some(origin) = state.pack_origin.as_mut() {
+        origin.files.retain(|f| f.install_path.starts_with("mods/"));
+    }
+    state.version = FILE_VERSION;
+    true
+}
+
 /// Read the modpack-origin snapshot if one was recorded at import time.
-/// Returns `None` for manually-created instances and pre-bundle-2
-/// imports.
+/// Runs the one-shot schema migration (writes back once for v1 files).
+/// Returns `None` for manually-created instances and pre-bundle-2 imports.
 pub async fn get_pack_origin(instance_root: &Path) -> Result<Option<PackOrigin>, Error> {
-    let state = read_or_empty(instance_root).await?;
+    let mut state = read_or_empty(instance_root).await?;
+    if migrate(&mut state) {
+        write(instance_root, &state).await?;
+    }
     Ok(state.pack_origin)
 }
 
@@ -400,5 +419,58 @@ mod tests {
         fs::write(registry_path(td.path()), legacy).await.unwrap();
         let origin = get_pack_origin(td.path()).await.unwrap();
         assert!(origin.is_none());
+    }
+
+    #[tokio::test]
+    async fn migrate_drops_phantom_non_mods_entries_from_v1_pack() {
+        let td = TempDir::new().unwrap();
+        let mut mods_file = sample_origin().files[0].clone();
+        mods_file.install_path = "mods/sodium.jar".into();
+        let mut rp = sample_origin().files[0].clone();
+        rp.install_path = "resourcepacks/RP.zip".into();
+        rp.sha1 = "rp1".into();
+        let v1 = OnDisk {
+            version: 1,
+            mods: vec![],
+            pack_origin: Some(PackOrigin {
+                project_id: None,
+                source: ModSource::Modrinth,
+                project_name: "P".into(),
+                version: "1".into(),
+                files: vec![mods_file, rp],
+            }),
+        };
+        write(td.path(), &v1).await.unwrap();
+        let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
+        assert_eq!(origin.files.len(), 1);
+        assert!(origin.files[0].install_path.starts_with("mods/"));
+        // version bumped on disk so the migration is one-shot.
+        let raw = String::from_utf8(
+            tokio::fs::read(registry_path(td.path())).await.unwrap(),
+        )
+        .unwrap();
+        assert!(raw.contains("\"version\": 2"), "got {raw}");
+    }
+
+    #[tokio::test]
+    async fn v2_pack_keeps_non_mods_entries() {
+        let td = TempDir::new().unwrap();
+        let mut rp = sample_origin().files[0].clone();
+        rp.install_path = "resourcepacks/RP.zip".into();
+        let v2 = OnDisk {
+            version: 2,
+            mods: vec![],
+            pack_origin: Some(PackOrigin {
+                project_id: None,
+                source: ModSource::Modrinth,
+                project_name: "P".into(),
+                version: "1".into(),
+                files: vec![rp],
+            }),
+        };
+        write(td.path(), &v2).await.unwrap();
+        let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
+        assert_eq!(origin.files.len(), 1);
+        assert_eq!(origin.files[0].install_path, "resourcepacks/RP.zip");
     }
 }

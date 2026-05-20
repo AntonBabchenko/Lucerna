@@ -51,6 +51,55 @@ pub struct ProgressTick {
     pub total: Option<f64>,
 }
 
+/// Ensure the file with content-hash `sha` (lowercase hex) is present in
+/// the shared content-addressed cache. Cache hit: returns the cached
+/// path immediately. Cache miss: streams the file through the audited
+/// chokepoint, SHA-verifies it, and promotes it into the cache. Shared
+/// by `install_one` and `install_asset`.
+async fn fetch_to_cache(
+    data_dir: &Path,
+    url: &str,
+    sha: &str,
+    size: f64,
+    initiator: &str,
+    progress: &ProgressFn,
+) -> Result<std::path::PathBuf, Error> {
+    let cached = cache::verify_or_evict(data_dir, sha).await?;
+    let cached_path = cache::cache_path_for(data_dir, sha);
+    if !cached {
+        let tmp = cached_path.with_extension("tmp");
+        // download_inner verifies SHA-1 internally, deletes the partial
+        // on mismatch, and creates tmp's parent (the cache root).
+        crate::network::download::download_inner(url, &tmp, sha, initiator, |dp| {
+            progress(
+                ModInstallPhase::Downloading,
+                dp.bytes_done as u64,
+                dp.bytes_total.map(|t| t as u64),
+            );
+        })
+        .await
+        .map_err(|e| match e {
+            Error::HashMismatch { expected, got, .. } => {
+                Error::ModsSha1Mismatch { expected, got }
+            }
+            Error::Io { path, details } => Error::ModsCacheIo {
+                details: format!("{path}: {details}"),
+            },
+            Error::Network { url, details } => Error::ModsNetwork { url, details },
+            other => other,
+        })?;
+        progress(
+            ModInstallPhase::Verifying,
+            size as u64,
+            Some(size as u64),
+        );
+        fs::rename(&tmp, &cached_path)
+            .await
+            .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
+    }
+    Ok(cached_path)
+}
+
 pub async fn install_one(
     data_dir: &Path,
     instance_root: &Path,
@@ -75,49 +124,15 @@ pub async fn install_one(
         .ok_or(Error::ModsSha1Unavailable)?;
     let sha_lower = sha.to_ascii_lowercase();
 
-    // 1. Cache lookup
-    let cached = cache::verify_or_evict(data_dir, &sha_lower).await?;
-    let cached_path = cache::cache_path_for(data_dir, &sha_lower);
-    if !cached {
-        let tmp = cached_path.with_extension("jar.tmp");
-        // Stream the jar through the audited chokepoint. download_inner
-        // verifies SHA-1 internally, deletes the partial on mismatch, and
-        // creates tmp's parent (the cache root) — so no explicit mkdir here.
-        crate::network::download::download_inner(
-            &version.primary_file.url,
-            &tmp,
-            &sha_lower,
-            "mods",
-            |dp| {
-                progress(
-                    ModInstallPhase::Downloading,
-                    dp.bytes_done as u64,
-                    dp.bytes_total.map(|t| t as u64),
-                );
-            },
-        )
-        .await
-        .map_err(|e| match e {
-            Error::HashMismatch { expected, got, .. } => {
-                Error::ModsSha1Mismatch { expected, got }
-            }
-            Error::Io { path, details } => Error::ModsCacheIo {
-                details: format!("{path}: {details}"),
-            },
-            Error::Network { url, details } => Error::ModsNetwork { url, details },
-            // download_inner only emits HashMismatch / Io / Network today;
-            // pass any future variant through unchanged rather than mis-mapping.
-            other => other,
-        })?;
-        progress(
-            ModInstallPhase::Verifying,
-            version.primary_file.size as u64,
-            Some(version.primary_file.size as u64),
-        );
-        fs::rename(&tmp, &cached_path)
-            .await
-            .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
-    }
+    let cached_path = fetch_to_cache(
+        data_dir,
+        &version.primary_file.url,
+        &sha_lower,
+        version.primary_file.size,
+        "mods",
+        progress,
+    )
+    .await?;
 
     // 3. Copy into instance
     progress(ModInstallPhase::Copying, 0, None);
@@ -183,6 +198,68 @@ pub async fn install_one(
         filename: version.primary_file.filename,
         name: version.name,
     })
+}
+
+/// Install a downloaded file to an arbitrary declared path under the
+/// instance's `.minecraft/`. Unlike `install_one` this does NOT record
+/// anything in `installed-mods.json` — assets (resourcepacks, shaders,
+/// configs) are not mods; the modpack import orchestrator tracks them in
+/// `pack_origin` instead.
+pub async fn install_asset(
+    data_dir: &Path,
+    instance_root: &Path,
+    url: &str,
+    sha: &str,
+    size: f64,
+    install_path: &str,
+    progress: &ProgressFn,
+) -> Result<(), Error> {
+    // String-level guard FIRST — before any directory is created — so an
+    // escaping path can never cause a mkdir outside `.minecraft/`.
+    if !crate::mods::modpack::path_safety::is_safe_relative_path(install_path) {
+        return Err(Error::ModpackOverridesPathEscape {
+            entry: install_path.to_string(),
+        });
+    }
+    let sha_lower = sha.to_ascii_lowercase();
+    let cached_path =
+        fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress).await?;
+
+    progress(ModInstallPhase::Copying, 0, None);
+    let mc_dir = instance_root.join(".minecraft");
+    let dest = mc_dir.join(install_path);
+    let parent = dest.parent().ok_or_else(|| Error::ModsInstancePath {
+        path: dest.display().to_string(),
+        details: "asset path has no parent directory".into(),
+    })?;
+    fs::create_dir_all(parent)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: parent.display().to_string(),
+            details: e.to_string(),
+        })?;
+    // Defense in depth: the canonical parent must stay inside `.minecraft/`
+    // (catches symlink-based escapes the string check cannot see).
+    let mc_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::ModsInstancePath {
+        path: mc_dir.display().to_string(),
+        details: e.to_string(),
+    })?;
+    let parent_canon = dunce::canonicalize(parent).map_err(|e| Error::ModsInstancePath {
+        path: parent.display().to_string(),
+        details: e.to_string(),
+    })?;
+    if !parent_canon.starts_with(&mc_canon) {
+        return Err(Error::ModpackOverridesPathEscape {
+            entry: install_path.to_string(),
+        });
+    }
+    fs::copy(&cached_path, &dest)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dest.display().to_string(),
+            details: e.to_string(),
+        })?;
+    Ok(())
 }
 
 /// Disable: rename `.jar` → `.jar.disabled` and flip JSON flag.
@@ -393,6 +470,53 @@ mod tests {
         assert!(!installed::mods_dir(td_inst.path()).join("d.jar").exists());
         enable(td_inst.path(), &sha).await.unwrap();
         assert!(installed::mods_dir(td_inst.path()).join("d.jar").exists());
+    }
+
+    #[tokio::test]
+    async fn install_asset_writes_to_declared_path() {
+        let body = b"resourcepack-bytes";
+        let sha = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rp.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        install_asset(
+            td_data.path(),
+            td_inst.path(),
+            &format!("{}/rp.zip", s.uri()),
+            &sha,
+            body.len() as f64,
+            "resourcepacks/RP.zip",
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        let dest = td_inst.path().join(".minecraft/resourcepacks/RP.zip");
+        assert_eq!(tokio::fs::read(&dest).await.unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn install_asset_rejects_path_escape() {
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let r = install_asset(
+            td_data.path(),
+            td_inst.path(),
+            "http://127.0.0.1:1/x",
+            "0000000000000000000000000000000000000000",
+            1.0,
+            "../../escape.zip",
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(r, Err(Error::ModpackOverridesPathEscape { .. })),
+            "got: {r:?}"
+        );
     }
 
     #[tokio::test]

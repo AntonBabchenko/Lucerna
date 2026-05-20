@@ -30,8 +30,8 @@
         return 'Inspecting pack…';
       case 'creating_instance':
         return `Creating instance ${p.name}…`;
-      case 'installing_mod':
-        return `Installing mod ${p.current}/${p.total}: ${p.mod_name}`;
+      case 'installing_file':
+        return `Installing file ${p.current}/${p.total}: ${p.file_name}`;
       case 'extracting_overrides':
         return `Extracting overrides ${p.current}/${p.total}…`;
       case 'done':

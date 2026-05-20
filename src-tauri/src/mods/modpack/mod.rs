@@ -8,6 +8,7 @@ pub mod detect;
 pub mod import;
 pub mod modrinth;
 pub mod overrides;
+pub mod path_safety;
 pub mod schema;
 pub mod search;
 

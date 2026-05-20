@@ -89,15 +89,16 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
     let mut unresolvable = vec![];
 
     for f in &index.files {
-        // v1 only handles mods/. Modrinth packs can declare resourcepacks,
-        // shaderpacks, configs, etc. in files[] — our install pipeline is
-        // hardcoded to mods_dir, so non-mod assets would land in mods/ and
-        // be silently scrubbed by the .jar-only scan reconciliation (and
-        // then show as false-positive "Removed from pack" in the drawer).
-        // Properly honouring install_path is a v0.6.0 feature; for now we
-        // skip them at parse time. CurseForge packs already enforce
-        // mods/<filename> in their parser, so no symmetric check needed.
-        if !f.path.starts_with("mods/") {
+        // Reject paths that would escape `.minecraft/` (`..`, absolute,
+        // drive letter, backslash). The whole pack is still importable;
+        // just this file is flagged. install_asset re-checks at install
+        // time (defense in depth).
+        if !crate::mods::modpack::path_safety::is_safe_relative_path(&f.path) {
+            unresolvable.push(ModpackUnresolvable {
+                reason: UnresolvableReason::UnsafePath,
+                mod_name: f.path.clone(),
+                manual_action_url: String::new(),
+            });
             continue;
         }
         let env_client = match f.env.as_ref().map(|e| e.client.as_str()).unwrap_or("required") {
@@ -293,21 +294,34 @@ mod tests {
     }
 
     #[test]
-    fn skips_non_mods_path_files() {
-        // v1 only installs mods/. Resourcepacks/shaderpacks declared in
-        // files[] (which Modrinth allows) are dropped at parse time so
-        // they don't pollute mods/ via install_one's hardcoded mods_dir.
+    fn keeps_non_mods_path_files() {
+        // v0.6.0: non-mods/ files[] entries (resourcepacks, shaders,
+        // configs) are installed at their declared install_path.
         let json = SAMPLE_INDEX.replace(
             "\"path\": \"mods/sodium.jar\"",
             "\"path\": \"resourcepacks/RP.zip\"",
         );
         let zip = make_mrpack(&json, &[]);
         let s = parse(&zip).unwrap();
-        assert!(
-            s.files.is_empty(),
-            "non-mods/ files should be filtered, got {:?}",
-            s.files
+        assert_eq!(s.files.len(), 1);
+        assert_eq!(s.files[0].install_path, "resourcepacks/RP.zip");
+        assert_eq!(s.files[0].filename, "RP.zip");
+    }
+
+    #[test]
+    fn unsafe_install_path_lands_in_unresolvable() {
+        let json = SAMPLE_INDEX.replace(
+            "\"path\": \"mods/sodium.jar\"",
+            "\"path\": \"../escape.jar\"",
         );
+        let zip = make_mrpack(&json, &[]);
+        let s = parse(&zip).unwrap();
+        assert!(s.files.is_empty());
+        assert_eq!(s.unresolvable.len(), 1);
+        assert!(matches!(
+            s.unresolvable[0].reason,
+            UnresolvableReason::UnsafePath
+        ));
     }
 
     #[test]

@@ -40,6 +40,7 @@ pub enum EnvSupport {
 pub enum UnresolvableReason {
     DistributionDisabled,
     HostNotAllowed,
+    UnsafePath,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -107,7 +108,7 @@ pub struct ModpackSearchPage {
 pub enum ModpackProgress {
     Inspecting,
     CreatingInstance { name: String },
-    InstallingMod { current: u32, total: u32, mod_name: String },
+    InstallingFile { current: u32, total: u32, file_name: String },
     ExtractingOverrides { current: u32, total: u32 },
     Done { instance_id: String },
 }

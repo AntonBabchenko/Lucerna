@@ -82,6 +82,33 @@
     new Set((status?.origin.files ?? []).map((f) => f.sha1.toLowerCase())),
   );
 
+  // A pack file's category, from its install_path prefix. Drives the
+  // per-type drawer sections. Anything that is not mods/resourcepacks/
+  // shaderpacks (config/*, options.txt, …) groups under "configs".
+  type AssetCat = 'resourcepacks' | 'shaderpacks' | 'configs';
+  function assetCat(installPath: string): AssetCat {
+    if (installPath.startsWith('resourcepacks/')) return 'resourcepacks';
+    if (installPath.startsWith('shaderpacks/')) return 'shaderpacks';
+    return 'configs';
+  }
+
+  // install_paths currently flagged removed — excluded from the present
+  // sections (they render in "Removed from pack" instead).
+  const removedPaths = $derived(new Set((status?.removed_files ?? []).map((f) => f.install_path)));
+
+  // Present (non-removed) pack files of one category. Mods are excluded —
+  // they have their own disk-reality-driven section above.
+  function presentAssets(cat: AssetCat): PackOriginFile[] {
+    return (status?.origin.files ?? []).filter(
+      (f) =>
+        !f.install_path.startsWith('mods/') &&
+        assetCat(f.install_path) === cat &&
+        !removedPaths.has(f.install_path),
+    );
+  }
+
+  let configsExpanded = $state(false);
+
   $effect(() => {
     void inst.id;
     void load();
@@ -286,6 +313,59 @@
           </li>
         {/each}
       </ul>
+    {/if}
+
+    {#if status}
+      {@const resourcepacks = presentAssets('resourcepacks')}
+      {@const shaderpacks = presentAssets('shaderpacks')}
+      {@const configs = presentAssets('configs')}
+
+      {#if resourcepacks.length > 0}
+        <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
+          Resource packs ({resourcepacks.length})
+        </h4>
+        <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
+          {#each resourcepacks as f (f.install_path)}
+            <li class="flex items-center gap-2 text-sm py-1">
+              <span class="truncate flex-1">{f.name}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      {#if shaderpacks.length > 0}
+        <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
+          Shader packs ({shaderpacks.length})
+        </h4>
+        <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
+          {#each shaderpacks as f (f.install_path)}
+            <li class="flex items-center gap-2 text-sm py-1">
+              <span class="truncate flex-1">{f.name}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      {#if configs.length > 0}
+        <button
+          type="button"
+          class="font-medium text-sm text-neutral-700 mt-5 mb-2 flex items-center gap-1 hover:text-neutral-900"
+          onclick={() => (configsExpanded = !configsExpanded)}
+          data-testid="imported-detail-configs-toggle"
+        >
+          <span>{configsExpanded ? '▾' : '▸'}</span>
+          Configs ({configs.length})
+        </button>
+        {#if configsExpanded}
+          <ul class="space-y-1" data-testid="imported-detail-configs">
+            {#each configs as f (f.install_path)}
+              <li class="flex items-center gap-2 text-sm py-1">
+                <span class="truncate flex-1 text-neutral-600">{f.install_path}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
     {/if}
 
     {#if status && status.removed_files.length > 0}

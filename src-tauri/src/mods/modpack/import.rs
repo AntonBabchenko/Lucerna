@@ -2,7 +2,7 @@
 //! → extract overrides. Emits typed progress events at each phase.
 
 use crate::error::Error;
-use crate::mods::install::{install_one, ProgressFn};
+use crate::mods::install::{install_asset, install_one, ProgressFn};
 use crate::mods::installed::{PackOrigin, PackOriginFile};
 use crate::mods::modpack::detect::detect_format;
 use crate::mods::modpack::overrides;
@@ -59,42 +59,44 @@ pub fn build_pack_origin(
     }
 }
 
-/// Diff the immutable pack-origin snapshot against the live installed
-/// list to compute what's been removed since import and how many user
-/// additions exist. SHA-1 comparison is case-insensitive (lowercased
-/// once on each side and compared as lowercase). Pure — used by the
-/// `modpack_status` IPC command and unit-tested independently.
+/// Diff the immutable pack-origin snapshot against live instance state.
+/// A `mods/*` origin file is "present" iff its SHA-1 is in the installed
+/// mod registry; a non-`mods/` (asset) origin file is "present" iff its
+/// `install_path` is in `asset_present` (computed by the caller via a
+/// filesystem stat). Pure — unit-tested independently.
 pub fn compute_status(
-    mut origin: PackOrigin,
+    origin: PackOrigin,
     installed: &[crate::mods::platform::InstalledMod],
+    asset_present: &std::collections::HashSet<String>,
 ) -> crate::mods::modpack::schema::ModpackStatus {
-    // Defensive cleanup for packs imported before the parser-side
-    // mods/-only filter landed: drop non-`mods/` entries from the origin
-    // before computing the diff. Otherwise resourcepacks/shaderpacks
-    // declared in the .mrpack `files[]` show as false-positive "Removed
-    // from pack" rows (they were never actually installed — install_one
-    // is hardcoded to mods_dir, and the .jar-only scan reconciliation
-    // scrubbed their installed-mods.json entries on the next list call).
-    // New imports never see this thanks to the parser fix; this branch
-    // covers pre-fix on-disk state without forcing a re-import.
-    origin.files.retain(|f| f.install_path.starts_with("mods/"));
-
-    let origin_shas: std::collections::HashSet<String> =
-        origin.files.iter().map(|f| f.sha1.to_ascii_lowercase()).collect();
     let installed_shas: Vec<String> =
         installed.iter().map(|m| m.sha1.to_ascii_lowercase()).collect();
     let installed_set: std::collections::HashSet<&String> = installed_shas.iter().collect();
 
+    // Mod SHAs the pack declared — used for the user-additions count.
+    let origin_mod_shas: std::collections::HashSet<String> = origin
+        .files
+        .iter()
+        .filter(|f| f.install_path.starts_with("mods/"))
+        .map(|f| f.sha1.to_ascii_lowercase())
+        .collect();
+
     let removed_files: Vec<PackOriginFile> = origin
         .files
         .iter()
-        .filter(|f| !installed_set.contains(&f.sha1.to_ascii_lowercase()))
+        .filter(|f| {
+            if f.install_path.starts_with("mods/") {
+                !installed_set.contains(&f.sha1.to_ascii_lowercase())
+            } else {
+                !asset_present.contains(&f.install_path)
+            }
+        })
         .cloned()
         .collect();
 
     let added_count: u32 = installed_shas
         .iter()
-        .filter(|s| !origin_shas.contains(*s))
+        .filter(|s| !origin_mod_shas.contains(*s))
         .count() as u32;
 
     let is_modified = !removed_files.is_empty() || added_count > 0;
@@ -260,43 +262,60 @@ pub async fn import(
     let mut failures: Vec<(String, String)> = vec![];
 
     for (idx, file) in selected.iter().enumerate() {
-        on_progress(ModpackProgress::InstallingMod {
+        on_progress(ModpackProgress::InstallingFile {
             current: idx as u32 + 1,
             total,
-            mod_name: file.name.clone(),
+            file_name: file.name.clone(),
         });
-        let mv = ModVersion {
-            source: file.source,
-            project_id: file.project_id.clone(),
-            version_id: file.version_id.clone(),
-            name: file.name.clone(),
-            version_number: String::new(),
-            mc_versions: vec![summary.game_version.clone()],
-            loaders: vec![summary.loader],
-            primary_file: ModFile {
-                filename: file.filename.clone(),
-                url: file.url.clone(),
-                sha1: Some(file.sha1.clone()),
-                size: file.size,
-                distribution_allowed: true,
-            },
-            deps: vec![],
-            published_at: None,
+        let res = if file.install_path.starts_with("mods/") {
+            let mv = ModVersion {
+                source: file.source,
+                project_id: file.project_id.clone(),
+                version_id: file.version_id.clone(),
+                name: file.name.clone(),
+                version_number: String::new(),
+                mc_versions: vec![summary.game_version.clone()],
+                loaders: vec![summary.loader],
+                primary_file: ModFile {
+                    filename: file.filename.clone(),
+                    url: file.url.clone(),
+                    sha1: Some(file.sha1.clone()),
+                    size: file.size,
+                    distribution_allowed: true,
+                },
+                deps: vec![],
+                published_at: None,
+            };
+            install_one(&data_dir, &instance_root, mv, &install_progress)
+                .await
+                .map(|_| ())
+        } else {
+            install_asset(
+                &data_dir,
+                &instance_root,
+                &file.url,
+                &file.sha1,
+                file.size,
+                &file.install_path,
+                &install_progress,
+            )
+            .await
         };
-        if let Err(e) = install_one(&data_dir, &instance_root, mv, &install_progress).await {
+        if let Err(e) = res {
             failures.push((file.install_path.clone(), e.to_string()));
         }
     }
 
-    // Bundled mods from overrides/mods/*.jar are tracked here so the
+    // Bundled assets from overrides/ (mods/*.jar plus top-level
+    // resourcepacks/ and shaderpacks/ files) are tracked here so the
     // origin snapshot below captures them. Without this, the drawer's
     // scan-reconcile-driven InstalledMod entries land with source=None
     // and fall into the "manual" badge even though the bytes came
     // straight from the pack archive.
-    let mut bundled_mods: Vec<crate::mods::modpack::overrides::ExtractedMod> = vec![];
+    let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
     if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
         let bytes_clone = bytes.to_vec();
-        bundled_mods = overrides::extract(&bytes_clone, &instance_root, |c, t| {
+        bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
             on_progress(ModpackProgress::ExtractingOverrides { current: c, total: t });
         })
         .await?;
@@ -313,7 +332,7 @@ pub async fn import(
     // returns a typed error instead of trying to install_one a no-URL
     // entry.
     let bundled_source = origin.source;
-    for m in &bundled_mods {
+    for m in &bundled_assets {
         origin.files.push(crate::mods::installed::PackOriginFile {
             sha1: m.sha1.clone(),
             name: m.filename.trim_end_matches(".jar").trim_end_matches(".disabled").to_string(),
@@ -536,7 +555,7 @@ mod tests {
             files: vec![pack_file("a"), pack_file("b")],
         };
         let installed = vec![installed("a", true), installed("b", true)];
-        let s = compute_status(origin, &installed);
+        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
         assert!(!s.is_modified);
         assert_eq!(s.added_count, 0);
         assert!(s.removed_files.is_empty());
@@ -554,7 +573,7 @@ mod tests {
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
-        let s = compute_status(origin, &installed);
+        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
         assert!(s.is_modified);
         assert_eq!(s.removed_files.len(), 1);
         assert_eq!(s.removed_files[0].sha1, "b");
@@ -572,18 +591,14 @@ mod tests {
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
-        let s = compute_status(origin, &installed);
+        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
         assert!(s.is_modified);
         assert!(s.removed_files.is_empty());
         assert_eq!(s.added_count, 1);
     }
 
     #[test]
-    fn compute_status_drops_non_mods_path_entries_from_origin() {
-        // Pre-bundle-2 parser allowed resourcepacks/.zip into pack_origin.
-        // They never actually installed (install_one is mods/-only and
-        // scan reconciliation drops .zip). Defensive filter in
-        // compute_status hides them from the Removed-from-pack section.
+    fn compute_status_asset_present_when_on_disk() {
         let mut rp = pack_file("rp1");
         rp.install_path = "resourcepacks/RP.zip".into();
         let origin = PackOrigin {
@@ -594,12 +609,29 @@ mod tests {
             files: vec![pack_file("a"), rp],
         };
         let installed = vec![installed("a", true)];
-        let s = compute_status(origin, &installed);
-        // "a" is present, the resourcepack should be filtered out (not
-        // counted as removed) — so the pack is "clean".
+        let present: std::collections::HashSet<String> =
+            ["resourcepacks/RP.zip".to_string()].into_iter().collect();
+        let s = compute_status(origin, &installed, &present);
         assert!(!s.is_modified);
         assert!(s.removed_files.is_empty());
-        assert_eq!(s.origin.files.len(), 1);
+    }
+
+    #[test]
+    fn compute_status_asset_removed_when_absent_from_disk() {
+        let mut rp = pack_file("rp1");
+        rp.install_path = "resourcepacks/RP.zip".into();
+        let origin = PackOrigin {
+            project_id: None,
+            source: ModSource::Modrinth,
+            project_name: "P".into(),
+            version: "1".into(),
+            files: vec![pack_file("a"), rp],
+        };
+        let installed = vec![installed("a", true)];
+        let s = compute_status(origin, &installed, &std::collections::HashSet::new());
+        assert!(s.is_modified);
+        assert_eq!(s.removed_files.len(), 1);
+        assert_eq!(s.removed_files[0].install_path, "resourcepacks/RP.zip");
     }
 
     #[test]
@@ -615,7 +647,7 @@ mod tests {
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
-        let s = compute_status(origin, &[m]);
+        let s = compute_status(origin, &[m], &std::collections::HashSet::new());
         assert!(!s.is_modified);
     }
 

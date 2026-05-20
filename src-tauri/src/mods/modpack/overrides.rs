@@ -2,7 +2,7 @@
 //! modpack zip into `{instance_root}/.minecraft/`. Zip-slip-safe.
 
 use std::io::{Cursor, Read};
-use std::path::{Component, Path};
+use std::path::Path;
 
 use sha1::{Digest, Sha1};
 use tokio::fs;
@@ -21,25 +21,44 @@ enum EntryKind {
     File(Vec<u8>),
 }
 
-/// A `.jar` file the extractor placed into `mods/`. The orchestrator
-/// (`modpack::import::import`) folds these into `pack_origin.files` as
-/// bundled entries so the drawer can badge them as "pack" instead of
-/// "manual". `url` stays empty because the bytes came from inside the
-/// `.mrpack` archive, not a network source — Restore is not possible
-/// for these without re-importing the archive.
+/// A file the extractor placed under a tracked directory (`mods/`,
+/// `resourcepacks/`, `shaderpacks/`). The orchestrator folds these into
+/// `pack_origin.files` as bundled entries so the drawer badges them
+/// "pack". `url` stays empty — the bytes came from inside the archive,
+/// so Restore is not possible without re-importing.
 #[derive(Debug, Clone)]
-pub struct ExtractedMod {
+pub struct ExtractedAsset {
     pub install_path: String,
     pub filename: String,
     pub sha1: String,
     pub size: u64,
 }
 
+/// Which extracted files the orchestrator should record in pack_origin.
+/// Bundled jars under `mods/`, plus top-level (single-segment) files
+/// directly under `resourcepacks/` / `shaderpacks/`. Folder-form
+/// resourcepacks and bulk config trees are intentionally not itemised.
+fn is_tracked_bundled_path(rel: &str) -> bool {
+    if rel.starts_with("mods/")
+        && (rel.ends_with(".jar") || rel.ends_with(".jar.disabled"))
+    {
+        return true;
+    }
+    for prefix in ["resourcepacks/", "shaderpacks/"] {
+        if let Some(after) = rel.strip_prefix(prefix) {
+            if !after.is_empty() && !after.contains('/') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub async fn extract<F: FnMut(u32, u32)>(
     bytes: &[u8],
     instance_root: &Path,
     mut on_progress: F,
-) -> Result<Vec<ExtractedMod>, Error> {
+) -> Result<Vec<ExtractedAsset>, Error> {
     let mc_dir = instance_root.join(".minecraft");
     fs::create_dir_all(&mc_dir).await.map_err(|e| Error::Io {
         path: mc_dir.display().to_string(),
@@ -85,7 +104,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
     let total = work.len() as u32;
     on_progress(0, total);
     let mut aggregate: u64 = 0;
-    let mut extracted_mods: Vec<ExtractedMod> = vec![];
+    let mut extracted: Vec<ExtractedAsset> = vec![];
 
     for (idx, (zip_idx, rel)) in work.into_iter().enumerate() {
         // Pull everything we need out of the `ZipFile` (non-`Send`,
@@ -104,17 +123,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
                 }
             }
 
-            // Reject path traversal / abs / drive letter / backslash.
-            for c in Path::new(&rel).components() {
-                match c {
-                    Component::Normal(_) => {}
-                    _ => return Err(Error::ModpackOverridesPathEscape { entry: rel }),
-                }
-            }
-            if rel.contains('\\')
-                || rel.starts_with('/')
-                || (rel.len() > 1 && rel.as_bytes()[1] == b':')
-            {
+            if !crate::mods::modpack::path_safety::is_safe_relative_path(&rel) {
                 return Err(Error::ModpackOverridesPathEscape { entry: rel });
             }
 
@@ -179,18 +188,11 @@ pub async fn extract<F: FnMut(u32, u32)>(
                     details: e.to_string(),
                 })?;
 
-                // If this jar landed under `mods/`, surface it to the
-                // orchestrator so it can register the file in
-                // pack_origin as a bundled entry. Without this the
-                // drawer would later badge it "manual" — scan-reconcile
-                // picks the orphan up with source=None and we'd lose
-                // the pack-provenance signal.
-                if (rel.starts_with("mods/") || rel.starts_with("mods\\"))
-                    && (rel.ends_with(".jar") || rel.ends_with(".jar.disabled"))
-                {
-                    let filename = rel.rsplit(['/', '\\']).next().unwrap_or(&rel).to_string();
+                if is_tracked_bundled_path(&rel) {
+                    let filename =
+                        rel.rsplit('/').next().unwrap_or(&rel).to_string();
                     let sha1 = hex::encode(Sha1::digest(&buf));
-                    extracted_mods.push(ExtractedMod {
+                    extracted.push(ExtractedAsset {
                         install_path: rel.clone(),
                         filename,
                         sha1,
@@ -201,7 +203,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
         }
         on_progress(idx as u32 + 1, total);
     }
-    Ok(extracted_mods)
+    Ok(extracted)
 }
 
 #[cfg(test)]
@@ -299,33 +301,30 @@ mod tests {
     //     the same pattern with `aggregate.saturating_add`.
 
     #[tokio::test]
-    async fn returns_extracted_mods_for_overrides_mods_jars() {
-        // Bundled-mod tracking: when overrides contains .jar files under
-        // mods/, extract() returns them so the orchestrator can register
-        // them in pack_origin as bundled entries. .txt and non-mods/
-        // paths are NOT returned.
+    async fn returns_extracted_assets_for_mods_resourcepacks_shaders() {
+        // extract() surfaces bundled jars under mods/, and TOP-LEVEL
+        // files under resourcepacks/ and shaderpacks/. Folder-form
+        // resourcepacks and bulk config files are extracted to disk but
+        // NOT surfaced (not itemised in pack_origin).
         let zip = make_zip(&[
             ("overrides/mods/foo.jar", b"foo-bytes" as &[u8]),
-            ("overrides/mods/bar.jar", b"bar-bytes" as &[u8]),
-            ("overrides/mods/notes.txt", b"not-a-jar" as &[u8]),
+            ("overrides/resourcepacks/RP.zip", b"rp-bytes" as &[u8]),
+            ("overrides/shaderpacks/Sh.zip", b"sh-bytes" as &[u8]),
+            ("overrides/resourcepacks/Folder/pack.mcmeta", b"{}" as &[u8]),
             ("overrides/config/foo.toml", b"k=v" as &[u8]),
+            ("overrides/mods/notes.txt", b"not-a-jar" as &[u8]),
         ]);
         let inst = TempDir::new().unwrap();
         let extracted = extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        let paths: std::collections::HashSet<&str> =
+            extracted.iter().map(|a| a.install_path.as_str()).collect();
         assert_eq!(
-            extracted.len(),
-            2,
-            "expected 2 .jar bundled mods, got {extracted:?}"
+            paths,
+            ["mods/foo.jar", "resourcepacks/RP.zip", "shaderpacks/Sh.zip"]
+                .into_iter()
+                .collect(),
+            "got {extracted:?}"
         );
-        let foo = extracted.iter().find(|m| m.filename == "foo.jar").unwrap();
-        let bar = extracted.iter().find(|m| m.filename == "bar.jar").unwrap();
-        assert_eq!(foo.install_path, "mods/foo.jar");
-        assert_eq!(foo.size, 9);
-        assert_eq!(bar.install_path, "mods/bar.jar");
-        // SHA-1 is computed from the actual bytes — sanity-check by
-        // re-computing here.
-        let expected_foo_sha = hex::encode(Sha1::digest(b"foo-bytes"));
-        assert_eq!(foo.sha1, expected_foo_sha);
     }
 
     #[tokio::test]
