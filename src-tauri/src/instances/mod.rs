@@ -91,6 +91,11 @@ fn read_one(app: &tauri::AppHandle, id: &str) -> Result<InstanceFile> {
     store::read_instance_json(&path)
 }
 
+/// Read a single instance's on-disk record by id.
+pub fn read_instance(app: &tauri::AppHandle, id: &str) -> Result<InstanceFile> {
+    read_one(app, id)
+}
+
 fn unix_ms_f64() -> f64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -122,6 +127,7 @@ pub fn create_instance(
     mrpack_project_id: Option<String>,
     mrpack_source: Option<crate::mods::platform::ModSource>,
     mrpack_summary: Option<String>,
+    mrpack_version_id: Option<String>,
 ) -> Result<InstanceWithStatus> {
     let id = ids::new_id();
     let dir = paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
@@ -146,6 +152,7 @@ pub fn create_instance(
         mrpack_project_id,
         mrpack_source,
         mrpack_summary,
+        mrpack_version_id,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
@@ -212,6 +219,29 @@ pub fn set_instance_jvm_args(
     extra_jvm_args: String,
 ) -> Result<InstanceWithStatus> {
     mutate(app, id, |i| i.extra_jvm_args = extra_jvm_args)
+}
+
+/// Rewrite an instance's modpack-version metadata after an in-place
+/// update, optionally also bumping the Minecraft / loader version.
+pub fn set_instance_pack_update(
+    app: &tauri::AppHandle,
+    id: &str,
+    mrpack_version: String,
+    mc_version: String,
+    loader: LoaderKind,
+    loader_version: Option<String>,
+    mrpack_version_id: String,
+) -> Result<InstanceWithStatus> {
+    mutate(app, id, |i| {
+        i.mrpack_version = Some(mrpack_version);
+        i.mrpack_version_id = Some(mrpack_version_id);
+        i.mc_version = mc_version;
+        i.loader = loader;
+        i.loader_version = match loader {
+            LoaderKind::Vanilla => None,
+            _ => loader_version,
+        };
+    })
 }
 
 /// Remove `<instance>/` recursively. If `id` was active, auto-switches

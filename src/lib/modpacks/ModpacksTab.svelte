@@ -70,6 +70,10 @@
   // orchestrator falls back to the version-id auto-lookup added in P1.
   let hintProjectId = $state<string | null>(null);
   let hintSource = $state<'modrinth' | 'curseforge' | null>(null);
+  // Modrinth version id of the picked version (Browse flow). Threaded to
+  // `modpack_import` so the new instance stores `mrpack_version_id` — the
+  // stable identifier the update flow compares against.
+  let hintVersionId = $state<string | null>(null);
 
   async function inspect(path: string) {
     error = null;
@@ -86,6 +90,7 @@
   function resetHints() {
     hintProjectId = null;
     hintSource = null;
+    hintVersionId = null;
   }
 
   async function confirmImport(selectedShas: string[]) {
@@ -102,6 +107,7 @@
     // command call.
     const pid = hintProjectId;
     const src = hintSource;
+    const vid = hintVersionId;
 
     const phaseChannel = new Channel<ModpackProgress>();
     phaseChannel.onmessage = (m) => {
@@ -123,6 +129,7 @@
       true,
       pid,
       src,
+      vid,
       phaseChannel,
       tickChannel,
     );
@@ -213,13 +220,14 @@
   <ModpackVersionDrawer
     hit={drawerHit}
     onClose={() => (drawerHit = null)}
-    onInstall={(p) => {
-      // Stash the Modrinth project_id so confirmImport can pass it
-      // through to `modpack_import` as `hintProjectId`. The orchestrator
-      // uses it to populate `mrpack_project_id` + `mrpack_source` on
-      // the new instance without re-querying Modrinth.
+    onInstall={(p, vid) => {
+      // Stash the Modrinth project_id + version id so confirmImport can
+      // pass them through to `modpack_import`. The orchestrator uses them
+      // to populate `mrpack_project_id` / `mrpack_source` /
+      // `mrpack_version_id` on the new instance without re-querying.
       hintProjectId = drawerHit?.project_id ?? null;
       hintSource = drawerHit ? 'modrinth' : null;
+      hintVersionId = vid;
       drawerHit = null;
       void inspect(p);
     }}

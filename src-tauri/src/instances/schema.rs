@@ -57,6 +57,14 @@ pub struct InstanceFile {
     /// is CurseForge (no summary backfill implemented).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mrpack_summary: Option<String>,
+    /// Modrinth version id (opaque, e.g. `vyRB9jtS`) of the pack version
+    /// this instance is currently on. Set on Browse-flow imports (the
+    /// version drawer knows it); `None` for drag-drop imports and
+    /// manually-created instances. Used by the update flow to compare
+    /// reliably against the Modrinth API (the human `mrpack_version`
+    /// string is not a stable identifier).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mrpack_version_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
@@ -102,6 +110,7 @@ pub struct InstanceWithStatus {
     pub mrpack_project_id: Option<String>,
     pub mrpack_source: Option<crate::mods::platform::ModSource>,
     pub mrpack_summary: Option<String>,
+    pub mrpack_version_id: Option<String>,
 }
 
 impl InstanceWithStatus {
@@ -121,6 +130,7 @@ impl InstanceWithStatus {
             mrpack_project_id: file.mrpack_project_id.clone(),
             mrpack_source: file.mrpack_source,
             mrpack_summary: file.mrpack_summary.clone(),
+            mrpack_version_id: file.mrpack_version_id.clone(),
         }
     }
 }
@@ -145,6 +155,7 @@ mod tests {
             mrpack_project_id: None,
             mrpack_source: None,
             mrpack_summary: None,
+            mrpack_version_id: None,
         }
     }
 

@@ -16,7 +16,7 @@
   }: {
     hit: ModpackHit;
     onClose: () => void;
-    onInstall: (tempPath: string) => void;
+    onInstall: (tempPath: string, versionId: string) => void;
   } = $props();
 
   let versions = $state<ModpackVersionEntry[]>([]);
@@ -43,7 +43,7 @@
     downloading = true;
     try {
       const result = await commands.modpackFetchToTemp(hit.project_id, versionId);
-      if (result.status === 'ok') onInstall(result.data);
+      if (result.status === 'ok') onInstall(result.data, versionId);
       else error = formatError(result.error);
     } finally {
       downloading = false;

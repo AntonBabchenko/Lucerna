@@ -71,6 +71,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {},
 }));
@@ -98,6 +99,7 @@ function instance(overrides: Partial<InstanceWithStatus> = {}): InstanceWithStat
     mrpack_project_id: 'ABC123',
     mrpack_source: 'modrinth' as ModSource,
     mrpack_summary: 'A pack about being cool.',
+    mrpack_version_id: null,
     ...overrides,
   };
 }

@@ -56,7 +56,7 @@ pub struct ProgressTick {
 /// path immediately. Cache miss: streams the file through the audited
 /// chokepoint, SHA-verifies it, and promotes it into the cache. Shared
 /// by `install_one` and `install_asset`.
-async fn fetch_to_cache(
+pub(crate) async fn fetch_to_cache(
     data_dir: &Path,
     url: &str,
     sha: &str,

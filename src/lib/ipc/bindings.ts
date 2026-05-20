@@ -145,6 +145,7 @@ export const commands = {
 	mrpack_project_id: string | null,
 	mrpack_source: ModSource | null,
 	mrpack_summary: string | null,
+	mrpack_version_id: string | null,
 } | null, Error>(__TAURI_INVOKE("get_active_instance")),
 	/**  Set the active instance by id. Errors `InstanceNotFound` if id is unknown. */
 	setActiveInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_instance", { id })),
@@ -247,7 +248,7 @@ export const commands = {
 	 *    `project_id` — the UI correlates it with the `InstallingFile`
 	 *    phase emitted on `on_progress`.
 	 */
-	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, onProgress, onInstallProgress })),
+	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Search Modrinth's modpack catalogue. CurseForge modpack search is
 	 *  not yet wired up (sub-feature 3 only covered mods); this command
@@ -311,6 +312,39 @@ export const commands = {
 	 *  the former direct webview `fetch` in `ModpackVersionDrawer.svelte`.
 	 */
 	modpackGetVersions: (projectId: string) => typedError<ModpackVersionEntry[], Error>(__TAURI_INVOKE("modpack_get_versions", { projectId })),
+	/**
+	 *  Check whether a newer version of an imported Modrinth modpack exists.
+	 *  Returns `None` for non-Modrinth pack instances and when the instance
+	 *  already has the latest version.
+	 */
+	modpackCheckUpdate: (instanceId: string) => typedError<{
+	id: string,
+	name: string,
+	version_number: string,
+	game_versions: string[],
+	loaders: string[],
+	date_published: string,
+} | null, Error>(__TAURI_INVOKE("modpack_check_update", { instanceId })),
+	/**
+	 *  Diff a downloaded new-version `.mrpack` (already fetched to
+	 *  `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
+	 *  current `pack_origin`. Returns the diff for the confirm dialog.
+	 */
+	modpackComputeUpdate: (instanceId: string, mrpackPath: string) => typedError<ModpackUpdateDiff, Error>(__TAURI_INVOKE("modpack_compute_update", { instanceId, mrpackPath })),
+	/**
+	 *  Apply a modpack update in place. Phase 1 downloads every new/changed
+	 *  file into the shared cache (the instance is NOT touched — a failure
+	 *  here aborts cleanly). Phase 2 removes the old files, installs the new
+	 *  ones from the warm cache, and rewrites `pack_origin` + the instance's
+	 *  version metadata. `overrides/`-bundled content is not touched.
+	 */
+	modpackApplyUpdate: (instanceId: string, mrpackPath: string, newVersionId: string, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_apply_update", { instanceId, mrpackPath, newVersionId, onProgress, onInstallProgress })),
+	/**
+	 *  Re-fetch the instance's current modpack version and re-extract its
+	 *  `overrides/` — recovers bundled mods/files that a per-file Restore
+	 *  cannot. Modrinth pack instances only.
+	 */
+	modpackReimportOverrides: (instanceId: string, onProgress: Channel<ModpackProgress>) => typedError<null, Error>(__TAURI_INVOKE("modpack_reimport_overrides", { instanceId, onProgress })),
 	/**
 	 *  Read the persisted app-level settings (currently: onboarding state).
 	 *  Returns `AppFile::default()` if `app.json` is missing — a fresh
@@ -473,6 +507,7 @@ export type InstanceWithStatus = {
 	mrpack_project_id: string | null,
 	mrpack_source: ModSource | null,
 	mrpack_summary: string | null,
+	mrpack_version_id: string | null,
 };
 
 export type KeyStatus = "missing" | "set" | "invalid";
@@ -704,6 +739,41 @@ export type ModpackUnresolvable = {
 	reason: UnresolvableReason,
 	mod_name: string,
 	manual_action_url: string,
+};
+
+/**
+ *  The result of diffing a new pack version against the installed
+ *  `pack_origin`. `added` / `updated` carry the new files to install;
+ *  `removed` carries the old files to delete. Bundled (`overrides/`,
+ *  empty-`url`) entries are excluded — a normal update never touches
+ *  `overrides/`.
+ */
+export type ModpackUpdateDiff = {
+	added: ModpackFile[],
+	removed: PackOriginFile[],
+	updated: ModpackUpdateEntry[],
+	version_bump: ModpackVersionBump | null,
+	new_version_number: string,
+};
+
+/**
+ *  A mod/asset present in both the installed pack and the new version
+ *  but at a different SHA-1 — i.e. the pack bumped this file's version.
+ */
+export type ModpackUpdateEntry = {
+	old: PackOriginFile,
+	new: ModpackFile,
+};
+
+/**
+ *  A Minecraft / loader version change between the installed pack and
+ *  the new version.
+ */
+export type ModpackVersionBump = {
+	old_game_version: string,
+	new_game_version: string,
+	old_loader_version: string | null,
+	new_loader_version: string | null,
 };
 
 /**

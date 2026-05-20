@@ -1,13 +1,19 @@
 <script lang="ts">
+  import { Channel } from '@tauri-apps/api/core';
   import { commands } from '$lib/ipc/bindings';
   import type {
     InstalledMod,
     InstanceWithStatus,
+    ModpackProgress,
     ModpackStatus,
+    ModpackUpdateDiff,
+    ModpackVersionEntry,
     ModSource,
     PackOriginFile,
+    ProgressTick,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
 
   // Right-side drawer that surfaces the metadata captured at import time
   // for a pack-originated instance. Mirrors ModpackVersionDrawer's
@@ -64,11 +70,13 @@
     onClose,
     onOpenInstance,
     onDeleted,
+    onUpdated,
   }: {
     inst: InstanceWithStatus;
     onClose: () => void;
     onOpenInstance: (id: string) => void;
     onDeleted: () => void;
+    onUpdated?: () => void;
   } = $props();
 
   let mods = $state<InstalledMod[] | null>(null);
@@ -77,6 +85,12 @@
   let restoreError = $state<string | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
+
+  let updateAvailable = $state<ModpackVersionEntry | null>(null);
+  let updateDiff = $state<ModpackUpdateDiff | null>(null);
+  let updateTempPath = $state<string | null>(null);
+  let updating = $state(false);
+  let updateError = $state<string | null>(null);
 
   const originShas = $derived(
     new Set((status?.origin.files ?? []).map((f) => f.sha1.toLowerCase())),
@@ -112,6 +126,7 @@
   $effect(() => {
     void inst.id;
     void load();
+    void checkForUpdates();
   });
 
   async function load() {
@@ -154,6 +169,75 @@
       );
       nameMap = next;
     }
+  }
+
+  async function checkForUpdates() {
+    updateError = null;
+    const r = await commands.modpackCheckUpdate(inst.id);
+    if (r.status === 'ok') {
+      updateAvailable = r.data;
+    } else {
+      updateError = formatError(r.error);
+    }
+  }
+
+  // Fetch the new .mrpack + compute the diff, then open the dialog.
+  async function openUpdateDialog() {
+    if (!updateAvailable || !inst.mrpack_project_id) return;
+    updateError = null;
+    const fetched = await commands.modpackFetchToTemp(inst.mrpack_project_id, updateAvailable.id);
+    if (fetched.status === 'error') {
+      updateError = formatError(fetched.error);
+      return;
+    }
+    updateTempPath = fetched.data;
+    const d = await commands.modpackComputeUpdate(inst.id, updateTempPath);
+    if (d.status === 'error') {
+      updateError = formatError(d.error);
+      return;
+    }
+    updateDiff = d.data;
+  }
+
+  async function applyUpdate() {
+    if (!updateTempPath || !updateAvailable) return;
+    const newVersionId = updateAvailable.id;
+    updateDiff = null;
+    updating = true;
+    updateError = null;
+    const phaseChannel = new Channel<ModpackProgress>();
+    const tickChannel = new Channel<ProgressTick>();
+    const r = await commands.modpackApplyUpdate(
+      inst.id,
+      updateTempPath,
+      newVersionId,
+      phaseChannel,
+      tickChannel,
+    );
+    updating = false;
+    if (r.status === 'error') {
+      updateError = formatError(r.error);
+      return;
+    }
+    updateAvailable = null;
+    updateTempPath = null;
+    await load();
+    onUpdated?.();
+  }
+
+  let reimporting = $state(false);
+  async function reimportPackFiles() {
+    reimporting = true;
+    restoreError = null;
+    const phaseChannel = new Channel<ModpackProgress>();
+    const r = await commands.modpackReimportOverrides(inst.id, phaseChannel);
+    reimporting = false;
+    if (r.status === 'error') {
+      restoreError = formatError(r.error);
+      return;
+    }
+    await load();
+    onUpdated?.();
   }
 
   function sourceUrl(i: InstanceWithStatus): string | null {
@@ -253,6 +337,29 @@
       >
         Open on {sourceLabel(inst.mrpack_source)} ↗
       </a>
+    </div>
+  {/if}
+
+  {#if updateError}
+    <div class="px-4 pb-2 text-xs text-red-700" data-testid="imported-detail-update-error">
+      {updateError}
+    </div>
+  {/if}
+  {#if updating}
+    <div class="px-4 pb-3 text-sm text-blue-700" data-testid="imported-detail-updating">Updating…</div>
+  {:else if updateAvailable}
+    <div class="px-4 pb-3">
+      <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2 text-sm">
+        <span class="flex-1 text-blue-900">Update available → {updateAvailable.version_number}</span>
+        <button
+          type="button"
+          class="text-xs px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700"
+          onclick={() => void openUpdateDialog()}
+          data-testid="imported-detail-update-button"
+        >
+          Update
+        </button>
+      </div>
     </div>
   {/if}
 
@@ -411,6 +518,17 @@
             </li>
           {/each}
         </ul>
+        {#if status.removed_files.some((f) => f.url === '')}
+          <button
+            type="button"
+            class="mt-2 text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50"
+            onclick={() => void reimportPackFiles()}
+            disabled={reimporting}
+            data-testid="imported-detail-reimport"
+          >
+            {reimporting ? 'Re-importing…' : 'Re-import pack files'}
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -434,6 +552,17 @@
     </button>
   </footer>
 </div>
+
+{#if updateDiff}
+  <ModpackUpdateDialog
+    diff={updateDiff}
+    onCancel={() => {
+      updateDiff = null;
+      updateTempPath = null;
+    }}
+    onConfirm={() => void applyUpdate()}
+  />
+{/if}
 
 {#if deleting}
   <div

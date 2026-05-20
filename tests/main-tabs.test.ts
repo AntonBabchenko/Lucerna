@@ -31,6 +31,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsProject: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackRestoreFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {},
 }));
@@ -98,6 +99,7 @@ describe('MainTabs', () => {
       mrpack_project_id: null,
       mrpack_source: null,
       mrpack_summary: null,
+      mrpack_version_id: null,
     };
     const onSwitchInstance = vi.fn();
     const { getByText, getByTestId, getAllByTestId } = render(MainTabs, {

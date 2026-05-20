@@ -17,6 +17,7 @@ const baseInst = {
   mrpack_project_id: null,
   mrpack_source: null,
   mrpack_summary: null,
+  mrpack_version_id: null,
 };
 
 describe('ImportedCard', () => {

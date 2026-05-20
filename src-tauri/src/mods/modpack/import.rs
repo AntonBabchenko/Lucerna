@@ -110,6 +110,107 @@ pub fn compute_status(
     }
 }
 
+/// Diff a new pack version's `files[]` against the installed
+/// `pack_origin`. Only URL-bearing entries are considered on both sides
+/// — `overrides/`-bundled entries (empty `url`) are excluded; a normal
+/// update never touches `overrides/`. Files are matched by `project_id`;
+/// equal SHA-1 = unchanged, different = updated, unmatched = added/removed.
+/// Pure — unit-tested independently.
+pub fn compute_update_diff(
+    new_summary: &crate::mods::modpack::schema::ModpackSummary,
+    current_origin: &PackOrigin,
+    instance_mc_version: &str,
+    instance_loader: crate::mods::platform::LoaderKind,
+    instance_loader_version: &Option<String>,
+) -> crate::mods::modpack::schema::ModpackUpdateDiff {
+    use crate::mods::modpack::schema::{ModpackUpdateDiff, ModpackUpdateEntry, ModpackVersionBump};
+    use std::collections::HashMap;
+
+    let old_by_project: HashMap<&str, &PackOriginFile> = current_origin
+        .files
+        .iter()
+        .filter(|f| !f.url.is_empty())
+        .map(|f| (f.project_id.as_str(), f))
+        .collect();
+    let new_by_project: HashMap<&str, &ModpackFile> = new_summary
+        .files
+        .iter()
+        .filter(|f| !f.url.is_empty())
+        .map(|f| (f.project_id.as_str(), f))
+        .collect();
+
+    let mut added = vec![];
+    let mut updated = vec![];
+    for (pid, nf) in &new_by_project {
+        match old_by_project.get(pid) {
+            None => added.push((*nf).clone()),
+            Some(of) => {
+                if !of.sha1.eq_ignore_ascii_case(&nf.sha1) {
+                    updated.push(ModpackUpdateEntry {
+                        old: (*of).clone(),
+                        new: (*nf).clone(),
+                    });
+                }
+            }
+        }
+    }
+    let removed: Vec<PackOriginFile> = old_by_project
+        .iter()
+        .filter(|(pid, _)| !new_by_project.contains_key(*pid))
+        .map(|(_, of)| (*of).clone())
+        .collect();
+
+    let version_bump = if new_summary.game_version != instance_mc_version
+        || new_summary.loader != instance_loader
+        || &new_summary.loader_version != instance_loader_version
+    {
+        Some(ModpackVersionBump {
+            old_game_version: instance_mc_version.to_string(),
+            new_game_version: new_summary.game_version.clone(),
+            old_loader_version: instance_loader_version.clone(),
+            new_loader_version: new_summary.loader_version.clone(),
+        })
+    } else {
+        None
+    };
+
+    ModpackUpdateDiff {
+        added,
+        removed,
+        updated,
+        version_bump,
+        new_version_number: new_summary.version.clone(),
+    }
+}
+
+/// Synthesise a `ModVersion` from a live `ModpackFile` so both the
+/// import orchestrator and the update orchestrator can feed it to
+/// `install_one`. Shared helper — extract once, use everywhere.
+pub fn modpack_file_to_mod_version(
+    file: &ModpackFile,
+    game_version: &str,
+    loader: crate::mods::platform::LoaderKind,
+) -> ModVersion {
+    ModVersion {
+        source: file.source,
+        project_id: file.project_id.clone(),
+        version_id: file.version_id.clone(),
+        name: file.name.clone(),
+        version_number: String::new(),
+        mc_versions: vec![game_version.to_string()],
+        loaders: vec![loader],
+        primary_file: ModFile {
+            filename: file.filename.clone(),
+            url: file.url.clone(),
+            sha1: Some(file.sha1.clone()),
+            size: file.size,
+            distribution_allowed: true,
+        },
+        deps: vec![],
+        published_at: None,
+    }
+}
+
 /// Synthesise a `ModVersion` from a frozen `PackOriginFile` so the
 /// restore path can reuse `install_one`. The pack-origin snapshot
 /// carries every field needed (sha, url, project_id, version_id,
@@ -174,6 +275,7 @@ pub async fn import(
     // Drag-drop imports pass `None` here and we auto-look-up below.
     hint_project_id: Option<String>,
     hint_source: Option<crate::mods::platform::ModSource>,
+    hint_version_id: Option<String>,
     // `Send + Sync` so the resulting future is `Send` — required by
     // the Tauri command boundary in `commands::modpack_import`. The
     // wrapped channel closure already satisfies these bounds.
@@ -249,6 +351,7 @@ pub async fn import(
         mrpack_project_id,
         mrpack_source,
         mrpack_summary,
+        hint_version_id,
     ).map_err(|e| Error::ModpackInstanceCreationFailed { details: e.to_string() })?;
 
     let instance_root = crate::paths::instance_dir(app, &inst.id)
@@ -268,24 +371,7 @@ pub async fn import(
             file_name: file.name.clone(),
         });
         let res = if file.install_path.starts_with("mods/") {
-            let mv = ModVersion {
-                source: file.source,
-                project_id: file.project_id.clone(),
-                version_id: file.version_id.clone(),
-                name: file.name.clone(),
-                version_number: String::new(),
-                mc_versions: vec![summary.game_version.clone()],
-                loaders: vec![summary.loader],
-                primary_file: ModFile {
-                    filename: file.filename.clone(),
-                    url: file.url.clone(),
-                    sha1: Some(file.sha1.clone()),
-                    size: file.size,
-                    distribution_allowed: true,
-                },
-                deps: vec![],
-                published_at: None,
-            };
+            let mv = modpack_file_to_mod_version(file, &summary.game_version, summary.loader);
             install_one(&data_dir, &instance_root, mv, &install_progress)
                 .await
                 .map(|_| ())
@@ -664,6 +750,93 @@ mod tests {
         assert!(v.primary_file.distribution_allowed); // see synthesis comment
         assert_eq!(v.mc_versions, vec!["1.20.1"]);
         assert_eq!(v.loaders, vec![crate::mods::platform::LoaderKind::Fabric]);
+    }
+
+    fn mp_file(project: &str, sha: &str) -> ModpackFile {
+        ModpackFile {
+            project_id: project.into(),
+            version_id: format!("v-{sha}"),
+            name: format!("Mod {project}"),
+            filename: format!("{project}.jar"),
+            install_path: format!("mods/{project}.jar"),
+            sha1: sha.into(),
+            url: format!("https://cdn.modrinth.com/data/{project}/x/{project}.jar"),
+            size: 1.0,
+            env_client: EnvSupport::Required,
+            source: ModSource::Modrinth,
+        }
+    }
+
+    fn origin_with(files: Vec<PackOriginFile>) -> PackOrigin {
+        PackOrigin {
+            project_id: Some("PACK".into()),
+            source: ModSource::Modrinth,
+            project_name: "P".into(),
+            version: "1.0".into(),
+            files,
+        }
+    }
+
+    #[test]
+    fn diff_classifies_added_removed_updated_unchanged() {
+        let mut a_old = pack_file("aaa"); a_old.project_id = "A".into();
+        let mut b_old = pack_file("bbb"); b_old.project_id = "B".into();
+        let mut c_old = pack_file("ccc"); c_old.project_id = "C".into();
+        let origin = origin_with(vec![a_old, b_old, c_old]);
+        let new_files = vec![
+            mp_file("A", "aaa"),
+            mp_file("B", "bbb-2"),
+            mp_file("D", "ddd"),
+        ];
+        let summary = ModpackSummary { files: new_files, ..sample_summary(ModpackFormat::Modrinth) };
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+            &Some("0.15.7".into()),
+        );
+        assert_eq!(diff.added.len(), 1);
+        assert_eq!(diff.added[0].project_id, "D");
+        assert_eq!(diff.removed.len(), 1);
+        assert_eq!(diff.removed[0].project_id, "C");
+        assert_eq!(diff.updated.len(), 1);
+        assert_eq!(diff.updated[0].new.project_id, "B");
+        assert!(diff.version_bump.is_none());
+    }
+
+    #[test]
+    fn diff_excludes_bundled_no_url_entries() {
+        let mut bundled = pack_file("bun");
+        bundled.project_id = String::new();
+        bundled.url = String::new();
+        let origin = origin_with(vec![bundled]);
+        let summary = ModpackSummary { files: vec![], ..sample_summary(ModpackFormat::Modrinth) };
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+            &Some("0.15.7".into()),
+        );
+        assert!(diff.removed.is_empty(), "bundled entry must not be in removed");
+    }
+
+    #[test]
+    fn diff_detects_version_bump() {
+        let origin = origin_with(vec![]);
+        let mut summary = ModpackSummary { files: vec![], ..sample_summary(ModpackFormat::Modrinth) };
+        summary.game_version = "1.20.4".into();
+        let diff = compute_update_diff(
+            &summary,
+            &origin,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+            &Some("0.15.7".into()),
+        );
+        let bump = diff.version_bump.expect("expected a version bump");
+        assert_eq!(bump.old_game_version, "1.20.1");
+        assert_eq!(bump.new_game_version, "1.20.4");
     }
 
     #[test]

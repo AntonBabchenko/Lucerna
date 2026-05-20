@@ -75,6 +75,7 @@ mod tests {
             mrpack_project_id: None,
             mrpack_source: None,
             mrpack_summary: None,
+            mrpack_version_id: None,
         }
     }
 

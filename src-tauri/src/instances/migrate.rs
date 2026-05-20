@@ -82,6 +82,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         mrpack_project_id: None,
         mrpack_source: None,
         mrpack_summary: None,
+        mrpack_version_id: None,
     };
     write_instance_json(
         &instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?,

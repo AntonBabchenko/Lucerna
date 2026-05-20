@@ -343,6 +343,7 @@ pub fn create_instance(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -880,6 +881,7 @@ pub async fn modpack_import(
     // orchestrator auto-looks-up.
     hint_project_id: Option<String>,
     hint_source: Option<crate::mods::platform::ModSource>,
+    hint_version_id: Option<String>,
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
@@ -905,6 +907,7 @@ pub async fn modpack_import(
         "https://api.curseforge.com",
         hint_project_id,
         hint_source,
+        hint_version_id,
         &|p| {
             let _ = on_progress.send(p);
         },
@@ -1189,6 +1192,238 @@ pub async fn modpack_get_versions(
     fetch_modpack_versions("https://api.modrinth.com", &project_id).await
 }
 
+/// Pick the most-recently-published version, or `None` if the list is
+/// empty or its newest entry's opaque Modrinth `id` already equals
+/// `current_id`. Pure — split out so it is unit-testable.
+pub(crate) fn latest_newer(
+    mut versions: Vec<crate::mods::modpack::schema::ModpackVersionEntry>,
+    current_id: &str,
+) -> Option<crate::mods::modpack::schema::ModpackVersionEntry> {
+    versions.sort_by(|a, b| b.date_published.cmp(&a.date_published));
+    let latest = versions.into_iter().next()?;
+    if latest.id == current_id {
+        None
+    } else {
+        Some(latest)
+    }
+}
+
+/// Check whether a newer version of an imported Modrinth modpack exists.
+/// Returns `None` for non-Modrinth pack instances and when the instance
+/// already has the latest version.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_check_update(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Option<crate::mods::modpack::schema::ModpackVersionEntry>> {
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let (project_id, current_id) = match (
+        inst.mrpack_source,
+        inst.mrpack_project_id.as_deref(),
+        inst.mrpack_version_id.as_deref(),
+    ) {
+        (Some(crate::mods::platform::ModSource::Modrinth), Some(pid), Some(vid)) => {
+            (pid.to_string(), vid.to_string())
+        }
+        _ => return Ok(None),
+    };
+    let versions = fetch_modpack_versions("https://api.modrinth.com", &project_id).await?;
+    Ok(latest_newer(versions, &current_id))
+}
+
+/// Diff a downloaded new-version `.mrpack` (already fetched to
+/// `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
+/// current `pack_origin`. Returns the diff for the confirm dialog.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_compute_update(
+    app: tauri::AppHandle,
+    instance_id: String,
+    mrpack_path: String,
+) -> crate::error::Result<crate::mods::modpack::schema::ModpackUpdateDiff> {
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let origin = crate::mods::installed::get_pack_origin(&inst_root)
+        .await?
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        })?;
+    let bytes = tokio::fs::read(&mrpack_path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: mrpack_path.clone(),
+            details: e.to_string(),
+        })?;
+    let summary = crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    Ok(crate::mods::modpack::import::compute_update_diff(
+        &summary,
+        &origin,
+        &inst.mc_version,
+        inst.loader,
+        &inst.loader_version,
+    ))
+}
+
+/// Apply a modpack update in place. Phase 1 downloads every new/changed
+/// file into the shared cache (the instance is NOT touched — a failure
+/// here aborts cleanly). Phase 2 removes the old files, installs the new
+/// ones from the warm cache, and rewrites `pack_origin` + the instance's
+/// version metadata. `overrides/`-bundled content is not touched.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_apply_update(
+    app: tauri::AppHandle,
+    instance_id: String,
+    mrpack_path: String,
+    new_version_id: String,
+    on_progress: Channel<ModpackProgress>,
+    on_install_progress: Channel<crate::mods::install::ProgressTick>,
+) -> crate::error::Result<crate::instances::schema::InstanceWithStatus> {
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+    let origin = crate::mods::installed::get_pack_origin(&inst_root)
+        .await?
+        .ok_or_else(|| crate::error::Error::ModsNotFound { platform: "pack_origin".into() })?;
+    let bytes = tokio::fs::read(&mrpack_path).await.map_err(|e| crate::error::Error::Io {
+        path: mrpack_path.clone(),
+        details: e.to_string(),
+    })?;
+    let summary = crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    let diff = crate::mods::modpack::import::compute_update_diff(
+        &summary, &origin, &inst.mc_version, inst.loader, &inst.loader_version,
+    );
+
+    let install_progress: crate::mods::install::ProgressFn = {
+        let ch = on_install_progress.clone();
+        Box::new(move |phase, current, total| {
+            let _ = ch.send(crate::mods::install::ProgressTick {
+                phase,
+                current: current as f64,
+                total: total.map(|t| t as f64),
+            });
+        })
+    };
+
+    // ---- Phase 1: download every new/changed file into the cache. ----
+    let to_fetch: Vec<&crate::mods::modpack::schema::ModpackFile> = diff
+        .added
+        .iter()
+        .chain(diff.updated.iter().map(|e| &e.new))
+        .collect();
+    let total = to_fetch.len() as u32;
+    for (idx, f) in to_fetch.iter().enumerate() {
+        let _ = on_progress.send(ModpackProgress::InstallingFile {
+            current: idx as u32 + 1,
+            total,
+            file_name: f.name.clone(),
+        });
+        crate::mods::install::fetch_to_cache(
+            &dd, &f.url, &f.sha1.to_ascii_lowercase(), f.size, "modpacks", &install_progress,
+        )
+        .await?;
+    }
+
+    // ---- Phase 2: apply locally (cache is warm). ----
+    for f in diff.removed.iter().chain(diff.updated.iter().map(|e| &e.old)) {
+        remove_pack_file(&inst_root, f).await?;
+    }
+    for f in diff.added.iter().chain(diff.updated.iter().map(|e| &e.new)) {
+        if f.install_path.starts_with("mods/") {
+            let mv = crate::mods::modpack::import::modpack_file_to_mod_version(
+                f, &summary.game_version, summary.loader,
+            );
+            crate::mods::install::install_one(&dd, &inst_root, mv, &install_progress).await?;
+        } else {
+            crate::mods::install::install_asset(
+                &dd, &inst_root, &f.url, &f.sha1, f.size, &f.install_path, &install_progress,
+            )
+            .await?;
+        }
+    }
+
+    // Rewrite pack_origin: new files[] entries + carried-over bundled.
+    let bundled: Vec<crate::mods::installed::PackOriginFile> =
+        origin.files.iter().filter(|f| f.url.is_empty()).cloned().collect();
+    let selected: Vec<&crate::mods::modpack::schema::ModpackFile> =
+        summary.files.iter().filter(|f| !f.url.is_empty()).collect();
+    let mut new_origin = crate::mods::modpack::import::build_pack_origin(
+        &summary, &selected, origin.project_id.clone(),
+    );
+    new_origin.files.extend(bundled);
+    crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;
+
+    let updated_inst = crate::instances::set_instance_pack_update(
+        &app,
+        &instance_id,
+        summary.version.clone(),
+        summary.game_version.clone(),
+        summary.loader,
+        summary.loader_version.clone(),
+        new_version_id,
+    )?;
+    let _ = on_progress.send(ModpackProgress::Done { instance_id: instance_id.clone() });
+    Ok(updated_inst)
+}
+
+/// Re-fetch the instance's current modpack version and re-extract its
+/// `overrides/` — recovers bundled mods/files that a per-file Restore
+/// cannot. Modrinth pack instances only.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_reimport_overrides(
+    app: tauri::AppHandle,
+    instance_id: String,
+    on_progress: Channel<ModpackProgress>,
+) -> crate::error::Result<()> {
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let (project_id, version_id) = match (
+        inst.mrpack_source,
+        inst.mrpack_project_id.as_deref(),
+        inst.mrpack_version_id.as_deref(),
+    ) {
+        (Some(crate::mods::platform::ModSource::Modrinth), Some(pid), Some(vid)) => {
+            (pid.to_string(), vid.to_string())
+        }
+        _ => return Err(crate::error::Error::ModsNotFound { platform: "modrinth".into() }),
+    };
+
+    let temp_path = modpack_fetch_to_temp(app.clone(), project_id, version_id).await?;
+    let bytes = tokio::fs::read(&temp_path).await.map_err(|e| crate::error::Error::Io {
+        path: temp_path.clone(),
+        details: e.to_string(),
+    })?;
+    crate::mods::modpack::overrides::extract(&bytes, &inst_root, |c, t| {
+        let _ = on_progress.send(ModpackProgress::ExtractingOverrides { current: c, total: t });
+    })
+    .await?;
+    let _ = on_progress.send(ModpackProgress::Done { instance_id: instance_id.clone() });
+    Ok(())
+}
+
+/// Remove one pack-origin file from an instance: a `mods/` jar via the
+/// mod registry, anything else by deleting the file at `install_path`.
+async fn remove_pack_file(
+    inst_root: &std::path::Path,
+    f: &crate::mods::installed::PackOriginFile,
+) -> crate::error::Result<()> {
+    if f.install_path.starts_with("mods/") {
+        crate::mods::installed::remove(inst_root, &f.sha1).await?;
+        let jar = crate::mods::installed::mods_dir(inst_root).join(&f.filename);
+        if tokio::fs::try_exists(&jar).await.unwrap_or(false) {
+            let _ = tokio::fs::remove_file(&jar).await;
+        }
+    } else {
+        let p = inst_root.join(".minecraft").join(&f.install_path);
+        if tokio::fs::try_exists(&p).await.unwrap_or(false) {
+            let _ = tokio::fs::remove_file(&p).await;
+        }
+    }
+    Ok(())
+}
+
 // Onboarding (v0.5.0 sub-feature 5):
 
 /// Read the persisted app-level settings (currently: onboarding state).
@@ -1338,5 +1573,40 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, crate::error::Error::ModsNotFound { .. }), "got: {err:?}");
+    }
+
+    fn ver(num: &str, date: &str) -> crate::mods::modpack::schema::ModpackVersionEntry {
+        crate::mods::modpack::schema::ModpackVersionEntry {
+            id: format!("id-{num}"),
+            name: num.into(),
+            version_number: num.into(),
+            game_versions: vec!["1.20.1".into()],
+            loaders: vec!["fabric".into()],
+            date_published: date.into(),
+        }
+    }
+
+    #[test]
+    fn latest_newer_picks_newest_when_different() {
+        let list = vec![
+            ver("1.0", "2026-01-01T00:00:00Z"),
+            ver("1.2", "2026-03-01T00:00:00Z"),
+            ver("1.1", "2026-02-01T00:00:00Z"),
+        ];
+        // current id is "id-1.0"; newest by date is "1.2" → id "id-1.2"
+        let r = crate::commands::latest_newer(list, "id-1.0");
+        assert_eq!(r.map(|v| v.id), Some("id-1.2".to_string()));
+    }
+
+    #[test]
+    fn latest_newer_none_when_already_latest() {
+        let list = vec![ver("1.2", "2026-03-01T00:00:00Z"), ver("1.0", "2026-01-01T00:00:00Z")];
+        // current id IS the newest → no update
+        assert!(crate::commands::latest_newer(list, "id-1.2").is_none());
+    }
+
+    #[test]
+    fn latest_newer_none_for_empty_list() {
+        assert!(crate::commands::latest_newer(vec![], "id-1.0").is_none());
     }
 }

@@ -137,6 +137,38 @@ pub struct ModpackStatus {
     pub is_modified: bool,
 }
 
+/// A mod/asset present in both the installed pack and the new version
+/// but at a different SHA-1 — i.e. the pack bumped this file's version.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ModpackUpdateEntry {
+    pub old: PackOriginFile,
+    pub new: ModpackFile,
+}
+
+/// A Minecraft / loader version change between the installed pack and
+/// the new version.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ModpackVersionBump {
+    pub old_game_version: String,
+    pub new_game_version: String,
+    pub old_loader_version: Option<String>,
+    pub new_loader_version: Option<String>,
+}
+
+/// The result of diffing a new pack version against the installed
+/// `pack_origin`. `added` / `updated` carry the new files to install;
+/// `removed` carries the old files to delete. Bundled (`overrides/`,
+/// empty-`url`) entries are excluded — a normal update never touches
+/// `overrides/`.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ModpackUpdateDiff {
+    pub added: Vec<ModpackFile>,
+    pub removed: Vec<PackOriginFile>,
+    pub updated: Vec<ModpackUpdateEntry>,
+    pub version_bump: Option<ModpackVersionBump>,
+    pub new_version_number: String,
+}
+
 /// One entry in a modpack project's version list, as shown in the
 /// modpack version drawer. Mirrors the subset of the Modrinth
 /// `/v2/project/<id>/version` response the UI consumes.

@@ -39,7 +39,13 @@
     onListChanged?: () => void;
   } = $props();
 
-  let drawerInst = $state<InstanceWithStatus | null>(null);
+  let drawerInstId = $state<string | null>(null);
+  // Derive the drawer's instance from the live `instances` prop (not a
+  // snapshot) so a post-update / post-restore refresh of the list
+  // flows into the open drawer's header.
+  const drawerInst = $derived(
+    drawerInstId == null ? null : (instances.find((i) => i.id === drawerInstId) ?? null),
+  );
 
   let query = $state('');
   let mcFilter = $state('');
@@ -164,7 +170,7 @@
       {#each packs as inst (inst.id)}
         <ImportedCard
           {inst}
-          onClick={() => (drawerInst = inst)}
+          onClick={() => (drawerInstId = inst.id)}
           isModified={statusMap.get(inst.id)?.is_modified ?? false}
         />
       {/each}
@@ -175,14 +181,15 @@
 {#if drawerInst}
   <ImportedDetailDrawer
     inst={drawerInst}
-    onClose={() => (drawerInst = null)}
+    onClose={() => (drawerInstId = null)}
     onOpenInstance={(id) => {
-      drawerInst = null;
+      drawerInstId = null;
       onPick(id);
     }}
     onDeleted={() => {
-      drawerInst = null;
+      drawerInstId = null;
       onListChanged?.();
     }}
+    onUpdated={() => onListChanged?.()}
   />
 {/if}
