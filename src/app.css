@@ -7,3 +7,17 @@ body {
   height: 100%;
   margin: 0;
 }
+
+/* While the onboarding tour is active, disable interaction with the
+   underlying UI. `pointer-events` is an inherited property, so the
+   correct pattern is to disable it on <body> and re-enable it on
+   `.tour-overlay` — the popover and its buttons inherit `auto` from
+   there. A `:not()`-based rule that merely excludes `.tour-overlay`
+   from the match does NOT work: it still sets `none` on every
+   ANCESTOR element of `.tour-overlay`, which then inherits `none`. */
+body[data-tour-active] {
+  pointer-events: none;
+}
+body[data-tour-active] .tour-overlay {
+  pointer-events: auto;
+}

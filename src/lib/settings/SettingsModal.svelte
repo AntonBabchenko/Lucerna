@@ -12,6 +12,7 @@
   // shell only routes between them.
   import AboutPanel from './AboutPanel.svelte';
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
+  import GeneralPanel from './GeneralPanel.svelte';
   import StoragePanel from './StoragePanel.svelte';
   import { settingsOpen, type SettingsTab } from './state.svelte';
 
@@ -98,14 +99,28 @@
         >
           About
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === 'general'}
+          class="px-3 py-1 text-sm rounded -mb-px"
+          class:font-medium={active === 'general'}
+          class:border-b-2={active === 'general'}
+          class:border-blue-600={active === 'general'}
+          onclick={() => (active = 'general')}
+        >
+          General
+        </button>
       </div>
       <div class="p-4">
         {#if active === 'curseforge'}
           <CurseForgeKeyForm />
         {:else if active === 'storage'}
           <StoragePanel />
-        {:else}
+        {:else if active === 'about'}
           <AboutPanel />
+        {:else}
+          <GeneralPanel />
         {/if}
       </div>
     </div>

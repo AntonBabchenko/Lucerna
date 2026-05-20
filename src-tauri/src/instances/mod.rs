@@ -10,7 +10,7 @@ pub mod store;
 
 use crate::error::{Error, Result};
 use crate::paths;
-use schema::{AppFile, InstanceFile, InstanceWithStatus, LoaderKind};
+use schema::{InstanceFile, InstanceWithStatus, LoaderKind};
 use std::time::SystemTime;
 
 /// All instances on disk, each with a precomputed `ready` boolean.
@@ -41,7 +41,7 @@ pub fn get_active_instance(app: &tauri::AppHandle) -> Result<Option<InstanceWith
         return Ok(None);
     }
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    let app_state = store::read_app_json(&app_file_path)?;
+    let mut app_state = store::read_app_json(&app_file_path)?;
     if let Some(active_id) = &app_state.active_instance {
         if let Some(found) = all.iter().find(|i| &i.id == active_id) {
             return Ok(Some(found.clone()));
@@ -49,13 +49,8 @@ pub fn get_active_instance(app: &tauri::AppHandle) -> Result<Option<InstanceWith
         // Stale pointer — auto-repair by picking the oldest.
     }
     let pick = all[0].clone();
-    store::write_app_json(
-        &app_file_path,
-        &AppFile {
-            version: 1,
-            active_instance: Some(pick.id.clone()),
-        },
-    )?;
+    app_state.active_instance = Some(pick.id.clone());
+    store::write_app_json(&app_file_path, &app_state)?;
     Ok(Some(pick))
 }
 
@@ -67,13 +62,9 @@ pub fn set_active_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
         return Err(Error::InstanceNotFound { id: id.to_string() });
     }
     let app_file_path = paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?;
-    store::write_app_json(
-        &app_file_path,
-        &AppFile {
-            version: 1,
-            active_instance: Some(id.to_string()),
-        },
-    )
+    let mut current = store::read_app_json(&app_file_path)?;
+    current.active_instance = Some(id.to_string());
+    store::write_app_json(&app_file_path, &current)
 }
 
 /// Create `<instance>/.minecraft/` if missing, then open it in the OS

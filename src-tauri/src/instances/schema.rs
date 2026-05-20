@@ -5,9 +5,10 @@
 //! flattened + a precomputed `ready` boolean (so the dropdown doesn't make
 //! N filesystem checks per render).
 //!
-//! `AppFile` lives at `<app_data_dir>/app.json`. Currently just holds the
-//! active-instance pointer; future work (Simple Mode toggle, UI prefs) can
-//! extend it without touching `account.json` or each `instance.json`.
+//! `AppFile` lives at `<app_data_dir>/app.json`. Holds the active-instance
+//! pointer and onboarding state. Extend here for further app-level prefs
+//! (Simple Mode toggle, UI prefs) without touching `account.json` or each
+//! `instance.json`.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -58,10 +59,13 @@ pub struct InstanceFile {
     pub mrpack_summary: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct AppFile {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_instance: Option<String>,
+    #[serde(default)]
+    pub onboarding: OnboardingState,
 }
 
 impl Default for AppFile {
@@ -69,8 +73,15 @@ impl Default for AppFile {
         Self {
             version: 1,
             active_instance: None,
+            onboarding: OnboardingState::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
+pub struct OnboardingState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tour_completed_version: Option<String>,
 }
 
 /// What the UI sees per row in the instance dropdown.

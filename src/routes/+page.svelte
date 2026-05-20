@@ -15,6 +15,8 @@
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
+  import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
+  import { initOnboarding } from '$lib/onboarding/state.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
@@ -153,6 +155,8 @@
     } else {
       versionsError = formatError(versionsResult.error);
     }
+
+    void initOnboarding();
   });
 
   async function onSelectAccount(id: string) {
@@ -531,4 +535,5 @@
   />
 
   <SettingsModal />
+  <TourOverlay />
 </main>

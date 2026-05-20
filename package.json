@@ -16,6 +16,7 @@
     "lint:no-network": "node tools/check-no-network-calls.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "node tests-e2e/tour-pointer-events.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
     "@types/node": "^25.6.2",
     "autoprefixer": "^10.5.0",
     "happy-dom": "^20.9.0",
+    "playwright": "^1.60.0",
     "postcss": "^8.5.14",
     "prettier": "^3.8.3",
     "prettier-plugin-svelte": "^3.5.2",

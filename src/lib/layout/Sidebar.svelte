@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
 
   let {
@@ -127,7 +128,10 @@
   </div>
 
   <div class="flex flex-col gap-1">
-    <div class="text-xs uppercase tracking-wide text-neutral-500">Instance</div>
+    <div class="text-xs uppercase tracking-wide text-neutral-500 flex items-center gap-1">
+      <span>Instance</span>
+      <InstanceConceptTooltip />
+    </div>
     {#if instances.length === 0}
       <p class="text-xs text-neutral-500">No instances yet.</p>
       <button
@@ -139,6 +143,7 @@
       </button>
     {:else}
       <select
+        data-tour="instance-picker"
         class="border rounded px-2 py-1 text-sm"
         value={activeInstance?.id ?? ''}
         onchange={(e) => onSelectInstance((e.currentTarget as HTMLSelectElement).value)}
@@ -154,6 +159,7 @@
       <div class="flex gap-1">
         <button
           type="button"
+          data-tour="manage-btn"
           class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
           onclick={onOpenManage}
         >
@@ -172,6 +178,7 @@
         {#if running}
           <button
             type="button"
+            data-tour="play-btn"
             class="bg-red-600 hover:bg-red-700 text-white rounded px-3 py-2 text-sm font-semibold"
             onclick={onStop}
           >
@@ -180,6 +187,7 @@
         {:else if activeInstance.mc_version === ''}
           <button
             type="button"
+            data-tour="play-btn"
             class="bg-neutral-300 text-neutral-600 rounded px-3 py-2 text-sm font-semibold cursor-not-allowed"
             disabled
             title="Pick a Minecraft version first"
@@ -189,6 +197,7 @@
         {:else if installing}
           <button
             type="button"
+            data-tour="play-btn"
             class="bg-blue-400 text-white rounded px-3 py-2 text-sm font-semibold cursor-not-allowed"
             disabled
           >
@@ -197,6 +206,7 @@
         {:else if !activeInstance.ready}
           <button
             type="button"
+            data-tour="play-btn"
             class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-semibold"
             onclick={onInstall}
           >
@@ -205,6 +215,7 @@
         {:else}
           <button
             type="button"
+            data-tour="play-btn"
             class="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-2 text-sm font-semibold"
             onclick={onPlay}
           >

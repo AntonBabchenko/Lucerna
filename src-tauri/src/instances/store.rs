@@ -144,9 +144,80 @@ mod tests {
         let value = AppFile {
             version: 1,
             active_instance: Some("3f4a-bbbb".into()),
+            ..AppFile::default()
         };
         write_app_json(&path, &value).unwrap();
         let back = read_app_json(&path).unwrap();
         assert_eq!(value, back);
+    }
+
+    #[test]
+    fn write_then_read_app_with_onboarding_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        let value = AppFile {
+            version: 1,
+            active_instance: Some("3f4a-bbbb".into()),
+            onboarding: crate::instances::schema::OnboardingState {
+                tour_completed_version: Some("0.5.0".into()),
+            },
+        };
+        write_app_json(&path, &value).unwrap();
+        let back = read_app_json(&path).unwrap();
+        assert_eq!(value, back);
+    }
+
+    #[test]
+    fn read_legacy_app_json_without_onboarding_yields_default() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        // Legacy format: only version + active_instance, no onboarding key.
+        std::fs::write(
+            &path,
+            r#"{"version":1,"active_instance":"3f4a-bbbb"}"#,
+        ).unwrap();
+        let back = read_app_json(&path).unwrap();
+        assert_eq!(back.onboarding.tour_completed_version, None);
+    }
+
+    #[test]
+    fn write_default_onboarding_omits_key_or_writes_none() {
+        // Either skip_serializing_if=None or writing `null` is acceptable.
+        // This test just ensures roundtrip is clean and the deserialised
+        // value is None.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        let value = AppFile::default();
+        write_app_json(&path, &value).unwrap();
+        let back = read_app_json(&path).unwrap();
+        assert_eq!(back.onboarding.tour_completed_version, None);
+    }
+
+    #[test]
+    fn set_active_instance_preserves_onboarding_state() {
+        // Regression for the wipe bug found in code-quality review of
+        // Task 2. The fix is in instances::mod.rs and instances::migrate.rs
+        // (read-modify-write). This test exercises the round-trip directly
+        // via read/write to avoid bringing the AppHandle into the unit
+        // test surface.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        // Seed: user completed the tour and has an active instance.
+        let initial = AppFile {
+            version: 1,
+            active_instance: Some("old-instance".into()),
+            onboarding: crate::instances::schema::OnboardingState {
+                tour_completed_version: Some("0.5.0".into()),
+            },
+        };
+        write_app_json(&path, &initial).unwrap();
+        // Simulate set_active_instance's read-modify-write.
+        let mut current = read_app_json(&path).unwrap();
+        current.active_instance = Some("new-instance".into());
+        write_app_json(&path, &current).unwrap();
+        // Verify tour_completed_version survived.
+        let back = read_app_json(&path).unwrap();
+        assert_eq!(back.active_instance, Some("new-instance".into()));
+        assert_eq!(back.onboarding.tour_completed_version, Some("0.5.0".into()));
     }
 }

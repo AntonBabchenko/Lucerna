@@ -16,7 +16,7 @@
 
 use crate::error::{Error, Result};
 use crate::instances::ids::new_id;
-use crate::instances::schema::{AppFile, InstanceFile, LoaderKind};
+use crate::instances::schema::{AppFile, InstanceFile, LoaderKind, OnboardingState};
 use crate::instances::store::{read_app_json, write_app_json, write_instance_json};
 use crate::paths::{app_dir, app_file, instance_json};
 use std::path::Path;
@@ -33,17 +33,12 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         // Even if app.json exists, repair `active_instance` if it points at
         // nothing on disk. This is also done lazily by `get_active_instance`,
         // but doing it here keeps the launcher consistent on startup.
-        if let Ok(existing) = read_app_json(&app_file_path) {
-            if let Some(active) = &existing.active_instance {
-                let p = app_root.join("instances").join(active).join("instance.json");
+        if let Ok(mut existing) = read_app_json(&app_file_path) {
+            if let Some(active) = existing.active_instance.clone() {
+                let p = app_root.join("instances").join(&active).join("instance.json");
                 if !p.exists() {
-                    let _ = write_app_json(
-                        &app_file_path,
-                        &AppFile {
-                            version: 1,
-                            active_instance: None,
-                        },
-                    );
+                    existing.active_instance = None;
+                    let _ = write_app_json(&app_file_path, &existing);
                 }
             }
         }
@@ -97,6 +92,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         &AppFile {
             version: 1,
             active_instance: Some(id),
+            onboarding: OnboardingState::default(),
         },
     )?;
     Ok(())

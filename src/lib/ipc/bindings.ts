@@ -306,6 +306,19 @@ export const commands = {
 	 *  instance has no origin at all).
 	 */
 	modpackRestoreFile: (instanceId: string, sha1: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("modpack_restore_file", { instanceId, sha1 })),
+	/**
+	 *  Read the persisted app-level settings (currently: onboarding state).
+	 *  Returns `AppFile::default()` if `app.json` is missing — a fresh
+	 *  install has never written settings.
+	 */
+	appSettingsGet: () => typedError<AppFile_Serialize, Error>(__TAURI_INVOKE("app_settings_get")),
+	/**
+	 *  Persist that the user finished or skipped the onboarding tour on
+	 *  the given launcher version. Idempotent — overwrites whatever was
+	 *  there (replay-from-Settings does NOT call this; only finish / skip
+	 *  from the tour itself does).
+	 */
+	appSettingsMarkTourCompleted: (version: string) => typedError<null, Error>(__TAURI_INVOKE("app_settings_mark_tour_completed", { version })),
 };
 
 /** Events */
@@ -334,6 +347,20 @@ export type Account = {
 	uuid: string,
 	/**  Unix seconds. `None` for offline (never expires). */
 	expires_at: number | null,
+};
+
+export type AppFile = AppFile_Serialize | AppFile_Deserialize;
+
+export type AppFile_Deserialize = {
+	version: number,
+	active_instance?: string | null,
+	onboarding?: OnboardingState_Deserialize,
+};
+
+export type AppFile_Serialize = {
+	version: number,
+	active_instance?: string | null,
+	onboarding: OnboardingState_Serialize,
 };
 
 export type AuditEntry = {
@@ -675,6 +702,16 @@ export type ModpackUnresolvable = {
 };
 
 export type ModsAuthKind = "missing" | "invalid";
+
+export type OnboardingState = OnboardingState_Serialize | OnboardingState_Deserialize;
+
+export type OnboardingState_Deserialize = {
+	tour_completed_version?: string | null,
+};
+
+export type OnboardingState_Serialize = {
+	tour_completed_version?: string | null,
+};
 
 /**
  *  Snapshot of the mods the user selected at modpack-import time, kept

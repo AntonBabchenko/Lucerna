@@ -114,4 +114,12 @@ describe('MainTabs', () => {
     expect(overviewTab?.getAttribute('aria-selected')).toBe('true');
     expect(onSwitchInstance).toHaveBeenCalledWith('pack-1');
   });
+
+  it('Mod browser and Modpacks tab buttons carry data-tour attributes', () => {
+    const { getByText } = render(MainTabs, { props: {} });
+    const mods = getByText('Mod browser').closest('button');
+    const modpacks = getByText('Modpacks').closest('button');
+    expect(mods?.getAttribute('data-tour')).toBe('tab-mods');
+    expect(modpacks?.getAttribute('data-tour')).toBe('tab-modpacks');
+  });
 });

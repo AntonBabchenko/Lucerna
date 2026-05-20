@@ -57,6 +57,7 @@
     <button
       type="button"
       role="tab"
+      data-tour="tab-mods"
       aria-selected={active === 'mod_browser'}
       class="px-3 py-2 text-base border-b-2 -mb-px"
       class:border-blue-600={active === 'mod_browser'}
@@ -71,6 +72,7 @@
     <button
       type="button"
       role="tab"
+      data-tour="tab-modpacks"
       aria-selected={active === 'modpacks'}
       class="px-3 py-2 text-base border-b-2 -mb-px"
       class:border-blue-600={active === 'modpacks'}

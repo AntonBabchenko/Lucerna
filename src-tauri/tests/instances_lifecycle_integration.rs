@@ -67,6 +67,7 @@ fn create_set_active_set_version_set_memory_then_delete_roundtrip() {
         &AppFile {
             version: 1,
             active_instance: Some(id_b.clone()),
+            ..AppFile::default()
         },
     )
     .unwrap();
@@ -108,6 +109,7 @@ fn create_set_active_set_version_set_memory_then_delete_roundtrip() {
         &AppFile {
             version: 1,
             active_instance: new_active.clone(),
+            ..AppFile::default()
         },
     )
     .unwrap();
