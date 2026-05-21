@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
 
 // Task 14 wires the real ModBrowseView in (Browse branch makes IPC
@@ -14,6 +14,24 @@ vi.mock('$lib/ipc/bindings', () => ({
       .fn()
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsInspectLocal: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { loader_mismatch: false, mc_mismatch: false, detected_loader: null, detected_mc: null },
+    }),
+    modsInstallLocal: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        sha1: 's',
+        filename: 'a.jar',
+        name: 'A',
+        source: null,
+        project_id: null,
+        version_id: null,
+        version_number: null,
+        installed_at: '',
+        enabled: true,
+      },
+    }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -22,16 +40,20 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-// ModBrowserTab now mounts ModDropzone, which calls `getCurrentWebview()`
-// in `onMount` to register a drag-drop listener. happy-dom has no Tauri
-// runtime — stub it so the listener registration resolves cleanly.
-vi.mock('@tauri-apps/api/webview', () => ({
-  getCurrentWebview: () => ({
-    onDragDropEvent: (_cb: unknown) => Promise.resolve(() => {}),
-  }),
+// ModBrowserTab uses @tauri-apps/plugin-dialog for the "Install from file…"
+// button. Stub it so happy-dom doesn't crash.
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: vi.fn().mockResolvedValue([]),
 }));
 
+import { commands } from '$lib/ipc/bindings';
+
 describe('ModBrowserTab', () => {
+  afterEach(async () => {
+    const { droppedMods } = await import('$lib/settings/state.svelte');
+    droppedMods.value = null;
+  });
+
   it('defaults to the Browse view', () => {
     render(ModBrowserTab, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
@@ -63,5 +85,22 @@ describe('ModBrowserTab', () => {
       props: { instanceId: null, mcVersion: null, loader: null },
     });
     expect(screen.getByRole('tab', { name: 'Browse' })).toBeTruthy();
+  });
+
+  it('renders the FileDropzone affordance', () => {
+    render(ModBrowserTab, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    expect(screen.getByTestId('file-dropzone')).toBeTruthy();
+  });
+
+  it('installs jars handed to it via the droppedMods rune', async () => {
+    const { droppedMods } = await import('$lib/settings/state.svelte');
+    render(ModBrowserTab, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    droppedMods.value = ['/x/a.jar'];
+    await waitFor(() => {
+      expect(vi.mocked(commands.modsInstallLocal)).toHaveBeenCalledWith('i', '/x/a.jar');
+    });
+    expect(droppedMods.value).toBeNull();
   });
 });

@@ -34,3 +34,16 @@ export const modBrowserNav = $state<{ value: ModBrowserNav | null }>({ value: nu
 // resets the rune. Mirrors `modBrowserNav`.
 export type ModpacksNav = { openDrawerForInstance: string };
 export const modpacksNav = $state<{ value: ModpacksNav | null }>({ value: null });
+
+// Files dropped onto the Mods tab, routed here by MainTabs' single
+// window-level drag-drop listener. Absolute `.jar` paths. ModBrowserTab
+// consumes this and resets it to null. Mirrors `modBrowserNav`.
+export const droppedMods = $state<{ value: string[] | null }>({ value: null });
+// A modpack file (`.mrpack`/`.zip`) dropped onto the Modpacks tab,
+// routed here by MainTabs. ModpacksTab consumes this and resets it.
+export const droppedModpack = $state<{ value: string | null }>({ value: null });
+
+// True while an OS file-drag is hovering an accepting tab. MainTabs'
+// drag-drop listener sets it; FileDropzone reads it to show its drag
+// highlight.
+export const dragActive = $state<{ value: boolean }>({ value: false });

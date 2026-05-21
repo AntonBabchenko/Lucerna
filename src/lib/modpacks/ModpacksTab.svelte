@@ -10,13 +10,14 @@
     ModpackSummary,
     ProgressTick,
   } from '$lib/ipc/bindings';
-  import { modpacksNav } from '$lib/settings/state.svelte';
-  import ImportDropzone from './ImportDropzone.svelte';
+  import { open as openFile } from '@tauri-apps/plugin-dialog';
+  import { droppedModpack, modpacksNav } from '$lib/settings/state.svelte';
   import ImportPickerDialog from './ImportPickerDialog.svelte';
   import ImportProgressView from './ImportProgressView.svelte';
   import ImportedView from './ImportedView.svelte';
   import ModpackBrowseView from './ModpackBrowseView.svelte';
   import ModpackVersionDrawer from './ModpackVersionDrawer.svelte';
+  import FileDropzone from '$lib/mods/FileDropzone.svelte';
 
   // Top-level pane wired into MainTabs. Owns:
   //   • The Browse | Imported sub-tab shell (same lazy-mount + CSS-hide
@@ -63,6 +64,30 @@
     }
   });
 
+  // A modpack dropped on the Modpacks tab arrives via the droppedModpack
+  // rune (routed by MainTabs' single window-level drag-drop listener).
+  // Consume and reset immediately. A drag-drop import has no Browse-flow
+  // context, so clear any stale hints first.
+  $effect(() => {
+    const v = droppedModpack.value;
+    if (v !== null) {
+      droppedModpack.value = null;
+      resetHints();
+      void inspect(v);
+    }
+  });
+
+  async function importFromFile() {
+    const r = await openFile({
+      multiple: false,
+      filters: [{ name: 'Modpack', extensions: ['mrpack', 'zip'] }],
+    });
+    if (typeof r === 'string') {
+      resetHints();
+      void inspect(r);
+    }
+  }
+
   // Picker / progress / drawer state machine.
   let summary = $state<ModpackSummary | null>(null);
   let importing = $state(false);
@@ -95,7 +120,7 @@
       // without re-prompting the user.
       summary = { ...r.data, _path: path } as ModpackSummary & { _path: string };
     } else {
-      error = String(r.error);
+      error = formatError(r.error);
     }
   }
 
@@ -197,6 +222,13 @@
     </button>
   </div>
 
+  <div class="px-4 pt-3">
+    <FileDropzone
+      label="Drop a .mrpack or .zip here to import — or click to browse"
+      onClick={importFromFile}
+    />
+  </div>
+
   <div class="flex-1 overflow-y-auto">
     {#if error}
       <div class="m-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-900">
@@ -206,18 +238,6 @@
 
     {#if browseEverActive}
       <div class:hidden={activeSub !== 'browse'}>
-        <div class="p-4 pb-0">
-          <ImportDropzone
-            onPicked={(p) => {
-              // Drag-drop / file-picker imports have no Browse-flow
-              // context, so any leftover hints from a previously
-              // started-then-abandoned Browse import don't apply here.
-              resetHints();
-              void inspect(p);
-            }}
-            onError={(m) => (error = m)}
-          />
-        </div>
         <ModpackBrowseView onPickHit={(h) => (drawerHit = h)} />
       </div>
     {/if}

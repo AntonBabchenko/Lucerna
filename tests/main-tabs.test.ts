@@ -1,14 +1,15 @@
-import { fireEvent, render } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import MainTabs from '$lib/layout/MainTabs.svelte';
+import { commands } from '$lib/ipc/bindings';
 
 // Task 14 made the Mod browser tab mount the real ModBrowseView, which
 // fires modsGetCurseforgeKeyStatus + modsSearch on mount. Task 12 in
 // sub-4 populated the Modpacks tab with the real ModpacksTab, which on
-// activation runs modpackSearch (via ModpackBrowseView) and registers a
-// webview drag-drop listener (via ImportDropzone). Stub all of them so
-// the unrelated MainTabs assertions below don't trip on tauri-api
-// errors from those background calls.
+// activation runs modpackSearch (via ModpackBrowseView). Stub all of
+// them so the unrelated MainTabs assertions below don't trip on
+// tauri-api errors from those background calls.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
@@ -18,7 +19,22 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackSearch: vi
       .fn()
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, limit: 20 } }),
-    modpackInspect: vi.fn(),
+    modpackInspect: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        format: 'modrinth',
+        name: 'Test Pack',
+        version: '1.0',
+        game_version: '1.20.1',
+        loader: 'fabric',
+        loader_version: null,
+        files: [],
+        unresolvable: [],
+        has_overrides: false,
+        has_client_overrides: false,
+        has_saves_in_overrides: false,
+      },
+    }),
     modpackImport: vi.fn(),
     modpackFetchToTemp: vi.fn(),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -32,6 +48,11 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackRestoreFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsInspectLocal: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { detected_loader: null, detected_mc: null, detected_name: null, loader_mismatch: false, mc_mismatch: false },
+    }),
+    modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -39,8 +60,24 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
+// MainTabs registers one window-level drag-drop listener. The mock stores
+// the registered callback so tests can simulate OS drag-drop events.
+const dragDropHandlers = vi.hoisted(() => ({
+  cbs: [] as Array<(e: unknown) => void>,
+  fire(e: unknown) {
+    for (const cb of dragDropHandlers.cbs) cb(e);
+  },
+}));
 vi.mock('@tauri-apps/api/webview', () => ({
-  getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
+  getCurrentWebview: () => ({
+    onDragDropEvent: (cb: (e: unknown) => void) => {
+      dragDropHandlers.cbs.push(cb);
+      return Promise.resolve(() => {
+        const idx = dragDropHandlers.cbs.indexOf(cb);
+        if (idx !== -1) dragDropHandlers.cbs.splice(idx, 1);
+      });
+    },
+  }),
 }));
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: vi.fn(),
@@ -126,5 +163,106 @@ describe('MainTabs', () => {
     const modpacks = getByText('Modpacks').closest('button');
     expect(mods?.getAttribute('data-tour')).toBe('tab-mods');
     expect(modpacks?.getAttribute('data-tour')).toBe('tab-modpacks');
+  });
+});
+
+// Allow onMount + listener registration to complete before firing events.
+async function flushMount() {
+  await tick();
+  await new Promise((r) => setTimeout(r, 0));
+  await tick();
+}
+
+describe('MainTabs drag-drop routing', () => {
+  afterEach(async () => {
+    const s = await import('$lib/settings/state.svelte');
+    s.droppedMods.value = null;
+    s.droppedModpack.value = null;
+    s.dragActive.value = false;
+    dragDropHandlers.cbs.length = 0;
+  });
+
+  it('routes a .jar drop on the Mods tab to droppedMods', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/a.jar', '/x/readme.txt'] } });
+    // ModBrowserTab immediately consumes droppedMods and triggers the install
+    // flow, so by the time we check, the rune is already reset to null and
+    // modsInstallLocal has been (or is being) called.
+    await waitFor(() => {
+      expect(vi.mocked(commands.modsInstallLocal)).toHaveBeenCalledWith('i', '/x/a.jar');
+    });
+    const { droppedModpack } = await import('$lib/settings/state.svelte');
+    expect(droppedModpack.value).toBeNull();
+  });
+
+  it('routes a .mrpack drop on the Modpacks tab to droppedModpack', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Modpacks' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/pack.mrpack'] } });
+    // ModpacksTab immediately consumes droppedModpack and triggers
+    // modpackInspect, so by the time we check, the rune is already reset
+    // to null — same pattern as the .jar / modsInstallLocal test above.
+    await waitFor(() => {
+      expect(vi.mocked(commands.modpackInspect)).toHaveBeenCalledWith('/x/pack.mrpack');
+    });
+    const { droppedMods, droppedModpack } = await import('$lib/settings/state.svelte');
+    expect(droppedModpack.value).toBeNull();
+    expect(droppedMods.value).toBeNull();
+  });
+
+  it('routes a .zip drop on the Modpacks tab to droppedModpack', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Modpacks' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/curse-pack.zip'] } });
+    await waitFor(() => {
+      expect(vi.mocked(commands.modpackInspect)).toHaveBeenCalledWith('/x/curse-pack.zip');
+    });
+  });
+
+  it('ignores a drop on the Overview tab', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/a.jar'] } });
+    const { droppedMods, droppedModpack } = await import('$lib/settings/state.svelte');
+    expect(droppedMods.value).toBeNull();
+    expect(droppedModpack.value).toBeNull();
+  });
+
+  it('does not route a .jar when there is no installable instance', async () => {
+    render(MainTabs, { props: { instanceId: null, mcVersion: null, loader: null } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/a.jar'] } });
+    const { droppedMods } = await import('$lib/settings/state.svelte');
+    expect(droppedMods.value).toBeNull();
+  });
+
+  it('flips the dragActive rune on drag enter over the Mods tab and back on leave', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await flushMount();
+    const { dragActive } = await import('$lib/settings/state.svelte');
+    expect(dragActive.value).toBe(false);
+    dragDropHandlers.fire({ payload: { type: 'enter' } });
+    expect(dragActive.value).toBe(true);
+    dragDropHandlers.fire({ payload: { type: 'leave' } });
+    expect(dragActive.value).toBe(false);
+  });
+
+  it('leaves dragActive false on a drag over the Overview tab', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'enter' } });
+    const { dragActive } = await import('$lib/settings/state.svelte');
+    expect(dragActive.value).toBe(false);
   });
 });

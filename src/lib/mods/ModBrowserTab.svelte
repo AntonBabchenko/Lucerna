@@ -7,8 +7,11 @@
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import ModDropzone from './ModDropzone.svelte';
+  import { open as openFile } from '@tauri-apps/plugin-dialog';
+  import { droppedMods } from '$lib/settings/state.svelte';
+  import { canInstallMods } from './install-eligibility';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
+  import FileDropzone from './FileDropzone.svelte';
 
   type View = 'browse' | 'installed';
 
@@ -51,9 +54,31 @@
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
   } = $props();
 
-  // Drag-drop local-mod-install flow. `dropzoneDisabled` is true with no
-  // active instance or a vanilla instance (no loader — mods don't apply).
-  const dropzoneDisabled = $derived(instanceId === null || loader === 'vanilla' || loader === null);
+  // Local-mod install (the drag-drop droppedMods consumer + the "Install
+  // from file…" button) is available only for a selected, non-vanilla
+  // instance. Same rule as MainTabs' drag-drop router — shared via
+  // canInstallMods() so it is defined once.
+  const installDisabled = $derived(!canInstallMods(instanceId, loader));
+
+  // Files dropped on the Mods tab arrive via the droppedMods rune
+  // (routed by MainTabs). Consume and reset so a later action isn't
+  // re-triggered.
+  $effect(() => {
+    const v = droppedMods.value;
+    if (v !== null) {
+      droppedMods.value = null;
+      void onJarsPicked(v);
+    }
+  });
+
+  async function installFromFile() {
+    if (installDisabled) return;
+    const r = await openFile({
+      multiple: true,
+      filters: [{ name: 'Mod jar', extensions: ['jar'] }],
+    });
+    if (Array.isArray(r) && r.length > 0) await onJarsPicked(r);
+  }
 
   type PendingJar = { path: string; filename: string };
   type MismatchRow = { filename: string; reason: string };
@@ -138,17 +163,19 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="flex items-center justify-between px-3 py-2 border-b border-neutral-200 bg-white">
+  <!-- Sub-tab row. Underline style — matches the Modpacks tab's
+       Browse/Imported sub-tabs and the top-level tab row. -->
+  <div class="flex items-center justify-between px-3 border-b border-neutral-200 bg-white">
     <div role="tablist" class="flex gap-1">
       <button
         type="button"
         role="tab"
         aria-selected={view === 'browse'}
-        class="px-3 py-1 text-sm rounded"
-        class:bg-blue-50={view === 'browse'}
-        class:text-blue-700={view === 'browse'}
-        class:font-medium={view === 'browse'}
-        class:text-neutral-500={view !== 'browse'}
+        class="px-3 py-2 text-sm border-b-2 -mb-px"
+        class:border-blue-600={view === 'browse'}
+        class:font-semibold={view === 'browse'}
+        class:border-transparent={view !== 'browse'}
+        class:text-neutral-400={view !== 'browse'}
         onclick={() => (view = 'browse')}
       >
         Browse
@@ -157,11 +184,11 @@
         type="button"
         role="tab"
         aria-selected={view === 'installed'}
-        class="px-3 py-1 text-sm rounded"
-        class:bg-blue-50={view === 'installed'}
-        class:text-blue-700={view === 'installed'}
-        class:font-medium={view === 'installed'}
-        class:text-neutral-500={view !== 'installed'}
+        class="px-3 py-2 text-sm border-b-2 -mb-px"
+        class:border-blue-600={view === 'installed'}
+        class:font-semibold={view === 'installed'}
+        class:border-transparent={view !== 'installed'}
+        class:text-neutral-400={view !== 'installed'}
         onclick={() => (view = 'installed')}
       >
         Installed
@@ -170,12 +197,18 @@
     <SourcePicker bind:value={source} />
   </div>
 
+  <div class="px-3 pt-3">
+    <FileDropzone
+      label="Drop a mod .jar here to install — or click to browse"
+      disabled={installDisabled}
+      disabledLabel="Select a non-vanilla instance to install mods"
+      onClick={installFromFile}
+    />
+  </div>
+
   <div class="flex-1 overflow-y-auto relative">
     {#if browseMounted}
       <div class:hidden={view !== 'browse'}>
-        <div class="p-3 pb-0">
-          <ModDropzone disabled={dropzoneDisabled} onPicked={onJarsPicked} />
-        </div>
         <ModBrowseView {source} {instanceId} {mcVersion} {loader} />
       </div>
     {/if}

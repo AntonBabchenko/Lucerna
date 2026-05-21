@@ -1,9 +1,12 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
+  import { onMount } from 'svelte';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
-  import { modBrowserNav, modpacksNav } from '$lib/settings/state.svelte';
+  import { canInstallMods } from '$lib/mods/install-eligibility';
+  import { modBrowserNav, modpacksNav, droppedMods, droppedModpack, dragActive } from '$lib/settings/state.svelte';
 
   type Tab = 'overview' | 'mod_browser' | 'modpacks';
 
@@ -44,6 +47,43 @@
     if (modpacksNav.value !== null) {
       active = 'modpacks';
     }
+  });
+
+  // Whether the active instance can take mods (selected + non-vanilla).
+  // Shared with ModBrowserTab via canInstallMods() so the rule lives once.
+  const canInstall = $derived(canInstallMods(instanceId, loader));
+
+  // One window-level drag-drop listener for the whole app. Routes a drop
+  // by the active top-level tab: .jar → the Mods tab, .mrpack/.zip → the
+  // Modpacks tab, nothing on Overview.
+  onMount(() => {
+    const pending = getCurrentWebview().onDragDropEvent((event) => {
+      const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;
+      if (active === 'overview') {
+        dragActive.value = false;
+        return;
+      }
+      if (t === 'enter' || t === 'over') {
+        dragActive.value = true;
+      } else if (t === 'leave') {
+        dragActive.value = false;
+      } else if (t === 'drop') {
+        dragActive.value = false;
+        const paths = (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
+        if (active === 'mod_browser') {
+          const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
+          if (jars.length > 0 && canInstall) {
+            droppedMods.value = jars;
+          }
+        } else if (active === 'modpacks') {
+          const pack = paths.find((p) => /\.(mrpack|zip)$/i.test(p));
+          if (pack) droppedModpack.value = pack;
+        }
+      }
+    });
+    return () => {
+      void pending.then((un) => un());
+    };
   });
 </script>
 
@@ -95,7 +135,7 @@
     </button>
   </div>
 
-  <div class="flex-1 overflow-y-auto">
+  <div class="flex-1 overflow-y-auto relative">
     {#if active === 'overview'}
       {#if overview}
         {@render overview()}
