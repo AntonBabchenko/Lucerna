@@ -250,21 +250,21 @@ export const commands = {
 	 */
 	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
-	 *  Search Modrinth's modpack catalogue. CurseForge modpack search is
-	 *  not yet wired up (sub-feature 3 only covered mods); this command
-	 *  returns the Modrinth `ModpackSearchPage` only.
+	 *  Search a modpack catalogue. `source` selects Modrinth (anonymous)
+	 *  or CurseForge (requires a stored API key — a missing key surfaces
+	 *  as `ModsPlatformAuth`, which the UI maps to the key banner).
 	 */
-	modpackSearch: (query: string, page: number, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, sort: ModpackSort) => typedError<ModpackSearchPage, Error>(__TAURI_INVOKE("modpack_search", { query, page, mcVersion, loader, sort })),
+	modpackSearch: (source: ModSource, query: string, page: number, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, sort: ModpackSort) => typedError<ModpackSearchPage, Error>(__TAURI_INVOKE("modpack_search", { source, query, page, mcVersion, loader, sort })),
 	/**
-	 *  Pull a Modrinth modpack version's primary `.mrpack` file to a temp
-	 *  path under the OS temp dir. Returns the absolute path so the UI can
-	 *  hand it straight to `modpack_inspect` / `modpack_import`. UUID is
-	 *  used so concurrent imports don't collide. The temp file is left in
-	 *  place after import — the OS cleans up temp dirs eventually, and a
-	 *  successful import has already copied every byte that matters into
-	 *  the instance.
+	 *  Pull a modpack version's archive to a temp path under the OS temp
+	 *  dir, and return the absolute path so the UI can hand it to
+	 *  `modpack_inspect` / `modpack_import`. Modrinth versions resolve to a
+	 *  primary `.mrpack`; CurseForge versions resolve a file's
+	 *  `downloadUrl` to a `.zip`. The temp file is left in place after
+	 *  import — a successful import has already copied every byte that
+	 *  matters into the instance.
 	 */
-	modpackFetchToTemp: (projectId: string, versionId: string) => typedError<string, Error>(__TAURI_INVOKE("modpack_fetch_to_temp", { projectId, versionId })),
+	modpackFetchToTemp: (source: ModSource, projectId: string, versionId: string) => typedError<string, Error>(__TAURI_INVOKE("modpack_fetch_to_temp", { source, projectId, versionId })),
 	/**
 	 *  Return the pack-origin snapshot + a live diff for a pack-imported
 	 *  instance. Returns `None` for instances that were manually created
@@ -308,10 +308,11 @@ export const commands = {
 	 */
 	modpackRestoreFile: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_restore_file", { instanceId, sha1 })),
 	/**
-	 *  List the published versions of a Modrinth modpack project. Replaces
-	 *  the former direct webview `fetch` in `ModpackVersionDrawer.svelte`.
+	 *  List the published versions of a modpack project. Modrinth versions
+	 *  come from `/v2/project/{id}/version`; CurseForge versions are the
+	 *  project's files (`/v1/mods/{id}/files`).
 	 */
-	modpackGetVersions: (projectId: string) => typedError<ModpackVersionEntry[], Error>(__TAURI_INVOKE("modpack_get_versions", { projectId })),
+	modpackGetVersions: (source: ModSource, projectId: string) => typedError<ModpackVersionEntry[], Error>(__TAURI_INVOKE("modpack_get_versions", { source, projectId })),
 	/**
 	 *  Check whether a newer version of an imported Modrinth modpack exists.
 	 *  Returns `None` for non-Modrinth pack instances and when the instance
@@ -455,7 +456,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string };
 
 export type Greeting = {
 	message: string,
@@ -664,6 +665,18 @@ export type ModpackHit = {
 	downloads: number | null,
 	latest_mc_version: string | null,
 	supported_loaders: LoaderKind[],
+	/**
+	 *  Which platform this hit came from. The version drawer + import
+	 *  flow branch on it.
+	 */
+	source: ModSource,
+	/**
+	 *  CurseForge `allowModDistribution`. `None` for Modrinth hits and
+	 *  for CurseForge packs whose flag is `null` (unknown);
+	 *  `Some(false)` = the author disabled third-party launcher
+	 *  downloads — the UI surfaces an "Open on CurseForge" fallback.
+	 */
+	distribution_allowed: boolean | null,
 };
 
 /**

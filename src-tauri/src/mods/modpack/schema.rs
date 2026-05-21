@@ -89,6 +89,14 @@ pub struct ModpackHit {
     pub downloads: f64,
     pub latest_mc_version: Option<String>,
     pub supported_loaders: Vec<LoaderKind>,
+    /// Which platform this hit came from. The version drawer + import
+    /// flow branch on it.
+    pub source: ModSource,
+    /// CurseForge `allowModDistribution`. `None` for Modrinth hits and
+    /// for CurseForge packs whose flag is `null` (unknown);
+    /// `Some(false)` = the author disabled third-party launcher
+    /// downloads — the UI surfaces an "Open on CurseForge" fallback.
+    pub distribution_allowed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

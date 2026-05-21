@@ -226,7 +226,7 @@
       // to populate `mrpack_project_id` / `mrpack_source` /
       // `mrpack_version_id` on the new instance without re-querying.
       hintProjectId = drawerHit?.project_id ?? null;
-      hintSource = drawerHit ? 'modrinth' : null;
+      hintSource = drawerHit?.source ?? null;
       hintVersionId = vid;
       drawerHit = null;
       void inspect(p);

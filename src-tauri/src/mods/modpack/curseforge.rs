@@ -133,6 +133,11 @@ pub async fn parse(
         details: e.to_string(),
     })?;
 
+    let mod_ids: Vec<u64> = bulk.data.iter().map(|f| f.mod_id).collect();
+    let class_ids = fetch_class_ids(base_url, &key, &mod_ids)
+        .await
+        .unwrap_or_default();
+
     let mut files = vec![];
     let mut unresolvable = vec![];
 
@@ -160,7 +165,11 @@ pub async fn parse(
             version_id: detail.id.to_string(),
             name: detail.display_name.clone(),
             filename: detail.file_name.clone(),
-            install_path: format!("mods/{}", detail.file_name),
+            install_path: format!(
+                "{}/{}",
+                install_dir(class_ids.get(&detail.mod_id).copied()),
+                detail.file_name
+            ),
             sha1,
             url,
             size: detail.file_length as f64,
@@ -188,6 +197,63 @@ pub async fn parse(
         has_client_overrides: false,
         has_saves_in_overrides,
     })
+}
+
+/// CurseForge `classId` → the `.minecraft` subdirectory the file
+/// installs into. 12 = Resource Packs, 6552 = Shaders; everything else
+/// (mods, unknown, or a failed class lookup) → `mods/`.
+fn install_dir(class_id: Option<u32>) -> &'static str {
+    match class_id {
+        Some(12) => "resourcepacks",
+        Some(6552) => "shaderpacks",
+        _ => "mods",
+    }
+}
+
+/// Best-effort bulk lookup of project `classId`s via `POST /v1/mods`.
+/// A failure resolves to an empty map at the call site — every file
+/// then defaults to `mods/` (the pre-fix behaviour), so a class-lookup
+/// hiccup never aborts an import.
+async fn fetch_class_ids(
+    base_url: &str,
+    key: &str,
+    mod_ids: &[u64],
+) -> Result<std::collections::HashMap<u64, u32>, Error> {
+    if mod_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    #[derive(Deserialize)]
+    struct ModsResp {
+        data: Vec<ModInfo>,
+    }
+    #[derive(Deserialize)]
+    struct ModInfo {
+        id: u64,
+        #[serde(rename = "classId")]
+        class_id: Option<u32>,
+    }
+    let url = format!("{}/v1/mods", base_url);
+    let body = serde_json::json!({ "modIds": mod_ids });
+    // unreachable: serialising a `serde_json::Value` to bytes is infallible.
+    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let resp = crate::network::request::post(
+        &url,
+        &[("x-api-key", key), ("content-type", "application/json")],
+        &body_bytes,
+        "modpacks",
+    )
+    .await
+    .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+    if !(200..300).contains(&resp.status) {
+        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+    }
+    let parsed: ModsResp = serde_json::from_slice(&resp.body)
+        .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
+    Ok(parsed
+        .data
+        .into_iter()
+        .filter_map(|m| m.class_id.map(|c| (m.id, c)))
+        .collect())
 }
 
 fn parse_cf_loader_id(id: &str) -> Result<(LoaderKind, Option<String>), Error> {
@@ -346,6 +412,44 @@ mod tests {
         let r = parse(&zip, "http://unused").await;
         clear_test_key();
         assert!(matches!(r, Err(Error::ModpackUnsupportedLoader { .. })));
+    }
+
+    #[tokio::test]
+    async fn resource_pack_file_routes_to_resourcepacks_dir() {
+        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        install_test_key();
+        let s = MockServer::start().await;
+        let files = serde_json::json!({
+            "data": [
+                { "id": 4499899, "modId": 238222, "fileName": "jei-1.20.1.jar",
+                  "displayName": "JEI", "fileLength": 999,
+                  "downloadUrl": "https://edge.forgecdn.net/files/4/4/jei.jar",
+                  "hashes": [{ "value": "abc", "algo": 1 }] },
+                { "id": 4567890, "modId": 222880, "fileName": "FancyTextures.zip",
+                  "displayName": "Fancy Textures", "fileLength": 500,
+                  "downloadUrl": "https://edge.forgecdn.net/files/4/5/ft.zip",
+                  "hashes": [{ "value": "def", "algo": 1 }] }
+            ]
+        });
+        let mods = serde_json::json!({
+            "data": [
+                { "id": 238222, "classId": 6 },
+                { "id": 222880, "classId": 12 }
+            ]
+        });
+        Mock::given(method("POST")).and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(files))
+            .mount(&s).await;
+        Mock::given(method("POST")).and(path("/v1/mods"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(mods))
+            .mount(&s).await;
+        let zip = make_cf_zip(&sample_manifest());
+        let r = parse(&zip, &s.uri()).await.unwrap();
+        clear_test_key();
+        let jei = r.files.iter().find(|f| f.filename == "jei-1.20.1.jar").unwrap();
+        let tex = r.files.iter().find(|f| f.filename == "FancyTextures.zip").unwrap();
+        assert_eq!(jei.install_path, "mods/jei-1.20.1.jar");
+        assert_eq!(tex.install_path, "resourcepacks/FancyTextures.zip");
     }
 
     #[tokio::test]

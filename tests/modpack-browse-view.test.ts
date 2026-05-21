@@ -4,15 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // `vi.mock` factory is hoisted above the SUT import, so any variable it
 // captures must be declared via `vi.hoisted` (also hoisted). `modpack_search`
 // returns the tauri-specta `{ status, data | error }` shape.
-const { mockSearch } = vi.hoisted(() => ({
+const { mockSearch, mockKeyStatus } = vi.hoisted(() => ({
   mockSearch: vi.fn().mockResolvedValue({
     status: 'ok',
     data: { hits: [], total: 0, offset: 0, limit: 20 },
   }),
+  mockKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'present' }),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { modpackSearch: mockSearch },
+  commands: { modpackSearch: mockSearch, modsGetCurseforgeKeyStatus: mockKeyStatus },
   events: {},
+}));
+vi.mock('$lib/settings/state.svelte', () => ({
+  cfKeyVersion: { value: 0 },
+  settingsOpen: { value: null },
 }));
 
 import ModpackBrowseView from '$lib/modpacks/ModpackBrowseView.svelte';
@@ -36,6 +41,24 @@ function changeSelect(el: HTMLSelectElement, value: string) {
 describe('ModpackBrowseView', () => {
   beforeEach(() => {
     mockSearch.mockClear();
+    mockKeyStatus.mockClear();
+    mockKeyStatus.mockResolvedValue({ status: 'ok', data: 'present' });
+  });
+
+  it('renders the source picker', () => {
+    const { getByLabelText } = render(ModpackBrowseView, {
+      props: { onPickHit: () => {} },
+    });
+    expect(getByLabelText('Mod source')).toBeTruthy();
+  });
+
+  it('switching source to CurseForge with no key shows the key banner', async () => {
+    mockKeyStatus.mockResolvedValue({ status: 'ok', data: 'missing' });
+    const { getByLabelText, findByText } = render(ModpackBrowseView, {
+      props: { onPickHit: () => {} },
+    });
+    await changeSelect(getByLabelText('Mod source') as HTMLSelectElement, 'curseforge');
+    expect(await findByText('CurseForge requires an API key')).toBeTruthy();
   });
 
   it('renders all four toolbar controls', () => {
@@ -53,9 +76,10 @@ describe('ModpackBrowseView', () => {
     // initial mount triggers a debounced search; wait for it to land
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     const args = mockSearch.mock.calls.at(-1) ?? [];
-    expect(args[2]).toBeNull(); // mc
-    expect(args[3]).toBeNull(); // loader
-    expect(args[4]).toBe('relevance'); // sort
+    expect(args[0]).toBe('modrinth'); // source
+    expect(args[3]).toBeNull(); // mc
+    expect(args[4]).toBeNull(); // loader
+    expect(args[5]).toBe('relevance'); // sort
   });
 
   it('typing MC version triggers search with mc_version param', async () => {
@@ -71,7 +95,7 @@ describe('ModpackBrowseView', () => {
 
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     const args = mockSearch.mock.calls.at(-1) ?? [];
-    expect(args[2]).toBe('1.20.1');
+    expect(args[3]).toBe('1.20.1');
   });
 
   it('changing sort triggers search with sort param', async () => {
@@ -86,7 +110,7 @@ describe('ModpackBrowseView', () => {
 
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     const args = mockSearch.mock.calls.at(-1) ?? [];
-    expect(args[4]).toBe('downloads');
+    expect(args[5]).toBe('downloads');
   });
 
   it('selecting loader triggers search with loader param', async () => {
@@ -101,6 +125,6 @@ describe('ModpackBrowseView', () => {
 
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     const args = mockSearch.mock.calls.at(-1) ?? [];
-    expect(args[3]).toBe('fabric');
+    expect(args[4]).toBe('fabric');
   });
 });

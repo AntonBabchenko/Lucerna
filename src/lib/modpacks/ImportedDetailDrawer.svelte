@@ -185,7 +185,7 @@
   async function openUpdateDialog() {
     if (!updateAvailable || !inst.mrpack_project_id) return;
     updateError = null;
-    const fetched = await commands.modpackFetchToTemp(inst.mrpack_project_id, updateAvailable.id);
+    const fetched = await commands.modpackFetchToTemp(inst.mrpack_source ?? 'modrinth', inst.mrpack_project_id, updateAvailable.id);
     if (fetched.status === 'error') {
       updateError = formatError(fetched.error);
       return;

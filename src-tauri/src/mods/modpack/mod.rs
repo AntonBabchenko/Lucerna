@@ -3,6 +3,7 @@
 //! (zip with `manifest.json`). See
 //! `docs/superpowers/specs/2026-05-19-v0.5.0-modpack-import-design.md`.
 
+pub mod cf_api;
 pub mod curseforge;
 pub mod detect;
 pub mod import;

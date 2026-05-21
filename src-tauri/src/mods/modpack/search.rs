@@ -124,6 +124,8 @@ pub async fn search(
                 downloads: h.downloads as f64,
                 latest_mc_version: h.latest_version,
                 supported_loaders,
+                source: crate::mods::platform::ModSource::Modrinth,
+                distribution_allowed: None,
             }
         })
         .collect();
@@ -134,6 +136,7 @@ pub async fn search(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mods::platform::ModSource;
     use wiremock::matchers::{method, path, query_param_contains};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -168,6 +171,8 @@ mod tests {
         assert_eq!(r.total, 1);
         assert_eq!(r.hits[0].project_id, "PaCk1");
         assert_eq!(r.hits[0].supported_loaders, vec![LoaderKind::Fabric]);
+        assert_eq!(r.hits[0].source, ModSource::Modrinth);
+        assert!(r.hits[0].distribution_allowed.is_none());
     }
 
     #[tokio::test]

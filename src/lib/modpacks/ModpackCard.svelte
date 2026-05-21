@@ -35,6 +35,13 @@
       <div class="text-xs text-neutral-400 mt-1">
         {(hit.downloads ?? 0).toLocaleString()} downloads
       </div>
+      {#if hit.distribution_allowed === false}
+        <div
+          class="mt-1 inline-block text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+        >
+          CurseForge download disabled
+        </div>
+      {/if}
     </div>
   </div>
 </button>

@@ -179,6 +179,9 @@ pub enum Error {
 
     #[error("Mod '{mod_name}' was bundled inside the .mrpack archive and cannot be restored automatically — re-import the pack to recover it")]
     ModpackBundledNoUrl { mod_name: String },
+
+    #[error("The CurseForge modpack '{pack_name}' cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge and install the .zip manually.")]
+    ModpackCfDistributionDisabled { pack_name: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

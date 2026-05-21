@@ -1,7 +1,10 @@
 <script lang="ts">
   import { commands } from '$lib/ipc/bindings';
-  import type { LoaderKind, ModpackHit, ModpackSearchPage, ModpackSort } from '$lib/ipc/bindings';
+  import type { LoaderKind, ModpackHit, ModpackSearchPage, ModpackSort, ModSource } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
+  import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
+  import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import ModpackCard from './ModpackCard.svelte';
 
   // Search + paginated grid of modpack hits backed by `modpack_search`
@@ -14,6 +17,36 @@
   let { onPickHit }: { onPickHit: (hit: ModpackHit) => void } = $props();
 
   let query = $state('');
+  let source = $state<ModSource>('modrinth');
+
+  // CurseForge needs an API key; Modrinth is anonymous. When the user
+  // picks CurseForge with no key stored, the whole search UI is
+  // replaced by the key banner — same pattern as the sub-3 mod browser.
+  let needsCfKey = $state(false);
+
+  async function refreshCfKey() {
+    if (source !== 'curseforge') {
+      needsCfKey = false;
+      return;
+    }
+    const wasGated = needsCfKey;
+    const s = await commands.modsGetCurseforgeKeyStatus();
+    needsCfKey = s.status === 'ok' ? s.data === 'missing' : true;
+    // Banner just lifted (the user saved a key in Settings). The search
+    // $effect won't re-run on its own — none of its watched filters
+    // changed — so kick off a search manually.
+    if (wasGated && !needsCfKey) {
+      runSearch();
+    }
+  }
+
+  // Re-poll on source flip and whenever Settings saves/clears a key.
+  $effect(() => {
+    void source;
+    void cfKeyVersion.value;
+    void refreshCfKey();
+  });
+
   let mcFilter = $state('');
   let loaderFilter = $state<'' | 'fabric' | 'quilt' | 'forge' | 'neoforge'>('');
   let sortChoice = $state<ModpackSort>('relevance');
@@ -26,14 +59,28 @@
   function runSearch() {
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(async () => {
+      // refreshCfKey is async; on a source flip the debounce may fire
+      // before its IPC resolves. This guard is the fast path — the
+      // mods_platform_auth fallback below is the safety net if
+      // needsCfKey is still stale-false.
+      if (source === 'curseforge' && needsCfKey) {
+        page = null;
+        return;
+      }
       loading = true;
       error = null;
       try {
         const mc = mcFilter.trim() || null;
         const loader = loaderFilter ? (loaderFilter as LoaderKind) : null;
-        const result = await commands.modpackSearch(query, pageNum, mc, loader, sortChoice);
-        if (result.status === 'ok') page = result.data;
-        else error = formatError(result.error);
+        const result = await commands.modpackSearch(source, query, pageNum, mc, loader, sortChoice);
+        if (result.status === 'ok') {
+          page = result.data;
+        } else if (result.error.kind === 'mods_platform_auth') {
+          needsCfKey = true;
+          page = null;
+        } else {
+          error = formatError(result.error);
+        }
       } catch (e) {
         error = String(e);
       } finally {
@@ -44,6 +91,7 @@
 
   // Re-run search on any reactive input change.
   $effect(() => {
+    void source;
     void query;
     void mcFilter;
     void loaderFilter;
@@ -56,7 +104,7 @@
   // a narrowed query could land the user on an empty page mid-list.
   let prevFilters = $state('');
   $effect(() => {
-    const fp = `${query}|${mcFilter}|${loaderFilter}|${sortChoice}`;
+    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}`;
     if (fp !== prevFilters) {
       prevFilters = fp;
       if (pageNum !== 0) pageNum = 0;
@@ -65,10 +113,13 @@
 </script>
 
 <div class="p-4 pb-2 flex flex-wrap gap-2">
+  <SourcePicker bind:value={source} />
   <input
     type="search"
     bind:value={query}
-    placeholder="Search modpacks on Modrinth..."
+    placeholder={source === 'curseforge'
+      ? 'Search modpacks on CurseForge...'
+      : 'Search modpacks on Modrinth...'}
     class="flex-1 min-w-[10rem] px-3 py-2 border rounded text-sm"
     data-testid="modpack-search-input"
   />
@@ -103,7 +154,9 @@
 </div>
 
 <div class="px-4 pb-4">
-  {#if loading}
+  {#if source === 'curseforge' && needsCfKey}
+    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
+  {:else if loading}
     <div class="mt-4 text-sm text-neutral-500">Searching...</div>
   {:else if error}
     <div class="mt-4 text-sm text-red-600">{error}</div>

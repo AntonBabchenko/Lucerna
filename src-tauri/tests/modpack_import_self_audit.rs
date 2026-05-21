@@ -69,3 +69,21 @@ async fn modpack_inspect_hits_only_allowlisted_hosts() {
         );
     }
 }
+
+/// CurseForge modpack discovery + download touches three hosts: the
+/// Eternal API (`api.curseforge.com`) for search / file lists, and the
+/// two ForgeCDN hosts for the actual `.zip`. All three must stay on the
+/// network allowlist — drift here is a build failure (v0.6.0 sub-4).
+#[test]
+fn curseforge_modpack_hosts_are_allowlisted() {
+    for host in [
+        "api.curseforge.com",
+        "edge.forgecdn.net",
+        "mediafilez.forgecdn.net",
+    ] {
+        assert!(
+            is_host_allowed(host),
+            "CurseForge modpack host {host} must stay on the network allowlist",
+        );
+    }
+}

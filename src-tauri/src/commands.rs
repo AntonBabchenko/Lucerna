@@ -916,89 +916,137 @@ pub async fn modpack_import(
     .await
 }
 
-/// Search Modrinth's modpack catalogue. CurseForge modpack search is
-/// not yet wired up (sub-feature 3 only covered mods); this command
-/// returns the Modrinth `ModpackSearchPage` only.
+/// Search a modpack catalogue. `source` selects Modrinth (anonymous)
+/// or CurseForge (requires a stored API key — a missing key surfaces
+/// as `ModsPlatformAuth`, which the UI maps to the key banner).
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_search(
+    source: crate::mods::platform::ModSource,
     query: String,
     page: u32,
     mc_version: Option<String>,
     loader: Option<crate::mods::platform::LoaderKind>,
     sort: ModpackSort,
 ) -> Result<ModpackSearchPage, crate::error::Error> {
-    modpack::search::search(
-        "https://api.modrinth.com",
-        &query,
-        page,
-        mc_version.as_deref(),
-        loader,
-        sort,
-    )
-    .await
+    match source {
+        crate::mods::platform::ModSource::Modrinth => {
+            modpack::search::search(
+                "https://api.modrinth.com",
+                &query,
+                page,
+                mc_version.as_deref(),
+                loader,
+                sort,
+            )
+            .await
+        }
+        crate::mods::platform::ModSource::Curseforge => {
+            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            modpack::cf_api::search(
+                "https://api.curseforge.com",
+                key.as_deref(),
+                &query,
+                page,
+                mc_version.as_deref(),
+                loader,
+                sort,
+            )
+            .await
+        }
+    }
 }
 
-/// Pull a Modrinth modpack version's primary `.mrpack` file to a temp
-/// path under the OS temp dir. Returns the absolute path so the UI can
-/// hand it straight to `modpack_inspect` / `modpack_import`. UUID is
-/// used so concurrent imports don't collide. The temp file is left in
-/// place after import — the OS cleans up temp dirs eventually, and a
-/// successful import has already copied every byte that matters into
-/// the instance.
+/// Pull a modpack version's archive to a temp path under the OS temp
+/// dir, and return the absolute path so the UI can hand it to
+/// `modpack_inspect` / `modpack_import`. Modrinth versions resolve to a
+/// primary `.mrpack`; CurseForge versions resolve a file's
+/// `downloadUrl` to a `.zip`. The temp file is left in place after
+/// import — a successful import has already copied every byte that
+/// matters into the instance.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_fetch_to_temp(
     app: tauri::AppHandle,
+    source: crate::mods::platform::ModSource,
     project_id: String,
     version_id: String,
 ) -> Result<String, crate::error::Error> {
-    let url = format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
-    let resp = crate::network::request::get(
-        &url,
-        &[("user-agent", "AntonBabchenko/FTlauncher")],
-        "modpacks",
-    )
-    .await
-    .map_err(|e| crate::error::Error::ModsNetwork {
-        url: url.clone(),
-        details: e.to_string(),
-    })?;
-    if !(200..300).contains(&resp.status) {
-        return Err(crate::error::Error::ModsNetwork {
-            url,
-            details: format!("HTTP {}", resp.status),
-        });
-    }
-    #[derive(serde::Deserialize)]
-    struct V {
-        files: Vec<F>,
-    }
-    #[derive(serde::Deserialize)]
-    struct F {
-        url: String,
-        filename: String,
-        primary: bool,
-    }
-    let v: V = serde_json::from_slice(&resp.body).map_err(|e| crate::error::Error::ModsDecode {
-        platform: "modrinth".into(),
-        details: e.to_string(),
-    })?;
-    let f = v
-        .files
-        .iter()
-        .find(|f| f.primary)
-        .or_else(|| v.files.iter().find(|f| f.filename.ends_with(".mrpack")))
-        .ok_or(crate::error::Error::ModpackManifestInvalid {
-            format: "modrinth".into(),
-            details: "no primary .mrpack file on version".into(),
-        })?;
-    let bytes = crate::network::get_bytes(&f.url, "modpacks")
-        .await
-        .map_err(|e| crate::error::Error::ModsNetwork {
-            url: f.url.clone(),
-            details: e.to_string(),
-        })?;
+    let (bytes, ext) = match source {
+        crate::mods::platform::ModSource::Modrinth => {
+            let url = format!(
+                "https://api.modrinth.com/v2/project/{project_id}/version/{version_id}"
+            );
+            let resp = crate::network::request::get(
+                &url,
+                &[("user-agent", "AntonBabchenko/FTlauncher")],
+                "modpacks",
+            )
+            .await
+            .map_err(|e| crate::error::Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
+            if !(200..300).contains(&resp.status) {
+                return Err(crate::error::Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            #[derive(serde::Deserialize)]
+            struct V {
+                files: Vec<F>,
+            }
+            #[derive(serde::Deserialize)]
+            struct F {
+                url: String,
+                filename: String,
+                primary: bool,
+            }
+            let v: V = serde_json::from_slice(&resp.body).map_err(|e| {
+                crate::error::Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                }
+            })?;
+            let f = v
+                .files
+                .iter()
+                .find(|f| f.primary)
+                .or_else(|| v.files.iter().find(|f| f.filename.ends_with(".mrpack")))
+                .ok_or(crate::error::Error::ModpackManifestInvalid {
+                    format: "modrinth".into(),
+                    details: "no primary .mrpack file on version".into(),
+                })?;
+            let bytes = crate::network::get_bytes(&f.url, "modpacks")
+                .await
+                .map_err(|e| crate::error::Error::ModsNetwork {
+                    url: f.url.clone(),
+                    details: e.to_string(),
+                })?;
+            (bytes, "mrpack")
+        }
+        crate::mods::platform::ModSource::Curseforge => {
+            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            // For CurseForge, `version_id` carries the file id — the
+            // command keeps the `version_id` name for symmetry with Modrinth.
+            let dl = modpack::cf_api::resolve_file_download(
+                "https://api.curseforge.com",
+                key.as_deref(),
+                &project_id,
+                &version_id,
+            )
+            .await?;
+            let bytes = crate::network::get_bytes(&dl, "modpacks")
+                .await
+                .map_err(|e| crate::error::Error::ModsNetwork {
+                    url: dl.clone(),
+                    details: e.to_string(),
+                })?;
+            (bytes, "zip")
+        }
+    };
+
     let temp_dir = app
         .path()
         .temp_dir()
@@ -1014,7 +1062,7 @@ pub async fn modpack_fetch_to_temp(
             path: temp_dir.display().to_string(),
             details: e.to_string(),
         })?;
-    let dest = temp_dir.join(format!("{}.mrpack", uuid::Uuid::new_v4()));
+    let dest = temp_dir.join(format!("{}.{ext}", uuid::Uuid::new_v4()));
     tokio::fs::write(&dest, &bytes)
         .await
         .map_err(|e| crate::error::Error::Io {
@@ -1047,7 +1095,7 @@ pub async fn modpack_status(
     let mc_dir = inst_root.join(".minecraft");
     let mut asset_present: std::collections::HashSet<String> = Default::default();
     for f in &origin.files {
-        if !f.install_path.starts_with("mods/")
+        if !crate::mods::modpack::import::is_tracked_mod(&f.install_path)
             && tokio::fs::try_exists(mc_dir.join(&f.install_path))
                 .await
                 .unwrap_or(false)
@@ -1182,14 +1230,25 @@ pub(crate) async fn fetch_modpack_versions(
     })
 }
 
-/// List the published versions of a Modrinth modpack project. Replaces
-/// the former direct webview `fetch` in `ModpackVersionDrawer.svelte`.
+/// List the published versions of a modpack project. Modrinth versions
+/// come from `/v2/project/{id}/version`; CurseForge versions are the
+/// project's files (`/v1/mods/{id}/files`).
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_get_versions(
+    source: crate::mods::platform::ModSource,
     project_id: String,
 ) -> crate::error::Result<Vec<crate::mods::modpack::schema::ModpackVersionEntry>> {
-    fetch_modpack_versions("https://api.modrinth.com", &project_id).await
+    match source {
+        crate::mods::platform::ModSource::Modrinth => {
+            fetch_modpack_versions("https://api.modrinth.com", &project_id).await
+        }
+        crate::mods::platform::ModSource::Curseforge => {
+            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            modpack::cf_api::list_files("https://api.curseforge.com", key.as_deref(), &project_id)
+                .await
+        }
+    }
 }
 
 /// Pick the most-recently-published version, or `None` if the list is
@@ -1390,7 +1449,13 @@ pub async fn modpack_reimport_overrides(
         _ => return Err(crate::error::Error::ModsNotFound { platform: "modrinth".into() }),
     };
 
-    let temp_path = modpack_fetch_to_temp(app.clone(), project_id, version_id).await?;
+    let temp_path = modpack_fetch_to_temp(
+        app.clone(),
+        crate::mods::platform::ModSource::Modrinth,
+        project_id,
+        version_id,
+    )
+    .await?;
     let bytes = tokio::fs::read(&temp_path).await.map_err(|e| crate::error::Error::Io {
         path: temp_path.clone(),
         details: e.to_string(),

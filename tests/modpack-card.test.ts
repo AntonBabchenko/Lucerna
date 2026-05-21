@@ -17,6 +17,8 @@ const hit: ModpackHit = {
   downloads: 12345,
   latest_mc_version: '1.20.1',
   supported_loaders: ['fabric'],
+  source: 'modrinth',
+  distribution_allowed: null,
 };
 
 describe('ModpackCard', () => {
@@ -31,5 +33,16 @@ describe('ModpackCard', () => {
     const { getByTestId } = render(ModpackCard, { props: { hit, onClick } });
     await fireEvent.click(getByTestId('modpack-card'));
     expect(onClick).toHaveBeenCalled();
+  });
+
+  it('shows the distribution-disabled badge when distribution_allowed is false', () => {
+    const blocked: ModpackHit = { ...hit, source: 'curseforge', distribution_allowed: false };
+    const { getByText } = render(ModpackCard, { props: { hit: blocked, onClick: () => {} } });
+    expect(getByText('CurseForge download disabled')).toBeTruthy();
+  });
+
+  it('shows no badge when distribution is allowed', () => {
+    const { queryByText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
+    expect(queryByText('CurseForge download disabled')).toBeNull();
   });
 });

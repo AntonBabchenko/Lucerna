@@ -89,4 +89,16 @@ describe('ImportProgressView', () => {
     });
     expect(getByText('Done.')).toBeTruthy();
   });
+
+  it('renders as a non-blocking corner toast', () => {
+    const { container } = render(ImportProgressView, {
+      props: { phase: { phase: 'inspecting' }, modBytes: null },
+    });
+    const root = container.querySelector('[data-testid="import-progress-view"]') as HTMLElement;
+    expect(root).not.toBeNull();
+    // Pinned to the bottom-right corner, not a full-screen overlay.
+    expect(root.classList.contains('fixed')).toBe(true);
+    expect(root.classList.contains('right-4')).toBe(true);
+    expect(root.classList.contains('inset-0')).toBe(false);
+  });
 });

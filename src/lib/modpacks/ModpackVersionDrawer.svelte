@@ -24,12 +24,25 @@
   let error = $state<string | null>(null);
   let downloading = $state(false);
 
+  // A pack whose author disabled third-party distribution cannot be
+  // installed in-app. The flag arrives on the hit (advance hint); the
+  // per-file check in modpack_fetch_to_temp catches the null-unknown
+  // case at install time and raises installBlocked.
+  let installBlocked = $state(false);
+  let blocked = $derived(hit.distribution_allowed === false || installBlocked);
+
+  function openOnCurseForge() {
+    void import('@tauri-apps/plugin-opener').then((m) =>
+      m.openUrl(`https://www.curseforge.com/minecraft/modpacks/${hit.slug}`),
+    );
+  }
+
   $effect(() => {
     void hit.project_id;
     (async () => {
       loading = true;
       error = null;
-      const r = await commands.modpackGetVersions(hit.project_id);
+      const r = await commands.modpackGetVersions(hit.source, hit.project_id);
       if (r.status === 'ok') {
         versions = r.data;
       } else {
@@ -42,9 +55,14 @@
   async function install(versionId: string) {
     downloading = true;
     try {
-      const result = await commands.modpackFetchToTemp(hit.project_id, versionId);
-      if (result.status === 'ok') onInstall(result.data, versionId);
-      else error = formatError(result.error);
+      const result = await commands.modpackFetchToTemp(hit.source, hit.project_id, versionId);
+      if (result.status === 'ok') {
+        onInstall(result.data, versionId);
+      } else if (result.error.kind === 'modpack_cf_distribution_disabled') {
+        installBlocked = true;
+      } else {
+        error = formatError(result.error);
+      }
     } finally {
       downloading = false;
     }
@@ -74,7 +92,23 @@
     </button>
   </header>
   <div class="p-4">
-    {#if loading}
+    {#if blocked}
+      <div class="text-sm text-neutral-700">
+        <p class="mb-3">
+          The author of this CurseForge modpack disabled third-party launcher
+          downloads, so it cannot be installed automatically. Open it on
+          CurseForge to download the <code>.zip</code>, then import it with the
+          drag-and-drop box above.
+        </p>
+        <button
+          type="button"
+          class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded"
+          onclick={openOnCurseForge}
+        >
+          Open on CurseForge ↗
+        </button>
+      </div>
+    {:else if loading}
       <div class="text-sm text-neutral-500">Loading versions...</div>
     {:else if error}
       <div class="text-sm text-red-600">{error}</div>

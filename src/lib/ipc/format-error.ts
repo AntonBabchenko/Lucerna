@@ -109,6 +109,8 @@ export function formatError(e: IpcError): string {
       return `Modpack imported with ${e.failed.length} mod(s) skipped — see the post-install banner for details.`;
     case 'modpack_bundled_no_url':
       return `'${e.mod_name}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.`;
+    case 'modpack_cf_distribution_disabled':
+      return `"${e.pack_name}" cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge to download the pack manually.`;
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

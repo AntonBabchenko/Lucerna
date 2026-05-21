@@ -59,6 +59,18 @@ pub fn build_pack_origin(
     }
 }
 
+/// A pack-origin file is a *tracked mod* iff it lands as a direct child
+/// of `mods/` with a `.jar` extension — exactly what the installed-mods
+/// scan (and Forge's loader) recognises. Anything else under `mods/` —
+/// a `.zip` resource pack, or a nested `mods/<repo>/…/x.jar` bundled
+/// library — is an asset whose presence is verified on disk, not via
+/// the mod registry.
+pub(crate) fn is_tracked_mod(install_path: &str) -> bool {
+    install_path
+        .strip_prefix("mods/")
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/') && rest.ends_with(".jar"))
+}
+
 /// Diff the immutable pack-origin snapshot against live instance state.
 /// A `mods/*` origin file is "present" iff its SHA-1 is in the installed
 /// mod registry; a non-`mods/` (asset) origin file is "present" iff its
@@ -77,7 +89,7 @@ pub fn compute_status(
     let origin_mod_shas: std::collections::HashSet<String> = origin
         .files
         .iter()
-        .filter(|f| f.install_path.starts_with("mods/"))
+        .filter(|f| is_tracked_mod(&f.install_path))
         .map(|f| f.sha1.to_ascii_lowercase())
         .collect();
 
@@ -85,7 +97,7 @@ pub fn compute_status(
         .files
         .iter()
         .filter(|f| {
-            if f.install_path.starts_with("mods/") {
+            if is_tracked_mod(&f.install_path) {
                 !installed_set.contains(&f.sha1.to_ascii_lowercase())
             } else {
                 !asset_present.contains(&f.install_path)
@@ -322,8 +334,15 @@ pub async fn import(
             (Some(pid.to_string()), desc, parser_source)
         }
         (Some(pid), Some(crate::mods::platform::ModSource::Curseforge), ModpackFormat::Curseforge) => {
-            // CF: no description fetch path yet — keep summary None.
-            (Some(pid.to_string()), None, parser_source)
+            // Browse-flow CF import: backfill the pack's short summary
+            // for the Imported drawer. Best-effort — failure keeps it
+            // None, exactly like the Modrinth description path.
+            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            let summary =
+                crate::mods::modpack::cf_api::fetch_summary(cf_base, key.as_deref(), pid)
+                    .await
+                    .unwrap_or(None);
+            (Some(pid.to_string()), summary, parser_source)
         }
         // Modrinth pack with no/mismatched hint: do the version→project
         // lookup via the API.
@@ -854,5 +873,46 @@ mod tests {
         assert!(found.is_some());
         let none = origin.files.iter().find(|f| f.sha1.eq_ignore_ascii_case("missing"));
         assert!(none.is_none());
+    }
+
+    #[test]
+    fn is_tracked_mod_only_matches_top_level_jar() {
+        assert!(is_tracked_mod("mods/sodium.jar"));
+        assert!(!is_tracked_mod("mods/Emis_Rlcraft.zip"));
+        assert!(!is_tracked_mod("mods/memory_repo/com/x/llibrary/llibrary.jar"));
+        assert!(!is_tracked_mod("resourcepacks/RLHats.zip"));
+        assert!(!is_tracked_mod("mods/"));
+    }
+
+    #[test]
+    fn compute_status_zip_in_mods_dir_checked_on_disk() {
+        let mut zip = pack_file("z");
+        zip.install_path = "mods/Emis_Rlcraft.zip".into();
+        let origin = PackOrigin {
+            project_id: None, source: ModSource::Curseforge,
+            project_name: "P".into(), version: "1".into(),
+            files: vec![pack_file("a"), zip],
+        };
+        let installed = vec![installed("a", true)];
+        let present: std::collections::HashSet<String> =
+            ["mods/Emis_Rlcraft.zip".to_string()].into_iter().collect();
+        let s = compute_status(origin, &installed, &present);
+        assert!(!s.is_modified, "a .zip present on disk must not be 'removed'");
+    }
+
+    #[test]
+    fn compute_status_nested_mods_jar_checked_on_disk() {
+        let mut nested = pack_file("n");
+        nested.install_path = "mods/memory_repo/com/x/llibrary.jar".into();
+        let origin = PackOrigin {
+            project_id: None, source: ModSource::Curseforge,
+            project_name: "P".into(), version: "1".into(),
+            files: vec![pack_file("a"), nested],
+        };
+        let installed = vec![installed("a", true)];
+        let present: std::collections::HashSet<String> =
+            ["mods/memory_repo/com/x/llibrary.jar".to_string()].into_iter().collect();
+        let s = compute_status(origin, &installed, &present);
+        assert!(!s.is_modified, "a nested mods/ jar present on disk must not be 'removed'");
     }
 }
