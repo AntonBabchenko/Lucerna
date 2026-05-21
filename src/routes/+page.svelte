@@ -16,6 +16,7 @@
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
+  import ToastHost from '$lib/toasts/ToastHost.svelte';
   import { initOnboarding } from '$lib/onboarding/state.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
@@ -537,3 +538,4 @@
   <SettingsModal />
   <TourOverlay />
 </main>
+<ToastHost />

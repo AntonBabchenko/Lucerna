@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Channel } from '@tauri-apps/api/core';
   import { commands } from '$lib/ipc/bindings';
+  import { formatError } from '$lib/ipc/format-error';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import type {
     InstanceWithStatus,
     ModpackHit,
@@ -138,9 +140,18 @@
     // above. The command return value is only consulted for the error
     // branch — the Rust side guarantees the `done` phase is emitted
     // before the command returns Ok.
-    if (r.status === 'error') {
+    if (r.status === 'ok') {
+      pushSuccess(`Imported ${r.data.name}`);
+    } else {
       importing = false;
-      error = String(r.error);
+      if (r.error.kind === 'modpack_partial_failure') {
+        pushWarning(
+          `Modpack imported — ${r.error.failed.length} mod(s) failed`,
+          r.error.failed.map(([p]) => p.split('/').pop() ?? p),
+        );
+      } else {
+        pushWarning('Modpack import failed', [formatError(r.error)]);
+      }
     }
     resetHints();
   }

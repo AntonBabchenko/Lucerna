@@ -10,6 +10,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
@@ -424,8 +425,9 @@
         [],
       );
       if (installed.status === 'error') {
-        error = formatError(installed.error);
+        pushWarning('Mod install failed', [formatError(installed.error)]);
       } else {
+        pushSuccess(`Installed ${primaryProjectName}`);
         await refreshInstalled();
       }
     } else {
@@ -640,8 +642,14 @@
           })),
         );
         if (installed.status === 'error') {
-          error = formatError(installed.error);
+          pushWarning('Mod install failed', [formatError(installed.error)]);
         } else {
+          const depCount = prompt.required.length + chosenOptional.length;
+          pushSuccess(
+            depCount > 0
+              ? `Installed ${prompt.primaryProjectName} + ${depCount} ${depCount === 1 ? 'dependency' : 'dependencies'}`
+              : `Installed ${prompt.primaryProjectName}`,
+          );
           await refreshInstalled();
         }
       }}

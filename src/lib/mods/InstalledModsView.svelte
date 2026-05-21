@@ -9,6 +9,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { onDestroy, onMount } from 'svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailDrawer from './ModDetailDrawer.svelte';
@@ -217,7 +218,9 @@
       [],
     );
     if (installed.status === 'error') {
-      error = formatError(installed.error);
+      pushWarning('Mod install failed', [formatError(installed.error)]);
+    } else {
+      pushSuccess(`Installed ${rowDisplayName(row)}`);
     }
     busy = false;
     await refresh();
