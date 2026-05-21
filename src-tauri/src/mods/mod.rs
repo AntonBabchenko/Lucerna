@@ -8,6 +8,7 @@ pub mod cache;
 pub mod curseforge;
 pub mod install;
 pub mod installed;
+pub mod local;
 pub mod modpack;
 pub mod modrinth;
 pub mod platform;

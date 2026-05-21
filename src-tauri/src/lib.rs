@@ -60,6 +60,8 @@ pub fn run() {
             commands::mods_disable,
             commands::mods_enable,
             commands::mods_uninstall,
+            commands::mods_inspect_local,
+            commands::mods_install_local,
             commands::mods_get_curseforge_key_status,
             commands::mods_set_curseforge_key,
             commands::mods_clear_curseforge_key,

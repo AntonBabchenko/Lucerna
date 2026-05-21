@@ -206,6 +206,17 @@ export const commands = {
 	 */
 	modsUninstall: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_uninstall", { instanceId, sha1 })),
 	/**
+	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
+	 *  compatibility against the target instance. No filesystem writes.
+	 */
+	modsInspectLocal: (instanceId: string, jarPath: string) => typedError<CompatVerdict, Error>(__TAURI_INVOKE("mods_inspect_local", { instanceId, jarPath })),
+	/**
+	 *  Install a local mod `.jar` into the instance as a manual mod. Emits
+	 *  `mod-installed` on success so the Installed view refreshes the same
+	 *  way it does after a platform install.
+	 */
+	modsInstallLocal: (instanceId: string, jarPath: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("mods_install_local", { instanceId, jarPath })),
+	/**
 	 *  Report whether a CurseForge API key is currently stored in the OS
 	 *  keyring. `Invalid` is reserved for future "key was rejected" surfacing —
 	 *  today this command only distinguishes Missing vs Set.
@@ -424,6 +435,26 @@ export type AuditEntry = {
 	 *  (network error before status).
 	 */
 	status: number | null,
+};
+
+/**
+ *  Compatibility verdict for a local mod jar against a target instance.
+ *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
+ */
+export type CompatVerdict = {
+	/**
+	 *  Display loader name detected in the jar ("Fabric" / "Forge" / …),
+	 *  or `None` when the jar has no recognised descriptor.
+	 */
+	detected_loader: string | null,
+	/**  `major.minor` Minecraft version detected in the jar, or `None`. */
+	detected_mc: string | null,
+	/**  The mod's display name from the jar, or `None`. */
+	detected_name: string | null,
+	/**  The jar's loader family is the opposite of the instance's. */
+	loader_mismatch: boolean,
+	/**  The jar's declared MC `major.minor` differs from the instance's. */
+	mc_mismatch: boolean,
 };
 
 export type CrashReport = {

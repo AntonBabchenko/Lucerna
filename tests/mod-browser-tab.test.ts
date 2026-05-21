@@ -22,6 +22,15 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+// ModBrowserTab now mounts ModDropzone, which calls `getCurrentWebview()`
+// in `onMount` to register a drag-drop listener. happy-dom has no Tauri
+// runtime — stub it so the listener registration resolves cleanly.
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: (_cb: unknown) => Promise.resolve(() => {}),
+  }),
+}));
+
 describe('ModBrowserTab', () => {
   it('defaults to the Browse view', () => {
     render(ModBrowserTab, {

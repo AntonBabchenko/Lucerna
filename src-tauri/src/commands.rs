@@ -760,6 +760,73 @@ pub async fn mods_uninstall(
     Ok(())
 }
 
+/// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
+/// compatibility against the target instance. No filesystem writes.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_inspect_local(
+    app: tauri::AppHandle,
+    instance_id: String,
+    jar_path: String,
+) -> crate::error::Result<crate::mods::local::CompatVerdict> {
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let bytes = tokio::fs::read(&jar_path)
+        .await
+        .map_err(|e| crate::error::Error::ModsInstancePath {
+            path: jar_path.clone(),
+            details: format!("{} ({})", e, e.kind()),
+        })?;
+    let meta = crate::mods::local::read_jar_meta(&bytes)?;
+    Ok(crate::mods::local::compat_verdict(
+        &meta,
+        inst.loader,
+        &inst.mc_version,
+    ))
+}
+
+/// Install a local mod `.jar` into the instance as a manual mod. Emits
+/// `mod-installed` on success so the Installed view refreshes the same
+/// way it does after a platform install.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_install_local(
+    app: tauri::AppHandle,
+    instance_id: String,
+    jar_path: String,
+) -> crate::error::Result<crate::mods::platform::InstalledMod> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let bytes = tokio::fs::read(&jar_path)
+        .await
+        .map_err(|e| crate::error::Error::ModsInstancePath {
+            path: jar_path.clone(),
+            details: format!("{} ({})", e, e.kind()),
+        })?;
+    let filename = std::path::Path::new(&jar_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| crate::error::Error::ModsInstancePath {
+            path: jar_path.clone(),
+            details: "dropped path has no filename".into(),
+        })?
+        .to_string();
+    let meta = crate::mods::local::read_jar_meta(&bytes)?;
+    let inst = crate::mods::local::install_local(
+        &inst_root,
+        &filename,
+        &bytes,
+        meta.display_name.as_deref(),
+    )
+    .await?;
+    let _ = ModInstalled {
+        instance_id,
+        sha1: inst.sha1.clone(),
+        filename: inst.filename.clone(),
+        name: inst.name.clone(),
+    }
+    .emit(&app);
+    Ok(inst)
+}
+
 // =========================================================================
 // CurseForge key management + shared cache management (v0.5.0 sub-feature 3)
 // =========================================================================
