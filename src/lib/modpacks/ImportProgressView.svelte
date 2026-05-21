@@ -47,7 +47,7 @@
 
 {#if phase}
   <div
-    class="fixed bottom-4 right-4 z-40 w-72 bg-white rounded-lg shadow-xl border p-4"
+    class="fixed top-4 right-4 z-40 w-72 bg-white rounded-lg shadow-xl border p-4"
     role="status"
     aria-label="Modpack import progress"
     data-testid="import-progress-view"
