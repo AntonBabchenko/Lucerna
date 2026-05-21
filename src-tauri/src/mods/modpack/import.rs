@@ -30,6 +30,7 @@ pub fn build_pack_origin(
     summary: &ModpackSummary,
     selected: &[&ModpackFile],
     mrpack_project_id: Option<String>,
+    pack_name: &str,
 ) -> PackOrigin {
     let source = match summary.format {
         ModpackFormat::Modrinth => ModSource::Modrinth,
@@ -53,7 +54,7 @@ pub fn build_pack_origin(
     PackOrigin {
         project_id: mrpack_project_id,
         source,
-        project_name: summary.name.clone(),
+        project_name: pack_name.to_string(),
         version: summary.version.clone(),
         files,
     }
@@ -258,6 +259,19 @@ pub fn pack_origin_file_to_mod_version(
     }
 }
 
+/// Pick the pack's display name. The platform project name (Modrinth
+/// `title` / CurseForge `name`) is authoritative; the archive's internal
+/// `name` field is author-controlled free text — some authors set it to
+/// the version string — so it is used only as a fallback when no platform
+/// metadata could be fetched. An empty / whitespace-only platform name is
+/// treated as "not available".
+fn resolve_pack_name(platform_name: Option<&str>, archive_name: &str) -> String {
+    match platform_name.map(str::trim) {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => archive_name.to_string(),
+    }
+}
+
 pub fn resolve_name(desired: &str, existing: &[String]) -> Result<String, Error> {
     if !existing.iter().any(|e| e == desired) {
         return Ok(desired.into());
@@ -301,60 +315,61 @@ pub async fn import(
         return Err(Error::ModpackNoFilesSelected);
     }
 
-    let existing: Vec<String> = crate::instances::list_instances_with_status(app)?
-        .into_iter().map(|i| i.name).collect();
-    let final_name = resolve_name(&summary.name, &existing)?;
-
-    // Best-effort Modrinth metadata fetch. We need the pack's own
-    // project_id + a short description for the Imported drawer. The
-    // .mrpack itself carries name + versionId, but no project_id and no
-    // description, so we look them up via the Modrinth API. Failures
-    // are silent — fields stay None.
+    // Best-effort project-metadata fetch. The .mrpack / .zip archive
+    // carries an author-controlled `name` field — some authors set it to
+    // a version string — so we prefer the platform's canonical project
+    // name. We also need the pack's project_id + a short description for
+    // the Imported drawer. Failures are silent: fields stay None and we
+    // fall back to the archive name.
     //
     // Two paths:
     //   * Browse-flow gave us the project_id already (`hint_project_id`)
-    //     — skip the /v2/version/{id} round-trip and fetch only the
-    //     description.
-    //   * Drag-drop or no hints — do the full version→project lookup.
+    //     — fetch the project record directly.
+    //   * Drag-drop or no hints — do the version→project lookup first.
     //
-    // CurseForge packs: source tag is set; project_id and summary stay
-    // None (no CF backfill path yet).
+    // CurseForge drag-drop: no resolvable project_id, so no backfill —
+    // `pack_meta` stays default and the archive name is used.
     let parser_source = match summary.format {
         ModpackFormat::Modrinth => Some(crate::mods::platform::ModSource::Modrinth),
         ModpackFormat::Curseforge => Some(crate::mods::platform::ModSource::Curseforge),
     };
-    let (mrpack_project_id, mrpack_summary, mrpack_source) = match (
+    let (mrpack_project_id, pack_meta, mrpack_source) = match (
         hint_project_id.as_deref(),
         hint_source,
         summary.format,
     ) {
-        // Browse-flow hint matches the parser-detected source: trust it.
         (Some(pid), Some(crate::mods::platform::ModSource::Modrinth), ModpackFormat::Modrinth) => {
-            let desc = fetch_modrinth_description(pid).await.unwrap_or(None);
-            (Some(pid.to_string()), desc, parser_source)
+            let meta = fetch_modrinth_project(pid).await.unwrap_or_default();
+            (Some(pid.to_string()), meta, parser_source)
         }
         (Some(pid), Some(crate::mods::platform::ModSource::Curseforge), ModpackFormat::Curseforge) => {
-            // Browse-flow CF import: backfill the pack's short summary
-            // for the Imported drawer. Best-effort — failure keeps it
-            // None, exactly like the Modrinth description path.
+            // Browse-flow CF import: backfill the pack's project name +
+            // short summary. Best-effort — failure keeps them None.
             let key = crate::mods::curseforge::keyring::get().ok().flatten();
-            let summary =
+            let (cf_name, cf_summary) =
                 crate::mods::modpack::cf_api::fetch_summary(cf_base, key.as_deref(), pid)
                     .await
-                    .unwrap_or(None);
-            (Some(pid.to_string()), summary, parser_source)
+                    .unwrap_or((None, None));
+            (
+                Some(pid.to_string()),
+                PackMeta { name: cf_name, description: cf_summary },
+                parser_source,
+            )
         }
-        // Modrinth pack with no/mismatched hint: do the version→project
-        // lookup via the API.
         (_, _, ModpackFormat::Modrinth) => {
-            let (pid, desc) = fetch_modrinth_metadata(&summary.version)
+            let (pid, meta) = fetch_modrinth_metadata(&summary.version)
                 .await
-                .unwrap_or((None, None));
-            (pid, desc, parser_source)
+                .unwrap_or((None, PackMeta::default()));
+            (pid, meta, parser_source)
         }
-        // CF pack with no hint: nothing more to do.
-        (_, _, ModpackFormat::Curseforge) => (None, None, parser_source),
+        (_, _, ModpackFormat::Curseforge) => (None, PackMeta::default(), parser_source),
     };
+    let PackMeta { name: platform_name, description: mrpack_summary } = pack_meta;
+    let pack_name = resolve_pack_name(platform_name.as_deref(), &summary.name);
+
+    let existing: Vec<String> = crate::instances::list_instances_with_status(app)?
+        .into_iter().map(|i| i.name).collect();
+    let final_name = resolve_name(&pack_name, &existing)?;
 
     on_progress(ModpackProgress::CreatingInstance { name: final_name.clone() });
     // Keep a clone for the pack_origin snapshot we write later — the
@@ -366,7 +381,7 @@ pub async fn import(
         summary.game_version.clone(),
         summary.loader,
         summary.loader_version.clone(),
-        Some((summary.name.clone(), summary.version.clone())),
+        Some((pack_name.clone(), summary.version.clone())),
         mrpack_project_id,
         mrpack_source,
         mrpack_summary,
@@ -430,7 +445,7 @@ pub async fn import(
     // is already done at this point; a write failure here only loses
     // the modified/restore affordance, not any installed mod or
     // instance. Log and continue.
-    let mut origin = build_pack_origin(&summary, &selected, mrpack_project_id_for_origin);
+    let mut origin = build_pack_origin(&summary, &selected, mrpack_project_id_for_origin, &pack_name);
     // Fold bundled-from-overrides jars into the origin so they badge
     // as "pack" in the drawer. `url` stays empty (bundled bytes have
     // no remote source) — the Restore path checks for this and
@@ -464,17 +479,29 @@ pub async fn import(
     }
 }
 
-/// Modrinth `version_id` → `(project_id, description)`. Two hops:
+/// Best-effort project metadata backfilled from the mod platform.
+/// `name` is the platform's canonical project name (Modrinth `title` /
+/// CurseForge `name`) — used to name the instance. `description` is the
+/// short blurb shown in the Imported drawer. Both are `Option` because
+/// each fetch is best-effort: a network failure or non-2xx response
+/// leaves them `None`.
+#[derive(Default)]
+struct PackMeta {
+    name: Option<String>,
+    description: Option<String>,
+}
+
+/// Modrinth `version_id` → `(project_id, PackMeta)`. Two hops:
 ///   1. `GET /v2/version/{version_id}` → `project_id`.
-///   2. `GET /v2/project/{project_id}` → `description`.
+///   2. `GET /v2/project/{project_id}` → `(title, description)`.
 ///
-/// The eat-the-error-and-return-`None` pattern (rather than propagating)
+/// The eat-the-error-and-return-default pattern (rather than propagating)
 /// is intentional — metadata is nice-to-have, not blocking. Callers use
-/// `.unwrap_or((None, None))` so a 404 or transient network failure can
-/// never abort an otherwise-successful import.
+/// `.unwrap_or((None, PackMeta::default()))` so a 404 or transient network
+/// failure can never abort an otherwise-successful import.
 async fn fetch_modrinth_metadata(
     version_id: &str,
-) -> Result<(Option<String>, Option<String>), Error> {
+) -> Result<(Option<String>, PackMeta), Error> {
     #[derive(serde::Deserialize)]
     struct V { project_id: String }
 
@@ -487,25 +514,30 @@ async fn fetch_modrinth_metadata(
     .await
     .map_err(|e| Error::ModsNetwork { url: v_url.clone(), details: e.to_string() })?;
     if !(200..300).contains(&v_resp.status) {
-        return Ok((None, None));
+        return Ok((None, PackMeta::default()));
     }
     let v: V = serde_json::from_slice(&v_resp.body).map_err(|e| Error::ModsDecode {
         platform: "modrinth".into(),
         details: e.to_string(),
     })?;
     let project_id = v.project_id;
-    let desc = fetch_modrinth_description(&project_id).await?;
-    Ok((Some(project_id), desc))
+    let meta = fetch_modrinth_project(&project_id).await?;
+    Ok((Some(project_id), meta))
 }
 
-/// Modrinth `project_id` → `description`. Used directly when the
-/// project_id is already known (browse-flow hint), and as the second
-/// hop of `fetch_modrinth_metadata`. Same silent-on-failure semantics.
-async fn fetch_modrinth_description(
+/// Modrinth `project_id` → project `(title, description)` as a `PackMeta`.
+/// Used directly when the project_id is already known (browse-flow hint),
+/// and as the second hop of `fetch_modrinth_metadata`. Same
+/// silent-on-failure semantics — a non-2xx response yields a default
+/// (all-`None`) `PackMeta`.
+async fn fetch_modrinth_project(
     project_id: &str,
-) -> Result<Option<String>, Error> {
+) -> Result<PackMeta, Error> {
     #[derive(serde::Deserialize)]
-    struct P { description: Option<String> }
+    struct P {
+        title: Option<String>,
+        description: Option<String>,
+    }
 
     let p_url = format!("https://api.modrinth.com/v2/project/{project_id}");
     let p_resp = crate::network::request::get(
@@ -516,13 +548,13 @@ async fn fetch_modrinth_description(
     .await
     .map_err(|e| Error::ModsNetwork { url: p_url.clone(), details: e.to_string() })?;
     if !(200..300).contains(&p_resp.status) {
-        return Ok(None);
+        return Ok(PackMeta::default());
     }
     let p: P = serde_json::from_slice(&p_resp.body).map_err(|e| Error::ModsDecode {
         platform: "modrinth".into(),
         details: e.to_string(),
     })?;
-    Ok(p.description)
+    Ok(PackMeta { name: p.title, description: p.description })
 }
 
 #[cfg(test)]
@@ -553,6 +585,27 @@ mod tests {
         let mut existing = vec!["Pack".to_string()];
         for i in 2..=999 { existing.push(format!("Pack ({i})")); }
         assert!(matches!(resolve_name("Pack", &existing), Err(Error::ModpackInstanceCreationFailed { .. })));
+    }
+
+    #[test]
+    fn resolve_pack_name_prefers_platform_name() {
+        assert_eq!(resolve_pack_name(Some("Sodium Plus"), "2.3.7"), "Sodium Plus");
+    }
+
+    #[test]
+    fn resolve_pack_name_falls_back_when_platform_name_absent() {
+        assert_eq!(resolve_pack_name(None, "2.3.7"), "2.3.7");
+    }
+
+    #[test]
+    fn resolve_pack_name_falls_back_when_platform_name_blank() {
+        assert_eq!(resolve_pack_name(Some(""), "Cool Pack"), "Cool Pack");
+        assert_eq!(resolve_pack_name(Some("   "), "Cool Pack"), "Cool Pack");
+    }
+
+    #[test]
+    fn resolve_pack_name_trims_platform_name() {
+        assert_eq!(resolve_pack_name(Some("  Sodium Plus  "), "2.3.7"), "Sodium Plus");
     }
 
     fn sample_summary(format: ModpackFormat) -> ModpackSummary {
@@ -592,7 +645,7 @@ mod tests {
         let f1 = sample_file("aaa");
         let f2 = sample_file("bbb");
         let selected = vec![&f1, &f2];
-        let origin = build_pack_origin(&summary, &selected, Some("ABC123".into()));
+        let origin = build_pack_origin(&summary, &selected, Some("ABC123".into()), &summary.name);
         assert_eq!(origin.project_name, "Cool Pack");
         assert_eq!(origin.version, "1.2.3");
         assert_eq!(origin.project_id.as_deref(), Some("ABC123"));
@@ -608,7 +661,7 @@ mod tests {
     fn build_pack_origin_marks_curseforge_source() {
         let summary = sample_summary(ModpackFormat::Curseforge);
         let f = sample_file("ccc");
-        let origin = build_pack_origin(&summary, &[&f], None);
+        let origin = build_pack_origin(&summary, &[&f], None, &summary.name);
         assert_eq!(origin.source, ModSource::Curseforge);
         assert!(origin.project_id.is_none());
     }
@@ -616,9 +669,19 @@ mod tests {
     #[test]
     fn build_pack_origin_with_no_selected_files_yields_empty_files_vec() {
         let summary = sample_summary(ModpackFormat::Modrinth);
-        let origin = build_pack_origin(&summary, &[], None);
+        let origin = build_pack_origin(&summary, &[], None, &summary.name);
         assert!(origin.files.is_empty());
         assert_eq!(origin.project_name, "Cool Pack");
+    }
+
+    #[test]
+    fn build_pack_origin_uses_pack_name_not_summary_name() {
+        // summary.name is "Cool Pack" (see sample_summary); the explicit
+        // pack_name argument must win.
+        let summary = sample_summary(ModpackFormat::Modrinth);
+        let f = sample_file("aaa");
+        let origin = build_pack_origin(&summary, &[&f], None, "Sodium Plus");
+        assert_eq!(origin.project_name, "Sodium Plus");
     }
 
     fn pack_file(sha: &str) -> PackOriginFile {

@@ -1408,7 +1408,7 @@ pub async fn modpack_apply_update(
     let selected: Vec<&crate::mods::modpack::schema::ModpackFile> =
         summary.files.iter().filter(|f| !f.url.is_empty()).collect();
     let mut new_origin = crate::mods::modpack::import::build_pack_origin(
-        &summary, &selected, origin.project_id.clone(),
+        &summary, &selected, origin.project_id.clone(), &origin.project_name,
     );
     new_origin.files.extend(bundled);
     crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;

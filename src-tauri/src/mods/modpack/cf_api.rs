@@ -271,28 +271,29 @@ pub async fn list_files(
 
 // ---- project summary -------------------------------------------------
 
-/// Best-effort fetch of a CurseForge modpack's short `summary` for the
-/// Imported drawer. Mirrors `import::fetch_modrinth_description`:
-///   - missing key or non-2xx response → `Ok(None)`;
-///   - network or decode failure → `Err(...)` (caller uses `.unwrap_or(None)`).
+/// Best-effort fetch of a CurseForge modpack's project `name` and short
+/// `summary`, used for instance naming and the Imported drawer. Returns
+/// `(name, summary)`. Mirrors the Modrinth project fetch in `import.rs`:
+///   - missing key or non-2xx response → `Ok((None, None))`;
+///   - network or decode failure → `Err(...)` (caller uses `.unwrap_or((None, None))`).
 pub async fn fetch_summary(
     base: &str,
     key: Option<&str>,
     project_id: &str,
-) -> Result<Option<String>, Error> {
+) -> Result<(Option<String>, Option<String>), Error> {
     let Some(key) = key else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let url = format!("{base}/v1/mods/{project_id}");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
         .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
     if !(200..300).contains(&resp.status) {
-        return Ok(None);
+        return Ok((None, None));
     }
     let env: Env<CfMod> = serde_json::from_slice(&resp.body)
         .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
-    Ok(Some(env.data.summary))
+    Ok((Some(env.data.name), Some(env.data.summary)))
 }
 
 // ---- single-file download resolution --------------------------------
@@ -476,7 +477,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_summary_returns_summary() {
+    async fn fetch_summary_returns_name_and_summary() {
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 1234, "slug": "rlcraft", "name": "RLCraft",
@@ -487,8 +488,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        let r = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
-        assert_eq!(r.as_deref(), Some("A hard pack"));
+        let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
+        assert_eq!(name.as_deref(), Some("RLCraft"));
+        assert_eq!(summary.as_deref(), Some("A hard pack"));
     }
 
     #[tokio::test]
@@ -499,14 +501,14 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&s)
             .await;
-        let r = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
-        assert!(r.is_none());
+        let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
+        assert!(name.is_none() && summary.is_none());
     }
 
     #[tokio::test]
     async fn fetch_summary_no_key_is_none() {
-        let r = fetch_summary("http://127.0.0.1:1", None, "1234").await.unwrap();
-        assert!(r.is_none());
+        let (name, summary) = fetch_summary("http://127.0.0.1:1", None, "1234").await.unwrap();
+        assert!(name.is_none() && summary.is_none());
     }
 
     #[tokio::test]
