@@ -6,6 +6,7 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
+    type MissingModStatus,
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import NetworkPopover from '$lib/network/NetworkPopover.svelte';
@@ -21,7 +22,7 @@
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
-  import { modBrowserNav } from '$lib/settings/state.svelte';
+  import { modBrowserNav, modpacksNav } from '$lib/settings/state.svelte';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -63,6 +64,21 @@
     installedStats = { total, enabled, disabled: total - enabled };
   }
 
+  // Missing mods for the active pack-origin instance — drives the
+  // Overview indicator. Empty for non-pack instances and pre-SF2
+  // imports (modpack_status returns null or an empty list).
+  let packMissingMods = $state<MissingModStatus[]>([]);
+  const unresolvedMissing = $derived(packMissingMods.filter((m) => !m.installed));
+
+  async function refreshPackStatus(id: string | null) {
+    if (!id) {
+      packMissingMods = [];
+      return;
+    }
+    const r = await commands.modpackStatus(id);
+    packMissingMods = r.status === 'ok' && r.data ? r.data.missing_mods : [];
+  }
+
   let installing = $state(false);
   let installError = $state<string | null>(null);
   let running = $state<{ pid: number; version_id: string } | null>(null);
@@ -91,6 +107,7 @@
         exited = null;
         crashReport = null;
         void refreshInstalledStats(newId);
+        void refreshPackStatus(newId);
       }
     });
   });
@@ -123,8 +140,14 @@
     // Mod-install events refresh the Overview stats so the user can
     // see the Total / Enabled / Disabled numbers tick up after install
     // from the Mod browser without bouncing back through this view.
-    events.modInstalled.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
-    events.modUninstalled.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
+    events.modInstalled.listen(() => {
+      void refreshInstalledStats(activeInstance?.id ?? null);
+      void refreshPackStatus(activeInstance?.id ?? null);
+    });
+    events.modUninstalled.listen(() => {
+      void refreshInstalledStats(activeInstance?.id ?? null);
+      void refreshPackStatus(activeInstance?.id ?? null);
+    });
     events.modToggle.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
 
     events.processExited
@@ -452,6 +475,26 @@
                 </p>
               {/if}
             </div>
+
+            {#if unresolvedMissing.length > 0}
+              <button
+                type="button"
+                class="flex items-center gap-2 text-sm text-left rounded border border-amber-200 bg-amber-50 px-3 py-2 hover:bg-amber-100"
+                onclick={() => {
+                  if (activeInstance) {
+                    modpacksNav.value = { openDrawerForInstance: activeInstance.id };
+                  }
+                }}
+                data-testid="overview-missing-mods"
+              >
+                <span aria-hidden="true">⚠</span>
+                <span class="flex-1">
+                  {unresolvedMissing.length}
+                  {unresolvedMissing.length === 1 ? 'mod needs' : 'mods need'} manual install
+                </span>
+                <span class="text-xs text-amber-700 underline">View</span>
+              </button>
+            {/if}
 
             <div class="flex items-center gap-4 mt-2">
               {#if running}

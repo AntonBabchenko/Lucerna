@@ -15,7 +15,7 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::modpack::schema::EnvSupport;
+use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable};
 use crate::mods::platform::{InstalledMod, ModSource};
 
 const FILE_VERSION: u32 = 2;
@@ -32,6 +32,11 @@ pub struct PackOrigin {
     pub project_name: String,
     pub version: String,
     pub files: Vec<PackOriginFile>,
+    /// Mods the import could not auto-download (CurseForge distribution
+    /// disabled / Modrinth non-CDN host). `#[serde(default)]` so
+    /// registry files written before SF2 load with an empty list.
+    #[serde(default)]
+    pub missing_mods: Vec<ModpackUnresolvable>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
@@ -361,6 +366,7 @@ mod tests {
                 env_client: EnvSupport::Required,
                 source: ModSource::Modrinth,
             }],
+            missing_mods: vec![],
         }
     }
 
@@ -438,6 +444,7 @@ mod tests {
                 project_name: "P".into(),
                 version: "1".into(),
                 files: vec![mods_file, rp],
+                missing_mods: vec![],
             }),
         };
         write(td.path(), &v1).await.unwrap();
@@ -466,11 +473,44 @@ mod tests {
                 project_name: "P".into(),
                 version: "1".into(),
                 files: vec![rp],
+                missing_mods: vec![],
             }),
         };
         write(td.path(), &v2).await.unwrap();
         let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
         assert_eq!(origin.files.len(), 1);
         assert_eq!(origin.files[0].install_path, "resourcepacks/RP.zip");
+    }
+
+    #[tokio::test]
+    async fn pack_origin_missing_mods_round_trip() {
+        use crate::mods::modpack::schema::{ModpackUnresolvable, UnresolvableReason};
+        let td = TempDir::new().unwrap();
+        place_jar(&mods_dir(td.path()), "any.jar", b"any").await;
+        let _ = list(td.path()).await.unwrap();
+        let mut origin = sample_origin();
+        origin.missing_mods = vec![ModpackUnresolvable {
+            reason: UnresolvableReason::DistributionDisabled,
+            mod_name: "Scape and Run: Parasites".into(),
+            manual_action_url: "https://www.curseforge.com/projects/247571".into(),
+            filename: "srparasites-1.12.2-2.7.1.jar".into(),
+            size: 4096.0,
+            sha1: Some("abc".into()),
+        }];
+        set_pack_origin(td.path(), origin.clone()).await.unwrap();
+        let got = get_pack_origin(td.path()).await.unwrap();
+        assert_eq!(got, Some(origin));
+    }
+
+    #[tokio::test]
+    async fn legacy_pack_origin_loads_with_empty_missing_mods() {
+        let td = TempDir::new().unwrap();
+        let dir = registry_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        // A v2 file written before SF2 — pack_origin present, no missing_mods.
+        let legacy = br#"{"version":2,"mods":[],"pack_origin":{"project_id":null,"source":"modrinth","project_name":"P","version":"1","files":[]}}"#;
+        fs::write(registry_path(td.path()), legacy).await.unwrap();
+        let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
+        assert!(origin.missing_mods.is_empty());
     }
 }

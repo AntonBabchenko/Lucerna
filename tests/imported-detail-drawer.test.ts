@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // Mocks declared before SUT import so vitest hoists them ahead of
@@ -73,7 +73,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
-  events: {},
+  events: {
+    modInstalled: { listen: () => Promise.resolve(() => {}) },
+    modUninstalled: { listen: () => Promise.resolve(() => {}) },
+  },
 }));
 
 import type { InstanceWithStatus, ModSource } from '$lib/ipc/bindings';
@@ -338,6 +341,7 @@ describe('ImportedDetailDrawer', () => {
         removed_files: [],
         added_count: 0,
         is_modified: false,
+        missing_mods: [],
       },
     });
     const { findByTestId } = render(ImportedDetailDrawer, {
@@ -367,6 +371,7 @@ describe('ImportedDetailDrawer', () => {
         removed_files: [],
         added_count: 2,
         is_modified: true,
+        missing_mods: [],
       },
     });
     const { findByTestId } = render(ImportedDetailDrawer, {
@@ -413,6 +418,7 @@ describe('ImportedDetailDrawer', () => {
         removed_files: [],
         added_count: 1,
         is_modified: true,
+        missing_mods: [],
       },
     });
     const { findByTestId } = render(ImportedDetailDrawer, {
@@ -468,6 +474,7 @@ describe('ImportedDetailDrawer', () => {
         ],
         added_count: 0,
         is_modified: true,
+        missing_mods: [],
       },
     });
     const { findByTestId } = render(ImportedDetailDrawer, {
@@ -480,6 +487,58 @@ describe('ImportedDetailDrawer', () => {
     });
     const section = await findByTestId('imported-detail-removed-section');
     expect(section.textContent).toContain('Removed Mod');
+  });
+
+  it('lists missing mods with reason chip and source link', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'Cool Pack',
+          version: '1.0',
+          files: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [
+          {
+            entry: {
+              reason: 'distribution_disabled',
+              mod_name: 'Scape and Run: Parasites',
+              manual_action_url: 'https://www.curseforge.com/projects/247571',
+              filename: 'srparasites.jar',
+              size: 4096,
+              sha1: 'aa',
+            },
+            installed: false,
+          },
+          {
+            entry: {
+              reason: 'host_not_allowed',
+              mod_name: 'mods/other.jar',
+              manual_action_url: 'https://example.com/other.jar',
+              filename: 'other.jar',
+              size: 2048,
+              sha1: 'bb',
+            },
+            installed: true,
+          },
+        ],
+      },
+    });
+    const { findByTestId, getByText } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-missing-section');
+    expect(section.textContent).toContain('Scape and Run: Parasites');
+    expect(section.textContent).toContain('Distribution disabled');
+    // Two "Open ↗" links — pick the first (distribution_disabled entry).
+    const links = within(section).getAllByText('Open ↗') as HTMLAnchorElement[];
+    expect(links[0].getAttribute('href')).toBe('https://www.curseforge.com/projects/247571');
   });
 
   it('Restore button calls modpackRestoreFile with the right sha', async () => {
@@ -524,6 +583,7 @@ describe('ImportedDetailDrawer', () => {
         ],
         added_count: 0,
         is_modified: true,
+        missing_mods: [],
       },
     });
     const { findByTestId } = render(ImportedDetailDrawer, {

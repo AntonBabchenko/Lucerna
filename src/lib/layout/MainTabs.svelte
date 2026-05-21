@@ -3,7 +3,7 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
-  import { modBrowserNav } from '$lib/settings/state.svelte';
+  import { modBrowserNav, modpacksNav } from '$lib/settings/state.svelte';
 
   type Tab = 'overview' | 'mod_browser' | 'modpacks';
 
@@ -34,6 +34,15 @@
   $effect(() => {
     if (modBrowserNav.value !== null) {
       active = 'mod_browser';
+    }
+  });
+
+  // Honour the Modpacks-tab navigation rune (set by the Overview
+  // missing-mods indicator). ModpacksTab + ImportedView read the same
+  // rune to open the right drawer; ImportedView clears it.
+  $effect(() => {
+    if (modpacksNav.value !== null) {
+      active = 'modpacks';
     }
   });
 </script>

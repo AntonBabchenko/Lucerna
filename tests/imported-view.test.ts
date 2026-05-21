@@ -1,6 +1,6 @@
-import { fireEvent, render, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Bundle 2: ImportedView calls modpack_status per pack-instance on
 // mount and forwards the resulting is_modified flag to each
@@ -15,8 +15,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsProject: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackRestoreFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
-  events: {},
+  events: {
+    modInstalled: { listen: () => Promise.resolve(() => {}) },
+    modUninstalled: { listen: () => Promise.resolve(() => {}) },
+  },
 }));
 
 import type { LoaderKind } from '$lib/ipc/bindings';
@@ -268,6 +272,7 @@ describe('ImportedView', () => {
         removed_files: [],
         added_count: 1,
         is_modified: true,
+        missing_mods: [],
       },
     });
     const { findByTestId } = render(ImportedView, {
@@ -278,5 +283,25 @@ describe('ImportedView', () => {
     });
     const tag = await findByTestId('imported-card-modified-tag');
     expect(tag.textContent).toContain('modified');
+  });
+
+  // Cross-tab nav rune: modpacksNav triggers the detail drawer.
+  describe('modpacksNav', () => {
+    afterEach(async () => {
+      const { modpacksNav } = await import('$lib/settings/state.svelte');
+      modpacksNav.value = null;
+    });
+
+    it('opens the detail drawer for the instance named in modpacksNav', async () => {
+      const { modpacksNav } = await import('$lib/settings/state.svelte');
+      modpacksNav.value = { openDrawerForInstance: 'i1' };
+      render(ImportedView, {
+        props: {
+          instances: [inst('i1', 'My Pack', 1000)],
+          onPick: () => {},
+        },
+      });
+      expect(await screen.findByTestId('imported-detail-drawer')).toBeTruthy();
+    });
   });
 });

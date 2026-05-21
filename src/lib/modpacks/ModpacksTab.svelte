@@ -10,6 +10,7 @@
     ModpackSummary,
     ProgressTick,
   } from '$lib/ipc/bindings';
+  import { modpacksNav } from '$lib/settings/state.svelte';
   import ImportDropzone from './ImportDropzone.svelte';
   import ImportPickerDialog from './ImportPickerDialog.svelte';
   import ImportProgressView from './ImportProgressView.svelte';
@@ -51,6 +52,15 @@
   $effect(() => {
     if (activeSub === 'browse') browseEverActive = true;
     if (activeSub === 'imported') importedEverActive = true;
+  });
+
+  // When the Overview indicator requests a pack drawer, switch to the
+  // Imported sub-tab so ImportedView (which opens the drawer) is mounted.
+  $effect(() => {
+    if (modpacksNav.value !== null) {
+      activeSub = 'imported';
+      importedEverActive = true;
+    }
   });
 
   // Picker / progress / drawer state machine.

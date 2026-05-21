@@ -307,6 +307,12 @@ export const commands = {
 	 *  here so the UI doesn't have to.
 	 */
 	is_modified: boolean,
+	/**
+	 *  Mods the import could not auto-download, each tagged with whether
+	 *  the user has since added it. Empty for instances imported before
+	 *  this feature and for non-pack instances.
+	 */
+	missing_mods: MissingModStatus[],
 } | null, Error>(__TAURI_INVOKE("modpack_status", { instanceId })),
 	/**
 	 *  Re-install a single file that was part of the original pack but is
@@ -563,6 +569,17 @@ export type LogFileMeta = {
 
 export type LogSource = "game" | "crash" | "launcher";
 
+/**
+ *  One `PackOrigin.missing_mods` entry paired with a live check of
+ *  whether the user has since installed that mod by hand. Computed by
+ *  `compute_status`; consumed by the imported-pack drawer and the
+ *  Overview indicator.
+ */
+export type MissingModStatus = {
+	entry: ModpackUnresolvable,
+	installed: boolean,
+};
+
 export type ModDepLink = {
 	kind: DepKind,
 	project_ref: DepProjectRef,
@@ -763,6 +780,12 @@ export type ModpackStatus = {
 	 *  here so the UI doesn't have to.
 	 */
 	is_modified: boolean,
+	/**
+	 *  Mods the import could not auto-download, each tagged with whether
+	 *  the user has since added it. Empty for instances imported before
+	 *  this feature and for non-pack instances.
+	 */
+	missing_mods: MissingModStatus[],
 };
 
 export type ModpackSummary = {
@@ -781,8 +804,33 @@ export type ModpackSummary = {
 
 export type ModpackUnresolvable = {
 	reason: UnresolvableReason,
+	/**
+	 *  Best-effort human label: the CurseForge displayName, or the
+	 *  Modrinth file path for host/path rejections.
+	 */
 	mod_name: string,
+	/**
+	 *  CurseForge project page, or a direct download URL — empty when
+	 *  no manual route exists (e.g. an unsafe path).
+	 */
 	manual_action_url: string,
+	/**
+	 *  Expected jar filename. The CF/Modrinth APIs provide it even when
+	 *  the file itself cannot be downloaded — used to auto-detect a
+	 *  later manual install.
+	 */
+	filename: string,
+	/**
+	 *  Expected file size in bytes. f64 not u64 — specta forbids
+	 *  BigInt-style exports.
+	 */
+	size: number | null,
+	/**
+	 *  Expected sha1, lowercased, when the platform supplied one. A
+	 *  CurseForge distribution-disabled file may carry only an md5 —
+	 *  `None` in that case.
+	 */
+	sha1: string | null,
 };
 
 /**
@@ -859,6 +907,12 @@ export type PackOrigin = {
 	project_name: string,
 	version: string,
 	files: PackOriginFile[],
+	/**
+	 *  Mods the import could not auto-download (CurseForge distribution
+	 *  disabled / Modrinth non-CDN host). `#[serde(default)]` so
+	 *  registry files written before SF2 load with an empty list.
+	 */
+	missing_mods?: ModpackUnresolvable[],
 };
 
 export type PackOriginFile = {

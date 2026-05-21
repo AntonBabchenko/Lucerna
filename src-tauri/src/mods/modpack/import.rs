@@ -57,6 +57,17 @@ pub fn build_pack_origin(
         project_name: pack_name.to_string(),
         version: summary.version.clone(),
         files,
+        missing_mods: summary
+            .unresolvable
+            .iter()
+            .filter(|u| {
+                matches!(
+                    u.reason,
+                    UnresolvableReason::DistributionDisabled | UnresolvableReason::HostNotAllowed
+                )
+            })
+            .cloned()
+            .collect(),
     }
 }
 
@@ -70,6 +81,25 @@ pub(crate) fn is_tracked_mod(install_path: &str) -> bool {
     install_path
         .strip_prefix("mods/")
         .is_some_and(|rest| !rest.is_empty() && !rest.contains('/') && rest.ends_with(".jar"))
+}
+
+/// A `missing_mods` entry counts as installed once the user has added
+/// that mod by any route. Matched on three exact, case-insensitive
+/// signals — sha1, filename, or display name — so a mod added via the
+/// drag-drop local install (which records the descriptor name) is
+/// detected even when the user grabbed a different file than the pack
+/// pinned. All matches are exact, so there are no false positives.
+fn missing_mod_installed(
+    m: &ModpackUnresolvable,
+    installed: &[crate::mods::platform::InstalledMod],
+) -> bool {
+    installed.iter().any(|i| {
+        m.sha1
+            .as_deref()
+            .is_some_and(|s| i.sha1.eq_ignore_ascii_case(s))
+            || i.filename.eq_ignore_ascii_case(&m.filename)
+            || i.name.eq_ignore_ascii_case(&m.mod_name)
+    })
 }
 
 /// Diff the immutable pack-origin snapshot against live instance state.
@@ -114,12 +144,24 @@ pub fn compute_status(
 
     let is_modified = !removed_files.is_empty() || added_count > 0;
 
+    // Reconcile missing mods against what the user has since installed.
+    // Read origin.missing_mods before the struct literal moves `origin`.
+    let missing_mods: Vec<MissingModStatus> = origin
+        .missing_mods
+        .iter()
+        .map(|m| MissingModStatus {
+            entry: m.clone(),
+            installed: missing_mod_installed(m, installed),
+        })
+        .collect();
+
     crate::mods::modpack::schema::ModpackStatus {
         origin,
         installed_shas,
         removed_files,
         added_count,
         is_modified,
+        missing_mods,
     }
 }
 
@@ -721,6 +763,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![pack_file("a"), pack_file("b")],
+            missing_mods: vec![],
         };
         let installed = vec![installed("a", true), installed("b", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -738,6 +781,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![pack_file("a"), pack_file("b")],
+            missing_mods: vec![],
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
@@ -756,6 +800,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![pack_file("a")],
+            missing_mods: vec![],
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
@@ -775,6 +820,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![pack_file("a"), rp],
+            missing_mods: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -794,6 +840,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![pack_file("a"), rp],
+            missing_mods: vec![],
         };
         let installed = vec![installed("a", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -812,6 +859,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![f],
+            missing_mods: vec![],
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
@@ -856,6 +904,7 @@ mod tests {
             project_name: "P".into(),
             version: "1.0".into(),
             files,
+            missing_mods: vec![],
         }
     }
 
@@ -929,6 +978,7 @@ mod tests {
             project_name: "P".into(),
             version: "1".into(),
             files: vec![pack_file("AbCdEf"), pack_file("zzz")],
+            missing_mods: vec![],
         };
         let mut wanted = origin.files[0].clone();
         wanted.sha1 = "AbCdEf".into();
@@ -955,12 +1005,51 @@ mod tests {
             project_id: None, source: ModSource::Curseforge,
             project_name: "P".into(), version: "1".into(),
             files: vec![pack_file("a"), zip],
+            missing_mods: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
             ["mods/Emis_Rlcraft.zip".to_string()].into_iter().collect();
         let s = compute_status(origin, &installed, &present);
         assert!(!s.is_modified, "a .zip present on disk must not be 'removed'");
+    }
+
+    #[test]
+    fn build_pack_origin_keeps_only_manually_installable_unresolvable() {
+        use crate::mods::modpack::schema::{ModpackUnresolvable, UnresolvableReason};
+        let mut summary = sample_summary(ModpackFormat::Modrinth);
+        summary.unresolvable = vec![
+            ModpackUnresolvable {
+                reason: UnresolvableReason::DistributionDisabled,
+                mod_name: "SRP".into(),
+                manual_action_url: "https://www.curseforge.com/projects/1".into(),
+                filename: "srp.jar".into(),
+                size: 1.0,
+                sha1: None,
+            },
+            ModpackUnresolvable {
+                reason: UnresolvableReason::HostNotAllowed,
+                mod_name: "mods/x.jar".into(),
+                manual_action_url: "https://github.com/x.jar".into(),
+                filename: "x.jar".into(),
+                size: 2.0,
+                sha1: Some("ab".into()),
+            },
+            ModpackUnresolvable {
+                reason: UnresolvableReason::UnsafePath,
+                mod_name: "../escape.jar".into(),
+                manual_action_url: String::new(),
+                filename: "escape.jar".into(),
+                size: 3.0,
+                sha1: None,
+            },
+        ];
+        let origin = build_pack_origin(&summary, &[], None, "Test Pack");
+        assert_eq!(origin.missing_mods.len(), 2);
+        assert!(origin
+            .missing_mods
+            .iter()
+            .all(|m| !matches!(m.reason, UnresolvableReason::UnsafePath)));
     }
 
     #[test]
@@ -971,11 +1060,86 @@ mod tests {
             project_id: None, source: ModSource::Curseforge,
             project_name: "P".into(), version: "1".into(),
             files: vec![pack_file("a"), nested],
+            missing_mods: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
             ["mods/memory_repo/com/x/llibrary.jar".to_string()].into_iter().collect();
         let s = compute_status(origin, &installed, &present);
         assert!(!s.is_modified, "a nested mods/ jar present on disk must not be 'removed'");
+    }
+
+    fn missing_entry(sha1: Option<&str>, filename: &str, name: &str) -> ModpackUnresolvable {
+        ModpackUnresolvable {
+            reason: UnresolvableReason::DistributionDisabled,
+            mod_name: name.to_string(),
+            manual_action_url: "https://www.curseforge.com/projects/1".into(),
+            filename: filename.to_string(),
+            size: 1.0,
+            sha1: sha1.map(|s| s.to_string()),
+        }
+    }
+
+    fn installed_mod(sha1: &str, filename: &str, name: &str, enabled: bool)
+        -> crate::mods::platform::InstalledMod
+    {
+        crate::mods::platform::InstalledMod {
+            filename: filename.to_string(),
+            sha1: sha1.to_string(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            name: name.to_string(),
+            version_number: None,
+            installed_at: chrono::Utc::now().to_rfc3339(),
+            enabled,
+        }
+    }
+
+    fn origin_with_missing(missing: Vec<ModpackUnresolvable>) -> PackOrigin {
+        let mut o = origin_with(vec![]);
+        o.missing_mods = missing;
+        o
+    }
+
+    #[test]
+    fn missing_mod_detected_by_sha1() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
+        let installed = vec![installed_mod("AA", "whatever.jar", "Whatever", true)];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods.len(), 1);
+        assert!(st.missing_mods[0].installed);
+    }
+
+    #[test]
+    fn missing_mod_detected_by_filename() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
+        let installed = vec![installed_mod("zz", "SRP.JAR", "Whatever", true)];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert!(st.missing_mods[0].installed);
+    }
+
+    #[test]
+    fn missing_mod_detected_by_name() {
+        let origin = origin_with_missing(vec![missing_entry(None, "srp.jar", "Scape and Run")]);
+        let installed = vec![installed_mod("zz", "other.jar", "scape and run", true)];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert!(st.missing_mods[0].installed);
+    }
+
+    #[test]
+    fn missing_mod_not_detected_when_nothing_matches() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
+        let installed = vec![installed_mod("zz", "other.jar", "Other", true)];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert!(!st.missing_mods[0].installed);
+    }
+
+    #[test]
+    fn disabled_installed_mod_still_resolves_missing_entry() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
+        let installed = vec![installed_mod("aa", "srp.jar", "SRP", false)];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert!(st.missing_mods[0].installed);
     }
 }

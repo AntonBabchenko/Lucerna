@@ -154,6 +154,13 @@ pub async fn parse(
                     reason: UnresolvableReason::DistributionDisabled,
                     mod_name: detail.display_name.clone(),
                     manual_action_url: format!("https://www.curseforge.com/projects/{}", detail.mod_id),
+                    filename: detail.file_name.clone(),
+                    size: detail.file_length as f64,
+                    sha1: detail
+                        .hashes
+                        .iter()
+                        .find(|h| h.algo == 1)
+                        .map(|h| h.value.to_ascii_lowercase()),
                 });
                 continue;
             }
@@ -390,8 +397,38 @@ mod tests {
         clear_test_key();
         assert_eq!(r.files.len(), 1);
         assert_eq!(r.unresolvable.len(), 1);
-        assert!(matches!(r.unresolvable[0].reason, UnresolvableReason::DistributionDisabled));
-        assert!(r.unresolvable[0].manual_action_url.contains("238222"));
+        let u = &r.unresolvable[0];
+        assert!(matches!(u.reason, UnresolvableReason::DistributionDisabled));
+        assert!(u.manual_action_url.contains("238222"));
+        assert_eq!(u.filename, "jei.jar");
+        assert_eq!(u.size, 999.0);
+        assert_eq!(u.sha1.as_deref(), Some("abc"));
+    }
+
+    #[tokio::test]
+    async fn distribution_disabled_without_sha1_records_none() {
+        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        install_test_key();
+        let s = MockServer::start().await;
+        let resp = serde_json::json!({
+            "data": [
+                { "id": 4499899, "modId": 238222, "fileName": "jei.jar",
+                  "displayName": "JEI", "fileLength": 10, "downloadUrl": null,
+                  "hashes": [{ "value": "deadbeef", "algo": 2 }] },
+                { "id": 4567890, "modId": 222880, "fileName": "mod-b.jar",
+                  "displayName": "Mod B", "fileLength": 500,
+                  "downloadUrl": "https://edge.forgecdn.net/files/4/5/mod-b.jar",
+                  "hashes": [{ "value": "def", "algo": 1 }] }
+            ]
+        });
+        Mock::given(method("POST")).and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(resp))
+            .mount(&s).await;
+        let zip = make_cf_zip(&sample_manifest());
+        let r = parse(&zip, &s.uri()).await.unwrap();
+        clear_test_key();
+        assert_eq!(r.unresolvable.len(), 1);
+        assert_eq!(r.unresolvable[0].sha1, None);
     }
 
     #[tokio::test]

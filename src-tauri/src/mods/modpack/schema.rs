@@ -57,11 +57,26 @@ pub struct ModpackFile {
     pub source: ModSource,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModpackUnresolvable {
     pub reason: UnresolvableReason,
+    /// Best-effort human label: the CurseForge displayName, or the
+    /// Modrinth file path for host/path rejections.
     pub mod_name: String,
+    /// CurseForge project page, or a direct download URL — empty when
+    /// no manual route exists (e.g. an unsafe path).
     pub manual_action_url: String,
+    /// Expected jar filename. The CF/Modrinth APIs provide it even when
+    /// the file itself cannot be downloaded — used to auto-detect a
+    /// later manual install.
+    pub filename: String,
+    /// Expected file size in bytes. f64 not u64 — specta forbids
+    /// BigInt-style exports.
+    pub size: f64,
+    /// Expected sha1, lowercased, when the platform supplied one. A
+    /// CurseForge distribution-disabled file may carry only an md5 —
+    /// `None` in that case.
+    pub sha1: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -121,6 +136,16 @@ pub enum ModpackProgress {
     Done { instance_id: String },
 }
 
+/// One `PackOrigin.missing_mods` entry paired with a live check of
+/// whether the user has since installed that mod by hand. Computed by
+/// `compute_status`; consumed by the imported-pack drawer and the
+/// Overview indicator.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct MissingModStatus {
+    pub entry: ModpackUnresolvable,
+    pub installed: bool,
+}
+
 /// One-shot diff of "what was the pack at import time" vs "what's
 /// actually on disk now". The UI uses this to draw the modified-tag on
 /// imported cards and the removed-from-pack section in the drawer.
@@ -143,6 +168,10 @@ pub struct ModpackStatus {
     /// `!removed_files.is_empty() || added_count > 0`. Pre-computed
     /// here so the UI doesn't have to.
     pub is_modified: bool,
+    /// Mods the import could not auto-download, each tagged with whether
+    /// the user has since added it. Empty for instances imported before
+    /// this feature and for non-pack instances.
+    pub missing_mods: Vec<MissingModStatus>,
 }
 
 /// A mod/asset present in both the installed pack and the new version

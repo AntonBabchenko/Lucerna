@@ -26,3 +26,11 @@ export const cfKeyVersion = $state<{ value: number }>({ value: 0 });
 // to null so subsequent in-tab clicks don't get hijacked.
 export type ModBrowserNav = { view: 'browse' | 'installed' };
 export const modBrowserNav = $state<{ value: ModBrowserNav | null }>({ value: null });
+
+// Cross-component navigation into the Modpacks tab's imported-pack
+// drawer. The Overview "missing mods" indicator sets this; MainTabs
+// flips to the Modpacks tab, ModpacksTab flips to its Imported sub-tab,
+// and ImportedView opens the drawer for the named instance, then
+// resets the rune. Mirrors `modBrowserNav`.
+export type ModpacksNav = { openDrawerForInstance: string };
+export const modpacksNav = $state<{ value: ModpacksNav | null }>({ value: null });

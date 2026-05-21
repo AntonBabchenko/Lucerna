@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands } from '$lib/ipc/bindings';
   import type { InstanceWithStatus, LoaderKind, ModpackStatus } from '$lib/ipc/bindings';
+  import { modpacksNav } from '$lib/settings/state.svelte';
   import ImportedCard from './ImportedCard.svelte';
   import ImportedDetailDrawer from './ImportedDetailDrawer.svelte';
 
@@ -46,6 +47,16 @@
   const drawerInst = $derived(
     drawerInstId == null ? null : (instances.find((i) => i.id === drawerInstId) ?? null),
   );
+
+  // Final consumer of modpacksNav: open the drawer for the requested
+  // instance and clear the rune so later in-tab clicks aren't hijacked.
+  $effect(() => {
+    const nav = modpacksNav.value;
+    if (nav !== null) {
+      drawerInstId = nav.openDrawerForInstance;
+      modpacksNav.value = null;
+    }
+  });
 
   let query = $state('');
   let mcFilter = $state('');

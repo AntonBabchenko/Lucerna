@@ -98,6 +98,9 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 reason: UnresolvableReason::UnsafePath,
                 mod_name: f.path.clone(),
                 manual_action_url: String::new(),
+                filename: f.path.rsplit('/').next().unwrap_or(&f.path).to_string(),
+                size: f.file_size as f64,
+                sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
             });
             continue;
         }
@@ -119,6 +122,9 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 reason: UnresolvableReason::HostNotAllowed,
                 mod_name: f.path.clone(),
                 manual_action_url: url.clone(),
+                filename: f.path.rsplit('/').next().unwrap_or(&f.path).to_string(),
+                size: f.file_size as f64,
+                sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
             });
             continue;
         }
@@ -269,7 +275,11 @@ mod tests {
         let s = parse(&zip).unwrap();
         assert!(s.files.is_empty());
         assert_eq!(s.unresolvable.len(), 1);
-        assert!(matches!(s.unresolvable[0].reason, UnresolvableReason::HostNotAllowed));
+        let u = &s.unresolvable[0];
+        assert!(matches!(u.reason, UnresolvableReason::HostNotAllowed));
+        assert_eq!(u.filename, "sodium.jar");
+        assert_eq!(u.size, 1234567.0);
+        assert_eq!(u.sha1.as_deref(), Some("abc123"));
     }
 
     #[test]

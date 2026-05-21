@@ -86,6 +86,9 @@ describe('ImportPickerDialog', () => {
           reason: 'distribution_disabled' as const,
           mod_name: 'Embeddium',
           manual_action_url: 'https://www.curseforge.com/projects/911',
+          filename: 'embeddium.jar',
+          size: 100,
+          sha1: null,
         },
       ],
     };

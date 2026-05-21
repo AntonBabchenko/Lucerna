@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Channel } from '@tauri-apps/api/core';
-  import { commands } from '$lib/ipc/bindings';
+  import { onMount } from 'svelte';
+  import { commands, events } from '$lib/ipc/bindings';
   import type {
     InstalledMod,
     InstanceWithStatus,
@@ -129,10 +130,29 @@
     void checkForUpdates();
   });
 
-  async function load() {
-    mods = null;
-    status = null;
-    nameMap = new Map();
+  // While the drawer is open, a mod installed or removed elsewhere
+  // (e.g. a drag-drop local install on the Mods tab) can resolve or
+  // un-resolve a "Mods to install manually" entry. Refresh silently so
+  // the section and provenance badges stay live without a loading flash.
+  onMount(() => {
+    const unlisten = [
+      events.modInstalled.listen(() => void load(true)),
+      events.modUninstalled.listen(() => void load(true)),
+    ];
+    return () => {
+      for (const u of unlisten) void u.then((fn) => fn());
+    };
+  });
+
+  async function load(silent = false) {
+    // A silent refresh (fired by a mod-install event) skips the loading
+    // reset so the drawer updates in place; a non-silent load clears
+    // first to show the "Loading…" state.
+    if (!silent) {
+      mods = null;
+      status = null;
+      nameMap = new Map();
+    }
     restoreError = null;
 
     const [listR, statusR] = await Promise.all([
@@ -156,19 +176,19 @@
     // Project-name enrichment. Same shape as InstalledModsView: fetch
     // ModProject per installed mod with a source, drop errors silently,
     // build a map sha1 -> canonical name. Concurrent across all rows.
-    if (mods.length > 0) {
-      const next = new Map<string, string>();
-      await Promise.all(
-        mods.map(async (m) => {
-          if (m.source == null || m.project_id == null) return;
-          const p = await commands.modsProject(m.source as ModSource, m.project_id);
-          if (p.status === 'ok') {
-            next.set(m.sha1, p.data.summary.name);
-          }
-        }),
-      );
-      nameMap = next;
-    }
+    // Always reassign `nameMap` (an empty map when there are no mods) so
+    // a silent refresh down to zero mods can't leave stale entries.
+    const next = new Map<string, string>();
+    await Promise.all(
+      mods.map(async (m) => {
+        if (m.source == null || m.project_id == null) return;
+        const p = await commands.modsProject(m.source as ModSource, m.project_id);
+        if (p.status === 'ok') {
+          next.set(m.sha1, p.data.summary.name);
+        }
+      }),
+    );
+    nameMap = next;
   }
 
   async function checkForUpdates() {
@@ -529,6 +549,53 @@
             {reimporting ? 'Re-importing…' : 'Re-import pack files'}
           </button>
         {/if}
+      </div>
+    {/if}
+
+    {#if status && status.missing_mods.length > 0}
+      <div class="mt-5" data-testid="imported-detail-missing-section">
+        <h4 class="font-medium text-sm text-neutral-700 mb-2">
+          Mods to install manually ({status.missing_mods.filter((m) => !m.installed).length})
+        </h4>
+        <p class="text-xs text-neutral-500 mb-2">
+          The pack author disabled automatic downloads for these. Download each
+          from its source and drop the jar onto the Mods tab.
+        </p>
+        <ul class="space-y-1">
+          {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
+            <li
+              class="flex items-center gap-2 text-sm py-1 px-2 rounded border"
+              class:bg-amber-50={!m.installed}
+              class:border-amber-100={!m.installed}
+              class:bg-green-50={m.installed}
+              class:border-green-100={m.installed}
+            >
+              <span class="flex-shrink-0" aria-hidden="true">
+                {m.installed ? '✓' : '⚠'}
+              </span>
+              <span class="truncate flex-1" class:text-neutral-500={m.installed}>
+                {m.entry.mod_name}
+              </span>
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
+              >
+                {m.entry.reason === 'distribution_disabled'
+                  ? 'Distribution disabled'
+                  : 'Host not allowed'}
+              </span>
+              {#if m.entry.manual_action_url}
+                <a
+                  href={m.entry.manual_action_url}
+                  target="_blank"
+                  rel="noopener"
+                  class="text-blue-600 hover:underline text-xs flex-shrink-0"
+                >
+                  Open ↗
+                </a>
+              {/if}
+            </li>
+          {/each}
+        </ul>
       </div>
     {/if}
   </div>

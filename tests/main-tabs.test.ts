@@ -33,7 +33,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
-  events: {},
+  events: {
+    modInstalled: { listen: () => Promise.resolve(() => {}) },
+    modUninstalled: { listen: () => Promise.resolve(() => {}) },
+  },
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/webview', () => ({
