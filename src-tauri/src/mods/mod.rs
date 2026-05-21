@@ -12,5 +12,6 @@ pub mod local;
 pub mod modpack;
 pub mod modrinth;
 pub mod platform;
+pub mod project_cache;
 
 pub use platform::*;

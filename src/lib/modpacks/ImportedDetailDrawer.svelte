@@ -14,6 +14,7 @@
     ProgressTick,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { drawerCache } from './drawer-cache';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
 
   // Right-side drawer that surfaces the metadata captured at import time
@@ -145,10 +146,17 @@
   });
 
   async function load(silent = false) {
-    // A silent refresh (fired by a mod-install event) skips the loading
-    // reset so the drawer updates in place; a non-silent load clears
-    // first to show the "Loading…" state.
-    if (!silent) {
+    // Seed from the session cache so a reopened drawer renders instantly
+    // instead of flashing "Loading…"; load() then revalidates below. A
+    // silent refresh (fired by a mod-install event) likewise skips the
+    // loading reset. Only a first-ever open with no cache entry shows
+    // the "Loading…" state.
+    const cached = drawerCache.get(inst.id);
+    if (cached) {
+      mods = cached.mods;
+      status = cached.status;
+      nameMap = cached.nameMap;
+    } else if (!silent) {
       mods = null;
       status = null;
       nameMap = new Map();
@@ -189,6 +197,10 @@
       }),
     );
     nameMap = next;
+    // Store shallow copies of the collections so a later in-place
+    // mutation of this drawer's own `mods` / `nameMap` can't reach back
+    // and corrupt the cached snapshot. `status` is a read-only IPC value.
+    drawerCache.set(inst.id, { mods: [...mods], status, nameMap: new Map(nameMap) });
   }
 
   async function checkForUpdates() {

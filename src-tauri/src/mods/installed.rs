@@ -7,7 +7,10 @@
 //! deleted files reconcile cleanly. Hand-editing the mods folder is a
 //! supported workflow.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -19,6 +22,41 @@ use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable};
 use crate::mods::platform::{InstalledMod, ModSource};
 
 const FILE_VERSION: u32 = 2;
+
+/// Process-lifetime SHA-1 cache for files in `mods/`, keyed by path.
+/// `reconcile()` re-uses the stored digest when a file's (mtime, size)
+/// are unchanged, turning a full read+hash into a cheap `stat`.
+static HASH_CACHE: LazyLock<Mutex<HashMap<PathBuf, (SystemTime, u64, String)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// SHA-1 of the file at `path`, re-using the cached digest when
+/// `(mtime, size)` are unchanged since it was last hashed. `read_and_hash`
+/// is only awaited on a miss. The lock is never held across the await.
+async fn cached_sha1<F, Fut>(
+    path: &Path,
+    mtime: SystemTime,
+    size: u64,
+    read_and_hash: F,
+) -> Result<String, Error>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<String, Error>>,
+{
+    {
+        let cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((m, s, sha)) = cache.get(path) {
+            if *m == mtime && *s == size {
+                return Ok(sha.clone());
+            }
+        }
+    }
+    let sha = read_and_hash().await?;
+    {
+        let mut cache = HASH_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        cache.insert(path.to_path_buf(), (mtime, size, sha.clone()));
+    }
+    Ok(sha)
+}
 
 /// Snapshot of the mods the user selected at modpack-import time, kept
 /// in `installed-mods.json` alongside the live entries so the launcher
@@ -124,7 +162,8 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
     if fs::try_exists(&dir).await.map_err(|e| io_err(&dir, e))? {
         let mut rd = fs::read_dir(&dir).await.map_err(|e| io_err(&dir, e))?;
         while let Some(entry) = rd.next_entry().await.map_err(|e| io_err(&dir, e))? {
-            if !entry.metadata().await.map_err(|e| io_err(&dir, e))?.is_file() {
+            let meta = entry.metadata().await.map_err(|e| io_err(&dir, e))?;
+            if !meta.is_file() {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
@@ -136,8 +175,13 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
                 continue;
             };
             let path = entry.path();
-            let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
-            let sha = hex::encode(Sha1::digest(&bytes));
+            let size = meta.len();
+            let mtime = meta.modified().map_err(|e| io_err(&path, e))?;
+            let sha = cached_sha1(&path, mtime, size, || async {
+                let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
+                Ok(hex::encode(Sha1::digest(&bytes)))
+            })
+            .await?;
             on_disk.push((base_name, sha, enabled));
         }
     }
@@ -512,5 +556,77 @@ mod tests {
         fs::write(registry_path(td.path()), legacy).await.unwrap();
         let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
         assert!(origin.missing_mods.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cached_sha1_hit_skips_recompute() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, UNIX_EPOCH};
+        let calls = AtomicUsize::new(0);
+        // Synthetic, unique path — the cache key never needs a real file
+        // because the read_and_hash closure is a stub.
+        let path = Path::new("modlistcache-test-hashcache-hit.jar");
+        let mtime = UNIX_EPOCH + Duration::from_secs(1000);
+        let a = cached_sha1(path, mtime, 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("deadbeef".to_string())
+        })
+        .await
+        .unwrap();
+        let b = cached_sha1(path, mtime, 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("must-not-run".to_string())
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(a, "deadbeef");
+        assert_eq!(b, "deadbeef");
+    }
+
+    #[tokio::test]
+    async fn cached_sha1_recomputes_when_size_changes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, UNIX_EPOCH};
+        let calls = AtomicUsize::new(0);
+        let path = Path::new("modlistcache-test-hashcache-size.jar");
+        let mtime = UNIX_EPOCH + Duration::from_secs(2000);
+        let _ = cached_sha1(path, mtime, 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("hash-v1".to_string())
+        })
+        .await
+        .unwrap();
+        let v2 = cached_sha1(path, mtime, 20, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("hash-v2".to_string())
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(v2, "hash-v2");
+    }
+
+    #[tokio::test]
+    async fn cached_sha1_recomputes_when_mtime_changes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, UNIX_EPOCH};
+        let calls = AtomicUsize::new(0);
+        let path = Path::new("modlistcache-test-hashcache-mtime.jar");
+        let _ = cached_sha1(path, UNIX_EPOCH + Duration::from_secs(3000), 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("hash-old".to_string())
+        })
+        .await
+        .unwrap();
+        // Same path and size, newer mtime — must re-hash.
+        let v2 = cached_sha1(path, UNIX_EPOCH + Duration::from_secs(3001), 10, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok("hash-new".to_string())
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(v2, "hash-new");
     }
 }

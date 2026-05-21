@@ -1,5 +1,5 @@
 import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Mocks declared before SUT import so vitest hoists them ahead of
 // the module graph. All commands return the tauri-specta
@@ -539,6 +539,43 @@ describe('ImportedDetailDrawer', () => {
     // Two "Open ↗" links — pick the first (distribution_disabled entry).
     const links = within(section).getAllByText('Open ↗') as HTMLAnchorElement[];
     expect(links[0].getAttribute('href')).toBe('https://www.curseforge.com/projects/247571');
+  });
+
+  afterEach(async () => {
+    const { drawerCache } = await import('$lib/modpacks/drawer-cache');
+    drawerCache.clear();
+  });
+
+  it('renders cached mods immediately on reopen, with no Loading state', async () => {
+    const { drawerCache } = await import('$lib/modpacks/drawer-cache');
+    drawerCache.set('i1', {
+      mods: [
+        {
+          filename: 'cached.jar',
+          sha1: 'c1',
+          name: 'Cached Mod',
+          version_number: null,
+          source: null,
+          project_id: null,
+          version_id: null,
+          installed_at: '',
+          enabled: true,
+        },
+      ],
+      status: null,
+      nameMap: new Map(),
+    });
+    const { getByTestId, queryByTestId } = render(ImportedDetailDrawer, {
+      props: {
+        inst: instance({ id: 'i1' }),
+        onClose: () => {},
+        onOpenInstance: () => {},
+        onDeleted: () => {},
+      },
+    });
+    // Seeded synchronously from the cache — no "Loading…" placeholder.
+    expect(queryByTestId('imported-detail-mods-loading')).toBeNull();
+    expect(getByTestId('imported-detail-mods-list').textContent).toContain('Cached Mod');
   });
 
   it('Restore button calls modpackRestoreFile with the right sha', async () => {

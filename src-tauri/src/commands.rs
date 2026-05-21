@@ -448,7 +448,10 @@ pub async fn mods_project(
     source: ModSource,
     project_id: String,
 ) -> crate::error::Result<ModProject> {
-    platform_for(source).project(&project_id).await
+    crate::mods::project_cache::get_or_fetch(source, &project_id, || async {
+        platform_for(source).project(&project_id).await
+    })
+    .await
 }
 
 #[tauri::command]
