@@ -27,10 +27,11 @@ pub struct ArgvInput<'a> {
     pub natives_dir: PathBuf,
     pub game_dir: PathBuf,
     /// Vanilla MC client jar to append to the classpath. `None` for
-    /// loader installs that ship a patched MC in their libraries
-    /// (Forge / NeoForge — adding vanilla here duplicates the MC
-    /// bytecode and triggers a JPMS ResolutionException on modern
-    /// Java 9+ module path bootstraps).
+    /// modern Forge / NeoForge installs that ship a patched MC in their
+    /// libraries — adding vanilla there duplicates the MC bytecode and
+    /// triggers a JPMS ResolutionException on the modern Java 9+ module
+    /// path bootstrap. Legacy-era Forge (launchwrapper) and
+    /// Vanilla / Fabric / Quilt do get the vanilla jar.
     pub client_jar: Option<PathBuf>,
     pub os: &'static str,
     pub arch: &'static str,
@@ -126,9 +127,9 @@ fn classpath_sep(os: &str) -> &'static str {
 
 /// Join all platform-applicable library artifact paths with the OS's
 /// classpath separator. Optionally appends `client_jar` — pass `None`
-/// for Forge / NeoForge installs whose libraries already include a
-/// patched MC (adding vanilla there duplicates the bytecode and on
-/// modern Java module-path bootstraps triggers a JPMS
+/// for modern Forge / NeoForge installs whose libraries already include
+/// a patched MC (adding vanilla there duplicates the bytecode and on
+/// the modern Java module-path bootstrap triggers a JPMS
 /// ResolutionException for `net.minecraft.*` packages).
 pub fn build_classpath(
     libs: &[Library],
