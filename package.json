@@ -16,7 +16,7 @@
     "lint:no-network": "node tools/check-no-network-calls.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "node tests-e2e/tour-pointer-events.mjs",
+    "test:e2e": "node tests-e2e/tour-pointer-events.mjs && node tests-e2e/sidebar-tooltip-clip.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
