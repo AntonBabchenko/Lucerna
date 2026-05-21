@@ -3,7 +3,15 @@
 use crate::error::Error;
 
 const SERVICE: &str = "ftlauncher";
+#[cfg(not(test))]
 const USERNAME: &str = "curseforge-api-key";
+/// Unit tests run against a separate keyring slot so `cargo test` can
+/// never read, overwrite, or delete the user's real CurseForge key.
+/// `#[cfg(test)]` is set when this crate is compiled for its own unit
+/// tests — exactly when `mods/modpack/curseforge.rs`'s `keyring::set`/
+/// `clear` test helpers run.
+#[cfg(test)]
+const USERNAME: &str = "curseforge-api-key-test";
 
 pub fn get() -> Result<Option<String>, Error> {
     let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
@@ -56,5 +64,14 @@ mod tests {
         assert_eq!(get().unwrap().as_deref(), Some("test-key"));
         clear().unwrap();
         assert_eq!(get().unwrap(), None);
+    }
+
+    #[test]
+    fn unit_tests_use_a_separate_keyring_slot() {
+        // Guards the #[cfg(test)] split: if the conditional is ever
+        // removed, `cargo test` would again read/overwrite/delete the
+        // user's real CurseForge key. `mods/modpack/curseforge.rs`'s
+        // tests call keyring::set/clear, which use this USERNAME.
+        assert_eq!(USERNAME, "curseforge-api-key-test");
     }
 }
