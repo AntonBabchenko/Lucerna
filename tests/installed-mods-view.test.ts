@@ -48,6 +48,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     // The view now fetches ModProject for each platform-installed mod
     // so it can render the project's display name via the shared
     // ModCard component.
@@ -124,5 +128,66 @@ describe('InstalledModsView', () => {
       props: { instanceId: null, mcVersion: null, loader: null },
     });
     expect(screen.getByText(/Pick an instance first/)).toBeTruthy();
+  });
+
+  it('checks for updates and renders an update badge', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsCheckUpdates as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        {
+          sha1: 'abc',
+          name: 'Just Enough Items',
+          source: 'modrinth',
+          project_id: 'p',
+          current_version_id: 'v',
+          current_version_number: '15.0',
+          state: {
+            kind: 'update_available',
+            target: {
+              source: 'modrinth',
+              project_id: 'p',
+              version_id: 'v2',
+              name: 'Just Enough Items',
+              version_number: '16.0',
+              mc_versions: ['1.20.1'],
+              loaders: ['fabric'],
+              primary_file: {
+                filename: 'jei-16.jar',
+                url: 'https://example/jei-16.jar',
+                sha1: 'ffff',
+                size: 1,
+                distribution_allowed: true,
+              },
+              deps: [],
+              published_at: null,
+            },
+          },
+        },
+      ],
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    await fireEvent.click(screen.getByRole('button', { name: /Check for updates/ }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.modsCheckUpdates).toHaveBeenCalledWith('i');
+    expect(screen.getByText('v15.0 → v16.0')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Update' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Update all (1)' })).toBeTruthy();
+  });
+
+  it('marks a modpack-origin mod with a pack chip', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsPackOriginSummary as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { project_name: 'Cool Pack', mod_shas: ['abc'] },
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/📦 Cool Pack/)).toBeTruthy();
   });
 });

@@ -763,6 +763,160 @@ pub async fn mods_uninstall(
     Ok(())
 }
 
+/// Check every eligible installed user-mod for a newer version. For
+/// each mod with platform identity that is not a modpack-origin mod,
+/// query its source platform for the versions available on the
+/// instance's MC + loader and classify the result. A single mod's
+/// query failure becomes that mod's `CheckFailed` state — the command
+/// fails wholesale only on a catastrophic error (instance missing,
+/// registry unreadable). Modpack-origin and hand-dropped mods are
+/// absent from the result.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_check_updates(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Vec<crate::mods::updates::ModUpdateCheck>> {
+    use crate::mods::updates::{classify_update, eligible_identity, ModUpdateCheck, ModUpdateState};
+
+    let inst_root = instance_root(&app, &instance_id)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+
+    let mut out = Vec::new();
+    for m in &installed {
+        let Some((source, project_id, version_id)) = eligible_identity(m, pack_origin.as_ref())
+        else {
+            continue;
+        };
+        let state = match platform_for(source)
+            .versions(&project_id, &mc_version, loader)
+            .await
+        {
+            Ok(versions) => classify_update(m, &versions),
+            Err(e) => ModUpdateState::CheckFailed { reason: e.to_string() },
+        };
+        out.push(ModUpdateCheck {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            source,
+            project_id,
+            current_version_id: version_id,
+            current_version_number: m.version_number.clone(),
+            state,
+        });
+    }
+    Ok(out)
+}
+
+/// The instance's modpack origin reduced to chip data: the pack name
+/// and the SHA-1s of its bundled `mods/` files. `None` for an instance
+/// that was not created from a modpack import.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_pack_origin_summary(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<Option<crate::mods::updates::PackOriginSummary>> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+    Ok(pack_origin
+        .as_ref()
+        .map(crate::mods::updates::pack_origin_summary))
+}
+
+/// Apply one mod update: resolve `target`'s required dependencies,
+/// pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
+/// its required deps, and preserve the old mod's enabled state. Emits
+/// `mod-install-progress` during downloads, `mod-uninstalled` for the
+/// old jar, `mod-installed` per landed mod, and `mod-install-failed`
+/// on error. Optional dependencies are intentionally not installed —
+/// see the spec ("Dependencies on update").
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_update_one(
+    app: tauri::AppHandle,
+    instance_id: String,
+    old_sha1: String,
+    target: ModVersion,
+) -> crate::error::Result<()> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+
+    // Required dependencies of the target version (optional deps skipped).
+    let platform = platform_for(target.source);
+    let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
+    let required_deps: Vec<ModVersion> =
+        resolved.required.into_iter().map(|r| r.version).collect();
+
+    // Progress events tagged with the target's project_id so the UI can
+    // route the bar to the right card (same pattern as install).
+    let app_for_progress = app.clone();
+    let instance_id_for_progress = instance_id.clone();
+    let project_id_for_progress = target.project_id.clone();
+    let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+        let payload = match phase {
+            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+                bytes_total: total.map(|t| t as f64),
+            },
+            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+                bytes_done: done as f64,
+            },
+            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
+                instance_id: instance_id_for_progress.clone(),
+                project_id: project_id_for_progress.clone(),
+            },
+        };
+        let _ = payload.emit(&app_for_progress);
+    });
+
+    let target_project_id = target.project_id.clone();
+    match crate::mods::install::update_one(
+        &dd,
+        &inst_root,
+        &old_sha1,
+        target,
+        required_deps,
+        &prog,
+    )
+    .await
+    {
+        Ok(outcome) => {
+            let _ = ModUninstalled {
+                instance_id: instance_id.clone(),
+                sha1: outcome.removed_sha1,
+            }
+            .emit(&app);
+            for inst in std::iter::once(outcome.primary).chain(outcome.deps) {
+                let _ = ModInstalled {
+                    instance_id: instance_id.clone(),
+                    sha1: inst.sha1,
+                    filename: inst.filename,
+                    name: inst.name,
+                }
+                .emit(&app);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            let _ = ModInstallFailed {
+                instance_id: instance_id.clone(),
+                project_id: target_project_id,
+                error: e.clone(),
+            }
+            .emit(&app);
+            Err(e)
+        }
+    }
+}
+
 /// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
 /// compatibility against the target instance. No filesystem writes.
 #[tauri::command]

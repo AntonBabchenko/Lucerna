@@ -206,6 +206,36 @@ export const commands = {
 	 */
 	modsUninstall: (instanceId: string, sha1: string) => typedError<null, Error>(__TAURI_INVOKE("mods_uninstall", { instanceId, sha1 })),
 	/**
+	 *  Check every eligible installed user-mod for a newer version. For
+	 *  each mod with platform identity that is not a modpack-origin mod,
+	 *  query its source platform for the versions available on the
+	 *  instance's MC + loader and classify the result. A single mod's
+	 *  query failure becomes that mod's `CheckFailed` state — the command
+	 *  fails wholesale only on a catastrophic error (instance missing,
+	 *  registry unreadable). Modpack-origin and hand-dropped mods are
+	 *  absent from the result.
+	 */
+	modsCheckUpdates: (instanceId: string) => typedError<ModUpdateCheck[], Error>(__TAURI_INVOKE("mods_check_updates", { instanceId })),
+	/**
+	 *  The instance's modpack origin reduced to chip data: the pack name
+	 *  and the SHA-1s of its bundled `mods/` files. `None` for an instance
+	 *  that was not created from a modpack import.
+	 */
+	modsPackOriginSummary: (instanceId: string) => typedError<{
+	project_name: string,
+	mod_shas: string[],
+} | null, Error>(__TAURI_INVOKE("mods_pack_origin_summary", { instanceId })),
+	/**
+	 *  Apply one mod update: resolve `target`'s required dependencies,
+	 *  pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
+	 *  its required deps, and preserve the old mod's enabled state. Emits
+	 *  `mod-install-progress` during downloads, `mod-uninstalled` for the
+	 *  old jar, `mod-installed` per landed mod, and `mod-install-failed`
+	 *  on error. Optional dependencies are intentionally not installed —
+	 *  see the spec ("Dependencies on update").
+	 */
+	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target })),
+	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
 	 *  compatibility against the target instance. No filesystem writes.
 	 */
@@ -689,6 +719,43 @@ export type ModUninstalled = {
 	sha1: string,
 };
 
+/**
+ *  One installed user-mod's update-check result. One per *eligible*
+ *  mod — see [`eligible_identity`]; ineligible mods are absent.
+ */
+export type ModUpdateCheck = {
+	/**
+	 *  SHA-1 of the currently installed jar — identifies the row and is
+	 *  the handle `mods_update_one` uses to remove the old file.
+	 */
+	sha1: string,
+	/**  Display name from the registry. */
+	name: string,
+	source: ModSource,
+	project_id: string,
+	current_version_id: string,
+	current_version_number: string | null,
+	state: ModUpdateState,
+};
+
+/**  The per-mod classification. */
+export type ModUpdateState = 
+/**  The installed version is the newest for this MC + loader. */
+{ kind: "up_to_date" } | 
+/**  A newer version exists; `target` is the version to install. */
+{ kind: "update_available"; target: ModVersion } | 
+/**
+ *  Cannot determine — the installed version is not in the
+ *  platform's current list, or the list is empty.
+ */
+{ kind: "unknown" } | 
+/**
+ *  The platform query failed (network, missing CurseForge key,
+ *  project delisted / 404). Set by `mods_check_updates` on a failed
+ *  query — never produced by `classify_update`.
+ */
+{ kind: "check_failed"; reason: string };
+
 export type ModVersion = {
 	source: ModSource,
 	project_id: string,
@@ -952,6 +1019,15 @@ export type PackOriginFile = {
 	version_id: string,
 	env_client: EnvSupport,
 	source: ModSource,
+};
+
+/**
+ *  The pack name + the SHA-1s of its bundled mods. Feeds the Installed
+ *  tab's "from modpack" chip. `mod_shas` are lowercased.
+ */
+export type PackOriginSummary = {
+	project_name: string,
+	mod_shas: string[],
 };
 
 export type ProcessExited = {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { InstalledMod, ModSummary } from '$lib/ipc/bindings';
+  import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
 
   // One result card in ModBrowseView. Shows mod metadata plus
   // install-state-aware controls:
@@ -21,6 +21,10 @@
     onOpenDetail,
     onToggle,
     onUninstall,
+    updateState = null,
+    onUpdate = () => {},
+    checking = false,
+    packChip = null,
   }: {
     summary: ModSummary;
     installed: InstalledMod | null;
@@ -28,6 +32,14 @@
     onOpenDetail: () => void;
     onToggle: () => void;
     onUninstall: () => void;
+    // Update-check extras — only InstalledModsView passes these.
+    // `updateState` is the per-mod result; `packChip`, when set, is the
+    // modpack name (the card then shows a "from modpack" chip and no
+    // update affordance — pack mods are not individually updatable).
+    updateState?: ModUpdateState | null;
+    onUpdate?: () => void;
+    checking?: boolean;
+    packChip?: string | null;
   } = $props();
 
   // True when the installed record came from a different platform than
@@ -67,6 +79,34 @@
 
   <div class="self-center flex items-center gap-1">
     {#if installed}
+      {#if packChip}
+        <span
+          class="text-xs px-2 py-1 rounded bg-indigo-50 text-indigo-700"
+          title="From modpack: {packChip}"
+        >
+          📦 {packChip}
+        </span>
+      {:else if checking}
+        <span class="text-xs px-2 py-1 text-neutral-400">Checking…</span>
+      {:else if updateState && updateState.kind === 'update_available'}
+        <span
+          class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-800"
+          title="Update available"
+        >
+          v{installed.version_number ?? '?'} → v{updateState.target.version_number}
+        </span>
+        <button
+          type="button"
+          class="text-xs px-2 py-1 border border-amber-300 rounded bg-amber-100 text-amber-900 hover:bg-amber-200"
+          onclick={onUpdate}
+        >
+          Update
+        </button>
+      {:else if updateState && updateState.kind === 'check_failed'}
+        <span class="text-xs px-2 py-1 text-neutral-400" title={updateState.reason}>
+          couldn't check
+        </span>
+      {/if}
       <span
         class="text-xs px-2 py-1 rounded"
         class:bg-green-50={installed.enabled}

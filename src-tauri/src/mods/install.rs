@@ -22,6 +22,15 @@ pub struct Installed {
     pub name: String,
 }
 
+/// Outcome of `update_one`: the new primary install, the required-
+/// dependency installs that ran, and the SHA-1 of the old jar removed.
+#[derive(Debug)]
+pub struct UpdateOutcome {
+    pub primary: Installed,
+    pub deps: Vec<Installed>,
+    pub removed_sha1: String,
+}
+
 /// Progress emitter — caller supplies the function that turns a
 /// progress tick into a Tauri event. Lets us unit-test the pipeline
 /// without depending on `tauri::AppHandle`.
@@ -330,6 +339,82 @@ pub async fn uninstall(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     installed::remove(instance_root, sha1).await
 }
 
+/// Update one installed mod to `target`, installing `target`'s required
+/// dependencies (`required_deps`) and removing the old jar (`old_sha1`).
+/// The new install preserves the old mod's enabled/disabled state.
+///
+/// Order is "warm the cache, then swap": every download (target + deps)
+/// is fetched into the shared cache FIRST, so a network failure aborts
+/// before the instance is touched. Only then is the old jar removed and
+/// the new files installed from the warm cache. Mirrors the two-phase
+/// shape of `modpack_apply_update`.
+pub async fn update_one(
+    data_dir: &Path,
+    instance_root: &Path,
+    old_sha1: &str,
+    target: ModVersion,
+    required_deps: Vec<ModVersion>,
+    progress: &ProgressFn,
+) -> Result<UpdateOutcome, Error> {
+    // Remember the old mod's enabled state before anything is removed.
+    let was_enabled = installed::list(instance_root)
+        .await?
+        .iter()
+        .find(|m| m.sha1.eq_ignore_ascii_case(old_sha1))
+        .map(|m| m.enabled)
+        .unwrap_or(true);
+
+    // Phase 1 — warm the cache. Distribution-check then fetch each file;
+    // nothing on the instance is touched, so any failure aborts cleanly.
+    for v in std::iter::once(&target).chain(required_deps.iter()) {
+        if !v.primary_file.distribution_allowed {
+            return Err(Error::ModsDistributionDisabled {
+                platform: match v.source {
+                    ModSource::Modrinth => "modrinth",
+                    ModSource::Curseforge => "curseforge",
+                }
+                .into(),
+                project_id: v.project_id.clone(),
+            });
+        }
+        let sha = v
+            .primary_file
+            .sha1
+            .as_deref()
+            .ok_or(Error::ModsSha1Unavailable)?
+            .to_ascii_lowercase();
+        fetch_to_cache(
+            data_dir,
+            &v.primary_file.url,
+            &sha,
+            v.primary_file.size,
+            "mods",
+            progress,
+        )
+        .await?;
+    }
+
+    // Phase 2 — swap. Remove the old jar, then install from the warm
+    // cache (install_one's internal fetch_to_cache is now a cache hit).
+    uninstall(instance_root, old_sha1).await?;
+    let primary = install_one(data_dir, instance_root, target, progress).await?;
+    let mut deps = Vec::new();
+    for d in required_deps {
+        deps.push(install_one(data_dir, instance_root, d, progress).await?);
+    }
+
+    // install_one always lands a mod enabled — restore a disabled state.
+    if !was_enabled {
+        disable(instance_root, &primary.sha1).await?;
+    }
+
+    Ok(UpdateOutcome {
+        primary,
+        deps,
+        removed_sha1: old_sha1.to_ascii_lowercase(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -539,5 +624,168 @@ mod tests {
         assert!(!installed::mods_dir(td_inst.path()).join("u.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists()); // cache survives
         assert!(installed::list(td_inst.path()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_one_swaps_the_installed_version() {
+        let s = MockServer::start().await;
+        let v1_bytes = b"version-one";
+        let v2_bytes = b"version-two";
+        let v1_sha = hex::encode(Sha1::digest(v1_bytes));
+        let v2_sha = hex::encode(Sha1::digest(v2_bytes));
+        Mock::given(method("GET"))
+            .and(path("/v1.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(v1_bytes.to_vec()))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v2.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(v2_bytes.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let v1 = fake_version(
+            format!("{}/v1.jar", s.uri()),
+            v1_sha.clone(),
+            v1_bytes.len() as u64,
+            "v1.jar",
+        );
+        install_one(td_data.path(), td_inst.path(), v1, &nop_progress())
+            .await
+            .unwrap();
+        let v2 = fake_version(
+            format!("{}/v2.jar", s.uri()),
+            v2_sha.clone(),
+            v2_bytes.len() as u64,
+            "v2.jar",
+        );
+        let outcome = update_one(td_data.path(), td_inst.path(), &v1_sha, v2, vec![], &nop_progress())
+            .await
+            .unwrap();
+        assert_eq!(outcome.removed_sha1, v1_sha);
+        assert_eq!(outcome.primary.sha1, v2_sha);
+        assert!(installed::mods_dir(td_inst.path()).join("v2.jar").exists());
+        assert!(!installed::mods_dir(td_inst.path()).join("v1.jar").exists());
+        let list = installed::list(td_inst.path()).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].sha1, v2_sha);
+    }
+
+    #[tokio::test]
+    async fn update_one_preserves_disabled_state() {
+        let s = MockServer::start().await;
+        let v1b = b"d-one";
+        let v2b = b"d-two";
+        let v1s = hex::encode(Sha1::digest(v1b));
+        let v2s = hex::encode(Sha1::digest(v2b));
+        Mock::given(method("GET"))
+            .and(path("/d1.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(v1b.to_vec()))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/d2.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(v2b.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        install_one(
+            td_data.path(),
+            td_inst.path(),
+            fake_version(format!("{}/d1.jar", s.uri()), v1s.clone(), v1b.len() as u64, "d1.jar"),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        disable(td_inst.path(), &v1s).await.unwrap();
+        let v2 = fake_version(format!("{}/d2.jar", s.uri()), v2s.clone(), v2b.len() as u64, "d2.jar");
+        update_one(td_data.path(), td_inst.path(), &v1s, v2, vec![], &nop_progress())
+            .await
+            .unwrap();
+        assert!(installed::mods_dir(td_inst.path()).join("d2.jar.disabled").exists());
+        let list = installed::list(td_inst.path()).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert!(!list[0].enabled);
+    }
+
+    #[tokio::test]
+    async fn update_one_aborts_before_swap_when_download_fails() {
+        let s = MockServer::start().await;
+        let v1b = b"keep-me";
+        let v1s = hex::encode(Sha1::digest(v1b));
+        Mock::given(method("GET"))
+            .and(path("/k1.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(v1b.to_vec()))
+            .mount(&s)
+            .await;
+        // No mock for /missing.jar — wiremock answers 404, so the
+        // pre-warm download fails before the swap.
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        install_one(
+            td_data.path(),
+            td_inst.path(),
+            fake_version(format!("{}/k1.jar", s.uri()), v1s.clone(), v1b.len() as u64, "k1.jar"),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        let bad = fake_version(format!("{}/missing.jar", s.uri()), "ffff".into(), 5, "missing.jar");
+        let r = update_one(td_data.path(), td_inst.path(), &v1s, bad, vec![], &nop_progress()).await;
+        assert!(r.is_err());
+        // The old version must be untouched.
+        assert!(installed::mods_dir(td_inst.path()).join("k1.jar").exists());
+        let list = installed::list(td_inst.path()).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].sha1, v1s);
+    }
+
+    #[tokio::test]
+    async fn update_one_installs_required_deps() {
+        let s = MockServer::start().await;
+        let oldb = b"primary-v1";
+        let pb = b"primary-v2";
+        let db = b"dep-bytes";
+        let olds = hex::encode(Sha1::digest(oldb));
+        let ps = hex::encode(Sha1::digest(pb));
+        let ds = hex::encode(Sha1::digest(db));
+        for (p, body) in [("/old.jar", oldb.to_vec()), ("/p2.jar", pb.to_vec()), ("/dep.jar", db.to_vec())] {
+            Mock::given(method("GET"))
+                .and(path(p))
+                .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+                .mount(&s)
+                .await;
+        }
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        install_one(
+            td_data.path(),
+            td_inst.path(),
+            fake_version(format!("{}/old.jar", s.uri()), olds.clone(), oldb.len() as u64, "old.jar"),
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        let target = fake_version(format!("{}/p2.jar", s.uri()), ps.clone(), pb.len() as u64, "p2.jar");
+        let dep = fake_version(format!("{}/dep.jar", s.uri()), ds.clone(), db.len() as u64, "dep.jar");
+        update_one(td_data.path(), td_inst.path(), &olds, target, vec![dep], &nop_progress())
+            .await
+            .unwrap();
+        assert!(installed::mods_dir(td_inst.path()).join("p2.jar").exists());
+        assert!(installed::mods_dir(td_inst.path()).join("dep.jar").exists());
+        let list = installed::list(td_inst.path()).await.unwrap();
+        assert_eq!(list.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn update_one_rejects_distribution_disabled_target() {
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let mut v = fake_version("https://example/x.jar".into(), "aa".into(), 0, "x.jar");
+        v.primary_file.distribution_allowed = false;
+        let r = update_one(td_data.path(), td_inst.path(), "nonexistent", v, vec![], &nop_progress()).await;
+        assert!(matches!(r, Err(Error::ModsDistributionDisabled { .. })));
     }
 }

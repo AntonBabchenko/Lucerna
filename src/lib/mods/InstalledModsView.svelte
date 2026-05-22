@@ -6,13 +6,18 @@
     type LoaderKind,
     type ModSource,
     type ModSummary,
+    type ModUpdateCheck,
     type ModVersion,
+    type PackOriginSummary,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { onDestroy, onMount } from 'svelte';
+  import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailDrawer from './ModDetailDrawer.svelte';
+  import { updateCheckCache } from './update-check-cache';
 
   // The Installed pane of ModBrowserTab. Renders the same ModCard
   // component the Browse pane uses, so the UI is consistent — same
@@ -60,6 +65,20 @@
   // highlighted; clicking another version triggers a swap (uninstall
   // current + install new) via switchVersion below.
   let drawerRow = $state<Row | null>(null);
+
+  // Mod-update check. `updateChecks` is keyed by installed-mod sha1 and
+  // holds only eligible (non-pack, platform-installed) mods. Seeded from
+  // the per-instance session cache so reopening the tab is instant; the
+  // "Check for updates" button forces a fresh check. `packSummary` feeds
+  // the per-row "from modpack" chip and is loaded on every refresh().
+  let updateChecks = $state<Map<string, ModUpdateCheck>>(new Map());
+  let checking = $state(false);
+  let packSummary = $state<PackOriginSummary | null>(null);
+  let showCfBanner = $state(false);
+
+  const updateCount = $derived(
+    [...updateChecks.values()].filter((c) => c.state.kind === 'update_available').length,
+  );
 
   function rowDisplayName(r: Row): string {
     return r.summary?.name ?? r.installed.name;
@@ -125,6 +144,10 @@
       loading = false;
       return;
     }
+
+    // Pack-origin chip data — a local file read, no network.
+    const ps = await commands.modsPackOriginSummary(instanceId);
+    packSummary = ps.status === 'ok' ? ps.data : null;
 
     // Fetch ModSummary for every platform-installed mod in parallel.
     // Manual mods (source: null) skip the fetch and stay as a degraded
@@ -225,6 +248,98 @@
     busy = false;
     await refresh();
   }
+
+  // Seed the update map from the session cache when the instance changes.
+  $effect(() => {
+    const id = instanceId;
+    if (id) {
+      const cached = updateCheckCache.get(id);
+      updateChecks = cached ? new Map(cached.map((c) => [c.sha1, c])) : new Map();
+    } else {
+      updateChecks = new Map();
+    }
+  });
+
+  async function checkUpdates() {
+    if (!instanceId) return;
+    checking = true;
+    error = null;
+    const r = await commands.modsCheckUpdates(instanceId);
+    checking = false;
+    if (r.status === 'error') {
+      error = formatError(r.error);
+      showCfBanner = false;
+      return;
+    }
+    updateChecks = new Map(r.data.map((c) => [c.sha1, c]));
+    updateCheckCache.set(instanceId, r.data);
+    // If a CurseForge mod's check failed, it may be a missing API key —
+    // surface the banner only when the key really is absent.
+    const cfFailed = r.data.some(
+      (c) => c.source === 'curseforge' && c.state.kind === 'check_failed',
+    );
+    if (cfFailed) {
+      const s = await commands.modsGetCurseforgeKeyStatus();
+      showCfBanner = s.status === 'ok' && s.data === 'missing';
+    } else {
+      showCfBanner = false;
+    }
+  }
+
+  async function applyUpdate(sha1: string, target: ModVersion): Promise<boolean> {
+    if (!instanceId) return false;
+    const r = await commands.modsUpdateOne(instanceId, sha1, target);
+    if (r.status === 'error') {
+      error = formatError(r.error);
+      return false;
+    }
+    return true;
+  }
+
+  async function updateOne(m: InstalledMod) {
+    const check = updateChecks.get(m.sha1);
+    if (!instanceId || !check || check.state.kind !== 'update_available') return;
+    busy = true;
+    error = null;
+    const ok = await applyUpdate(m.sha1, check.state.target);
+    if (ok) {
+      // The stale check no longer applies — drop it; the row's version
+      // is now current. The user can re-check to refresh the rest.
+      const next = new Map(updateChecks);
+      next.delete(m.sha1);
+      updateChecks = next;
+      updateCheckCache.set(instanceId, [...next.values()]);
+    }
+    busy = false;
+    await refresh();
+  }
+
+  async function updateAll() {
+    if (!instanceId) return;
+    const targets = [...updateChecks.values()].flatMap((c) =>
+      c.state.kind === 'update_available' ? [{ sha1: c.sha1, target: c.state.target }] : [],
+    );
+    if (targets.length === 0) return;
+    busy = true;
+    error = null;
+    let ok = 0;
+    let failed = 0;
+    for (const t of targets) {
+      if (await applyUpdate(t.sha1, t.target)) ok++;
+      else failed++;
+    }
+    // Every check is now stale (versions moved) — clear and let the user
+    // re-check.
+    updateChecks = new Map();
+    updateCheckCache.delete(instanceId);
+    busy = false;
+    await refresh();
+    if (failed === 0) {
+      pushSuccess(`Updated ${ok} mod${ok === 1 ? '' : 's'}`);
+    } else {
+      pushWarning(`Updated ${ok}, ${failed} failed`, []);
+    }
+  }
 </script>
 
 <div class="p-3">
@@ -253,6 +368,24 @@
           <option value="source">Source</option>
         </select>
       </label>
+      <button
+        type="button"
+        class="text-xs px-2 py-1 border rounded bg-white hover:bg-neutral-50 disabled:opacity-50"
+        disabled={busy || checking || rows.length === 0}
+        onclick={checkUpdates}
+      >
+        {checking ? 'Checking…' : 'Check for updates'}
+      </button>
+      {#if updateCount > 0}
+        <button
+          type="button"
+          class="text-xs px-2 py-1 border border-amber-300 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 disabled:opacity-50"
+          disabled={busy}
+          onclick={updateAll}
+        >
+          Update all ({updateCount})
+        </button>
+      {/if}
     </div>
     {#if totalCount > 0}
       <div role="tablist" aria-label="Filter by state" class="flex gap-1 text-xs">
@@ -304,6 +437,9 @@
       {error}
     </div>
   {/if}
+  {#if showCfBanner}
+    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
+  {/if}
 
   {#if !instanceId}
     <div class="text-neutral-400 text-sm py-8 text-center">Pick an instance first.</div>
@@ -324,6 +460,12 @@
             onOpenDetail={() => (drawerRow = row)}
             onToggle={() => toggle(row.installed)}
             onUninstall={() => uninstall(row.installed)}
+            updateState={updateChecks.get(row.installed.sha1)?.state ?? null}
+            onUpdate={() => updateOne(row.installed)}
+            {checking}
+            packChip={packSummary && packSummary.mod_shas.includes(row.installed.sha1)
+              ? packSummary.project_name
+              : null}
           />
         {:else}
           <!-- Manual mod (no platform metadata). Render a degraded row that
