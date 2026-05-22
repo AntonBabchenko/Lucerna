@@ -3,12 +3,12 @@
     commands,
     type InstalledMod,
     type LoaderKind,
-    type ModSearchPage,
     type ModSort,
     type ModSource,
     type ModSummary,
     type ModVersion,
   } from '$lib/ipc/bindings';
+  import { untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
@@ -76,10 +76,20 @@
   // the platform's total, so an early page may render fewer cards
   // when many of its hits are already installed.
   let showInstalled = $state(true);
-  let offset = $state(0);
   const pageSize = 20;
+  // A single fill (fresh search or Next) fetches at most this many
+  // platform pages before yielding — bounds the request burst on an
+  // instance where most search hits are already installed.
+  const MAX_FETCHES_PER_FILL = 8;
 
-  let page = $state<ModSearchPage | null>(null);
+  // Accumulating buffer of every hit fetched for the current search, in
+  // platform order. "Show installed" filters this buffer at render time
+  // and pagination runs over the filtered view — so pages stay uniform
+  // and unchecking the filter never dead-ends on an empty page.
+  let buffer = $state<ModSummary[]>([]);
+  let total = $state(0);
+  let exhausted = $state(false);
+  let displayPage = $state(1);
   let error = $state<string | null>(null);
   let loading = $state(false);
   let drawerProject = $state<string | null>(null);
@@ -197,6 +207,23 @@
     );
   }
 
+  // Apply the "Show installed" filter to a hit list. Single source of
+  // the filter rule — used by the `filteredHits` derived and by the
+  // fill loop (a plain function so the loop never depends on a derived
+  // re-evaluating mid-iteration).
+  function applyInstalledFilter(hits: ModSummary[]): ModSummary[] {
+    return showInstalled ? hits : hits.filter((h) => installedFor(h) === null);
+  }
+
+  // The buffer narrowed by "Show installed", and the 20-card slice for
+  // the current page. `hasNext` is true when there is another page to
+  // show, or more platform results might still be fetched.
+  const filteredHits = $derived(applyInstalledFilter(buffer));
+  const pageHits = $derived(
+    filteredHits.slice((displayPage - 1) * pageSize, displayPage * pageSize),
+  );
+  const hasNext = $derived(filteredHits.length > displayPage * pageSize || !exhausted);
+
   async function uninstallCard(card: ModSummary) {
     if (!instanceId) return;
     const inst = installedFor(card);
@@ -235,7 +262,7 @@
     // search-trigger $effect won't re-run on its own because none of
     // its watched filters changed, so kick off a search manually.
     if (wasGated && !needsCfKey) {
-      void runSearch();
+      void resetSearch();
     }
   }
 
@@ -265,17 +292,15 @@
     const _ld = loaderFilter;
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _all = showAll;
-    offset = 0;
-    void runSearch();
+    // `untrack` prevents the async work in `resetSearch` / `fill` from
+    // registering `buffer`, `exhausted`, etc. as dependencies of this
+    // effect, which would create an update cycle (write → re-run → write).
+    untrack(() => void resetSearch());
   });
 
-  async function runSearch() {
-    if (needsCfKey) {
-      page = null;
-      return;
-    }
-    loading = true;
-    error = null;
+  // Fetch the next contiguous platform page into `buffer`. Returns
+  // 'ok' | 'auth' | 'error'; updates `total` and `exhausted`.
+  async function fetchNextPlatformPage(): Promise<'ok' | 'auth' | 'error'> {
     const result = await commands.modsSearch({
       source,
       query,
@@ -283,17 +308,80 @@
       loader: showAll ? null : ((loaderFilter || null) as LoaderKind | null),
       sort,
       page_size: pageSize,
-      offset,
+      offset: buffer.length,
     });
-    loading = false;
     if (result.status === 'ok') {
-      page = result.data;
-    } else if (result.error.kind === 'mods_platform_auth') {
-      needsCfKey = true;
-      page = null;
-    } else {
-      error = formatError(result.error);
+      buffer = [...buffer, ...result.data.hits];
+      total = result.data.total;
+      exhausted = buffer.length >= total;
+      return 'ok';
     }
+    if (result.error.kind === 'mods_platform_auth') {
+      return 'auth';
+    }
+    error = formatError(result.error);
+    return 'error';
+  }
+
+  // Fetch platform pages until `filteredHits` covers `targetPage`
+  // display pages, the platform is exhausted, or the per-fill cap is
+  // hit. Drives `loading`.
+  async function fill(targetPage: number) {
+    loading = true;
+    error = null;
+    let fetches = 0;
+    while (
+      applyInstalledFilter(buffer).length < targetPage * pageSize &&
+      !exhausted &&
+      fetches < MAX_FETCHES_PER_FILL
+    ) {
+      const r = await fetchNextPlatformPage();
+      fetches += 1;
+      if (r === 'auth') {
+        needsCfKey = true;
+        buffer = [];
+        loading = false;
+        return;
+      }
+      if (r === 'error') {
+        loading = false;
+        return;
+      }
+    }
+    loading = false;
+  }
+
+  // Start a fresh search: drop the buffer and fetch from offset 0.
+  async function resetSearch() {
+    buffer = [];
+    total = 0;
+    exhausted = false;
+    displayPage = 1;
+    if (needsCfKey) return;
+    await fill(1);
+  }
+
+  async function next() {
+    const target = displayPage + 1;
+    await fill(target);
+    // Advance only if the target page actually has a card — a
+    // cap-limited or exhausted fill may not have reached it.
+    if (applyInstalledFilter(buffer).length > (target - 1) * pageSize) {
+      displayPage = target;
+    }
+  }
+
+  function prev() {
+    if (displayPage > 1) displayPage -= 1;
+  }
+
+  // Re-page when "Show installed" is toggled: a filter change resets to
+  // page 1. The buffer is kept (same search); fill(1) tops it up when
+  // switching OFF leaves the filtered view shorter than one page.
+  async function onShowInstalledChange(e: Event) {
+    showInstalled = (e.currentTarget as HTMLInputElement).checked;
+    displayPage = 1;
+    await fill(1);
   }
 
   let debounceTimer: number | undefined;
@@ -301,8 +389,7 @@
     query = (e.target as HTMLInputElement).value;
     if (debounceTimer) window.clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(() => {
-      offset = 0;
-      void runSearch();
+      void resetSearch();
     }, 300);
   }
 
@@ -507,7 +594,7 @@
         </select>
       </label>
       <label class="inline-flex items-center gap-1 ml-auto">
-        <input type="checkbox" bind:checked={showInstalled} />
+        <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
       </label>
       <label class="inline-flex items-center gap-1">
@@ -523,56 +610,41 @@
     {/if}
     {#if loading}
       <div class="text-neutral-400 text-sm py-8 text-center">Searching…</div>
-    {:else if page && page.hits.length > 0}
-      {@const visibleHits = showInstalled
-        ? page.hits
-        : page.hits.filter((h) => installedFor(h) === null)}
-      {#if visibleHits.length === 0}
-        <div class="text-neutral-400 text-sm py-8 text-center">
-          All {page.hits.length} results on this page are already installed. Toggle "Show installed" or
-          navigate to a different page.
-        </div>
-      {:else}
-        {#each visibleHits as hit (`${hit.source}:${hit.project_id}`)}
-          <ModCard
-            summary={hit}
-            installed={installedFor(hit)}
-            onInstall={() => startInstall(hit)}
-            onOpenDetail={() => (drawerProject = hit.project_id)}
-            onToggle={() => toggleCard(hit)}
-            onUninstall={() => uninstallCard(hit)}
-          />
-        {/each}
-      {/if}
+    {:else if pageHits.length > 0}
+      {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+        <ModCard
+          summary={hit}
+          installed={installedFor(hit)}
+          onInstall={() => startInstall(hit)}
+          onOpenDetail={() => (drawerProject = hit.project_id)}
+          onToggle={() => toggleCard(hit)}
+          onUninstall={() => uninstallCard(hit)}
+        />
+      {/each}
       <div class="flex items-center justify-center gap-3 text-sm text-neutral-600 pt-2">
         <button
           type="button"
           class="px-3 py-1 border rounded disabled:opacity-50"
-          disabled={offset === 0}
-          onclick={() => {
-            offset = Math.max(0, offset - pageSize);
-            void runSearch();
-          }}
+          disabled={displayPage <= 1}
+          onclick={prev}
         >
           ‹ Prev
         </button>
-        <span
-          >Page {Math.floor(offset / pageSize) + 1} of
-          {Math.max(1, Math.ceil(page.total / pageSize))}</span
-        >
+        <span>
+          Page {displayPage}{showInstalled
+            ? ` of ${Math.max(1, Math.ceil(total / pageSize))}`
+            : ''}
+        </span>
         <button
           type="button"
           class="px-3 py-1 border rounded disabled:opacity-50"
-          disabled={offset + pageSize >= page.total}
-          onclick={() => {
-            offset = offset + pageSize;
-            void runSearch();
-          }}
+          disabled={!hasNext}
+          onclick={next}
         >
           Next ›
         </button>
       </div>
-    {:else if page}
+    {:else}
       <div class="text-neutral-400 text-sm py-8 text-center">No results.</div>
     {/if}
   </div>

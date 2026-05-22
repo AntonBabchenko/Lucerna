@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // The mock has to be declared before the SUT import so vitest hoists it
@@ -252,5 +252,179 @@ describe('ModBrowseView', () => {
     (
       mod.commands.modsGetCurseforgeKeyStatus as unknown as ReturnType<typeof vi.fn>
     ).mockResolvedValue({ status: 'ok', data: 'set' });
+  });
+
+  it('advances past an all-installed first page when Show installed is unchecked', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    // Page 1 (offset 0): 20 hits, all already installed.
+    // Page 2 (offset 20): one non-installed hit. total = 21.
+    const installedHit = (n: number) => ({
+      source: 'modrinth' as const,
+      project_id: `inst${n}`,
+      slug: `inst${n}`,
+      name: `Installed Mod ${n}`,
+      summary: '',
+      icon_url: null,
+      downloads: 1000 - n,
+      author: '',
+      updated_at: null,
+    });
+    const freshHit = {
+      source: 'modrinth' as const,
+      project_id: 'fresh1',
+      slug: 'fresh1',
+      name: 'Fresh Mod',
+      summary: '',
+      icon_url: null,
+      downloads: 500,
+      author: '',
+      updated_at: null,
+    };
+    (mod.commands.modsSearch as ReturnType<typeof vi.fn>).mockImplementation(
+      (q: { offset: number }) =>
+        Promise.resolve({
+          status: 'ok',
+          data: {
+            hits:
+              q.offset === 0
+                ? Array.from({ length: 20 }, (_, i) => installedHit(i))
+                : [freshHit],
+            total: 21,
+            offset: q.offset,
+            page_size: 20,
+          },
+        }),
+    );
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: Array.from({ length: 20 }, (_, i) => ({
+        filename: `inst${i}.jar`,
+        sha1: `s${i}`,
+        source: 'modrinth',
+        project_id: `inst${i}`,
+        version_id: `v${i}`,
+        name: `Installed Mod ${i}`,
+        version_number: '1.0',
+        installed_at: '2026-05-20T00:00:00Z',
+        enabled: true,
+      })),
+    });
+    render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    // Wait for the mount-time refreshInstalled effect (modsListInstalled +
+    // 20×modsProject via Promise.all) to settle before toggling, so that
+    // installedMods is already populated when fill(1) runs its filter.
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    // Uncheck "Show installed" once the initial render has settled.
+    const toggle = screen.getByRole('checkbox', { name: 'Show installed' });
+    await fireEvent.click(toggle);
+    // The non-installed page-2 mod is reached and rendered; the old
+    // "already installed — navigate to a different page" dead end is gone.
+    expect(await screen.findByText('Fresh Mod')).toBeTruthy();
+    expect(screen.queryByText(/already installed/i)).toBeNull();
+  });
+
+  it('shows "of Y" only when Show installed is checked', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsSearch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: {
+        hits: [
+          {
+            source: 'modrinth',
+            project_id: 'm1',
+            slug: 'm1',
+            name: 'Mod One',
+            summary: '',
+            icon_url: null,
+            downloads: 9,
+            author: '',
+            updated_at: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        page_size: 20,
+      },
+    });
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [],
+    });
+    render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    // Checked (default): counter carries "of 1".
+    expect(await screen.findByText(/Page 1 of 1/)).toBeTruthy();
+    // Unchecked: counter is "Page 1" with no total.
+    const toggle = screen.getByRole('checkbox', { name: 'Show installed' });
+    await fireEvent.click(toggle);
+    expect(await screen.findByText('Page 1')).toBeTruthy();
+    expect(screen.queryByText(/of 1/)).toBeNull();
+  });
+
+  it('pages forward and back through the buffer', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const hit = (id: string, name: string) => ({
+      source: 'modrinth' as const,
+      project_id: id,
+      slug: id,
+      name,
+      summary: '',
+      icon_url: null,
+      downloads: 1,
+      author: '',
+      updated_at: null,
+    });
+    // Two full platform pages, total = 40.
+    (mod.commands.modsSearch as ReturnType<typeof vi.fn>).mockImplementation(
+      (q: { offset: number }) =>
+        Promise.resolve({
+          status: 'ok',
+          data: {
+            hits:
+              q.offset === 0
+                ? Array.from({ length: 20 }, (_, i) => hit(`a${i}`, `Alpha ${i}`))
+                : Array.from({ length: 20 }, (_, i) => hit(`b${i}`, `Beta ${i}`)),
+            total: 40,
+            offset: q.offset,
+            page_size: 20,
+          },
+        }),
+    );
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [],
+    });
+    render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    expect(await screen.findByText('Alpha 0')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(await screen.findByText('Beta 0')).toBeTruthy();
+    expect(screen.queryByText('Alpha 0')).toBeNull();
+    // Next is now disabled — the platform is exhausted (40 of 40).
+    expect(screen.getByRole('button', { name: /Next/ }).hasAttribute('disabled')).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: /Prev/ }));
+    expect(await screen.findByText('Alpha 0')).toBeTruthy();
+  });
+
+  it('shows "No results" for an empty search', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsSearch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { hits: [], total: 0, offset: 0, page_size: 20 },
+    });
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [],
+    });
+    render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    expect(await screen.findByText('No results.')).toBeTruthy();
   });
 });
