@@ -77,52 +77,16 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
 pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
     // Validate args shape before spawning Java.
     let _ = parse_args(&args)?;
-
     let java_bin = locate_java_binary(ctx);
-
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    let cp: String = ctx
-        .classpath
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(sep);
-
-    // Select Main-Class based on ART version in classpath path.
-    // ART 1.x was a Forge fork that kept the `net.minecraftforge.fart` package;
-    // ART 2.x repackaged under `net.neoforged.art`.
     let main_class = select_main_class(ctx);
-
-    let mut cmd = tokio::process::Command::new(&java_bin);
-    cmd.arg("-cp").arg(&cp);
-    cmd.arg(main_class);
-    cmd.args(&args);
-
-    eprintln!(
-        "art: spawning {} with {} classpath entries (main={})",
-        java_bin.display(),
-        ctx.classpath.len(),
+    crate::process::run_java_processor(
+        &java_bin,
+        &ctx.classpath,
         main_class,
-    );
-
-    let output = cmd.output().await.map_err(|e| {
-        patcher_fail("art", &format!("spawn java: {e}"))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(patcher_fail(
-            "art",
-            &format!(
-                "java exit {}: stderr={} stdout={}",
-                output.status,
-                stderr.trim(),
-                stdout.trim()
-            ),
-        ));
-    }
-    Ok(())
+        &args,
+        "art",
+    )
+    .await
 }
 
 /// Select the ART Main-Class by inspecting the classpath for the JAR path.

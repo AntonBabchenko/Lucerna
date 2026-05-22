@@ -12,7 +12,7 @@ FTlauncher exists to give players a transparent open-source Minecraft launcher: 
 
 2. **No modification of the Minecraft client.** No jar patching. No injection into the main menu. No replaced splash screens. No mods bundled by default. The Minecraft we run is the Minecraft Mojang ships.
 
-3. **No hidden processes.** Every process the launcher spawns is documented in this file (Appendix A) and visible to the user in a "Processes" panel in the launcher UI.
+3. **No hidden processes.** Every process the launcher spawns is documented in this file (Appendix A) and constructed through the single `process::` module — the one place in the backend a subprocess `Command` is built. A structural test (`src-tauri/tests/structural_no_raw_spawn.rs`) fails the build if a raw `Command` is constructed anywhere else, so the documented list cannot silently fall out of date.
 
 4. **No bundled adware, installer junk, or third-party offers.** The installer ships only the launcher and what it strictly needs to run.
 
@@ -20,15 +20,15 @@ FTlauncher exists to give players a transparent open-source Minecraft launcher: 
 
 ### Positive commitments — what we do
 
-1. **Network activity is visible.** The launcher has a "Network Activity" panel that lists every outbound request (URL, byte count, what initiated it). Nothing is invisible.
+1. **No hidden network calls — enforced, not displayed.** Every outbound HTTP request is funnelled through the single `network::` module, which refuses any host not on the allowlist below *before the request is sent* (`network::allowlist`). A structural test (`src-tauri/tests/structural_no_raw_http.rs`) fails the build if an HTTP client is constructed outside `network::`. The launcher cannot reach a host that is not on this list — that is a property of the code, verifiable by reading it, not a promise.
 
-2. **Default-allowed network destinations** (all toggleable in Settings; none hidden):
+2. **Allowed network destinations.** This list is compiled into the binary as `network::allowlist::ALLOWED_PATTERNS` and enforced at the chokepoint (Part A positive commitment 1). None are hidden; the table below mirrors the code for human readers.
 
    | Host pattern | Purpose | Default |
    |---|---|---|
    | `*.minecraft.net`, `*.mojang.com` | Microsoft / Mojang auth, profile, assets | on |
    | `piston-meta.mojang.com`, `piston-data.mojang.com` | Version manifest, libraries | on |
-   | `api.github.com/repos/AntonBabchenko/FTlauncher/releases` | Launcher self-update check | on, off-able |
+   | `api.github.com/repos/AntonBabchenko/FTlauncher/releases` | Launcher self-update check | on |
    | `api.modrinth.com` | Modrinth mod browser | requested on first open of mod browser |
    | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
    | `cdn.modrinth.com` | Modrinth mod jar downloads | enabled when user installs from Modrinth |
@@ -40,11 +40,11 @@ FTlauncher exists to give players a transparent open-source Minecraft launcher: 
    | `files.minecraftforge.net` | Forge `promotions_slim.json` (recommended/latest tags) | on when user picks Forge loader |
    | `maven.neoforged.net` | NeoForge installer + library mavens | on when user picks NeoForge loader (v0.4.1) |
 
-   The list in code (`src-tauri/src/network/allowlist.rs`) is the single source of truth. A CI test asserts this table matches that file.
+   The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the single source of truth; this table mirrors it for human readers and is kept in sync by code review.
 
 3. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
 
-4. **Self-audit on every release.** An integration test boots the launcher in a sandbox with a network sniffer, performs only "launch vanilla 1.20.x," and asserts that no outbound request hits any host outside the table above. Failing this test fails the release.
+4. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
 
 ### Appendix A — documented processes
 
@@ -53,16 +53,17 @@ FTlauncher exists to give players a transparent open-source Minecraft launcher: 
 | `javaw.exe` (bundled JRE) | Runs the Minecraft client | `launch::spawn::start` | Until the user closes MC or clicks Stop in the launcher | stdin closed; stdout+stderr → `<instance>/logs/launch-<timestamp>.log` |
 | `taskkill.exe` (Windows built-in) | Terminates the running `javaw.exe` and its children when the user clicks Stop | `launch::spawn::stop` | One-shot; exits as soon as the kill request is issued | stdin/stdout/stderr not captured (one-shot system utility) |
 | `explorer.exe` (or OS-default file manager) | Opens a user-clicked folder (currently `<instance>/.minecraft/mods/`) in the OS file manager | `tauri_plugin_opener::OpenerExt::open_path` via the `open_mods_folder` Tauri command | One-shot; the file manager opens (or focuses) a window and the spawn handle exits immediately | stdin/stdout/stderr not captured (GUI process) |
-| `java.exe` (bundled JRE, via `-cp`) | Runs SpecialSource bytecode remapper during Forge transitional-era (1.13–1.16) install. Produces byte-identical SRG output that Forge's binarypatcher COPY commands expect. | `forge::patcher::specialsource::run` | One-shot; exits when remapping is complete. Runs once per Forge install, before play. | stdin closed; stdout+stderr captured and surfaced as install error if exit code ≠ 0 |
+| `java.exe` (bundled JRE, via `-cp`) | Runs SpecialSource bytecode remapper during Forge transitional-era (1.13–1.16) install. Produces byte-identical SRG output that Forge's binarypatcher COPY commands expect. | `process::run_java_processor` (from `forge::patcher::specialsource::run`) | One-shot; exits when remapping is complete. Runs once per Forge install, before play. | stdin closed; stdout+stderr captured and surfaced as install error if exit code ≠ 0 |
+| `java.exe` (bundled JRE, via `-cp`) | Runs ForgeAutoRenamingTool (FART) — bytecode remapper for modern-era Forge (1.17+) install. Byte-identical output is required by Forge's binary patches. | `process::run_java_processor` (from `forge::patcher::fart::run`) | One-shot; exits when remapping completes. Runs once per install, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
+| `java.exe` (bundled JRE, via `-cp`) | Runs AutoRenamingTool (ART) — NeoForge's bytecode remapper for modern-era (1.20.1+) install. | `process::run_java_processor` (from `forge::patcher::art::run`) | One-shot, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
+| `java.exe` (bundled JRE, via `-cp`) | Runs the binarypatcher ConsoleTool — applies Forge/NeoForge pre-computed binary patches (binarypatcher ≥ 1.2.0). | `process::run_java_processor` (from `forge::patcher::binarypatcher::run_via_java`) | One-shot, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
+| `java.exe` (bundled JRE, via `-cp`) | Runs the installertools ConsoleTool `PROCESS_MINECRAFT_JAR` task — NeoForge ≥ 21.10's combined remap + binary-patch step. | `process::run_java_processor` (from `forge::patcher::installertools`) | One-shot, before play. | stdin closed; stdout+stderr captured, surfaced as an install error on non-zero exit |
 
-**Selective Java subprocess invocation is permitted during install for bytecode-rewriting processors** (SpecialSource for transitional Forge era, FART for modern Forge era). These specific tools produce outputs that Forge's pre-computed binary patches reference via byte-offset COPY commands; any byte-level divergence breaks the install. Reverse-engineering Java's exact output is impractical, so we shell out to the canonical Java implementation.
+**Selective Java subprocess invocation during install.** Five Forge/NeoForge install processors need byte-fidelity output that Forge's pre-computed binary patches reference by byte offset, so they shell out to the canonical Java implementation rather than a Rust reimplementation: SpecialSource, FART, ART, the binarypatcher ConsoleTool (binarypatcher ≥ 1.2.0 / NeoForge 2.1.2), and the installertools ConsoleTool `PROCESS_MINECRAFT_JAR` task (NeoForge ≥ 21.10). Each is a single processor invocation with bounded args, constructed through `process::run_java_processor`, and listed in the table above.
 
-This does NOT permit:
-- Running the full Forge `installer.jar` headlessly.
-- Spawning Java for any installer step that does not require byte-fidelity (installertools, jarsplitter, binarypatcher all remain pure-Rust).
-- Modifying the Minecraft client at runtime.
+This does NOT permit running the full Forge `installer.jar` headlessly, or modifying the Minecraft client at runtime. Install steps that do not require byte-fidelity — `jarsplitter` and the non-`PROCESS_MINECRAFT_JAR` installertools tasks — remain pure-Rust.
 
-Every Java subprocess spawned during install is a single processor invocation with bounded args, and is visible in the Processes panel.
+Whether the binarypatcher and installertools Java steps could be returned to pure Rust is an open question tracked separately in the project roadmap; this table documents the current reality.
 
 The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary watchdog, no helper process. The Java runtime is exactly the one Mojang publishes via the JRE manifest (slice 5), and the Minecraft jar is exactly the one Mojang serves at `piston-data.mojang.com` (slice 4).
 

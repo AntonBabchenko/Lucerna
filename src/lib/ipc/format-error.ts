@@ -19,6 +19,8 @@ export function formatError(e: IpcError): string {
   switch (e.kind) {
     case 'network':
       return `Network error fetching ${e.url}: ${e.details}`;
+    case 'host_not_allowed':
+      return `Network request to ${e.url} is not on the allowed-host list`;
     case 'hash_mismatch':
       return `Hash mismatch for ${e.path}`;
     case 'java_spawn':

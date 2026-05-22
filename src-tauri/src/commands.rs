@@ -35,22 +35,6 @@ pub fn greet(name: String) -> Greeting {
     }
 }
 
-/// Return the most recent network activity entries (up to 200).
-#[tauri::command]
-#[specta::specta]
-pub fn network_activity() -> Vec<crate::network::AuditEntry> {
-    crate::network::recent()
-}
-
-/// Audit entries whose host is NOT on the documented allowlist
-/// (per `docs/PRINCIPLES.md` Part A item #2). UI shows a red banner
-/// in the Network popover when this returns non-empty.
-#[tauri::command]
-#[specta::specta]
-pub fn network_audit_violations() -> Vec<crate::network::AuditEntry> {
-    crate::network::audit_violations()
-}
-
 /// List all stored accounts.
 #[tauri::command]
 #[specta::specta]
@@ -1750,6 +1734,10 @@ mod tests {
     use super::*;
     use crate::error::Error;
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     #[test]
     fn greet_includes_name() {
         let g = greet("World".to_string());
@@ -1829,6 +1817,7 @@ mod tests {
 
     #[tokio::test]
     async fn modpack_get_versions_parses_modrinth_list() {
+        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -1841,8 +1830,10 @@ mod tests {
             ))
             .mount(&server)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let entries =
             crate::commands::fetch_modpack_versions(&server.uri(), "abc").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "v1");
         assert_eq!(entries[0].game_versions, vec!["1.20.1"]);
@@ -1850,6 +1841,7 @@ mod tests {
 
     #[tokio::test]
     async fn modpack_get_versions_non_2xx_is_error() {
+        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -1858,9 +1850,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&server)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = crate::commands::fetch_modpack_versions(&server.uri(), "missing")
             .await
             .unwrap_err();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, crate::error::Error::ModsNotFound { .. }), "got: {err:?}");
     }
 

@@ -9,7 +9,20 @@ pub mod logs;
 pub mod mods;
 pub mod network;
 pub mod paths;
+pub mod process;
 pub mod versions;
+
+/// Process-wide lock for tests that mutate `FTLAUNCHER_EXTRA_ALLOWED_HOSTS`.
+/// All wiremock-backed unit tests must hold this lock for the duration of
+/// the test so that parallel threads don't race on the env-var state.
+#[cfg(test)]
+pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -18,8 +31,6 @@ pub fn run() {
     let builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::greet,
-            commands::network_activity,
-            commands::network_audit_violations,
             commands::list_accounts,
             commands::get_active_account,
             commands::set_active_account,

@@ -327,6 +327,10 @@ mod tests {
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     fn search_body() -> serde_json::Value {
         serde_json::json!({
             "data": [{
@@ -351,6 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_sends_game_and_class_ids() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -359,9 +364,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(&s.uri(), Some("k"), "rl", 0, None, None, ModpackSort::Relevance)
             .await
             .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 2);
         assert_eq!(r.hits[0].title, "RLCraft");
         assert_eq!(r.hits[0].project_id, "1234");
@@ -370,15 +377,18 @@ mod tests {
 
     #[tokio::test]
     async fn search_maps_allow_mod_distribution() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(&s.uri(), Some("k"), "x", 0, None, None, ModpackSort::Relevance)
             .await
             .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         // First hit has allowModDistribution:false; second omits it.
         assert_eq!(r.hits[0].distribution_allowed, Some(false));
         assert_eq!(r.hits[1].distribution_allowed, None);
@@ -386,6 +396,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_maps_sort_to_curseforge_sort_field() {
+        let _g = test_lock();
         // Downloads -> sortField=6.
         let s = MockServer::start().await;
         Mock::given(method("GET"))
@@ -395,6 +406,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         search(&s.uri(), Some("k"), "x", 0, None, None, ModpackSort::Downloads)
             .await
             .unwrap();
@@ -410,6 +422,7 @@ mod tests {
         search(&s2.uri(), Some("k"), "x", 0, None, None, ModpackSort::Newest)
             .await
             .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -426,6 +439,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_files_maps_and_sorts_newest_first() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [
@@ -443,7 +457,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let v = list_files(&s.uri(), Some("k"), "1234").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].id, "22"); // newest first
         assert_eq!(v[0].name, "RLCraft 2.9.3");
@@ -460,6 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_file_download_returns_url() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 22, "displayName": "RLCraft 2.9.3", "fileName": "rl.zip",
@@ -472,12 +489,15 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let url = resolve_file_download(&s.uri(), Some("k"), "1234", "22").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(url, "https://edge.forgecdn.net/files/22/rl.zip");
     }
 
     #[tokio::test]
     async fn fetch_summary_returns_name_and_summary() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 1234, "slug": "rlcraft", "name": "RLCraft",
@@ -488,20 +508,25 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(name.as_deref(), Some("RLCraft"));
         assert_eq!(summary.as_deref(), Some("A hard pack"));
     }
 
     #[tokio::test]
     async fn fetch_summary_non_2xx_is_none() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/1234"))
             .respond_with(ResponseTemplate::new(404))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(name.is_none() && summary.is_none());
     }
 
@@ -513,6 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_file_download_null_url_is_distribution_disabled() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 22, "displayName": "Locked Pack", "fileName": "lp.zip",
@@ -524,7 +550,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = resolve_file_download(&s.uri(), Some("k"), "1234", "22").await.unwrap_err();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModpackCfDistributionDisabled { pack_name } => {
                 assert_eq!(pack_name, "Locked Pack");

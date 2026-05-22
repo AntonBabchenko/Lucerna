@@ -9,7 +9,6 @@
     activeAccount,
     instances,
     activeInstance,
-    violationsCount,
     onSelectAccount,
     onRemoveAccount,
     onAddOffline,
@@ -17,7 +16,6 @@
     onOpenManage,
     onOpenMods,
     onOpenLogs,
-    onOpenNetwork,
     running,
     installing,
     onPlay,
@@ -28,7 +26,6 @@
     activeAccount: Account | null;
     instances: InstanceWithStatus[];
     activeInstance: InstanceWithStatus | null;
-    violationsCount: number;
     onSelectAccount: (id: string) => void;
     onRemoveAccount: () => void;
     onAddOffline: (name: string) => void;
@@ -36,7 +33,6 @@
     onOpenManage: () => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
-    onOpenNetwork: () => void;
     // Launch-state inputs (moved here from the Overview pane in
     // +page.svelte). running !== null = MC is up; installing = an
     // install pipeline is in flight; otherwise the button morphs
@@ -233,19 +229,6 @@
       onclick={onOpenLogs}
     >
       📜 Logs
-    </button>
-    <button
-      type="button"
-      class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white relative"
-      onclick={onOpenNetwork}
-    >
-      🌐 Network
-      {#if violationsCount > 0}
-        <span
-          class="absolute top-0.5 right-1 w-1.5 h-1.5 bg-red-600 rounded-full"
-          aria-label="{violationsCount} allowlist violations"
-        ></span>
-      {/if}
     </button>
     <button
       type="button"

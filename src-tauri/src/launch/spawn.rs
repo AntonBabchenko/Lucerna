@@ -2,9 +2,8 @@
 //!
 //! State design: the running `Child` is owned by the exit-watcher
 //! task that calls `.wait().await` on it. `stop()` cannot share that
-//! `&mut Child` with the watcher, so we kill by PID instead — on
-//! Windows via `taskkill /F /T /PID <pid>` which also terminates the
-//! child's child processes (MC sometimes spawns helpers).
+//! `&mut Child` with the watcher, so it kills by PID instead, via
+//! `crate::process::kill_process_tree`.
 
 use crate::accounts::Account;
 use crate::error::{Error, Result};
@@ -185,16 +184,13 @@ pub async fn start(
         .try_clone()
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
 
-    let mut cmd = tokio::process::Command::new(&java_path);
-    cmd.args(&argv)
-        .current_dir(&game_dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::from(log_file))
-        .stderr(std::process::Stdio::from(log_file_err));
-
-    let mut child = cmd.spawn().map_err(|e| Error::JavaSpawn {
-        details: format!("spawn {}: {e}", java_path.display()),
-    })?;
+    let mut child = crate::process::spawn_minecraft(
+        &java_path,
+        &argv,
+        &game_dir,
+        log_file,
+        log_file_err,
+    )?;
     let pid = child.id().ok_or_else(|| Error::JavaSpawn {
         details: "spawned but no PID available".into(),
     })?;
@@ -251,28 +247,8 @@ pub fn stop() -> Result<()> {
     let Some(pid) = pid_opt else {
         return Ok(());
     };
-    kill_pid(pid);
+    crate::process::kill_process_tree(pid);
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn kill_pid(pid: u32) {
-    // /F = force, /T = kill child processes too (MC sometimes spawns
-    // helpers). Best-effort; if taskkill itself fails (e.g. PID
-    // already gone) we ignore the error — the exit watcher will fire
-    // ProcessExited regardless of cause.
-    let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/T", "/PID", &pid.to_string()])
-        .status();
-}
-
-#[cfg(not(target_os = "windows"))]
-fn kill_pid(pid: u32) {
-    // POSIX path is post-v0.1.0 — included so the cfg-gate doesn't
-    // leave non-Windows builds with an unreachable function.
-    let _ = std::process::Command::new("kill")
-        .arg(pid.to_string())
-        .status();
 }
 
 /// `mainClass` of the legacy launchwrapper era (Minecraft ≤ 1.12.2).

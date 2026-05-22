@@ -521,55 +521,21 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
 ///   - NeoForge `net.neoforged.installertools:binarypatcher:2.1.2` → `net.neoforged.binarypatcher.ConsoleTool`
 async fn run_via_java(args: &[String], ctx: &ProcessorContext, is_neoforge: bool) -> Result<()> {
     use std::path::PathBuf;
-    let java_bin = ctx
-        .java_bin
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("java"));
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    let cp: String = ctx
-        .classpath
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(sep);
-
+    let java_bin = ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"));
     // Select the main class by flavor (ADDENDUM B).
     let main_class = if is_neoforge {
         "net.neoforged.binarypatcher.ConsoleTool"
     } else {
         "net.minecraftforge.binarypatcher.ConsoleTool"
     };
-
-    let mut cmd = tokio::process::Command::new(&java_bin);
-    cmd.arg("-cp").arg(&cp);
-    cmd.arg(main_class);
-    cmd.args(args);
-
-    eprintln!(
-        "binarypatcher: spawning {} with {} classpath entries (main={})",
-        java_bin.display(),
-        ctx.classpath.len(),
+    crate::process::run_java_processor(
+        &java_bin,
+        &ctx.classpath,
         main_class,
-    );
-
-    let output = cmd.output().await.map_err(|e| {
-        patcher_fail("binarypatcher", &format!("spawn java: {e}"))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(patcher_fail(
-            "binarypatcher",
-            &format!(
-                "java exit {}: stderr={} stdout={}",
-                output.status,
-                stderr.trim(),
-                stdout.trim()
-            ),
-        ));
-    }
-    Ok(())
+        args,
+        "binarypatcher",
+    )
+    .await
 }
 
 #[cfg(test)]

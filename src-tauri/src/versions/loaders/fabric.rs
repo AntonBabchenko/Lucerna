@@ -88,6 +88,10 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     const FIXTURE_LIST: &str = r#"[
       {"loader":{"separator":".","build":7,"maven":"net.fabricmc:fabric-loader:0.15.7","version":"0.15.7","stable":true},"intermediary":{},"launcherMeta":{}},
       {"loader":{"separator":".","build":6,"maven":"net.fabricmc:fabric-loader:0.15.6","version":"0.15.6","stable":true},"intermediary":{},"launcherMeta":{}},
@@ -112,6 +116,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_against_wiremock_returns_sorted_loader_versions() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v2/versions/loader/1.20.4"))

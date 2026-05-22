@@ -75,11 +75,24 @@ pub fn is_host_allowed(host: &str) -> bool {
         .any(|pat| host_matches_pattern(&host, pat))
 }
 
-/// The documented allowlist patterns (without the env override).
-/// Exposed so UI / commands can present "what is the allowlist?"
-/// to users without re-parsing this file.
-pub fn allowed_host_patterns() -> Vec<&'static str> {
-    ALLOWED_PATTERNS.to_vec()
+/// Verify `url`'s host is on the allowlist. Returns
+/// `Err(Error::HostNotAllowed)` for a disallowed or unparseable host.
+/// `initiator` is the calling module — logged to stderr on rejection so
+/// a blocked request is diagnosable, but kept out of the typed error
+/// (the URL is the user-facing context).
+pub fn check_url_allowed(url: &str, initiator: &str) -> crate::error::Result<()> {
+    let host = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string));
+    match host {
+        Some(h) if is_host_allowed(&h) => Ok(()),
+        _ => {
+            eprintln!("network: {initiator} refused — host not on allowlist: {url}");
+            Err(crate::error::Error::HostNotAllowed {
+                url: url.to_string(),
+            })
+        }
+    }
 }
 
 fn host_matches_pattern(host: &str, pattern: &str) -> bool {
@@ -97,16 +110,13 @@ fn host_matches_pattern(host: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     // Serializes the env-var tests below: they mutate
     // FTLAUNCHER_EXTRA_ALLOWED_HOSTS, which is process-global and shared
-    // across cargo's parallel test threads.
-    fn env_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    // across cargo's parallel test threads. Uses the crate-wide lock so
+    // these tests also serialize with wiremock tests in other modules.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
     }
 
     #[test]
@@ -178,21 +188,20 @@ mod tests {
     }
 
     #[test]
-    fn allowed_host_patterns_returns_documented_list() {
-        let patterns = allowed_host_patterns();
-        assert!(patterns.contains(&"*.mojang.com"));
-        assert!(patterns.contains(&"*.minecraft.net"));
-        assert!(patterns.contains(&"api.github.com"));
-        assert!(patterns.contains(&"meta.fabricmc.net"));
-        assert!(patterns.contains(&"meta.quiltmc.org"));
-        assert!(patterns.contains(&"maven.minecraftforge.net"));
-        assert!(patterns.contains(&"files.minecraftforge.net"));
-        assert!(patterns.contains(&"maven.neoforged.net"));
-        assert!(patterns.contains(&"cdn.modrinth.com"));
-        assert!(patterns.contains(&"edge.forgecdn.net"));
-        assert!(patterns.contains(&"mediafilez.forgecdn.net"));
+    fn allowed_patterns_match_documented_list() {
+        assert!(ALLOWED_PATTERNS.contains(&"*.mojang.com"));
+        assert!(ALLOWED_PATTERNS.contains(&"*.minecraft.net"));
+        assert!(ALLOWED_PATTERNS.contains(&"api.github.com"));
+        assert!(ALLOWED_PATTERNS.contains(&"meta.fabricmc.net"));
+        assert!(ALLOWED_PATTERNS.contains(&"meta.quiltmc.org"));
+        assert!(ALLOWED_PATTERNS.contains(&"maven.minecraftforge.net"));
+        assert!(ALLOWED_PATTERNS.contains(&"files.minecraftforge.net"));
+        assert!(ALLOWED_PATTERNS.contains(&"maven.neoforged.net"));
+        assert!(ALLOWED_PATTERNS.contains(&"cdn.modrinth.com"));
+        assert!(ALLOWED_PATTERNS.contains(&"edge.forgecdn.net"));
+        assert!(ALLOWED_PATTERNS.contains(&"mediafilez.forgecdn.net"));
         // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0.
-        assert_eq!(patterns.len(), 17);
+        assert_eq!(ALLOWED_PATTERNS.len(), 17);
     }
 
     #[test]
@@ -214,5 +223,22 @@ mod tests {
         // Exact match — not wildcards.
         assert!(!is_host_allowed("evil.cdn.modrinth.com"));
         assert!(!is_host_allowed("evilmediafilez.forgecdn.net"));
+    }
+
+    #[test]
+    fn check_url_allowed_accepts_allowlisted_host() {
+        assert!(check_url_allowed("https://piston-meta.mojang.com/x", "test").is_ok());
+    }
+
+    #[test]
+    fn check_url_allowed_rejects_offlist_host() {
+        let r = check_url_allowed("https://evil.example/x", "test");
+        assert!(matches!(r, Err(crate::error::Error::HostNotAllowed { .. })));
+    }
+
+    #[test]
+    fn check_url_allowed_rejects_unparseable_url() {
+        let r = check_url_allowed("not a url", "test");
+        assert!(matches!(r, Err(crate::error::Error::HostNotAllowed { .. })));
     }
 }

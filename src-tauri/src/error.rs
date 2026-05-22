@@ -22,6 +22,9 @@ pub enum Error {
     #[error("Network error fetching {url}: {details}")]
     Network { url: String, details: String },
 
+    #[error("Refused a request to a host that is not on the allowlist: {url}")]
+    HostNotAllowed { url: String },
+
     #[error("Hash mismatch for {path}: expected {expected}, got {got}")]
     HashMismatch {
         path: String,
@@ -409,5 +412,15 @@ mod tests {
         assert!(json.contains(r#""kind":"modpack_partial_failure""#), "got: {json}");
         assert!(json.contains(r#""instance_id":"abc""#), "got: {json}");
         assert!(json.contains(r#""failed":[["mods/foo.jar","404 from cdn"]]"#), "got: {json}");
+    }
+
+    #[test]
+    fn host_not_allowed_serializes_with_tag_and_url() {
+        let e = Error::HostNotAllowed {
+            url: "http://evil.example/x".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains(r#""kind":"host_not_allowed""#), "got: {json}");
+        assert!(json.contains(r#""url":"http://evil.example/x""#), "got: {json}");
     }
 }

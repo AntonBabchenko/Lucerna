@@ -39,16 +39,13 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 ## Part C — Network audit
 
-The product value "no hidden phone-home" is mechanically enforced.
+The product value "no hidden phone-home" is enforced in code, not merely displayed.
 
-1. **Self-audit integration test** runs in CI on every release:
-   - Launches the application in a controlled environment with a network capture tool (`mitmproxy` or equivalent).
-   - Performs only the user action "launch vanilla 1.20.x" — no other clicks.
-   - Asserts that no outbound request was made before the user action.
-   - Asserts that every subsequent outbound request targets a host in the allowlist defined in `src-tauri/src/network/allowlist.rs`.
-   - Test failure fails the release.
+1. **The allowlist is enforced at the chokepoint.** Every outbound request goes through `network::request` / `network::download`, which reject any host not in `network::allowlist::ALLOWED_PATTERNS` before the request is sent — a request to a non-allowlisted host never leaves the process. `src-tauri/tests/structural_no_raw_http.rs` fails the build if an HTTP client is constructed outside `network::`.
 
-2. **Single source of truth for the allowlist.** The Rust constant in `src-tauri/src/network/allowlist.rs` and the table in `docs/PRINCIPLES.md` (Part A, item 2) must match. A separate CI test parses both and asserts equality. Drift between the two is a build failure.
+2. **Wire-level self-audit (planned).** A CI integration test will boot the application in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement. Status: not yet implemented; tracked in the project roadmap.
+
+3. **Single source of truth for the allowlist.** The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the source of truth. The table in `docs/PRINCIPLES.md` Part A mirrors it for human readers and is kept in sync by code review — there is no markdown-parsing build step (an earlier plan to add one was dropped as brittle).
 
 ## Part D — Disclosure
 

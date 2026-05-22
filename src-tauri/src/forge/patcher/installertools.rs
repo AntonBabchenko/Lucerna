@@ -204,46 +204,14 @@ async fn bundler_extract(_args: &[String], _ctx: &ProcessorContext) -> Result<()
 /// so we must shell out rather than reimplement.
 async fn process_minecraft_jar_via_java(args: &[String], ctx: &ProcessorContext) -> Result<()> {
     let java_bin = ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"));
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    let cp: String = ctx
-        .classpath
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(sep);
-
-    const MAIN_CLASS: &str = "net.neoforged.installertools.ConsoleTool";
-
-    let mut cmd = tokio::process::Command::new(&java_bin);
-    cmd.arg("-cp").arg(&cp);
-    cmd.arg(MAIN_CLASS);
-    cmd.args(args);
-
-    eprintln!(
-        "installertools: spawning {} with {} classpath entries (task=PROCESS_MINECRAFT_JAR, main={})",
-        java_bin.display(),
-        ctx.classpath.len(),
-        MAIN_CLASS,
-    );
-
-    let output = cmd.output().await.map_err(|e| {
-        patcher_fail("installertools::PROCESS_MINECRAFT_JAR", &format!("spawn java: {e}"))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(patcher_fail(
-            "installertools::PROCESS_MINECRAFT_JAR",
-            &format!(
-                "java exit {}: stderr={} stdout={}",
-                output.status,
-                stderr.trim(),
-                stdout.trim()
-            ),
-        ));
-    }
-    Ok(())
+    crate::process::run_java_processor(
+        &java_bin,
+        &ctx.classpath,
+        "net.neoforged.installertools.ConsoleTool",
+        args,
+        "installertools::PROCESS_MINECRAFT_JAR",
+    )
+    .await
 }
 
 async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()> {

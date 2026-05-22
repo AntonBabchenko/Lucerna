@@ -23,6 +23,7 @@ fn make(id: &str, name: &str) -> InstanceFile {
         mrpack_project_id: None,
         mrpack_source: None,
         mrpack_summary: None,
+        mrpack_version_id: None,
     }
 }
 

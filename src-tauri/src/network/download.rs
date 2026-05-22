@@ -3,11 +3,9 @@
 //!
 //! Streams the body to `dest`, hashing as it goes. Verifies SHA-1
 //! against `expected_sha` after the last byte. Emits `DownloadProgress`
-//! events through tauri-specta. Records an `AuditEntry` whether the
-//! call succeeds or fails.
+//! events through tauri-specta.
 
 use crate::error::{Error, Result};
-use crate::network::audit::{now_ms, record, AuditEntry};
 use crate::network::client::http;
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -30,26 +28,12 @@ pub struct DownloadProgress {
     pub bytes_total: Option<f64>,
 }
 
-/// Record a partial-progress audit entry. Used to log mid-stream
-/// failures (connection drop, write error) so the Network panel reflects
-/// every attempted call, not just clean successes/failures.
-fn audit_partial(url: &str, initiator: &str, bytes_done: f64, status: u16) {
-    record(AuditEntry {
-        ts: now_ms(),
-        method: "GET".into(),
-        url: url.into(),
-        initiator: initiator.into(),
-        bytes: Some(bytes_done),
-        status: Some(status),
-    });
-}
-
 /// Shared streaming-download core used by the `download_with_sha` /
 /// `download_no_emit` wrappers AND directly by callers that need a
 /// progress callback without a Tauri `AppHandle` (e.g. `mods::install`).
 /// Streams the body of `url` to `dest`, hashing SHA-1 as it goes;
 /// verifies against `expected_sha_hex` after the last byte (empty
-/// `expected_sha_hex` skips verification); records an `AuditEntry`;
+/// `expected_sha_hex` skips verification);
 /// calls `emit` once per chunk with cumulative progress.
 /// `Err(HashMismatch)` deletes the partial file.
 ///
@@ -62,28 +46,11 @@ pub(crate) async fn download_inner(
     initiator: &str,
     mut emit: impl FnMut(DownloadProgress),
 ) -> Result<()> {
-    let resp = http().get(url).send().await.map_err(|e| {
-        record(AuditEntry {
-            ts: now_ms(),
-            method: "GET".into(),
-            url: url.into(),
-            initiator: initiator.into(),
-            bytes: None,
-            status: None,
-        });
-        Error::network(url, e)
-    })?;
+    crate::network::allowlist::check_url_allowed(url, initiator)?;
+    let resp = http().get(url).send().await.map_err(|e| Error::network(url, e))?;
 
     let status = resp.status();
     if !status.is_success() {
-        record(AuditEntry {
-            ts: now_ms(),
-            method: "GET".into(),
-            url: url.into(),
-            initiator: initiator.into(),
-            bytes: None,
-            status: Some(status.as_u16()),
-        });
         return Err(Error::network(url, format!("HTTP {status}")));
     }
 
@@ -100,18 +67,11 @@ pub(crate) async fn download_inner(
 
     let mut hasher = Sha1::new();
     let mut bytes_done: f64 = 0.0;
-    let status_code = status.as_u16();
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            audit_partial(url, initiator, bytes_done, status_code);
-            Error::network(url, e)
-        })?;
+        let chunk = chunk.map_err(|e| Error::network(url, e))?;
         hasher.update(&chunk);
-        file.write_all(&chunk).await.map_err(|e| {
-            audit_partial(url, initiator, bytes_done, status_code);
-            Error::io(dest.display().to_string(), e)
-        })?;
+        file.write_all(&chunk).await.map_err(|e| Error::io(dest.display().to_string(), e))?;
         bytes_done += chunk.len() as f64;
 
         emit(DownloadProgress {
@@ -125,14 +85,6 @@ pub(crate) async fn download_inner(
         .map_err(|e| Error::io(dest.display().to_string(), e))?;
 
     let got_hex = hex::encode(hasher.finalize());
-    record(AuditEntry {
-        ts: now_ms(),
-        method: "GET".into(),
-        url: url.into(),
-        initiator: initiator.into(),
-        bytes: Some(bytes_done),
-        status: Some(status.as_u16()),
-    });
 
     if !expected_sha_hex.is_empty() && got_hex != expected_sha_hex {
         // Drop the bad file so a retry starts fresh.
@@ -148,12 +100,10 @@ pub(crate) async fn download_inner(
 }
 
 /// Download `url` to `dest`, verify SHA-1 equals `expected_sha_hex`,
-/// emit a `DownloadProgress` Tauri event per chunk, and record the call
-/// in the audit log.
+/// and emit a `DownloadProgress` Tauri event per chunk.
 ///
 /// `initiator` is the module name that triggered the download
-/// (e.g. `"versions"`, `"jre"`, `"assets"`) — appears in the
-/// Network Activity panel so users can see what asked for what.
+/// (e.g. `"versions"`, `"jre"`, `"assets"`).
 pub async fn download_with_sha(
     app: &tauri::AppHandle,
     url: &str,
@@ -189,8 +139,13 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     #[tokio::test]
     async fn empty_expected_sha_skips_verification() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/loader-lib.jar"))
@@ -214,6 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn nonempty_sha_mismatch_still_errors() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/x.jar"))
@@ -231,5 +187,15 @@ mod tests {
 
         assert!(matches!(result, Err(Error::HashMismatch { .. })));
         assert!(!dest.exists(), "bad file should be removed after sha mismatch");
+    }
+
+    #[tokio::test]
+    async fn download_to_non_allowlisted_host_is_rejected() {
+        let _g = test_lock();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        let r = download_no_emit("https://evil.example/x.jar", &dest, "", "test").await;
+        assert!(matches!(r, Err(Error::HostNotAllowed { .. })), "got: {r:?}");
+        assert!(!dest.exists(), "no file should be created for a rejected host");
     }
 }

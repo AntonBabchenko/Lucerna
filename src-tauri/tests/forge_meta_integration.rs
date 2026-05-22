@@ -112,7 +112,7 @@ async fn list_versions_filters_to_mc() {
 }
 
 #[tokio::test]
-async fn list_versions_promotions_404_still_returns_versions_unmarked() {
+async fn list_versions_promotions_404_falls_back_to_top_non_beta_stable() {
     let _g = test_lock();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -135,10 +135,12 @@ async fn list_versions_promotions_404_still_returns_versions_unmarked() {
         .await
         .expect("list_versions");
     assert_eq!(entries.len(), 3);
-    assert!(
-        entries.iter().all(|e| !e.stable),
-        "promotions unavailable → none marked stable"
-    );
+    // Promotions unavailable → the fallback stable-tagging rule applies:
+    // the top non-beta entry is tagged stable (same rule NeoForge always
+    // uses, since it has no promotions feed). Exactly one entry is stable.
+    assert_eq!(entries[0].version, "49.0.49");
+    assert!(entries[0].stable, "top non-beta is the fallback stable pick");
+    assert_eq!(entries.iter().filter(|e| e.stable).count(), 1);
 
     std::env::remove_var("FTLAUNCHER_FORGE_META_OVERRIDE");
     std::env::remove_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE");

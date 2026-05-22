@@ -283,12 +283,17 @@ mod tests {
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     async fn server() -> MockServer {
         MockServer::start().await
     }
 
     #[tokio::test]
     async fn search_parses_hits() {
+        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/search"))
@@ -313,7 +318,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let page = c.search(&q).await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "u6dRKJwZ");
@@ -322,6 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_5xx_maps_to_network_error() {
+        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/search"))
@@ -338,12 +346,15 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = c.search(&q).await.unwrap_err();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNetwork { .. }), "got: {err:?}");
     }
 
     #[tokio::test]
     async fn project_404_maps_to_not_found() {
+        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/project/missing"))
@@ -351,12 +362,15 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = c.project("missing").await.unwrap_err();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNotFound { .. }), "got: {err:?}");
     }
 
     #[tokio::test]
     async fn versions_parses_primary_file_and_deps() {
+        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/project/jei/version"))
@@ -374,7 +388,9 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let vs = c.versions("jei", "1.20.1", LoaderKind::Fabric).await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].primary_file.filename, "jei-15.0.0.jar");
         assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("abc"));

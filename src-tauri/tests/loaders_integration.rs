@@ -34,8 +34,14 @@ fn fabric_list_fixture() -> String {
 }
 
 fn quilt_list_fixture() -> String {
+    // `hashed` + `intermediary` are mandatory: quilt::list filters out
+    // entries lacking published mappings (they crash MC at startup).
     r#"[
-      {"loader":{"separator":".","build":1,"maven":"org.quiltmc:quilt-loader:0.23.1","version":"0.23.1"}}
+      {
+        "loader":{"separator":".","build":1,"maven":"org.quiltmc:quilt-loader:0.23.1","version":"0.23.1"},
+        "hashed":{"maven":"org.quiltmc:hashed:1.20.4"},
+        "intermediary":{"maven":"net.fabricmc:intermediary:1.20.4"}
+      }
     ]"#
     .to_string()
 }

@@ -242,19 +242,15 @@ fn same_maven_artifact(a: &str, b: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // Serializes env-var tests: they mutate FTLAUNCHER_QUILT_META_OVERRIDE
     // and FTLAUNCHER_EXTRA_ALLOWED_HOSTS, which are process-global and
-    // shared across cargo's parallel test threads. Without this, two tests
-    // running in parallel both flip the override → false negatives.
-    fn env_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    // shared across cargo's parallel test threads. Uses the crate-wide lock
+    // so these tests also serialize with wiremock tests in other modules.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
     }
 
     const FIXTURE_LIST: &str = r#"[

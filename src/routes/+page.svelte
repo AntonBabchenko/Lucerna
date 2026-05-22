@@ -9,7 +9,6 @@
     type MissingModStatus,
     type VersionEntry,
   } from '$lib/ipc/bindings';
-  import NetworkPopover from '$lib/network/NetworkPopover.svelte';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
@@ -29,7 +28,6 @@
   let offlineNameError = $state<string | null>(null);
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
-  let networkOpen = $state(false);
 
   // Vanilla MC version manifest, still fetched on mount and passed
   // through to ManageInstancesModal where it powers the MC version
@@ -90,7 +88,6 @@
   let logsInitialPath = $state<string | null>(null);
   let crashReport = $state<CrashReport | null>(null);
   let modsError = $state<string | null>(null);
-  let violationsCount = $state(0);
 
   // Whenever the active instance changes, clear per-instance error banners.
   // They refer to the previously-active instance and confuse the user when
@@ -163,13 +160,10 @@
         } else {
           crashReport = null;
         }
-        await refreshViolations();
       })
       .then((u) => {
         exitUnlisten = u;
       });
-
-    await refreshViolations();
 
     await refreshAccounts();
 
@@ -281,12 +275,7 @@
     }
   }
 
-  async function refreshViolations() {
-    const v = await commands.networkAuditViolations();
-    if (Array.isArray(v)) {
-      violationsCount = v.length;
-    }
-  }
+
 </script>
 
 <main
@@ -299,7 +288,6 @@
       {activeAccount}
       {instances}
       {activeInstance}
-      {violationsCount}
       {onSelectAccount}
       onRemoveAccount={onRemoveActive}
       onAddOffline={async (name) => {
@@ -320,10 +308,6 @@
       onOpenManage={() => (manageOpen = true)}
       {onOpenMods}
       onOpenLogs={() => (logsOpen = !logsOpen)}
-      onOpenNetwork={() => {
-        networkOpen = !networkOpen;
-        if (!networkOpen) void refreshViolations();
-      }}
       {running}
       {installing}
       {onPlay}
@@ -563,7 +547,6 @@
     <PhaseStatusRow />
   </div>
 
-  <NetworkPopover bind:open={networkOpen} />
   <LogsPopover
     bind:open={logsOpen}
     initialPath={logsInitialPath}

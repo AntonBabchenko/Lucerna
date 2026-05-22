@@ -1,11 +1,10 @@
 //! End-to-end integration test for `network::download::download_no_emit`
 //! against a local mock HTTP server. We cannot construct a real
 //! `tauri::AppHandle` here, so this test exercises the download +
-//! hash + audit path; the event-emit branch in `download_with_sha`
+//! hash path; the event-emit branch in `download_with_sha`
 //! is covered by manual e2e verification.
 
 use ftlauncher_lib::error::Error;
-use ftlauncher_lib::network::audit::{clear_for_test, recent};
 use sha1::{Digest, Sha1};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::tempdir;
@@ -18,10 +17,9 @@ fn sha1_hex(bytes: &[u8]) -> String {
     hex::encode(h.finalize())
 }
 
-// All tests in this binary share the process-global audit ring buffer
-// (clear_for_test + recent). Serialize them so cargo's parallel runner
-// doesn't interleave clear/record/read across tests.
-fn audit_lock() -> MutexGuard<'static, ()> {
+// Serialize tests so cargo's parallel runner doesn't interleave env-var
+// mutations across tests.
+fn test_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
         .lock()
@@ -30,8 +28,7 @@ fn audit_lock() -> MutexGuard<'static, ()> {
 
 #[tokio::test]
 async fn download_succeeds_when_hash_matches() {
-    let _g = audit_lock();
-    clear_for_test();
+    let _g = test_lock();
     let body = b"hello, ftlauncher";
     let expected_sha = sha1_hex(body);
 
@@ -46,25 +43,19 @@ async fn download_succeeds_when_hash_matches() {
     let dest = dir.path().join("out.bin");
     let url = format!("{}/file.bin", server.uri());
 
+    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
     ftlauncher_lib::network::download::download_no_emit(&url, &dest, &expected_sha, "test")
         .await
         .expect("download should succeed");
+    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
     let written = std::fs::read(&dest).unwrap();
     assert_eq!(written, body);
-
-    let audit = recent();
-    assert_eq!(audit.len(), 1);
-    assert_eq!(audit[0].url, url);
-    assert_eq!(audit[0].initiator, "test");
-    assert_eq!(audit[0].bytes, Some(body.len() as f64));
-    assert_eq!(audit[0].status, Some(200));
 }
 
 #[tokio::test]
 async fn download_fails_on_hash_mismatch_and_deletes_file() {
-    let _g = audit_lock();
-    clear_for_test();
+    let _g = test_lock();
     let body = b"different content";
     let wrong_sha = sha1_hex(b"not this");
 
@@ -79,9 +70,11 @@ async fn download_fails_on_hash_mismatch_and_deletes_file() {
     let dest = dir.path().join("wrong.bin");
     let url = format!("{}/wrong.bin", server.uri());
 
+    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
     let err = ftlauncher_lib::network::download::download_no_emit(&url, &dest, &wrong_sha, "test")
         .await
         .expect_err("hash mismatch should fail");
+    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
     match err {
         Error::HashMismatch { expected, got, .. } => {
@@ -95,9 +88,8 @@ async fn download_fails_on_hash_mismatch_and_deletes_file() {
 }
 
 #[tokio::test]
-async fn http_error_status_returns_network_error_and_logs() {
-    let _g = audit_lock();
-    clear_for_test();
+async fn http_error_status_returns_network_error() {
+    let _g = test_lock();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/nope"))
@@ -109,15 +101,14 @@ async fn http_error_status_returns_network_error_and_logs() {
     let dest = dir.path().join("nope.bin");
     let url = format!("{}/nope", server.uri());
 
+    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
     let err = ftlauncher_lib::network::download::download_no_emit(&url, &dest, "deadbeef", "test")
         .await
         .expect_err("404 should fail");
+    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
     assert!(
         matches!(err, Error::Network { .. }),
         "expected Network error, got {err:?}"
     );
-    let audit = recent();
-    assert_eq!(audit.len(), 1);
-    assert_eq!(audit[0].status, Some(404));
 }

@@ -3,13 +3,12 @@
 //! `Err` only on a transport-level failure (no status received). The
 //! caller owns status-to-error mapping and body decoding.
 //!
-//! Every attempt is recorded in the audit log, exactly like the higher
-//! `get_json` / `get_text` / `get_bytes` helpers (which are now thin
-//! wrappers over this). `download_with_sha` stays separate — it streams
-//! to disk rather than buffering the body.
+//! All requests pass through the host allowlist before being sent.
+//! `get_json` / `get_text` / `get_bytes` are thin wrappers over this.
+//! `download_with_sha` stays separate — it streams to disk rather than
+//! buffering the body.
 
 use crate::error::{Error, Result};
-use crate::network::audit::{now_ms, record, AuditEntry};
 use crate::network::client::http;
 
 /// A received HTTP response: the status code and the fully-buffered body.
@@ -19,49 +18,21 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
-/// Send a built request, record an `AuditEntry`, return the response
-/// for any HTTP status. `Err` only on a transport-level failure
-/// (send failure, or a body-read failure after a status was received).
-/// `method` is the audit-log label ("GET" / "POST").
+/// Send a built request and return the response for any HTTP status.
+/// `Err` only on a transport-level failure (send failure, or a body-read
+/// failure after a status was received).
 async fn send(
     req: reqwest::RequestBuilder,
     method: &str,
     url: &str,
     initiator: &str,
 ) -> Result<HttpResponse> {
-    let resp = req.send().await.map_err(|e| {
-        record(AuditEntry {
-            ts: now_ms(),
-            method: method.into(),
-            url: url.into(),
-            initiator: initiator.into(),
-            bytes: None,
-            status: None,
-        });
-        Error::network(url, e)
-    })?;
+    crate::network::allowlist::check_url_allowed(url, initiator)?;
+    let resp = req.send().await.map_err(|e| Error::network(url, e))?;
     let status = resp.status().as_u16();
     // A body-read failure (mid-body drop, read timeout) is still a transport-level
-    // failure and must be logged, with the status we already received.
-    let body = resp.bytes().await.map_err(|e| {
-        record(AuditEntry {
-            ts: now_ms(),
-            method: method.into(),
-            url: url.into(),
-            initiator: initiator.into(),
-            bytes: None,
-            status: Some(status),
-        });
-        Error::network(url, e)
-    })?;
-    record(AuditEntry {
-        ts: now_ms(),
-        method: method.into(),
-        url: url.into(),
-        initiator: initiator.into(),
-        bytes: Some(body.len() as f64),
-        status: Some(status),
-    });
+    // failure.
+    let body = resp.bytes().await.map_err(|e| Error::network(url, e))?;
     Ok(HttpResponse {
         status,
         body: body.to_vec(),
@@ -70,12 +41,10 @@ async fn send(
 
 /// GET `url` on the shared chokepoint client with `headers` applied.
 ///
-/// Records one `AuditEntry` for the attempt: on transport failure with
-/// `status: None`, otherwise with the received status and body length.
 /// Returns `Ok(HttpResponse)` for any received HTTP status (2xx or not);
 /// returns `Err(Error::Network)` only when no status was received.
 ///
-/// `initiator` is the module name shown in the Network Activity panel.
+/// `initiator` is the module name that triggered the request.
 pub async fn get(
     url: &str,
     headers: &[(&str, &str)],
@@ -89,8 +58,8 @@ pub async fn get(
 }
 
 /// POST `body` to `url` on the shared chokepoint client with `headers`
-/// applied. See `get` for the audit + error contract — `post` is
-/// identical except for the HTTP method and the request body.
+/// applied. See `get` for the error contract — `post` is identical
+/// except for the HTTP method and the request body.
 pub async fn post(
     url: &str,
     headers: &[(&str, &str)],
@@ -107,12 +76,16 @@ pub async fn post(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::audit::recent;
     use wiremock::matchers::{body_string, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     #[tokio::test]
     async fn returns_ok_for_200_with_body() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/req-200"))
@@ -120,13 +93,16 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-200", server.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get(&url, &[], "test").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"hello");
     }
 
     #[tokio::test]
     async fn returns_ok_for_404_not_err() {
+        let _g = test_lock();
         // A non-2xx status is NOT an error at this layer — the caller
         // owns status-to-error mapping.
         let server = MockServer::start().await;
@@ -136,12 +112,15 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-404", server.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get(&url, &[], "test").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 404);
     }
 
     #[tokio::test]
     async fn applies_request_headers() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/req-hdr"))
@@ -150,40 +129,25 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-hdr", server.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get(&url, &[("x-api-key", "secret-123")], "test").await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_ok(), "header should have matched the mock: {r:?}");
     }
 
     #[tokio::test]
     async fn transport_failure_is_err() {
+        let _g = test_lock();
         // Port 1 is unreachable — the connection fails before any status.
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get("http://127.0.0.1:1/nope", &[], "test").await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::Network { .. })), "got: {r:?}");
     }
 
     #[tokio::test]
-    async fn records_an_audit_entry_for_the_call() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/req-audit-probe"))
-            .respond_with(ResponseTemplate::new(200).set_body_string("x"))
-            .mount(&server)
-            .await;
-        let url = format!("{}/req-audit-probe", server.uri());
-        get(&url, &[], "audit-test").await.unwrap();
-        // The audit ring buffer is process-global; match on the unique
-        // path so parallel tests recording other entries don't interfere.
-        let logged = recent()
-            .into_iter()
-            .find(|e| e.url.contains("/req-audit-probe"));
-        let logged = logged.expect("expected an audit entry for the call");
-        assert_eq!(logged.status, Some(200));
-        assert_eq!(logged.initiator, "audit-test");
-        assert_eq!(logged.bytes, Some(1.0));
-    }
-
-    #[tokio::test]
     async fn post_sends_body_and_returns_ok() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/req-post"))
@@ -192,13 +156,16 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-post", server.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = post(&url, &[], b"{\"k\":1}", "test").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"done");
     }
 
     #[tokio::test]
     async fn post_applies_headers() {
+        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/req-post-hdr"))
@@ -207,25 +174,18 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-post-hdr", server.uri());
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = post(&url, &[("x-api-key", "k-9")], b"{}", "test").await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_ok(), "header should have matched the mock: {r:?}");
     }
 
     #[tokio::test]
-    async fn post_records_audit_entry_with_post_method() {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/req-post-audit-probe"))
-            .respond_with(ResponseTemplate::new(200).set_body_string("x"))
-            .mount(&server)
-            .await;
-        let url = format!("{}/req-post-audit-probe", server.uri());
-        post(&url, &[], b"{}", "post-audit-test").await.unwrap();
-        let logged = crate::network::audit::recent()
-            .into_iter()
-            .find(|e| e.url.contains("/req-post-audit-probe"))
-            .expect("expected an audit entry for the POST call");
-        assert_eq!(logged.method, "POST");
-        assert_eq!(logged.status, Some(200));
+    async fn get_to_non_allowlisted_host_is_rejected() {
+        let _g = test_lock();
+        // No server started — if the host check fails to fire, this would
+        // be a transport error instead; we assert specifically HostNotAllowed.
+        let r = get("https://evil.example/x", &[], "test").await;
+        assert!(matches!(r, Err(Error::HostNotAllowed { .. })), "got: {r:?}");
     }
 }

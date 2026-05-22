@@ -72,54 +72,17 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
 }
 
 pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
-    // Validate args shape before spawning Java — catches typos early
-    // with a clean error instead of a Java stacktrace.
+    // Validate args shape before spawning Java.
     let _ = parse_args(&args)?;
-
-    // Locate java binary. JRE must already be installed
-    // (modern::install calls ensure_jre upstream, same as transitional).
     let java_bin = locate_java_binary(ctx);
-
-    // Build classpath string. ctx.classpath includes the processor jar
-    // (added by the caller) plus its declared dependencies. Separator
-    // is platform-specific.
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    let cp: String = ctx
-        .classpath
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(sep);
-
-    let mut cmd = tokio::process::Command::new(&java_bin);
-    cmd.arg("-cp").arg(&cp);
-    cmd.arg("net.minecraftforge.fart.Main");
-    cmd.args(&args);
-
-    eprintln!(
-        "fart: spawning {} with {} classpath entries",
-        java_bin.display(),
-        ctx.classpath.len()
-    );
-
-    let output = cmd.output().await.map_err(|e| {
-        patcher_fail("fart", &format!("spawn java: {e}"))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(patcher_fail(
-            "fart",
-            &format!(
-                "java exit {}: stderr={} stdout={}",
-                output.status,
-                stderr.trim(),
-                stdout.trim()
-            ),
-        ));
-    }
-    Ok(())
+    crate::process::run_java_processor(
+        &java_bin,
+        &ctx.classpath,
+        "net.minecraftforge.fart.Main",
+        &args,
+        "fart",
+    )
+    .await
 }
 
 fn locate_java_binary(ctx: &ProcessorContext) -> PathBuf {

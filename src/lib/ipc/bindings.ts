@@ -6,14 +6,6 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	greet: (name: string) => __TAURI_INVOKE<Greeting>("greet", { name }),
-	/**  Return the most recent network activity entries (up to 200). */
-	networkActivity: () => __TAURI_INVOKE<AuditEntry[]>("network_activity"),
-	/**
-	 *  Audit entries whose host is NOT on the documented allowlist
-	 *  (per `docs/PRINCIPLES.md` Part A item #2). UI shows a red banner
-	 *  in the Network popover when this returns non-empty.
-	 */
-	networkAuditViolations: () => __TAURI_INVOKE<AuditEntry[]>("network_audit_violations"),
 	/**  List all stored accounts. */
 	listAccounts: () => typedError<Account[], Error>(__TAURI_INVOKE("list_accounts")),
 	/**  Currently active account, or None if no account is set. */
@@ -450,29 +442,6 @@ export type AppFile_Serialize = {
 	onboarding: OnboardingState_Serialize,
 };
 
-export type AuditEntry = {
-	/**
-	 *  Milliseconds since Unix epoch, as `f64` so JavaScript's `number`
-	 *  type can round-trip it without precision loss (`Date.now()`
-	 *  returns f64-compatible values too). UI formats with `new Date(ts)`.
-	 */
-	ts: number | null,
-	method: string,
-	url: string,
-	/**  Module that initiated the call (`"versions"`, `"jre"`, etc.). */
-	initiator: string,
-	/**
-	 *  Bytes transferred. `None` if the call is in progress or failed
-	 *  before any body was read.
-	 */
-	bytes: number | null,
-	/**
-	 *  HTTP status code if the response was received, else `None`
-	 *  (network error before status).
-	 */
-	status: number | null,
-};
-
 /**
  *  Compatibility verdict for a local mod jar against a target instance.
  *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
@@ -523,7 +492,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string };
 
 export type Greeting = {
 	message: string,

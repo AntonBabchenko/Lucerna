@@ -68,6 +68,7 @@ async fn fetches_top_level_via_env_override_and_caches() {
         "FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE",
         format!("{}/all.json", server.uri()),
     );
+    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let top = fetch_top_level().await.expect("fetch");
     let gamma =
@@ -81,6 +82,7 @@ async fn fetches_top_level_via_env_override_and_caches() {
     assert!(top2.0.contains_key("windows-x64"));
 
     std::env::remove_var("FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE");
+    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
     clear_cache_for_test();
 }
 
@@ -99,6 +101,7 @@ async fn pick_component_falls_through_to_unknown_version_for_missing_component()
         "FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE",
         format!("{}/all.json", server.uri()),
     );
+    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let top = fetch_top_level().await.expect("fetch");
     let err = pick_component(&top, "linux", "jre-legacy").unwrap_err();
@@ -106,6 +109,7 @@ async fn pick_component_falls_through_to_unknown_version_for_missing_component()
     assert!(format!("{err}").contains("not found"));
 
     std::env::remove_var("FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE");
+    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
     clear_cache_for_test();
 }
 

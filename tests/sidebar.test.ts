@@ -35,7 +35,6 @@ describe('Sidebar', () => {
         activeAccount: null,
         instances: [],
         activeInstance: null,
-        violationsCount: 0,
         onSelectAccount: vi.fn(),
         onRemoveAccount: vi.fn(),
         onAddOffline: vi.fn(),
@@ -43,7 +42,6 @@ describe('Sidebar', () => {
         onOpenManage: vi.fn(),
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
-        onOpenNetwork: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -62,7 +60,6 @@ describe('Sidebar', () => {
         activeAccount: sampleAccount,
         instances: [sampleInstance],
         activeInstance: sampleInstance,
-        violationsCount: 0,
         onSelectAccount,
         onRemoveAccount: vi.fn(),
         onAddOffline: vi.fn(),
@@ -70,7 +67,6 @@ describe('Sidebar', () => {
         onOpenManage: vi.fn(),
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
-        onOpenNetwork: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -82,30 +78,5 @@ describe('Sidebar', () => {
     expect(select).toBeTruthy();
   });
 
-  it('shows a red dot when violationsCount > 0', () => {
-    const { container } = render(Sidebar, {
-      props: {
-        accounts: [],
-        activeAccount: null,
-        instances: [],
-        activeInstance: null,
-        violationsCount: 3,
-        onSelectAccount: vi.fn(),
-        onRemoveAccount: vi.fn(),
-        onAddOffline: vi.fn(),
-        onSelectInstance: vi.fn(),
-        onOpenManage: vi.fn(),
-        onOpenMods: vi.fn(),
-        onOpenLogs: vi.fn(),
-        onOpenNetwork: vi.fn(),
-        running: null,
-        installing: false,
-        onPlay: vi.fn(),
-        onStop: vi.fn(),
-        onInstall: vi.fn(),
-      },
-    });
-    const dot = container.querySelector('[aria-label*="violations"]');
-    expect(dot).toBeTruthy();
-  });
+
 });

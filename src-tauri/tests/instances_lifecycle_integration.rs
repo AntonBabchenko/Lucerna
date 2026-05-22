@@ -29,6 +29,7 @@ fn make(id: &str, name: &str, mc: &str, created_unix_ms: f64) -> InstanceFile {
         mrpack_project_id: None,
         mrpack_source: None,
         mrpack_summary: None,
+        mrpack_version_id: None,
     }
 }
 
@@ -91,8 +92,12 @@ fn create_set_active_set_version_set_memory_then_delete_roundtrip() {
     // 6. Ready status — neither has a JAR on disk yet → false.
     assert!(!ready_status(&versions, &a_after));
 
-    // 7. Place 1.20.2 JAR to flip A's ready → true.
+    // 7. Place 1.20.2 profile JSON + client JAR to flip A's ready → true.
+    //    ready_status requires BOTH the effective-version profile JSON and
+    //    the client jar (see instances::status — the profile proves the
+    //    exact combo was installed, not just an unrelated parent MC).
     std::fs::create_dir_all(versions.join("1.20.2")).unwrap();
+    std::fs::write(versions.join("1.20.2/1.20.2.json"), b"{}").unwrap();
     std::fs::write(versions.join("1.20.2/1.20.2.jar"), b"fake").unwrap();
     assert!(ready_status(&versions, &a_after));
 

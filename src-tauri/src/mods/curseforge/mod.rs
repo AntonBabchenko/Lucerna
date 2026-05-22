@@ -306,12 +306,17 @@ mod tests {
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
+
     fn client(uri: String) -> CurseForgeClient {
         CurseForgeClient::with_base_and_key(uri, Some("test-key".into()))
     }
 
     #[tokio::test]
     async fn missing_key_returns_platform_auth_missing() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         let c = CurseForgeClient::with_base_and_key(s.uri(), None);
         let q = ModSearchQuery {
@@ -334,6 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn unauthorized_clears_key_and_returns_invalid() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -351,7 +357,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = c.search(&q).await.unwrap_err();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModsPlatformAuth { kind } => {
                 assert_eq!(kind, crate::error::ModsAuthKind::Invalid)
@@ -362,6 +370,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_parses_envelope() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -386,7 +395,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let page = client(s.uri()).search(&q).await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "12345");
@@ -394,6 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn versions_marks_distribution_disabled_when_url_absent() {
+        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/12345/files"))
@@ -408,10 +420,12 @@ mod tests {
             ))
             .mount(&s)
             .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let v = client(s.uri())
             .versions("12345", "1.20.1", LoaderKind::Fabric)
             .await
             .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 1);
         assert!(!v[0].primary_file.distribution_allowed);
     }

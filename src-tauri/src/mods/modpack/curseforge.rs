@@ -284,18 +284,16 @@ fn parse_cf_loader_id(id: &str) -> Result<(LoaderKind, Option<String>), Error> {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::Mutex;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
     use zip::write::SimpleFileOptions;
 
-    // The CurseForge API key lives in a single OS keyring slot shared by
-    // every test in this process. Without serialization, one test's
-    // `clear_test_key()` races another test's first `keyring::get()` call
-    // and yields `ModsPlatformAuth::Missing`. The mutex below funnels every
-    // CF parser test through a single critical section so the install/clear
-    // pair happens atomically per test.
-    static KEYRING_LOCK: Mutex<()> = Mutex::new(());
+    // The CurseForge API key and FTLAUNCHER_EXTRA_ALLOWED_HOSTS env var are
+    // both process-global. Use the crate-wide env-lock so these tests don't
+    // race with wiremock tests in other modules.
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_env_lock()
+    }
 
     fn make_cf_zip(manifest: &str) -> Vec<u8> {
         let mut buf = Vec::new();
@@ -334,7 +332,7 @@ mod tests {
 
     #[tokio::test]
     async fn parses_minimal_cf_pack() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -357,9 +355,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
             .mount(&s).await;
 
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.format, ModpackFormat::Curseforge);
         assert_eq!(r.loader, LoaderKind::Forge);
         assert_eq!(r.loader_version.as_deref(), Some("47.2.0"));
@@ -371,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn distribution_disabled_lands_in_unresolvable() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -393,9 +393,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
             .mount(&s).await;
 
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.files.len(), 1);
         assert_eq!(r.unresolvable.len(), 1);
         let u = &r.unresolvable[0];
@@ -409,7 +411,7 @@ mod tests {
 
     #[tokio::test]
     async fn distribution_disabled_without_sha1_records_none() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -426,16 +428,18 @@ mod tests {
         Mock::given(method("POST")).and(path("/v1/mods/files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
             .mount(&s).await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.unresolvable.len(), 1);
         assert_eq!(r.unresolvable[0].sha1, None);
     }
 
     #[tokio::test]
     async fn rejects_manifest_version_other_than_1() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let zip = make_cf_zip(&sample_manifest().replace("\"manifestVersion\": 1", "\"manifestVersion\": 2"));
         let r = parse(&zip, "http://unused").await;
@@ -445,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_unknown_loader_id() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let zip = make_cf_zip(&sample_manifest().replace("forge-47.2.0", "junk-1.0"));
         let r = parse(&zip, "http://unused").await;
@@ -455,7 +459,7 @@ mod tests {
 
     #[tokio::test]
     async fn resource_pack_file_routes_to_resourcepacks_dir() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let s = MockServer::start().await;
         let files = serde_json::json!({
@@ -482,9 +486,11 @@ mod tests {
         Mock::given(method("POST")).and(path("/v1/mods"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mods))
             .mount(&s).await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         let jei = r.files.iter().find(|f| f.filename == "jei-1.20.1.jar").unwrap();
         let tex = r.files.iter().find(|f| f.filename == "FancyTextures.zip").unwrap();
         assert_eq!(jei.install_path, "mods/jei-1.20.1.jar");
@@ -493,7 +499,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_sha1_fails() {
-        let _g = KEYRING_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = test_lock();
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -513,9 +519,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
             .mount(&s).await;
 
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await;
         clear_test_key();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::ModpackSha1Unavailable { .. })));
     }
 }

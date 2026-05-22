@@ -1,6 +1,6 @@
 //! `get_json::<T>(url, initiator)` — typed JSON fetch through the
 //! single chokepoint. A thin wrapper over `network::request::get`:
-//! the primitive does the send + audit, this layer maps a non-2xx
+//! the primitive does the send, this layer maps a non-2xx
 //! status to `Error::network` and deserialises the body.
 
 use crate::error::{Error, Result};

@@ -5,7 +5,6 @@
 //! Tests share the global cache via `clear_cache_for_test()` and
 //! must run single-threaded.
 
-use ftlauncher_lib::network::audit::{clear_for_test as clear_audit, recent};
 use ftlauncher_lib::versions::manifest::{clear_cache_for_test, list_manifest};
 use ftlauncher_lib::versions::VersionType;
 use wiremock::matchers::{method, path};
@@ -46,7 +45,6 @@ const FIXTURE: &str = r#"{
 
 #[tokio::test]
 async fn list_manifest_fetches_parses_sorts_and_caches() {
-    clear_audit();
     clear_cache_for_test();
 
     let server = MockServer::start().await;
@@ -63,6 +61,7 @@ async fn list_manifest_fetches_parses_sorts_and_caches() {
         "FTLAUNCHER_MANIFEST_URL_OVERRIDE",
         format!("{}/mc/game/version_manifest_v2.json", server.uri()),
     );
+    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let first = list_manifest().await.expect("first fetch");
     assert_eq!(first.len(), 3);
@@ -73,18 +72,22 @@ async fn list_manifest_fetches_parses_sorts_and_caches() {
     assert_eq!(first[2].id, "1.0");
     assert_eq!(first[2].version_type, VersionType::OldBeta);
 
-    let audit_after_first = recent();
-    assert_eq!(audit_after_first.len(), 1, "first call should hit network");
-    assert_eq!(audit_after_first[0].initiator, "versions");
+    // Verify the first call hit the network exactly once.
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        1,
+        "first call should hit network once"
+    );
 
     // Second call within TTL must NOT hit the network.
-    clear_audit();
     let second = list_manifest().await.expect("second fetch");
     assert_eq!(second, first);
-    assert!(
-        recent().is_empty(),
-        "cached call should not produce audit entries"
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        1,
+        "cached call should not produce additional network requests"
     );
 
     std::env::remove_var("FTLAUNCHER_MANIFEST_URL_OVERRIDE");
+    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 }

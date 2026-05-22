@@ -57,43 +57,18 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
 }
 
 pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
-    // Validate args shape before spawning Java — catches typos early
-    // with a clean error instead of a Java stacktrace.
+    // Validate args shape before spawning Java — a clean error beats a
+    // Java stacktrace.
     let _ = parse_args(&args)?;
-
-    // Locate java binary. The JRE must already be installed
-    // (transitional::install calls ensure_jre upstream).
     let java_bin = locate_java_binary(ctx);
-
-    // Build classpath string. ctx.classpath includes the processor
-    // jar (added by transitional::install) plus its declared
-    // dependencies. Separator is platform-specific.
-    let sep = if cfg!(windows) { ";" } else { ":" };
-    let cp: String = ctx.classpath.iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(sep);
-
-    let mut cmd = tokio::process::Command::new(&java_bin);
-    cmd.arg("-cp").arg(&cp);
-    cmd.arg("net.md_5.specialsource.SpecialSource");
-    cmd.args(&args);
-
-    eprintln!("specialsource: spawning {} with {} classpath entries", java_bin.display(), ctx.classpath.len());
-
-    let output = cmd.output().await.map_err(|e| {
-        patcher_fail("specialsource", &format!("spawn java: {e}"))
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(patcher_fail("specialsource", &format!(
-            "java exit {}: stderr={} stdout={}",
-            output.status, stderr.trim(), stdout.trim()
-        )));
-    }
-    Ok(())
+    crate::process::run_java_processor(
+        &java_bin,
+        &ctx.classpath,
+        "net.md_5.specialsource.SpecialSource",
+        &args,
+        "specialsource",
+    )
+    .await
 }
 
 /// Return the java binary path to use for subprocess invocation.
