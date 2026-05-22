@@ -8,6 +8,10 @@ FTlauncher is a clean, transparent open-source Minecraft Java Edition launcher f
 
 The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes.
 
+## Core principle — do it properly
+
+The goal of this project is to do things properly, not to ship quick patches. When a symptom can be silenced with a small change but the underlying design is wrong, fix the cause — and say so. Follow the established conventions of the domain (web UI pagination / filtering / sorting, Rust idioms, the feature lifecycle below); when a proposed change fights a convention, surface that *before* writing code so the trade-off is a deliberate decision. A minimal fix is acceptable only when it is also the correct one; if the proper fix is larger, say that honestly rather than patching silently.
+
 ## Feature lifecycle (mandatory, no exceptions)
 
 Every feature follows this sequence:
