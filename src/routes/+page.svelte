@@ -68,7 +68,7 @@
   // Overview indicator. Empty for non-pack instances and pre-SF2
   // imports (modpack_status returns null or an empty list).
   let packMissingMods = $state<MissingModStatus[]>([]);
-  const unresolvedMissing = $derived(packMissingMods.filter((m) => !m.installed));
+  const unresolvedMissing = $derived(packMissingMods.filter((m) => m.state !== 'installed'));
 
   async function refreshPackStatus(id: string | null) {
     if (!id) {
@@ -490,7 +490,7 @@
                 <span aria-hidden="true">⚠</span>
                 <span class="flex-1">
                   {unresolvedMissing.length}
-                  {unresolvedMissing.length === 1 ? 'mod needs' : 'mods need'} manual install
+                  {unresolvedMissing.length === 1 ? 'pack mod needs' : 'pack mods need'} attention
                 </span>
                 <span class="text-xs text-amber-700 underline">View</span>
               </button>

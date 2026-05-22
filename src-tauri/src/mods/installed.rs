@@ -540,6 +540,7 @@ mod tests {
             filename: "srparasites-1.12.2-2.7.1.jar".into(),
             size: 4096.0,
             sha1: Some("abc".into()),
+            project_id: None,
         }];
         set_pack_origin(td.path(), origin.clone()).await.unwrap();
         let got = get_pack_origin(td.path()).await.unwrap();
@@ -556,6 +557,20 @@ mod tests {
         fs::write(registry_path(td.path()), legacy).await.unwrap();
         let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
         assert!(origin.missing_mods.is_empty());
+    }
+
+    #[tokio::test]
+    async fn missing_mod_without_project_id_loads_as_none() {
+        // A missing_mods entry written before feature C has no
+        // `project_id` field; `#[serde(default)]` must load it as None.
+        let td = TempDir::new().unwrap();
+        let dir = registry_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let legacy = br#"{"version":2,"mods":[],"pack_origin":{"project_id":null,"source":"curseforge","project_name":"P","version":"1","files":[],"missing_mods":[{"reason":"distribution_disabled","mod_name":"SRP","manual_action_url":"https://x/1","filename":"srp.jar","size":1.0,"sha1":"aa"}]}}"#;
+        fs::write(registry_path(td.path()), legacy).await.unwrap();
+        let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
+        assert_eq!(origin.missing_mods.len(), 1);
+        assert_eq!(origin.missing_mods[0].project_id, None);
     }
 
     #[tokio::test]

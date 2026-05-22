@@ -101,6 +101,7 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 filename: f.path.rsplit('/').next().unwrap_or(&f.path).to_string(),
                 size: f.file_size as f64,
                 sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
+                project_id: None,
             });
             continue;
         }
@@ -125,6 +126,7 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
                 filename: f.path.rsplit('/').next().unwrap_or(&f.path).to_string(),
                 size: f.file_size as f64,
                 sha1: Some(f.hashes.sha1.to_ascii_lowercase()),
+                project_id: None,
             });
             continue;
         }
@@ -280,6 +282,7 @@ mod tests {
         assert_eq!(u.filename, "sodium.jar");
         assert_eq!(u.size, 1234567.0);
         assert_eq!(u.sha1.as_deref(), Some("abc123"));
+        assert_eq!(u.project_id, None);
     }
 
     #[test]

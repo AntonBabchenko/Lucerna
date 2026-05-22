@@ -83,23 +83,69 @@ pub(crate) fn is_tracked_mod(install_path: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && !rest.contains('/') && rest.ends_with(".jar"))
 }
 
-/// A `missing_mods` entry counts as installed once the user has added
-/// that mod by any route. Matched on three exact, case-insensitive
-/// signals — sha1, filename, or display name — so a mod added via the
-/// drag-drop local install (which records the descriptor name) is
-/// detected even when the user grabbed a different file than the pack
-/// pinned. All matches are exact, so there are no false positives.
-fn missing_mod_installed(
+/// The leading, non-version part of a jar filename — a fuzzy,
+/// version-independent mod identity. CurseForge filenames are
+/// `{modid-ish}-{mc}-{modver}.jar`, so the part before the first
+/// version-looking segment identifies the mod across versions.
+/// `srparasites-1.12.2-2.7.1.jar` → `srparasites`. Splits on `-` and
+/// `_`, keeps leading segments up to the first one starting with an
+/// ASCII digit, lowercased. `None` when nothing remains (a filename
+/// that starts with a digit) — a `None` stem never matches.
+fn filename_stem(filename: &str) -> Option<String> {
+    let base = filename.strip_suffix(".disabled").unwrap_or(filename);
+    let base = base.strip_suffix(".jar").unwrap_or(base);
+    let mut kept: Vec<&str> = Vec::new();
+    for seg in base.split(['-', '_']) {
+        if seg.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            break;
+        }
+        if !seg.is_empty() {
+            kept.push(seg);
+        }
+    }
+    if kept.is_empty() {
+        None
+    } else {
+        Some(kept.join("-").to_ascii_lowercase())
+    }
+}
+
+/// Classify a `missing_mods` entry against the installed jars.
+/// `Installed` = the exact pinned file (sha1 or filename match).
+/// `DifferentVersion` = the mod is present but not the pinned file —
+/// matched by any of three signals: platform project id (reliable, but
+/// recorded only for mods installed via the launcher's mod browser),
+/// descriptor name (case-insensitive), or version-independent filename
+/// stem (fuzzy; catches a hand-dropped different version, which carries
+/// no project id). `Missing` otherwise.
+fn missing_mod_state(
     m: &ModpackUnresolvable,
     installed: &[crate::mods::platform::InstalledMod],
-) -> bool {
-    installed.iter().any(|i| {
+) -> MissingModState {
+    let pinned = installed.iter().any(|i| {
         m.sha1
             .as_deref()
             .is_some_and(|s| i.sha1.eq_ignore_ascii_case(s))
             || i.filename.eq_ignore_ascii_case(&m.filename)
+    });
+    if pinned {
+        return MissingModState::Installed;
+    }
+    let m_stem = filename_stem(&m.filename);
+    let different = installed.iter().any(|i| {
+        // `is_some()` guard: without it, two project-id-less mods would
+        // match on `None == None`.
+        (m.project_id.is_some() && i.project_id.as_deref() == m.project_id.as_deref())
             || i.name.eq_ignore_ascii_case(&m.mod_name)
-    })
+            // Filename stem — fuzzy but version-independent; catches a
+            // hand-dropped different version (project_id is absent then).
+            || (m_stem.is_some() && m_stem == filename_stem(&i.filename))
+    });
+    if different {
+        MissingModState::DifferentVersion
+    } else {
+        MissingModState::Missing
+    }
 }
 
 /// Diff the immutable pack-origin snapshot against live instance state.
@@ -151,7 +197,7 @@ pub fn compute_status(
         .iter()
         .map(|m| MissingModStatus {
             entry: m.clone(),
-            installed: missing_mod_installed(m, installed),
+            state: missing_mod_state(m, installed),
         })
         .collect();
 
@@ -1026,6 +1072,7 @@ mod tests {
                 filename: "srp.jar".into(),
                 size: 1.0,
                 sha1: None,
+                project_id: None,
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::HostNotAllowed,
@@ -1034,6 +1081,7 @@ mod tests {
                 filename: "x.jar".into(),
                 size: 2.0,
                 sha1: Some("ab".into()),
+                project_id: None,
             },
             ModpackUnresolvable {
                 reason: UnresolvableReason::UnsafePath,
@@ -1042,6 +1090,7 @@ mod tests {
                 filename: "escape.jar".into(),
                 size: 3.0,
                 sha1: None,
+                project_id: None,
             },
         ];
         let origin = build_pack_origin(&summary, &[], None, "Test Pack");
@@ -1069,7 +1118,12 @@ mod tests {
         assert!(!s.is_modified, "a nested mods/ jar present on disk must not be 'removed'");
     }
 
-    fn missing_entry(sha1: Option<&str>, filename: &str, name: &str) -> ModpackUnresolvable {
+    fn missing_entry(
+        sha1: Option<&str>,
+        filename: &str,
+        name: &str,
+        project_id: Option<&str>,
+    ) -> ModpackUnresolvable {
         ModpackUnresolvable {
             reason: UnresolvableReason::DistributionDisabled,
             mod_name: name.to_string(),
@@ -1077,17 +1131,22 @@ mod tests {
             filename: filename.to_string(),
             size: 1.0,
             sha1: sha1.map(|s| s.to_string()),
+            project_id: project_id.map(|s| s.to_string()),
         }
     }
 
-    fn installed_mod(sha1: &str, filename: &str, name: &str, enabled: bool)
-        -> crate::mods::platform::InstalledMod
-    {
+    fn installed_mod(
+        sha1: &str,
+        filename: &str,
+        name: &str,
+        enabled: bool,
+        project_id: Option<&str>,
+    ) -> crate::mods::platform::InstalledMod {
         crate::mods::platform::InstalledMod {
             filename: filename.to_string(),
             sha1: sha1.to_string(),
             source: None,
-            project_id: None,
+            project_id: project_id.map(|s| s.to_string()),
             version_id: None,
             name: name.to_string(),
             version_number: None,
@@ -1103,43 +1162,98 @@ mod tests {
     }
 
     #[test]
-    fn missing_mod_detected_by_sha1() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
-        let installed = vec![installed_mod("AA", "whatever.jar", "Whatever", true)];
+    fn missing_state_installed_by_sha1() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", None)]);
+        let installed = vec![installed_mod("AA", "whatever.jar", "Whatever", true, None)];
         let st = compute_status(origin, &installed, &Default::default());
-        assert_eq!(st.missing_mods.len(), 1);
-        assert!(st.missing_mods[0].installed);
+        assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
     }
 
     #[test]
-    fn missing_mod_detected_by_filename() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
-        let installed = vec![installed_mod("zz", "SRP.JAR", "Whatever", true)];
+    fn missing_state_installed_by_filename() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", None)]);
+        let installed = vec![installed_mod("zz", "SRP.JAR", "Whatever", true, None)];
         let st = compute_status(origin, &installed, &Default::default());
-        assert!(st.missing_mods[0].installed);
+        assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
     }
 
     #[test]
-    fn missing_mod_detected_by_name() {
-        let origin = origin_with_missing(vec![missing_entry(None, "srp.jar", "Scape and Run")]);
-        let installed = vec![installed_mod("zz", "other.jar", "scape and run", true)];
+    fn missing_state_different_version_by_project_id() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
+        let installed = vec![installed_mod("zz", "srp-2.8.jar", "Whatever", true, Some("p1"))];
         let st = compute_status(origin, &installed, &Default::default());
-        assert!(st.missing_mods[0].installed);
+        assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
     #[test]
-    fn missing_mod_not_detected_when_nothing_matches() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
-        let installed = vec![installed_mod("zz", "other.jar", "Other", true)];
+    fn missing_state_different_version_by_name() {
+        let origin = origin_with_missing(vec![missing_entry(None, "srp.jar", "Scape and Run", None)]);
+        let installed = vec![installed_mod("zz", "other.jar", "scape and run", true, None)];
         let st = compute_status(origin, &installed, &Default::default());
-        assert!(!st.missing_mods[0].installed);
+        assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
     #[test]
-    fn disabled_installed_mod_still_resolves_missing_entry() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP")]);
-        let installed = vec![installed_mod("aa", "srp.jar", "SRP", false)];
+    fn missing_state_missing_when_nothing_matches() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
+        let installed = vec![installed_mod("zz", "other.jar", "Other", true, Some("p2"))];
         let st = compute_status(origin, &installed, &Default::default());
-        assert!(st.missing_mods[0].installed);
+        assert_eq!(st.missing_mods[0].state, MissingModState::Missing);
+    }
+
+    #[test]
+    fn missing_state_pinned_file_wins_over_project_id() {
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
+        let installed = vec![installed_mod("aa", "srp.jar", "SRP", true, Some("p1"))];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
+    }
+
+    #[test]
+    fn missing_state_different_version_for_a_disabled_jar() {
+        // A disabled jar still counts: `missing_mod_state` reconciles
+        // against every installed mod regardless of `enabled`, so a
+        // different version the user toggled off still classifies as
+        // `different_version`, not `missing`.
+        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
+        let installed = vec![installed_mod("zz", "srp-2.8.jar", "Whatever", false, Some("p1"))];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
+    }
+
+    #[test]
+    fn filename_stem_strips_the_version_tail() {
+        assert_eq!(filename_stem("srparasites-1.12.2-2.7.1.jar").as_deref(), Some("srparasites"));
+        assert_eq!(filename_stem("jei_1.12.2-4.16.1.302.jar").as_deref(), Some("jei"));
+        assert_eq!(filename_stem("RTG-1.12.2-6.1.0.0-snapshot.1.jar").as_deref(), Some("rtg"));
+        // Multi-word leading name is kept whole.
+        assert_eq!(filename_stem("sodium-extra-0.5.4.jar").as_deref(), Some("sodium-extra"));
+        // A filename starting with a digit yields no stem.
+        assert_eq!(filename_stem("2019-mod-1.0.jar"), None);
+        // Disabled jars: the .disabled suffix is stripped too.
+        assert_eq!(filename_stem("srparasites-1.12.2-2.7.1.jar.disabled").as_deref(), Some("srparasites"));
+    }
+
+    #[test]
+    fn missing_state_different_version_by_filename_stem() {
+        // The pack pinned srparasites 2.7.1; the user hand-dropped 2.8.0 —
+        // different sha1, different exact filename, no project_id, and the
+        // descriptor name ("Scape and Run") does not match the pack's
+        // file display name. Only the filename stem connects them.
+        let origin = origin_with_missing(vec![missing_entry(
+            Some("aa"),
+            "srparasites-1.12.2-2.7.1.jar",
+            "SRP v 2.7.1",
+            None,
+        )]);
+        let installed = vec![installed_mod(
+            "zz",
+            "srparasites-1.12.2-2.8.0.jar",
+            "Scape and Run: Parasites",
+            true,
+            None,
+        )];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 }

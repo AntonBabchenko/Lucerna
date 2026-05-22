@@ -161,6 +161,7 @@ pub async fn parse(
                         .iter()
                         .find(|h| h.algo == 1)
                         .map(|h| h.value.to_ascii_lowercase()),
+                    project_id: Some(detail.mod_id.to_string()),
                 });
                 continue;
             }
@@ -403,6 +404,7 @@ mod tests {
         assert_eq!(u.filename, "jei.jar");
         assert_eq!(u.size, 999.0);
         assert_eq!(u.sha1.as_deref(), Some("abc"));
+        assert_eq!(u.project_id.as_deref(), Some("238222"));
     }
 
     #[tokio::test]

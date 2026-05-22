@@ -489,7 +489,7 @@ describe('ImportedDetailDrawer', () => {
     expect(section.textContent).toContain('Removed Mod');
   });
 
-  it('lists missing mods with reason chip and source link', async () => {
+  it('lists missing mods with three states, reason chips, source links, and correct header count', async () => {
     vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
       status: 'ok',
       data: {
@@ -508,37 +508,64 @@ describe('ImportedDetailDrawer', () => {
           {
             entry: {
               reason: 'distribution_disabled',
-              mod_name: 'Scape and Run: Parasites',
-              manual_action_url: 'https://www.curseforge.com/projects/247571',
-              filename: 'srparasites.jar',
-              size: 4096,
+              mod_name: 'SRP',
+              manual_action_url: 'https://www.curseforge.com/projects/1',
+              filename: 'srp.jar',
+              size: 1,
               sha1: 'aa',
+              project_id: '1',
             },
-            installed: false,
+            state: 'missing',
+          },
+          {
+            entry: {
+              reason: 'distribution_disabled',
+              mod_name: 'JEI',
+              manual_action_url: 'https://www.curseforge.com/projects/2',
+              filename: 'jei.jar',
+              size: 2,
+              sha1: 'bb',
+              project_id: '2',
+            },
+            state: 'different_version',
           },
           {
             entry: {
               reason: 'host_not_allowed',
-              mod_name: 'mods/other.jar',
-              manual_action_url: 'https://example.com/other.jar',
-              filename: 'other.jar',
-              size: 2048,
-              sha1: 'bb',
+              mod_name: 'Lib',
+              manual_action_url: 'https://example.com/lib.jar',
+              filename: 'lib.jar',
+              size: 3,
+              sha1: 'cc',
+              project_id: null,
             },
-            installed: true,
+            state: 'installed',
           },
         ],
       },
     });
-    const { findByTestId, getByText } = render(ImportedDetailDrawer, {
+    const { findByTestId } = render(ImportedDetailDrawer, {
       props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
     });
     const section = await findByTestId('imported-detail-missing-section');
-    expect(section.textContent).toContain('Scape and Run: Parasites');
+
+    // All three entries are rendered.
+    expect(section.textContent).toContain('SRP');
+    expect(section.textContent).toContain('JEI');
+    expect(section.textContent).toContain('Lib');
+
+    // The missing entry shows the reason chip.
     expect(section.textContent).toContain('Distribution disabled');
-    // Two "Open ↗" links — pick the first (distribution_disabled entry).
+
+    // The different_version entry shows the version note.
+    expect(section.textContent).toMatch(/different version/i);
+
+    // Header count is 2 (missing + different_version, not the installed one).
+    expect(section.textContent).toContain('(2)');
+
+    // The first "Open ↗" link points to the missing entry's URL.
     const links = within(section).getAllByText('Open ↗') as HTMLAnchorElement[];
-    expect(links[0].getAttribute('href')).toBe('https://www.curseforge.com/projects/247571');
+    expect(links[0].getAttribute('href')).toBe('https://www.curseforge.com/projects/1');
   });
 
   afterEach(async () => {

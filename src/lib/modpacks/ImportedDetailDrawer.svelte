@@ -567,7 +567,7 @@
     {#if status && status.missing_mods.length > 0}
       <div class="mt-5" data-testid="imported-detail-missing-section">
         <h4 class="font-medium text-sm text-neutral-700 mb-2">
-          Mods to install manually ({status.missing_mods.filter((m) => !m.installed).length})
+          Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed').length})
         </h4>
         <p class="text-xs text-neutral-500 mb-2">
           The pack author disabled automatic downloads for these. Download each
@@ -575,27 +575,37 @@
         </p>
         <ul class="space-y-1">
           {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
+            {@const isInstalled = m.state === 'installed'}
+            {@const isDifferentVersion = m.state === 'different_version'}
             <li
               class="flex items-center gap-2 text-sm py-1 px-2 rounded border"
-              class:bg-amber-50={!m.installed}
-              class:border-amber-100={!m.installed}
-              class:bg-green-50={m.installed}
-              class:border-green-100={m.installed}
+              class:bg-amber-50={!isInstalled}
+              class:border-amber-100={!isInstalled}
+              class:bg-green-50={isInstalled}
+              class:border-green-100={isInstalled}
             >
+              <!-- ✓ when the mod is present at all (installed or a
+                   different version); ⚠ only when truly missing — so
+                   "different version" is not mistaken for "missing". -->
               <span class="flex-shrink-0" aria-hidden="true">
-                {m.installed ? '✓' : '⚠'}
+                {m.state === 'missing' ? '⚠' : '✓'}
               </span>
-              <span class="truncate flex-1" class:text-neutral-500={m.installed}>
+              <span class="truncate flex-1" class:text-neutral-500={isInstalled}>
                 {m.entry.mod_name}
+                {#if isDifferentVersion}
+                  <span class="text-neutral-500 text-xs"> — different version than the pack — may be incompatible</span>
+                {/if}
               </span>
-              <span
-                class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
-              >
-                {m.entry.reason === 'distribution_disabled'
-                  ? 'Distribution disabled'
-                  : 'Host not allowed'}
-              </span>
-              {#if m.entry.manual_action_url}
+              {#if !isInstalled}
+                <span
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
+                >
+                  {m.entry.reason === 'distribution_disabled'
+                    ? 'Distribution disabled'
+                    : 'Host not allowed'}
+                </span>
+              {/if}
+              {#if !isInstalled && m.entry.manual_action_url}
                 <a
                   href={m.entry.manual_action_url}
                   target="_blank"

@@ -77,6 +77,14 @@ pub struct ModpackUnresolvable {
     /// CurseForge distribution-disabled file may carry only an md5 —
     /// `None` in that case.
     pub sha1: Option<String>,
+    /// Platform project id of the missing mod, when known — used to
+    /// detect a *different version* of the same mod installed via the
+    /// launcher's mod browser (which records project_id in the
+    /// registry). CurseForge: the mod id, always available at parse
+    /// time. Modrinth `HostNotAllowed`: not derivable from a non-CDN
+    /// URL — `None`. `#[serde(default)]` so pre-C registry files load.
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -136,14 +144,28 @@ pub enum ModpackProgress {
     Done { instance_id: String },
 }
 
-/// One `PackOrigin.missing_mods` entry paired with a live check of
-/// whether the user has since installed that mod by hand. Computed by
-/// `compute_status`; consumed by the imported-pack drawer and the
-/// Overview indicator.
+/// Reconciled state of a `PackOrigin.missing_mods` entry against the
+/// installed jars. Computed by `compute_status`.
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MissingModState {
+    /// The exact file the pack pinned is installed.
+    Installed,
+    /// The mod is installed, but not the pinned file — a different version.
+    DifferentVersion,
+    /// No installed jar matches this mod by any signal.
+    Missing,
+}
+
+/// One `PackOrigin.missing_mods` entry paired with its live
+/// classification — `installed` (the pinned file), `different_version`
+/// (the mod is present, but not the pinned file), or `missing`.
+/// Computed by `compute_status`; consumed by the imported-pack drawer
+/// and the Overview indicator.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct MissingModStatus {
     pub entry: ModpackUnresolvable,
-    pub installed: bool,
+    pub state: MissingModState,
 }
 
 /// One-shot diff of "what was the pack at import time" vs "what's

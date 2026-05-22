@@ -570,14 +570,27 @@ export type LogFileMeta = {
 export type LogSource = "game" | "crash" | "launcher";
 
 /**
- *  One `PackOrigin.missing_mods` entry paired with a live check of
- *  whether the user has since installed that mod by hand. Computed by
- *  `compute_status`; consumed by the imported-pack drawer and the
- *  Overview indicator.
+ *  Reconciled state of a `PackOrigin.missing_mods` entry against the
+ *  installed jars. Computed by `compute_status`.
+ */
+export type MissingModState = 
+/**  The exact file the pack pinned is installed. */
+"installed" | 
+/**  The mod is installed, but not the pinned file — a different version. */
+"different_version" | 
+/**  No installed jar matches this mod by any signal. */
+"missing";
+
+/**
+ *  One `PackOrigin.missing_mods` entry paired with its live
+ *  classification — `installed` (the pinned file), `different_version`
+ *  (the mod is present, but not the pinned file), or `missing`.
+ *  Computed by `compute_status`; consumed by the imported-pack drawer
+ *  and the Overview indicator.
  */
 export type MissingModStatus = {
 	entry: ModpackUnresolvable,
-	installed: boolean,
+	state: MissingModState,
 };
 
 export type ModDepLink = {
@@ -831,6 +844,15 @@ export type ModpackUnresolvable = {
 	 *  `None` in that case.
 	 */
 	sha1: string | null,
+	/**
+	 *  Platform project id of the missing mod, when known — used to
+	 *  detect a *different version* of the same mod installed via the
+	 *  launcher's mod browser (which records project_id in the
+	 *  registry). CurseForge: the mod id, always available at parse
+	 *  time. Modrinth `HostNotAllowed`: not derivable from a non-CDN
+	 *  URL — `None`. `#[serde(default)]` so pre-C registry files load.
+	 */
+	project_id?: string | null,
 };
 
 /**
