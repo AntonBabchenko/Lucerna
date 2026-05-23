@@ -46,6 +46,30 @@ lives in [`docs/SECURITY.md`](docs/SECURITY.md).
   on first run. Click "More info" → "Run anyway". Code signing is a v1.0
   concern.
 
+## System requirements
+
+FTlauncher itself is a lightweight desktop app — the real hardware demands
+come from Minecraft, which the launcher downloads and runs.
+
+To run the launcher:
+
+- Windows 10 (64-bit) or Windows 11. No macOS / Linux builds yet.
+- WebView2 runtime. Preinstalled on Windows 11; on Windows 10 the installer
+  downloads and installs it automatically if it is missing.
+- An internet connection for the first download of each Minecraft version.
+  Once a version is installed, offline play works without one.
+- Java is **not** a prerequisite — the launcher downloads the correct Java
+  runtime straight from Mojang for each Minecraft version.
+
+To actually play Minecraft (these are Minecraft's own requirements, not the
+launcher's):
+
+- 4 GB RAM minimum; 8 GB or more recommended, especially with mods.
+- A GPU with modern OpenGL support.
+- Disk space scales with use. Each instance is an isolated `.minecraft`
+  directory — from a few hundred MB for a vanilla instance to several GB
+  for a heavy modpack. Plan for 10+ GB free if you keep multiple instances.
+
 ## Install
 
 Download the latest installer from the [Releases page](https://github.com/AntonBabchenko/FTlauncher/releases).
