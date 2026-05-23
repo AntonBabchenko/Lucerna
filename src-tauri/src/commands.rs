@@ -38,7 +38,9 @@ pub fn greet(name: String) -> Greeting {
 /// List all stored accounts.
 #[tauri::command]
 #[specta::specta]
-pub fn list_accounts(app: tauri::AppHandle) -> Result<Vec<crate::accounts::store::Account>, crate::error::Error> {
+pub fn list_accounts(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::accounts::store::Account>, crate::error::Error> {
     crate::accounts::list_accounts(&app)
 }
 
@@ -129,8 +131,8 @@ pub async fn launch_instance(
     let json_path = crate::paths::instance_json(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
     let instance = crate::instances::store::read_instance_json(&json_path)?;
-    let account = crate::accounts::get_active_account(&app)?
-        .ok_or(crate::error::Error::AccountNotSet)?;
+    let account =
+        crate::accounts::get_active_account(&app)?.ok_or(crate::error::Error::AccountNotSet)?;
     crate::launch::start(&instance, &effective_id, &account, &app).await
 }
 
@@ -228,9 +230,7 @@ pub async fn open_mods_folder(
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), e))?;
     app.opener()
         .open_path(dir.to_string_lossy().to_string(), None::<&str>)
-        .map_err(|e| {
-            crate::error::Error::io(dir.display().to_string(), format!("opener: {e}"))
-        })?;
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
     Ok(())
 }
 
@@ -298,10 +298,7 @@ pub fn get_active_instance(
 /// Set the active instance by id. Errors `InstanceNotFound` if id is unknown.
 #[tauri::command]
 #[specta::specta]
-pub fn set_active_instance(
-    app: tauri::AppHandle,
-    id: String,
-) -> Result<(), crate::error::Error> {
+pub fn set_active_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
     crate::instances::set_active_instance(&app, &id)
 }
 
@@ -335,10 +332,7 @@ pub fn create_instance(
 /// Errors `LastInstance` if it's the only one left.
 #[tauri::command]
 #[specta::specta]
-pub fn delete_instance(
-    app: tauri::AppHandle,
-    id: String,
-) -> Result<(), crate::error::Error> {
+pub fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
     crate::instances::delete_instance(&app, &id)
 }
 
@@ -761,7 +755,9 @@ pub async fn mods_check_updates(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> crate::error::Result<Vec<crate::mods::updates::ModUpdateCheck>> {
-    use crate::mods::updates::{classify_update, eligible_identity, ModUpdateCheck, ModUpdateState};
+    use crate::mods::updates::{
+        classify_update, eligible_identity, ModUpdateCheck, ModUpdateState,
+    };
 
     let inst_root = instance_root(&app, &instance_id)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
@@ -779,7 +775,9 @@ pub async fn mods_check_updates(
             .await
         {
             Ok(versions) => classify_update(m, &versions),
-            Err(e) => ModUpdateState::CheckFailed { reason: e.to_string() },
+            Err(e) => ModUpdateState::CheckFailed {
+                reason: e.to_string(),
+            },
         };
         out.push(ModUpdateCheck {
             sha1: m.sha1.clone(),
@@ -854,8 +852,7 @@ pub async fn mods_update_one(
     // Required dependencies of the target version (optional deps skipped).
     let platform = platform_for(target.source);
     let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
-    let required_deps: Vec<ModVersion> =
-        resolved.required.into_iter().map(|r| r.version).collect();
+    let required_deps: Vec<ModVersion> = resolved.required.into_iter().map(|r| r.version).collect();
 
     // Progress events tagged with the target's project_id so the UI can
     // route the bar to the right card (same pattern as install).
@@ -884,15 +881,8 @@ pub async fn mods_update_one(
     });
 
     let target_project_id = target.project_id.clone();
-    match crate::mods::install::update_one(
-        &dd,
-        &inst_root,
-        &old_sha1,
-        target,
-        required_deps,
-        &prog,
-    )
-    .await
+    match crate::mods::install::update_one(&dd, &inst_root, &old_sha1, target, required_deps, &prog)
+        .await
     {
         Ok(outcome) => {
             let _ = ModUninstalled {
@@ -933,12 +923,13 @@ pub async fn mods_inspect_local(
     jar_path: String,
 ) -> crate::error::Result<crate::mods::local::CompatVerdict> {
     let inst = crate::instances::read_instance(&app, &instance_id)?;
-    let bytes = tokio::fs::read(&jar_path)
-        .await
-        .map_err(|e| crate::error::Error::ModsInstancePath {
-            path: jar_path.clone(),
-            details: format!("{} ({})", e, e.kind()),
-        })?;
+    let bytes =
+        tokio::fs::read(&jar_path)
+            .await
+            .map_err(|e| crate::error::Error::ModsInstancePath {
+                path: jar_path.clone(),
+                details: format!("{} ({})", e, e.kind()),
+            })?;
     let meta = crate::mods::local::read_jar_meta(&bytes)?;
     Ok(crate::mods::local::compat_verdict(
         &meta,
@@ -958,12 +949,13 @@ pub async fn mods_install_local(
     jar_path: String,
 ) -> crate::error::Result<crate::mods::platform::InstalledMod> {
     let inst_root = instance_root(&app, &instance_id)?;
-    let bytes = tokio::fs::read(&jar_path)
-        .await
-        .map_err(|e| crate::error::Error::ModsInstancePath {
-            path: jar_path.clone(),
-            details: format!("{} ({})", e, e.kind()),
-        })?;
+    let bytes =
+        tokio::fs::read(&jar_path)
+            .await
+            .map_err(|e| crate::error::Error::ModsInstancePath {
+                path: jar_path.clone(),
+                details: format!("{} ({})", e, e.kind()),
+            })?;
     let filename = std::path::Path::new(&jar_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -1054,14 +1046,20 @@ pub async fn mods_set_curseforge_key(
         let root = match crate::paths::instance_dir(&app, &inst.id) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("[mods_set_curseforge_key] no instance_dir for {}: {e}", inst.id);
+                eprintln!(
+                    "[mods_set_curseforge_key] no instance_dir for {}: {e}",
+                    inst.id
+                );
                 continue;
             }
         };
         if let Err(e) =
             crate::mods::installed::reset_enrichment_attempts_for_unresolved(&root).await
         {
-            eprintln!("[mods_set_curseforge_key] reset failed for {}: {e}", inst.id);
+            eprintln!(
+                "[mods_set_curseforge_key] reset failed for {}: {e}",
+                inst.id
+            );
         }
     }
     Ok(())
@@ -1240,9 +1238,8 @@ pub async fn modpack_fetch_to_temp(
 ) -> Result<String, crate::error::Error> {
     let (bytes, ext) = match source {
         crate::mods::platform::ModSource::Modrinth => {
-            let url = format!(
-                "https://api.modrinth.com/v2/project/{project_id}/version/{version_id}"
-            );
+            let url =
+                format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
             let resp = crate::network::request::get(
                 &url,
                 &[("user-agent", "AntonBabchenko/FTlauncher")],
@@ -1580,7 +1577,8 @@ pub async fn modpack_compute_update(
             path: mrpack_path.clone(),
             details: e.to_string(),
         })?;
-    let summary = crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+    let summary =
+        crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
     Ok(crate::mods::modpack::import::compute_update_diff(
         &summary,
         &origin,
@@ -1610,14 +1608,23 @@ pub async fn modpack_apply_update(
     let dd = data_dir(&app)?;
     let origin = crate::mods::installed::get_pack_origin(&inst_root)
         .await?
-        .ok_or_else(|| crate::error::Error::ModsNotFound { platform: "pack_origin".into() })?;
-    let bytes = tokio::fs::read(&mrpack_path).await.map_err(|e| crate::error::Error::Io {
-        path: mrpack_path.clone(),
-        details: e.to_string(),
-    })?;
-    let summary = crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        })?;
+    let bytes = tokio::fs::read(&mrpack_path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: mrpack_path.clone(),
+            details: e.to_string(),
+        })?;
+    let summary =
+        crate::mods::modpack::import::inspect(&bytes, "https://api.curseforge.com").await?;
     let diff = crate::mods::modpack::import::compute_update_diff(
-        &summary, &origin, &inst.mc_version, inst.loader, &inst.loader_version,
+        &summary,
+        &origin,
+        &inst.mc_version,
+        inst.loader,
+        &inst.loader_version,
     );
 
     let install_progress: crate::mods::install::ProgressFn = {
@@ -1645,36 +1652,60 @@ pub async fn modpack_apply_update(
             file_name: f.name.clone(),
         });
         crate::mods::install::fetch_to_cache(
-            &dd, &f.url, &f.sha1.to_ascii_lowercase(), f.size, "modpacks", &install_progress,
+            &dd,
+            &f.url,
+            &f.sha1.to_ascii_lowercase(),
+            f.size,
+            "modpacks",
+            &install_progress,
         )
         .await?;
     }
 
     // ---- Phase 2: apply locally (cache is warm). ----
-    for f in diff.removed.iter().chain(diff.updated.iter().map(|e| &e.old)) {
+    for f in diff
+        .removed
+        .iter()
+        .chain(diff.updated.iter().map(|e| &e.old))
+    {
         remove_pack_file(&inst_root, f).await?;
     }
     for f in diff.added.iter().chain(diff.updated.iter().map(|e| &e.new)) {
         if f.install_path.starts_with("mods/") {
             let mv = crate::mods::modpack::import::modpack_file_to_mod_version(
-                f, &summary.game_version, summary.loader,
+                f,
+                &summary.game_version,
+                summary.loader,
             );
             crate::mods::install::install_one(&dd, &inst_root, mv, &install_progress).await?;
         } else {
             crate::mods::install::install_asset(
-                &dd, &inst_root, &f.url, &f.sha1, f.size, &f.install_path, &install_progress,
+                &dd,
+                &inst_root,
+                &f.url,
+                &f.sha1,
+                f.size,
+                &f.install_path,
+                &install_progress,
             )
             .await?;
         }
     }
 
     // Rewrite pack_origin: new files[] entries + carried-over bundled.
-    let bundled: Vec<crate::mods::installed::PackOriginFile> =
-        origin.files.iter().filter(|f| f.url.is_empty()).cloned().collect();
+    let bundled: Vec<crate::mods::installed::PackOriginFile> = origin
+        .files
+        .iter()
+        .filter(|f| f.url.is_empty())
+        .cloned()
+        .collect();
     let selected: Vec<&crate::mods::modpack::schema::ModpackFile> =
         summary.files.iter().filter(|f| !f.url.is_empty()).collect();
     let mut new_origin = crate::mods::modpack::import::build_pack_origin(
-        &summary, &selected, origin.project_id.clone(), &origin.project_name,
+        &summary,
+        &selected,
+        origin.project_id.clone(),
+        &origin.project_name,
     );
     new_origin.files.extend(bundled);
     crate::mods::installed::set_pack_origin(&inst_root, new_origin).await?;
@@ -1688,7 +1719,9 @@ pub async fn modpack_apply_update(
         summary.loader_version.clone(),
         new_version_id,
     )?;
-    let _ = on_progress.send(ModpackProgress::Done { instance_id: instance_id.clone() });
+    let _ = on_progress.send(ModpackProgress::Done {
+        instance_id: instance_id.clone(),
+    });
     Ok(updated_inst)
 }
 
@@ -1712,7 +1745,11 @@ pub async fn modpack_reimport_overrides(
         (Some(crate::mods::platform::ModSource::Modrinth), Some(pid), Some(vid)) => {
             (pid.to_string(), vid.to_string())
         }
-        _ => return Err(crate::error::Error::ModsNotFound { platform: "modrinth".into() }),
+        _ => {
+            return Err(crate::error::Error::ModsNotFound {
+                platform: "modrinth".into(),
+            })
+        }
     };
 
     let temp_path = modpack_fetch_to_temp(
@@ -1722,15 +1759,22 @@ pub async fn modpack_reimport_overrides(
         version_id,
     )
     .await?;
-    let bytes = tokio::fs::read(&temp_path).await.map_err(|e| crate::error::Error::Io {
-        path: temp_path.clone(),
-        details: e.to_string(),
-    })?;
+    let bytes = tokio::fs::read(&temp_path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: temp_path.clone(),
+            details: e.to_string(),
+        })?;
     crate::mods::modpack::overrides::extract(&bytes, &inst_root, |c, t| {
-        let _ = on_progress.send(ModpackProgress::ExtractingOverrides { current: c, total: t });
+        let _ = on_progress.send(ModpackProgress::ExtractingOverrides {
+            current: c,
+            total: t,
+        });
     })
     .await?;
-    let _ = on_progress.send(ModpackProgress::Done { instance_id: instance_id.clone() });
+    let _ = on_progress.send(ModpackProgress::Done {
+        instance_id: instance_id.clone(),
+    });
     Ok(())
 }
 
@@ -1765,8 +1809,8 @@ async fn remove_pack_file(
 pub async fn app_settings_get(
     app: tauri::AppHandle,
 ) -> crate::error::Result<crate::instances::schema::AppFile> {
-    let path = crate::paths::app_file(&app)
-        .map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
     crate::instances::store::read_app_json(&path)
 }
 
@@ -1780,8 +1824,8 @@ pub async fn app_settings_mark_tour_completed(
     app: tauri::AppHandle,
     version: String,
 ) -> crate::error::Result<()> {
-    let path = crate::paths::app_file(&app)
-        .map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
     let mut current = crate::instances::store::read_app_json(&path)?;
     current.onboarding.tour_completed_version = Some(version);
     crate::instances::store::write_app_json(&path, &current)
@@ -1841,7 +1885,10 @@ mod tests {
         let result = validate_instance_name(&"a".repeat(33));
         assert!(matches!(
             result,
-            Err(Error::InstanceNameTooLong { max: 32, actual: 33 })
+            Err(Error::InstanceNameTooLong {
+                max: 32,
+                actual: 33
+            })
         ));
     }
 
@@ -1853,7 +1900,10 @@ mod tests {
         let result = validate_instance_name(&"я".repeat(33));
         assert!(matches!(
             result,
-            Err(Error::InstanceNameTooLong { max: 32, actual: 33 })
+            Err(Error::InstanceNameTooLong {
+                max: 32,
+                actual: 33
+            })
         ));
     }
 
@@ -1889,8 +1939,9 @@ mod tests {
             .mount(&server)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let entries =
-            crate::commands::fetch_modpack_versions(&server.uri(), "abc").await.unwrap();
+        let entries = crate::commands::fetch_modpack_versions(&server.uri(), "abc")
+            .await
+            .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "v1");
@@ -1913,7 +1964,10 @@ mod tests {
             .await
             .unwrap_err();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
-        assert!(matches!(err, crate::error::Error::ModsNotFound { .. }), "got: {err:?}");
+        assert!(
+            matches!(err, crate::error::Error::ModsNotFound { .. }),
+            "got: {err:?}"
+        );
     }
 
     fn ver(num: &str, date: &str) -> crate::mods::modpack::schema::ModpackVersionEntry {
@@ -1941,7 +1995,10 @@ mod tests {
 
     #[test]
     fn latest_newer_none_when_already_latest() {
-        let list = vec![ver("1.2", "2026-03-01T00:00:00Z"), ver("1.0", "2026-01-01T00:00:00Z")];
+        let list = vec![
+            ver("1.2", "2026-03-01T00:00:00Z"),
+            ver("1.0", "2026-01-01T00:00:00Z"),
+        ];
         // current id IS the newest → no update
         assert!(crate::commands::latest_newer(list, "id-1.2").is_none());
     }

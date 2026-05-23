@@ -37,7 +37,9 @@ pub fn clear() -> Result<(), Error> {
 }
 
 fn map_keyring_err(_e: ::keyring::Error) -> Error {
-    Error::ModsPlatformAuth { kind: crate::error::ModsAuthKind::Invalid }
+    Error::ModsPlatformAuth {
+        kind: crate::error::ModsAuthKind::Invalid,
+    }
     // Note: keyring-level errors (lock, permission) are surfaced as
     // "auth invalid" so the UI can prompt to re-enter. The verbose
     // details `{e}` would expose OS-internal Credential Manager errors

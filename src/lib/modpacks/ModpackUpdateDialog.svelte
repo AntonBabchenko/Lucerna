@@ -28,8 +28,7 @@
     {#if diff.version_bump}
       <div class="text-sm bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
         Minecraft {diff.version_bump.old_game_version} → {diff.version_bump.new_game_version}. After
-        updating, click <span class="font-semibold">Install</span> to download the new Minecraft
-        version.
+        updating, click <span class="font-semibold">Install</span> to download the new Minecraft version.
       </div>
     {/if}
 

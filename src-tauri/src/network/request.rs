@@ -45,11 +45,7 @@ async fn send(
 /// returns `Err(Error::Network)` only when no status was received.
 ///
 /// `initiator` is the module name that triggered the request.
-pub async fn get(
-    url: &str,
-    headers: &[(&str, &str)],
-    initiator: &str,
-) -> Result<HttpResponse> {
+pub async fn get(url: &str, headers: &[(&str, &str)], initiator: &str) -> Result<HttpResponse> {
     let mut req = http().get(url);
     for (name, value) in headers {
         req = req.header(*name, *value);

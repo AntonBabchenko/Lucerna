@@ -39,9 +39,7 @@ pub struct ExtractedAsset {
 /// directly under `resourcepacks/` / `shaderpacks/`. Folder-form
 /// resourcepacks and bulk config trees are intentionally not itemised.
 fn is_tracked_bundled_path(rel: &str) -> bool {
-    if rel.starts_with("mods/")
-        && (rel.ends_with(".jar") || rel.ends_with(".jar.disabled"))
-    {
+    if rel.starts_with("mods/") && (rel.ends_with(".jar") || rel.ends_with(".jar.disabled")) {
         return true;
     }
     for prefix in ["resourcepacks/", "shaderpacks/"] {
@@ -69,15 +67,17 @@ pub async fn extract<F: FnMut(u32, u32)>(
         details: e.to_string(),
     })?;
 
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+    let mut zip =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
+            details: e.to_string(),
+        })?;
 
     let mut work: Vec<(usize, String)> = vec![];
     let mut client_paths: std::collections::HashSet<String> = Default::default();
     for i in 0..zip.len() {
-        let entry = zip
-            .by_index(i)
-            .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+        let entry = zip.by_index(i).map_err(|e| Error::ModpackInvalidArchive {
+            details: e.to_string(),
+        })?;
         let name = entry.name().to_string();
         if let Some(rel) = name.strip_prefix("client-overrides/") {
             if !rel.is_empty() {
@@ -89,9 +89,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
     // overrides/ comes second so client-overrides/ wins on conflict.
     let mut overrides_work: Vec<(usize, String)> = vec![];
     for i in 0..zip.len() {
-        let entry = zip
-            .by_index(i)
-            .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+        let entry = zip.by_index(i).map_err(|e| Error::ModpackInvalidArchive {
+            details: e.to_string(),
+        })?;
         let name = entry.name().to_string();
         if let Some(rel) = name.strip_prefix("overrides/") {
             if !rel.is_empty() && !client_paths.contains(rel) {
@@ -114,7 +114,9 @@ pub async fn extract<F: FnMut(u32, u32)>(
         let kind: EntryKind = {
             let mut entry = zip
                 .by_index(zip_idx)
-                .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+                .map_err(|e| Error::ModpackInvalidArchive {
+                    details: e.to_string(),
+                })?;
 
             // Reject symlinks.
             if let Some(mode) = entry.unix_mode() {
@@ -189,8 +191,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
                 })?;
 
                 if is_tracked_bundled_path(&rel) {
-                    let filename =
-                        rel.rsplit('/').next().unwrap_or(&rel).to_string();
+                    let filename = rel.rsplit('/').next().unwrap_or(&rel).to_string();
                     let sha1 = hex::encode(Sha1::digest(&buf));
                     extracted.push(ExtractedAsset {
                         install_path: rel.clone(),

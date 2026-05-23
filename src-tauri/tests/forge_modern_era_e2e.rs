@@ -29,8 +29,7 @@
 //! (including 2 Java subprocesses). Far too slow for default `cargo test`
 //! sweep; invaluable as an on-demand regression check.
 
-const FIXTURE_PATH: &str =
-    "tests/fixtures/forge/installers/forge-1.20.4-49.0.49-installer.jar";
+const FIXTURE_PATH: &str = "tests/fixtures/forge/installers/forge-1.20.4-49.0.49-installer.jar";
 
 const MC: &str = "1.20.4";
 const FV: &str = "49.0.49";
@@ -79,9 +78,13 @@ async fn extract_maven_tree(installer_bytes: &[u8], libs_root: &std::path::Path)
     }
     for (dest, bytes) in to_write {
         if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await.expect("create maven dir");
+            tokio::fs::create_dir_all(parent)
+                .await
+                .expect("create maven dir");
         }
-        tokio::fs::write(&dest, &bytes).await.expect("write maven entry");
+        tokio::fs::write(&dest, &bytes)
+            .await
+            .expect("write maven entry");
     }
 }
 
@@ -100,7 +103,9 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
     }
     eprintln!("  [download] {url}");
     if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent).await.expect("create lib dir");
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("create lib dir");
     }
     ftlauncher_lib::network::download::download_no_emit(url, dest, sha1, "forge-modern-e2e")
         .await
@@ -119,9 +124,8 @@ async fn install_forge_1_20_4_modern_era_e2e() {
     // 1. Parse install_profile.
     let raw_text =
         serde_json::to_string(&install_profile_value).expect("re-serialise install_profile");
-    let profile =
-        ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
-            .expect("parse install_profile spec=1");
+    let profile = ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
+        .expect("parse install_profile spec=1");
     eprintln!("profile.minecraft = {}", profile.minecraft);
     eprintln!("profile.spec      = {}", profile.spec);
     eprintln!("processors count  = {}", profile.processors.len());
@@ -179,12 +183,20 @@ async fn install_forge_1_20_4_modern_era_e2e() {
 
     // 5. Download install_profile.libraries (filter URL-less).
     eprintln!("--- step 5: download install_profile.libraries ---");
-    let os = if cfg!(target_os = "windows") { "windows" }
-        else if cfg!(target_os = "macos") { "macos" }
-        else { "linux" };
-    let arch = if cfg!(target_arch = "x86_64") { "x64" }
-        else if cfg!(target_arch = "aarch64") { "aarch64" }
-        else { "x86" };
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86"
+    };
     eprintln!("platform = {os}/{arch}");
 
     let downloadable: Vec<ftlauncher_lib::versions::version_json::Library> = profile

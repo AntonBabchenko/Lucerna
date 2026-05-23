@@ -142,9 +142,7 @@ pub fn build_classpath(
     let mut parts: Vec<String> = libs
         .iter()
         .flat_map(|lib| artifacts_to_install(lib, os, arch))
-        .map(|(rel_path, _, _, _)| {
-            libraries_dir.join(rel_path).to_string_lossy().into_owned()
-        })
+        .map(|(rel_path, _, _, _)| libraries_dir.join(rel_path).to_string_lossy().into_owned())
         .collect();
     if let Some(cj) = client_jar {
         parts.push(cj.to_string_lossy().into_owned());
@@ -228,10 +226,7 @@ fn substitute(s: &str, subs: &HashMap<&'static str, String>) -> String {
 
 /// pre-1.13 path: synthesise the minimal JVM args + split the
 /// `minecraftArguments` string into game args.
-fn legacy_argv(
-    mc_args: &str,
-    subs: &HashMap<&'static str, String>,
-) -> (Vec<String>, Vec<String>) {
+fn legacy_argv(mc_args: &str, subs: &HashMap<&'static str, String>) -> (Vec<String>, Vec<String>) {
     let jvm = synth_jvm(subs);
     let game = mc_args
         .split_whitespace()

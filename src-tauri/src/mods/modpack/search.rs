@@ -89,16 +89,25 @@ pub async fn search(
     let facets_json = serde_json::to_string(&facets).unwrap();
     let q = urlencode(query);
     let f = urlencode(&facets_json);
-    let url =
-        format!("{base}/v2/search?query={q}&limit={limit}&offset={offset}&index={index}&facets={f}");
+    let url = format!(
+        "{base}/v2/search?query={q}&limit={limit}&offset={offset}&index={index}&facets={f}"
+    );
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+        return Err(Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status),
+        });
     }
-    let s: MrSearch = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
+    let s: MrSearch = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "modrinth".into(),
+        details: e.to_string(),
+    })?;
 
     let hits = s
         .hits
@@ -130,7 +139,12 @@ pub async fn search(
         })
         .collect();
 
-    Ok(ModpackSearchPage { hits, total: s.total_hits, offset: s.offset, limit: s.limit })
+    Ok(ModpackSearchPage {
+        hits,
+        total: s.total_hits,
+        offset: s.offset,
+        limit: s.limit,
+    })
 }
 
 #[cfg(test)]

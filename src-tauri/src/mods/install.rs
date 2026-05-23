@@ -88,23 +88,19 @@ pub(crate) async fn fetch_to_cache(
         })
         .await
         .map_err(|e| match e {
-            Error::HashMismatch { expected, got, .. } => {
-                Error::ModsSha1Mismatch { expected, got }
-            }
+            Error::HashMismatch { expected, got, .. } => Error::ModsSha1Mismatch { expected, got },
             Error::Io { path, details } => Error::ModsCacheIo {
                 details: format!("{path}: {details}"),
             },
             Error::Network { url, details } => Error::ModsNetwork { url, details },
             other => other,
         })?;
-        progress(
-            ModInstallPhase::Verifying,
-            size as u64,
-            Some(size as u64),
-        );
+        progress(ModInstallPhase::Verifying, size as u64, Some(size as u64));
         fs::rename(&tmp, &cached_path)
             .await
-            .map_err(|e| Error::ModsCacheIo { details: e.to_string() })?;
+            .map_err(|e| Error::ModsCacheIo {
+                details: e.to_string(),
+            })?;
     }
     Ok(cached_path)
 }
@@ -160,12 +156,10 @@ pub async fn install_one(
             details: e.to_string(),
         })?
     {
-        let existing_bytes = fs::read(&dest)
-            .await
-            .map_err(|e| Error::ModsInstancePath {
-                path: dest.display().to_string(),
-                details: e.to_string(),
-            })?;
+        let existing_bytes = fs::read(&dest).await.map_err(|e| Error::ModsInstancePath {
+            path: dest.display().to_string(),
+            details: e.to_string(),
+        })?;
         let existing_sha = hex::encode(Sha1::digest(&existing_bytes));
         if existing_sha.eq_ignore_ascii_case(&sha_lower) {
             // Idempotent re-install: same content already in place. Record + return.
@@ -232,8 +226,7 @@ pub async fn install_asset(
         });
     }
     let sha_lower = sha.to_ascii_lowercase();
-    let cached_path =
-        fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress).await?;
+    let cached_path = fetch_to_cache(data_dir, url, &sha_lower, size, "modpacks", progress).await?;
 
     progress(ModInstallPhase::Copying, 0, None);
     let mc_dir = instance_root.join(".minecraft");
@@ -688,9 +681,16 @@ mod tests {
             v2_bytes.len() as u64,
             "v2.jar",
         );
-        let outcome = update_one(td_data.path(), td_inst.path(), &v1_sha, v2, vec![], &nop_progress())
-            .await
-            .unwrap();
+        let outcome = update_one(
+            td_data.path(),
+            td_inst.path(),
+            &v1_sha,
+            v2,
+            vec![],
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(outcome.removed_sha1, v1_sha);
         assert_eq!(outcome.primary.sha1, v2_sha);
@@ -725,18 +725,37 @@ mod tests {
         install_one(
             td_data.path(),
             td_inst.path(),
-            fake_version(format!("{}/d1.jar", s.uri()), v1s.clone(), v1b.len() as u64, "d1.jar"),
+            fake_version(
+                format!("{}/d1.jar", s.uri()),
+                v1s.clone(),
+                v1b.len() as u64,
+                "d1.jar",
+            ),
             &nop_progress(),
         )
         .await
         .unwrap();
         disable(td_inst.path(), &v1s).await.unwrap();
-        let v2 = fake_version(format!("{}/d2.jar", s.uri()), v2s.clone(), v2b.len() as u64, "d2.jar");
-        update_one(td_data.path(), td_inst.path(), &v1s, v2, vec![], &nop_progress())
-            .await
-            .unwrap();
+        let v2 = fake_version(
+            format!("{}/d2.jar", s.uri()),
+            v2s.clone(),
+            v2b.len() as u64,
+            "d2.jar",
+        );
+        update_one(
+            td_data.path(),
+            td_inst.path(),
+            &v1s,
+            v2,
+            vec![],
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
-        assert!(installed::mods_dir(td_inst.path()).join("d2.jar.disabled").exists());
+        assert!(installed::mods_dir(td_inst.path())
+            .join("d2.jar.disabled")
+            .exists());
         let list = installed::list(td_inst.path()).await.unwrap();
         assert_eq!(list.len(), 1);
         assert!(!list[0].enabled);
@@ -761,13 +780,31 @@ mod tests {
         install_one(
             td_data.path(),
             td_inst.path(),
-            fake_version(format!("{}/k1.jar", s.uri()), v1s.clone(), v1b.len() as u64, "k1.jar"),
+            fake_version(
+                format!("{}/k1.jar", s.uri()),
+                v1s.clone(),
+                v1b.len() as u64,
+                "k1.jar",
+            ),
             &nop_progress(),
         )
         .await
         .unwrap();
-        let bad = fake_version(format!("{}/missing.jar", s.uri()), "ffff".into(), 5, "missing.jar");
-        let r = update_one(td_data.path(), td_inst.path(), &v1s, bad, vec![], &nop_progress()).await;
+        let bad = fake_version(
+            format!("{}/missing.jar", s.uri()),
+            "ffff".into(),
+            5,
+            "missing.jar",
+        );
+        let r = update_one(
+            td_data.path(),
+            td_inst.path(),
+            &v1s,
+            bad,
+            vec![],
+            &nop_progress(),
+        )
+        .await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_err());
         // The old version must be untouched.
@@ -787,7 +824,11 @@ mod tests {
         let olds = hex::encode(Sha1::digest(oldb));
         let ps = hex::encode(Sha1::digest(pb));
         let ds = hex::encode(Sha1::digest(db));
-        for (p, body) in [("/old.jar", oldb.to_vec()), ("/p2.jar", pb.to_vec()), ("/dep.jar", db.to_vec())] {
+        for (p, body) in [
+            ("/old.jar", oldb.to_vec()),
+            ("/p2.jar", pb.to_vec()),
+            ("/dep.jar", db.to_vec()),
+        ] {
             Mock::given(method("GET"))
                 .and(path(p))
                 .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
@@ -800,16 +841,38 @@ mod tests {
         install_one(
             td_data.path(),
             td_inst.path(),
-            fake_version(format!("{}/old.jar", s.uri()), olds.clone(), oldb.len() as u64, "old.jar"),
+            fake_version(
+                format!("{}/old.jar", s.uri()),
+                olds.clone(),
+                oldb.len() as u64,
+                "old.jar",
+            ),
             &nop_progress(),
         )
         .await
         .unwrap();
-        let target = fake_version(format!("{}/p2.jar", s.uri()), ps.clone(), pb.len() as u64, "p2.jar");
-        let dep = fake_version(format!("{}/dep.jar", s.uri()), ds.clone(), db.len() as u64, "dep.jar");
-        update_one(td_data.path(), td_inst.path(), &olds, target, vec![dep], &nop_progress())
-            .await
-            .unwrap();
+        let target = fake_version(
+            format!("{}/p2.jar", s.uri()),
+            ps.clone(),
+            pb.len() as u64,
+            "p2.jar",
+        );
+        let dep = fake_version(
+            format!("{}/dep.jar", s.uri()),
+            ds.clone(),
+            db.len() as u64,
+            "dep.jar",
+        );
+        update_one(
+            td_data.path(),
+            td_inst.path(),
+            &olds,
+            target,
+            vec![dep],
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(installed::mods_dir(td_inst.path()).join("p2.jar").exists());
         assert!(installed::mods_dir(td_inst.path()).join("dep.jar").exists());
@@ -823,7 +886,15 @@ mod tests {
         let td_inst = TempDir::new().unwrap();
         let mut v = fake_version("https://example/x.jar".into(), "aa".into(), 0, "x.jar");
         v.primary_file.distribution_allowed = false;
-        let r = update_one(td_data.path(), td_inst.path(), "nonexistent", v, vec![], &nop_progress()).await;
+        let r = update_one(
+            td_data.path(),
+            td_inst.path(),
+            "nonexistent",
+            v,
+            vec![],
+            &nop_progress(),
+        )
+        .await;
         assert!(matches!(r, Err(Error::ModsDistributionDisabled { .. })));
     }
 }

@@ -6,7 +6,13 @@
   import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
-  import { modBrowserNav, modpacksNav, droppedMods, droppedModpack, dragActive } from '$lib/settings/state.svelte';
+  import {
+    modBrowserNav,
+    modpacksNav,
+    droppedMods,
+    droppedModpack,
+    dragActive,
+  } from '$lib/settings/state.svelte';
 
   type Tab = 'overview' | 'mod_browser' | 'modpacks';
 
@@ -69,7 +75,8 @@
         dragActive.value = false;
       } else if (t === 'drop') {
         dragActive.value = false;
-        const paths = (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
+        const paths =
+          (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
         if (active === 'mod_browser') {
           const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
           if (jars.length > 0 && canInstall) {

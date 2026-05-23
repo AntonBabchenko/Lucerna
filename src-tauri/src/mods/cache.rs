@@ -43,19 +43,30 @@ pub async fn verify_or_evict(data_dir: &Path, expected_sha1: &str) -> Result<boo
 /// Atomically write `bytes` to the cache, keyed by SHA-1. Returns the
 /// final path. Returns `ModsSha1Mismatch` if the computed hash of
 /// `bytes` does not match `expected_sha1`.
-pub async fn write_bytes(data_dir: &Path, expected_sha1: &str, bytes: &[u8]) -> Result<PathBuf, Error> {
+pub async fn write_bytes(
+    data_dir: &Path,
+    expected_sha1: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, Error> {
     let got = hex::encode(Sha1::digest(bytes));
     if !got.eq_ignore_ascii_case(expected_sha1) {
-        return Err(Error::ModsSha1Mismatch { expected: expected_sha1.into(), got });
+        return Err(Error::ModsSha1Mismatch {
+            expected: expected_sha1.into(),
+            got,
+        });
     }
-    fs::create_dir_all(cache_root(data_dir)).await.map_err(io_to_cache_err)?;
+    fs::create_dir_all(cache_root(data_dir))
+        .await
+        .map_err(io_to_cache_err)?;
     let final_path = cache_path_for(data_dir, &got);
     let tmp = final_path.with_extension("jar.tmp");
     let mut f = fs::File::create(&tmp).await.map_err(io_to_cache_err)?;
     f.write_all(bytes).await.map_err(io_to_cache_err)?;
     f.flush().await.map_err(io_to_cache_err)?;
     drop(f);
-    fs::rename(&tmp, &final_path).await.map_err(io_to_cache_err)?;
+    fs::rename(&tmp, &final_path)
+        .await
+        .map_err(io_to_cache_err)?;
     Ok(final_path)
 }
 
@@ -84,14 +95,18 @@ pub async fn clear(data_dir: &Path) -> Result<u64, Error> {
     let mut rd = fs::read_dir(&root).await.map_err(io_to_cache_err)?;
     while let Some(entry) = rd.next_entry().await.map_err(io_to_cache_err)? {
         if entry.metadata().await.map_err(io_to_cache_err)?.is_file() {
-            fs::remove_file(entry.path()).await.map_err(io_to_cache_err)?;
+            fs::remove_file(entry.path())
+                .await
+                .map_err(io_to_cache_err)?;
         }
     }
     Ok(before)
 }
 
 fn io_to_cache_err(e: std::io::Error) -> Error {
-    Error::ModsCacheIo { details: e.to_string() }
+    Error::ModsCacheIo {
+        details: e.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -99,7 +114,9 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn hash_of(s: &[u8]) -> String { hex::encode(Sha1::digest(s)) }
+    fn hash_of(s: &[u8]) -> String {
+        hex::encode(Sha1::digest(s))
+    }
 
     #[tokio::test]
     async fn write_and_verify_round_trip() {
@@ -115,7 +132,9 @@ mod tests {
     #[tokio::test]
     async fn write_with_wrong_hash_rejects() {
         let td = TempDir::new().unwrap();
-        let err = write_bytes(td.path(), "0000000000000000000000000000000000000000", b"hi").await.unwrap_err();
+        let err = write_bytes(td.path(), "0000000000000000000000000000000000000000", b"hi")
+            .await
+            .unwrap_err();
         matches!(err, Error::ModsSha1Mismatch { .. });
     }
 
@@ -124,7 +143,9 @@ mod tests {
         let td = TempDir::new().unwrap();
         let sha = hash_of(b"original");
         write_bytes(td.path(), &sha, b"original").await.unwrap();
-        fs::write(cache_path_for(td.path(), &sha), b"corrupted").await.unwrap();
+        fs::write(cache_path_for(td.path(), &sha), b"corrupted")
+            .await
+            .unwrap();
         assert!(!verify_or_evict(td.path(), &sha).await.unwrap());
         assert!(!cache_path_for(td.path(), &sha).exists());
     }

@@ -1,5 +1,5 @@
-mod commands;
 pub mod accounts;
+mod commands;
 pub mod error;
 pub mod forge;
 pub mod instances;
@@ -112,7 +112,10 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     builder
-        .export(specta_typescript::Typescript::default(), "../src/lib/ipc/bindings.ts")
+        .export(
+            specta_typescript::Typescript::default(),
+            "../src/lib/ipc/bindings.ts",
+        )
         // Dev-only: if the bindings file cannot be written, the dev tree is
         // unwritable and there's no graceful path forward — crash loudly.
         .expect("Failed to export TypeScript bindings");

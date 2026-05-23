@@ -7,13 +7,7 @@
   // While active, sets <body data-tour-active="true"> so a global CSS
   // rule disables pointer-events on the underlying UI. Esc = Skip.
   import { onMount, untrack, tick } from 'svelte';
-  import {
-    tourState,
-    TOTAL_STEPS,
-    next,
-    back,
-    finishOrSkip,
-  } from './state.svelte';
+  import { tourState, TOTAL_STEPS, next, back, finishOrSkip } from './state.svelte';
   import { STEPS } from './steps';
 
   const PADDING = 6;
@@ -47,9 +41,7 @@
         // Don't steal focus if it is already somewhere inside the popover —
         // that means the user (or the Tab trap) put it there deliberately.
         if (popoverEl.contains(document.activeElement)) return;
-        popoverEl
-          .querySelector<HTMLElement>('[data-tour-primary]')
-          ?.focus();
+        popoverEl.querySelector<HTMLElement>('[data-tour-primary]')?.focus();
       });
     }
   });
@@ -70,9 +62,7 @@
 
   function focusables(): HTMLElement[] {
     if (!popoverEl) return [];
-    return Array.from(
-      popoverEl.querySelectorAll<HTMLElement>('button:not([disabled])'),
-    );
+    return Array.from(popoverEl.querySelectorAll<HTMLElement>('button:not([disabled])'));
   }
 
   function onKeydown(e: KeyboardEvent) {

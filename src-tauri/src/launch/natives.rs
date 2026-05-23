@@ -41,12 +41,7 @@ pub async fn extract_natives(
     Ok(())
 }
 
-fn native_jar_path(
-    lib: &Library,
-    libraries_dir: &Path,
-    os: &str,
-    arch: &str,
-) -> Option<PathBuf> {
+fn native_jar_path(lib: &Library, libraries_dir: &Path, os: &str, arch: &str) -> Option<PathBuf> {
     let natives_map = lib.natives.as_ref()?;
     let classifier_key = natives_map.get(os)?;
     let key = classifier_key.replace("${arch}", arch);
@@ -58,11 +53,10 @@ fn native_jar_path(
 
 /// Sync — runs in `spawn_blocking` because the `zip` crate is sync.
 fn extract_one(jar_path: &Path, dest: &Path) -> Result<()> {
-    let file = std::fs::File::open(jar_path)
-        .map_err(|e| Error::io(jar_path.display().to_string(), e))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| {
-        Error::io(jar_path.display().to_string(), format!("zip open: {e}"))
-    })?;
+    let file =
+        std::fs::File::open(jar_path).map_err(|e| Error::io(jar_path.display().to_string(), e))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| Error::io(jar_path.display().to_string(), format!("zip open: {e}")))?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| {
             Error::io(
@@ -140,9 +134,8 @@ mod tests {
         {
             let f = std::fs::File::create(&jar_path).unwrap();
             let mut w = zip::ZipWriter::new(f);
-            let opts: zip::write::SimpleFileOptions =
-                zip::write::SimpleFileOptions::default()
-                    .compression_method(zip::CompressionMethod::Deflated);
+            let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
             w.start_file("lwjgl.dll", opts).unwrap();
             w.write_all(b"PE-binary-bytes-go-here").unwrap();
             w.start_file("META-INF/MANIFEST.MF", opts).unwrap();

@@ -10,10 +10,7 @@ use crate::mods::modpack::schema::*;
 use crate::mods::modpack::{curseforge as cf_parse, modrinth as mr_parse};
 use crate::mods::platform::{ModFile, ModSource, ModVersion};
 
-pub async fn inspect(
-    bytes: &[u8],
-    cf_base: &str,
-) -> Result<ModpackSummary, Error> {
+pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Error> {
     let fmt = detect_format(bytes)?;
     match fmt {
         ModpackFormat::Modrinth => mr_parse::parse(bytes),
@@ -158,8 +155,10 @@ pub fn compute_status(
     installed: &[crate::mods::platform::InstalledMod],
     asset_present: &std::collections::HashSet<String>,
 ) -> crate::mods::modpack::schema::ModpackStatus {
-    let installed_shas: Vec<String> =
-        installed.iter().map(|m| m.sha1.to_ascii_lowercase()).collect();
+    let installed_shas: Vec<String> = installed
+        .iter()
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .collect();
     let installed_set: std::collections::HashSet<&String> = installed_shas.iter().collect();
 
     // Mod SHAs the pack declared — used for the user-additions count.
@@ -421,45 +420,60 @@ pub async fn import(
         ModpackFormat::Modrinth => Some(crate::mods::platform::ModSource::Modrinth),
         ModpackFormat::Curseforge => Some(crate::mods::platform::ModSource::Curseforge),
     };
-    let (mrpack_project_id, pack_meta, mrpack_source) = match (
-        hint_project_id.as_deref(),
-        hint_source,
-        summary.format,
-    ) {
-        (Some(pid), Some(crate::mods::platform::ModSource::Modrinth), ModpackFormat::Modrinth) => {
-            let meta = fetch_modrinth_project(pid).await.unwrap_or_default();
-            (Some(pid.to_string()), meta, parser_source)
-        }
-        (Some(pid), Some(crate::mods::platform::ModSource::Curseforge), ModpackFormat::Curseforge) => {
-            // Browse-flow CF import: backfill the pack's project name +
-            // short summary. Best-effort — failure keeps them None.
-            let key = crate::mods::curseforge::keyring::get().ok().flatten();
-            let (cf_name, cf_summary) =
-                crate::mods::modpack::cf_api::fetch_summary(cf_base, key.as_deref(), pid)
-                    .await
-                    .unwrap_or((None, None));
+    let (mrpack_project_id, pack_meta, mrpack_source) =
+        match (hint_project_id.as_deref(), hint_source, summary.format) {
             (
-                Some(pid.to_string()),
-                PackMeta { name: cf_name, description: cf_summary },
-                parser_source,
-            )
-        }
-        (_, _, ModpackFormat::Modrinth) => {
-            let (pid, meta) = fetch_modrinth_metadata(&summary.version)
-                .await
-                .unwrap_or((None, PackMeta::default()));
-            (pid, meta, parser_source)
-        }
-        (_, _, ModpackFormat::Curseforge) => (None, PackMeta::default(), parser_source),
-    };
-    let PackMeta { name: platform_name, description: mrpack_summary } = pack_meta;
+                Some(pid),
+                Some(crate::mods::platform::ModSource::Modrinth),
+                ModpackFormat::Modrinth,
+            ) => {
+                let meta = fetch_modrinth_project(pid).await.unwrap_or_default();
+                (Some(pid.to_string()), meta, parser_source)
+            }
+            (
+                Some(pid),
+                Some(crate::mods::platform::ModSource::Curseforge),
+                ModpackFormat::Curseforge,
+            ) => {
+                // Browse-flow CF import: backfill the pack's project name +
+                // short summary. Best-effort — failure keeps them None.
+                let key = crate::mods::curseforge::keyring::get().ok().flatten();
+                let (cf_name, cf_summary) =
+                    crate::mods::modpack::cf_api::fetch_summary(cf_base, key.as_deref(), pid)
+                        .await
+                        .unwrap_or((None, None));
+                (
+                    Some(pid.to_string()),
+                    PackMeta {
+                        name: cf_name,
+                        description: cf_summary,
+                    },
+                    parser_source,
+                )
+            }
+            (_, _, ModpackFormat::Modrinth) => {
+                let (pid, meta) = fetch_modrinth_metadata(&summary.version)
+                    .await
+                    .unwrap_or((None, PackMeta::default()));
+                (pid, meta, parser_source)
+            }
+            (_, _, ModpackFormat::Curseforge) => (None, PackMeta::default(), parser_source),
+        };
+    let PackMeta {
+        name: platform_name,
+        description: mrpack_summary,
+    } = pack_meta;
     let pack_name = resolve_pack_name(platform_name.as_deref(), &summary.name);
 
     let existing: Vec<String> = crate::instances::list_instances_with_status(app)?
-        .into_iter().map(|i| i.name).collect();
+        .into_iter()
+        .map(|i| i.name)
+        .collect();
     let final_name = resolve_name(&pack_name, &existing)?;
 
-    on_progress(ModpackProgress::CreatingInstance { name: final_name.clone() });
+    on_progress(ModpackProgress::CreatingInstance {
+        name: final_name.clone(),
+    });
     // Keep a clone for the pack_origin snapshot we write later — the
     // value gets moved into `create_instance` below.
     let mrpack_project_id_for_origin = mrpack_project_id.clone();
@@ -474,15 +488,29 @@ pub async fn import(
         mrpack_source,
         mrpack_summary,
         hint_version_id,
-    ).map_err(|e| Error::ModpackInstanceCreationFailed { details: e.to_string() })?;
+    )
+    .map_err(|e| Error::ModpackInstanceCreationFailed {
+        details: e.to_string(),
+    })?;
 
-    let instance_root = crate::paths::instance_dir(app, &inst.id)
-        .map_err(|e| Error::Io { path: "<instance_dir>".into(), details: e.to_string() })?;
-    let data_dir = crate::paths::app_dir(app)
-        .map_err(|e| Error::Io { path: "<app_dir>".into(), details: e.to_string() })?;
+    let instance_root = crate::paths::instance_dir(app, &inst.id).map_err(|e| Error::Io {
+        path: "<instance_dir>".into(),
+        details: e.to_string(),
+    })?;
+    let data_dir = crate::paths::app_dir(app).map_err(|e| Error::Io {
+        path: "<app_dir>".into(),
+        details: e.to_string(),
+    })?;
 
-    let selected: Vec<&ModpackFile> = summary.files.iter()
-        .filter(|f| selected_shas.iter().any(|s| s.eq_ignore_ascii_case(&f.sha1))).collect();
+    let selected: Vec<&ModpackFile> = summary
+        .files
+        .iter()
+        .filter(|f| {
+            selected_shas
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(&f.sha1))
+        })
+        .collect();
     let total = selected.len() as u32;
     let mut failures: Vec<(String, String)> = vec![];
 
@@ -524,7 +552,10 @@ pub async fn import(
     if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
         let bytes_clone = bytes.to_vec();
         bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
-            on_progress(ModpackProgress::ExtractingOverrides { current: c, total: t });
+            on_progress(ModpackProgress::ExtractingOverrides {
+                current: c,
+                total: t,
+            });
         })
         .await?;
     }
@@ -533,7 +564,12 @@ pub async fn import(
     // is already done at this point; a write failure here only loses
     // the modified/restore affordance, not any installed mod or
     // instance. Log and continue.
-    let mut origin = build_pack_origin(&summary, &selected, mrpack_project_id_for_origin, &pack_name);
+    let mut origin = build_pack_origin(
+        &summary,
+        &selected,
+        mrpack_project_id_for_origin,
+        &pack_name,
+    );
     // Fold bundled-from-overrides jars into the origin so they badge
     // as "pack" in the drawer. `url` stays empty (bundled bytes have
     // no remote source) — the Restore path checks for this and
@@ -543,7 +579,11 @@ pub async fn import(
     for m in &bundled_assets {
         origin.files.push(crate::mods::installed::PackOriginFile {
             sha1: m.sha1.clone(),
-            name: m.filename.trim_end_matches(".jar").trim_end_matches(".disabled").to_string(),
+            name: m
+                .filename
+                .trim_end_matches(".jar")
+                .trim_end_matches(".disabled")
+                .to_string(),
             filename: m.filename.clone(),
             install_path: m.install_path.clone(),
             url: String::new(),
@@ -575,12 +615,17 @@ pub async fn import(
         eprintln!("[modpack::import] enrich_instance failed (non-fatal): {e}");
     }
 
-    on_progress(ModpackProgress::Done { instance_id: inst.id.clone() });
+    on_progress(ModpackProgress::Done {
+        instance_id: inst.id.clone(),
+    });
 
     if failures.is_empty() {
         Ok(inst)
     } else {
-        Err(Error::ModpackPartialFailure { instance_id: inst.id, failed: failures })
+        Err(Error::ModpackPartialFailure {
+            instance_id: inst.id,
+            failed: failures,
+        })
     }
 }
 
@@ -604,11 +649,11 @@ struct PackMeta {
 /// is intentional — metadata is nice-to-have, not blocking. Callers use
 /// `.unwrap_or((None, PackMeta::default()))` so a 404 or transient network
 /// failure can never abort an otherwise-successful import.
-async fn fetch_modrinth_metadata(
-    version_id: &str,
-) -> Result<(Option<String>, PackMeta), Error> {
+async fn fetch_modrinth_metadata(version_id: &str) -> Result<(Option<String>, PackMeta), Error> {
     #[derive(serde::Deserialize)]
-    struct V { project_id: String }
+    struct V {
+        project_id: String,
+    }
 
     let v_url = format!("https://api.modrinth.com/v2/version/{version_id}");
     let v_resp = crate::network::request::get(
@@ -617,7 +662,10 @@ async fn fetch_modrinth_metadata(
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork { url: v_url.clone(), details: e.to_string() })?;
+    .map_err(|e| Error::ModsNetwork {
+        url: v_url.clone(),
+        details: e.to_string(),
+    })?;
     if !(200..300).contains(&v_resp.status) {
         return Ok((None, PackMeta::default()));
     }
@@ -635,9 +683,7 @@ async fn fetch_modrinth_metadata(
 /// and as the second hop of `fetch_modrinth_metadata`. Same
 /// silent-on-failure semantics — a non-2xx response yields a default
 /// (all-`None`) `PackMeta`.
-async fn fetch_modrinth_project(
-    project_id: &str,
-) -> Result<PackMeta, Error> {
+async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
     #[derive(serde::Deserialize)]
     struct P {
         title: Option<String>,
@@ -651,7 +697,10 @@ async fn fetch_modrinth_project(
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork { url: p_url.clone(), details: e.to_string() })?;
+    .map_err(|e| Error::ModsNetwork {
+        url: p_url.clone(),
+        details: e.to_string(),
+    })?;
     if !(200..300).contains(&p_resp.status) {
         return Ok(PackMeta::default());
     }
@@ -659,7 +708,10 @@ async fn fetch_modrinth_project(
         platform: "modrinth".into(),
         details: e.to_string(),
     })?;
-    Ok(PackMeta { name: p.title, description: p.description })
+    Ok(PackMeta {
+        name: p.title,
+        description: p.description,
+    })
 }
 
 #[cfg(test)]
@@ -680,7 +732,9 @@ mod tests {
     #[test]
     fn resolve_name_walks_until_free() {
         let existing = vec![
-            "Pack".to_string(), "Pack (2)".to_string(), "Pack (3)".to_string()
+            "Pack".to_string(),
+            "Pack (2)".to_string(),
+            "Pack (3)".to_string(),
         ];
         assert_eq!(resolve_name("Pack", &existing).unwrap(), "Pack (4)");
     }
@@ -688,13 +742,21 @@ mod tests {
     #[test]
     fn resolve_name_errors_when_999_exhausted() {
         let mut existing = vec!["Pack".to_string()];
-        for i in 2..=999 { existing.push(format!("Pack ({i})")); }
-        assert!(matches!(resolve_name("Pack", &existing), Err(Error::ModpackInstanceCreationFailed { .. })));
+        for i in 2..=999 {
+            existing.push(format!("Pack ({i})"));
+        }
+        assert!(matches!(
+            resolve_name("Pack", &existing),
+            Err(Error::ModpackInstanceCreationFailed { .. })
+        ));
     }
 
     #[test]
     fn resolve_pack_name_prefers_platform_name() {
-        assert_eq!(resolve_pack_name(Some("Sodium Plus"), "2.3.7"), "Sodium Plus");
+        assert_eq!(
+            resolve_pack_name(Some("Sodium Plus"), "2.3.7"),
+            "Sodium Plus"
+        );
     }
 
     #[test]
@@ -710,7 +772,10 @@ mod tests {
 
     #[test]
     fn resolve_pack_name_trims_platform_name() {
-        assert_eq!(resolve_pack_name(Some("  Sodium Plus  "), "2.3.7"), "Sodium Plus");
+        assert_eq!(
+            resolve_pack_name(Some("  Sodium Plus  "), "2.3.7"),
+            "Sodium Plus"
+        );
     }
 
     fn sample_summary(format: ModpackFormat) -> ModpackSummary {
@@ -808,9 +873,21 @@ mod tests {
         crate::mods::platform::InstalledMod {
             filename: format!("{sha}.jar"),
             sha1: sha.into(),
-            source: if with_source { Some(ModSource::Modrinth) } else { None },
-            project_id: if with_source { Some(format!("p-{sha}")) } else { None },
-            version_id: if with_source { Some(format!("v-{sha}")) } else { None },
+            source: if with_source {
+                Some(ModSource::Modrinth)
+            } else {
+                None
+            },
+            project_id: if with_source {
+                Some(format!("p-{sha}"))
+            } else {
+                None
+            },
+            version_id: if with_source {
+                Some(format!("v-{sha}"))
+            } else {
+                None
+            },
             name: format!("Mod {sha}"),
             version_number: None,
             installed_at: chrono::Utc::now().to_rfc3339(),
@@ -934,7 +1011,11 @@ mod tests {
     #[test]
     fn pack_origin_file_to_mod_version_round_trip() {
         let f = pack_file("aaa");
-        let v = pack_origin_file_to_mod_version(&f, "1.20.1", crate::mods::platform::LoaderKind::Fabric);
+        let v = pack_origin_file_to_mod_version(
+            &f,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+        );
         assert_eq!(v.source, ModSource::Modrinth);
         assert_eq!(v.project_id, "p-aaa");
         assert_eq!(v.version_id, "v-aaa");
@@ -974,16 +1055,22 @@ mod tests {
 
     #[test]
     fn diff_classifies_added_removed_updated_unchanged() {
-        let mut a_old = pack_file("aaa"); a_old.project_id = "A".into();
-        let mut b_old = pack_file("bbb"); b_old.project_id = "B".into();
-        let mut c_old = pack_file("ccc"); c_old.project_id = "C".into();
+        let mut a_old = pack_file("aaa");
+        a_old.project_id = "A".into();
+        let mut b_old = pack_file("bbb");
+        b_old.project_id = "B".into();
+        let mut c_old = pack_file("ccc");
+        c_old.project_id = "C".into();
         let origin = origin_with(vec![a_old, b_old, c_old]);
         let new_files = vec![
             mp_file("A", "aaa"),
             mp_file("B", "bbb-2"),
             mp_file("D", "ddd"),
         ];
-        let summary = ModpackSummary { files: new_files, ..sample_summary(ModpackFormat::Modrinth) };
+        let summary = ModpackSummary {
+            files: new_files,
+            ..sample_summary(ModpackFormat::Modrinth)
+        };
         let diff = compute_update_diff(
             &summary,
             &origin,
@@ -1006,7 +1093,10 @@ mod tests {
         bundled.project_id = String::new();
         bundled.url = String::new();
         let origin = origin_with(vec![bundled]);
-        let summary = ModpackSummary { files: vec![], ..sample_summary(ModpackFormat::Modrinth) };
+        let summary = ModpackSummary {
+            files: vec![],
+            ..sample_summary(ModpackFormat::Modrinth)
+        };
         let diff = compute_update_diff(
             &summary,
             &origin,
@@ -1014,13 +1104,19 @@ mod tests {
             crate::mods::platform::LoaderKind::Fabric,
             &Some("0.15.7".into()),
         );
-        assert!(diff.removed.is_empty(), "bundled entry must not be in removed");
+        assert!(
+            diff.removed.is_empty(),
+            "bundled entry must not be in removed"
+        );
     }
 
     #[test]
     fn diff_detects_version_bump() {
         let origin = origin_with(vec![]);
-        let mut summary = ModpackSummary { files: vec![], ..sample_summary(ModpackFormat::Modrinth) };
+        let mut summary = ModpackSummary {
+            files: vec![],
+            ..sample_summary(ModpackFormat::Modrinth)
+        };
         summary.game_version = "1.20.4".into();
         let diff = compute_update_diff(
             &summary,
@@ -1046,9 +1142,15 @@ mod tests {
         };
         let mut wanted = origin.files[0].clone();
         wanted.sha1 = "AbCdEf".into();
-        let found = origin.files.iter().find(|f| f.sha1.eq_ignore_ascii_case("abcdef"));
+        let found = origin
+            .files
+            .iter()
+            .find(|f| f.sha1.eq_ignore_ascii_case("abcdef"));
         assert!(found.is_some());
-        let none = origin.files.iter().find(|f| f.sha1.eq_ignore_ascii_case("missing"));
+        let none = origin
+            .files
+            .iter()
+            .find(|f| f.sha1.eq_ignore_ascii_case("missing"));
         assert!(none.is_none());
     }
 
@@ -1056,7 +1158,9 @@ mod tests {
     fn is_tracked_mod_only_matches_top_level_jar() {
         assert!(is_tracked_mod("mods/sodium.jar"));
         assert!(!is_tracked_mod("mods/Emis_Rlcraft.zip"));
-        assert!(!is_tracked_mod("mods/memory_repo/com/x/llibrary/llibrary.jar"));
+        assert!(!is_tracked_mod(
+            "mods/memory_repo/com/x/llibrary/llibrary.jar"
+        ));
         assert!(!is_tracked_mod("resourcepacks/RLHats.zip"));
         assert!(!is_tracked_mod("mods/"));
     }
@@ -1066,8 +1170,10 @@ mod tests {
         let mut zip = pack_file("z");
         zip.install_path = "mods/Emis_Rlcraft.zip".into();
         let origin = PackOrigin {
-            project_id: None, source: ModSource::Curseforge,
-            project_name: "P".into(), version: "1".into(),
+            project_id: None,
+            source: ModSource::Curseforge,
+            project_name: "P".into(),
+            version: "1".into(),
             files: vec![pack_file("a"), zip],
             missing_mods: vec![],
         };
@@ -1075,7 +1181,10 @@ mod tests {
         let present: std::collections::HashSet<String> =
             ["mods/Emis_Rlcraft.zip".to_string()].into_iter().collect();
         let s = compute_status(origin, &installed, &present);
-        assert!(!s.is_modified, "a .zip present on disk must not be 'removed'");
+        assert!(
+            !s.is_modified,
+            "a .zip present on disk must not be 'removed'"
+        );
     }
 
     #[test]
@@ -1124,16 +1233,23 @@ mod tests {
         let mut nested = pack_file("n");
         nested.install_path = "mods/memory_repo/com/x/llibrary.jar".into();
         let origin = PackOrigin {
-            project_id: None, source: ModSource::Curseforge,
-            project_name: "P".into(), version: "1".into(),
+            project_id: None,
+            source: ModSource::Curseforge,
+            project_name: "P".into(),
+            version: "1".into(),
             files: vec![pack_file("a"), nested],
             missing_mods: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
-            ["mods/memory_repo/com/x/llibrary.jar".to_string()].into_iter().collect();
+            ["mods/memory_repo/com/x/llibrary.jar".to_string()]
+                .into_iter()
+                .collect();
         let s = compute_status(origin, &installed, &present);
-        assert!(!s.is_modified, "a nested mods/ jar present on disk must not be 'removed'");
+        assert!(
+            !s.is_modified,
+            "a nested mods/ jar present on disk must not be 'removed'"
+        );
     }
 
     fn missing_entry(
@@ -1198,23 +1314,46 @@ mod tests {
 
     #[test]
     fn missing_state_different_version_by_project_id() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
-        let installed = vec![installed_mod("zz", "srp-2.8.jar", "Whatever", true, Some("p1"))];
+        let origin = origin_with_missing(vec![missing_entry(
+            Some("aa"),
+            "srp.jar",
+            "SRP",
+            Some("p1"),
+        )]);
+        let installed = vec![installed_mod(
+            "zz",
+            "srp-2.8.jar",
+            "Whatever",
+            true,
+            Some("p1"),
+        )];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
     #[test]
     fn missing_state_different_version_by_name() {
-        let origin = origin_with_missing(vec![missing_entry(None, "srp.jar", "Scape and Run", None)]);
-        let installed = vec![installed_mod("zz", "other.jar", "scape and run", true, None)];
+        let origin =
+            origin_with_missing(vec![missing_entry(None, "srp.jar", "Scape and Run", None)]);
+        let installed = vec![installed_mod(
+            "zz",
+            "other.jar",
+            "scape and run",
+            true,
+            None,
+        )];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
     #[test]
     fn missing_state_missing_when_nothing_matches() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
+        let origin = origin_with_missing(vec![missing_entry(
+            Some("aa"),
+            "srp.jar",
+            "SRP",
+            Some("p1"),
+        )]);
         let installed = vec![installed_mod("zz", "other.jar", "Other", true, Some("p2"))];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::Missing);
@@ -1222,7 +1361,12 @@ mod tests {
 
     #[test]
     fn missing_state_pinned_file_wins_over_project_id() {
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
+        let origin = origin_with_missing(vec![missing_entry(
+            Some("aa"),
+            "srp.jar",
+            "SRP",
+            Some("p1"),
+        )]);
         let installed = vec![installed_mod("aa", "srp.jar", "SRP", true, Some("p1"))];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::Installed);
@@ -1234,23 +1378,49 @@ mod tests {
         // against every installed mod regardless of `enabled`, so a
         // different version the user toggled off still classifies as
         // `different_version`, not `missing`.
-        let origin = origin_with_missing(vec![missing_entry(Some("aa"), "srp.jar", "SRP", Some("p1"))]);
-        let installed = vec![installed_mod("zz", "srp-2.8.jar", "Whatever", false, Some("p1"))];
+        let origin = origin_with_missing(vec![missing_entry(
+            Some("aa"),
+            "srp.jar",
+            "SRP",
+            Some("p1"),
+        )]);
+        let installed = vec![installed_mod(
+            "zz",
+            "srp-2.8.jar",
+            "Whatever",
+            false,
+            Some("p1"),
+        )];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
     }
 
     #[test]
     fn filename_stem_strips_the_version_tail() {
-        assert_eq!(filename_stem("srparasites-1.12.2-2.7.1.jar").as_deref(), Some("srparasites"));
-        assert_eq!(filename_stem("jei_1.12.2-4.16.1.302.jar").as_deref(), Some("jei"));
-        assert_eq!(filename_stem("RTG-1.12.2-6.1.0.0-snapshot.1.jar").as_deref(), Some("rtg"));
+        assert_eq!(
+            filename_stem("srparasites-1.12.2-2.7.1.jar").as_deref(),
+            Some("srparasites")
+        );
+        assert_eq!(
+            filename_stem("jei_1.12.2-4.16.1.302.jar").as_deref(),
+            Some("jei")
+        );
+        assert_eq!(
+            filename_stem("RTG-1.12.2-6.1.0.0-snapshot.1.jar").as_deref(),
+            Some("rtg")
+        );
         // Multi-word leading name is kept whole.
-        assert_eq!(filename_stem("sodium-extra-0.5.4.jar").as_deref(), Some("sodium-extra"));
+        assert_eq!(
+            filename_stem("sodium-extra-0.5.4.jar").as_deref(),
+            Some("sodium-extra")
+        );
         // A filename starting with a digit yields no stem.
         assert_eq!(filename_stem("2019-mod-1.0.jar"), None);
         // Disabled jars: the .disabled suffix is stripped too.
-        assert_eq!(filename_stem("srparasites-1.12.2-2.7.1.jar.disabled").as_deref(), Some("srparasites"));
+        assert_eq!(
+            filename_stem("srparasites-1.12.2-2.7.1.jar.disabled").as_deref(),
+            Some("srparasites")
+        );
     }
 
     #[test]

@@ -24,7 +24,10 @@ impl CurseForgeClient {
     }
 
     pub fn with_base_and_key(base: impl Into<String>, key: Option<String>) -> Self {
-        Self { base: base.into(), api_key: key }
+        Self {
+            base: base.into(),
+            api_key: key,
+        }
     }
 
     /// The API key, validated as header-safe. `Missing` when no key is
@@ -54,7 +57,9 @@ impl CurseForgeClient {
             });
         }
         if resp.status == 404 {
-            return Err(Error::ModsNotFound { platform: "curseforge".into() });
+            return Err(Error::ModsNotFound {
+                platform: "curseforge".into(),
+            });
         }
         if !(200..300).contains(&resp.status) {
             return Err(Error::ModsNetwork {
@@ -107,7 +112,10 @@ impl ModPlatform for CurseForgeClient {
         let url = format!("{}/v1/mods/search?{}", self.base, encode_pairs(&params));
         let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
         let env: types::ListEnvelope<types::Mod> = self.map_status(resp, url)?;
         let total = env
             .pagination
@@ -133,13 +141,20 @@ impl ModPlatform for CurseForgeClient {
         let url = format!("{}/v1/mods/{}", self.base, project_id);
         let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
         let env: types::Envelope<types::Mod> = self.map_status(resp, url)?;
         let summary = convert_mod_summary(env.data);
         // CF mod summary discards `links.websiteUrl` during conversion; the
         // detail drawer falls back to constructing the canonical CurseForge URL
         // from `slug`. Keep `website_url` None for v1.
-        Ok(ModProject { summary, description: String::new(), website_url: None })
+        Ok(ModProject {
+            summary,
+            description: String::new(),
+            website_url: None,
+        })
     }
 
     async fn versions(
@@ -164,7 +179,10 @@ impl ModPlatform for CurseForgeClient {
         );
         let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
         let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
         Ok(env
             .data
@@ -201,7 +219,10 @@ impl ModPlatform for CurseForgeClient {
             }
             let vs = self.versions(&pid, mc, loader).await?;
             if let Some(v) = vs.into_iter().next() {
-                let resolved = ResolvedDep { project_ref: dep.project_ref.clone(), version: v };
+                let resolved = ResolvedDep {
+                    project_ref: dep.project_ref.clone(),
+                    version: v,
+                };
                 match dep.kind {
                     DepKind::Required => required.push(resolved),
                     DepKind::Optional => optional.push(resolved),
@@ -211,7 +232,12 @@ impl ModPlatform for CurseForgeClient {
                 unresolvable.push(dep.project_ref.clone());
             }
         }
-        Ok(ResolvedDeps { required, optional, incompatible, unresolvable })
+        Ok(ResolvedDeps {
+            required,
+            optional,
+            incompatible,
+            unresolvable,
+        })
     }
 }
 
@@ -224,13 +250,22 @@ fn convert_mod_summary(m: types::Mod) -> ModSummary {
         summary: m.summary,
         icon_url: m.logo.and_then(|l| l.url),
         downloads: m.download_count as f64,
-        author: m.authors.into_iter().map(|a| a.name).next().unwrap_or_default(),
+        author: m
+            .authors
+            .into_iter()
+            .map(|a| a.name)
+            .next()
+            .unwrap_or_default(),
         updated_at: m.date_modified,
     }
 }
 
 fn convert_version(f: types::File, project_id: &str) -> Option<ModVersion> {
-    let sha1 = f.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.clone());
+    let sha1 = f
+        .hashes
+        .iter()
+        .find(|h| h.algo == 1)
+        .map(|h| h.value.clone());
     let url = f.download_url.unwrap_or_default();
     let distribution_allowed = !url.is_empty() && f.is_available;
     Some(ModVersion {
@@ -261,7 +296,10 @@ fn convert_version(f: types::File, project_id: &str) -> Option<ModVersion> {
                 };
                 Some(ModDepLink {
                     kind,
-                    project_ref: DepProjectRef::Curseforge { mod_id: d.mod_id, file_id: None },
+                    project_ref: DepProjectRef::Curseforge {
+                        mod_id: d.mod_id,
+                        file_id: None,
+                    },
                 })
             })
             .collect(),

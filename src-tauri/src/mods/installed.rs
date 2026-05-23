@@ -103,7 +103,9 @@ struct OnDisk {
     pack_origin: Option<PackOrigin>,
 }
 
-fn default_version() -> u32 { FILE_VERSION }
+fn default_version() -> u32 {
+    FILE_VERSION
+}
 
 pub fn registry_dir(instance_root: &Path) -> PathBuf {
     instance_root.join("ftlauncher")
@@ -139,22 +141,36 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
 async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error> {
     let path = registry_path(instance_root);
     if !fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
-        return Ok(OnDisk { version: FILE_VERSION, mods: vec![], pack_origin: None });
+        return Ok(OnDisk {
+            version: FILE_VERSION,
+            mods: vec![],
+            pack_origin: None,
+        });
     }
     let bytes = fs::read(&path).await.map_err(|e| io_err(&path, e))?;
     // Corrupt JSON: treat as empty; reconcile will rebuild from disk.
-    Ok(serde_json::from_slice::<OnDisk>(&bytes).unwrap_or(OnDisk { version: FILE_VERSION, mods: vec![], pack_origin: None }))
+    Ok(serde_json::from_slice::<OnDisk>(&bytes).unwrap_or(OnDisk {
+        version: FILE_VERSION,
+        mods: vec![],
+        pack_origin: None,
+    }))
 }
 
 async fn write(instance_root: &Path, state: &OnDisk) -> Result<(), Error> {
     let dir = registry_dir(instance_root);
-    fs::create_dir_all(&dir).await.map_err(|e| io_err(&dir, e))?;
+    fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| io_err(&dir, e))?;
     let final_path = registry_path(instance_root);
     let tmp = final_path.with_extension("json.tmp");
-    let bytes = serde_json::to_vec_pretty(state)
-        .map_err(|e| Error::ModsDecode { platform: "installed-mods.json".into(), details: e.to_string() })?;
+    let bytes = serde_json::to_vec_pretty(state).map_err(|e| Error::ModsDecode {
+        platform: "installed-mods.json".into(),
+        details: e.to_string(),
+    })?;
     fs::write(&tmp, &bytes).await.map_err(|e| io_err(&tmp, e))?;
-    fs::rename(&tmp, &final_path).await.map_err(|e| io_err(&final_path, e))?;
+    fs::rename(&tmp, &final_path)
+        .await
+        .map_err(|e| io_err(&final_path, e))?;
     Ok(())
 }
 
@@ -198,8 +214,9 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
 
     // 1. Update existing JSON entries by SHA, fixing filename / enabled drift.
     for m in state.mods.iter_mut() {
-        if let Some((on_disk_name, _, on_disk_enabled)) =
-            on_disk.iter().find(|(_, sha, _)| sha.eq_ignore_ascii_case(&m.sha1))
+        if let Some((on_disk_name, _, on_disk_enabled)) = on_disk
+            .iter()
+            .find(|(_, sha, _)| sha.eq_ignore_ascii_case(&m.sha1))
         {
             if m.filename != *on_disk_name {
                 m.filename = on_disk_name.clone();
@@ -214,16 +231,23 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
 
     // 2. Drop JSON entries with no matching file on disk.
     let before = state.mods.len();
-    let on_disk_shas: std::collections::HashSet<String> =
-        on_disk.iter().map(|(_, s, _)| s.to_ascii_lowercase()).collect();
-    state.mods.retain(|m| on_disk_shas.contains(&m.sha1.to_ascii_lowercase()));
+    let on_disk_shas: std::collections::HashSet<String> = on_disk
+        .iter()
+        .map(|(_, s, _)| s.to_ascii_lowercase())
+        .collect();
+    state
+        .mods
+        .retain(|m| on_disk_shas.contains(&m.sha1.to_ascii_lowercase()));
     if state.mods.len() != before {
         changed = true;
     }
 
     // 3. Add synthesized entries for files on disk with no JSON record.
-    let known_shas: std::collections::HashSet<String> =
-        state.mods.iter().map(|m| m.sha1.to_ascii_lowercase()).collect();
+    let known_shas: std::collections::HashSet<String> = state
+        .mods
+        .iter()
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .collect();
     for (filename, sha, enabled) in on_disk.iter() {
         if !known_shas.contains(&sha.to_ascii_lowercase()) {
             state.mods.push(InstalledMod {
@@ -263,7 +287,11 @@ pub async fn remove(instance_root: &Path, sha1: &str) -> Result<(), Error> {
 /// Toggle `enabled` for the entry with the given SHA-1.
 pub async fn set_enabled(instance_root: &Path, sha1: &str, enabled: bool) -> Result<(), Error> {
     let mut state = read_or_empty(instance_root).await?;
-    if let Some(m) = state.mods.iter_mut().find(|x| x.sha1.eq_ignore_ascii_case(sha1)) {
+    if let Some(m) = state
+        .mods
+        .iter_mut()
+        .find(|x| x.sha1.eq_ignore_ascii_case(sha1))
+    {
         m.enabled = enabled;
     }
     write(instance_root, &state).await
@@ -312,9 +340,7 @@ pub async fn apply_enrichment(
 /// key is configured, those mods become re-queryable. Resolved mods
 /// (`source.is_some()`) are not touched. A no-op on instances whose
 /// `source = None` mods are already `enrich_attempted = false`.
-pub async fn reset_enrichment_attempts_for_unresolved(
-    instance_root: &Path,
-) -> Result<(), Error> {
+pub async fn reset_enrichment_attempts_for_unresolved(instance_root: &Path) -> Result<(), Error> {
     let mut state = read_or_empty(instance_root).await?;
     let mut changed = false;
     for m in state.mods.iter_mut() {
@@ -375,7 +401,10 @@ pub async fn get_pack_origin(instance_root: &Path) -> Result<Option<PackOrigin>,
 }
 
 fn io_err(path: &Path, e: std::io::Error) -> Error {
-    Error::ModsInstancePath { path: path.display().to_string(), details: e.to_string() }
+    Error::ModsInstancePath {
+        path: path.display().to_string(),
+        details: e.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -442,18 +471,23 @@ mod tests {
     async fn add_then_list_round_trips_metadata() {
         let td = TempDir::new().unwrap();
         let sha = place_jar(&mods_dir(td.path()), "jei.jar", b"jei-bytes").await;
-        add(td.path(), InstalledMod {
-            filename: "jei.jar".into(),
-            sha1: sha.clone(),
-            source: Some(ModSource::Modrinth),
-            project_id: Some("u6dRKJwZ".into()),
-            version_id: Some("ZG8XHvO0".into()),
-            name: "Just Enough Items".into(),
-            version_number: Some("15.2.0.27".into()),
-            installed_at: Utc::now().to_rfc3339(),
-            enabled: true,
-            enrich_attempted: false,
-        }).await.unwrap();
+        add(
+            td.path(),
+            InstalledMod {
+                filename: "jei.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("u6dRKJwZ".into()),
+                version_id: Some("ZG8XHvO0".into()),
+                name: "Just Enough Items".into(),
+                version_number: Some("15.2.0.27".into()),
+                installed_at: Utc::now().to_rfc3339(),
+                enabled: true,
+                enrich_attempted: false,
+            },
+        )
+        .await
+        .unwrap();
         let mods = list(td.path()).await.unwrap();
         assert_eq!(mods.len(), 1);
         assert_eq!(mods[0].name, "Just Enough Items");
@@ -466,7 +500,9 @@ mod tests {
         place_jar(&mods_dir(td.path()), "rebuilt.jar", b"data").await;
         let dir = registry_dir(td.path());
         fs::create_dir_all(&dir).await.unwrap();
-        fs::write(registry_path(td.path()), b"this is not json").await.unwrap();
+        fs::write(registry_path(td.path()), b"this is not json")
+            .await
+            .unwrap();
         let mods = list(td.path()).await.unwrap();
         assert_eq!(mods.len(), 1);
         assert_eq!(mods[0].filename, "rebuilt.jar");
@@ -518,18 +554,23 @@ mod tests {
     async fn set_pack_origin_preserves_existing_mods() {
         let td = TempDir::new().unwrap();
         let sha = place_jar(&mods_dir(td.path()), "fixed.jar", b"abc").await;
-        add(td.path(), InstalledMod {
-            filename: "fixed.jar".into(),
-            sha1: sha.clone(),
-            source: Some(ModSource::Modrinth),
-            project_id: Some("zzz".into()),
-            version_id: Some("yyy".into()),
-            name: "Pinned".into(),
-            version_number: Some("1.0".into()),
-            installed_at: Utc::now().to_rfc3339(),
-            enabled: true,
-            enrich_attempted: false,
-        }).await.unwrap();
+        add(
+            td.path(),
+            InstalledMod {
+                filename: "fixed.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("zzz".into()),
+                version_id: Some("yyy".into()),
+                name: "Pinned".into(),
+                version_number: Some("1.0".into()),
+                installed_at: Utc::now().to_rfc3339(),
+                enabled: true,
+                enrich_attempted: false,
+            },
+        )
+        .await
+        .unwrap();
         set_pack_origin(td.path(), sample_origin()).await.unwrap();
         let mods = list(td.path()).await.unwrap();
         assert_eq!(mods.len(), 1);
@@ -592,10 +633,8 @@ mod tests {
         assert_eq!(origin.files.len(), 1);
         assert!(origin.files[0].install_path.starts_with("mods/"));
         // version bumped on disk so the migration is one-shot.
-        let raw = String::from_utf8(
-            tokio::fs::read(registry_path(td.path())).await.unwrap(),
-        )
-        .unwrap();
+        let raw =
+            String::from_utf8(tokio::fs::read(registry_path(td.path())).await.unwrap()).unwrap();
         // Migration bumps a v1 file straight to the current
         // FILE_VERSION (3) in one pass.
         assert!(raw.contains("\"version\": 3"), "got {raw}");
@@ -630,7 +669,10 @@ mod tests {
         write(td.path(), &v2).await.unwrap();
         let mods = list(td.path()).await.unwrap();
         let m = mods.iter().find(|m| m.sha1 == sha).unwrap();
-        assert!(!m.enrich_attempted, "list() must return post-migration values");
+        assert!(
+            !m.enrich_attempted,
+            "list() must return post-migration values"
+        );
     }
 
     #[tokio::test]
@@ -690,10 +732,8 @@ mod tests {
             "resolved mod's identity must be preserved",
         );
         assert!(!res.enrich_attempted);
-        let raw = String::from_utf8(
-            tokio::fs::read(registry_path(td.path())).await.unwrap(),
-        )
-        .unwrap();
+        let raw =
+            String::from_utf8(tokio::fs::read(registry_path(td.path())).await.unwrap()).unwrap();
         assert!(raw.contains("\"version\": 3"), "got {raw}");
     }
 
@@ -856,7 +896,9 @@ mod tests {
         );
         let mut attempted = std::collections::HashSet::new();
         attempted.insert(sha.clone());
-        apply_enrichment(td.path(), &resolved, &attempted).await.unwrap();
+        apply_enrichment(td.path(), &resolved, &attempted)
+            .await
+            .unwrap();
         let mods = list(td.path()).await.unwrap();
         assert_eq!(mods[0].source, Some(ModSource::Modrinth));
         assert_eq!(mods[0].project_id.as_deref(), Some("AANobbMI"));
@@ -872,7 +914,9 @@ mod tests {
         let resolved = HashMap::new(); // no match for this jar
         let mut attempted = std::collections::HashSet::new();
         attempted.insert(sha.clone());
-        apply_enrichment(td.path(), &resolved, &attempted).await.unwrap();
+        apply_enrichment(td.path(), &resolved, &attempted)
+            .await
+            .unwrap();
         let mods = list(td.path()).await.unwrap();
         assert!(mods[0].source.is_none());
         assert!(mods[0].enrich_attempted);
@@ -902,7 +946,9 @@ mod tests {
         }
         write(td.path(), &state).await.unwrap();
 
-        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+        reset_enrichment_attempts_for_unresolved(td.path())
+            .await
+            .unwrap();
 
         let state = read_or_empty(td.path()).await.unwrap();
         let unr = state.mods.iter().find(|m| m.sha1 == sha_unr).unwrap();
@@ -924,8 +970,12 @@ mod tests {
         state.mods[0].enrich_attempted = true;
         write(td.path(), &state).await.unwrap();
 
-        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
-        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+        reset_enrichment_attempts_for_unresolved(td.path())
+            .await
+            .unwrap();
+        reset_enrichment_attempts_for_unresolved(td.path())
+            .await
+            .unwrap();
 
         let state = read_or_empty(td.path()).await.unwrap();
         let m = state.mods.iter().find(|m| m.sha1 == sha).unwrap();
@@ -946,7 +996,9 @@ mod tests {
         state.mods[0].enrich_attempted = true;
         write(td.path(), &state).await.unwrap();
 
-        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+        reset_enrichment_attempts_for_unresolved(td.path())
+            .await
+            .unwrap();
 
         let state = read_or_empty(td.path()).await.unwrap();
         let m = state.mods.iter().find(|m| m.sha1 == sha).unwrap();
@@ -973,12 +1025,26 @@ mod tests {
 
         // The command's iteration:
         for root in [td_a.path(), td_b.path()] {
-            reset_enrichment_attempts_for_unresolved(root).await.unwrap();
+            reset_enrichment_attempts_for_unresolved(root)
+                .await
+                .unwrap();
         }
 
         let s_a = read_or_empty(td_a.path()).await.unwrap();
         let s_b = read_or_empty(td_b.path()).await.unwrap();
-        assert!(!s_a.mods.iter().find(|m| m.sha1 == sha_a).unwrap().enrich_attempted);
-        assert!(!s_b.mods.iter().find(|m| m.sha1 == sha_b).unwrap().enrich_attempted);
+        assert!(
+            !s_a.mods
+                .iter()
+                .find(|m| m.sha1 == sha_a)
+                .unwrap()
+                .enrich_attempted
+        );
+        assert!(
+            !s_b.mods
+                .iter()
+                .find(|m| m.sha1 == sha_b)
+                .unwrap()
+                .enrich_attempted
+        );
     }
 }

@@ -76,7 +76,11 @@ pub fn artifacts_to_install(
     }
     let mut out = Vec::with_capacity(2);
 
-    if let Some(dl) = lib.downloads.as_ref().filter(|dl| dl.artifact.is_some() || dl.classifiers.is_some()) {
+    if let Some(dl) = lib
+        .downloads
+        .as_ref()
+        .filter(|dl| dl.artifact.is_some() || dl.classifiers.is_some())
+    {
         // Vanilla path — full downloads block with SHA-1. Empty URL means
         // the artifact is produced locally (e.g. modern-era Forge ships
         // `net.minecraftforge:forge:<mc>-<fv>:client` in version.json with
@@ -85,7 +89,12 @@ pub fn artifacts_to_install(
         // classpath construction at launch. The download path
         // (`ensure_libraries`) skips empty-URL entries separately.
         if let Some(art) = dl.artifact.as_ref() {
-            out.push((art.path.clone(), art.url.clone(), art.sha1.clone(), art.size));
+            out.push((
+                art.path.clone(),
+                art.url.clone(),
+                art.sha1.clone(),
+                art.size,
+            ));
         }
         // Natives — modern Mojang uses `classifiers.<key>` where the key
         // is derived from `natives.<os>` substituted with `${arch}`.
@@ -95,7 +104,12 @@ pub fn artifacts_to_install(
             if let Some(classifier_key) = natives_map.get(os) {
                 let key = classifier_key.replace("${arch}", arch);
                 if let Some(art) = classifiers.get(&key) {
-                    out.push((art.path.clone(), art.url.clone(), art.sha1.clone(), art.size));
+                    out.push((
+                        art.path.clone(),
+                        art.url.clone(),
+                        art.sha1.clone(),
+                        art.size,
+                    ));
                 }
             }
         }
@@ -248,7 +262,9 @@ async fn file_matches_sha(path: &std::path::Path, expected_sha_hex: &str) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::versions::version_json::{Artifact, Library, LibraryDownloads, OsRule, Rule, RuleAction};
+    use crate::versions::version_json::{
+        Artifact, Library, LibraryDownloads, OsRule, Rule, RuleAction,
+    };
 
     fn lib_with_rules(rules: Vec<Rule>) -> Library {
         Library {
@@ -339,9 +355,10 @@ mod tests {
         let lib = lib_with_rules(vec![Rule {
             action: RuleAction::Allow,
             os: None,
-            features: Some(std::collections::HashMap::from([
-                ("is_demo_user".to_string(), true),
-            ])),
+            features: Some(std::collections::HashMap::from([(
+                "is_demo_user".to_string(),
+                true,
+            )])),
         }]);
         // No rule matched → not allowed (stays at the default false).
         assert!(!should_install(&lib, "windows", "x64"));
@@ -374,8 +391,14 @@ mod tests {
         let arts = artifacts_to_install(&lib, "windows", "x64");
         assert_eq!(arts.len(), 1);
         let (rel_path, url, sha, size) = &arts[0];
-        assert_eq!(rel_path, "net/fabricmc/fabric-loader/0.15.7/fabric-loader-0.15.7.jar");
-        assert_eq!(url, "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.15.7/fabric-loader-0.15.7.jar");
+        assert_eq!(
+            rel_path,
+            "net/fabricmc/fabric-loader/0.15.7/fabric-loader-0.15.7.jar"
+        );
+        assert_eq!(
+            url,
+            "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.15.7/fabric-loader-0.15.7.jar"
+        );
         assert_eq!(sha, "", "Fabric libs have no per-file SHA in meta");
         assert_eq!(*size, 0u64, "size unknown until fetch");
     }
@@ -434,7 +457,10 @@ mod tests {
         let out = artifacts_to_install(&lib, "windows", "x64");
         assert_eq!(out.len(), 1, "expected exactly one artifact, got {out:?}");
         let (rel, url, sha, size) = &out[0];
-        assert_eq!(rel, "net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar");
+        assert_eq!(
+            rel,
+            "net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar"
+        );
         assert_eq!(
             url,
             "https://libraries.minecraft.net/net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar"
@@ -457,7 +483,8 @@ mod tests {
             name: "net.minecraftforge:forge:1.20.4-49.0.49:client".into(),
             downloads: Some(LibraryDownloads {
                 artifact: Some(Artifact {
-                    path: "net/minecraftforge/forge/1.20.4-49.0.49/forge-1.20.4-49.0.49-client.jar".into(),
+                    path: "net/minecraftforge/forge/1.20.4-49.0.49/forge-1.20.4-49.0.49-client.jar"
+                        .into(),
                     url: String::new(), // empty — locally-produced artifact
                     sha1: "bb498cfb18f84b4ef090a8241cae252062d39257".into(),
                     size: 0,
@@ -469,9 +496,19 @@ mod tests {
             natives: None,
         };
         let out = artifacts_to_install(&lib, "windows", "x64");
-        assert_eq!(out.len(), 1, "URL-less artifact must still yield one tuple for classpath; got {out:?}");
-        assert_eq!(out[0].0, "net/minecraftforge/forge/1.20.4-49.0.49/forge-1.20.4-49.0.49-client.jar");
-        assert_eq!(out[0].1, "", "URL is preserved as empty string for downstream filter");
+        assert_eq!(
+            out.len(),
+            1,
+            "URL-less artifact must still yield one tuple for classpath; got {out:?}"
+        );
+        assert_eq!(
+            out[0].0,
+            "net/minecraftforge/forge/1.20.4-49.0.49/forge-1.20.4-49.0.49-client.jar"
+        );
+        assert_eq!(
+            out[0].1, "",
+            "URL is preserved as empty string for downstream filter"
+        );
     }
 
     #[test]

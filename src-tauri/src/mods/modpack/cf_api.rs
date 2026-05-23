@@ -11,7 +11,9 @@
 use serde::Deserialize;
 
 use crate::error::{Error, ModsAuthKind};
-use crate::mods::modpack::schema::{ModpackHit, ModpackSearchPage, ModpackSort, ModpackVersionEntry};
+use crate::mods::modpack::schema::{
+    ModpackHit, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
+};
 use crate::mods::platform::{LoaderKind, ModSource};
 
 /// CurseForge `gameId` for Minecraft.
@@ -116,9 +118,13 @@ fn loader_type(loader: LoaderKind) -> u32 {
 /// is a paste error (a real key is an opaque printable token) and is
 /// rejected as `Invalid`, mirroring `CurseForgeClient::auth`.
 fn require_key(key: Option<&str>) -> Result<&str, Error> {
-    let k = key.ok_or(Error::ModsPlatformAuth { kind: ModsAuthKind::Missing })?;
+    let k = key.ok_or(Error::ModsPlatformAuth {
+        kind: ModsAuthKind::Missing,
+    })?;
     if k.chars().any(|c| c.is_control()) {
-        return Err(Error::ModsPlatformAuth { kind: ModsAuthKind::Invalid });
+        return Err(Error::ModsPlatformAuth {
+            kind: ModsAuthKind::Invalid,
+        });
     }
     Ok(k)
 }
@@ -131,10 +137,14 @@ fn require_key(key: Option<&str>) -> Result<&str, Error> {
 fn check_status(resp: &crate::network::request::HttpResponse, url: &str) -> Result<(), Error> {
     if resp.status == 401 || resp.status == 403 {
         crate::mods::curseforge::keyring::clear().ok();
-        return Err(Error::ModsPlatformAuth { kind: ModsAuthKind::Invalid });
+        return Err(Error::ModsPlatformAuth {
+            kind: ModsAuthKind::Invalid,
+        });
     }
     if resp.status == 404 {
-        return Err(Error::ModsNotFound { platform: "curseforge".into() });
+        return Err(Error::ModsNotFound {
+            platform: "curseforge".into(),
+        });
     }
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
@@ -198,14 +208,28 @@ pub async fn search(
     let url = format!("{base}/v1/mods/search?{}", encode_pairs(&params));
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
     check_status(&resp, &url)?;
-    let env: ListEnv<CfMod> = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
+    let env: ListEnv<CfMod> =
+        serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+            platform: "curseforge".into(),
+            details: e.to_string(),
+        })?;
 
-    let total = env.pagination.as_ref().map(|p| p.total_count).unwrap_or(env.data.len() as u32);
+    let total = env
+        .pagination
+        .as_ref()
+        .map(|p| p.total_count)
+        .unwrap_or(env.data.len() as u32);
     let offset = env.pagination.as_ref().map(|p| p.index).unwrap_or(offset);
-    let limit = env.pagination.as_ref().map(|p| p.page_size).unwrap_or(limit);
+    let limit = env
+        .pagination
+        .as_ref()
+        .map(|p| p.page_size)
+        .unwrap_or(limit);
     let hits = env
         .data
         .into_iter()
@@ -224,7 +248,12 @@ pub async fn search(
             distribution_allowed: m.allow_mod_distribution,
         })
         .collect();
-    Ok(ModpackSearchPage { hits, total, offset, limit })
+    Ok(ModpackSearchPage {
+        hits,
+        total,
+        offset,
+        limit,
+    })
 }
 
 // ---- version (file) list --------------------------------------------
@@ -245,12 +274,18 @@ pub async fn list_files(
     let url = format!("{base}/v1/mods/{project_id}/files?pageSize=50");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
     check_status(&resp, &url)?;
     // `.pagination` is intentionally ignored here — the version drawer
     // shows a fixed window of the most recent files (pageSize=50).
-    let env: ListEnv<CfFile> = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
+    let env: ListEnv<CfFile> =
+        serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+            platform: "curseforge".into(),
+            details: e.to_string(),
+        })?;
     let mut entries: Vec<ModpackVersionEntry> = env
         .data
         .into_iter()
@@ -287,12 +322,17 @@ pub async fn fetch_summary(
     let url = format!("{base}/v1/mods/{project_id}");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
     if !(200..300).contains(&resp.status) {
         return Ok((None, None));
     }
-    let env: Env<CfMod> = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
+    let env: Env<CfMod> = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "curseforge".into(),
+        details: e.to_string(),
+    })?;
     Ok((Some(env.data.name), Some(env.data.summary)))
 }
 
@@ -312,13 +352,20 @@ pub async fn resolve_file_download(
     let url = format!("{base}/v1/mods/{project_id}/files/{file_id}");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
     check_status(&resp, &url)?;
-    let env: Env<CfFile> = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
-    env.data.download_url.ok_or(Error::ModpackCfDistributionDisabled {
-        pack_name: env.data.display_name,
-    })
+    let env: Env<CfFile> = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "curseforge".into(),
+        details: e.to_string(),
+    })?;
+    env.data
+        .download_url
+        .ok_or(Error::ModpackCfDistributionDisabled {
+            pack_name: env.data.display_name,
+        })
 }
 
 #[cfg(test)]
@@ -365,9 +412,17 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let r = search(&s.uri(), Some("k"), "rl", 0, None, None, ModpackSort::Relevance)
-            .await
-            .unwrap();
+        let r = search(
+            &s.uri(),
+            Some("k"),
+            "rl",
+            0,
+            None,
+            None,
+            ModpackSort::Relevance,
+        )
+        .await
+        .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 2);
         assert_eq!(r.hits[0].title, "RLCraft");
@@ -385,9 +440,17 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let r = search(&s.uri(), Some("k"), "x", 0, None, None, ModpackSort::Relevance)
-            .await
-            .unwrap();
+        let r = search(
+            &s.uri(),
+            Some("k"),
+            "x",
+            0,
+            None,
+            None,
+            ModpackSort::Relevance,
+        )
+        .await
+        .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         // First hit has allowModDistribution:false; second omits it.
         assert_eq!(r.hits[0].distribution_allowed, Some(false));
@@ -407,9 +470,17 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        search(&s.uri(), Some("k"), "x", 0, None, None, ModpackSort::Downloads)
-            .await
-            .unwrap();
+        search(
+            &s.uri(),
+            Some("k"),
+            "x",
+            0,
+            None,
+            None,
+            ModpackSort::Downloads,
+        )
+        .await
+        .unwrap();
 
         // Newest -> sortField=11.
         let s2 = MockServer::start().await;
@@ -419,9 +490,17 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s2)
             .await;
-        search(&s2.uri(), Some("k"), "x", 0, None, None, ModpackSort::Newest)
-            .await
-            .unwrap();
+        search(
+            &s2.uri(),
+            Some("k"),
+            "x",
+            0,
+            None,
+            None,
+            ModpackSort::Newest,
+        )
+        .await
+        .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
     }
 
@@ -431,10 +510,23 @@ mod tests {
         // would still resolve (wiremock 404s unmatched paths), so the
         // assertion is on the error kind — a missing key must error
         // before the request is built.
-        let err = search("http://127.0.0.1:1", None, "x", 0, None, None, ModpackSort::Relevance)
-            .await
-            .unwrap_err();
-        assert!(matches!(err, Error::ModsPlatformAuth { kind: ModsAuthKind::Missing }));
+        let err = search(
+            "http://127.0.0.1:1",
+            None,
+            "x",
+            0,
+            None,
+            None,
+            ModpackSort::Relevance,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::ModsPlatformAuth {
+                kind: ModsAuthKind::Missing
+            }
+        ));
     }
 
     #[tokio::test]
@@ -470,8 +562,15 @@ mod tests {
 
     #[tokio::test]
     async fn list_files_missing_key_is_auth_missing() {
-        let err = list_files("http://127.0.0.1:1", None, "1234").await.unwrap_err();
-        assert!(matches!(err, Error::ModsPlatformAuth { kind: ModsAuthKind::Missing }));
+        let err = list_files("http://127.0.0.1:1", None, "1234")
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::ModsPlatformAuth {
+                kind: ModsAuthKind::Missing
+            }
+        ));
     }
 
     #[tokio::test]
@@ -490,7 +589,9 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let url = resolve_file_download(&s.uri(), Some("k"), "1234", "22").await.unwrap();
+        let url = resolve_file_download(&s.uri(), Some("k"), "1234", "22")
+            .await
+            .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(url, "https://edge.forgecdn.net/files/22/rl.zip");
     }
@@ -532,7 +633,9 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_summary_no_key_is_none() {
-        let (name, summary) = fetch_summary("http://127.0.0.1:1", None, "1234").await.unwrap();
+        let (name, summary) = fetch_summary("http://127.0.0.1:1", None, "1234")
+            .await
+            .unwrap();
         assert!(name.is_none() && summary.is_none());
     }
 
@@ -551,7 +654,9 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let err = resolve_file_download(&s.uri(), Some("k"), "1234", "22").await.unwrap_err();
+        let err = resolve_file_download(&s.uri(), Some("k"), "1234", "22")
+            .await
+            .unwrap_err();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModpackCfDistributionDisabled { pack_name } => {

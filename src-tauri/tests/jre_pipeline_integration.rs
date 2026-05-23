@@ -60,7 +60,9 @@ async fn fetches_top_level_via_env_override_and_caches() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/all.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(TOP_LEVEL_FIXTURE, "application/json"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(TOP_LEVEL_FIXTURE, "application/json"),
+        )
         .mount(&server)
         .await;
 
@@ -71,8 +73,7 @@ async fn fetches_top_level_via_env_override_and_caches() {
     std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let top = fetch_top_level().await.expect("fetch");
-    let gamma =
-        pick_component(&top, "windows-x64", "java-runtime-gamma").expect("pick gamma");
+    let gamma = pick_component(&top, "windows-x64", "java-runtime-gamma").expect("pick gamma");
     assert_eq!(gamma.version.name, "21.0.3");
     assert_eq!(gamma.manifest.sha1, "aaa");
 
@@ -93,7 +94,9 @@ async fn pick_component_falls_through_to_unknown_version_for_missing_component()
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/all.json"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(TOP_LEVEL_FIXTURE, "application/json"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(TOP_LEVEL_FIXTURE, "application/json"),
+        )
         .mount(&server)
         .await;
 

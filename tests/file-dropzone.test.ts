@@ -21,7 +21,12 @@ describe('FileDropzone', () => {
   it('shows the disabled label and does not fire onClick when disabled', async () => {
     const onClick = vi.fn();
     const { getByTestId } = render(FileDropzone, {
-      props: { label: 'Drop a .jar here', disabled: true, disabledLabel: 'Pick an instance first', onClick },
+      props: {
+        label: 'Drop a .jar here',
+        disabled: true,
+        disabledLabel: 'Pick an instance first',
+        onClick,
+      },
     });
     const zone = getByTestId('file-dropzone');
     expect(zone.textContent).toContain('Pick an instance first');

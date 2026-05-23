@@ -32,22 +32,32 @@ fn load_or_skip() -> Option<(Vec<u8>, serde_json::Value)> {
 
 #[test]
 fn era_for_1204_is_modern() {
-    let Some((_, profile)) = load_or_skip() else { return };
+    let Some((_, profile)) = load_or_skip() else {
+        return;
+    };
     assert_eq!(detect_era(&profile), Era::Modern);
 }
 
 #[test]
 fn install_profile_has_9_processors() {
-    let Some((_, profile)) = load_or_skip() else { return };
+    let Some((_, profile)) = load_or_skip() else {
+        return;
+    };
     let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
     assert_eq!(parsed.minecraft, "1.20.4");
     assert_eq!(parsed.spec, 1, "modern era must report spec=1");
-    assert_eq!(parsed.processors.len(), 9, "expected 9 processors per audit");
+    assert_eq!(
+        parsed.processors.len(),
+        9,
+        "expected 9 processors per audit"
+    );
 }
 
 #[test]
 fn every_processor_coord_recognised() {
-    let Some((_, profile)) = load_or_skip() else { return };
+    let Some((_, profile)) = load_or_skip() else {
+        return;
+    };
     let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
     let recognised = &[
         ("net.minecraftforge", "installertools"),
@@ -67,7 +77,9 @@ fn every_processor_coord_recognised() {
 
 #[test]
 fn five_processors_run_on_client_side() {
-    let Some((_, profile)) = load_or_skip() else { return };
+    let Some((_, profile)) = load_or_skip() else {
+        return;
+    };
     let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
     let client_side_count = parsed
         .processors
@@ -89,16 +101,24 @@ fn five_processors_run_on_client_side() {
 
 #[test]
 fn data_keys_match_audit() {
-    let Some((_, profile)) = load_or_skip() else { return };
+    let Some((_, profile)) = load_or_skip() else {
+        return;
+    };
     let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
     let required_keys = &[
-        "MAPPINGS", "MAPPINGS_SHA",
-        "MOJMAPS", "MOJMAPS_SHA",
-        "MERGED_MAPPINGS", "MERGED_MAPPINGS_SHA",
-        "MC_UNPACKED", "MC_UNPACKED_SHA",
-        "MC_SRG", "MC_SRG_SHA",
+        "MAPPINGS",
+        "MAPPINGS_SHA",
+        "MOJMAPS",
+        "MOJMAPS_SHA",
+        "MERGED_MAPPINGS",
+        "MERGED_MAPPINGS_SHA",
+        "MC_UNPACKED",
+        "MC_UNPACKED_SHA",
+        "MC_SRG",
+        "MC_SRG_SHA",
         "BINPATCH",
-        "PATCHED", "PATCHED_SHA",
+        "PATCHED",
+        "PATCHED_SHA",
     ];
     for key in required_keys {
         assert!(
@@ -110,7 +130,9 @@ fn data_keys_match_audit() {
 
 #[tokio::test]
 async fn substitute_args_resolves_modern_data_shapes() {
-    let Some((bytes, profile)) = load_or_skip() else { return };
+    let Some((bytes, profile)) = load_or_skip() else {
+        return;
+    };
     let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
     let libs = PathBuf::from("/x/libraries");
     // Pull processor 8 (binarypatcher) — its --apply arg uses {BINPATCH}, the /in-jar/ shape.
@@ -138,7 +160,9 @@ async fn substitute_args_resolves_modern_data_shapes() {
 
 #[tokio::test]
 async fn substitute_args_modern_side_data_split_uses_client() {
-    let Some((_, profile)) = load_or_skip() else { return };
+    let Some((_, profile)) = load_or_skip() else {
+        return;
+    };
     let parsed = parse_install_profile(&serde_json::to_string(&profile).unwrap()).unwrap();
     // MOJMAPS_SHA differs between client and server in 1.20.4 — verify we pick client.
     let data = parsed.data.get("MOJMAPS_SHA").expect("MOJMAPS_SHA present");

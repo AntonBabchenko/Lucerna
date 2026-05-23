@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/svelte';
+import { render } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
 import Sidebar from '$lib/layout/Sidebar.svelte';
@@ -77,6 +77,4 @@ describe('Sidebar', () => {
     const select = getByDisplayValue(/Tester/) as HTMLSelectElement;
     expect(select).toBeTruthy();
   });
-
-
 });

@@ -221,5 +221,9 @@
 </div>
 
 {#if mismatchRows.length > 0}
-  <CompatWarningDialog rows={mismatchRows} onConfirm={confirmInstallAll} onCancel={cancelMismatched} />
+  <CompatWarningDialog
+    rows={mismatchRows}
+    onConfirm={confirmInstallAll}
+    onCancel={cancelMismatched}
+  />
 {/if}

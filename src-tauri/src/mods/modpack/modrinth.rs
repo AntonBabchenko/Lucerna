@@ -48,23 +48,34 @@ struct MrpackEnv {
     server: String,
 }
 
-fn default_required() -> String { "required".into() }
+fn default_required() -> String {
+    "required".into()
+}
 
 const ALLOWED_HOST: &str = "cdn.modrinth.com";
 
 pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+    let mut zip =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
+            details: e.to_string(),
+        })?;
 
     let index_bytes = {
-        let mut f = zip.by_name("modrinth.index.json")
+        let mut f = zip
+            .by_name("modrinth.index.json")
             .map_err(|_| Error::ModpackFormatUnknown)?;
         let mut buf = Vec::new();
-        f.read_to_end(&mut buf).map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+        f.read_to_end(&mut buf)
+            .map_err(|e| Error::ModpackInvalidArchive {
+                details: e.to_string(),
+            })?;
         buf
     };
-    let index: MrpackIndex = serde_json::from_slice(&index_bytes)
-        .map_err(|e| Error::ModpackManifestInvalid { format: "modrinth".into(), details: e.to_string() })?;
+    let index: MrpackIndex =
+        serde_json::from_slice(&index_bytes).map_err(|e| Error::ModpackManifestInvalid {
+            format: "modrinth".into(),
+            details: e.to_string(),
+        })?;
 
     if index.format_version != 1 {
         return Err(Error::ModpackUnsupportedManifestVersion {
@@ -79,10 +90,15 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
         });
     }
 
-    let mc_version = index.dependencies.get("minecraft").cloned().ok_or(Error::ModpackManifestInvalid {
-        format: "modrinth".into(),
-        details: "dependencies.minecraft missing".into(),
-    })?;
+    let mc_version =
+        index
+            .dependencies
+            .get("minecraft")
+            .cloned()
+            .ok_or(Error::ModpackManifestInvalid {
+                format: "modrinth".into(),
+                details: "dependencies.minecraft missing".into(),
+            })?;
     let (loader, loader_version) = resolve_loader(&index.dependencies);
 
     let mut files = vec![];
@@ -105,16 +121,25 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
             });
             continue;
         }
-        let env_client = match f.env.as_ref().map(|e| e.client.as_str()).unwrap_or("required") {
+        let env_client = match f
+            .env
+            .as_ref()
+            .map(|e| e.client.as_str())
+            .unwrap_or("required")
+        {
             "required" => EnvSupport::Required,
             "optional" => EnvSupport::Optional,
             "unsupported" => continue,
             _ => EnvSupport::Required,
         };
-        let url = f.downloads.first().cloned().ok_or(Error::ModpackManifestInvalid {
-            format: "modrinth".into(),
-            details: format!("file {} has no downloads", f.path),
-        })?;
+        let url = f
+            .downloads
+            .first()
+            .cloned()
+            .ok_or(Error::ModpackManifestInvalid {
+                format: "modrinth".into(),
+                details: format!("file {} has no downloads", f.path),
+            })?;
         let host = url::Url::parse(&url)
             .ok()
             .and_then(|u| u.host_str().map(str::to_ascii_lowercase));
@@ -149,11 +174,15 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
     let entries: Vec<String> = (0..zip.len())
         .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
         .collect();
-    let has_overrides = entries.iter().any(|n| n.starts_with("overrides/") && n != "overrides/");
-    let has_client_overrides = entries.iter().any(|n| n.starts_with("client-overrides/") && n != "client-overrides/");
-    let has_saves_in_overrides = entries.iter().any(|n| {
-        n.starts_with("overrides/saves/") || n.starts_with("client-overrides/saves/")
-    });
+    let has_overrides = entries
+        .iter()
+        .any(|n| n.starts_with("overrides/") && n != "overrides/");
+    let has_client_overrides = entries
+        .iter()
+        .any(|n| n.starts_with("client-overrides/") && n != "client-overrides/");
+    let has_saves_in_overrides = entries
+        .iter()
+        .any(|n| n.starts_with("overrides/saves/") || n.starts_with("client-overrides/saves/"));
 
     Ok(ModpackSummary {
         format: ModpackFormat::Modrinth,
@@ -170,7 +199,9 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
     })
 }
 
-fn resolve_loader(deps: &std::collections::BTreeMap<String, String>) -> (LoaderKind, Option<String>) {
+fn resolve_loader(
+    deps: &std::collections::BTreeMap<String, String>,
+) -> (LoaderKind, Option<String>) {
     for (k, v) in deps {
         match k.as_str() {
             "fabric-loader" => return (LoaderKind::Fabric, Some(v.clone())),
@@ -206,7 +237,8 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
-            w.start_file("modrinth.index.json", SimpleFileOptions::default()).unwrap();
+            w.start_file("modrinth.index.json", SimpleFileOptions::default())
+                .unwrap();
             w.write_all(index_json.as_bytes()).unwrap();
             for (n, b) in extra {
                 w.start_file(*n, SimpleFileOptions::default()).unwrap();
@@ -252,14 +284,20 @@ mod tests {
     fn rejects_format_version_2() {
         let bad = SAMPLE_INDEX.replace("\"formatVersion\": 1", "\"formatVersion\": 2");
         let zip = make_mrpack(&bad, &[]);
-        assert!(matches!(parse(&zip), Err(Error::ModpackUnsupportedManifestVersion { version: 2, .. })));
+        assert!(matches!(
+            parse(&zip),
+            Err(Error::ModpackUnsupportedManifestVersion { version: 2, .. })
+        ));
     }
 
     #[test]
     fn rejects_when_dependencies_minecraft_missing() {
         let bad = SAMPLE_INDEX.replace("\"minecraft\": \"1.20.1\", ", "");
         let zip = make_mrpack(&bad, &[]);
-        assert!(matches!(parse(&zip), Err(Error::ModpackManifestInvalid { .. })));
+        assert!(matches!(
+            parse(&zip),
+            Err(Error::ModpackManifestInvalid { .. })
+        ));
     }
 
     #[test]
@@ -287,10 +325,13 @@ mod tests {
 
     #[test]
     fn flags_overrides_and_saves() {
-        let zip = make_mrpack(SAMPLE_INDEX, &[
-            ("overrides/config/foo.toml", b"k=v" as &[u8]),
-            ("overrides/saves/world/level.dat", b"\x00\x01" as &[u8]),
-        ]);
+        let zip = make_mrpack(
+            SAMPLE_INDEX,
+            &[
+                ("overrides/config/foo.toml", b"k=v" as &[u8]),
+                ("overrides/saves/world/level.dat", b"\x00\x01" as &[u8]),
+            ],
+        );
         let s = parse(&zip).unwrap();
         assert!(s.has_overrides);
         assert!(!s.has_client_overrides);
@@ -299,9 +340,10 @@ mod tests {
 
     #[test]
     fn detects_client_overrides_separately() {
-        let zip = make_mrpack(SAMPLE_INDEX, &[
-            ("client-overrides/options.txt", b"fov:80" as &[u8]),
-        ]);
+        let zip = make_mrpack(
+            SAMPLE_INDEX,
+            &[("client-overrides/options.txt", b"fov:80" as &[u8])],
+        );
         let s = parse(&zip).unwrap();
         assert!(s.has_client_overrides);
     }

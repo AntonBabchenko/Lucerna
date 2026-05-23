@@ -35,7 +35,10 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         // but doing it here keeps the launcher consistent on startup.
         if let Ok(mut existing) = read_app_json(&app_file_path) {
             if let Some(active) = existing.active_instance.clone() {
-                let p = app_root.join("instances").join(&active).join("instance.json");
+                let p = app_root
+                    .join("instances")
+                    .join(&active)
+                    .join("instance.json");
                 if !p.exists() {
                     existing.active_instance = None;
                     let _ = write_app_json(&app_file_path, &existing);
@@ -52,8 +55,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
 
     let id = new_id();
     let now_ms = unix_ms_f64();
-    let mc_version =
-        best_guess_mc_version(&app_root.join("versions")).unwrap_or_default();
+    let mc_version = best_guess_mc_version(&app_root.join("versions")).unwrap_or_default();
 
     if legacy_default.is_dir() {
         // Scenario 3/4/5.
@@ -112,7 +114,9 @@ pub fn best_guess_mc_version(versions_dir: &Path) -> Option<String> {
             continue;
         }
         let name_os = entry.file_name();
-        let Some(name) = name_os.to_str() else { continue };
+        let Some(name) = name_os.to_str() else {
+            continue;
+        };
         if !looks_like_release(name) {
             continue;
         }
@@ -132,7 +136,9 @@ fn looks_like_release(name: &str) -> bool {
     if parts.len() != 2 && parts.len() != 3 {
         return false;
     }
-    parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn unix_ms_f64() -> f64 {

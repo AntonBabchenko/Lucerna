@@ -47,7 +47,11 @@ pub(crate) async fn download_inner(
     mut emit: impl FnMut(DownloadProgress),
 ) -> Result<()> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
-    let resp = http().get(url).send().await.map_err(|e| Error::network(url, e))?;
+    let resp = http()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| Error::network(url, e))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -71,7 +75,9 @@ pub(crate) async fn download_inner(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| Error::network(url, e))?;
         hasher.update(&chunk);
-        file.write_all(&chunk).await.map_err(|e| Error::io(dest.display().to_string(), e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| Error::io(dest.display().to_string(), e))?;
         bytes_done += chunk.len() as f64;
 
         emit(DownloadProgress {
@@ -182,11 +188,20 @@ mod tests {
         let dest = dir.path().join("x.jar");
         let url = format!("{}/x.jar", server.uri());
 
-        let result = download_no_emit(&url, &dest, "0000000000000000000000000000000000000000", "test").await;
+        let result = download_no_emit(
+            &url,
+            &dest,
+            "0000000000000000000000000000000000000000",
+            "test",
+        )
+        .await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
         assert!(matches!(result, Err(Error::HashMismatch { .. })));
-        assert!(!dest.exists(), "bad file should be removed after sha mismatch");
+        assert!(
+            !dest.exists(),
+            "bad file should be removed after sha mismatch"
+        );
     }
 
     #[tokio::test]
@@ -196,6 +211,9 @@ mod tests {
         let dest = dir.path().join("x.jar");
         let r = download_no_emit("https://evil.example/x.jar", &dest, "", "test").await;
         assert!(matches!(r, Err(Error::HostNotAllowed { .. })), "got: {r:?}");
-        assert!(!dest.exists(), "no file should be created for a rejected host");
+        assert!(
+            !dest.exists(),
+            "no file should be created for a rejected host"
+        );
     }
 }

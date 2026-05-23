@@ -46,6 +46,9 @@ mod tests {
         let parsed = parse(raw).unwrap();
         let assembled = assemble_from_modern(parsed.clone());
         assert_eq!(assembled.id, parsed.id);
-        assert_eq!(assembled.main_class, "net.minecraftforge.bootstrap.ForgeBootstrap");
+        assert_eq!(
+            assembled.main_class,
+            "net.minecraftforge.bootstrap.ForgeBootstrap"
+        );
     }
 }

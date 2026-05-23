@@ -66,7 +66,9 @@ pub fn classify_update(installed: &InstalledMod, versions: &[ModVersion]) -> Mod
     // Only confident `newest` is an upgrade (not a downgrade) when the
     // installed version is itself somewhere in the list.
     if versions.iter().any(|v| v.version_id == current) {
-        ModUpdateState::UpdateAvailable { target: newest.clone() }
+        ModUpdateState::UpdateAvailable {
+            target: newest.clone(),
+        }
     } else {
         ModUpdateState::Unknown
     }
@@ -96,7 +98,11 @@ pub fn eligible_identity(
     if is_pack_origin_mod(installed, pack_origin) {
         return None;
     }
-    match (installed.source, &installed.project_id, &installed.version_id) {
+    match (
+        installed.source,
+        &installed.project_id,
+        &installed.version_id,
+    ) {
         (Some(source), Some(project_id), Some(version_id)) => {
             Some((source, project_id.clone(), version_id.clone()))
         }
@@ -195,7 +201,10 @@ mod tests {
     fn classify_up_to_date_when_installed_is_newest() {
         let m = installed_mod("s1", Some(ModSource::Modrinth), Some("p"), Some("v3"));
         let versions = vec![version("v3"), version("v2"), version("v1")];
-        assert!(matches!(classify_update(&m, &versions), ModUpdateState::UpToDate));
+        assert!(matches!(
+            classify_update(&m, &versions),
+            ModUpdateState::UpToDate
+        ));
     }
 
     #[test]
@@ -210,9 +219,17 @@ mod tests {
 
     #[test]
     fn classify_unknown_when_installed_version_not_listed() {
-        let m = installed_mod("s1", Some(ModSource::Modrinth), Some("p"), Some("v-delisted"));
+        let m = installed_mod(
+            "s1",
+            Some(ModSource::Modrinth),
+            Some("p"),
+            Some("v-delisted"),
+        );
         let versions = vec![version("v3"), version("v2")];
-        assert!(matches!(classify_update(&m, &versions), ModUpdateState::Unknown));
+        assert!(matches!(
+            classify_update(&m, &versions),
+            ModUpdateState::Unknown
+        ));
     }
 
     #[test]
@@ -224,7 +241,10 @@ mod tests {
     #[test]
     fn classify_unknown_when_installed_has_no_version_id() {
         let m = installed_mod("s1", Some(ModSource::Modrinth), Some("p"), None);
-        assert!(matches!(classify_update(&m, &[version("v1")]), ModUpdateState::Unknown));
+        assert!(matches!(
+            classify_update(&m, &[version("v1")]),
+            ModUpdateState::Unknown
+        ));
     }
 
     #[test]

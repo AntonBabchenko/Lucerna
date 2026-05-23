@@ -57,7 +57,10 @@ fn mods_in_instance_a_are_invisible_from_instance_b() {
         .filter_map(|e| e.ok())
         .map(|e| e.file_name())
         .collect();
-    assert!(b_mods.is_empty(), "instance B should see no mods, got {b_mods:?}");
+    assert!(
+        b_mods.is_empty(),
+        "instance B should see no mods, got {b_mods:?}"
+    );
 
     let a_mods: Vec<_> = std::fs::read_dir(&mods_a)
         .unwrap()
@@ -88,11 +91,7 @@ fn natives_and_logs_dirs_are_also_per_instance() {
     // Simulate what launch::start would mkdir.
     std::fs::create_dir_all(instances.join(&id_a).join("natives")).unwrap();
     std::fs::create_dir_all(instances.join(&id_a).join("logs")).unwrap();
-    std::fs::write(
-        instances.join(&id_a).join("logs/run.log"),
-        b"alpha log",
-    )
-    .unwrap();
+    std::fs::write(instances.join(&id_a).join("logs/run.log"), b"alpha log").unwrap();
 
     assert!(!instances.join(&id_b).join("natives").exists());
     assert!(!instances.join(&id_b).join("logs/run.log").exists());

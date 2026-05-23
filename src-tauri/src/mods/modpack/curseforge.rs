@@ -69,22 +69,28 @@ struct CfHash {
     algo: u32, // 1=SHA-1, 2=MD5 per CF docs
 }
 
-pub async fn parse(
-    bytes: &[u8],
-    base_url: &str,
-) -> Result<ModpackSummary, Error> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error> {
+    let mut zip =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
+            details: e.to_string(),
+        })?;
 
     let manifest_bytes = {
-        let mut f = zip.by_name("manifest.json")
+        let mut f = zip
+            .by_name("manifest.json")
             .map_err(|_| Error::ModpackFormatUnknown)?;
         let mut buf = Vec::new();
-        f.read_to_end(&mut buf).map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+        f.read_to_end(&mut buf)
+            .map_err(|e| Error::ModpackInvalidArchive {
+                details: e.to_string(),
+            })?;
         buf
     };
-    let m: CfManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| Error::ModpackManifestInvalid { format: "curseforge".into(), details: e.to_string() })?;
+    let m: CfManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(|e| Error::ModpackManifestInvalid {
+            format: "curseforge".into(),
+            details: e.to_string(),
+        })?;
 
     if m.manifest_version != 1 {
         return Err(Error::ModpackUnsupportedManifestVersion {
@@ -99,15 +105,18 @@ pub async fn parse(
         });
     }
 
-    let primary = m.minecraft.mod_loaders.iter().find(|l| l.primary).ok_or(Error::ModpackManifestInvalid {
-        format: "curseforge".into(),
-        details: "no primary modLoader".into(),
-    })?;
+    let primary = m.minecraft.mod_loaders.iter().find(|l| l.primary).ok_or(
+        Error::ModpackManifestInvalid {
+            format: "curseforge".into(),
+            details: "no primary modLoader".into(),
+        },
+    )?;
     let (loader, loader_version) = parse_cf_loader_id(&primary.id)?;
 
     // Bulk-resolve every fileID.
-    let key = keyring::get()?
-        .ok_or(Error::ModsPlatformAuth { kind: crate::error::ModsAuthKind::Missing })?;
+    let key = keyring::get()?.ok_or(Error::ModsPlatformAuth {
+        kind: crate::error::ModsAuthKind::Missing,
+    })?;
     let url = format!("{}/v1/mods/files", base_url);
     let body = serde_json::json!({
         "fileIds": m.files.iter().map(|f| f.file_id).collect::<Vec<_>>()
@@ -119,14 +128,23 @@ pub async fn parse(
     let body_bytes = serde_json::to_vec(&body).unwrap();
     let resp = crate::network::request::post(
         &url,
-        &[("x-api-key", key.as_str()), ("content-type", "application/json")],
+        &[
+            ("x-api-key", key.as_str()),
+            ("content-type", "application/json"),
+        ],
         &body_bytes,
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+    .map_err(|e| Error::ModsNetwork {
+        url: url.clone(),
+        details: e.to_string(),
+    })?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+        return Err(Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status),
+        });
     }
     let bulk: CfBulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "curseforge".into(),
@@ -142,18 +160,27 @@ pub async fn parse(
     let mut unresolvable = vec![];
 
     for entry in &m.files {
-        let detail = bulk.data.iter().find(|f| f.id == entry.file_id).ok_or(Error::ModpackManifestInvalid {
-            format: "curseforge".into(),
-            details: format!("file id {} not resolved by Eternal API", entry.file_id),
-        })?;
-        let env_client = if entry.required { EnvSupport::Required } else { EnvSupport::Optional };
+        let detail = bulk.data.iter().find(|f| f.id == entry.file_id).ok_or(
+            Error::ModpackManifestInvalid {
+                format: "curseforge".into(),
+                details: format!("file id {} not resolved by Eternal API", entry.file_id),
+            },
+        )?;
+        let env_client = if entry.required {
+            EnvSupport::Required
+        } else {
+            EnvSupport::Optional
+        };
         let url = match &detail.download_url {
             Some(u) => u.clone(),
             None => {
                 unresolvable.push(ModpackUnresolvable {
                     reason: UnresolvableReason::DistributionDisabled,
                     mod_name: detail.display_name.clone(),
-                    manual_action_url: format!("https://www.curseforge.com/projects/{}", detail.mod_id),
+                    manual_action_url: format!(
+                        "https://www.curseforge.com/projects/{}",
+                        detail.mod_id
+                    ),
                     filename: detail.file_name.clone(),
                     size: detail.file_length as f64,
                     sha1: detail
@@ -166,8 +193,14 @@ pub async fn parse(
                 continue;
             }
         };
-        let sha1 = detail.hashes.iter().find(|h| h.algo == 1).map(|h| h.value.to_ascii_lowercase())
-            .ok_or(Error::ModpackSha1Unavailable { mod_name: detail.display_name.clone() })?;
+        let sha1 = detail
+            .hashes
+            .iter()
+            .find(|h| h.algo == 1)
+            .map(|h| h.value.to_ascii_lowercase())
+            .ok_or(Error::ModpackSha1Unavailable {
+                mod_name: detail.display_name.clone(),
+            })?;
         files.push(ModpackFile {
             project_id: detail.mod_id.to_string(),
             version_id: detail.id.to_string(),
@@ -189,7 +222,9 @@ pub async fn parse(
     let entries: Vec<String> = (0..zip.len())
         .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
         .collect();
-    let has_overrides = entries.iter().any(|n| n.starts_with("overrides/") && n != "overrides/");
+    let has_overrides = entries
+        .iter()
+        .any(|n| n.starts_with("overrides/") && n != "overrides/");
     let has_saves_in_overrides = entries.iter().any(|n| n.starts_with("overrides/saves/"));
 
     Ok(ModpackSummary {
@@ -251,12 +286,20 @@ async fn fetch_class_ids(
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+    .map_err(|e| Error::ModsNetwork {
+        url: url.clone(),
+        details: e.to_string(),
+    })?;
     if !(200..300).contains(&resp.status) {
-        return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+        return Err(Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status),
+        });
     }
-    let parsed: ModsResp = serde_json::from_slice(&resp.body)
-        .map_err(|e| Error::ModsDecode { platform: "curseforge".into(), details: e.to_string() })?;
+    let parsed: ModsResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "curseforge".into(),
+        details: e.to_string(),
+    })?;
     Ok(parsed
         .data
         .into_iter()
@@ -277,7 +320,10 @@ fn parse_cf_loader_id(id: &str) -> Result<(LoaderKind, Option<String>), Error> {
     if let Some(rest) = id.strip_prefix("quilt-") {
         return Ok((LoaderKind::Quilt, Some(rest.to_string())));
     }
-    Err(Error::ModpackUnsupportedLoader { format: "curseforge".into(), loader_id: id.into() })
+    Err(Error::ModpackUnsupportedLoader {
+        format: "curseforge".into(),
+        loader_id: id.into(),
+    })
 }
 
 #[cfg(test)]
@@ -299,7 +345,8 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
-            w.start_file("manifest.json", SimpleFileOptions::default()).unwrap();
+            w.start_file("manifest.json", SimpleFileOptions::default())
+                .unwrap();
             w.write_all(manifest.as_bytes()).unwrap();
             w.finish().unwrap();
         }
@@ -320,7 +367,8 @@ mod tests {
                 { "projectID": 238222, "fileID": 4499899, "required": true },
                 { "projectID": 222880, "fileID": 4567890, "required": false }
             ]
-        }"#.into()
+        }"#
+        .into()
     }
 
     fn install_test_key() {
@@ -351,9 +399,11 @@ mod tests {
                 }
             ]
         });
-        Mock::given(method("POST")).and(path("/v1/mods/files"))
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
-            .mount(&s).await;
+            .mount(&s)
+            .await;
 
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
@@ -389,9 +439,11 @@ mod tests {
                 }
             ]
         });
-        Mock::given(method("POST")).and(path("/v1/mods/files"))
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
-            .mount(&s).await;
+            .mount(&s)
+            .await;
 
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
@@ -425,9 +477,11 @@ mod tests {
                   "hashes": [{ "value": "def", "algo": 1 }] }
             ]
         });
-        Mock::given(method("POST")).and(path("/v1/mods/files"))
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
-            .mount(&s).await;
+            .mount(&s)
+            .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
@@ -441,10 +495,15 @@ mod tests {
     async fn rejects_manifest_version_other_than_1() {
         let _g = test_lock();
         install_test_key();
-        let zip = make_cf_zip(&sample_manifest().replace("\"manifestVersion\": 1", "\"manifestVersion\": 2"));
+        let zip = make_cf_zip(
+            &sample_manifest().replace("\"manifestVersion\": 1", "\"manifestVersion\": 2"),
+        );
         let r = parse(&zip, "http://unused").await;
         clear_test_key();
-        assert!(matches!(r, Err(Error::ModpackUnsupportedManifestVersion { version: 2, .. })));
+        assert!(matches!(
+            r,
+            Err(Error::ModpackUnsupportedManifestVersion { version: 2, .. })
+        ));
     }
 
     #[tokio::test]
@@ -480,19 +539,31 @@ mod tests {
                 { "id": 222880, "classId": 12 }
             ]
         });
-        Mock::given(method("POST")).and(path("/v1/mods/files"))
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(files))
-            .mount(&s).await;
-        Mock::given(method("POST")).and(path("/v1/mods"))
+            .mount(&s)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/mods"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mods))
-            .mount(&s).await;
+            .mount(&s)
+            .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
-        let jei = r.files.iter().find(|f| f.filename == "jei-1.20.1.jar").unwrap();
-        let tex = r.files.iter().find(|f| f.filename == "FancyTextures.zip").unwrap();
+        let jei = r
+            .files
+            .iter()
+            .find(|f| f.filename == "jei-1.20.1.jar")
+            .unwrap();
+        let tex = r
+            .files
+            .iter()
+            .find(|f| f.filename == "FancyTextures.zip")
+            .unwrap();
         assert_eq!(jei.install_path, "mods/jei-1.20.1.jar");
         assert_eq!(tex.install_path, "resourcepacks/FancyTextures.zip");
     }
@@ -515,9 +586,11 @@ mod tests {
                 "hashes": [{ "value": "feedface", "algo": 1 }]
             }]
         });
-        Mock::given(method("POST")).and(path("/v1/mods/files"))
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
-            .mount(&s).await;
+            .mount(&s)
+            .await;
 
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());

@@ -12,8 +12,7 @@ use crate::jre::java_executable_path;
 use crate::launch::args::{build_argv, ArgvInput};
 use crate::launch::natives::extract_natives;
 use crate::paths::{
-    assets_dir, instance_logs_dir, instance_natives_dir, libraries_dir, minecraft_dir,
-    versions_dir,
+    assets_dir, instance_logs_dir, instance_natives_dir, libraries_dir, minecraft_dir, versions_dir,
 };
 use crate::versions::loaders::Loader;
 use crate::versions::version_json::{parse, VersionDetails};
@@ -23,7 +22,6 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use tauri::AppHandle;
 use tauri_specta::Event;
-
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ProcessSpawned {
@@ -80,12 +78,11 @@ pub async fn start(
     let versions = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let libraries = libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
     let assets = assets_dir(app).map_err(|e| Error::io("<assets_dir>", e))?;
-    let game_dir = minecraft_dir(app, &instance.id)
-        .map_err(|e| Error::io("<minecraft_dir>", e))?;
+    let game_dir = minecraft_dir(app, &instance.id).map_err(|e| Error::io("<minecraft_dir>", e))?;
     let natives_dir = instance_natives_dir(app, &instance.id)
         .map_err(|e| Error::io("<instance_natives_dir>", e))?;
-    let logs_dir = instance_logs_dir(app, &instance.id)
-        .map_err(|e| Error::io("<instance_logs_dir>", e))?;
+    let logs_dir =
+        instance_logs_dir(app, &instance.id).map_err(|e| Error::io("<instance_logs_dir>", e))?;
     // Vanilla MC client.jar lives at `versions/<mc>/<mc>.jar` only — see
     // `versions::install` comment. For synth installs, resolve to the parent
     // MC id so we don't reference the orphaned synth-path jar.
@@ -167,14 +164,8 @@ pub async fn start(
     // split `extra_jvm_args`. Both go in BEFORE the manifest's JVM
     // args, so a manifest-supplied flag can override the user's
     // setting if it needs to (spec decision).
-    let mut argv: Vec<String> =
-        vec![format!("-Xmx{}m", instance.max_heap_mb)];
-    argv.extend(
-        instance
-            .extra_jvm_args
-            .split_whitespace()
-            .map(String::from),
-    );
+    let mut argv: Vec<String> = vec![format!("-Xmx{}m", instance.max_heap_mb)];
+    argv.extend(instance.extra_jvm_args.split_whitespace().map(String::from));
     argv.extend(argv_from_manifest);
 
     let log_path = logs_dir.join(format!("{}-launch.log", local_iso_stamp()));
@@ -184,13 +175,8 @@ pub async fn start(
         .try_clone()
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
 
-    let mut child = crate::process::spawn_minecraft(
-        &java_path,
-        &argv,
-        &game_dir,
-        log_file,
-        log_file_err,
-    )?;
+    let mut child =
+        crate::process::spawn_minecraft(&java_path, &argv, &game_dir, log_file, log_file_err)?;
     let pid = child.id().ok_or_else(|| Error::JavaSpawn {
         details: "spawned but no PID available".into(),
     })?;
@@ -273,9 +259,7 @@ const LAUNCHWRAPPER_MAIN_CLASS: &str = "net.minecraft.launchwrapper.Launch";
 /// `BootstrapLauncher`.
 fn needs_vanilla_client_jar(loader: Option<Loader>, main_class: &str) -> bool {
     match loader {
-        Some(Loader::Forge) | Some(Loader::NeoForge) => {
-            main_class == LAUNCHWRAPPER_MAIN_CLASS
-        }
+        Some(Loader::Forge) | Some(Loader::NeoForge) => main_class == LAUNCHWRAPPER_MAIN_CLASS,
         // Vanilla (None) / Fabric / Quilt.
         _ => true,
     }
@@ -373,7 +357,10 @@ mod tests {
 
     #[test]
     fn needs_vanilla_jar_vanilla_true() {
-        assert!(needs_vanilla_client_jar(None, "net.minecraft.client.main.Main"));
+        assert!(needs_vanilla_client_jar(
+            None,
+            "net.minecraft.client.main.Main"
+        ));
     }
 
     #[test]

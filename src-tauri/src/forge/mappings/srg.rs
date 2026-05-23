@@ -16,26 +16,38 @@ pub fn load_tsrg_v1(body: &str) -> Result<ObfIndex> {
 
     for (lineno, line_raw) in body.lines().enumerate() {
         let line = line_raw.trim_end();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let indented = line.starts_with('\t');
         let trimmed = line.trim_start_matches('\t');
-        if trimmed.starts_with('#') { continue; }
+        if trimmed.starts_with('#') {
+            continue;
+        }
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
         if !indented {
             if parts.len() != 2 {
-                return Err(parse_err(lineno, format!("class header needs 2 tokens, got {parts:?}")));
+                return Err(parse_err(
+                    lineno,
+                    format!("class header needs 2 tokens, got {parts:?}"),
+                ));
             }
             current_class = Some(parts[0].to_string());
             idx.put_class(parts[0], parts[1]);
         } else {
-            let obf_class = current_class.as_ref().ok_or_else(|| {
-                parse_err(lineno, "member line before any class header".into())
-            })?;
+            let obf_class = current_class
+                .as_ref()
+                .ok_or_else(|| parse_err(lineno, "member line before any class header".into()))?;
             match parts.len() {
                 2 => idx.put_field(obf_class, parts[0], parts[1]),
                 3 => idx.put_method(obf_class, parts[0], parts[1], parts[2]),
-                _ => return Err(parse_err(lineno, format!("expected 2 (field) or 3 (method) tokens, got {parts:?}"))),
+                _ => {
+                    return Err(parse_err(
+                        lineno,
+                        format!("expected 2 (field) or 3 (method) tokens, got {parts:?}"),
+                    ))
+                }
             }
         }
     }
@@ -61,9 +73,25 @@ net/minecraft/util/text/StringTextComponent net/minecraft/util/text/StringTextCo
     #[test]
     fn parses_class_then_field_then_method() {
         let idx = load_tsrg_v1(FIXTURE).expect("parse");
-        assert_eq!(idx.lookup_class("net/minecraft/client/Minecraft").as_deref(), Some("net/minecraft/client/Minecraft"));
-        assert_eq!(idx.lookup_field("net/minecraft/client/Minecraft", "field_71445_a").as_deref(), Some("activeLanguage"));
-        assert_eq!(idx.lookup_method("net/minecraft/client/Minecraft", "func_71396_d", "(Ljava/lang/Throwable;)V").as_deref(), Some("displayCrashReport"));
+        assert_eq!(
+            idx.lookup_class("net/minecraft/client/Minecraft")
+                .as_deref(),
+            Some("net/minecraft/client/Minecraft")
+        );
+        assert_eq!(
+            idx.lookup_field("net/minecraft/client/Minecraft", "field_71445_a")
+                .as_deref(),
+            Some("activeLanguage")
+        );
+        assert_eq!(
+            idx.lookup_method(
+                "net/minecraft/client/Minecraft",
+                "func_71396_d",
+                "(Ljava/lang/Throwable;)V"
+            )
+            .as_deref(),
+            Some("displayCrashReport")
+        );
     }
 
     #[test]

@@ -95,10 +95,9 @@
     {#if blocked}
       <div class="text-sm text-neutral-700">
         <p class="mb-3">
-          The author of this CurseForge modpack disabled third-party launcher
-          downloads, so it cannot be installed automatically. Open it on
-          CurseForge to download the <code>.zip</code>, then import it with the
-          drag-and-drop box above.
+          The author of this CurseForge modpack disabled third-party launcher downloads, so it
+          cannot be installed automatically. Open it on CurseForge to download the <code>.zip</code
+          >, then import it with the drag-and-drop box above.
         </p>
         <button
           type="button"

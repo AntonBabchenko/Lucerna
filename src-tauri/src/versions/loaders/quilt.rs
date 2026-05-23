@@ -28,8 +28,8 @@ use crate::error::{Error, Result};
 use crate::network::get_json;
 use crate::versions::loaders::LoaderVersion;
 use crate::versions::version_json::{parse, Library, VersionDetails};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 
 /// Quilt-aware wrapper around `get_json`. When the meta server returns
 /// 404 — which happens when Quilt has no published profile or loader
@@ -55,8 +55,7 @@ async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Res
 const META_DEFAULT: &str = "https://meta.quiltmc.org";
 
 fn meta_base() -> String {
-    std::env::var("FTLAUNCHER_QUILT_META_OVERRIDE")
-        .unwrap_or_else(|_| META_DEFAULT.to_string())
+    std::env::var("FTLAUNCHER_QUILT_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -371,7 +370,10 @@ mod tests {
         assert_eq!(out[0].version, "0.29.0");
         assert!(out[0].stable, "newest stable must keep stable=true");
         assert_eq!(out[1].version, "0.23.1");
-        assert!(!out[1].stable, "older stable must be demoted to stable=false");
+        assert!(
+            !out[1].stable,
+            "older stable must be demoted to stable=false"
+        );
         assert_eq!(out[2].version, "0.23.0-beta.1");
         assert!(!out[2].stable);
         assert_eq!(out[3].version, "0.20.0-beta.9");
@@ -393,9 +395,15 @@ mod tests {
             assert!(lib.url.is_some());
         }
         // Real Quilt API does not include these fields — vanilla parent provides them.
-        assert!(v.asset_index.is_none(), "loader profile must not have assetIndex");
+        assert!(
+            v.asset_index.is_none(),
+            "loader profile must not have assetIndex"
+        );
         assert!(v.assets.is_none(), "loader profile must not have assets");
-        assert!(v.downloads.is_none(), "loader profile must not have downloads");
+        assert!(
+            v.downloads.is_none(),
+            "loader profile must not have downloads"
+        );
     }
 
     #[tokio::test]
@@ -472,7 +480,12 @@ mod tests {
 
         let v = profile("1.21.11", "0.29.2").await.expect("profile");
         // quilt-loader + hashed + intermediary = 3.
-        assert_eq!(v.libraries.len(), 3, "got {:?}", v.libraries.iter().map(|l| &l.name).collect::<Vec<_>>());
+        assert_eq!(
+            v.libraries.len(),
+            3,
+            "got {:?}",
+            v.libraries.iter().map(|l| &l.name).collect::<Vec<_>>()
+        );
         let names: Vec<&str> = v.libraries.iter().map(|l| l.name.as_str()).collect();
         assert!(names.contains(&"org.quiltmc:hashed:1.21.11"));
         assert!(names.contains(&"net.fabricmc:intermediary:1.21.11"));
@@ -482,7 +495,10 @@ mod tests {
                 assert_eq!(lib.url.as_deref(), Some("https://maven.fabricmc.net/"));
             }
             if lib.name.starts_with("org.quiltmc:hashed") {
-                assert_eq!(lib.url.as_deref(), Some("https://maven.quiltmc.org/repository/release/"));
+                assert_eq!(
+                    lib.url.as_deref(),
+                    Some("https://maven.quiltmc.org/repository/release/")
+                );
             }
         }
 

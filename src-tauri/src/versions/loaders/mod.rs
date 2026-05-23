@@ -124,19 +124,13 @@ fn parse_forge_rest(loader: Loader, rest: &str) -> Option<(Loader, String, Strin
     // start with a 2-digit year).
     let bytes = rest.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {
-        if b == b'-'
-            && i + 1 < bytes.len()
-            && bytes[i + 1].is_ascii_digit()
-        {
+        if b == b'-' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
             let fv = &rest[..i];
             let mc = &rest[i + 1..];
             // Reject if the loader-version part doesn't start with a digit.
             // This prevents `neoforge-loader-47.0.0-1.20.4` from being
             // misidentified as NeoForge with loader_ver="loader".
-            if !fv.is_empty()
-                && !mc.is_empty()
-                && fv.as_bytes()[0].is_ascii_digit()
-            {
+            if !fv.is_empty() && !mc.is_empty() && fv.as_bytes()[0].is_ascii_digit() {
                 return Some((loader, fv.to_string(), mc.to_string()));
             }
         }

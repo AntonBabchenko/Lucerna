@@ -231,7 +231,10 @@ mod tests {
         s.loader_version = Some("49.0.49".into());
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""loader":"forge""#), "got: {json}");
-        assert!(json.contains(r#""loader_version":"49.0.49""#), "got: {json}");
+        assert!(
+            json.contains(r#""loader_version":"49.0.49""#),
+            "got: {json}"
+        );
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }
@@ -249,7 +252,10 @@ mod tests {
         s.loader_version = Some("20.4.245".into());
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""loader":"neoforge""#), "got: {json}");
-        assert!(json.contains(r#""loader_version":"20.4.245""#), "got: {json}");
+        assert!(
+            json.contains(r#""loader_version":"20.4.245""#),
+            "got: {json}"
+        );
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
     }
@@ -286,7 +292,10 @@ mod tests {
         s.mrpack_name = Some("All The Mods 10".into());
         s.mrpack_version = Some("1.4.7".into());
         let json = serde_json::to_string(&s).unwrap();
-        assert!(json.contains(r#""mrpack_name":"All The Mods 10""#), "got: {json}");
+        assert!(
+            json.contains(r#""mrpack_name":"All The Mods 10""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""mrpack_version":"1.4.7""#), "got: {json}");
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);

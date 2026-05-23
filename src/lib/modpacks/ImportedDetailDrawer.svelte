@@ -217,7 +217,11 @@
   async function openUpdateDialog() {
     if (!updateAvailable || !inst.mrpack_project_id) return;
     updateError = null;
-    const fetched = await commands.modpackFetchToTemp(inst.mrpack_source ?? 'modrinth', inst.mrpack_project_id, updateAvailable.id);
+    const fetched = await commands.modpackFetchToTemp(
+      inst.mrpack_source ?? 'modrinth',
+      inst.mrpack_project_id,
+      updateAvailable.id,
+    );
     if (fetched.status === 'error') {
       updateError = formatError(fetched.error);
       return;
@@ -378,11 +382,14 @@
     </div>
   {/if}
   {#if updating}
-    <div class="px-4 pb-3 text-sm text-blue-700" data-testid="imported-detail-updating">Updating…</div>
+    <div class="px-4 pb-3 text-sm text-blue-700" data-testid="imported-detail-updating">
+      Updating…
+    </div>
   {:else if updateAvailable}
     <div class="px-4 pb-3">
       <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2 text-sm">
-        <span class="flex-1 text-blue-900">Update available → {updateAvailable.version_number}</span>
+        <span class="flex-1 text-blue-900">Update available → {updateAvailable.version_number}</span
+        >
         <button
           type="button"
           class="text-xs px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700"
@@ -567,11 +574,12 @@
     {#if status && status.missing_mods.length > 0}
       <div class="mt-5" data-testid="imported-detail-missing-section">
         <h4 class="font-medium text-sm text-neutral-700 mb-2">
-          Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed').length})
+          Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed')
+            .length})
         </h4>
         <p class="text-xs text-neutral-500 mb-2">
-          The pack author disabled automatic downloads for these. Download each
-          from its source and drop the jar onto the Mods tab.
+          The pack author disabled automatic downloads for these. Download each from its source and
+          drop the jar onto the Mods tab.
         </p>
         <ul class="space-y-1">
           {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
@@ -593,7 +601,9 @@
               <span class="truncate flex-1" class:text-neutral-500={isInstalled}>
                 {m.entry.mod_name}
                 {#if isDifferentVersion}
-                  <span class="text-neutral-500 text-xs"> — different version than the pack — may be incompatible</span>
+                  <span class="text-neutral-500 text-xs">
+                    — different version than the pack — may be incompatible</span
+                  >
                 {/if}
               </span>
               {#if !isInstalled}

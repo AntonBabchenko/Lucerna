@@ -50,8 +50,15 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
             //   --marker <path>: writes a sentinel file after patching;
             //                    used by Forge bootstrap to skip already-
             //                    patched jars on relaunch.
-            "--marker" => { let _ = it.next(); /* swallow value; passed through to Java */ }
-            other => return Err(patcher_fail("binarypatcher", &format!("unknown flag: {other}"))),
+            "--marker" => {
+                let _ = it.next(); /* swallow value; passed through to Java */
+            }
+            other => {
+                return Err(patcher_fail(
+                    "binarypatcher",
+                    &format!("unknown flag: {other}"),
+                ))
+            }
         }
     }
     Ok(Args {
@@ -66,14 +73,13 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
 /// entries inside.
 pub fn decompress_lzma(input: &[u8]) -> Result<Vec<u8>> {
     use std::io::Read;
-    let stream = xz2::stream::Stream::new_lzma_decoder(u64::MAX).map_err(|e| {
-        patcher_fail("binarypatcher", &format!("lzma stream init: {e}"))
-    })?;
+    let stream = xz2::stream::Stream::new_lzma_decoder(u64::MAX)
+        .map_err(|e| patcher_fail("binarypatcher", &format!("lzma stream init: {e}")))?;
     let mut reader = xz2::read::XzDecoder::new_stream(input, stream);
     let mut out = Vec::with_capacity(input.len() * 4);
-    reader.read_to_end(&mut out).map_err(|e| {
-        patcher_fail("binarypatcher", &format!("lzma decompress: {e}"))
-    })?;
+    reader
+        .read_to_end(&mut out)
+        .map_err(|e| patcher_fail("binarypatcher", &format!("lzma decompress: {e}")))?;
     Ok(out)
 }
 
@@ -115,12 +121,18 @@ pub struct BinPatch {
 /// Returns `(string, new_pos)`.
 fn read_java_utf(data: &[u8], pos: usize) -> crate::error::Result<(String, usize)> {
     if pos + 2 > data.len() {
-        return Err(patcher_fail("binarypatcher", &"unexpected EOF reading java-utf length"));
+        return Err(patcher_fail(
+            "binarypatcher",
+            &"unexpected EOF reading java-utf length",
+        ));
     }
     let len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
     let end = pos + 2 + len;
     if end > data.len() {
-        return Err(patcher_fail("binarypatcher", &"unexpected EOF reading java-utf string"));
+        return Err(patcher_fail(
+            "binarypatcher",
+            &"unexpected EOF reading java-utf string",
+        ));
     }
     let s = std::str::from_utf8(&data[pos + 2..end])
         .map_err(|e| patcher_fail("binarypatcher", &format!("java-utf8 decode: {e}")))?
@@ -153,7 +165,10 @@ pub fn parse_binpatch(input: &[u8]) -> crate::error::Result<BinPatch> {
 
     // exists byte
     if pos >= input.len() {
-        return Err(patcher_fail("binarypatcher", &"unexpected EOF at exists byte"));
+        return Err(patcher_fail(
+            "binarypatcher",
+            &"unexpected EOF at exists byte",
+        ));
     }
     let exists = input[pos] != 0;
     pos += 1;
@@ -161,9 +176,13 @@ pub fn parse_binpatch(input: &[u8]) -> crate::error::Result<BinPatch> {
     // optional checksum
     let source_checksum = if exists {
         if pos + 4 > input.len() {
-            return Err(patcher_fail("binarypatcher", &"unexpected EOF reading checksum"));
+            return Err(patcher_fail(
+                "binarypatcher",
+                &"unexpected EOF reading checksum",
+            ));
         }
-        let cksum = u32::from_be_bytes([input[pos], input[pos+1], input[pos+2], input[pos+3]]);
+        let cksum =
+            u32::from_be_bytes([input[pos], input[pos + 1], input[pos + 2], input[pos + 3]]);
         pos += 4;
         Some(cksum)
     } else {
@@ -172,19 +191,31 @@ pub fn parse_binpatch(input: &[u8]) -> crate::error::Result<BinPatch> {
 
     // payload length + payload bytes
     if pos + 4 > input.len() {
-        return Err(patcher_fail("binarypatcher", &"unexpected EOF reading payload length"));
+        return Err(patcher_fail(
+            "binarypatcher",
+            &"unexpected EOF reading payload length",
+        ));
     }
-    let payload_len = u32::from_be_bytes([input[pos], input[pos+1], input[pos+2], input[pos+3]]) as usize;
+    let payload_len =
+        u32::from_be_bytes([input[pos], input[pos + 1], input[pos + 2], input[pos + 3]]) as usize;
     pos += 4;
     if pos + payload_len > input.len() {
         return Err(patcher_fail(
             "binarypatcher",
-            &format!("payload length {payload_len} exceeds available bytes {}", input.len() - pos),
+            &format!(
+                "payload length {payload_len} exceeds available bytes {}",
+                input.len() - pos
+            ),
         ));
     }
     let patch_payload = input[pos..pos + payload_len].to_vec();
 
-    Ok(BinPatch { source_class, target_class, source_checksum, patch_payload })
+    Ok(BinPatch {
+        source_class,
+        target_class,
+        source_checksum,
+        patch_payload,
+    })
 }
 
 // ─── GDiff v4 applier ─────────────────────────────────────────────────────────
@@ -228,7 +259,10 @@ pub fn apply_gdiff(original: &[u8], patch: &[u8]) -> crate::error::Result<Vec<u8
     if patch.len() < 5 || &patch[..4] != &[0xd1, 0xff, 0xd1, 0xff] || patch[4] != 4 {
         return Err(patcher_fail(
             "binarypatcher",
-            &format!("invalid GDiff magic/version: {:?}", &patch[..patch.len().min(5)]),
+            &format!(
+                "invalid GDiff magic/version: {:?}",
+                &patch[..patch.len().min(5)]
+            ),
         ));
     }
 
@@ -238,7 +272,10 @@ pub fn apply_gdiff(original: &[u8], patch: &[u8]) -> crate::error::Result<Vec<u8
     macro_rules! need {
         ($n:expr) => {{
             if pos + $n > patch.len() {
-                return Err(patcher_fail("binarypatcher", &"unexpected EOF in GDiff patch"));
+                return Err(patcher_fail(
+                    "binarypatcher",
+                    &"unexpected EOF in GDiff patch",
+                ));
             }
         }};
     }
@@ -261,7 +298,8 @@ pub fn apply_gdiff(original: &[u8], patch: &[u8]) -> crate::error::Result<Vec<u8
     macro_rules! read_u32_be {
         () => {{
             need!(4);
-            let v = u32::from_be_bytes([patch[pos], patch[pos+1], patch[pos+2], patch[pos+3]]) as usize;
+            let v = u32::from_be_bytes([patch[pos], patch[pos + 1], patch[pos + 2], patch[pos + 3]])
+                as usize;
             pos += 4;
             v
         }};
@@ -270,8 +308,14 @@ pub fn apply_gdiff(original: &[u8], patch: &[u8]) -> crate::error::Result<Vec<u8
         () => {{
             need!(8);
             let v = u64::from_be_bytes([
-                patch[pos], patch[pos+1], patch[pos+2], patch[pos+3],
-                patch[pos+4], patch[pos+5], patch[pos+6], patch[pos+7],
+                patch[pos],
+                patch[pos + 1],
+                patch[pos + 2],
+                patch[pos + 3],
+                patch[pos + 4],
+                patch[pos + 5],
+                patch[pos + 6],
+                patch[pos + 7],
             ]) as usize;
             pos += 8;
             v
@@ -345,12 +389,22 @@ pub fn apply_gdiff(original: &[u8], patch: &[u8]) -> crate::error::Result<Vec<u8
 
 /// Copy `length` bytes from `source` at `offset` into `out`.
 #[inline]
-fn copy_from_source(source: &[u8], offset: usize, length: usize, out: &mut Vec<u8>) -> crate::error::Result<()> {
-    let end = offset.checked_add(length).ok_or_else(|| patcher_fail("binarypatcher", &"COPY offset+length overflow"))?;
+fn copy_from_source(
+    source: &[u8],
+    offset: usize,
+    length: usize,
+    out: &mut Vec<u8>,
+) -> crate::error::Result<()> {
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| patcher_fail("binarypatcher", &"COPY offset+length overflow"))?;
     if end > source.len() {
         return Err(patcher_fail(
             "binarypatcher",
-            &format!("COPY out of bounds: offset={offset} len={length} src_len={}", source.len()),
+            &format!(
+                "COPY out of bounds: offset={offset} len={length} src_len={}",
+                source.len()
+            ),
         ));
     }
     out.extend_from_slice(&source[offset..end]);
@@ -404,43 +458,42 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
     }
 
     // 1. Load + decompress patches.
-    let lzma_bytes = tokio::fs::read(&parsed.apply).await.map_err(|e| {
-        patcher_fail("binarypatcher", &format!("read {}: {e}", parsed.apply))
-    })?;
+    let lzma_bytes = tokio::fs::read(&parsed.apply)
+        .await
+        .map_err(|e| patcher_fail("binarypatcher", &format!("read {}: {e}", parsed.apply)))?;
     let patch_container_bytes = decompress_lzma(&lzma_bytes)?;
-    let mut patch_zip = zip::ZipArchive::new(std::io::Cursor::new(patch_container_bytes)).map_err(|e| {
-        patcher_fail("binarypatcher", &format!("patch container zip: {e}"))
-    })?;
+    let mut patch_zip = zip::ZipArchive::new(std::io::Cursor::new(patch_container_bytes))
+        .map_err(|e| patcher_fail("binarypatcher", &format!("patch container zip: {e}")))?;
 
     // Build a map: source_class_name → BinPatch.
     let mut patches: std::collections::HashMap<String, BinPatch> = std::collections::HashMap::new();
     for i in 0..patch_zip.len() {
-        let mut entry = patch_zip.by_index(i).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("patch entry {i}: {e}"))
-        })?;
+        let mut entry = patch_zip
+            .by_index(i)
+            .map_err(|e| patcher_fail("binarypatcher", &format!("patch entry {i}: {e}")))?;
         let name = entry.name().to_string();
-        if !name.ends_with(".binpatch") { continue; }
+        if !name.ends_with(".binpatch") {
+            continue;
+        }
         let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("read patch {name}: {e}"))
-        })?;
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| patcher_fail("binarypatcher", &format!("read patch {name}: {e}")))?;
         let p = parse_binpatch(&buf)?;
         patches.insert(p.source_class.clone(), p);
     }
 
     // 2. Open clean jar + create output jar.
-    let clean_bytes = tokio::fs::read(&parsed.clean).await.map_err(|e| {
-        patcher_fail("binarypatcher", &format!("read {}: {e}", parsed.clean))
-    })?;
-    let mut clean_zip = zip::ZipArchive::new(std::io::Cursor::new(clean_bytes)).map_err(|e| {
-        patcher_fail("binarypatcher", &format!("clean zip: {e}"))
-    })?;
+    let clean_bytes = tokio::fs::read(&parsed.clean)
+        .await
+        .map_err(|e| patcher_fail("binarypatcher", &format!("read {}: {e}", parsed.clean)))?;
+    let mut clean_zip = zip::ZipArchive::new(std::io::Cursor::new(clean_bytes))
+        .map_err(|e| patcher_fail("binarypatcher", &format!("clean zip: {e}")))?;
     if let Some(parent) = std::path::Path::new(&parsed.output).parent() {
         tokio::fs::create_dir_all(parent).await.ok();
     }
-    let out_file = std::fs::File::create(&parsed.output).map_err(|e| {
-        patcher_fail("binarypatcher", &format!("create {}: {e}", parsed.output))
-    })?;
+    let out_file = std::fs::File::create(&parsed.output)
+        .map_err(|e| patcher_fail("binarypatcher", &format!("create {}: {e}", parsed.output)))?;
     let mut out_zip = zip::ZipWriter::new(out_file);
     let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
 
@@ -450,15 +503,17 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
         // Tighten ZipFile lifetime into a sync block so no .await is held
         // while a ZipFile borrow is alive (satisfies Send constraint).
         let (class_key, name, buf) = {
-            let mut entry = clean_zip.by_index(i).map_err(|e| {
-                patcher_fail("binarypatcher", &format!("clean idx {i}: {e}"))
-            })?;
-            if entry.is_dir() { continue; }
+            let mut entry = clean_zip
+                .by_index(i)
+                .map_err(|e| patcher_fail("binarypatcher", &format!("clean idx {i}: {e}")))?;
+            if entry.is_dir() {
+                continue;
+            }
             let name = entry.name().to_string();
             let mut buf = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut buf).map_err(|e| {
-                patcher_fail("binarypatcher", &format!("clean read {name}: {e}"))
-            })?;
+            entry
+                .read_to_end(&mut buf)
+                .map_err(|e| patcher_fail("binarypatcher", &format!("clean read {name}: {e}")))?;
             // Match by class FQN (strip `.class` suffix, use `/`-separated form).
             let class_key = name.strip_suffix(".class").unwrap_or(&name).to_string();
             (class_key, name, buf)
@@ -470,22 +525,29 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
                 if p.patch_payload.is_empty() {
                     continue;
                 }
-                eprintln!("binarypatcher: applying patch to {} (clean: {} bytes, patch: {} bytes)",
-                    class_key, buf.len(), p.patch_payload.len());
+                eprintln!(
+                    "binarypatcher: applying patch to {} (clean: {} bytes, patch: {} bytes)",
+                    class_key,
+                    buf.len(),
+                    p.patch_payload.len()
+                );
                 let patched = apply_gdiff(&buf, &p.patch_payload).map_err(|e| {
-                    patcher_fail("binarypatcher", &format!("apply patch for {class_key}: {e}"))
+                    patcher_fail(
+                        "binarypatcher",
+                        &format!("apply patch for {class_key}: {e}"),
+                    )
                 })?;
                 let new_name = format!("{}.class", p.target_class);
                 (new_name, patched)
             }
             None => (name.clone(), buf),
         };
-        out_zip.start_file::<_, ()>(out_name.clone(), opts).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("zip start {out_name}: {e}"))
-        })?;
-        out_zip.write_all(&out_bytes).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("zip write {out_name}: {e}"))
-        })?;
+        out_zip
+            .start_file::<_, ()>(out_name.clone(), opts)
+            .map_err(|e| patcher_fail("binarypatcher", &format!("zip start {out_name}: {e}")))?;
+        out_zip
+            .write_all(&out_bytes)
+            .map_err(|e| patcher_fail("binarypatcher", &format!("zip write {out_name}: {e}")))?;
     }
 
     // 4. Emit patches that didn't match any clean entry — these are NEW classes
@@ -493,23 +555,35 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
     // The patch is a GDiff against an empty source, so apply_gdiff(b"", payload)
     // yields the new class bytes.
     for (source_class, p) in &patches {
-        if consumed.contains(source_class) { continue; }
-        if p.patch_payload.is_empty() { continue; } // empty + unmatched = no-op
-        eprintln!("binarypatcher: emitting NEW class {} from patch (payload: {} bytes)",
-            p.target_class, p.patch_payload.len());
+        if consumed.contains(source_class) {
+            continue;
+        }
+        if p.patch_payload.is_empty() {
+            continue;
+        } // empty + unmatched = no-op
+        eprintln!(
+            "binarypatcher: emitting NEW class {} from patch (payload: {} bytes)",
+            p.target_class,
+            p.patch_payload.len()
+        );
         let new_bytes = apply_gdiff(&[], &p.patch_payload).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("apply patch for NEW class {}: {e}", p.target_class))
+            patcher_fail(
+                "binarypatcher",
+                &format!("apply patch for NEW class {}: {e}", p.target_class),
+            )
         })?;
         let new_name = format!("{}.class", p.target_class);
-        out_zip.start_file::<_, ()>(new_name.clone(), opts).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("zip start {new_name}: {e}"))
-        })?;
-        out_zip.write_all(&new_bytes).map_err(|e| {
-            patcher_fail("binarypatcher", &format!("zip write {new_name}: {e}"))
-        })?;
+        out_zip
+            .start_file::<_, ()>(new_name.clone(), opts)
+            .map_err(|e| patcher_fail("binarypatcher", &format!("zip start {new_name}: {e}")))?;
+        out_zip
+            .write_all(&new_bytes)
+            .map_err(|e| patcher_fail("binarypatcher", &format!("zip write {new_name}: {e}")))?;
     }
 
-    out_zip.finish().map_err(|e| patcher_fail("binarypatcher", &format!("zip finish: {e}")))?;
+    out_zip
+        .finish()
+        .map_err(|e| patcher_fail("binarypatcher", &format!("zip finish: {e}")))?;
     Ok(())
 }
 
@@ -521,21 +595,18 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
 ///   - NeoForge `net.neoforged.installertools:binarypatcher:2.1.2` → `net.neoforged.binarypatcher.ConsoleTool`
 async fn run_via_java(args: &[String], ctx: &ProcessorContext, is_neoforge: bool) -> Result<()> {
     use std::path::PathBuf;
-    let java_bin = ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"));
+    let java_bin = ctx
+        .java_bin
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("java"));
     // Select the main class by flavor (ADDENDUM B).
     let main_class = if is_neoforge {
         "net.neoforged.binarypatcher.ConsoleTool"
     } else {
         "net.minecraftforge.binarypatcher.ConsoleTool"
     };
-    crate::process::run_java_processor(
-        &java_bin,
-        &ctx.classpath,
-        main_class,
-        args,
-        "binarypatcher",
-    )
-    .await
+    crate::process::run_java_processor(&java_bin, &ctx.classpath, main_class, args, "binarypatcher")
+        .await
 }
 
 #[cfg(test)]
@@ -545,12 +616,18 @@ mod tests {
     #[test]
     fn parse_args_three_required() {
         let raw = vec![
-            "--clean".into(), "/i".into(),
-            "--output".into(), "/o".into(),
-            "--apply".into(), "/p".into(),
+            "--clean".into(),
+            "/i".into(),
+            "--output".into(),
+            "/o".into(),
+            "--apply".into(),
+            "/p".into(),
         ];
         let p = parse_args(&raw).unwrap();
-        assert_eq!((p.clean.as_str(), p.output.as_str(), p.apply.as_str()), ("/i", "/o", "/p"));
+        assert_eq!(
+            (p.clean.as_str(), p.output.as_str(), p.apply.as_str()),
+            ("/i", "/o", "/p")
+        );
     }
 
     #[test]
@@ -566,9 +643,12 @@ mod tests {
     #[test]
     fn parse_args_accepts_v1_2_0_flags() {
         let raw = vec![
-            "--clean".into(), "/c".into(),
-            "--output".into(), "/o".into(),
-            "--apply".into(), "/p".into(),
+            "--clean".into(),
+            "/c".into(),
+            "--output".into(),
+            "/o".into(),
+            "--apply".into(),
+            "/p".into(),
             "--data".into(),
             "--unpatched".into(),
         ];
@@ -586,13 +666,17 @@ mod tests {
         // forward them; the routing key `--data || --unpatched` still
         // triggers the Java path.
         let raw = vec![
-            "--clean".into(), "/c".into(),
-            "--output".into(), "/o".into(),
-            "--apply".into(), "/p".into(),
+            "--clean".into(),
+            "/c".into(),
+            "--output".into(),
+            "/o".into(),
+            "--apply".into(),
+            "/p".into(),
             "--data".into(),
             "--unpatched".into(),
             "--store".into(),
-            "--marker".into(), ".forge_patched_minecraft".into(),
+            "--marker".into(),
+            ".forge_patched_minecraft".into(),
         ];
         let parsed = parse_args(&raw).expect("1.3.0 flags must parse");
         assert_eq!(parsed.clean, "/c");
@@ -606,7 +690,7 @@ mod tests {
     /// and appends one literal byte.
     fn make_gdiff_payload(source: &[u8], extra: u8) -> Vec<u8> {
         let mut p = vec![0xd1u8, 0xff, 0xd1, 0xff, 0x04]; // magic
-        // COPY_USHORT_USHORT: offset=0, length=source.len()
+                                                          // COPY_USHORT_USHORT: offset=0, length=source.len()
         assert!(source.len() <= 65535, "test helper: source too large");
         p.push(GDIFF_COPY_USHORT_USHORT);
         p.extend_from_slice(&(0u16).to_be_bytes());
@@ -643,7 +727,7 @@ mod tests {
     /// Construct a synthetic .binpatch entry and verify parse_binpatch round-trips.
     fn make_binpatch(obf: &str, srg: &str, exists: bool, checksum: u32, payload: &[u8]) -> Vec<u8> {
         let mut buf = vec![1u8]; // version
-        // java-utf8: 2-byte BE length + bytes
+                                 // java-utf8: 2-byte BE length + bytes
         let write_java_utf = |b: &mut Vec<u8>, s: &str| {
             let bytes = s.as_bytes();
             b.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
@@ -663,7 +747,13 @@ mod tests {
     #[test]
     fn parse_binpatch_round_trip() {
         let dummy_payload = b"\xd1\xff\xd1\xff\x04\x05hello\x00"; // gdiff magic + DATA(5) + EOF
-        let raw = make_binpatch("net/minecraft/Foo", "net/minecraft/Foo", true, 0xdeadbeef, dummy_payload);
+        let raw = make_binpatch(
+            "net/minecraft/Foo",
+            "net/minecraft/Foo",
+            true,
+            0xdeadbeef,
+            dummy_payload,
+        );
         let patch = parse_binpatch(&raw).expect("parse");
         assert_eq!(patch.source_class, "net/minecraft/Foo");
         assert_eq!(patch.target_class, "net/minecraft/Foo");
@@ -691,7 +781,10 @@ mod tests {
         use std::io::Write;
         // Use xz2 itself to encode, then decode. Goal: prove our reader path works.
         let original = b"some bytes to compress".repeat(10);
-        let stream = xz2::stream::Stream::new_lzma_encoder(&xz2::stream::LzmaOptions::new_preset(6).unwrap()).unwrap();
+        let stream = xz2::stream::Stream::new_lzma_encoder(
+            &xz2::stream::LzmaOptions::new_preset(6).unwrap(),
+        )
+        .unwrap();
         let mut enc = xz2::write::XzEncoder::new_stream(Vec::new(), stream);
         enc.write_all(&original).unwrap();
         let compressed = enc.finish().unwrap();
@@ -774,12 +867,14 @@ mod tests {
 
         // Read back and verify output contains the same entries.
         let out_bytes = std::fs::read(&output_path).expect("output jar");
-        let mut out_zip = zip::ZipArchive::new(std::io::Cursor::new(out_bytes)).expect("open output zip");
+        let mut out_zip =
+            zip::ZipArchive::new(std::io::Cursor::new(out_bytes)).expect("open output zip");
 
         let expected_names: std::collections::HashSet<&str> =
             clean_entries.iter().map(|(n, _)| *n).collect();
-        let actual_names: std::collections::HashSet<String> =
-            (0..out_zip.len()).map(|i| out_zip.by_index(i).unwrap().name().to_string()).collect();
+        let actual_names: std::collections::HashSet<String> = (0..out_zip.len())
+            .map(|i| out_zip.by_index(i).unwrap().name().to_string())
+            .collect();
 
         assert_eq!(
             actual_names,
@@ -802,9 +897,7 @@ mod tests {
     async fn run_skips_empty_payload_patches() {
         // Clean jar: one class entry that has a matching empty-payload patch.
         let class_bytes = b"\xca\xfe\xba\xbe\x00\x00\x00\x3c"; // fake class header
-        let clean_entries: &[(&str, &[u8])] = &[
-            ("pkg/ToDelete.class", class_bytes),
-        ];
+        let clean_entries: &[(&str, &[u8])] = &[("pkg/ToDelete.class", class_bytes)];
         let clean_zip_bytes = make_zip(clean_entries);
 
         // Build a binpatch with empty payload for pkg/ToDelete.
@@ -822,9 +915,12 @@ mod tests {
         std::fs::write(&patches_path, &patches_lzma).unwrap();
 
         let args = vec![
-            "--clean".to_string(), clean_path.to_string_lossy().to_string(),
-            "--output".to_string(), output_path.to_string_lossy().to_string(),
-            "--apply".to_string(), patches_path.to_string_lossy().to_string(),
+            "--clean".to_string(),
+            clean_path.to_string_lossy().to_string(),
+            "--output".to_string(),
+            output_path.to_string_lossy().to_string(),
+            "--apply".to_string(),
+            patches_path.to_string_lossy().to_string(),
         ];
         let ctx = ProcessorContext {
             classpath: vec![],
@@ -834,7 +930,8 @@ mod tests {
         run(args, &ctx).await.expect("run should succeed");
 
         let out_bytes = std::fs::read(&output_path).expect("output jar");
-        let mut out_zip = zip::ZipArchive::new(std::io::Cursor::new(out_bytes)).expect("open output zip");
+        let mut out_zip =
+            zip::ZipArchive::new(std::io::Cursor::new(out_bytes)).expect("open output zip");
 
         // The deleted class must NOT be present.
         assert!(
@@ -850,7 +947,10 @@ mod tests {
     /// Build a minimal GDiff payload that emits `data` literal bytes from an
     /// empty source.  Uses DATA(N) command (tag = N, for N <= 246).
     fn make_gdiff_from_empty(data: &[u8]) -> Vec<u8> {
-        assert!(data.len() <= 246, "test helper: use DATA_USHORT for larger payloads");
+        assert!(
+            data.len() <= 246,
+            "test helper: use DATA_USHORT for larger payloads"
+        );
         let mut p = vec![0xd1u8, 0xff, 0xd1, 0xff, 0x04]; // magic
         p.push(data.len() as u8); // DATA(N) tag
         p.extend_from_slice(data);
@@ -864,16 +964,15 @@ mod tests {
 
         // Clean jar: one existing class.
         let existing_bytes = b"\xca\xfe\xba\xbe\x00\x00\x00\x3c"; // fake class
-        let clean_entries: &[(&str, &[u8])] = &[
-            ("pkg/Existing.class", existing_bytes),
-        ];
+        let clean_entries: &[(&str, &[u8])] = &[("pkg/Existing.class", existing_bytes)];
         let clean_zip_bytes = make_zip(clean_entries);
 
         // New-class patch: source does not exist in clean jar, payload is a GDiff
         // against empty source that emits "hello" bytes.
         let new_class_payload = make_gdiff_from_empty(b"hello");
         // exists=false (source absent from vanilla), no checksum field.
-        let new_patch_raw = make_binpatch("pkg/NewClass", "pkg/NewClass", false, 0, &new_class_payload);
+        let new_patch_raw =
+            make_binpatch("pkg/NewClass", "pkg/NewClass", false, 0, &new_class_payload);
         let patch_container = make_zip(&[("pkg/NewClass.binpatch", &new_patch_raw)]);
         let patches_lzma = lzma_compress(&patch_container);
 
@@ -886,9 +985,12 @@ mod tests {
         std::fs::write(&patches_path, &patches_lzma).unwrap();
 
         let args = vec![
-            "--clean".to_string(), clean_path.to_string_lossy().to_string(),
-            "--output".to_string(), output_path.to_string_lossy().to_string(),
-            "--apply".to_string(), patches_path.to_string_lossy().to_string(),
+            "--clean".to_string(),
+            clean_path.to_string_lossy().to_string(),
+            "--output".to_string(),
+            output_path.to_string_lossy().to_string(),
+            "--apply".to_string(),
+            patches_path.to_string_lossy().to_string(),
         ];
         let ctx = ProcessorContext {
             classpath: vec![],
@@ -898,24 +1000,39 @@ mod tests {
         run(args, &ctx).await.expect("run should succeed");
 
         let out_bytes = std::fs::read(&output_path).expect("output jar");
-        let mut out_zip = zip::ZipArchive::new(std::io::Cursor::new(out_bytes)).expect("open output zip");
+        let mut out_zip =
+            zip::ZipArchive::new(std::io::Cursor::new(out_bytes)).expect("open output zip");
 
         // Existing class must still be present and unmodified.
         {
-            let mut entry = out_zip.by_name("pkg/Existing.class").expect("existing class present");
+            let mut entry = out_zip
+                .by_name("pkg/Existing.class")
+                .expect("existing class present");
             let mut actual = Vec::new();
             entry.read_to_end(&mut actual).unwrap();
-            assert_eq!(actual, existing_bytes, "existing class content must be unchanged");
+            assert_eq!(
+                actual, existing_bytes,
+                "existing class content must be unchanged"
+            );
         }
 
         // New class must be present with the expected content.
         {
-            let mut entry = out_zip.by_name("pkg/NewClass.class").expect("new class must be present");
+            let mut entry = out_zip
+                .by_name("pkg/NewClass.class")
+                .expect("new class must be present");
             let mut actual = Vec::new();
             entry.read_to_end(&mut actual).unwrap();
-            assert_eq!(actual, b"hello", "new class content must match patch output");
+            assert_eq!(
+                actual, b"hello",
+                "new class content must match patch output"
+            );
         }
 
-        assert_eq!(out_zip.len(), 2, "output jar should contain exactly 2 entries");
+        assert_eq!(
+            out_zip.len(),
+            2,
+            "output jar should contain exactly 2 entries"
+        );
     }
 }

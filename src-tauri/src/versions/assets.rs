@@ -51,7 +51,14 @@ pub async fn ensure_assets(
 
     let index_file = indexes_dir.join(format!("{}.json", asset_index.id));
     if !file_matches_sha(&index_file, &asset_index.sha1).await {
-        download_with_sha(app, &asset_index.url, &index_file, &asset_index.sha1, "assets").await?;
+        download_with_sha(
+            app,
+            &asset_index.url,
+            &index_file,
+            &asset_index.sha1,
+            "assets",
+        )
+        .await?;
     }
 
     let raw = tokio::fs::read(&index_file)
@@ -141,6 +148,9 @@ mod tests {
         let hash = "abc123def456";
         let prefix = &hash[..2];
         let url = format!("{ASSET_BASE_URL}/{prefix}/{hash}");
-        assert_eq!(url, "https://resources.download.minecraft.net/ab/abc123def456");
+        assert_eq!(
+            url,
+            "https://resources.download.minecraft.net/ab/abc123def456"
+        );
     }
 }

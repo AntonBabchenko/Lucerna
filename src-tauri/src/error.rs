@@ -69,7 +69,11 @@ pub enum Error {
     ForgeMavenMetadataParseFailed { details: String },
 
     #[error("Forge installer for {mc}-{fv} is corrupted: {details}")]
-    ForgeInstallerCorrupted { mc: String, fv: String, details: String },
+    ForgeInstallerCorrupted {
+        mc: String,
+        fv: String,
+        details: String,
+    },
 
     #[error("This Forge version uses an unsupported processor: {coord}")]
     ForgeUnsupportedProcessor { coord: String },
@@ -130,7 +134,11 @@ pub enum Error {
     ModsDependencyUnresolvable { project_ref: String },
 
     #[error("Cannot place {filename}: a different file with this name already exists")]
-    ModsFilenameConflict { filename: String, existing_sha: String, incoming_sha: String },
+    ModsFilenameConflict {
+        filename: String,
+        existing_sha: String,
+        incoming_sha: String,
+    },
 
     #[error("Mod cache I/O error: {details}")]
     ModsCacheIo { details: String },
@@ -160,7 +168,10 @@ pub enum Error {
     ModpackSha1Unavailable { mod_name: String },
 
     #[error("Mod '{mod_name}' cannot be distributed by third parties — download manually from {project_url}")]
-    ModpackModDistributionDisabled { mod_name: String, project_url: String },
+    ModpackModDistributionDisabled {
+        mod_name: String,
+        project_url: String,
+    },
 
     #[error("Modpack overrides entry escapes the instance directory: {entry}")]
     ModpackOverridesPathEscape { entry: String },
@@ -178,7 +189,10 @@ pub enum Error {
     // count from `.failed.length` (thiserror 2.0 disallows function-call
     // expressions in `#[error("...")]` format strings).
     #[error("Modpack import partially failed for instance {instance_id}")]
-    ModpackPartialFailure { instance_id: String, failed: Vec<(String, String)> },
+    ModpackPartialFailure {
+        instance_id: String,
+        failed: Vec<(String, String)>,
+    },
 
     #[error("Mod '{mod_name}' was bundled inside the .mrpack archive and cannot be restored automatically — re-import the pack to recover it")]
     ModpackBundledNoUrl { mod_name: String },
@@ -241,7 +255,10 @@ mod tests {
             mc_version: "1.6.4".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"loader_unavailable""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"loader_unavailable""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""loader":"fabric""#), "got: {json}");
         assert!(json.contains(r#""mc_version":"1.6.4""#), "got: {json}");
     }
@@ -257,7 +274,10 @@ mod tests {
     fn no_version_selected_serializes_with_tag() {
         let e = Error::NoVersionSelected;
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"no_version_selected""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"no_version_selected""#),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -266,7 +286,10 @@ mod tests {
             id: "3f4a-bbbb".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"instance_not_found""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"instance_not_found""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""id":"3f4a-bbbb""#), "got: {json}");
     }
 
@@ -276,7 +299,10 @@ mod tests {
             flavor: "forge".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"forge_promotions_unavailable""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"forge_promotions_unavailable""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""flavor":"forge""#), "got: {json}");
     }
 
@@ -286,8 +312,14 @@ mod tests {
             details: "unexpected EOF".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"forge_maven_metadata_parse_failed""#), "got: {json}");
-        assert!(json.contains(r#""details":"unexpected EOF""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"forge_maven_metadata_parse_failed""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""details":"unexpected EOF""#),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -298,7 +330,10 @@ mod tests {
             details: "missing install_profile.json".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"forge_installer_corrupted""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"forge_installer_corrupted""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""mc":"1.20.4""#), "got: {json}");
         assert!(json.contains(r#""fv":"49.0.49""#), "got: {json}");
     }
@@ -309,8 +344,14 @@ mod tests {
             coord: "net.example:tool:1.0".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"forge_unsupported_processor""#), "got: {json}");
-        assert!(json.contains(r#""coord":"net.example:tool:1.0""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"forge_unsupported_processor""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""coord":"net.example:tool:1.0""#),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -320,8 +361,14 @@ mod tests {
             details: "lzma decode error".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"forge_patcher_failed""#), "got: {json}");
-        assert!(json.contains(r#""processor":"BinaryPatcher""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"forge_patcher_failed""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""processor":"BinaryPatcher""#),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -330,7 +377,10 @@ mod tests {
             mc: "1.20.4".into(),
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"forge_mappings_missing""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"forge_mappings_missing""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""mc":"1.20.4""#), "got: {json}");
     }
 
@@ -338,21 +388,33 @@ mod tests {
     fn instance_name_empty_serializes_with_tag() {
         let e = Error::InstanceNameEmpty;
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"instance_name_empty""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"instance_name_empty""#),
+            "got: {json}"
+        );
     }
 
     #[test]
     fn instance_name_too_long_carries_max_and_actual() {
-        let e = Error::InstanceNameTooLong { max: 32, actual: 50 };
+        let e = Error::InstanceNameTooLong {
+            max: 32,
+            actual: 50,
+        };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"instance_name_too_long""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"instance_name_too_long""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""max":32"#), "got: {json}");
         assert!(json.contains(r#""actual":50"#), "got: {json}");
     }
 
     #[test]
     fn mods_network_serializes_with_tag() {
-        let e = Error::ModsNetwork { url: "https://api.modrinth.com/v2/search".into(), details: "timeout".into() };
+        let e = Error::ModsNetwork {
+            url: "https://api.modrinth.com/v2/search".into(),
+            details: "timeout".into(),
+        };
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_network""#), "got: {j}");
         assert!(j.contains(r#""url":"https://api.modrinth.com/v2/search""#));
@@ -360,7 +422,9 @@ mod tests {
 
     #[test]
     fn mods_platform_auth_carries_kind() {
-        let e = Error::ModsPlatformAuth { kind: ModsAuthKind::Missing };
+        let e = Error::ModsPlatformAuth {
+            kind: ModsAuthKind::Missing,
+        };
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_platform_auth""#), "got: {j}");
         assert!(j.contains(r#""kind_detail":"missing""#), "got: {j}");
@@ -368,7 +432,10 @@ mod tests {
 
     #[test]
     fn mods_sha1_mismatch_carries_expected_and_got() {
-        let e = Error::ModsSha1Mismatch { expected: "aaa".into(), got: "bbb".into() };
+        let e = Error::ModsSha1Mismatch {
+            expected: "aaa".into(),
+            got: "bbb".into(),
+        };
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_sha1_mismatch""#));
         assert!(j.contains(r#""expected":"aaa""#));
@@ -389,9 +456,14 @@ mod tests {
 
     #[test]
     fn modpack_invalid_archive_serializes() {
-        let e = Error::ModpackInvalidArchive { details: "not zip".into() };
+        let e = Error::ModpackInvalidArchive {
+            details: "not zip".into(),
+        };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"modpack_invalid_archive""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"modpack_invalid_archive""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""details":"not zip""#), "got: {json}");
     }
 
@@ -409,9 +481,15 @@ mod tests {
             failed: vec![("mods/foo.jar".into(), "404 from cdn".into())],
         };
         let json = serde_json::to_string(&e).unwrap();
-        assert!(json.contains(r#""kind":"modpack_partial_failure""#), "got: {json}");
+        assert!(
+            json.contains(r#""kind":"modpack_partial_failure""#),
+            "got: {json}"
+        );
         assert!(json.contains(r#""instance_id":"abc""#), "got: {json}");
-        assert!(json.contains(r#""failed":[["mods/foo.jar","404 from cdn"]]"#), "got: {json}");
+        assert!(
+            json.contains(r#""failed":[["mods/foo.jar","404 from cdn"]]"#),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -421,6 +499,9 @@ mod tests {
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains(r#""kind":"host_not_allowed""#), "got: {json}");
-        assert!(json.contains(r#""url":"http://evil.example/x""#), "got: {json}");
+        assert!(
+            json.contains(r#""url":"http://evil.example/x""#),
+            "got: {json}"
+        );
     }
 }

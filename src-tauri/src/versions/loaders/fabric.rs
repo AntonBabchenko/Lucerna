@@ -10,8 +10,8 @@ use crate::error::{Error, Result};
 use crate::network::get_json;
 use crate::versions::loaders::LoaderVersion;
 use crate::versions::version_json::{parse, VersionDetails};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 
 /// Fabric-aware wrapper around `get_json`. Maps 404 (returned by meta
 /// for unknown MC + loader combinations) to typed `LoaderUnavailable`
@@ -35,8 +35,7 @@ const META_DEFAULT: &str = "https://meta.fabricmc.net";
 /// In production, `meta.fabricmc.net`. Tests set
 /// `FTLAUNCHER_FABRIC_META_OVERRIDE` to a wiremock URI.
 fn meta_base() -> String {
-    std::env::var("FTLAUNCHER_FABRIC_META_OVERRIDE")
-        .unwrap_or_else(|_| META_DEFAULT.to_string())
+    std::env::var("FTLAUNCHER_FABRIC_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,7 +144,10 @@ mod tests {
         let v = parse(FIXTURE_PROFILE).expect("parse fabric profile");
         assert_eq!(v.id, "fabric-loader-0.15.7-1.20.4");
         assert_eq!(v.inherits_from.as_deref(), Some("1.20.4"));
-        assert_eq!(v.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(
+            v.main_class,
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
         assert_eq!(v.libraries.len(), 4);
         for lib in &v.libraries {
             assert!(
@@ -156,8 +158,14 @@ mod tests {
             assert_eq!(lib.url.as_deref(), Some("https://maven.fabricmc.net/"));
         }
         // Real Fabric API does not include these fields — vanilla parent provides them.
-        assert!(v.asset_index.is_none(), "loader profile must not have assetIndex");
+        assert!(
+            v.asset_index.is_none(),
+            "loader profile must not have assetIndex"
+        );
         assert!(v.assets.is_none(), "loader profile must not have assets");
-        assert!(v.downloads.is_none(), "loader profile must not have downloads");
+        assert!(
+            v.downloads.is_none(),
+            "loader profile must not have downloads"
+        );
     }
 }

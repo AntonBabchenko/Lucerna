@@ -281,10 +281,29 @@ mod tests {
         let v = parse(FIXTURE_1_20_4).expect("parse 1.20.4");
         assert_eq!(v.id, "1.20.4");
         assert_eq!(v.main_class, "net.minecraft.client.main.Main");
-        assert_eq!(v.java_version.as_ref().unwrap().component, "java-runtime-gamma");
-        assert_eq!(v.asset_index.as_ref().expect("asset_index present in vanilla").id, "12");
-        assert_eq!(v.assets.as_deref().expect("assets present in vanilla"), "12");
-        assert!(v.downloads.as_ref().expect("downloads present in vanilla").client.sha1 == "ccc");
+        assert_eq!(
+            v.java_version.as_ref().unwrap().component,
+            "java-runtime-gamma"
+        );
+        assert_eq!(
+            v.asset_index
+                .as_ref()
+                .expect("asset_index present in vanilla")
+                .id,
+            "12"
+        );
+        assert_eq!(
+            v.assets.as_deref().expect("assets present in vanilla"),
+            "12"
+        );
+        assert!(
+            v.downloads
+                .as_ref()
+                .expect("downloads present in vanilla")
+                .client
+                .sha1
+                == "ccc"
+        );
         assert_eq!(v.libraries.len(), 2);
         assert!(v.arguments.is_some());
         assert!(v.minecraft_arguments.is_none());
@@ -294,12 +313,21 @@ mod tests {
     fn parses_1_7_10_legacy_format() {
         let v = parse(FIXTURE_1_7_10).expect("parse 1.7.10");
         assert_eq!(v.id, "1.7.10");
-        assert!(v.java_version.is_none(), "pre-1.7.10 has no javaVersion field");
+        assert!(
+            v.java_version.is_none(),
+            "pre-1.7.10 has no javaVersion field"
+        );
         assert!(v.arguments.is_none());
-        let m = v.minecraft_arguments.as_ref().expect("minecraftArguments string");
+        let m = v
+            .minecraft_arguments
+            .as_ref()
+            .expect("minecraftArguments string");
         assert!(m.contains("${auth_player_name}"));
         assert_eq!(v.libraries.len(), 1);
-        assert!(v.libraries[0].downloads.is_none(), "legacy libs have no downloads block");
+        assert!(
+            v.libraries[0].downloads.is_none(),
+            "legacy libs have no downloads block"
+        );
     }
 
     #[test]
@@ -312,7 +340,9 @@ mod tests {
                 assert_eq!(rules.len(), 1);
                 assert_eq!(rules[0].action, RuleAction::Allow);
                 match value {
-                    ArgumentValue::Multiple(v) => assert_eq!(v, &vec!["-XstartOnFirstThread".to_string()]),
+                    ArgumentValue::Multiple(v) => {
+                        assert_eq!(v, &vec!["-XstartOnFirstThread".to_string()])
+                    }
                     ArgumentValue::Single(_) => panic!("expected array"),
                 }
             }
@@ -327,7 +357,10 @@ mod tests {
         let rules = natives_lib.rules.as_ref().expect("rules");
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].action, RuleAction::Allow);
-        assert_eq!(rules[0].os.as_ref().unwrap().name.as_deref(), Some("windows"));
+        assert_eq!(
+            rules[0].os.as_ref().unwrap().name.as_deref(),
+            Some("windows")
+        );
     }
 
     /// Matches the real Fabric API shape: loader profiles do NOT include
@@ -358,11 +391,20 @@ mod tests {
         let v = parse(FIXTURE_FABRIC_PROFILE).expect("parse fabric profile");
         assert_eq!(v.id, "fabric-loader-0.15.7-1.20.4");
         assert_eq!(v.inherits_from.as_deref(), Some("1.20.4"));
-        assert_eq!(v.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(
+            v.main_class,
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
         assert_eq!(v.libraries.len(), 2);
         let loader_lib = &v.libraries[0];
-        assert!(loader_lib.downloads.is_none(), "loader libs have no downloads block");
-        assert_eq!(loader_lib.url.as_deref(), Some("https://maven.fabricmc.net/"));
+        assert!(
+            loader_lib.downloads.is_none(),
+            "loader libs have no downloads block"
+        );
+        assert_eq!(
+            loader_lib.url.as_deref(),
+            Some("https://maven.fabricmc.net/")
+        );
         // Loader profiles must NOT include these — vanilla parent provides them.
         assert!(v.asset_index.is_none(), "loader profile has no assetIndex");
         assert!(v.assets.is_none(), "loader profile has no assets");
@@ -373,7 +415,11 @@ mod tests {
     fn vanilla_libraries_have_no_url_field() {
         let v = parse(FIXTURE_1_20_4).expect("parse");
         for lib in &v.libraries {
-            assert!(lib.url.is_none(), "vanilla lib should not carry maven base url: {}", lib.name);
+            assert!(
+                lib.url.is_none(),
+                "vanilla lib should not carry maven base url: {}",
+                lib.name
+            );
         }
     }
 

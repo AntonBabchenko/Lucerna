@@ -15,8 +15,7 @@ pub use store::Account;
 
 /// List every stored account. Returns an empty vec for a fresh install.
 pub fn list_accounts(app: &tauri::AppHandle) -> Result<Vec<Account>> {
-    let path = account_file(app)
-        .map_err(|e| Error::io("<app data dir>/account.json", e))?;
+    let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     Ok(read_account_file(&path)?.accounts)
 }
 
@@ -24,8 +23,7 @@ pub fn list_accounts(app: &tauri::AppHandle) -> Result<Vec<Account>> {
 /// `remove_account` auto-picks the next as active, so this `None` arm is
 /// mostly the empty-install case.
 pub fn get_active_account(app: &tauri::AppHandle) -> Result<Option<Account>> {
-    let path = account_file(app)
-        .map_err(|e| Error::io("<app data dir>/account.json", e))?;
+    let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let file = read_account_file(&path)?;
     let Some(active_id) = file.active_id else {
         return Ok(None);
@@ -35,8 +33,7 @@ pub fn get_active_account(app: &tauri::AppHandle) -> Result<Option<Account>> {
 
 /// Set the active account by id. `Err(Error::AccountNotSet)` if no such id exists.
 pub fn set_active_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
-    let path = account_file(app)
-        .map_err(|e| Error::io("<app data dir>/account.json", e))?;
+    let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
     if !file.accounts.iter().any(|a| a.id == id) {
         return Err(Error::AccountNotSet);
@@ -49,8 +46,7 @@ pub fn set_active_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
 /// the next account in the list becomes active; if no accounts remain,
 /// `active_id` becomes `None`.
 pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
-    let path = account_file(app)
-        .map_err(|e| Error::io("<app data dir>/account.json", e))?;
+    let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
     let was_active = file.active_id.as_deref() == Some(id);
     file.accounts.retain(|a| a.id != id);
@@ -64,8 +60,7 @@ pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
 /// If an account with the same UUID already exists, returns the existing
 /// entry (idempotent — same name → same uuid → same entry).
 pub fn add_offline_account(app: &tauri::AppHandle, name: &str) -> Result<Account> {
-    let path = account_file(app)
-        .map_err(|e| Error::io("<app data dir>/account.json", e))?;
+    let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
     let uuid = derive_offline_uuid(name).to_string();
     if let Some(existing) = file.accounts.iter().find(|a| a.uuid == uuid).cloned() {

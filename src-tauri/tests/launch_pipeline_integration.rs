@@ -48,12 +48,8 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         details: &details,
         account: &account,
         java_path: PathBuf::from("C:/jres/java-runtime-gamma/bin/javaw.exe"),
-        libraries_dir: PathBuf::from(
-            "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/libraries",
-        ),
-        assets_dir: PathBuf::from(
-            "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/assets",
-        ),
+        libraries_dir: PathBuf::from("C:/Users/foo/AppData/Roaming/com.ftlauncher.app/libraries"),
+        assets_dir: PathBuf::from("C:/Users/foo/AppData/Roaming/com.ftlauncher.app/assets"),
         natives_dir: PathBuf::from(
             "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/instances/default/natives",
         ),
@@ -112,5 +108,8 @@ fn classpath_with_one_lib_uses_semicolon_on_windows() {
     );
     assert!(cp.contains(";"), "Windows separator present: {cp}");
     assert!(cp.contains("authlib.jar"));
-    assert!(cp.ends_with("C:/client.jar"), "client jar appended last: {cp}");
+    assert!(
+        cp.ends_with("C:/client.jar"),
+        "client jar appended last: {cp}"
+    );
 }

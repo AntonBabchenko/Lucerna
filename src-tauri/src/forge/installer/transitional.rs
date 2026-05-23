@@ -18,48 +18,51 @@ async fn extract_installer_maven_tree(
     installer_bytes: &[u8],
     libs_root: &std::path::Path,
 ) -> Result<()> {
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes))
-        .map_err(|e| Error::ForgeInstallerCorrupted {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
+        Error::ForgeInstallerCorrupted {
             mc: "<unknown>".into(),
             fv: "<unknown>".into(),
             details: format!("maven-tree zip open: {e}"),
-        })?;
+        }
+    })?;
     let mut to_write: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for i in 0..archive.len() {
         use std::io::Read;
-        let mut entry = archive.by_index(i).map_err(|e| {
-            Error::ForgeInstallerCorrupted {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| Error::ForgeInstallerCorrupted {
                 mc: "<unknown>".into(),
                 fv: "<unknown>".into(),
                 details: format!("maven-tree zip index {i}: {e}"),
-            }
-        })?;
+            })?;
         let name = entry.name().to_string();
         if !name.starts_with("maven/") || name.ends_with('/') {
             continue;
         }
-        let Some(rel) = name.strip_prefix("maven/") else { continue };
+        let Some(rel) = name.strip_prefix("maven/") else {
+            continue;
+        };
         let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf).map_err(|e| {
-            Error::ForgeInstallerCorrupted {
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| Error::ForgeInstallerCorrupted {
                 mc: "<unknown>".into(),
                 fv: "<unknown>".into(),
                 details: format!("read maven entry {name}: {e}"),
-            }
-        })?;
+            })?;
         to_write.push((libs_root.join(rel), buf));
         // entry (ZipFile, not Send) drops at end of this iteration
         // — before any .await below.
     }
     for (dest, bytes) in to_write {
         if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                Error::io(parent.display().to_string(), e)
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::io(parent.display().to_string(), e))?;
         }
-        tokio::fs::write(&dest, &bytes).await.map_err(|e| {
-            Error::io(dest.display().to_string(), e)
-        })?;
+        tokio::fs::write(&dest, &bytes)
+            .await
+            .map_err(|e| Error::io(dest.display().to_string(), e))?;
     }
     Ok(())
 }
@@ -115,13 +118,18 @@ pub async fn install(
     fv: &str,
     app: &tauri::AppHandle,
 ) -> Result<VersionDetails> {
-    let raw_text = serde_json::to_string(install_profile_value).map_err(|e| Error::ForgeInstallerCorrupted {
-        mc: mc.into(), fv: fv.into(),
-        details: format!("re-serialise install_profile: {e}"),
+    let raw_text = serde_json::to_string(install_profile_value).map_err(|e| {
+        Error::ForgeInstallerCorrupted {
+            mc: mc.into(),
+            fv: fv.into(),
+            details: format!("re-serialise install_profile: {e}"),
+        }
     })?;
     let profile = parse_install_profile(&raw_text).map_err(|e| match e {
         Error::ForgeInstallerCorrupted { details, .. } => Error::ForgeInstallerCorrupted {
-            mc: mc.into(), fv: fv.into(), details,
+            mc: mc.into(),
+            fv: fv.into(),
+            details,
         },
         other => other,
     })?;
@@ -129,31 +137,59 @@ pub async fn install(
     // 2. Extract /version.json from installer.
     let version_details = {
         use std::io::Read;
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
-            Error::ForgeInstallerCorrupted { mc: mc.into(), fv: fv.into(), details: format!("zip: {e}") }
-        })?;
-        let mut entry = archive.by_name("version.json").map_err(|_| Error::ForgeInstallerCorrupted {
-            mc: mc.into(), fv: fv.into(), details: "missing /version.json".into(),
-        })?;
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
+                Error::ForgeInstallerCorrupted {
+                    mc: mc.into(),
+                    fv: fv.into(),
+                    details: format!("zip: {e}"),
+                }
+            })?;
+        let mut entry =
+            archive
+                .by_name("version.json")
+                .map_err(|_| Error::ForgeInstallerCorrupted {
+                    mc: mc.into(),
+                    fv: fv.into(),
+                    details: "missing /version.json".into(),
+                })?;
         let mut buf = String::new();
-        entry.read_to_string(&mut buf).map_err(|e| Error::ForgeInstallerCorrupted {
-            mc: mc.into(), fv: fv.into(), details: format!("read version.json: {e}"),
-        })?;
+        entry
+            .read_to_string(&mut buf)
+            .map_err(|e| Error::ForgeInstallerCorrupted {
+                mc: mc.into(),
+                fv: fv.into(),
+                details: format!("read version.json: {e}"),
+            })?;
         crate::versions::version_json::parse(&buf).map_err(|e| Error::ForgeInstallerCorrupted {
-            mc: mc.into(), fv: fv.into(), details: format!("parse version.json: {e}"),
+            mc: mc.into(),
+            fv: fv.into(),
+            details: format!("parse version.json: {e}"),
         })?
     };
 
     // 3-5. Compute paths.
     let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
-    let cache_dir = app_data.join("forge").join("cache").join(format!("{mc}-{fv}"));
-    tokio::fs::create_dir_all(&cache_dir).await.map_err(|e| Error::io(cache_dir.display().to_string(), e))?;
+    let cache_dir = app_data
+        .join("forge")
+        .join("cache")
+        .join(format!("{mc}-{fv}"));
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| Error::io(cache_dir.display().to_string(), e))?;
     let cache_dir_str = cache_dir.display().to_string();
     let libs_root = crate::paths::libraries_dir(app).map_err(|e| Error::io("<libraries>", e))?;
-    let installer_cache_path = app_data.join("forge").join("installers").join(format!("{mc}-{fv}.jar"));
+    let installer_cache_path = app_data
+        .join("forge")
+        .join("installers")
+        .join(format!("{mc}-{fv}.jar"));
     let installer_path_str = installer_cache_path.display().to_string();
-    let minecraft_jar = app_data.join("versions").join(mc).join(format!("{mc}.jar"))
-        .display().to_string();
+    let minecraft_jar = app_data
+        .join("versions")
+        .join(mc)
+        .join(format!("{mc}.jar"))
+        .display()
+        .to_string();
 
     // 6. Sequence processors.
     use crate::forge::patcher::{run_processor, ProcessorContext};
@@ -175,14 +211,13 @@ pub async fn install(
             .as_ref()
             .map(|jv| jv.component.clone())
             .unwrap_or_else(|| crate::jre::DEFAULT_LEGACY_COMPONENT.to_string());
-        let client_download = vanilla_details
-            .downloads
-            .as_ref()
-            .ok_or_else(|| crate::error::Error::ForgeInstallerCorrupted {
+        let client_download = vanilla_details.downloads.as_ref().ok_or_else(|| {
+            crate::error::Error::ForgeInstallerCorrupted {
                 mc: mc.into(),
                 fv: fv.into(),
                 details: "vanilla version JSON has no downloads field".into(),
-            })?;
+            }
+        })?;
         crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
     }
 
@@ -222,15 +257,26 @@ pub async fn install(
     for p in &profile.processors {
         // Skip if `sides` is specified and doesn't include "client".
         if let Some(sides) = &p.sides {
-            if !sides.iter().any(|s| s == "client") { continue; }
+            if !sides.iter().any(|s| s == "client") {
+                continue;
+            }
         }
         let cp_libs = classpath_coords_to_libraries(&p.classpath);
         ensure_libraries(&cp_libs, os, arch, app).await?;
         let resolved = substitute_args(
-            &p.args, &profile.data, "client",
-            &libs_root, installer_bytes, &installer_path_str, &cache_dir_str, &minecraft_jar,
-        ).await?;
-        let mut cp_paths: Vec<std::path::PathBuf> = p.classpath.iter()
+            &p.args,
+            &profile.data,
+            "client",
+            &libs_root,
+            installer_bytes,
+            &installer_path_str,
+            &cache_dir_str,
+            &minecraft_jar,
+        )
+        .await?;
+        let mut cp_paths: Vec<std::path::PathBuf> = p
+            .classpath
+            .iter()
             .filter_map(|c| crate::forge::patcher::maven_coord_to_relative_path(c))
             .map(|rel| libs_root.join(rel))
             .collect();
@@ -248,7 +294,9 @@ pub async fn install(
         run_processor(&p.jar, resolved, &ctx).await?;
     }
 
-    Ok(crate::forge::profile::assemble_from_transitional(version_details))
+    Ok(crate::forge::profile::assemble_from_transitional(
+        version_details,
+    ))
 }
 
 use std::path::Path;
@@ -315,17 +363,23 @@ pub async fn resolve_data(
     installer_bytes: &[u8],
     cache_dir: &str,
 ) -> Result<String> {
-    let entry = data.get(placeholder).ok_or_else(|| Error::ForgeInstallerCorrupted {
-        mc: "<unknown>".into(), fv: "<unknown>".into(),
-        details: format!("data missing placeholder `{placeholder}`"),
-    })?;
+    let entry = data
+        .get(placeholder)
+        .ok_or_else(|| Error::ForgeInstallerCorrupted {
+            mc: "<unknown>".into(),
+            fv: "<unknown>".into(),
+            details: format!("data missing placeholder `{placeholder}`"),
+        })?;
     let raw = match side {
         "client" => entry.client.as_str(),
         "server" => entry.server.as_str(),
-        other => return Err(Error::ForgeInstallerCorrupted {
-            mc: "<unknown>".into(), fv: "<unknown>".into(),
-            details: format!("unknown side `{other}`"),
-        }),
+        other => {
+            return Err(Error::ForgeInstallerCorrupted {
+                mc: "<unknown>".into(),
+                fv: "<unknown>".into(),
+                details: format!("unknown side `{other}`"),
+            })
+        }
     };
 
     if raw.starts_with('[') && raw.ends_with(']') {
@@ -341,24 +395,38 @@ pub async fn resolve_data(
     if let Some(rel) = raw.strip_prefix('/') {
         // In-jar path. Extract from installer into cache_dir/<basename>.
         use std::io::Read;
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
-            Error::ForgeInstallerCorrupted {
-                mc: "<unknown>".into(), fv: "<unknown>".into(),
-                details: format!("zip open: {e}"),
-            }
-        })?;
-        let mut entry = archive.by_name(rel).map_err(|_| Error::ForgeInstallerCorrupted {
-            mc: "<unknown>".into(), fv: "<unknown>".into(),
-            details: format!("installer missing entry: {rel}"),
-        })?;
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
+                Error::ForgeInstallerCorrupted {
+                    mc: "<unknown>".into(),
+                    fv: "<unknown>".into(),
+                    details: format!("zip open: {e}"),
+                }
+            })?;
+        let mut entry = archive
+            .by_name(rel)
+            .map_err(|_| Error::ForgeInstallerCorrupted {
+                mc: "<unknown>".into(),
+                fv: "<unknown>".into(),
+                details: format!("installer missing entry: {rel}"),
+            })?;
         let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf).map_err(|e| Error::ForgeInstallerCorrupted {
-            mc: "<unknown>".into(), fv: "<unknown>".into(),
-            details: format!("read {rel}: {e}"),
-        })?;
-        let basename = std::path::Path::new(rel).file_name().unwrap().to_string_lossy().to_string();
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| Error::ForgeInstallerCorrupted {
+                mc: "<unknown>".into(),
+                fv: "<unknown>".into(),
+                details: format!("read {rel}: {e}"),
+            })?;
+        let basename = std::path::Path::new(rel)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         let dest = std::path::PathBuf::from(cache_dir).join(&basename);
-        if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).ok(); }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
         std::fs::write(&dest, &buf).map_err(|e| Error::io(dest.display().to_string(), e))?;
         return Ok(dest.display().to_string());
     }
@@ -386,7 +454,9 @@ pub async fn substitute_args(
                 None => break,
             };
             let name = s[open + 1..close].to_string();
-            let value = if let Some(v) = resolve_reserved(&name, libs_root, installer_path, cache_dir, minecraft_jar) {
+            let value = if let Some(v) =
+                resolve_reserved(&name, libs_root, installer_path, cache_dir, minecraft_jar)
+            {
                 v
             } else {
                 resolve_data(&name, data, side, libs_root, installer_bytes, cache_dir).await?
@@ -405,24 +475,31 @@ pub async fn substitute_args(
     Ok(out)
 }
 
-pub fn classpath_coords_to_libraries(coords: &[String]) -> Vec<crate::versions::version_json::Library> {
-    coords.iter().map(|c| crate::versions::version_json::Library {
-        name: c.clone(),
-        // For Forge-specific processors (jar coords like net.minecraftforge:installertools)
-        // hint the Forge maven. For NeoForge processors (net.neoforged.* group),
-        // hint maven.neoforged.net. The libraries.minecraft.net fallback in
-        // ensure_libraries is used for everything else (e.g. org.ow2.asm:asm).
-        url: if c.starts_with("net.minecraftforge:") || c.starts_with("de.oceanlabs.mcp:") {
-            Some("https://maven.minecraftforge.net/".into())
-        } else if c.starts_with("net.neoforged.installertools:") || c.starts_with("net.neoforged:") {
-            Some("https://maven.neoforged.net/releases/".into())
-        } else {
-            None
-        },
-        downloads: None,
-        rules: None,
-        natives: None,
-    }).collect()
+pub fn classpath_coords_to_libraries(
+    coords: &[String],
+) -> Vec<crate::versions::version_json::Library> {
+    coords
+        .iter()
+        .map(|c| crate::versions::version_json::Library {
+            name: c.clone(),
+            // For Forge-specific processors (jar coords like net.minecraftforge:installertools)
+            // hint the Forge maven. For NeoForge processors (net.neoforged.* group),
+            // hint maven.neoforged.net. The libraries.minecraft.net fallback in
+            // ensure_libraries is used for everything else (e.g. org.ow2.asm:asm).
+            url: if c.starts_with("net.minecraftforge:") || c.starts_with("de.oceanlabs.mcp:") {
+                Some("https://maven.minecraftforge.net/".into())
+            } else if c.starts_with("net.neoforged.installertools:")
+                || c.starts_with("net.neoforged:")
+            {
+                Some("https://maven.neoforged.net/releases/".into())
+            } else {
+                None
+            },
+            downloads: None,
+            rules: None,
+            natives: None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -466,35 +543,57 @@ mod tests {
     #[tokio::test]
     async fn resolve_data_maven_coord_with_at_ext() {
         let mut data = std::collections::HashMap::new();
-        data.insert("MAPPINGS".into(), DataEntry {
-            client: "[de.oceanlabs.mcp:mcp_config:1.16.5-20210115@zip]".into(),
-            server: "[de.oceanlabs.mcp:mcp_config:1.16.5-20210115@zip]".into(),
-        });
+        data.insert(
+            "MAPPINGS".into(),
+            DataEntry {
+                client: "[de.oceanlabs.mcp:mcp_config:1.16.5-20210115@zip]".into(),
+                server: "[de.oceanlabs.mcp:mcp_config:1.16.5-20210115@zip]".into(),
+            },
+        );
         let libs = std::path::PathBuf::from("/x/libraries");
-        let result = resolve_data("MAPPINGS", &data, "client", &libs, b"", "/cache").await.unwrap();
+        let result = resolve_data("MAPPINGS", &data, "client", &libs, b"", "/cache")
+            .await
+            .unwrap();
         // Result should be `/x/libraries/de/oceanlabs/mcp/mcp_config/1.16.5-20210115/mcp_config-1.16.5-20210115.zip`
-        assert!(result.contains("mcp_config-1.16.5-20210115.zip"), "got: {result}");
+        assert!(
+            result.contains("mcp_config-1.16.5-20210115.zip"),
+            "got: {result}"
+        );
         assert!(result.ends_with(".zip"));
     }
 
     #[tokio::test]
     async fn resolve_data_quoted_hex_literal() {
         let mut data = std::collections::HashMap::new();
-        data.insert("MC_SLIM_SHA".into(), DataEntry {
-            client: "'fccafccf8ad4ce6d9f008e786b48ff53172bf9de'".into(),
-            server: "'sha2'".into(),
-        });
+        data.insert(
+            "MC_SLIM_SHA".into(),
+            DataEntry {
+                client: "'fccafccf8ad4ce6d9f008e786b48ff53172bf9de'".into(),
+                server: "'sha2'".into(),
+            },
+        );
         let libs = std::path::PathBuf::from("/x/libraries");
-        let result = resolve_data("MC_SLIM_SHA", &data, "client", &libs, b"", "/cache").await.unwrap();
+        let result = resolve_data("MC_SLIM_SHA", &data, "client", &libs, b"", "/cache")
+            .await
+            .unwrap();
         assert_eq!(result, "fccafccf8ad4ce6d9f008e786b48ff53172bf9de");
     }
 
     #[tokio::test]
     async fn resolve_reserved_root_and_installer_and_minecraft_jar() {
         let libs = std::path::PathBuf::from("/x/libraries");
-        assert_eq!(resolve_reserved("ROOT", &libs, "/inst.jar", "/cache", "/mc.jar"), Some("/cache".into()));
-        assert_eq!(resolve_reserved("INSTALLER", &libs, "/inst.jar", "/cache", "/mc.jar"), Some("/inst.jar".into()));
-        assert_eq!(resolve_reserved("MINECRAFT_JAR", &libs, "/inst.jar", "/cache", "/mc.jar"), Some("/mc.jar".into()));
+        assert_eq!(
+            resolve_reserved("ROOT", &libs, "/inst.jar", "/cache", "/mc.jar"),
+            Some("/cache".into())
+        );
+        assert_eq!(
+            resolve_reserved("INSTALLER", &libs, "/inst.jar", "/cache", "/mc.jar"),
+            Some("/inst.jar".into())
+        );
+        assert_eq!(
+            resolve_reserved("MINECRAFT_JAR", &libs, "/inst.jar", "/cache", "/mc.jar"),
+            Some("/mc.jar".into())
+        );
         assert_eq!(resolve_reserved("UNKNOWN", &libs, "/i", "/c", "/m"), None);
     }
 
@@ -504,10 +603,29 @@ mod tests {
         let data: HashMap<String, DataEntry> = HashMap::new();
         let libs = std::path::PathBuf::from("/x/libraries");
         let raw = vec!["[de.oceanlabs.mcp:mcp_config:1.16.5-20210115.111550@zip]".into()];
-        let out = substitute_args(&raw, &data, "client", &libs, b"", "/inst.jar", "/cache", "/mc.jar").await.unwrap();
+        let out = substitute_args(
+            &raw,
+            &data,
+            "client",
+            &libs,
+            b"",
+            "/inst.jar",
+            "/cache",
+            "/mc.jar",
+        )
+        .await
+        .unwrap();
         assert_eq!(out.len(), 1);
-        assert!(out[0].ends_with("mcp_config-1.16.5-20210115.111550.zip"), "got: {}", out[0]);
-        assert!(!out[0].contains('['), "bracket should be resolved away: {}", out[0]);
+        assert!(
+            out[0].ends_with("mcp_config-1.16.5-20210115.111550.zip"),
+            "got: {}",
+            out[0]
+        );
+        assert!(
+            !out[0].contains('['),
+            "bracket should be resolved away: {}",
+            out[0]
+        );
     }
 
     #[test]
@@ -517,7 +635,10 @@ mod tests {
             "com.google.guava:guava:21.0".into(),
         ];
         let libs = classpath_coords_to_libraries(&coords);
-        assert_eq!(libs[0].url.as_deref(), Some("https://maven.minecraftforge.net/"));
+        assert_eq!(
+            libs[0].url.as_deref(),
+            Some("https://maven.minecraftforge.net/")
+        );
         assert!(libs[1].url.is_none()); // falls back to libraries.minecraft.net
     }
 }

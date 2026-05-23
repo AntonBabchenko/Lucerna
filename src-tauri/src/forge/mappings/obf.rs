@@ -23,25 +23,39 @@ impl ObfIndex {
         self.classes.insert(obf.into(), mapped.into());
     }
     pub fn put_field(&mut self, obf_class: &str, obf_name: &str, mapped_name: &str) {
-        self.fields.insert((obf_class.into(), obf_name.into()), mapped_name.into());
+        self.fields
+            .insert((obf_class.into(), obf_name.into()), mapped_name.into());
     }
     pub fn put_method(&mut self, obf_class: &str, obf_name: &str, desc: &str, mapped_name: &str) {
-        self.methods.insert((obf_class.into(), obf_name.into(), desc.into()), mapped_name.into());
+        self.methods.insert(
+            (obf_class.into(), obf_name.into(), desc.into()),
+            mapped_name.into(),
+        );
     }
 
     pub fn lookup_class(&self, obf: &str) -> Option<String> {
         self.classes.get(obf).cloned()
     }
     pub fn lookup_field(&self, obf_class: &str, obf_name: &str) -> Option<String> {
-        self.fields.get(&(obf_class.into(), obf_name.into())).cloned()
+        self.fields
+            .get(&(obf_class.into(), obf_name.into()))
+            .cloned()
     }
     pub fn lookup_method(&self, obf_class: &str, obf_name: &str, desc: &str) -> Option<String> {
-        self.methods.get(&(obf_class.into(), obf_name.into(), desc.into())).cloned()
+        self.methods
+            .get(&(obf_class.into(), obf_name.into(), desc.into()))
+            .cloned()
     }
 
-    pub fn class_count(&self) -> usize { self.classes.len() }
-    pub fn field_count(&self) -> usize { self.fields.len() }
-    pub fn method_count(&self) -> usize { self.methods.len() }
+    pub fn class_count(&self) -> usize {
+        self.classes.len()
+    }
+    pub fn field_count(&self) -> usize {
+        self.fields.len()
+    }
+    pub fn method_count(&self) -> usize {
+        self.methods.len()
+    }
 }
 
 #[cfg(test)]
@@ -64,7 +78,10 @@ mod tests {
         idx.put_method("a/b/C", "m", "(I)V", "methodName");
         assert_eq!(idx.lookup_class("a/b/C").as_deref(), Some("com/x/Class"));
         assert_eq!(idx.lookup_field("a/b/C", "f").as_deref(), Some("fieldName"));
-        assert_eq!(idx.lookup_method("a/b/C", "m", "(I)V").as_deref(), Some("methodName"));
+        assert_eq!(
+            idx.lookup_method("a/b/C", "m", "(I)V").as_deref(),
+            Some("methodName")
+        );
     }
 
     #[test]
@@ -72,7 +89,13 @@ mod tests {
         let mut idx = ObfIndex::new();
         idx.put_method("a/b/C", "m", "()V", "noArgs");
         idx.put_method("a/b/C", "m", "(I)V", "intArg");
-        assert_eq!(idx.lookup_method("a/b/C", "m", "()V").as_deref(), Some("noArgs"));
-        assert_eq!(idx.lookup_method("a/b/C", "m", "(I)V").as_deref(), Some("intArg"));
+        assert_eq!(
+            idx.lookup_method("a/b/C", "m", "()V").as_deref(),
+            Some("noArgs")
+        );
+        assert_eq!(
+            idx.lookup_method("a/b/C", "m", "(I)V").as_deref(),
+            Some("intArg")
+        );
     }
 }

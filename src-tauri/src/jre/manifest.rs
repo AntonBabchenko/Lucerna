@@ -181,9 +181,7 @@ pub fn pick_component(
 /// SHA-1 downstream is the real integrity gate. If a real-world flaky
 /// case shows up where the manifest itself is tampered with but
 /// schema-valid, add a `network::get_with_sha` that returns raw bytes.
-pub async fn fetch_component_manifest(
-    component_ref: &ComponentRef,
-) -> Result<ComponentManifest> {
+pub async fn fetch_component_manifest(component_ref: &ComponentRef) -> Result<ComponentManifest> {
     let manifest: ComponentManifest = get_json(&component_ref.manifest.url, "jre").await?;
     Ok(manifest)
 }
@@ -216,15 +214,17 @@ mod tests {
         let top: TopLevelManifest = serde_json::from_str(json).expect("parse");
         let win = top.0.get("windows-x64").expect("windows-x64 present");
         assert!(win.contains_key("java-runtime-gamma"));
-        let gamma = pick_component(&top, "windows-x64", "java-runtime-gamma")
-            .expect("pick gamma");
+        let gamma = pick_component(&top, "windows-x64", "java-runtime-gamma").expect("pick gamma");
         assert_eq!(gamma.version.name, "21.0.3");
         assert_eq!(gamma.manifest.sha1, "aaa");
     }
 
     #[test]
     fn platform_key_known_combos() {
-        assert_eq!(mojang_platform_key("windows", "x64").unwrap(), "windows-x64");
+        assert_eq!(
+            mojang_platform_key("windows", "x64").unwrap(),
+            "windows-x64"
+        );
         assert_eq!(
             mojang_platform_key("macos", "aarch64").unwrap(),
             "mac-os-arm64"
@@ -279,7 +279,10 @@ mod tests {
         }"#;
         let map: HashMap<String, FileEntry> = serde_json::from_str(json).expect("parse");
         match &map["bin/java.exe"] {
-            FileEntry::File { executable, downloads } => {
+            FileEntry::File {
+                executable,
+                downloads,
+            } => {
                 assert!(*executable);
                 assert_eq!(downloads.raw.size, 100);
                 assert!(downloads.lzma.is_some());

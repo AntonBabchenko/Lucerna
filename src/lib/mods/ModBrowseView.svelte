@@ -631,9 +631,7 @@
           ‹ Prev
         </button>
         <span>
-          Page {displayPage}{showInstalled
-            ? ` of ${Math.max(1, Math.ceil(total / pageSize))}`
-            : ''}
+          Page {displayPage}{showInstalled ? ` of ${Math.max(1, Math.ceil(total / pageSize))}` : ''}
         </span>
         <button
           type="button"

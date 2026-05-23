@@ -161,10 +161,7 @@
     if (
       summary &&
       r.data.some(
-        (m) =>
-          m.source === null &&
-          !m.enrich_attempted &&
-          summary.mod_shas.includes(m.sha1),
+        (m) => m.source === null && !m.enrich_attempted && summary.mod_shas.includes(m.sha1),
       )
     ) {
       await commands.modsEnrichPackMods(instanceId);
@@ -495,8 +492,7 @@
           <!-- No platform metadata. Either a hand-dropped "manual mod"
                or a modpack override-bundled jar that hash-enrichment
                could not identify ("from modpack" + 📦 chip). -->
-          {@const fromPack =
-            !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
+          {@const fromPack = !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
           <div class="border border-neutral-200 rounded bg-white p-3 flex gap-3">
             <div
               class="w-12 h-12 rounded bg-neutral-100 flex items-center justify-center text-neutral-400"

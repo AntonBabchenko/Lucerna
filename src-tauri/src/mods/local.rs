@@ -91,8 +91,9 @@ fn json_first_string(v: &serde_json::Value) -> Option<&str> {
 /// descriptor yields an all-`None` `JarMeta` (not an error). Only an
 /// unreadable zip is an error.
 pub fn read_jar_meta(jar_bytes: &[u8]) -> Result<JarMeta, Error> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).map_err(|e| {
-        Error::ModsDecode { platform: "local jar".into(), details: e.to_string() }
+    let mut zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).map_err(|e| Error::ModsDecode {
+        platform: "local jar".into(),
+        details: e.to_string(),
     })?;
 
     // Loader family + label by descriptor presence, priority order.
@@ -128,16 +129,17 @@ pub fn read_jar_meta(jar_bytes: &[u8]) -> Result<JarMeta, Error> {
     } else if let Some(txt) = entry_text(&mut zip, "mcmod.info") {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
             // mcmod.info is a JSON array of mod objects, or { modList: [...] }.
-            let first = v
-                .as_array()
-                .and_then(|a| a.first())
-                .or_else(|| {
-                    v.get("modList").and_then(|m| m.as_array()).and_then(|a| a.first())
-                });
+            let first = v.as_array().and_then(|a| a.first()).or_else(|| {
+                v.get("modList")
+                    .and_then(|m| m.as_array())
+                    .and_then(|a| a.first())
+            });
             if let Some(m) = first {
                 display_name = m.get("name").and_then(|x| x.as_str()).map(String::from);
-                mc_version =
-                    m.get("mcversion").and_then(|x| x.as_str()).and_then(first_major_minor);
+                mc_version = m
+                    .get("mcversion")
+                    .and_then(|x| x.as_str())
+                    .and_then(first_major_minor);
             }
         }
     }
@@ -181,7 +183,11 @@ fn instance_family(loader: LoaderKind) -> Option<LoaderFamily> {
 /// Judge a jar's loader/MC compatibility with an instance. Conservative:
 /// a mismatch is reported only when both sides are confidently known and
 /// they differ — absent or ambiguous metadata never produces a warning.
-pub fn compat_verdict(jar: &JarMeta, instance_loader: LoaderKind, instance_mc: &str) -> CompatVerdict {
+pub fn compat_verdict(
+    jar: &JarMeta,
+    instance_loader: LoaderKind,
+    instance_mc: &str,
+) -> CompatVerdict {
     let loader_mismatch = match (jar.family, instance_family(instance_loader)) {
         (Some(jf), Some(inf)) => jf != inf,
         _ => false,
@@ -216,15 +222,20 @@ pub async fn install_local(
     let sha = hex::encode(Sha1::digest(bytes));
 
     let dest_dir = installed::mods_dir(instance_root);
-    fs::create_dir_all(&dest_dir).await.map_err(|e| Error::ModsInstancePath {
-        path: dest_dir.display().to_string(),
-        details: e.to_string(),
-    })?;
+    fs::create_dir_all(&dest_dir)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dest_dir.display().to_string(),
+            details: e.to_string(),
+        })?;
     let dest = dest_dir.join(filename);
-    if fs::try_exists(&dest).await.map_err(|e| Error::ModsInstancePath {
-        path: dest.display().to_string(),
-        details: e.to_string(),
-    })? {
+    if fs::try_exists(&dest)
+        .await
+        .map_err(|e| Error::ModsInstancePath {
+            path: dest.display().to_string(),
+            details: e.to_string(),
+        })?
+    {
         let existing = fs::read(&dest).await.map_err(|e| Error::ModsInstancePath {
             path: dest.display().to_string(),
             details: e.to_string(),
@@ -239,15 +250,20 @@ pub async fn install_local(
         }
         // same name + same bytes → idempotent: fall through to record.
     } else {
-        fs::write(&dest, bytes).await.map_err(|e| Error::ModsInstancePath {
-            path: dest.display().to_string(),
-            details: e.to_string(),
-        })?;
+        fs::write(&dest, bytes)
+            .await
+            .map_err(|e| Error::ModsInstancePath {
+                path: dest.display().to_string(),
+                details: e.to_string(),
+            })?;
     }
 
-    let name = display_name
-        .map(str::to_string)
-        .unwrap_or_else(|| filename.strip_suffix(".jar").unwrap_or(filename).to_string());
+    let name = display_name.map(str::to_string).unwrap_or_else(|| {
+        filename
+            .strip_suffix(".jar")
+            .unwrap_or(filename)
+            .to_string()
+    });
     let entry = InstalledMod {
         filename: filename.to_string(),
         sha1: sha,
@@ -391,27 +407,43 @@ mod tests {
 
     #[test]
     fn verdict_compatible_when_loader_and_mc_match() {
-        let v = compat_verdict(&meta(Some(LoaderFamily::Forge), Some("1.12")), LoaderKind::Forge, "1.12.2");
+        let v = compat_verdict(
+            &meta(Some(LoaderFamily::Forge), Some("1.12")),
+            LoaderKind::Forge,
+            "1.12.2",
+        );
         assert!(!v.loader_mismatch);
         assert!(!v.mc_mismatch);
     }
 
     #[test]
     fn verdict_flags_loader_mismatch() {
-        let v = compat_verdict(&meta(Some(LoaderFamily::Fabric), None), LoaderKind::Forge, "1.20.1");
+        let v = compat_verdict(
+            &meta(Some(LoaderFamily::Fabric), None),
+            LoaderKind::Forge,
+            "1.20.1",
+        );
         assert!(v.loader_mismatch);
     }
 
     #[test]
     fn verdict_no_loader_mismatch_within_forge_family() {
         // A jar detected as Forge-family on a NeoForge instance — same family.
-        let v = compat_verdict(&meta(Some(LoaderFamily::Forge), None), LoaderKind::NeoForge, "1.20.1");
+        let v = compat_verdict(
+            &meta(Some(LoaderFamily::Forge), None),
+            LoaderKind::NeoForge,
+            "1.20.1",
+        );
         assert!(!v.loader_mismatch);
     }
 
     #[test]
     fn verdict_flags_mc_mismatch() {
-        let v = compat_verdict(&meta(Some(LoaderFamily::Forge), Some("1.20")), LoaderKind::Forge, "1.12.2");
+        let v = compat_verdict(
+            &meta(Some(LoaderFamily::Forge), Some("1.20")),
+            LoaderKind::Forge,
+            "1.12.2",
+        );
         assert!(v.mc_mismatch);
     }
 
@@ -425,7 +457,11 @@ mod tests {
 
     #[test]
     fn verdict_silent_when_jar_mc_unknown() {
-        let v = compat_verdict(&meta(Some(LoaderFamily::Forge), None), LoaderKind::Forge, "1.12.2");
+        let v = compat_verdict(
+            &meta(Some(LoaderFamily::Forge), None),
+            LoaderKind::Forge,
+            "1.12.2",
+        );
         assert!(!v.mc_mismatch);
     }
 
@@ -439,7 +475,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(installed.filename, "sodium.jar");
-        assert!(crate::mods::installed::mods_dir(td_inst.path()).join("sodium.jar").exists());
+        assert!(crate::mods::installed::mods_dir(td_inst.path())
+            .join("sodium.jar")
+            .exists());
         let list = crate::mods::installed::list(td_inst.path()).await.unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].source, None); // manual mod
@@ -450,7 +488,9 @@ mod tests {
     #[tokio::test]
     async fn install_local_falls_back_to_filename_when_no_display_name() {
         let td_inst = TempDir::new().unwrap();
-        install_local(td_inst.path(), "weird-mod.jar", b"x", None).await.unwrap();
+        install_local(td_inst.path(), "weird-mod.jar", b"x", None)
+            .await
+            .unwrap();
         let list = crate::mods::installed::list(td_inst.path()).await.unwrap();
         assert_eq!(list[0].name, "weird-mod");
     }
@@ -458,8 +498,12 @@ mod tests {
     #[tokio::test]
     async fn install_local_same_name_same_bytes_is_idempotent() {
         let td_inst = TempDir::new().unwrap();
-        install_local(td_inst.path(), "a.jar", b"same", Some("A")).await.unwrap();
-        install_local(td_inst.path(), "a.jar", b"same", Some("A")).await.unwrap();
+        install_local(td_inst.path(), "a.jar", b"same", Some("A"))
+            .await
+            .unwrap();
+        install_local(td_inst.path(), "a.jar", b"same", Some("A"))
+            .await
+            .unwrap();
         let list = crate::mods::installed::list(td_inst.path()).await.unwrap();
         assert_eq!(list.len(), 1);
     }
@@ -467,7 +511,9 @@ mod tests {
     #[tokio::test]
     async fn install_local_same_name_different_bytes_conflicts() {
         let td_inst = TempDir::new().unwrap();
-        install_local(td_inst.path(), "a.jar", b"first", Some("A")).await.unwrap();
+        install_local(td_inst.path(), "a.jar", b"first", Some("A"))
+            .await
+            .unwrap();
         let err = install_local(td_inst.path(), "a.jar", b"second", Some("A"))
             .await
             .unwrap_err();

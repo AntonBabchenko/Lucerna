@@ -1,6 +1,12 @@
 <script lang="ts">
   import { commands } from '$lib/ipc/bindings';
-  import type { LoaderKind, ModpackHit, ModpackSearchPage, ModpackSort, ModSource } from '$lib/ipc/bindings';
+  import type {
+    LoaderKind,
+    ModpackHit,
+    ModpackSearchPage,
+    ModpackSort,
+    ModSource,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';

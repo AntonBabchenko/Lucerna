@@ -194,8 +194,7 @@ async fn ensure_version_json_inner(
     }
 
     // Synthetic id dispatch
-    if let Some((loader, loader_ver, mc_ver)) =
-        crate::versions::loaders::parse_synth_id(version_id)
+    if let Some((loader, loader_ver, mc_ver)) = crate::versions::loaders::parse_synth_id(version_id)
     {
         if matches!(
             loader,
@@ -215,7 +214,8 @@ async fn ensure_version_json_inner(
             .emit(app)
             .ok();
         }
-        let child = crate::versions::loaders::fetch_profile(loader, &mc_ver, &loader_ver, app).await?;
+        let child =
+            crate::versions::loaders::fetch_profile(loader, &mc_ver, &loader_ver, app).await?;
         if matches!(
             loader,
             crate::versions::loaders::Loader::Forge | crate::versions::loaders::Loader::NeoForge
@@ -248,12 +248,13 @@ async fn ensure_version_json_inner(
 
     // Vanilla path — manifest lookup + fetch.
     let entries = list_manifest().await?;
-    let entry = entries
-        .iter()
-        .find(|e| e.id == version_id)
-        .ok_or_else(|| Error::UnknownVersion {
-            id: version_id.to_string(),
-        })?;
+    let entry =
+        entries
+            .iter()
+            .find(|e| e.id == version_id)
+            .ok_or_else(|| Error::UnknownVersion {
+                id: version_id.to_string(),
+            })?;
 
     let json: serde_json::Value = get_json(&entry.url, "versions").await?;
     let text = serde_json::to_string(&json)
@@ -353,7 +354,10 @@ mod tests {
         };
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains(r#""phase":"forge_install""#), "got: {json}");
-        assert!(json.contains(r#""current_step":"Running BinaryPatcher""#), "got: {json}");
+        assert!(
+            json.contains(r#""current_step":"Running BinaryPatcher""#),
+            "got: {json}"
+        );
     }
 
     #[test]
@@ -374,7 +378,10 @@ mod tests {
     fn max_inherits_depth_is_four() {
         // Smoke check that the cap is non-trivial. The actual cap is
         // exercised by an integration test (loaders_integration.rs).
-        assert!(MAX_INHERITS_DEPTH >= 2, "must allow at least loader → vanilla");
+        assert!(
+            MAX_INHERITS_DEPTH >= 2,
+            "must allow at least loader → vanilla"
+        );
         assert!(MAX_INHERITS_DEPTH <= 10, "must not be unboundedly large");
     }
 }

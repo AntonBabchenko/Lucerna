@@ -97,9 +97,7 @@ pub async fn ensure_jre(
     // Marker fast-path: if it matches, no file work.
     if let Ok(raw) = tokio::fs::read_to_string(&marker_p).await {
         if let Some(m) = Marker::parse(&raw) {
-            if m.version == comp_ref.version.name
-                && m.manifest_sha1 == comp_ref.manifest.sha1
-            {
+            if m.version == comp_ref.version.name && m.manifest_sha1 == comp_ref.manifest.sha1 {
                 // Already installed at the right version; emit a
                 // one-shot "done" event so the UI moves on.
                 on_progress(1, 1, 0);

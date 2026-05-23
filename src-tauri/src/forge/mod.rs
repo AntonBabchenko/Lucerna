@@ -9,11 +9,11 @@
 //!   - `modern`        — MC 1.17.x+ (Phase 3)
 
 pub mod flavor;
-pub mod meta;
-pub mod profile;
 pub mod installer;
-pub mod patcher;
 pub mod mappings;
+pub mod meta;
+pub mod patcher;
+pub mod profile;
 
 pub use flavor::ForgeFlavor;
 pub use installer::install as install_forge;

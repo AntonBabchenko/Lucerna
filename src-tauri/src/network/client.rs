@@ -45,8 +45,7 @@ mod tests {
     #[test]
     fn user_agent_built_with_package_version() {
         let v = env!("CARGO_PKG_VERSION");
-        let expected =
-            format!("FTlauncher/{v} (+https://github.com/AntonBabchenko/FTlauncher)");
+        let expected = format!("FTlauncher/{v} (+https://github.com/AntonBabchenko/FTlauncher)");
         assert!(expected.starts_with("FTlauncher/"));
         assert!(expected.contains(v));
     }

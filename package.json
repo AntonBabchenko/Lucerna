@@ -4,6 +4,7 @@
   "description": "Free Tauri Launcher — a clean, transparent open-source Minecraft launcher for Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.",
   "license": "GPL-3.0-or-later",
   "type": "module",
+  "packageManager": "pnpm@11.1.1",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

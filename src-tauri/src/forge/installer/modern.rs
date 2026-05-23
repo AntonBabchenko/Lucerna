@@ -64,13 +64,14 @@ pub async fn install(
                     details: format!("zip: {e}"),
                 }
             })?;
-        let mut entry = archive.by_name("version.json").map_err(|_| {
-            Error::ForgeInstallerCorrupted {
-                mc: mc.into(),
-                fv: fv.into(),
-                details: "missing /version.json".into(),
-            }
-        })?;
+        let mut entry =
+            archive
+                .by_name("version.json")
+                .map_err(|_| Error::ForgeInstallerCorrupted {
+                    mc: mc.into(),
+                    fv: fv.into(),
+                    details: "missing /version.json".into(),
+                })?;
         let mut buf = String::new();
         entry
             .read_to_string(&mut buf)
@@ -79,18 +80,19 @@ pub async fn install(
                 fv: fv.into(),
                 details: format!("read version.json: {e}"),
             })?;
-        crate::versions::version_json::parse(&buf).map_err(|e| {
-            Error::ForgeInstallerCorrupted {
-                mc: mc.into(),
-                fv: fv.into(),
-                details: format!("parse version.json: {e}"),
-            }
+        crate::versions::version_json::parse(&buf).map_err(|e| Error::ForgeInstallerCorrupted {
+            mc: mc.into(),
+            fv: fv.into(),
+            details: format!("parse version.json: {e}"),
         })?
     };
 
     // 3. Compute paths (identical layout to Phase 2).
     let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
-    let cache_dir = app_data.join("forge").join("cache").join(format!("{mc}-{fv}"));
+    let cache_dir = app_data
+        .join("forge")
+        .join("cache")
+        .join(format!("{mc}-{fv}"));
     tokio::fs::create_dir_all(&cache_dir)
         .await
         .map_err(|e| Error::io(cache_dir.display().to_string(), e))?;
@@ -119,14 +121,15 @@ pub async fn install(
             .as_ref()
             .map(|jv| jv.component.clone())
             .unwrap_or_else(|| crate::jre::DEFAULT_LEGACY_COMPONENT.to_string());
-        let client_download = vanilla_details
-            .downloads
-            .as_ref()
-            .ok_or_else(|| Error::ForgeInstallerCorrupted {
-                mc: mc.into(),
-                fv: fv.into(),
-                details: "vanilla version JSON has no downloads field".into(),
-            })?;
+        let client_download =
+            vanilla_details
+                .downloads
+                .as_ref()
+                .ok_or_else(|| Error::ForgeInstallerCorrupted {
+                    mc: mc.into(),
+                    fv: fv.into(),
+                    details: "vanilla version JSON has no downloads field".into(),
+                })?;
         crate::versions::client::ensure_client(mc, &client_download.client, app).await?;
     }
     crate::jre::ensure_jre(&vanilla_jre_component, app, |_, _, _| {}).await?;
@@ -227,7 +230,10 @@ fn inject_patched_library_if_missing(
         .data
         .get("PATCHED")
         .and_then(|entry| {
-            entry.client.strip_prefix('[').and_then(|s| s.strip_suffix(']'))
+            entry
+                .client
+                .strip_prefix('[')
+                .and_then(|s| s.strip_suffix(']'))
         })
         .map(|s| s.to_string())
     else {
@@ -268,9 +274,7 @@ fn inject_patched_library_if_missing(
         natives: None,
         rules: None,
     });
-    eprintln!(
-        "forge: injected {{PATCHED}} library entry ({patched_coord}) (ADDENDUM D)"
-    );
+    eprintln!("forge: injected {{PATCHED}} library entry ({patched_coord}) (ADDENDUM D)");
     Ok(())
 }
 
@@ -324,7 +328,10 @@ mod tests {
         let mut vd = empty_version_details();
         inject_patched_library_if_missing(&mut vd, &profile).unwrap();
         assert_eq!(vd.libraries.len(), 1);
-        assert_eq!(vd.libraries[0].name, "net.minecraftforge:forge:1.20.4-49.0.49:client");
+        assert_eq!(
+            vd.libraries[0].name,
+            "net.minecraftforge:forge:1.20.4-49.0.49:client"
+        );
         assert_eq!(vd.libraries[0].url.as_deref(), Some(""));
     }
 
@@ -341,7 +348,8 @@ mod tests {
             let mut vd = empty_version_details();
             inject_patched_library_if_missing(&mut vd, &profile).unwrap();
             assert_eq!(
-                vd.libraries.len(), 0,
+                vd.libraries.len(),
+                0,
                 "must not inject for NeoForge coord {coord}"
             );
         }

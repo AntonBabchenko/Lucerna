@@ -15,19 +15,18 @@ pub fn extract_version_info(
     mc: &str,
     fv: &str,
 ) -> Result<VersionDetails> {
-    let version_info = install_profile.get("versionInfo").ok_or_else(|| {
-        Error::ForgeInstallerCorrupted {
-            mc: mc.to_string(),
-            fv: fv.to_string(),
-            details: "missing top-level versionInfo".to_string(),
-        }
-    })?;
-    let text = serde_json::to_string(version_info).map_err(|e| {
-        Error::ForgeInstallerCorrupted {
-            mc: mc.to_string(),
-            fv: fv.to_string(),
-            details: format!("serialise versionInfo: {e}"),
-        }
+    let version_info =
+        install_profile
+            .get("versionInfo")
+            .ok_or_else(|| Error::ForgeInstallerCorrupted {
+                mc: mc.to_string(),
+                fv: fv.to_string(),
+                details: "missing top-level versionInfo".to_string(),
+            })?;
+    let text = serde_json::to_string(version_info).map_err(|e| Error::ForgeInstallerCorrupted {
+        mc: mc.to_string(),
+        fv: fv.to_string(),
+        details: format!("serialise versionInfo: {e}"),
     })?;
     parse(&text).map_err(|e| Error::ForgeInstallerCorrupted {
         mc: mc.to_string(),
@@ -113,12 +112,13 @@ pub async fn install(
             fv: fv.to_string(),
             details: "missing install.path".to_string(),
         })?;
-    let rel_path =
-        maven_coord_to_relative_path(install_path).ok_or_else(|| Error::ForgeInstallerCorrupted {
+    let rel_path = maven_coord_to_relative_path(install_path).ok_or_else(|| {
+        Error::ForgeInstallerCorrupted {
             mc: mc.to_string(),
             fv: fv.to_string(),
             details: format!("install.path is not a maven coordinate: {install_path}"),
-        })?;
+        }
+    })?;
     let libs_root =
         crate::paths::libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
     let dest = libs_root.join(rel_path);

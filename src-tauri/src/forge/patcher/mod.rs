@@ -22,12 +22,12 @@
 use crate::error::{Error, Result};
 use std::path::PathBuf;
 
+pub mod art;
+pub mod binarypatcher;
+pub mod fart;
 pub mod installertools;
 pub mod jarsplitter;
 pub mod specialsource;
-pub mod binarypatcher;
-pub mod fart;
-pub mod art;
 
 #[derive(Debug, Clone)]
 pub struct ProcessorContext {
@@ -40,11 +40,7 @@ pub struct ProcessorContext {
     pub java_bin: Option<PathBuf>,
 }
 
-pub async fn run_processor(
-    coord: &str,
-    args: Vec<String>,
-    ctx: &ProcessorContext,
-) -> Result<()> {
+pub async fn run_processor(coord: &str, args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
     let parsed = parse_maven_coord(coord).ok_or_else(|| Error::ForgePatcherFailed {
         processor: coord.to_string(),
         details: format!("could not parse maven coordinate: {coord}"),
@@ -60,10 +56,14 @@ pub async fn run_processor(
         ("net.minecraftforge", "ForgeAutoRenamingTool", _) => fart::run(args, ctx).await,
         // NeoForge processors (v0.4.1 ADDENDUM A — different maven group)
         ("net.neoforged", "AutoRenamingTool", _) => art::run(args, ctx).await,
-        ("net.neoforged.installertools", "installertools", c) => installertools::run(c, args, ctx).await,
+        ("net.neoforged.installertools", "installertools", c) => {
+            installertools::run(c, args, ctx).await
+        }
         ("net.neoforged.installertools", "jarsplitter", _) => jarsplitter::run(args, ctx).await,
         // NeoForge binarypatcher 2.1.2 — coord-based Java routing (ADDENDUM B)
-        ("net.neoforged.installertools", "binarypatcher", _) => binarypatcher::run_neoforge(args, ctx).await,
+        ("net.neoforged.installertools", "binarypatcher", _) => {
+            binarypatcher::run_neoforge(args, ctx).await
+        }
         _ => Err(Error::ForgeUnsupportedProcessor {
             coord: coord.to_string(),
         }),
@@ -101,10 +101,13 @@ pub fn maven_coord_to_relative_path(coord: &str) -> Option<String> {
     // Strip @ext from version; default extension is "jar".
     let (version, ext) = strip_at_ext(parts[2]);
     // Strip @ext from classifier too (if present).
-    let classifier = parts.get(3).map(|c| {
-        let (c_base, _) = strip_at_ext(c);
-        format!("-{c_base}")
-    }).unwrap_or_default();
+    let classifier = parts
+        .get(3)
+        .map(|c| {
+            let (c_base, _) = strip_at_ext(c);
+            format!("-{c_base}")
+        })
+        .unwrap_or_default();
     if group_path.is_empty() || artifact.is_empty() || version.is_empty() {
         return None;
     }
@@ -139,7 +142,10 @@ mod tests {
     #[test]
     fn parse_maven_coord_three_segments() {
         let p = parse_maven_coord("net.md-5:SpecialSource:1.8.5").unwrap();
-        assert_eq!((p.0.as_str(), p.1.as_str(), p.2.as_str(), p.3), ("net.md-5", "SpecialSource", "1.8.5", None));
+        assert_eq!(
+            (p.0.as_str(), p.1.as_str(), p.2.as_str(), p.3),
+            ("net.md-5", "SpecialSource", "1.8.5", None)
+        );
     }
 
     #[test]
@@ -159,19 +165,31 @@ mod tests {
     #[test]
     fn maven_coord_to_relative_path_three_segments() {
         let p = maven_coord_to_relative_path("net.md-5:SpecialSource:1.8.5");
-        assert_eq!(p.as_deref(), Some("net/md-5/SpecialSource/1.8.5/SpecialSource-1.8.5.jar"));
+        assert_eq!(
+            p.as_deref(),
+            Some("net/md-5/SpecialSource/1.8.5/SpecialSource-1.8.5.jar")
+        );
     }
 
     #[test]
     fn maven_coord_to_relative_path_with_classifier() {
         let p = maven_coord_to_relative_path("org.lwjgl:lwjgl:3.3.1:natives-windows");
-        assert_eq!(p.as_deref(), Some("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar"));
+        assert_eq!(
+            p.as_deref(),
+            Some("org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-windows.jar")
+        );
     }
 
     #[tokio::test]
     async fn unknown_coord_returns_unsupported_processor() {
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
-        let err = run_processor("com.example:unknown:1.0", vec![], &ctx).await.unwrap_err();
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
+        let err = run_processor("com.example:unknown:1.0", vec![], &ctx)
+            .await
+            .unwrap_err();
         assert!(matches!(err, Error::ForgeUnsupportedProcessor { .. }));
     }
 
@@ -182,34 +200,78 @@ mod tests {
         // Verify dispatch: we expect parse_args to error on empty args
         // (missing --input), which proves we reached art::run rather than
         // returning ForgeUnsupportedProcessor.
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
-        let err = run_processor("net.neoforged:AutoRenamingTool:1.0.13:all", vec![], &ctx).await.unwrap_err();
-        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
-            "expected dispatch to art module, got: {err:?}");
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
+        let err = run_processor("net.neoforged:AutoRenamingTool:1.0.13:all", vec![], &ctx)
+            .await
+            .unwrap_err();
+        assert!(
+            !matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to art module, got: {err:?}"
+        );
     }
 
     #[tokio::test]
     async fn neoforged_jarsplitter_routes_to_jarsplitter() {
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
-        let err = run_processor("net.neoforged.installertools:jarsplitter:2.1.2", vec![], &ctx).await.unwrap_err();
-        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
-            "expected dispatch to jarsplitter module, got: {err:?}");
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
+        let err = run_processor(
+            "net.neoforged.installertools:jarsplitter:2.1.2",
+            vec![],
+            &ctx,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            !matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to jarsplitter module, got: {err:?}"
+        );
     }
 
     #[tokio::test]
     async fn neoforged_installertools_routes_to_installertools() {
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
-        let err = run_processor("net.neoforged.installertools:installertools:2.1.2", vec![], &ctx).await.unwrap_err();
-        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
-            "expected dispatch to installertools module, got: {err:?}");
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
+        let err = run_processor(
+            "net.neoforged.installertools:installertools:2.1.2",
+            vec![],
+            &ctx,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            !matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to installertools module, got: {err:?}"
+        );
     }
 
     #[tokio::test]
     async fn neoforged_binarypatcher_routes_to_binarypatcher() {
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
-        let err = run_processor("net.neoforged.installertools:binarypatcher:2.1.2", vec![], &ctx).await.unwrap_err();
-        assert!(!matches!(err, Error::ForgeUnsupportedProcessor { .. }),
-            "expected dispatch to binarypatcher module, got: {err:?}");
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
+        let err = run_processor(
+            "net.neoforged.installertools:binarypatcher:2.1.2",
+            vec![],
+            &ctx,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            !matches!(err, Error::ForgeUnsupportedProcessor { .. }),
+            "expected dispatch to binarypatcher module, got: {err:?}"
+        );
     }
 
     #[test]

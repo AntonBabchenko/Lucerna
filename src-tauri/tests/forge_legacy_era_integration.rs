@@ -22,7 +22,9 @@ fn load_installer_or_skip() -> Option<Vec<u8>> {
 
 #[test]
 fn legacy_installer_era_detection() {
-    let Some(bytes) = load_installer_or_skip() else { return };
+    let Some(bytes) = load_installer_or_skip() else {
+        return;
+    };
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip open");
     let mut entry = archive.by_name("install_profile.json").expect("entry");
     use std::io::Read;
@@ -35,7 +37,9 @@ fn legacy_installer_era_detection() {
 #[test]
 fn legacy_installer_extracts_version_info_via_internal_helper() {
     // Exercises only the pure-extraction path (no AppHandle needed).
-    let Some(bytes) = load_installer_or_skip() else { return };
+    let Some(bytes) = load_installer_or_skip() else {
+        return;
+    };
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip open");
     let mut entry = archive.by_name("install_profile.json").expect("entry");
     use std::io::Read;

@@ -35,7 +35,9 @@ use ftlauncher_lib::versions::libraries::artifacts_to_install;
 use ftlauncher_lib::versions::loaders::{list_loaders, synth_id, Loader};
 use ftlauncher_lib::versions::manifest::list_manifest;
 use ftlauncher_lib::versions::resolve::merge_inherits;
-use ftlauncher_lib::versions::version_json::{parse as parse_version_json, Library, VersionDetails};
+use ftlauncher_lib::versions::version_json::{
+    parse as parse_version_json, Library, VersionDetails,
+};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -69,17 +71,17 @@ impl MatrixLoader {
 /// Override via FTLAUNCHER_MATRIX_MC=mc1,mc2,... to run a subset (useful
 /// during harness debugging — full matrix is 1.5-3h, single MC is ~10 min).
 const MC_VERSIONS_DEFAULT: &[&str] = &[
-    "1.7.10",   // legacy Forge boundary, no Fabric/Quilt
-    "1.12.2",   // popular modpack target, still legacy Forge
-    "1.16.5",   // transitional Forge era, early Fabric/Quilt
-    "1.18.2",   // first MC requiring Java 17, modern Forge era
-    "1.19.4",   // pre-1.20 stable
-    "1.20.4",   // current "modern stable" used by Phase 3 e2e
-    "1.21",     // Mojang publishes the .0 release without the patch suffix (manifest id is "1.21", not "1.21.0")
-    "1.21.1",   // NeoForge 21.1.x boundary (FML 4.0.42, no merge); caught by manual gate 2026-05-17
-    "1.21.8",   // installertools:3.0.13 MERGE_MAPPING arg rename (--merge/--base) boundary
-    "1.21.10",  // 1.21.x stable
-    "1.21.11",  // very latest at audit time
+    "1.7.10",  // legacy Forge boundary, no Fabric/Quilt
+    "1.12.2",  // popular modpack target, still legacy Forge
+    "1.16.5",  // transitional Forge era, early Fabric/Quilt
+    "1.18.2",  // first MC requiring Java 17, modern Forge era
+    "1.19.4",  // pre-1.20 stable
+    "1.20.4",  // current "modern stable" used by Phase 3 e2e
+    "1.21", // Mojang publishes the .0 release without the patch suffix (manifest id is "1.21", not "1.21.0")
+    "1.21.1", // NeoForge 21.1.x boundary (FML 4.0.42, no merge); caught by manual gate 2026-05-17
+    "1.21.8", // installertools:3.0.13 MERGE_MAPPING arg rename (--merge/--base) boundary
+    "1.21.10", // 1.21.x stable
+    "1.21.11", // very latest at audit time
 ];
 
 fn mc_versions() -> Vec<String> {
@@ -96,10 +98,18 @@ fn neoforge_applies(mc: &str) -> bool {
     let major = parts.first().copied().unwrap_or(0);
     let minor = parts.get(1).copied().unwrap_or(0);
     let patch = parts.get(2).copied().unwrap_or(0);
-    if major > 1 { return true; }
-    if major < 1 { return false; }
-    if minor > 20 { return true; }
-    if minor < 20 { return false; }
+    if major > 1 {
+        return true;
+    }
+    if major < 1 {
+        return false;
+    }
+    if minor > 20 {
+        return true;
+    }
+    if minor < 20 {
+        return false;
+    }
     patch >= 1
 }
 
@@ -107,7 +117,10 @@ fn neoforge_applies(mc: &str) -> bool {
 fn loaders_for(mc: &str) -> Vec<MatrixLoader> {
     let mut out = vec![MatrixLoader::Vanilla];
     let parts: Vec<u32> = mc.split('.').filter_map(|s| s.parse().ok()).collect();
-    let mm = (parts.first().copied().unwrap_or(0), parts.get(1).copied().unwrap_or(0));
+    let mm = (
+        parts.first().copied().unwrap_or(0),
+        parts.get(1).copied().unwrap_or(0),
+    );
     if mm >= (1, 16) {
         out.push(MatrixLoader::Real(Loader::Fabric));
         out.push(MatrixLoader::Real(Loader::Quilt));
@@ -128,22 +141,30 @@ mod loaders_for_tests {
 
     #[test]
     fn neoforge_excluded_for_1_20_0() {
-        assert!(!loaders_for("1.20.0").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+        assert!(!loaders_for("1.20.0")
+            .iter()
+            .any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
     }
 
     #[test]
     fn neoforge_included_for_1_20_1() {
-        assert!(loaders_for("1.20.1").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+        assert!(loaders_for("1.20.1")
+            .iter()
+            .any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
     }
 
     #[test]
     fn neoforge_included_for_1_21_x() {
-        assert!(loaders_for("1.21.10").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+        assert!(loaders_for("1.21.10")
+            .iter()
+            .any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
     }
 
     #[test]
     fn neoforge_excluded_for_1_16_5() {
-        assert!(!loaders_for("1.16.5").iter().any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
+        assert!(!loaders_for("1.16.5")
+            .iter()
+            .any(|l| matches!(l, MatrixLoader::Real(Loader::NeoForge))));
     }
 }
 
@@ -178,17 +199,33 @@ impl Combo {
 
 #[derive(Debug)]
 enum Outcome {
-    Success { menu_at: Duration, install_at: Duration },
-    InstallFailed { stage: String, error: String },
-    LaunchSpawnFailed { error: String },
-    LaunchCrashed { exit_code: Option<i32>, log_tail: String },
-    LaunchTimedOut { log_tail: String },
+    Success {
+        menu_at: Duration,
+        install_at: Duration,
+    },
+    InstallFailed {
+        stage: String,
+        error: String,
+    },
+    LaunchSpawnFailed {
+        error: String,
+    },
+    LaunchCrashed {
+        exit_code: Option<i32>,
+        log_tail: String,
+    },
+    LaunchTimedOut {
+        log_tail: String,
+    },
 }
 
 impl Outcome {
     fn summary(&self) -> String {
         match self {
-            Outcome::Success { menu_at, install_at } => {
+            Outcome::Success {
+                menu_at,
+                install_at,
+            } => {
                 format!("OK (install {:?}, menu {:?})", install_at, menu_at)
             }
             Outcome::InstallFailed { stage, error } => {
@@ -218,17 +255,32 @@ struct Paths {
     root: PathBuf,
 }
 impl Paths {
-    fn versions(&self) -> PathBuf { self.root.join("versions") }
-    fn libraries(&self) -> PathBuf { self.root.join("libraries") }
-    fn assets(&self) -> PathBuf { self.root.join("assets") }
+    fn versions(&self) -> PathBuf {
+        self.root.join("versions")
+    }
+    fn libraries(&self) -> PathBuf {
+        self.root.join("libraries")
+    }
+    fn assets(&self) -> PathBuf {
+        self.root.join("assets")
+    }
     fn forge_cache(&self, mc: &str, fv: &str) -> PathBuf {
-        self.root.join("forge").join("cache").join(format!("{mc}-{fv}"))
+        self.root
+            .join("forge")
+            .join("cache")
+            .join(format!("{mc}-{fv}"))
     }
     fn installer_jar(&self, mc: &str, fv: &str) -> PathBuf {
-        self.root.join("forge").join("installers").join(format!("{mc}-{fv}.jar"))
+        self.root
+            .join("forge")
+            .join("installers")
+            .join(format!("{mc}-{fv}.jar"))
     }
     fn installer_jar_neoforge(&self, nv: &str) -> PathBuf {
-        self.root.join("forge").join("installers").join(format!("neoforge-{nv}.jar"))
+        self.root
+            .join("forge")
+            .join("installers")
+            .join(format!("neoforge-{nv}.jar"))
     }
     fn game_dir(&self, version_id: &str) -> PathBuf {
         self.root.join("game").join(version_id)
@@ -257,10 +309,12 @@ async fn download_file(url: &str, dest: &Path, sha1: &str) -> Result<(), Install
         }
     }
     if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|e| InstallError {
-            stage: "mkdir".into(),
-            error: format!("{}: {e}", parent.display()),
-        })?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| InstallError {
+                stage: "mkdir".into(),
+                error: format!("{}: {e}", parent.display()),
+            })?;
     }
     network::download::download_no_emit(url, dest, sha1, "matrix")
         .await
@@ -277,10 +331,13 @@ async fn fetch_vanilla_details(mc: &str) -> Result<VersionDetails, InstallError>
         stage: "manifest".into(),
         error: format!("{e:?}"),
     })?;
-    let entry = manifest.iter().find(|e| e.id == mc).ok_or_else(|| InstallError {
-        stage: "manifest".into(),
-        error: format!("{mc} not in Mojang manifest"),
-    })?;
+    let entry = manifest
+        .iter()
+        .find(|e| e.id == mc)
+        .ok_or_else(|| InstallError {
+            stage: "manifest".into(),
+            error: format!("{mc} not in Mojang manifest"),
+        })?;
     let v: serde_json::Value = network::get_json(&entry.url, "matrix-version")
         .await
         .map_err(|e| InstallError {
@@ -325,25 +382,32 @@ async fn download_vanilla_payload(
 
     // Client jar.
     if let Some(dl) = &details.downloads {
-        let dest = paths.versions().join(version_id).join(format!("{version_id}.jar"));
+        let dest = paths
+            .versions()
+            .join(version_id)
+            .join(format!("{version_id}.jar"));
         download_file(&dl.client.url, &dest, &dl.client.sha1).await?;
     }
 
     // Asset index + objects.
     if let Some(idx) = &details.asset_index {
         let idx_url = &idx.url;
-        let idx_path = paths.assets().join("indexes").join(format!("{}.json", idx.id));
+        let idx_path = paths
+            .assets()
+            .join("indexes")
+            .join(format!("{}.json", idx.id));
         download_file(idx_url, &idx_path, &idx.sha1).await?;
-        let idx_value: serde_json::Value = serde_json::from_slice(
-            &tokio::fs::read(&idx_path).await.map_err(|e| InstallError {
+        let idx_value: serde_json::Value =
+            serde_json::from_slice(&tokio::fs::read(&idx_path).await.map_err(|e| {
+                InstallError {
+                    stage: "assets".into(),
+                    error: format!("read {}: {e}", idx_path.display()),
+                }
+            })?)
+            .map_err(|e| InstallError {
                 stage: "assets".into(),
-                error: format!("read {}: {e}", idx_path.display()),
-            })?,
-        )
-        .map_err(|e| InstallError {
-            stage: "assets".into(),
-            error: format!("parse asset index: {e}"),
-        })?;
+                error: format!("parse asset index: {e}"),
+            })?;
         if let Some(objects) = idx_value.get("objects").and_then(|v| v.as_object()) {
             for (_name, obj) in objects {
                 let hash = obj.get("hash").and_then(|v| v.as_str()).unwrap_or("");
@@ -362,7 +426,10 @@ async fn download_vanilla_payload(
 
 // ─── Fabric / Quilt install ─────────────────────────────────────────────────
 
-async fn install_fabric_or_quilt(combo: &Combo, paths: &Paths) -> Result<VersionDetails, InstallError> {
+async fn install_fabric_or_quilt(
+    combo: &Combo,
+    paths: &Paths,
+) -> Result<VersionDetails, InstallError> {
     // 1. Vanilla first (provides client jar + base libraries).
     let vanilla = install_vanilla(&combo.mc, paths).await?;
     // 2. Loader profile (the `fetch_profile` call doesn't need AppHandle for fabric/quilt).
@@ -393,7 +460,10 @@ async fn fetch_loader_profile_directly(combo: &Combo) -> Result<VersionDetails, 
         Loader::Quilt => "https://meta.quiltmc.org/v3",
         Loader::Forge | Loader::NeoForge => unreachable!("forge/neoforge handled separately"),
     };
-    let url = format!("{base}/versions/loader/{}/{}/profile/json", combo.mc, combo.loader_version);
+    let url = format!(
+        "{base}/versions/loader/{}/{}/profile/json",
+        combo.mc, combo.loader_version
+    );
     let stage = format!("{}-profile", combo.loader.as_label());
     let raw: serde_json::Value = network::get_json(&url, "matrix-loader-profile")
         .await
@@ -428,7 +498,11 @@ async fn fetch_loader_profile_directly(combo: &Combo) -> Result<VersionDetails, 
                     == Some(combo.loader_version.as_str())
             }) {
                 for key in &["hashed", "intermediary"] {
-                    if let Some(maven) = entry.get(*key).and_then(|m| m.get("maven")).and_then(|v| v.as_str()) {
+                    if let Some(maven) = entry
+                        .get(*key)
+                        .and_then(|m| m.get("maven"))
+                        .and_then(|v| v.as_str())
+                    {
                         let already = details.libraries.iter().any(|l| {
                             let lkey = l.name.split(':').take(2).collect::<Vec<_>>().join(":");
                             let mkey = maven.split(':').take(2).collect::<Vec<_>>().join(":");
@@ -488,25 +562,34 @@ async fn install_forge(combo: &Combo, paths: &Paths) -> Result<VersionDetails, I
             let q_name = format!("forge-{q_seg}-installer.jar");
             (q_seg, q_name)
         } else {
-            (seg_normal.clone(), format!("forge-{seg_normal}-installer.jar"))
+            (
+                seg_normal.clone(),
+                format!("forge-{seg_normal}-installer.jar"),
+            )
         };
         let url = format!(
             "https://maven.minecraftforge.net/net/minecraftforge/forge/{segment}/{filename}"
         );
         download_file(&url, &installer_path, "").await?;
     }
-    let installer_bytes = tokio::fs::read(&installer_path).await.map_err(|e| InstallError {
-        stage: "forge-installer-read".into(),
-        error: format!("{}: {e}", installer_path.display()),
-    })?;
+    let installer_bytes = tokio::fs::read(&installer_path)
+        .await
+        .map_err(|e| InstallError {
+            stage: "forge-installer-read".into(),
+            error: format!("{}: {e}", installer_path.display()),
+        })?;
 
     // 3. Parse install_profile + dispatch by era.
     let profile_value = read_install_profile(&installer_bytes)?;
     let era = detect_era(&profile_value);
     match era {
         Era::Legacy => install_forge_legacy(combo, paths, &installer_bytes, &profile_value).await,
-        Era::Transitional => install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, false).await,
-        Era::Modern => install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, true).await,
+        Era::Transitional => {
+            install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, false).await
+        }
+        Era::Modern => {
+            install_forge_processor_era(combo, paths, &installer_bytes, &profile_value, true).await
+        }
     }
 }
 
@@ -526,10 +609,12 @@ async fn install_neoforge(combo: &Combo, paths: &Paths) -> Result<VersionDetails
         );
         download_file(&url, &installer_path, "").await?;
     }
-    let installer_bytes = tokio::fs::read(&installer_path).await.map_err(|e| InstallError {
-        stage: "neoforge-installer-read".into(),
-        error: format!("{}: {e}", installer_path.display()),
-    })?;
+    let installer_bytes = tokio::fs::read(&installer_path)
+        .await
+        .map_err(|e| InstallError {
+            stage: "neoforge-installer-read".into(),
+            error: format!("{}: {e}", installer_path.display()),
+        })?;
 
     // 3. Parse install_profile + dispatch by era.
     // NeoForge is always modern (spec=1).
@@ -558,13 +643,17 @@ fn forge_installer_url(mc: &str, fv: &str) -> (String, String) {
 
 fn read_install_profile(installer_bytes: &[u8]) -> Result<serde_json::Value, InstallError> {
     use std::io::Read;
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
-        InstallError { stage: "forge-installer-zip".into(), error: format!("{e}") }
-    })?;
-    let mut entry = zip.by_name("install_profile.json").map_err(|e| InstallError {
-        stage: "forge-install-profile".into(),
-        error: format!("{e}"),
-    })?;
+    let mut zip =
+        zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| InstallError {
+            stage: "forge-installer-zip".into(),
+            error: format!("{e}"),
+        })?;
+    let mut entry = zip
+        .by_name("install_profile.json")
+        .map_err(|e| InstallError {
+            stage: "forge-install-profile".into(),
+            error: format!("{e}"),
+        })?;
     let mut s = String::new();
     entry.read_to_string(&mut s).map_err(|e| InstallError {
         stage: "forge-install-profile".into(),
@@ -610,7 +699,10 @@ async fn install_forge_legacy(
     })?;
     let universal_bytes = {
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
-            InstallError { stage: "forge-legacy".into(), error: format!("zip: {e}") }
+            InstallError {
+                stage: "forge-legacy".into(),
+                error: format!("zip: {e}"),
+            }
         })?;
         let mut entry = zip.by_name(file_path).map_err(|e| InstallError {
             stage: "forge-legacy".into(),
@@ -627,10 +719,12 @@ async fn install_forge_legacy(
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await.ok();
     }
-    tokio::fs::write(&dest, &universal_bytes).await.map_err(|e| InstallError {
-        stage: "forge-legacy".into(),
-        error: format!("write {}: {e}", dest.display()),
-    })?;
+    tokio::fs::write(&dest, &universal_bytes)
+        .await
+        .map_err(|e| InstallError {
+            stage: "forge-legacy".into(),
+            error: format!("write {}: {e}", dest.display()),
+        })?;
 
     // Step 2: Build merged VersionDetails (versionInfo merged with vanilla).
     let version_info = profile_value
@@ -678,7 +772,10 @@ async fn install_forge_processor_era(
     let version_details = {
         use std::io::Read;
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
-            InstallError { stage: "forge-version-json".into(), error: format!("zip: {e}") }
+            InstallError {
+                stage: "forge-version-json".into(),
+                error: format!("zip: {e}"),
+            }
         })?;
         let mut entry = zip.by_name("version.json").map_err(|e| InstallError {
             stage: "forge-version-json".into(),
@@ -703,19 +800,25 @@ async fn install_forge_processor_era(
     // as launch) so binarypatcher 1.2.0 / FART runs on the right major
     // version. Fall back to system Java if no java_version is declared
     // (legacy MC < 1.7 → jre-legacy = Java 8, sufficient for old binarypatcher).
-    let component = vanilla.java_version.as_ref()
+    let component = vanilla
+        .java_version
+        .as_ref()
         .map(|jv| jv.component.as_str())
         .unwrap_or(ftlauncher_lib::jre::DEFAULT_LEGACY_COMPONENT);
-    let java_bin = ensure_jre_into(component, paths).await
-        .or_else(|_| locate_system_java().ok_or_else(|| InstallError {
+    let java_bin = ensure_jre_into(component, paths).await.or_else(|_| {
+        locate_system_java().ok_or_else(|| InstallError {
             stage: "forge-java".into(),
             error: "no JRE installable + no system Java".into(),
-        }))?;
+        })
+    })?;
 
     let cache_dir = paths.forge_cache(&combo.mc, &combo.loader_version);
     tokio::fs::create_dir_all(&cache_dir).await.ok();
     let cache_dir_str = cache_dir.display().to_string();
-    let installer_path_str = paths.installer_jar(&combo.mc, &combo.loader_version).display().to_string();
+    let installer_path_str = paths
+        .installer_jar(&combo.mc, &combo.loader_version)
+        .display()
+        .to_string();
     let minecraft_jar = paths.vanilla_client_jar(&combo.mc).display().to_string();
     let libs_root = paths.libraries();
 
@@ -726,12 +829,19 @@ async fn install_forge_processor_era(
     let arch = detect_arch();
     for lib in &profile.libraries {
         let has_url = lib.url.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
-            || lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()).map(|a| !a.url.is_empty()).unwrap_or(false);
+            || lib
+                .downloads
+                .as_ref()
+                .and_then(|d| d.artifact.as_ref())
+                .map(|a| !a.url.is_empty())
+                .unwrap_or(false);
         if !has_url {
             continue;
         }
         for (rel, url, sha1, _size) in artifacts_to_install(lib, os, arch) {
-            if url.is_empty() { continue; }
+            if url.is_empty() {
+                continue;
+            }
             download_file(&url, &libs_root.join(&rel), &sha1).await?;
         }
     }
@@ -746,20 +856,30 @@ async fn install_forge_processor_era(
         let cp_libs = classpath_coords_to_libraries(&p.classpath);
         for lib in &cp_libs {
             for (rel, url, sha1, _size) in artifacts_to_install(lib, os, arch) {
-                if url.is_empty() { continue; }
+                if url.is_empty() {
+                    continue;
+                }
                 download_file(&url, &libs_root.join(&rel), &sha1).await?;
             }
         }
         let resolved = substitute_args(
-            &p.args, &profile.data, "client",
-            &libs_root, installer_bytes, &installer_path_str, &cache_dir_str, &minecraft_jar,
+            &p.args,
+            &profile.data,
+            "client",
+            &libs_root,
+            installer_bytes,
+            &installer_path_str,
+            &cache_dir_str,
+            &minecraft_jar,
         )
         .await
         .map_err(|e| InstallError {
             stage: format!("forge-substitute-args[{i}]"),
             error: format!("{e:?}"),
         })?;
-        let mut cp_paths: Vec<PathBuf> = p.classpath.iter()
+        let mut cp_paths: Vec<PathBuf> = p
+            .classpath
+            .iter()
             .filter_map(|c| maven_coord_to_relative_path(c))
             .map(|rel| libs_root.join(rel))
             .collect();
@@ -789,11 +909,16 @@ async fn install_forge_processor_era(
     Ok(merged)
 }
 
-async fn extract_installer_maven_tree(installer_bytes: &[u8], libs_root: &Path) -> Result<(), InstallError> {
+async fn extract_installer_maven_tree(
+    installer_bytes: &[u8],
+    libs_root: &Path,
+) -> Result<(), InstallError> {
     use std::io::Read;
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| {
-        InstallError { stage: "forge-maven-tree".into(), error: format!("{e}") }
-    })?;
+    let mut zip =
+        zip::ZipArchive::new(std::io::Cursor::new(installer_bytes)).map_err(|e| InstallError {
+            stage: "forge-maven-tree".into(),
+            error: format!("{e}"),
+        })?;
     let mut to_write: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| InstallError {
@@ -801,7 +926,9 @@ async fn extract_installer_maven_tree(installer_bytes: &[u8], libs_root: &Path) 
             error: format!("index {i}: {e}"),
         })?;
         let name = entry.name().to_string();
-        if !name.starts_with("maven/") || name.ends_with('/') { continue; }
+        if !name.starts_with("maven/") || name.ends_with('/') {
+            continue;
+        }
         let rel = name.strip_prefix("maven/").unwrap();
         let mut buf = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut buf).map_err(|e| InstallError {
@@ -814,10 +941,12 @@ async fn extract_installer_maven_tree(installer_bytes: &[u8], libs_root: &Path) 
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await.ok();
         }
-        tokio::fs::write(&dest, &bytes).await.map_err(|e| InstallError {
-            stage: "forge-maven-tree".into(),
-            error: format!("write {}: {e}", dest.display()),
-        })?;
+        tokio::fs::write(&dest, &bytes)
+            .await
+            .map_err(|e| InstallError {
+                stage: "forge-maven-tree".into(),
+                error: format!("write {}: {e}", dest.display()),
+            })?;
     }
     Ok(())
 }
@@ -827,7 +956,7 @@ async fn extract_installer_maven_tree(installer_bytes: &[u8], libs_root: &Path) 
 const MENU_MARKERS: &[&str] = &[
     "Sound engine started",
     "Setting user:",
-    "[Render thread/INFO]: Stopping!",  // covers ultra-fast graceful exits
+    "[Render thread/INFO]: Stopping!", // covers ultra-fast graceful exits
 ];
 
 async fn launch_and_watch(
@@ -853,24 +982,36 @@ async fn launch_and_watch(
     {
         let os_ = detect_os();
         let arch_ = detect_arch();
-        if let Err(e) =
-            ftlauncher_lib::launch::natives::extract_natives(&details.libraries, &paths.libraries(), &natives_dir, os_, arch_).await
+        if let Err(e) = ftlauncher_lib::launch::natives::extract_natives(
+            &details.libraries,
+            &paths.libraries(),
+            &natives_dir,
+            os_,
+            arch_,
+        )
+        .await
         {
-            return Outcome::LaunchSpawnFailed { error: format!("extract_natives: {e:?}") };
+            return Outcome::LaunchSpawnFailed {
+                error: format!("extract_natives: {e:?}"),
+            };
         }
     }
 
     // Pick the JRE component declared by the merged version JSON. For
     // legacy MC (< 1.7) the field is absent and we fall back to Mojang's
     // jre-legacy (Java 8).
-    let component = details.java_version.as_ref()
+    let component = details
+        .java_version
+        .as_ref()
         .map(|jv| jv.component.as_str())
         .unwrap_or(ftlauncher_lib::jre::DEFAULT_LEGACY_COMPONENT);
     let java = match ensure_jre_into(component, paths).await {
         Ok(j) => j,
-        Err(e) => return Outcome::LaunchSpawnFailed {
-            error: format!("ensure_jre({component}): {} — {}", e.stage, e.error),
-        },
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("ensure_jre({component}): {} — {}", e.stage, e.error),
+            }
+        }
     };
     let os = detect_os();
     let arch = detect_arch();
@@ -906,7 +1047,11 @@ async fn launch_and_watch(
     };
     let manifest_argv = match ftlauncher_lib::launch::args::build_argv(&argv_input) {
         Ok(a) => a,
-        Err(e) => return Outcome::LaunchSpawnFailed { error: format!("build_argv: {e:?}") },
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("build_argv: {e:?}"),
+            }
+        }
     };
     // Prepend `-Xmx2048m` so MC has enough heap. UI's `launch::spawn` does
     // this from `instance.max_heap_mb`; we hardcode the default for the matrix.
@@ -918,11 +1063,19 @@ async fn launch_and_watch(
     let stdio_log_path = combo_log.with_extension("stdio.log");
     let stdio_file = match std::fs::File::create(&stdio_log_path) {
         Ok(f) => f,
-        Err(e) => return Outcome::LaunchSpawnFailed { error: format!("create stdio log: {e}") },
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("create stdio log: {e}"),
+            }
+        }
     };
     let stdio_file2 = match stdio_file.try_clone() {
         Ok(f) => f,
-        Err(e) => return Outcome::LaunchSpawnFailed { error: format!("clone stdio fd: {e}") },
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("clone stdio fd: {e}"),
+            }
+        }
     };
 
     let mut cmd = Command::new(&java);
@@ -932,7 +1085,11 @@ async fn launch_and_watch(
     cmd.stderr(Stdio::from(stdio_file2));
     let mut child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => return Outcome::LaunchSpawnFailed { error: format!("spawn: {e}") },
+        Err(e) => {
+            return Outcome::LaunchSpawnFailed {
+                error: format!("spawn: {e}"),
+            }
+        }
     };
 
     // Watch loop: poll latest.log + child exit status, up to 120s.
@@ -957,7 +1114,11 @@ async fn launch_and_watch(
                 };
             }
             Ok(None) => {}
-            Err(e) => return Outcome::LaunchSpawnFailed { error: format!("try_wait: {e}") },
+            Err(e) => {
+                return Outcome::LaunchSpawnFailed {
+                    error: format!("try_wait: {e}"),
+                }
+            }
         }
 
         // Check menu marker (look in both MC's latest.log and JVM stdio).
@@ -972,7 +1133,10 @@ async fn launch_and_watch(
         if !combined.is_empty() && MENU_MARKERS.iter().any(|m| combined.contains(m)) {
             let _ = child.kill().await;
             let _ = std::fs::write(combo_log, format!("SUCCESS\nargv:\n  {}\n", argv.join(" ")));
-            return Outcome::Success { menu_at: watch_start.elapsed(), install_at };
+            return Outcome::Success {
+                menu_at: watch_start.elapsed(),
+                install_at,
+            };
         }
 
         if watch_start.elapsed() > timeout {
@@ -1009,14 +1173,22 @@ async fn read_log_tail(path: &Path) -> String {
 // ─── OS / Java helpers ──────────────────────────────────────────────────────
 
 fn detect_os() -> &'static str {
-    if cfg!(target_os = "windows") { "windows" }
-    else if cfg!(target_os = "macos") { "macos" }
-    else { "linux" }
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
 }
 fn detect_arch() -> &'static str {
-    if cfg!(target_arch = "x86_64") { "x64" }
-    else if cfg!(target_arch = "aarch64") { "aarch64" }
-    else { "x86" }
+    if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86"
+    }
 }
 
 fn locate_system_java() -> Option<PathBuf> {
@@ -1027,7 +1199,9 @@ fn locate_system_java() -> Option<PathBuf> {
     if let Ok(home) = std::env::var("JAVA_HOME") {
         let exe = if cfg!(windows) { "java.exe" } else { "java" };
         let p = PathBuf::from(home).join("bin").join(exe);
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     Some(PathBuf::from("java"))
 }
@@ -1064,18 +1238,22 @@ async fn ensure_jre_into(component: &str, paths: &Paths) -> Result<PathBuf, Inst
         }
     }
     let _ = tokio::fs::remove_dir_all(&comp_root).await;
-    let comp_manifest = fetch_component_manifest(&comp_ref).await.map_err(|e| InstallError {
-        stage: "jre-component-manifest".into(),
-        error: format!("{e:?}"),
-    })?;
+    let comp_manifest = fetch_component_manifest(&comp_ref)
+        .await
+        .map_err(|e| InstallError {
+            stage: "jre-component-manifest".into(),
+            error: format!("{e:?}"),
+        })?;
     for (rel, entry) in &comp_manifest.files {
         let dest = comp_root.join(rel);
         match entry {
             FileEntry::Directory {} => {
-                tokio::fs::create_dir_all(&dest).await.map_err(|e| InstallError {
-                    stage: "jre-mkdir".into(),
-                    error: format!("{}: {e}", dest.display()),
-                })?;
+                tokio::fs::create_dir_all(&dest)
+                    .await
+                    .map_err(|e| InstallError {
+                        stage: "jre-mkdir".into(),
+                        error: format!("{}: {e}", dest.display()),
+                    })?;
             }
             FileEntry::Link { .. } => {
                 return Err(InstallError {
@@ -1088,10 +1266,12 @@ async fn ensure_jre_into(component: &str, paths: &Paths) -> Result<PathBuf, Inst
             }
         }
     }
-    tokio::fs::write(&marker, &expected_marker).await.map_err(|e| InstallError {
-        stage: "jre-marker".into(),
-        error: format!("{}: {e}", marker.display()),
-    })?;
+    tokio::fs::write(&marker, &expected_marker)
+        .await
+        .map_err(|e| InstallError {
+            stage: "jre-marker".into(),
+            error: format!("{}: {e}", marker.display()),
+        })?;
     Ok(jre_exe_path(&comp_root))
 }
 
@@ -1106,8 +1286,18 @@ fn print_summary_table(results: &[(Combo, Outcome)]) {
     eprintln!("\n| MC | Loader | Version | Outcome |");
     eprintln!("|---|---|---|---|");
     for (c, o) in results {
-        let v = if c.loader == MatrixLoader::Vanilla { "—".into() } else { c.loader_version.clone() };
-        eprintln!("| {} | {} | {} | {} |", c.mc, c.loader.as_label(), v, o.summary());
+        let v = if c.loader == MatrixLoader::Vanilla {
+            "—".into()
+        } else {
+            c.loader_version.clone()
+        };
+        eprintln!(
+            "| {} | {} | {} | {} |",
+            c.mc,
+            c.loader.as_label(),
+            v,
+            o.summary()
+        );
     }
     let ok = results.iter().filter(|(_, o)| o.is_success()).count();
     let fail = results.len() - ok;
@@ -1127,7 +1317,9 @@ fn log_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."));
     let dir = crate_root.join("target").join("loader-matrix-logs");
-    if dir.exists() { let _ = std::fs::remove_dir_all(&dir); }
+    if dir.exists() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     std::fs::create_dir_all(&dir).expect("create matrix log root");
     dir
 }
@@ -1156,10 +1348,7 @@ async fn build_combos() -> Vec<Combo> {
                             loader.as_label()
                         ),
                     },
-                    Err(e) => eprintln!(
-                        "  SKIP {mc}/{}: meta error: {e:?}",
-                        loader.as_label()
-                    ),
+                    Err(e) => eprintln!("  SKIP {mc}/{}: meta error: {e:?}", loader.as_label()),
                 },
             }
         }
@@ -1210,7 +1399,10 @@ async fn loader_matrix_e2e() {
                     &combo_log,
                     format!("INSTALL FAILED\nstage: {}\nerror:\n{}\n", e.stage, e.error),
                 );
-                Outcome::InstallFailed { stage: e.stage, error: e.error }
+                Outcome::InstallFailed {
+                    stage: e.stage,
+                    error: e.error,
+                }
             }
         };
         eprintln!("  → {}", outcome.summary());

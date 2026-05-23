@@ -172,7 +172,9 @@ mod tests {
             ],
             downloads: None,
             arguments: Some(Arguments {
-                jvm: vec![Argument::Plain("-DFabricMcEmu=net.minecraft.client.main.Main".into())],
+                jvm: vec![Argument::Plain(
+                    "-DFabricMcEmu=net.minecraft.client.main.Main".into(),
+                )],
                 game: vec![],
             }),
             minecraft_arguments: None,
@@ -182,18 +184,35 @@ mod tests {
     #[test]
     fn child_main_class_wins() {
         let merged = merge_inherits(fabric_child(), vanilla_parent());
-        assert_eq!(merged.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+        assert_eq!(
+            merged.main_class,
+            "net.fabricmc.loader.impl.launch.knot.KnotClient"
+        );
     }
 
     #[test]
     fn parent_asset_index_wins() {
         let merged = merge_inherits(fabric_child(), vanilla_parent());
-        let ai = merged.asset_index.as_ref().expect("vanilla parent supplies assetIndex");
+        let ai = merged
+            .asset_index
+            .as_ref()
+            .expect("vanilla parent supplies assetIndex");
         assert_eq!(ai.id, "12");
         assert_eq!(ai.sha1, "aaa");
-        assert_eq!(merged.assets.as_deref().expect("vanilla parent supplies assets"), "12");
         assert_eq!(
-            merged.downloads.as_ref().expect("vanilla parent supplies downloads").client.sha1,
+            merged
+                .assets
+                .as_deref()
+                .expect("vanilla parent supplies assets"),
+            "12"
+        );
+        assert_eq!(
+            merged
+                .downloads
+                .as_ref()
+                .expect("vanilla parent supplies downloads")
+                .client
+                .sha1,
             "ccc"
         );
     }
@@ -256,7 +275,10 @@ mod tests {
     fn id_and_inherits_from_set_correctly() {
         let merged = merge_inherits(fabric_child(), vanilla_parent());
         assert_eq!(merged.id, "fabric-loader-0.15.7-1.20.4");
-        assert!(merged.inherits_from.is_none(), "merged form has no further inheritance");
+        assert!(
+            merged.inherits_from.is_none(),
+            "merged form has no further inheritance"
+        );
     }
 
     // ArgumentValue is referenced for visibility — keep this so the
@@ -285,7 +307,11 @@ mod tests {
             features: None,
         };
         let non_osx_rules = vec![
-            Rule { action: RuleAction::Allow, os: None, features: None },
+            Rule {
+                action: RuleAction::Allow,
+                os: None,
+                features: None,
+            },
             Rule {
                 action: RuleAction::Disallow,
                 os: Some(crate::versions::version_json::OsRule {

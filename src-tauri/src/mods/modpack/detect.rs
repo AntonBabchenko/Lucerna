@@ -7,8 +7,10 @@ use crate::error::Error;
 use crate::mods::modpack::schema::ModpackFormat;
 
 pub fn detect_format(bytes: &[u8]) -> Result<ModpackFormat, Error> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|e| Error::ModpackInvalidArchive { details: e.to_string() })?;
+    let mut zip =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
+            details: e.to_string(),
+        })?;
     let names: Vec<String> = (0..zip.len())
         .filter_map(|i| zip.by_index(i).ok().map(|f| f.name().to_string()))
         .collect();
@@ -64,11 +66,17 @@ mod tests {
     #[test]
     fn rejects_zip_without_known_marker() {
         let zip = make_zip(&[("README.md", b"hello")]);
-        assert!(matches!(detect_format(&zip), Err(Error::ModpackFormatUnknown)));
+        assert!(matches!(
+            detect_format(&zip),
+            Err(Error::ModpackFormatUnknown)
+        ));
     }
 
     #[test]
     fn rejects_not_a_zip() {
-        assert!(matches!(detect_format(b"not a zip"), Err(Error::ModpackInvalidArchive { .. })));
+        assert!(matches!(
+            detect_format(b"not a zip"),
+            Err(Error::ModpackInvalidArchive { .. })
+        ));
     }
 }

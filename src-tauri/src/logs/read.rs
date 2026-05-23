@@ -41,8 +41,8 @@ fn is_gzipped(path: &Path) -> bool {
 }
 
 fn read_plain(path: &Path, cap: u64) -> Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| Error::io(path.display().to_string(), e))?;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| Error::io(path.display().to_string(), e))?;
     let len = file
         .metadata()
         .map_err(|e| Error::io(path.display().to_string(), e))?
@@ -64,8 +64,7 @@ fn read_plain(path: &Path, cap: u64) -> Result<Vec<u8>> {
 }
 
 fn read_gz(path: &Path, cap: u64) -> Result<Vec<u8>> {
-    let file = std::fs::File::open(path)
-        .map_err(|e| Error::io(path.display().to_string(), e))?;
+    let file = std::fs::File::open(path).map_err(|e| Error::io(path.display().to_string(), e))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut buf = Vec::with_capacity(cap.min(1 << 20) as usize);
     decoder

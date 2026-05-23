@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import MainTabs from '$lib/layout/MainTabs.svelte';
 import { commands } from '$lib/ipc/bindings';
+import MainTabs from '$lib/layout/MainTabs.svelte';
 
 // Task 14 made the Mod browser tab mount the real ModBrowseView, which
 // fires modsGetCurseforgeKeyStatus + modsSearch on mount. Task 12 in
@@ -50,7 +50,13 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsInspectLocal: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { detected_loader: null, detected_mc: null, detected_name: null, loader_mismatch: false, mc_mismatch: false },
+      data: {
+        detected_loader: null,
+        detected_mc: null,
+        detected_name: null,
+        loader_mismatch: false,
+        mc_mismatch: false,
+      },
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },

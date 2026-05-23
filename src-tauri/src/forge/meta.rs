@@ -51,11 +51,10 @@ pub struct MavenEntry {
 /// preserves the full original string so the installer URL builder
 /// can reconstruct the actual maven path.
 pub fn parse_maven_metadata(xml: &str) -> Result<Vec<MavenEntry>> {
-    let parsed: MavenMetadata = xml_from_str(xml).map_err(|e| {
-        Error::ForgeMavenMetadataParseFailed {
+    let parsed: MavenMetadata =
+        xml_from_str(xml).map_err(|e| Error::ForgeMavenMetadataParseFailed {
             details: format!("{e}"),
-        }
-    })?;
+        })?;
     let mut out = Vec::with_capacity(parsed.versioning.versions.versions.len());
     for entry in parsed.versioning.versions.versions {
         if let Some(parsed) = parse_maven_entry(&entry) {
@@ -77,10 +76,7 @@ fn parse_maven_entry(entry: &str) -> Option<MavenEntry> {
     //     extension of the other — handles `1.9` ↔ `1.9.0`), treat this
     //     entry as the legacy `<mc>-<fv>-<mc>` shape.
     if let Some((mc_prefix, fv_inner)) = left.rsplit_once('-') {
-        if !mc_prefix.is_empty()
-            && !fv_inner.is_empty()
-            && mc_suffix_matches(right, mc_prefix)
-        {
+        if !mc_prefix.is_empty() && !fv_inner.is_empty() && mc_suffix_matches(right, mc_prefix) {
             return Some(MavenEntry {
                 mc: mc_prefix.to_string(),
                 fv: fv_inner.to_string(),
@@ -143,11 +139,10 @@ impl Promotions {
 /// the JSON is malformed — callers can downgrade this to a non-fatal
 /// "stability info unavailable" UI hint.
 pub fn parse_promotions(body: &str) -> Result<Promotions> {
-    let raw: PromotionsRaw = serde_json::from_str(body).map_err(|_| {
-        Error::ForgePromotionsUnavailable {
+    let raw: PromotionsRaw =
+        serde_json::from_str(body).map_err(|_| Error::ForgePromotionsUnavailable {
             flavor: "forge".to_string(),
-        }
-    })?;
+        })?;
     let mut by_mc: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     // First pass: pick up "<mc>-latest" entries.
     for (key, value) in &raw.promos {
@@ -183,10 +178,14 @@ pub(crate) fn is_release(fv: &str) -> bool {
 /// (not down to (0,0,0,0)).
 pub(crate) fn version_parts(v: &str) -> (u32, u32, u32, u32) {
     let trimmed = match v.find('-') {
-        Some(idx) if v[idx..].to_ascii_lowercase().starts_with("-beta")
-            || v[idx..].to_ascii_lowercase().starts_with("-rc")
-            || v[idx..].to_ascii_lowercase().starts_with("-alpha")
-            || v[idx..].to_ascii_lowercase().starts_with("-snapshot") => &v[..idx],
+        Some(idx)
+            if v[idx..].to_ascii_lowercase().starts_with("-beta")
+                || v[idx..].to_ascii_lowercase().starts_with("-rc")
+                || v[idx..].to_ascii_lowercase().starts_with("-alpha")
+                || v[idx..].to_ascii_lowercase().starts_with("-snapshot") =>
+        {
+            &v[..idx]
+        }
         _ => v,
     };
     let mut it = trimmed.split('.');
@@ -213,8 +212,7 @@ pub(crate) fn build_loader_versions(
     std::collections::HashMap<String, String>,
 ) {
     let recommended = promos.recommended_for(mc_id);
-    let mut filtered: Vec<&MavenEntry> =
-        entries.iter().filter(|e| e.mc == mc_id).collect();
+    let mut filtered: Vec<&MavenEntry> = entries.iter().filter(|e| e.mc == mc_id).collect();
     // Sort by `(major, minor, patch, is_release, beta_or_build)` desc — release sorts
     // above prerelease in the same patch band. `is_release` becomes the 4th component
     // because version_parts already covers the leading 3 numeric segments.
@@ -237,8 +235,7 @@ pub(crate) fn build_loader_versions(
         None
     };
 
-    let mut raw_by_fv =
-        std::collections::HashMap::<String, String>::with_capacity(filtered.len());
+    let mut raw_by_fv = std::collections::HashMap::<String, String>::with_capacity(filtered.len());
     let loader_versions = filtered
         .into_iter()
         .map(|e| {
@@ -272,11 +269,10 @@ pub(crate) fn build_loader_versions(
 /// Entries where the first two segments cannot be parsed as integers
 /// are silently dropped.
 pub fn parse_neoforge_maven_metadata(xml: &str) -> Result<Vec<MavenEntry>> {
-    let parsed: MavenMetadata = xml_from_str(xml).map_err(|e| {
-        Error::ForgeMavenMetadataParseFailed {
+    let parsed: MavenMetadata =
+        xml_from_str(xml).map_err(|e| Error::ForgeMavenMetadataParseFailed {
             details: format!("{e}"),
-        }
-    })?;
+        })?;
     let mut out = Vec::with_capacity(parsed.versioning.versions.versions.len());
     for entry in parsed.versioning.versions.versions {
         if let Some(maven_entry) = parse_neoforge_entry(&entry) {
@@ -335,9 +331,8 @@ struct CachedList {
 }
 
 fn list_cache() -> &'static Mutex<std::collections::HashMap<(ForgeFlavor, String), CachedList>> {
-    static CACHE: OnceLock<
-        Mutex<std::collections::HashMap<(ForgeFlavor, String), CachedList>>,
-    > = OnceLock::new();
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<(ForgeFlavor, String), CachedList>>> =
+        OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -379,7 +374,9 @@ pub async fn list_versions(
     mc_id: &str,
 ) -> Result<Vec<crate::versions::loaders::LoaderVersion>> {
     {
-        let guard = list_cache().lock().expect("forge meta cache mutex poisoned");
+        let guard = list_cache()
+            .lock()
+            .expect("forge meta cache mutex poisoned");
         if let Some(c) = guard.get(&(flavor, mc_id.to_string())) {
             if c.fetched_at.elapsed() < LIST_CACHE_TTL {
                 return Ok(c.entries.clone());
@@ -419,7 +416,9 @@ pub async fn list_versions(
     }
 
     {
-        let mut guard = list_cache().lock().expect("forge meta cache mutex poisoned");
+        let mut guard = list_cache()
+            .lock()
+            .expect("forge meta cache mutex poisoned");
         guard.insert(
             (flavor, mc_id.to_string()),
             CachedList {
@@ -437,7 +436,9 @@ pub async fn list_versions(
 /// for this MC yet (callers should fall back to the canonical
 /// `<mc>-<fv>` form).
 pub(crate) fn cached_raw_version(flavor: ForgeFlavor, mc: &str, fv: &str) -> Option<String> {
-    let guard = list_cache().lock().expect("forge meta cache mutex poisoned");
+    let guard = list_cache()
+        .lock()
+        .expect("forge meta cache mutex poisoned");
     guard
         .get(&(flavor, mc.to_string()))
         .and_then(|c| c.raw_by_fv.get(fv).cloned())
@@ -464,8 +465,7 @@ pub async fn fetch_installer_bytes(
     fv: &str,
     app: &tauri::AppHandle,
 ) -> Result<Vec<u8>> {
-    let app_data = crate::paths::app_dir(app)
-        .map_err(|e| Error::io("<app_data>", e))?;
+    let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
     let path = installer_cache_path(&app_data, mc, fv);
 
     if path.exists() {
@@ -509,7 +509,9 @@ pub async fn fetch_installer_bytes(
 
 #[doc(hidden)]
 pub fn clear_cache_for_test() {
-    let mut guard = list_cache().lock().expect("forge meta cache mutex poisoned");
+    let mut guard = list_cache()
+        .lock()
+        .expect("forge meta cache mutex poisoned");
     guard.clear();
 }
 
@@ -702,8 +704,8 @@ mod tests {
         assert_eq!(out[2].version, "49.0.0");
         assert_eq!(out[3].version, "48.0.1");
         // Only "49.0.30" is recommended → stable=true.
-        assert_eq!(out[0].stable, false);  // 49.0.49 is latest, but recommended is 49.0.30
-        assert_eq!(out[1].stable, true);   // 49.0.30 = recommended
+        assert_eq!(out[0].stable, false); // 49.0.49 is latest, but recommended is 49.0.30
+        assert_eq!(out[1].stable, true); // 49.0.30 = recommended
         assert_eq!(out[2].stable, false);
         assert_eq!(out[3].stable, false);
         // `build` field — unused for Forge (we don't have a build number);
@@ -711,7 +713,10 @@ mod tests {
         assert!(out.iter().all(|lv| lv.build == 0));
         // raw index covers all 4 retained entries, MC-pre1 excluded.
         assert_eq!(raw.len(), 4);
-        assert_eq!(raw.get("49.0.49").map(String::as_str), Some("1.20.4-49.0.49"));
+        assert_eq!(
+            raw.get("49.0.49").map(String::as_str),
+            Some("1.20.4-49.0.49")
+        );
     }
 
     #[test]
@@ -726,7 +731,10 @@ mod tests {
         let (out, raw) = build_loader_versions(&entries, "1.7.10", &promos);
         assert_eq!(out.len(), 2);
         // Top entry (highest version, no beta suffix) is stable; lower is not.
-        assert!(out[0].stable, "top non-beta should be stable when no promotions");
+        assert!(
+            out[0].stable,
+            "top non-beta should be stable when no promotions"
+        );
         assert!(!out[1].stable);
         // Raw index preserves the legacy-quirk maven path for URL building.
         assert_eq!(
@@ -756,9 +764,21 @@ mod tests {
     fn neoforge_top_non_beta_gets_stable_when_promotions_empty() {
         // Synthetic NeoForge entries for MC 1.20.4. Only the top non-beta should be stable.
         let entries = vec![
-            MavenEntry { mc: "1.20.4".into(), fv: "20.4.245".into(), raw: "20.4.245".into() },
-            MavenEntry { mc: "1.20.4".into(), fv: "20.4.240-beta".into(), raw: "20.4.240-beta".into() },
-            MavenEntry { mc: "1.20.4".into(), fv: "20.4.236".into(), raw: "20.4.236".into() },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "20.4.245".into(),
+                raw: "20.4.245".into(),
+            },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "20.4.240-beta".into(),
+                raw: "20.4.240-beta".into(),
+            },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "20.4.236".into(),
+                raw: "20.4.236".into(),
+            },
         ];
         let empty_promos = Promotions::default();
         let (list, _raw_by_fv) = build_loader_versions(&entries, "1.20.4", &empty_promos);
@@ -776,11 +796,22 @@ mod tests {
         // Direct sort assertion: 20.4.236 (release) > 20.4.236-beta.
         // version_parts must classify -beta correctly.
         let entries = vec![
-            MavenEntry { mc: "1.20.4".into(), fv: "20.4.236-beta".into(), raw: "20.4.236-beta".into() },
-            MavenEntry { mc: "1.20.4".into(), fv: "20.4.236".into(), raw: "20.4.236".into() },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "20.4.236-beta".into(),
+                raw: "20.4.236-beta".into(),
+            },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "20.4.236".into(),
+                raw: "20.4.236".into(),
+            },
         ];
         let (list, _) = build_loader_versions(&entries, "1.20.4", &Promotions::default());
-        assert_eq!(list[0].version, "20.4.236", "release sorts before beta in same patch band");
+        assert_eq!(
+            list[0].version, "20.4.236",
+            "release sorts before beta in same patch band"
+        );
         assert_eq!(list[1].version, "20.4.236-beta");
     }
 
@@ -789,8 +820,16 @@ mod tests {
         // Regression guard: when promotions has a recommendation, that entry is stable
         // — the new fallback should NOT override the promotions decision.
         let entries = vec![
-            MavenEntry { mc: "1.20.4".into(), fv: "49.0.49".into(), raw: "1.20.4-49.0.49".into() },
-            MavenEntry { mc: "1.20.4".into(), fv: "49.0.50".into(), raw: "1.20.4-49.0.50".into() },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "49.0.49".into(),
+                raw: "1.20.4-49.0.49".into(),
+            },
+            MavenEntry {
+                mc: "1.20.4".into(),
+                fv: "49.0.50".into(),
+                raw: "1.20.4-49.0.50".into(),
+            },
         ];
         let mut promos = Promotions::default();
         promos.insert_for_test("1.20.4".into(), "49.0.49".into());

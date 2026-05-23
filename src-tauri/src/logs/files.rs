@@ -41,12 +41,9 @@ const CRASH_PREVIEW_CHARS: usize = 500;
 /// Return the three log roots under `instance_id`. Roots that don't
 /// exist on disk yet (fresh install) are NOT created — callers must
 /// treat absence as "no files," not an error.
-pub fn allowed_roots(
-    app: &tauri::AppHandle,
-    instance_id: &str,
-) -> Result<Vec<PathBuf>> {
-    let inst = crate::paths::instance_dir(app, instance_id)
-        .map_err(|e| Error::io("<instance_dir>", e))?;
+pub fn allowed_roots(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<PathBuf>> {
+    let inst =
+        crate::paths::instance_dir(app, instance_id).map_err(|e| Error::io("<instance_dir>", e))?;
     Ok(vec![
         inst.join(".minecraft").join("logs"),
         inst.join(".minecraft").join("crash-reports"),
@@ -56,10 +53,7 @@ pub fn allowed_roots(
 
 /// Enumerate every log file across the three roots. Missing roots are
 /// silently skipped. Sorted by mtime descending (newest first).
-pub fn list_log_files(
-    app: &tauri::AppHandle,
-    instance_id: &str,
-) -> Result<Vec<LogFileMeta>> {
+pub fn list_log_files(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<LogFileMeta>> {
     let roots = allowed_roots(app, instance_id)?;
     let mut out: Vec<LogFileMeta> = Vec::new();
     for (i, root) in roots.iter().enumerate() {
@@ -115,10 +109,7 @@ fn list_root_into(root: &Path, source: LogSource, out: &mut Vec<LogFileMeta>) {
 
 /// Newest `crash-*.txt` in the crash-reports dir, with a short
 /// preview. Returns Ok(None) when no crash reports exist.
-pub fn latest_crash(
-    app: &tauri::AppHandle,
-    instance_id: &str,
-) -> Result<Option<CrashReport>> {
+pub fn latest_crash(app: &tauri::AppHandle, instance_id: &str) -> Result<Option<CrashReport>> {
     let roots = allowed_roots(app, instance_id)?;
     let crash_root = &roots[1];
     let Ok(entries) = std::fs::read_dir(crash_root) else {
@@ -236,7 +227,10 @@ mod tests {
         let err = assert_under_allowed_roots(&escapee, &roots).unwrap_err();
         match err {
             Error::Io { details, .. } => {
-                assert!(details.contains("not in allowed log roots"), "got: {details}");
+                assert!(
+                    details.contains("not in allowed log roots"),
+                    "got: {details}"
+                );
             }
             other => panic!("expected Io, got {other:?}"),
         }

@@ -79,14 +79,7 @@ pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
     let _ = parse_args(&args)?;
     let java_bin = locate_java_binary(ctx);
     let main_class = select_main_class(ctx);
-    crate::process::run_java_processor(
-        &java_bin,
-        &ctx.classpath,
-        main_class,
-        &args,
-        "art",
-    )
-    .await
+    crate::process::run_java_processor(&java_bin, &ctx.classpath, main_class, &args, "art").await
 }
 
 /// Select the ART Main-Class by inspecting the classpath for the JAR path.
@@ -109,7 +102,9 @@ fn select_main_class(ctx: &ProcessorContext) -> &'static str {
 }
 
 fn locate_java_binary(ctx: &ProcessorContext) -> PathBuf {
-    ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"))
+    ctx.java_bin
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("java"))
 }
 
 #[cfg(test)]
@@ -119,21 +114,30 @@ mod tests {
     #[test]
     fn parse_args_minimal() {
         let raw = vec![
-            "--input".into(), "/i".into(),
-            "--output".into(), "/o".into(),
-            "--names".into(), "/m".into(),
+            "--input".into(),
+            "/i".into(),
+            "--output".into(),
+            "/o".into(),
+            "--names".into(),
+            "/m".into(),
         ];
         let p = parse_args(&raw).unwrap();
-        assert_eq!((p.input.as_str(), p.output.as_str(), p.names.as_str()), ("/i", "/o", "/m"));
+        assert_eq!(
+            (p.input.as_str(), p.output.as_str(), p.names.as_str()),
+            ("/i", "/o", "/m")
+        );
         assert!(!p.ann_fix && !p.ids_fix && !p.src_fix && !p.record_fix);
     }
 
     #[test]
     fn parse_args_all_bool_flags() {
         let raw = vec![
-            "--input".into(), "/i".into(),
-            "--output".into(), "/o".into(),
-            "--names".into(), "/m".into(),
+            "--input".into(),
+            "/i".into(),
+            "--output".into(),
+            "/o".into(),
+            "--names".into(),
+            "/m".into(),
             "--ann-fix".into(),
             "--ids-fix".into(),
             "--src-fix".into(),
@@ -151,9 +155,12 @@ mod tests {
     #[test]
     fn parse_args_unknown_flag_errors() {
         let raw = vec![
-            "--input".into(), "/i".into(),
-            "--output".into(), "/o".into(),
-            "--names".into(), "/m".into(),
+            "--input".into(),
+            "/i".into(),
+            "--output".into(),
+            "/o".into(),
+            "--names".into(),
+            "/m".into(),
             "--mystery".into(),
         ];
         assert!(parse_args(&raw).is_err());

@@ -17,10 +17,13 @@ use crate::error::Result;
 use crate::forge::patcher::{patcher_fail, ProcessorContext};
 use std::path::PathBuf;
 
-pub async fn run(_classifier: Option<&str>, args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
-    let task = read_flag(&args, "--task").ok_or_else(|| {
-        patcher_fail("installertools", &"missing --task <NAME>")
-    })?;
+pub async fn run(
+    _classifier: Option<&str>,
+    args: Vec<String>,
+    ctx: &ProcessorContext,
+) -> Result<()> {
+    let task = read_flag(&args, "--task")
+        .ok_or_else(|| patcher_fail("installertools", &"missing --task <NAME>"))?;
     match task.as_str() {
         "EXTRACT_FILES" => extract_files(&args, ctx).await,
         "MCP_DATA" => mcp_data(&args, ctx).await,
@@ -39,7 +42,9 @@ pub async fn run(_classifier: Option<&str>, args: Vec<String>, ctx: &ProcessorCo
 pub(super) fn read_flag(args: &[String], name: &str) -> Option<String> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        if a == name { return it.next().cloned(); }
+        if a == name {
+            return it.next().cloned();
+        }
     }
     None
 }
@@ -49,7 +54,9 @@ pub(super) fn read_all_flag(args: &[String], name: &str) -> Vec<String> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == name {
-            if let Some(v) = it.next() { out.push(v.clone()); }
+            if let Some(v) = it.next() {
+                out.push(v.clone());
+            }
         }
     }
     out
@@ -58,43 +65,69 @@ pub(super) fn read_all_flag(args: &[String], name: &str) -> Vec<String> {
 async fn extract_files(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     use std::io::Read;
     use tokio::fs;
-    let archive = read_flag(args, "--archive").ok_or_else(|| {
-        patcher_fail("installertools::EXTRACT_FILES", &"missing --archive")
-    })?;
-    let output = read_flag(args, "--output").ok_or_else(|| {
-        patcher_fail("installertools::EXTRACT_FILES", &"missing --output")
-    })?;
+    let archive = read_flag(args, "--archive")
+        .ok_or_else(|| patcher_fail("installertools::EXTRACT_FILES", &"missing --archive"))?;
+    let output = read_flag(args, "--output")
+        .ok_or_else(|| patcher_fail("installertools::EXTRACT_FILES", &"missing --output"))?;
     let entries = read_all_flag(args, "--from");
     if entries.is_empty() {
-        return Err(patcher_fail("installertools::EXTRACT_FILES", &"no --from entries"));
+        return Err(patcher_fail(
+            "installertools::EXTRACT_FILES",
+            &"no --from entries",
+        ));
     }
     let bytes = fs::read(&archive).await.map_err(|e| {
-        patcher_fail("installertools::EXTRACT_FILES", &format!("read {archive}: {e}"))
+        patcher_fail(
+            "installertools::EXTRACT_FILES",
+            &format!("read {archive}: {e}"),
+        )
     })?;
     let mut zip_archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| {
-        patcher_fail("installertools::EXTRACT_FILES", &format!("zip open {archive}: {e}"))
+        patcher_fail(
+            "installertools::EXTRACT_FILES",
+            &format!("zip open {archive}: {e}"),
+        )
     })?;
     fs::create_dir_all(&output).await.map_err(|e| {
-        patcher_fail("installertools::EXTRACT_FILES", &format!("mkdir {output}: {e}"))
+        patcher_fail(
+            "installertools::EXTRACT_FILES",
+            &format!("mkdir {output}: {e}"),
+        )
     })?;
     for name in entries {
         let (buf, basename) = {
             let mut entry = zip_archive.by_name(&name).map_err(|_| {
-                patcher_fail("installertools::EXTRACT_FILES", &format!("entry not found: {name}"))
+                patcher_fail(
+                    "installertools::EXTRACT_FILES",
+                    &format!("entry not found: {name}"),
+                )
             })?;
             let mut buf = Vec::with_capacity(entry.size() as usize);
             entry.read_to_end(&mut buf).map_err(|e| {
-                patcher_fail("installertools::EXTRACT_FILES", &format!("read {name}: {e}"))
+                patcher_fail(
+                    "installertools::EXTRACT_FILES",
+                    &format!("read {name}: {e}"),
+                )
             })?;
-            let basename = std::path::Path::new(&name).file_name().ok_or_else(|| {
-                patcher_fail("installertools::EXTRACT_FILES", &format!("no basename: {name}"))
-            })?.to_string_lossy().to_string();
+            let basename = std::path::Path::new(&name)
+                .file_name()
+                .ok_or_else(|| {
+                    patcher_fail(
+                        "installertools::EXTRACT_FILES",
+                        &format!("no basename: {name}"),
+                    )
+                })?
+                .to_string_lossy()
+                .to_string();
             (buf, basename)
             // `entry` (ZipFile, not Send) dropped here before any await
         };
         let dest = PathBuf::from(&output).join(basename);
         fs::write(&dest, &buf).await.map_err(|e| {
-            patcher_fail("installertools::EXTRACT_FILES", &format!("write {}: {e}", dest.display()))
+            patcher_fail(
+                "installertools::EXTRACT_FILES",
+                &format!("write {}: {e}", dest.display()),
+            )
         })?;
     }
     Ok(())
@@ -103,36 +136,42 @@ async fn extract_files(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
 async fn mcp_data(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     use std::io::Read;
     use tokio::fs;
-    let input = read_flag(args, "--input").ok_or_else(|| {
-        patcher_fail("installertools::MCP_DATA", &"missing --input")
-    })?;
-    let output = read_flag(args, "--output").ok_or_else(|| {
-        patcher_fail("installertools::MCP_DATA", &"missing --output")
-    })?;
+    let input = read_flag(args, "--input")
+        .ok_or_else(|| patcher_fail("installertools::MCP_DATA", &"missing --input"))?;
+    let output = read_flag(args, "--output")
+        .ok_or_else(|| patcher_fail("installertools::MCP_DATA", &"missing --output"))?;
     let key = read_flag(args, "--key").unwrap_or_else(|| "mappings".into());
 
-    let bytes = fs::read(&input).await.map_err(|e| {
-        patcher_fail("installertools::MCP_DATA", &format!("read {input}: {e}"))
-    })?;
+    let bytes = fs::read(&input)
+        .await
+        .map_err(|e| patcher_fail("installertools::MCP_DATA", &format!("read {input}: {e}")))?;
     // Synchronous zip block — ZipFile<'_> is not Send, don't hold across .await.
     let (_, file_bytes) = {
-        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| {
-            patcher_fail("installertools::MCP_DATA", &format!("zip open: {e}"))
-        })?;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+            .map_err(|e| patcher_fail("installertools::MCP_DATA", &format!("zip open: {e}")))?;
 
         // 1. Read config.json manifest.
         let manifest_text = {
             let mut e = archive.by_name("config.json").map_err(|_| {
-                patcher_fail("installertools::MCP_DATA", &format!("no config.json in {input}"))
+                patcher_fail(
+                    "installertools::MCP_DATA",
+                    &format!("no config.json in {input}"),
+                )
             })?;
             let mut s = String::with_capacity(e.size() as usize);
             e.read_to_string(&mut s).map_err(|err| {
-                patcher_fail("installertools::MCP_DATA", &format!("read config.json: {err}"))
+                patcher_fail(
+                    "installertools::MCP_DATA",
+                    &format!("read config.json: {err}"),
+                )
             })?;
             s
         };
         let manifest: serde_json::Value = serde_json::from_str(&manifest_text).map_err(|e| {
-            patcher_fail("installertools::MCP_DATA", &format!("parse config.json: {e}"))
+            patcher_fail(
+                "installertools::MCP_DATA",
+                &format!("parse config.json: {e}"),
+            )
         })?;
 
         // 2. Look up data.<key> → relative path string.
@@ -140,10 +179,12 @@ async fn mcp_data(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
             .get("data")
             .and_then(|d| d.get(&key))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| patcher_fail(
-                "installertools::MCP_DATA",
-                &format!("config.json missing data.{key} (or not a string)"),
-            ))?
+            .ok_or_else(|| {
+                patcher_fail(
+                    "installertools::MCP_DATA",
+                    &format!("config.json missing data.{key} (or not a string)"),
+                )
+            })?
             .to_string();
         if rel.ends_with('/') {
             return Err(patcher_fail(
@@ -154,7 +195,10 @@ async fn mcp_data(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
 
         // 3. Extract that one file.
         let mut entry = archive.by_name(&rel).map_err(|_| {
-            patcher_fail("installertools::MCP_DATA", &format!("entry {rel} (from data.{key}) not in zip"))
+            patcher_fail(
+                "installertools::MCP_DATA",
+                &format!("entry {rel} (from data.{key}) not in zip"),
+            )
         })?;
         let mut file_bytes = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut file_bytes).map_err(|err| {
@@ -167,11 +211,17 @@ async fn mcp_data(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     let out_path = std::path::PathBuf::from(&output);
     if let Some(parent) = out_path.parent() {
         fs::create_dir_all(parent).await.map_err(|e| {
-            patcher_fail("installertools::MCP_DATA", &format!("mkdir {}: {e}", parent.display()))
+            patcher_fail(
+                "installertools::MCP_DATA",
+                &format!("mkdir {}: {e}", parent.display()),
+            )
         })?;
     }
     fs::write(&out_path, &file_bytes).await.map_err(|e| {
-        patcher_fail("installertools::MCP_DATA", &format!("write {}: {e}", out_path.display()))
+        patcher_fail(
+            "installertools::MCP_DATA",
+            &format!("write {}: {e}", out_path.display()),
+        )
     })?;
     Ok(())
 }
@@ -203,7 +253,10 @@ async fn bundler_extract(_args: &[String], _ctx: &ProcessorContext) -> Result<()
 /// Byte-fidelity is required (bytecode remapping + binary patching combined),
 /// so we must shell out rather than reimplement.
 async fn process_minecraft_jar_via_java(args: &[String], ctx: &ProcessorContext) -> Result<()> {
-    let java_bin = ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"));
+    let java_bin = ctx
+        .java_bin
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("java"));
     crate::process::run_java_processor(
         &java_bin,
         &ctx.classpath,
@@ -216,15 +269,12 @@ async fn process_minecraft_jar_via_java(args: &[String], ctx: &ProcessorContext)
 
 async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     use tokio::fs;
-    let version = read_flag(args, "--version").ok_or_else(|| {
-        patcher_fail("installertools::DOWNLOAD_MOJMAPS", &"missing --version")
-    })?;
-    let side = read_flag(args, "--side").ok_or_else(|| {
-        patcher_fail("installertools::DOWNLOAD_MOJMAPS", &"missing --side")
-    })?;
-    let output = read_flag(args, "--output").ok_or_else(|| {
-        patcher_fail("installertools::DOWNLOAD_MOJMAPS", &"missing --output")
-    })?;
+    let version = read_flag(args, "--version")
+        .ok_or_else(|| patcher_fail("installertools::DOWNLOAD_MOJMAPS", &"missing --version"))?;
+    let side = read_flag(args, "--side")
+        .ok_or_else(|| patcher_fail("installertools::DOWNLOAD_MOJMAPS", &"missing --side"))?;
+    let output = read_flag(args, "--output")
+        .ok_or_else(|| patcher_fail("installertools::DOWNLOAD_MOJMAPS", &"missing --output"))?;
     let sanitize = args.iter().any(|a| a == "--sanitize");
 
     if side != "client" && side != "server" {
@@ -259,19 +309,13 @@ async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()
                 &format!("version JSON has no downloads.{key} (vanilla MC {version} may predate Mojang mapping publishing)"),
             )
         })?;
-    let url = dl
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            patcher_fail(
-                "installertools::DOWNLOAD_MOJMAPS",
-                &format!("downloads.{key}.url missing or not a string"),
-            )
-        })?;
-    let sha1 = dl
-        .get("sha1")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let url = dl.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
+        patcher_fail(
+            "installertools::DOWNLOAD_MOJMAPS",
+            &format!("downloads.{key}.url missing or not a string"),
+        )
+    })?;
+    let sha1 = dl.get("sha1").and_then(|v| v.as_str()).unwrap_or("");
 
     // 3. Download.
     if let Some(parent) = std::path::Path::new(&output).parent() {
@@ -282,14 +326,19 @@ async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()
             )
         })?;
     }
-    crate::network::download::download_no_emit(url, std::path::Path::new(&output), sha1, "forge-mojmaps")
-        .await
-        .map_err(|e| {
-            patcher_fail(
-                "installertools::DOWNLOAD_MOJMAPS",
-                &format!("download {url}: {e:?}"),
-            )
-        })?;
+    crate::network::download::download_no_emit(
+        url,
+        std::path::Path::new(&output),
+        sha1,
+        "forge-mojmaps",
+    )
+    .await
+    .map_err(|e| {
+        patcher_fail(
+            "installertools::DOWNLOAD_MOJMAPS",
+            &format!("download {url}: {e:?}"),
+        )
+    })?;
 
     // 4. Optional sanitize pass: strip `package-info` mapping lines and
     //    standalone comments. Mojang mappings are in Proguard format
@@ -360,29 +409,34 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     // all kinds. Accept both naming conventions.
     let left = read_flag(args, "--left")
         .or_else(|| read_flag(args, "--merge"))
-        .ok_or_else(|| {
-            patcher_fail("installertools::MERGE_MAPPING", &"missing --left/--merge")
-        })?;
+        .ok_or_else(|| patcher_fail("installertools::MERGE_MAPPING", &"missing --left/--merge"))?;
     let right = read_flag(args, "--right")
         .or_else(|| read_flag(args, "--base"))
-        .ok_or_else(|| {
-            patcher_fail("installertools::MERGE_MAPPING", &"missing --right/--base")
-        })?;
-    let output = read_flag(args, "--output").ok_or_else(|| {
-        patcher_fail("installertools::MERGE_MAPPING", &"missing --output")
-    })?;
+        .ok_or_else(|| patcher_fail("installertools::MERGE_MAPPING", &"missing --right/--base"))?;
+    let output = read_flag(args, "--output")
+        .ok_or_else(|| patcher_fail("installertools::MERGE_MAPPING", &"missing --output"))?;
     // 3.x always merges classes+fields+methods (no toggles); 2.x had explicit flags.
-    let is_3x_naming = args.iter().any(|a| a == "--merge" || a == "--base" || a == "--reverse-base");
+    let is_3x_naming = args
+        .iter()
+        .any(|a| a == "--merge" || a == "--base" || a == "--reverse-base");
     let merge_classes = is_3x_naming || args.iter().any(|a| a == "--classes");
-    let merge_fields  = is_3x_naming || args.iter().any(|a| a == "--fields");
+    let merge_fields = is_3x_naming || args.iter().any(|a| a == "--fields");
     let merge_methods = is_3x_naming || args.iter().any(|a| a == "--methods");
-    let reverse_right = args.iter().any(|a| a == "--reverse-right" || a == "--reverse-base");
+    let reverse_right = args
+        .iter()
+        .any(|a| a == "--reverse-right" || a == "--reverse-base");
 
     let left_text = fs::read_to_string(&left).await.map_err(|e| {
-        patcher_fail("installertools::MERGE_MAPPING", &format!("read {left}: {e}"))
+        patcher_fail(
+            "installertools::MERGE_MAPPING",
+            &format!("read {left}: {e}"),
+        )
     })?;
     let right_text = fs::read_to_string(&right).await.map_err(|e| {
-        patcher_fail("installertools::MERGE_MAPPING", &format!("read {right}: {e}"))
+        patcher_fail(
+            "installertools::MERGE_MAPPING",
+            &format!("read {right}: {e}"),
+        )
     })?;
 
     // Parse right (Proguard) mapping.
@@ -391,8 +445,7 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     // method_map: (obf_class, obf_method_name, obf_descriptor) → mojang_method_name
     //   Descriptors in Proguard use source (Mojang) class names; we translate
     //   them back to obfuscated descriptors so keys match the TSRG descriptor.
-    let (class_map, field_map, method_map) =
-        parse_proguard_full(&right_text, reverse_right);
+    let (class_map, field_map, method_map) = parse_proguard_full(&right_text, reverse_right);
 
     // Detect TSRG version of left input. v2 opens with `tsrg2 <name1> ...`;
     // v1 has no header.
@@ -439,7 +492,9 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
             } else {
                 // idx obf param_name [id] → only first 3 tokens
                 for (i, tok) in tokens.iter().take(3).enumerate() {
-                    if i > 0 { out.push(' '); }
+                    if i > 0 {
+                        out.push(' ');
+                    }
                     out.push_str(tok);
                 }
                 out.push('\n');
@@ -468,7 +523,11 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
                 let named = if merge_methods {
                     // Key includes the obfuscated descriptor for disambiguation
                     // when a class has multiple overloads with the same obf name.
-                    let key = (current_obf_class.clone(), obf_name.to_string(), descriptor.to_string());
+                    let key = (
+                        current_obf_class.clone(),
+                        obf_name.to_string(),
+                        descriptor.to_string(),
+                    );
                     method_map.get(&key).map(String::as_str).unwrap_or(srg_name)
                 } else {
                     srg_name
@@ -539,11 +598,17 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
 
     if let Some(parent) = std::path::Path::new(&output).parent() {
         fs::create_dir_all(parent).await.map_err(|e| {
-            patcher_fail("installertools::MERGE_MAPPING", &format!("mkdir {}: {e}", parent.display()))
+            patcher_fail(
+                "installertools::MERGE_MAPPING",
+                &format!("mkdir {}: {e}", parent.display()),
+            )
         })?;
     }
     fs::write(&output, &out).await.map_err(|e| {
-        patcher_fail("installertools::MERGE_MAPPING", &format!("write {output}: {e}"))
+        patcher_fail(
+            "installertools::MERGE_MAPPING",
+            &format!("write {output}: {e}"),
+        )
     })?;
     Ok(())
 }
@@ -560,7 +625,11 @@ async fn merge_mapping(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
 pub(crate) fn parse_tsrg_class_headers(body: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in body.lines() {
-        if line.is_empty() || line.starts_with('\t') || line.starts_with(' ') || line.starts_with('#') {
+        if line.is_empty()
+            || line.starts_with('\t')
+            || line.starts_with(' ')
+            || line.starts_with('#')
+        {
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -582,15 +651,24 @@ pub(crate) fn parse_tsrg_class_headers(body: &str) -> Vec<(String, String)> {
 /// Walk Proguard mappings text; emit a map of obf-class → named-class
 /// (when `reverse` is true) or named-class → obf-class (when false).
 /// Normalises `.` to `/` for output values to match TSRG class-name format.
-pub(crate) fn parse_proguard_class_headers(body: &str, reverse: bool) -> std::collections::HashMap<String, String> {
+pub(crate) fn parse_proguard_class_headers(
+    body: &str,
+    reverse: bool,
+) -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
     for line in body.lines() {
         // Class header is a left-aligned line ending with " -> X:" where
         // member lines start with whitespace.
-        if line.starts_with(' ') || line.starts_with('\t') || line.starts_with('#') || line.is_empty() {
+        if line.starts_with(' ')
+            || line.starts_with('\t')
+            || line.starts_with('#')
+            || line.is_empty()
+        {
             continue;
         }
-        let Some(arrow) = line.find(" -> ") else { continue };
+        let Some(arrow) = line.find(" -> ") else {
+            continue;
+        };
         let named = line[..arrow].replace('.', "/");
         let after = &line[arrow + 4..];
         let obf = after.trim_end_matches(':').replace('.', "/");
@@ -641,12 +719,16 @@ fn parse_proguard_full(
 
     // ── Pass 1: build class maps ─────────────────────────────────────────────
     for line in body.lines() {
-        if line.starts_with('#') || line.is_empty()
-            || line.starts_with(' ') || line.starts_with('\t')
+        if line.starts_with('#')
+            || line.is_empty()
+            || line.starts_with(' ')
+            || line.starts_with('\t')
         {
             continue;
         }
-        let Some(arrow_pos) = line.find(" -> ") else { continue };
+        let Some(arrow_pos) = line.find(" -> ") else {
+            continue;
+        };
         let named = line[..arrow_pos].replace('.', "/");
         let after = &line[arrow_pos + 4..];
         let obf = after.trim_end_matches(':').replace('.', "/");
@@ -672,7 +754,9 @@ fn parse_proguard_full(
                 continue;
             }
             let trimmed = line.trim();
-            let Some(arrow_pos) = trimmed.find(" -> ") else { continue };
+            let Some(arrow_pos) = trimmed.find(" -> ") else {
+                continue;
+            };
             let left_part = &trimmed[..arrow_pos];
             let right_part = &trimmed[arrow_pos + 4..];
             let obf_member = right_part.trim();
@@ -692,12 +776,20 @@ fn parse_proguard_full(
                     let obf_descriptor = build_obf_descriptor(return_type, args_str, &named_to_obf);
                     if reverse {
                         method_map.insert(
-                            (current_obf_class.clone(), obf_member.to_string(), obf_descriptor),
+                            (
+                                current_obf_class.clone(),
+                                obf_member.to_string(),
+                                obf_descriptor,
+                            ),
                             mojang_name.to_string(),
                         );
                     } else {
                         method_map.insert(
-                            (current_obf_class.clone(), mojang_name.to_string(), obf_descriptor),
+                            (
+                                current_obf_class.clone(),
+                                mojang_name.to_string(),
+                                obf_descriptor,
+                            ),
                             obf_member.to_string(),
                         );
                     }
@@ -721,7 +813,9 @@ fn parse_proguard_full(
             }
         } else {
             // Class header line.
-            let Some(arrow_pos) = line.find(" -> ") else { continue };
+            let Some(arrow_pos) = line.find(" -> ") else {
+                continue;
+            };
             let after = &line[arrow_pos + 4..];
             let obf = after.trim_end_matches(':').replace('.', "/");
             current_obf_class = obf;
@@ -741,7 +835,11 @@ fn parse_proguard_full(
 /// - `return_type="void", args="net.minecraft.WorldVersion"` → `"(Lad;)V"`
 /// - `return_type="org.joml.Quaternionf", args="float"` → `"(F)Lorg/joml/Quaternionf;"`
 ///   (org.joml.Quaternionf is not in named_to_obf, so falls back to its JVM form)
-fn build_obf_descriptor(return_type: &str, args_str: &str, named_to_obf: &std::collections::HashMap<String, String>) -> String {
+fn build_obf_descriptor(
+    return_type: &str,
+    args_str: &str,
+    named_to_obf: &std::collections::HashMap<String, String>,
+) -> String {
     let args: Vec<&str> = if args_str.trim().is_empty() {
         vec![]
     } else {
@@ -759,7 +857,11 @@ fn build_obf_descriptor(return_type: &str, args_str: &str, named_to_obf: &std::c
 
 /// Append the JVM type descriptor token for a single Java source type.
 /// `type_str` may be a primitive, a qualified class name, or either with `[]` suffixes.
-fn source_type_to_jvm_token(type_str: &str, named_to_obf: &std::collections::HashMap<String, String>, out: &mut String) {
+fn source_type_to_jvm_token(
+    type_str: &str,
+    named_to_obf: &std::collections::HashMap<String, String>,
+    out: &mut String,
+) {
     let (base, dims) = {
         let mut s = type_str;
         let mut d = 0usize;
@@ -774,17 +876,20 @@ fn source_type_to_jvm_token(type_str: &str, named_to_obf: &std::collections::Has
     }
     match base {
         "boolean" => out.push('Z'),
-        "byte"    => out.push('B'),
-        "char"    => out.push('C'),
-        "short"   => out.push('S'),
-        "int"     => out.push('I'),
-        "long"    => out.push('J'),
-        "float"   => out.push('F'),
-        "double"  => out.push('D'),
-        "void"    => out.push('V'),
-        _         => {
+        "byte" => out.push('B'),
+        "char" => out.push('C'),
+        "short" => out.push('S'),
+        "int" => out.push('I'),
+        "long" => out.push('J'),
+        "float" => out.push('F'),
+        "double" => out.push('D'),
+        "void" => out.push('V'),
+        _ => {
             let jvm_class = base.replace('.', "/");
-            let obf_class = named_to_obf.get(&jvm_class).map(String::as_str).unwrap_or(&jvm_class);
+            let obf_class = named_to_obf
+                .get(&jvm_class)
+                .map(String::as_str)
+                .unwrap_or(&jvm_class);
             out.push('L');
             out.push_str(obf_class);
             out.push(';');
@@ -816,7 +921,11 @@ mod tests {
 
     #[tokio::test]
     async fn extract_files_unknown_task_errors() {
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
         let args = vec!["--task".into(), "BOGUS".into()];
         assert!(run(None, args, &ctx).await.is_err());
     }
@@ -834,12 +943,20 @@ mod tests {
         w.write_all(b"hi").unwrap();
         w.finish().unwrap();
 
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let args = vec![
-            "--task".into(), "EXTRACT_FILES".into(),
-            "--archive".into(), zip_path.display().to_string(),
-            "--from".into(), "data/hello.txt".into(),
-            "--output".into(), out_dir.display().to_string(),
+            "--task".into(),
+            "EXTRACT_FILES".into(),
+            "--archive".into(),
+            zip_path.display().to_string(),
+            "--from".into(),
+            "data/hello.txt".into(),
+            "--output".into(),
+            out_dir.display().to_string(),
         ];
         run(None, args, &ctx).await.expect("extract");
         let got = std::fs::read_to_string(out_dir.join("hello.txt")).unwrap();
@@ -856,23 +973,35 @@ mod tests {
         let mut w = zip::ZipWriter::new(f);
         let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
         w.start_file::<_, ()>("config.json", opts).unwrap();
-        w.write_all(br#"{"data":{"mappings":"config/joined.tsrg"}}"#).unwrap();
+        w.write_all(br#"{"data":{"mappings":"config/joined.tsrg"}}"#)
+            .unwrap();
         w.start_file::<_, ()>("config/joined.tsrg", opts).unwrap();
         w.write_all(b"net/x/Y net/x/Y\n").unwrap();
         w.start_file::<_, ()>("other/skip.txt", opts).unwrap();
         w.write_all(b"ignored").unwrap();
         w.finish().unwrap();
 
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let args = vec![
-            "--task".into(), "MCP_DATA".into(),
-            "--input".into(), zip_path.display().to_string(),
-            "--output".into(), out_path.display().to_string(),
-            "--key".into(), "mappings".into(),
+            "--task".into(),
+            "MCP_DATA".into(),
+            "--input".into(),
+            zip_path.display().to_string(),
+            "--output".into(),
+            out_path.display().to_string(),
+            "--key".into(),
+            "mappings".into(),
         ];
         run(None, args, &ctx).await.expect("mcp_data");
         let got = std::fs::read_to_string(&out_path).unwrap();
-        assert!(got.contains("net/x/Y"), "output should be the extracted joined.tsrg");
+        assert!(
+            got.contains("net/x/Y"),
+            "output should be the extracted joined.tsrg"
+        );
     }
 
     #[tokio::test]
@@ -888,15 +1017,24 @@ mod tests {
         let mut w = zip::ZipWriter::new(f);
         let opts: zip::write::FileOptions<()> = zip::write::FileOptions::default();
         w.start_file::<_, ()>("config.json", opts).unwrap();
-        w.write_all(br#"{"data":{"mappings":"../escape.txt"}}"#).unwrap();
+        w.write_all(br#"{"data":{"mappings":"../escape.txt"}}"#)
+            .unwrap();
         w.finish().unwrap();
 
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let args = vec![
-            "--task".into(), "MCP_DATA".into(),
-            "--input".into(), zip_path.display().to_string(),
-            "--output".into(), out_path.display().to_string(),
-            "--key".into(), "mappings".into(),
+            "--task".into(),
+            "MCP_DATA".into(),
+            "--input".into(),
+            zip_path.display().to_string(),
+            "--output".into(),
+            out_path.display().to_string(),
+            "--key".into(),
+            "mappings".into(),
         ];
         let err = run(None, args, &ctx).await.unwrap_err();
         match err {
@@ -905,12 +1043,19 @@ mod tests {
             }
             other => panic!("expected ForgePatcherFailed, got {other:?}"),
         }
-        assert!(!dir.path().join("escape.txt").exists(), "escape file must not exist");
+        assert!(
+            !dir.path().join("escape.txt").exists(),
+            "escape file must not exist"
+        );
     }
 
     #[tokio::test]
     async fn bundler_extract_is_server_only_stub() {
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: PathBuf::from("."), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: PathBuf::from("."),
+            java_bin: None,
+        };
         let args = vec!["--task".into(), "BUNDLER_EXTRACT".into()];
         let err = run(None, args, &ctx).await.unwrap_err();
         match err {
@@ -936,9 +1081,12 @@ mod tests {
             java_bin: Some(PathBuf::from("java")),
         };
         let args = vec![
-            "--task".into(), "PROCESS_MINECRAFT_JAR".into(),
-            "--input".into(), "/nonexistent/mc.jar".into(),
-            "--output".into(), "/nonexistent/patched.jar".into(),
+            "--task".into(),
+            "PROCESS_MINECRAFT_JAR".into(),
+            "--input".into(),
+            "/nonexistent/mc.jar".into(),
+            "--output".into(),
+            "/nonexistent/patched.jar".into(),
         ];
         let err = run(None, args, &ctx).await.unwrap_err();
         assert!(
@@ -975,12 +1123,20 @@ com.example.Baz -> c:\n\
     #[tokio::test]
     async fn download_mojmaps_rejects_unknown_side() {
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let args = vec![
-            "--task".into(), "DOWNLOAD_MOJMAPS".into(),
-            "--version".into(), "1.20.4".into(),
-            "--side".into(), "bogus".into(),
-            "--output".into(), dir.path().join("out").display().to_string(),
+            "--task".into(),
+            "DOWNLOAD_MOJMAPS".into(),
+            "--version".into(),
+            "1.20.4".into(),
+            "--side".into(),
+            "bogus".into(),
+            "--output".into(),
+            dir.path().join("out").display().to_string(),
         ];
         let err = run(None, args, &ctx).await.unwrap_err();
         match err {
@@ -1001,10 +1157,19 @@ net/minecraft/B net/minecraft/srg/B\n\
 # comment\n\
 ";
         let headers = parse_tsrg_class_headers(body);
-        assert_eq!(headers, vec![
-            ("net/minecraft/A".to_string(), "net/minecraft/srg/A".to_string()),
-            ("net/minecraft/B".to_string(), "net/minecraft/srg/B".to_string()),
-        ]);
+        assert_eq!(
+            headers,
+            vec![
+                (
+                    "net/minecraft/A".to_string(),
+                    "net/minecraft/srg/A".to_string()
+                ),
+                (
+                    "net/minecraft/B".to_string(),
+                    "net/minecraft/srg/B".to_string()
+                ),
+            ]
+        );
     }
 
     #[test]
@@ -1019,10 +1184,13 @@ aab$a net/minecraft/foo/Bar 12345\n\
 zzc net/minecraft/baz/Qux 67890\n\
 ";
         let headers = parse_tsrg_class_headers(body);
-        assert_eq!(headers, vec![
-            ("aab$a".to_string(), "net/minecraft/foo/Bar".to_string()),
-            ("zzc".to_string(), "net/minecraft/baz/Qux".to_string()),
-        ]);
+        assert_eq!(
+            headers,
+            vec![
+                ("aab$a".to_string(), "net/minecraft/foo/Bar".to_string()),
+                ("zzc".to_string(), "net/minecraft/baz/Qux".to_string()),
+            ]
+        );
         // Most importantly: the literal "tsrg2" token must not appear as a class.
         assert!(headers.iter().all(|(o, _)| o != "tsrg2"));
     }
@@ -1049,22 +1217,38 @@ com.example.Bar -> c:\n\
         let left = dir.path().join("left.tsrg");
         let right = dir.path().join("right.txt");
         let output = dir.path().join("merged.tsrg");
-        std::fs::write(&left, "\
+        std::fs::write(
+            &left,
+            "\
 tsrg2 obf srg id\n\
 a net/minecraft/srg/A 12345\n\
 \tfoo srg_foo 67\n\
 \tbar ()V srg_bar 89\n\
 \t\t0 o paramName 99\n\
 b net/minecraft/srg/B 6789\n\
-").unwrap();
-        std::fs::write(&right, "com.example.Named -> a:\n    int n -> q\nother.Skipped -> z:\n").unwrap();
+",
+        )
+        .unwrap();
+        std::fs::write(
+            &right,
+            "com.example.Named -> a:\n    int n -> q\nother.Skipped -> z:\n",
+        )
+        .unwrap();
 
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let args = vec![
-            "--task".into(), "MERGE_MAPPING".into(),
-            "--left".into(), left.display().to_string(),
-            "--right".into(), right.display().to_string(),
-            "--output".into(), output.display().to_string(),
+            "--task".into(),
+            "MERGE_MAPPING".into(),
+            "--left".into(),
+            left.display().to_string(),
+            "--right".into(),
+            right.display().to_string(),
+            "--output".into(),
+            output.display().to_string(),
             "--classes".into(),
             "--reverse-right".into(),
         ];
@@ -1072,16 +1256,28 @@ b net/minecraft/srg/B 6789\n\
 
         let merged = std::fs::read_to_string(&output).unwrap();
         // tsrg2 header is `tsrg2 left right` (not the original column names).
-        assert!(merged.starts_with("tsrg2 left right\n"), "tsrg2 header wrong: {merged}");
+        assert!(
+            merged.starts_with("tsrg2 left right\n"),
+            "tsrg2 header wrong: {merged}"
+        );
         // Class `a` present in right's reversed map → use named; id stripped.
         assert!(merged.contains("a com/example/Named\n"), "got: {merged}");
         // Class `b` absent from right → SRG fallback; id stripped.
         assert!(merged.contains("b net/minecraft/srg/B\n"), "got: {merged}");
         // Member lines: id stripped.
-        assert!(merged.contains("\tfoo srg_foo\n"), "field line wrong: {merged}");
-        assert!(merged.contains("\tbar ()V srg_bar\n"), "method line wrong: {merged}");
+        assert!(
+            merged.contains("\tfoo srg_foo\n"),
+            "field line wrong: {merged}"
+        );
+        assert!(
+            merged.contains("\tbar ()V srg_bar\n"),
+            "method line wrong: {merged}"
+        );
         // Param line: first 3 tokens kept, id stripped.
-        assert!(merged.contains("\t\t0 o paramName\n"), "param line wrong: {merged}");
+        assert!(
+            merged.contains("\t\t0 o paramName\n"),
+            "param line wrong: {merged}"
+        );
     }
 
     #[tokio::test]
@@ -1092,19 +1288,31 @@ b net/minecraft/srg/B 6789\n\
         let left = dir.path().join("left.tsrg");
         let right = dir.path().join("right.txt");
         let output = dir.path().join("merged.tsrg");
-        std::fs::write(&left, "\
+        std::fs::write(
+            &left,
+            "\
 a net/minecraft/srg/A\n\
 \tfoo srg_foo\n\
 \tbar ()V srg_bar\n\
-").unwrap();
+",
+        )
+        .unwrap();
         std::fs::write(&right, "").unwrap();
 
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let args = vec![
-            "--task".into(), "MERGE_MAPPING".into(),
-            "--left".into(), left.display().to_string(),
-            "--right".into(), right.display().to_string(),
-            "--output".into(), output.display().to_string(),
+            "--task".into(),
+            "MERGE_MAPPING".into(),
+            "--left".into(),
+            left.display().to_string(),
+            "--right".into(),
+            right.display().to_string(),
+            "--output".into(),
+            output.display().to_string(),
             "--classes".into(),
             "--reverse-right".into(),
         ];
@@ -1114,10 +1322,19 @@ a net/minecraft/srg/A\n\
         // Class line: srg fallback (right is empty), v1 shape (no id to strip).
         assert!(merged.contains("a net/minecraft/srg/A\n"), "got: {merged}");
         // Field + method lines pass through.
-        assert!(merged.contains("\tfoo srg_foo\n"), "field line lost: {merged}");
-        assert!(merged.contains("\tbar ()V srg_bar\n"), "method line lost: {merged}");
+        assert!(
+            merged.contains("\tfoo srg_foo\n"),
+            "field line lost: {merged}"
+        );
+        assert!(
+            merged.contains("\tbar ()V srg_bar\n"),
+            "method line lost: {merged}"
+        );
         // No tsrg2 header was synthesised for v1 input.
-        assert!(!merged.contains("tsrg2"), "stale tsrg2 header leaked: {merged}");
+        assert!(
+            !merged.contains("tsrg2"),
+            "stale tsrg2 header leaked: {merged}"
+        );
     }
 
     #[tokio::test]
@@ -1126,36 +1343,56 @@ a net/minecraft/srg/A\n\
         // With no --classes, class names in left pass through unchanged.
         // id column is stripped; header becomes `tsrg2 left right`.
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let left = dir.path().join("left.tsrg");
         let right = dir.path().join("right.txt");
         let output = dir.path().join("merged.tsrg");
-        std::fs::write(&left, "\
+        std::fs::write(
+            &left,
+            "\
 tsrg2 obf srg id\n\
 a net/minecraft/srg/A 12345\n\
 \tb srg_b 67\n\
 \tc ()V srg_c 89\n\
-").unwrap();
+",
+        )
+        .unwrap();
         std::fs::write(&right, "com.example.Named -> a:\n    int mojField -> b\n    void mojMethod() -> c\nother.Skipped -> z:\n").unwrap();
         let args = vec![
-            "--task".into(), "MERGE_MAPPING".into(),
-            "--left".into(), left.display().to_string(),
-            "--right".into(), right.display().to_string(),
-            "--output".into(), output.display().to_string(),
+            "--task".into(),
+            "MERGE_MAPPING".into(),
+            "--left".into(),
+            left.display().to_string(),
+            "--right".into(),
+            right.display().to_string(),
+            "--output".into(),
+            output.display().to_string(),
             "--fields".into(),
             "--methods".into(),
             "--reverse-right".into(),
         ];
-        run(None, args, &ctx).await.expect("merge with fields+methods should succeed");
+        run(None, args, &ctx)
+            .await
+            .expect("merge with fields+methods should succeed");
         let merged = std::fs::read_to_string(&output).unwrap();
         // Header is `tsrg2 left right`.
         assert!(merged.starts_with("tsrg2 left right\n"), "header: {merged}");
         // Without --classes, class names are left unchanged (srg name, id stripped).
-        assert!(merged.contains("a net/minecraft/srg/A\n"), "class line: {merged}");
+        assert!(
+            merged.contains("a net/minecraft/srg/A\n"),
+            "class line: {merged}"
+        );
         // With --fields, field name is replaced with Mojang name; id stripped.
         assert!(merged.contains("\tb mojField\n"), "field merge: {merged}");
         // With --methods, method name is replaced with Mojang name; id stripped.
-        assert!(merged.contains("\tc ()V mojMethod\n"), "method merge: {merged}");
+        assert!(
+            merged.contains("\tc ()V mojMethod\n"),
+            "method merge: {merged}"
+        );
     }
 
     #[tokio::test]
@@ -1169,36 +1406,59 @@ a net/minecraft/srg/A 12345\n\
         // implicit-all-merge output (classes + fields + methods all
         // resolved from the reversed base).
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let left = dir.path().join("left.tsrg");
         let right = dir.path().join("right.txt");
         let output = dir.path().join("merged.tsrg");
         // Same inputs as `merge_mapping_fields_methods_accepted` — only
         // arg-name flavor differs.
-        std::fs::write(&left, "\
+        std::fs::write(
+            &left,
+            "\
 tsrg2 obf srg id\n\
 a net/minecraft/srg/A 12345\n\
 \tb srg_b 67\n\
 \tc ()V srg_c 89\n\
-").unwrap();
+",
+        )
+        .unwrap();
         std::fs::write(&right, "com.example.Named -> a:\n    int mojField -> b\n    void mojMethod() -> c\nother.Skipped -> z:\n").unwrap();
         let args = vec![
-            "--task".into(), "MERGE_MAPPING".into(),
-            "--merge".into(), left.display().to_string(),
-            "--base".into(), right.display().to_string(),
-            "--output".into(), output.display().to_string(),
+            "--task".into(),
+            "MERGE_MAPPING".into(),
+            "--merge".into(),
+            left.display().to_string(),
+            "--base".into(),
+            right.display().to_string(),
+            "--output".into(),
+            output.display().to_string(),
             "--reverse-base".into(),
         ];
-        run(None, args, &ctx).await.expect("merge with 3.x arg shape");
+        run(None, args, &ctx)
+            .await
+            .expect("merge with 3.x arg shape");
 
         let merged = std::fs::read_to_string(&output).unwrap();
         // Canonical tsrg2 header + id column stripped.
         assert!(merged.starts_with("tsrg2 left right\n"), "header: {merged}");
         // 3.x merges classes (implicit), so SRG name is replaced with Mojang form.
-        assert!(merged.contains("a com/example/Named\n"), "class merge (3.x implicit): {merged}");
+        assert!(
+            merged.contains("a com/example/Named\n"),
+            "class merge (3.x implicit): {merged}"
+        );
         // 3.x merges fields + methods implicitly too.
-        assert!(merged.contains("\tb mojField\n"), "field merge (3.x implicit): {merged}");
-        assert!(merged.contains("\tc ()V mojMethod\n"), "method merge (3.x implicit): {merged}");
+        assert!(
+            merged.contains("\tb mojField\n"),
+            "field merge (3.x implicit): {merged}"
+        );
+        assert!(
+            merged.contains("\tc ()V mojMethod\n"),
+            "method merge (3.x implicit): {merged}"
+        );
     }
 
     #[tokio::test]
@@ -1207,15 +1467,24 @@ a net/minecraft/srg/A 12345\n\
         // mentioning both naming conventions so the diagnostic is
         // useful regardless of which version the caller used.
         let dir = tempfile::tempdir().unwrap();
-        let ctx = ProcessorContext { classpath: vec![], cache_dir: dir.path().to_path_buf(), java_bin: None };
+        let ctx = ProcessorContext {
+            classpath: vec![],
+            cache_dir: dir.path().to_path_buf(),
+            java_bin: None,
+        };
         let only_merge = vec![
-            "--task".into(), "MERGE_MAPPING".into(),
-            "--merge".into(), "/tmp/left.tsrg".into(),
-            "--output".into(), "/tmp/out.tsrg".into(),
+            "--task".into(),
+            "MERGE_MAPPING".into(),
+            "--merge".into(),
+            "/tmp/left.tsrg".into(),
+            "--output".into(),
+            "/tmp/out.tsrg".into(),
         ];
         let err = run(None, only_merge, &ctx).await.unwrap_err();
         let s = format!("{err:?}");
-        assert!(s.contains("--right") && s.contains("--base"),
-            "error should mention both naming conventions: {s}");
+        assert!(
+            s.contains("--right") && s.contains("--base"),
+            "error should mention both naming conventions: {s}"
+        );
     }
 }

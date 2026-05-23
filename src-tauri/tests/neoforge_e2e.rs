@@ -40,16 +40,14 @@
 
 // ── 20.4.x (FML 2.x) constants ─────────────────────────────────────────────
 
-const FIXTURE_PATH: &str =
-    "tests/fixtures/forge/installers/neoforge-20.4.251-installer.jar";
+const FIXTURE_PATH: &str = "tests/fixtures/forge/installers/neoforge-20.4.251-installer.jar";
 
 const MC: &str = "1.20.4";
 const FV: &str = "20.4.251";
 
 // ── 21.1.x (FML 4.x) constants ─────────────────────────────────────────────
 
-const FIXTURE_PATH_21: &str =
-    "tests/fixtures/forge/installers/neoforge-21.1.230-installer.jar";
+const FIXTURE_PATH_21: &str = "tests/fixtures/forge/installers/neoforge-21.1.230-installer.jar";
 
 const MC_21: &str = "1.21.1";
 const FV_21: &str = "21.1.230";
@@ -98,9 +96,13 @@ async fn extract_maven_tree(installer_bytes: &[u8], libs_root: &std::path::Path)
     }
     for (dest, bytes) in to_write {
         if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await.expect("create maven dir");
+            tokio::fs::create_dir_all(parent)
+                .await
+                .expect("create maven dir");
         }
-        tokio::fs::write(&dest, &bytes).await.expect("write maven entry");
+        tokio::fs::write(&dest, &bytes)
+            .await
+            .expect("write maven entry");
     }
 }
 
@@ -119,7 +121,9 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
     }
     eprintln!("  [download] {url}");
     if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent).await.expect("create lib dir");
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("create lib dir");
     }
     ftlauncher_lib::network::download::download_no_emit(url, dest, sha1, "neoforge-e2e")
         .await
@@ -138,9 +142,8 @@ async fn install_neoforge_1_20_4_e2e() {
     // 1. Parse install_profile.
     let raw_text =
         serde_json::to_string(&install_profile_value).expect("re-serialise install_profile");
-    let profile =
-        ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
-            .expect("parse install_profile spec=1");
+    let profile = ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
+        .expect("parse install_profile spec=1");
     eprintln!("profile.minecraft = {}", profile.minecraft);
     eprintln!("profile.spec      = {}", profile.spec);
     eprintln!("processors count  = {}", profile.processors.len());
@@ -198,12 +201,20 @@ async fn install_neoforge_1_20_4_e2e() {
 
     // 5. Download install_profile.libraries (filter URL-less).
     eprintln!("--- step 5: download install_profile.libraries ---");
-    let os = if cfg!(target_os = "windows") { "windows" }
-        else if cfg!(target_os = "macos") { "macos" }
-        else { "linux" };
-    let arch = if cfg!(target_arch = "x86_64") { "x64" }
-        else if cfg!(target_arch = "aarch64") { "aarch64" }
-        else { "x86" };
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86"
+    };
     eprintln!("platform = {os}/{arch}");
 
     let downloadable: Vec<ftlauncher_lib::versions::version_json::Library> = profile
@@ -407,9 +418,8 @@ async fn install_neoforge_1_21_1_e2e() {
     // 1. Parse install_profile.
     let raw_text =
         serde_json::to_string(&install_profile_value).expect("re-serialise install_profile");
-    let profile =
-        ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
-            .expect("parse install_profile spec=1");
+    let profile = ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
+        .expect("parse install_profile spec=1");
     eprintln!("profile.minecraft = {}", profile.minecraft);
     eprintln!("profile.spec      = {}", profile.spec);
     eprintln!("processors count  = {}", profile.processors.len());
@@ -446,7 +456,13 @@ async fn install_neoforge_1_21_1_e2e() {
         let game_strs: Vec<&str> = args
             .game
             .iter()
-            .filter_map(|a| if let Argument::Plain(s) = a { Some(s.as_str()) } else { None })
+            .filter_map(|a| {
+                if let Argument::Plain(s) = a {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
             .collect();
         eprintln!("game args: {game_strs:?}");
         assert!(
@@ -489,12 +505,20 @@ async fn install_neoforge_1_21_1_e2e() {
 
     // 5. Download install_profile.libraries (filter URL-less).
     eprintln!("--- step 5: download install_profile.libraries ---");
-    let os = if cfg!(target_os = "windows") { "windows" }
-        else if cfg!(target_os = "macos") { "macos" }
-        else { "linux" };
-    let arch = if cfg!(target_arch = "x86_64") { "x64" }
-        else if cfg!(target_arch = "aarch64") { "aarch64" }
-        else { "x86" };
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86"
+    };
     eprintln!("platform = {os}/{arch}");
 
     let downloadable: Vec<ftlauncher_lib::versions::version_json::Library> = profile
@@ -654,7 +678,10 @@ async fn install_neoforge_1_21_1_e2e() {
         };
         // Only inject if NOT already present AND NOT a net.neoforged: coord.
         // This replicates the fixed inject_patched_library_if_missing logic.
-        let already_present = final_details.libraries.iter().any(|l| l.name == patched_coord);
+        let already_present = final_details
+            .libraries
+            .iter()
+            .any(|l| l.name == patched_coord);
         if !already_present && !patched_coord.starts_with("net.neoforged:") {
             final_details.libraries.push(dummy_lib);
         }
@@ -671,14 +698,20 @@ async fn install_neoforge_1_21_1_e2e() {
     // Also verify the :client entry is not in the library list at all.
     let client_coord = format!("net.neoforged:neoforge:{FV_21}:client");
     assert!(
-        !final_details.libraries.iter().any(|l| l.name == client_coord),
+        !final_details
+            .libraries
+            .iter()
+            .any(|l| l.name == client_coord),
         "library list must NOT contain {client_coord} — bootstrap auto-discovers it"
     );
 
     eprintln!("--- INSTALL SUCCEEDED (ADDENDUM D skip verified) ---");
     eprintln!("  id        = {}", final_details.id);
     eprintln!("  mainClass = {}", final_details.main_class);
-    eprintln!("  libraries = {} entries (no :client injection)", final_details.libraries.len());
+    eprintln!(
+        "  libraries = {} entries (no :client injection)",
+        final_details.libraries.len()
+    );
     if let Some(args) = final_details.arguments.as_ref() {
         eprintln!("  arguments.game count = {}", args.game.len());
         eprintln!("  arguments.jvm count  = {}", args.jvm.len());

@@ -49,8 +49,7 @@
 //! fire-and-forget `DownloadProgress` event emission, which is UI-layer
 //! behaviour untestable outside a real webview.
 
-const FIXTURE_PATH: &str =
-    "tests/fixtures/forge/installers/forge-1.16.5-36.2.42-installer.jar";
+const FIXTURE_PATH: &str = "tests/fixtures/forge/installers/forge-1.16.5-36.2.42-installer.jar";
 
 const MC: &str = "1.16.5";
 const FV: &str = "36.2.42";
@@ -78,7 +77,9 @@ fn load_fixture_or_skip() -> Option<(Vec<u8>, serde_json::Value)> {
 
     use std::io::Read;
     let mut buf = String::new();
-    entry.read_to_string(&mut buf).expect("read install_profile.json");
+    entry
+        .read_to_string(&mut buf)
+        .expect("read install_profile.json");
 
     let profile: serde_json::Value =
         serde_json::from_str(&buf).expect("parse install_profile.json");
@@ -108,9 +109,13 @@ async fn extract_maven_tree(installer_bytes: &[u8], libs_root: &std::path::Path)
     }
     for (dest, bytes) in to_write {
         if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await.expect("create maven dir");
+            tokio::fs::create_dir_all(parent)
+                .await
+                .expect("create maven dir");
         }
-        tokio::fs::write(&dest, &bytes).await.expect("write maven entry");
+        tokio::fs::write(&dest, &bytes)
+            .await
+            .expect("write maven entry");
     }
 }
 
@@ -133,7 +138,9 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
     }
     eprintln!("  [download] {url}");
     if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent).await.expect("create lib dir");
+        tokio::fs::create_dir_all(parent)
+            .await
+            .expect("create lib dir");
     }
     ftlauncher_lib::network::download::download_no_emit(url, dest, sha1, "forge-e2e")
         .await
@@ -162,11 +169,10 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
     eprintln!("Loaded installer: {} bytes", installer_bytes.len());
 
     // 1. Parse install_profile.
-    let raw_text = serde_json::to_string(&install_profile_value)
-        .expect("re-serialise install_profile");
-    let profile =
-        ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
-            .expect("parse install_profile v2");
+    let raw_text =
+        serde_json::to_string(&install_profile_value).expect("re-serialise install_profile");
+    let profile = ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
+        .expect("parse install_profile v2");
 
     eprintln!("profile.minecraft = {}", profile.minecraft);
     eprintln!("profile.version   = {}", profile.version);
@@ -206,8 +212,12 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         .display()
         .to_string();
 
-    tokio::fs::create_dir_all(&cache_dir).await.expect("cache_dir");
-    tokio::fs::create_dir_all(&libs_root).await.expect("libs_root");
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .expect("cache_dir");
+    tokio::fs::create_dir_all(&libs_root)
+        .await
+        .expect("libs_root");
 
     let cache_dir_str = cache_dir.display().to_string();
     let installer_path_str = installer_cache_path.display().to_string();
@@ -222,8 +232,20 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
     // 5. Download install_profile.libraries (only those with a URL).
     eprintln!("--- step 5: download install_profile.libraries ---");
     // Replicate the pub(crate) helpers from versions::install.
-    let os = if cfg!(target_os = "windows") { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "x86_64") { "x64" } else if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86" };
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86"
+    };
     eprintln!("platform = {os}/{arch}");
 
     let downloadable: Vec<ftlauncher_lib::versions::version_json::Library> = profile
@@ -298,7 +320,10 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
             )
             .await
             .expect("download vanilla 1.16.5 client.jar");
-            eprintln!("  [done] {} bytes", mc_jar_path.metadata().map(|m| m.len()).unwrap_or(0));
+            eprintln!(
+                "  [done] {} bytes",
+                mc_jar_path.metadata().map(|m| m.len()).unwrap_or(0)
+            );
         }
     }
 
@@ -377,14 +402,19 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
 
     // 7. Assemble final VersionDetails.
     eprintln!("--- step 7: assemble VersionDetails ---");
-    let final_details =
-        ftlauncher_lib::forge::profile::assemble_from_transitional(version_details);
+    let final_details = ftlauncher_lib::forge::profile::assemble_from_transitional(version_details);
 
     eprintln!("--- INSTALL SUCCEEDED ---");
     eprintln!("  id            = {}", final_details.id);
     eprintln!("  mainClass     = {}", final_details.main_class);
-    eprintln!("  inheritsFrom  = {:?}", final_details.inherits_from.as_deref());
-    eprintln!("  libraries     = {} entries", final_details.libraries.len());
+    eprintln!(
+        "  inheritsFrom  = {:?}",
+        final_details.inherits_from.as_deref()
+    );
+    eprintln!(
+        "  libraries     = {} entries",
+        final_details.libraries.len()
+    );
     if let Some(args) = final_details.arguments.as_ref() {
         eprintln!("  arguments.game count = {}", args.game.len());
         eprintln!("  arguments.jvm count  = {}", args.jvm.len());
@@ -394,7 +424,10 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
     }
 
     // Sanity assertions.
-    assert!(!final_details.id.is_empty(), "version_details.id must not be empty");
+    assert!(
+        !final_details.id.is_empty(),
+        "version_details.id must not be empty"
+    );
     assert!(
         !final_details.main_class.is_empty(),
         "version_details.main_class must not be empty"

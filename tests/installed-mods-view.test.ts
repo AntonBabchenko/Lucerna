@@ -120,7 +120,9 @@ describe('InstalledModsView', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     const buttons = screen.getAllByRole('button', { name: 'Uninstall' });
-    await fireEvent.click(buttons[0]!);
+    const firstButton = buttons[0];
+    if (!firstButton) throw new Error('expected at least one Uninstall button');
+    await fireEvent.click(firstButton);
     expect(mod.commands.modsUninstall).toHaveBeenCalledWith('i', 'abc');
   });
 

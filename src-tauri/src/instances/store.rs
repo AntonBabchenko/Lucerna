@@ -12,8 +12,8 @@ use std::path::Path;
 /// malformed file (the caller — `scan::list_all` — converts this to
 /// "skip with warning"; direct callers like `get_instance` propagate).
 pub fn read_instance_json(path: &Path) -> Result<InstanceFile> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| Error::io(path.display().to_string(), e))?;
+    let raw =
+        std::fs::read_to_string(path).map_err(|e| Error::io(path.display().to_string(), e))?;
     serde_json::from_str(&raw)
         .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))
 }
@@ -41,14 +41,12 @@ fn write_atomic<T: serde::Serialize>(target: &Path, value: &T) -> Result<()> {
     let parent = target
         .parent()
         .ok_or_else(|| Error::io(target.display().to_string(), "no parent dir"))?;
-    std::fs::create_dir_all(parent)
-        .map_err(|e| Error::io(parent.display().to_string(), e))?;
+    std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
     let tmp = target.with_extension("tmp");
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| Error::io(target.display().to_string(), format!("serialize: {e}")))?;
     std::fs::write(&tmp, json).map_err(|e| Error::io(tmp.display().to_string(), e))?;
-    std::fs::rename(&tmp, target)
-        .map_err(|e| Error::io(target.display().to_string(), e))?;
+    std::fs::rename(&tmp, target).map_err(|e| Error::io(target.display().to_string(), e))?;
     Ok(())
 }
 
@@ -173,10 +171,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("app.json");
         // Legacy format: only version + active_instance, no onboarding key.
-        std::fs::write(
-            &path,
-            r#"{"version":1,"active_instance":"3f4a-bbbb"}"#,
-        ).unwrap();
+        std::fs::write(&path, r#"{"version":1,"active_instance":"3f4a-bbbb"}"#).unwrap();
         let back = read_app_json(&path).unwrap();
         assert_eq!(back.onboarding.tour_completed_version, None);
     }

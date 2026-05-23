@@ -105,8 +105,14 @@ pub enum DepKind {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum DepProjectRef {
-    Modrinth { project_id: String, version_id: Option<String> },
-    Curseforge { mod_id: u32, file_id: Option<u32> },
+    Modrinth {
+        project_id: String,
+        version_id: Option<String>,
+    },
+    Curseforge {
+        mod_id: u32,
+        file_id: Option<u32>,
+    },
 }
 
 impl DepProjectRef {
@@ -204,7 +210,10 @@ mod tests {
 
     #[test]
     fn dep_project_ref_tagged_serialization() {
-        let m = DepProjectRef::Modrinth { project_id: "abc".into(), version_id: None };
+        let m = DepProjectRef::Modrinth {
+            project_id: "abc".into(),
+            version_id: None,
+        };
         let j = serde_json::to_string(&m).unwrap();
         assert!(j.contains(r#""source":"modrinth""#));
         assert!(j.contains(r#""project_id":"abc""#));

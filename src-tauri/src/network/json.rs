@@ -12,6 +12,5 @@ pub async fn get_json<T: DeserializeOwned>(url: &str, initiator: &str) -> Result
     if !(200..300).contains(&resp.status) {
         return Err(Error::network(url, format!("HTTP {}", resp.status)));
     }
-    serde_json::from_slice::<T>(&resp.body)
-        .map_err(|e| Error::network(url, format!("parse: {e}")))
+    serde_json::from_slice::<T>(&resp.body).map_err(|e| Error::network(url, format!("parse: {e}")))
 }

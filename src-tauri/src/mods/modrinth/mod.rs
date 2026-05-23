@@ -16,7 +16,9 @@ pub struct ModrinthClient {
 
 impl ModrinthClient {
     pub fn new() -> Self {
-        Self { base: BASE_DEFAULT.into() }
+        Self {
+            base: BASE_DEFAULT.into(),
+        }
     }
 
     /// Tests inject a wiremock URL here.
@@ -71,15 +73,26 @@ impl ModPlatform for ModrinthClient {
         );
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
         if resp.status == 404 {
-            return Err(Error::ModsNotFound { platform: "modrinth".into() });
+            return Err(Error::ModsNotFound {
+                platform: "modrinth".into(),
+            });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
         }
-        let body: types::SearchResponse = serde_json::from_slice(&resp.body)
-            .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
+        let body: types::SearchResponse =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
         Ok(ModSearchPage {
             hits: body
                 .hits
@@ -106,15 +119,26 @@ impl ModPlatform for ModrinthClient {
         let url = format!("{}/v2/project/{}", self.base, project_id);
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
         if resp.status == 404 {
-            return Err(Error::ModsNotFound { platform: "modrinth".into() });
+            return Err(Error::ModsNotFound {
+                platform: "modrinth".into(),
+            });
         }
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
         }
-        let p: types::Project = serde_json::from_slice(&resp.body)
-            .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
+        let p: types::Project =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
         Ok(ModProject {
             summary: ModSummary {
                 source: ModSource::Modrinth,
@@ -149,12 +173,21 @@ impl ModPlatform for ModrinthClient {
         );
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork { url: url.clone(), details: e.to_string() })?;
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
         if !(200..300).contains(&resp.status) {
-            return Err(Error::ModsNetwork { url, details: format!("HTTP {}", resp.status) });
+            return Err(Error::ModsNetwork {
+                url,
+                details: format!("HTTP {}", resp.status),
+            });
         }
-        let raws: Vec<types::Version> = serde_json::from_slice(&resp.body)
-            .map_err(|e| Error::ModsDecode { platform: "modrinth".into(), details: e.to_string() })?;
+        let raws: Vec<types::Version> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
         Ok(raws.into_iter().map(convert_version).collect())
     }
 
@@ -186,7 +219,10 @@ impl ModPlatform for ModrinthClient {
             }
             let versions = self.versions(&pid, mc, loader).await?;
             if let Some(v) = versions.into_iter().next() {
-                let resolved = ResolvedDep { project_ref: dep.project_ref.clone(), version: v };
+                let resolved = ResolvedDep {
+                    project_ref: dep.project_ref.clone(),
+                    version: v,
+                };
                 match dep.kind {
                     DepKind::Required => required.push(resolved),
                     DepKind::Optional => optional.push(resolved),
@@ -196,7 +232,12 @@ impl ModPlatform for ModrinthClient {
                 unresolvable.push(dep.project_ref.clone());
             }
         }
-        Ok(ResolvedDeps { required, optional, incompatible, unresolvable })
+        Ok(ResolvedDeps {
+            required,
+            optional,
+            incompatible,
+            unresolvable,
+        })
     }
 }
 
@@ -219,7 +260,12 @@ fn urlencode(s: &str) -> String {
 }
 
 fn convert_version(v: types::Version) -> ModVersion {
-    let primary = v.files.iter().find(|f| f.primary).or_else(|| v.files.first()).cloned();
+    let primary = v
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or_else(|| v.files.first())
+        .cloned();
     let pf = primary
         .map(|f| ModFile {
             filename: f.filename,
@@ -389,7 +435,10 @@ mod tests {
             .await;
         let c = ModrinthClient::with_base(s.uri());
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let vs = c.versions("jei", "1.20.1", LoaderKind::Fabric).await.unwrap();
+        let vs = c
+            .versions("jei", "1.20.1", LoaderKind::Fabric)
+            .await
+            .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].primary_file.filename, "jei-15.0.0.jar");

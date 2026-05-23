@@ -77,9 +77,11 @@ fn pick_identity(
     home: ModSource,
 ) -> Option<VersionRef> {
     match (modrinth, curseforge) {
-        (Some(mr), Some(cf)) => {
-            Some(if home == ModSource::Curseforge { cf } else { mr })
-        }
+        (Some(mr), Some(cf)) => Some(if home == ModSource::Curseforge {
+            cf
+        } else {
+            mr
+        }),
         (Some(mr), None) => Some(mr),
         (None, Some(cf)) => Some(cf),
         (None, None) => None,
@@ -103,10 +105,7 @@ struct MrVersionLite {
 /// `(empty, true)` — vacuous success, no failure occurred. Best-effort:
 /// any failure logs to stderr and is treated as "no matches." No API
 /// key required.
-async fn resolve_modrinth(
-    base: &str,
-    shas: &[String],
-) -> (HashMap<String, VersionRef>, bool) {
+async fn resolve_modrinth(base: &str, shas: &[String]) -> (HashMap<String, VersionRef>, bool) {
     let mut out = HashMap::new();
     if shas.is_empty() {
         return (out, true);
@@ -216,8 +215,10 @@ async fn resolve_curseforge(
     // ever happened, this HashMap keeps one entry and the other jar's
     // match is silently dropped — still best-effort, still no panic:
     // the dropped jar just stays unenriched.
-    let fp_to_sha: HashMap<u32, String> =
-        fingerprints.iter().map(|(fp, sha)| (*fp, sha.clone())).collect();
+    let fp_to_sha: HashMap<u32, String> = fingerprints
+        .iter()
+        .map(|(fp, sha)| (*fp, sha.clone()))
+        .collect();
     let fps: Vec<u32> = fingerprints.iter().map(|(fp, _)| *fp).collect();
     let url = format!("{base}/v1/fingerprints");
     let body = serde_json::to_vec(&serde_json::json!({ "fingerprints": fps }))
@@ -298,7 +299,10 @@ pub async fn enrich_instance(
     // SHA-1s for the Modrinth query; (Murmur2, SHA-1) pairs for CF. The
     // jar on disk is `filename` (enabled) or `filename.disabled`.
     let mods_dir = installed::mods_dir(instance_root);
-    let shas: Vec<String> = in_scope.iter().map(|m| m.sha1.to_ascii_lowercase()).collect();
+    let shas: Vec<String> = in_scope
+        .iter()
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .collect();
     let mut fingerprints: Vec<(u32, String)> = Vec::new();
     for m in &in_scope {
         let path = if m.enabled {
@@ -311,7 +315,10 @@ pub async fn enrich_instance(
                 fingerprints.push((curseforge_fingerprint(&bytes), m.sha1.to_ascii_lowercase()));
             }
             Err(e) => {
-                eprintln!("[enrich] cannot read {} for fingerprinting: {e}", path.display());
+                eprintln!(
+                    "[enrich] cannot read {} for fingerprinting: {e}",
+                    path.display()
+                );
             }
         }
     }
@@ -356,8 +363,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    use std::path::Path;
     use sha1::{Digest, Sha1};
+    use std::path::Path;
     use tempfile::TempDir;
 
     use crate::mods::installed::{self, PackOrigin, PackOriginFile};
@@ -422,18 +429,30 @@ mod tests {
     }
 
     fn vref(source: ModSource, pid: &str) -> VersionRef {
-        VersionRef { source, project_id: pid.into(), version_id: "v".into() }
+        VersionRef {
+            source,
+            project_id: pid.into(),
+            version_id: "v".into(),
+        }
     }
 
     #[test]
     fn pick_identity_modrinth_only() {
-        let got = pick_identity(Some(vref(ModSource::Modrinth, "mr")), None, ModSource::Modrinth);
+        let got = pick_identity(
+            Some(vref(ModSource::Modrinth, "mr")),
+            None,
+            ModSource::Modrinth,
+        );
         assert_eq!(got.unwrap().project_id, "mr");
     }
 
     #[test]
     fn pick_identity_curseforge_only() {
-        let got = pick_identity(None, Some(vref(ModSource::Curseforge, "cf")), ModSource::Modrinth);
+        let got = pick_identity(
+            None,
+            Some(vref(ModSource::Curseforge, "cf")),
+            ModSource::Modrinth,
+        );
         assert_eq!(got.unwrap().project_id, "cf");
     }
 
@@ -497,8 +516,7 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let (got, succeeded) =
-            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got.get("abc123").expect("hash should resolve");
@@ -525,8 +543,7 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let (got, succeeded) =
-            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "non-2xx should be succeeded=false");
@@ -545,8 +562,7 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let (got, succeeded) =
-            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(succeeded, "200 + empty object should be succeeded=true");
@@ -578,8 +594,7 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let (got, succeeded) =
-            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "decode failure should be succeeded=false");
@@ -613,7 +628,9 @@ mod tests {
             resolve_curseforge(&s.uri(), "test-key", &[(111u32, "sha-a".to_string())]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
-        let id = got.get("sha-a").expect("fingerprint should map back to its sha1");
+        let id = got
+            .get("sha-a")
+            .expect("fingerprint should map back to its sha1");
         assert_eq!(id.source, ModSource::Curseforge);
         assert_eq!(id.project_id, "12345");
         assert_eq!(id.version_id, "999");
@@ -658,7 +675,10 @@ mod tests {
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
-        assert!(succeeded, "200 + empty exactMatches should be succeeded=true");
+        assert!(
+            succeeded,
+            "200 + empty exactMatches should be succeeded=true"
+        );
     }
 
     #[tokio::test]
@@ -717,9 +737,12 @@ mod tests {
         let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
-        installed::set_pack_origin(td.path(), origin(ModSource::Modrinth, &[(&sha, "sodium.jar")]))
-            .await
-            .unwrap();
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Modrinth, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
 
         let mr = MockServer::start().await;
         let mut map = serde_json::Map::new();
@@ -741,7 +764,10 @@ mod tests {
 
         assert_eq!(n, 1);
         let mods = installed::list(td.path()).await.unwrap();
-        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
         assert_eq!(m.source, Some(ModSource::Modrinth));
         assert_eq!(m.project_id.as_deref(), Some("MR-PROJ"));
         assert_eq!(m.version_id.as_deref(), Some("MR-VER"));
@@ -753,12 +779,18 @@ mod tests {
         let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
-        installed::set_pack_origin(td.path(), origin(ModSource::Modrinth, &[(&sha, "sodium.jar")]))
-            .await
-            .unwrap();
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Modrinth, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
         let mr = MockServer::start().await;
         let mut map = serde_json::Map::new();
-        map.insert(sha.clone(), serde_json::json!({ "id": "V", "project_id": "P" }));
+        map.insert(
+            sha.clone(),
+            serde_json::json!({ "id": "V", "project_id": "P" }),
+        );
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
@@ -785,9 +817,12 @@ mod tests {
         let pack_sha = place_jar(td.path(), "packmod.jar", b"pack-mod-bytes").await;
         let hand_sha = place_jar(td.path(), "handmod.jar", b"hand-dropped-bytes").await;
         // Only packmod.jar is declared in pack_origin.
-        installed::set_pack_origin(td.path(), origin(ModSource::Modrinth, &[(&pack_sha, "packmod.jar")]))
-            .await
-            .unwrap();
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Modrinth, &[(&pack_sha, "packmod.jar")]),
+        )
+        .await
+        .unwrap();
         let mr = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
@@ -800,7 +835,10 @@ mod tests {
             .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         let mods = installed::list(td.path()).await.unwrap();
-        let hand = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&hand_sha)).unwrap();
+        let hand = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&hand_sha))
+            .unwrap();
         // A hand-dropped jar is never touched: not attempted, no identity.
         assert!(hand.source.is_none());
         assert!(!hand.enrich_attempted);
@@ -824,14 +862,20 @@ mod tests {
         let bytes = b"matches-on-both-platforms";
         let sha = place_jar(td.path(), "both.jar", bytes).await;
         // Pack home platform is CurseForge.
-        installed::set_pack_origin(td.path(), origin(ModSource::Curseforge, &[(&sha, "both.jar")]))
-            .await
-            .unwrap();
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Curseforge, &[(&sha, "both.jar")]),
+        )
+        .await
+        .unwrap();
         let fp = curseforge_fingerprint(bytes);
 
         let mr = MockServer::start().await;
         let mut map = serde_json::Map::new();
-        map.insert(sha.clone(), serde_json::json!({ "id": "MR-V", "project_id": "MR-P" }));
+        map.insert(
+            sha.clone(),
+            serde_json::json!({ "id": "MR-V", "project_id": "MR-P" }),
+        );
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
@@ -851,7 +895,10 @@ mod tests {
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
         let mods = installed::list(td.path()).await.unwrap();
-        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
         // Both platforms matched; home == CurseForge, so CF wins.
         assert_eq!(m.source, Some(ModSource::Curseforge));
         assert_eq!(m.project_id.as_deref(), Some("12345"));
@@ -896,7 +943,10 @@ mod tests {
 
         assert_eq!(n, 0);
         let mods = installed::list(td.path()).await.unwrap();
-        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
         assert!(m.source.is_none());
         assert!(
             !m.enrich_attempted,
@@ -928,9 +978,10 @@ mod tests {
         let cf = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/fingerprints"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({ "data": { "exactMatches": [] } })
-            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": { "exactMatches": [] } })),
+            )
             .mount(&cf)
             .await;
 
@@ -942,7 +993,10 @@ mod tests {
         assert_eq!(n, 0);
 
         let mods = installed::list(td.path()).await.unwrap();
-        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
         assert!(m.source.is_none());
         assert!(!m.enrich_attempted);
     }
@@ -976,9 +1030,15 @@ mod tests {
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
         let mods = installed::list(td.path()).await.unwrap();
-        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
         assert!(m.source.is_none());
-        assert!(m.enrich_attempted, "no-CF-key pass should still mark attempted");
+        assert!(
+            m.enrich_attempted,
+            "no-CF-key pass should still mark attempted"
+        );
     }
 
     #[tokio::test]
@@ -1005,9 +1065,10 @@ mod tests {
         let cf = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/fingerprints"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({ "data": { "exactMatches": [] } })
-            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": { "exactMatches": [] } })),
+            )
             .mount(&cf)
             .await;
 
@@ -1018,7 +1079,10 @@ mod tests {
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
 
         let mods = installed::list(td.path()).await.unwrap();
-        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
         assert!(m.source.is_none(), "no matches → source must remain None");
         assert!(m.enrich_attempted);
     }

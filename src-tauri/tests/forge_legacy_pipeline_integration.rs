@@ -81,7 +81,10 @@ fn installer_resolves_universal_jar_to_maven_coord_path() {
         .and_then(|i| i.get("path"))
         .and_then(|p| p.as_str())
         .expect("install.path present");
-    assert_eq!(install_path, "net.minecraftforge:forge:1.7.10-10.13.4.1614-1.7.10");
+    assert_eq!(
+        install_path,
+        "net.minecraftforge:forge:1.7.10-10.13.4.1614-1.7.10"
+    );
 
     // ...and a separate `filePath` for the ZIP entry name WITH classifier.
     let file_path = profile
@@ -153,7 +156,10 @@ fn legacy_libraries_fall_back_to_mojang_libraries_server() {
             "net.minecraft:launchwrapper:1.12",
             "net/minecraft/launchwrapper/1.12/launchwrapper-1.12.jar",
         ),
-        ("org.ow2.asm:asm-all:5.0.3", "org/ow2/asm/asm-all/5.0.3/asm-all-5.0.3.jar"),
+        (
+            "org.ow2.asm:asm-all:5.0.3",
+            "org/ow2/asm/asm-all/5.0.3/asm-all-5.0.3.jar",
+        ),
         ("lzma:lzma:0.0.1", "lzma/lzma/0.0.1/lzma-0.0.1.jar"),
         (
             "com.google.guava:guava:17.0",
@@ -203,7 +209,11 @@ fn legacy_libraries_fall_back_to_mojang_libraries_server() {
             natives: None,
         };
         let out = artifacts_to_install(&lib, "windows", "x64");
-        assert_eq!(out.len(), 1, "expected one artifact for {coord}, got {out:?}");
+        assert_eq!(
+            out.len(),
+            1,
+            "expected one artifact for {coord}, got {out:?}"
+        );
         let (rel, url, sha, size) = &out[0];
         assert_eq!(rel, expected_rel, "wrong relative path for {coord}");
         assert_eq!(
@@ -256,7 +266,11 @@ fn legacy_install_pipeline_smoke_against_real_installer() {
     // Must have 18 libraries as of the 1.7.10 fixture — a sanity
     // count so a future parser regression that drops the libraries
     // array entirely fails loudly.
-    assert_eq!(details.libraries.len(), 18, "1.7.10 versionInfo has 18 libs");
+    assert_eq!(
+        details.libraries.len(),
+        18,
+        "1.7.10 versionInfo has 18 libs"
+    );
 
     // Universal jar bytes extract cleanly.
     let (entry_name, jar_bytes) =

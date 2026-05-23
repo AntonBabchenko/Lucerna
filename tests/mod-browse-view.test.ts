@@ -286,9 +286,7 @@ describe('ModBrowseView', () => {
           status: 'ok',
           data: {
             hits:
-              q.offset === 0
-                ? Array.from({ length: 20 }, (_, i) => installedHit(i))
-                : [freshHit],
+              q.offset === 0 ? Array.from({ length: 20 }, (_, i) => installedHit(i)) : [freshHit],
             total: 21,
             offset: q.offset,
             page_size: 20,

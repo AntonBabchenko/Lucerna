@@ -138,11 +138,22 @@ pub struct ModpackSearchPage {
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum ModpackProgress {
     Inspecting,
-    CreatingInstance { name: String },
-    InstallingFile { current: u32, total: u32, file_name: String },
-    ExtractingOverrides { current: u32, total: u32 },
+    CreatingInstance {
+        name: String,
+    },
+    InstallingFile {
+        current: u32,
+        total: u32,
+        file_name: String,
+    },
+    ExtractingOverrides {
+        current: u32,
+        total: u32,
+    },
     Enriching,
-    Done { instance_id: String },
+    Done {
+        instance_id: String,
+    },
 }
 
 /// Reconciled state of a `PackOrigin.missing_mods` entry against the

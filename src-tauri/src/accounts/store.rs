@@ -107,8 +107,7 @@ pub fn read_account_file(file: &Path) -> Result<AccountFile> {
 
 pub fn write_account_file(file: &Path, account_file: &AccountFile) -> Result<()> {
     if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| Error::io(parent.display().to_string(), e))?;
+        std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
     }
     let json = serde_json::to_vec_pretty(account_file)
         .map_err(|e| Error::io(file.display().to_string(), format!("serialise: {e}")))?;
@@ -157,7 +156,10 @@ mod tests {
         );
         assert!(file.accounts[0].id.starts_with("of-"));
         assert!(file.accounts[0].expires_at.is_none());
-        assert_eq!(file.active_id.as_deref(), Some(file.accounts[0].id.as_str()));
+        assert_eq!(
+            file.active_id.as_deref(),
+            Some(file.accounts[0].id.as_str())
+        );
 
         // The migrated form must have been persisted back to disk as v2.
         let raw = std::fs::read_to_string(&path).unwrap();

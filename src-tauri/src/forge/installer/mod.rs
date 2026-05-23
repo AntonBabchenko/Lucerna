@@ -3,8 +3,8 @@
 //! the era handlers.
 
 pub mod legacy;
-pub mod transitional;
 pub mod modern;
+pub mod transitional;
 
 use crate::error::{Error, Result};
 use crate::forge::ForgeFlavor;
@@ -27,7 +27,10 @@ pub fn detect_era(profile_json: &serde_json::Value) -> Era {
     if profile_json.get("install").is_some() && profile_json.get("versionInfo").is_some() {
         return Era::Legacy;
     }
-    let spec = profile_json.get("spec").and_then(|v| v.as_i64()).unwrap_or(0);
+    let spec = profile_json
+        .get("spec")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     let has_processors = profile_json
         .get("processors")
         .and_then(|v| v.as_array())
@@ -50,8 +53,8 @@ pub async fn install(
     app: &tauri::AppHandle,
 ) -> Result<VersionDetails> {
     let bytes = crate::forge::meta::fetch_installer_bytes(flavor, mc, fv, app).await?;
-    let install_profile = read_install_profile(&bytes)
-        .map_err(|details| Error::ForgeInstallerCorrupted {
+    let install_profile =
+        read_install_profile(&bytes).map_err(|details| Error::ForgeInstallerCorrupted {
             mc: mc.to_string(),
             fv: fv.to_string(),
             details,

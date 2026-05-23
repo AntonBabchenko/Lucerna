@@ -1,0 +1,19 @@
+# Default: treat all files as text and store with LF line endings in the
+# repo. Editors on Windows still see CRLF (core.autocrlf can stay
+# `true`); the repo storage and the Linux CI runner read LF.
+* text=auto eol=lf
+
+# Explicit overrides for binary asset types so git does not corrupt them
+# under `text=auto`. Add to this list when introducing a new binary type.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.zip  binary
+*.jar  binary
+*.exe  binary
+*.dll  binary

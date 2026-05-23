@@ -5,12 +5,8 @@
 //! `assert_under_allowed_roots`, and the public IPC types from
 //! outside the crate to confirm the surface is well-formed.
 
-use ftlauncher_lib::logs::files::{
-    assert_under_allowed_roots, LogFileMeta, LogSource,
-};
-use ftlauncher_lib::logs::read::{
-    read_with_cap, DEFAULT_CAP_BYTES, MAX_CAP_BYTES, MIN_CAP_BYTES,
-};
+use ftlauncher_lib::logs::files::{assert_under_allowed_roots, LogFileMeta, LogSource};
+use ftlauncher_lib::logs::read::{read_with_cap, DEFAULT_CAP_BYTES, MAX_CAP_BYTES, MIN_CAP_BYTES};
 use std::path::PathBuf;
 
 #[test]

@@ -89,10 +89,7 @@
       {:else if checking}
         <span class="text-xs px-2 py-1 text-neutral-400">Checking…</span>
       {:else if updateState && updateState.kind === 'update_available'}
-        <span
-          class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-800"
-          title="Update available"
-        >
+        <span class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-800" title="Update available">
           v{installed.version_number ?? '?'} → v{updateState.target.version_number}
         </span>
         <button

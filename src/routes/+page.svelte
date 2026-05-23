@@ -274,8 +274,6 @@
       modsError = formatError(result.error);
     }
   }
-
-
 </script>
 
 <main

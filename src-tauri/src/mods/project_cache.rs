@@ -121,7 +121,9 @@ mod tests {
         let pid = "modlistcache-test-error";
         let e1 = get_or_fetch(ModSource::Modrinth, pid, || async {
             calls.fetch_add(1, Ordering::SeqCst);
-            Err(crate::error::Error::ModsNotFound { platform: "modrinth".into() })
+            Err(crate::error::Error::ModsNotFound {
+                platform: "modrinth".into(),
+            })
         })
         .await;
         assert!(e1.is_err());

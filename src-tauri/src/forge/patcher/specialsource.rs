@@ -44,10 +44,17 @@ pub fn parse_args(raw: &[String]) -> Result<Args> {
             "--kill-lvt" => kill_lvt = true,
             "--live" => live = true,
             "--quiet" => { /* swallow */ }
-            other => return Err(patcher_fail("specialsource", &format!("unknown flag: {other}"))),
+            other => {
+                return Err(patcher_fail(
+                    "specialsource",
+                    &format!("unknown flag: {other}"),
+                ))
+            }
         }
     }
-    if live { return Err(patcher_fail("specialsource", &"--live not supported")); }
+    if live {
+        return Err(patcher_fail("specialsource", &"--live not supported"));
+    }
     Ok(Args {
         in_jar: in_jar.ok_or_else(|| patcher_fail("specialsource", &"missing --in-jar"))?,
         out_jar: out_jar.ok_or_else(|| patcher_fail("specialsource", &"missing --out-jar"))?,
@@ -76,7 +83,9 @@ pub async fn run(args: Vec<String>, ctx: &ProcessorContext) -> Result<()> {
 /// Falls back to `"java"` on PATH when not set — works on developer machines
 /// and environments with a system JRE.
 fn locate_java_binary(ctx: &ProcessorContext) -> PathBuf {
-    ctx.java_bin.clone().unwrap_or_else(|| PathBuf::from("java"))
+    ctx.java_bin
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("java"))
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +119,10 @@ pub fn remap_descriptor(d: &str, idx: &ObfIndex) -> String {
         if bytes[i] == b'L' {
             let end = match bytes[i..].iter().position(|&b| b == b';') {
                 Some(p) => i + p,
-                None => { out.push_str(&d[i..]); return out; }
+                None => {
+                    out.push_str(&d[i..]);
+                    return out;
+                }
             };
             let inner = &d[i + 1..end];
             let mapped = idx.lookup_class(inner).unwrap_or_else(|| inner.to_string());
@@ -225,9 +237,16 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
         /// CONSTANT_Class — index of the name Utf8 slot (1-based).
         Class { name_index: u16 },
         /// CONSTANT_NameAndType — name and descriptor Utf8 slot indices (1-based).
-        NameAndType { name_index: u16, descriptor_index: u16 },
+        NameAndType {
+            name_index: u16,
+            descriptor_index: u16,
+        },
         /// CONSTANT_Fieldref / Methodref / InterfaceMethodref (tags 9/10/11).
-        Ref { tag: u8, class_index: u16, nat_index: u16 },
+        Ref {
+            tag: u8,
+            class_index: u16,
+            nat_index: u16,
+        },
         /// Long / Double high word (occupies two slots; next slot is Phantom).
         LongDoubleHigh,
         /// Phantom second slot of Long / Double.
@@ -250,23 +269,31 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
             let tag = input[pos];
             let entry = match tag {
                 1 => {
-                    if pos + 3 > input.len() { return input.to_vec(); }
+                    if pos + 3 > input.len() {
+                        return input.to_vec();
+                    }
                     let len = u16::from_be_bytes([input[pos + 1], input[pos + 2]]) as usize;
-                    if pos + 3 + len > input.len() { return input.to_vec(); }
+                    if pos + 3 + len > input.len() {
+                        return input.to_vec();
+                    }
                     let range = pos + 3..pos + 3 + len;
                     pos += 3 + len;
                     count += 1;
                     PoolSlot::Utf8(range)
                 }
                 3 | 4 => {
-                    if pos + 5 > input.len() { return input.to_vec(); }
+                    if pos + 5 > input.len() {
+                        return input.to_vec();
+                    }
                     pos += 5;
                     count += 1;
                     PoolSlot::Other
                 }
                 5 | 6 => {
                     // Long / Double: two slots, only one physical entry.
-                    if pos + 9 > input.len() { return input.to_vec(); }
+                    if pos + 9 > input.len() {
+                        return input.to_vec();
+                    }
                     pos += 9;
                     count += 2;
                     slots.push(PoolSlot::LongDoubleHigh);
@@ -274,48 +301,69 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
                     continue;
                 }
                 7 => {
-                    if pos + 3 > input.len() { return input.to_vec(); }
+                    if pos + 3 > input.len() {
+                        return input.to_vec();
+                    }
                     let name_index = u16::from_be_bytes([input[pos + 1], input[pos + 2]]);
                     pos += 3;
                     count += 1;
                     PoolSlot::Class { name_index }
                 }
                 8 | 16 | 19 | 20 => {
-                    if pos + 3 > input.len() { return input.to_vec(); }
+                    if pos + 3 > input.len() {
+                        return input.to_vec();
+                    }
                     pos += 3;
                     count += 1;
                     PoolSlot::Other
                 }
                 9 | 10 | 11 => {
-                    if pos + 5 > input.len() { return input.to_vec(); }
+                    if pos + 5 > input.len() {
+                        return input.to_vec();
+                    }
                     let class_index = u16::from_be_bytes([input[pos + 1], input[pos + 2]]);
-                    let nat_index   = u16::from_be_bytes([input[pos + 3], input[pos + 4]]);
+                    let nat_index = u16::from_be_bytes([input[pos + 3], input[pos + 4]]);
                     pos += 5;
                     count += 1;
-                    PoolSlot::Ref { tag, class_index, nat_index }
+                    PoolSlot::Ref {
+                        tag,
+                        class_index,
+                        nat_index,
+                    }
                 }
                 12 => {
-                    if pos + 5 > input.len() { return input.to_vec(); }
-                    let name_index       = u16::from_be_bytes([input[pos + 1], input[pos + 2]]);
+                    if pos + 5 > input.len() {
+                        return input.to_vec();
+                    }
+                    let name_index = u16::from_be_bytes([input[pos + 1], input[pos + 2]]);
                     let descriptor_index = u16::from_be_bytes([input[pos + 3], input[pos + 4]]);
                     pos += 5;
                     count += 1;
-                    PoolSlot::NameAndType { name_index, descriptor_index }
+                    PoolSlot::NameAndType {
+                        name_index,
+                        descriptor_index,
+                    }
                 }
                 15 => {
-                    if pos + 4 > input.len() { return input.to_vec(); }
+                    if pos + 4 > input.len() {
+                        return input.to_vec();
+                    }
                     pos += 4;
                     count += 1;
                     PoolSlot::Other
                 }
                 17 | 18 => {
-                    if pos + 5 > input.len() { return input.to_vec(); }
+                    if pos + 5 > input.len() {
+                        return input.to_vec();
+                    }
                     pos += 5;
                     count += 1;
                     PoolSlot::Other
                 }
                 _ => {
-                    eprintln!("specialsource: unknown pool tag {tag} at byte {pos} — passing through");
+                    eprintln!(
+                        "specialsource: unknown pool tag {tag} at byte {pos} — passing through"
+                    );
                     return input.to_vec();
                 }
             };
@@ -358,23 +406,30 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
                     }
                 }
             }
-            PoolSlot::Ref { tag, class_index, nat_index } => {
+            PoolSlot::Ref {
+                tag,
+                class_index,
+                nat_index,
+            } => {
                 // Follow: Ref → Class → Utf8 (owner FQN, from ORIGINAL bytes)
                 //         Ref → NameAndType → name Utf8 + descriptor Utf8
                 // Indices are 1-based; subtract 1 to index into our 0-based vec.
                 // Index 0 is invalid in the classfile spec, so checked_sub handles it.
-                let owner_fqn = (*class_index as usize).checked_sub(1)
+                let owner_fqn = (*class_index as usize)
+                    .checked_sub(1)
                     .and_then(|i| slots.get(i))
                     .and_then(|e| match e {
                         PoolSlot::Class { name_index: ni } => utf8_str(*ni),
                         _ => None,
                     });
-                let (name_slot, name_str, desc_str) = (*nat_index as usize).checked_sub(1)
+                let (name_slot, name_str, desc_str) = (*nat_index as usize)
+                    .checked_sub(1)
                     .and_then(|i| slots.get(i))
                     .map(|e| match e {
-                        PoolSlot::NameAndType { name_index: ni, descriptor_index: di } => {
-                            (Some(*ni), utf8_str(*ni), utf8_str(*di))
-                        }
+                        PoolSlot::NameAndType {
+                            name_index: ni,
+                            descriptor_index: di,
+                        } => (Some(*ni), utf8_str(*ni), utf8_str(*di)),
                         _ => (None, None, None),
                     })
                     .unwrap_or((None, None, None));
@@ -430,8 +485,12 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
         let skip_attrs = |p: usize, n_attrs: u16, buf: &[u8]| -> Option<usize> {
             let mut pos = p;
             for _ in 0..n_attrs {
-                if pos + 6 > buf.len() { return None; }
-                let attr_len = u32::from_be_bytes([buf[pos+2], buf[pos+3], buf[pos+4], buf[pos+5]]) as usize;
+                if pos + 6 > buf.len() {
+                    return None;
+                }
+                let attr_len =
+                    u32::from_be_bytes([buf[pos + 2], buf[pos + 3], buf[pos + 4], buf[pos + 5]])
+                        as usize;
                 pos += 6 + attr_len;
             }
             Some(pos)
@@ -441,7 +500,8 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
         // Need at least: access(2) + this(2) + super(2) + ifaces_count(2) = 8 bytes.
         if bpos + 8 <= input.len() {
             let this_class_idx = u16::from_be_bytes([input[bpos + 2], input[bpos + 3]]);
-            let this_fqn: Option<&str> = (this_class_idx as usize).checked_sub(1)
+            let this_fqn: Option<&str> = (this_class_idx as usize)
+                .checked_sub(1)
                 .and_then(|i| slots.get(i))
                 .and_then(|e| match e {
                     PoolSlot::Class { name_index: ni } => utf8_str(*ni),
@@ -457,9 +517,11 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
                     let fields_count = u16::from_be_bytes([input[bpos], input[bpos + 1]]);
                     bpos += 2;
                     for _ in 0..fields_count {
-                        if bpos + 8 > input.len() { break; }
+                        if bpos + 8 > input.len() {
+                            break;
+                        }
                         let name_idx = u16::from_be_bytes([input[bpos + 2], input[bpos + 3]]);
-                        let n_attrs  = u16::from_be_bytes([input[bpos + 6], input[bpos + 7]]);
+                        let n_attrs = u16::from_be_bytes([input[bpos + 6], input[bpos + 7]]);
                         bpos += 8;
                         // Lookup field remap: (this_fqn, field_name) → mapped.
                         if let Some(name) = utf8_str(name_idx) {
@@ -482,13 +544,17 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
                         let methods_count = u16::from_be_bytes([input[bpos], input[bpos + 1]]);
                         bpos += 2;
                         for _ in 0..methods_count {
-                            if bpos + 8 > input.len() { break; }
+                            if bpos + 8 > input.len() {
+                                break;
+                            }
                             let name_idx = u16::from_be_bytes([input[bpos + 2], input[bpos + 3]]);
                             let desc_idx = u16::from_be_bytes([input[bpos + 4], input[bpos + 5]]);
-                            let n_attrs  = u16::from_be_bytes([input[bpos + 6], input[bpos + 7]]);
+                            let n_attrs = u16::from_be_bytes([input[bpos + 6], input[bpos + 7]]);
                             bpos += 8;
                             // Lookup method remap: (this_fqn, method_name, desc) → mapped.
-                            if let (Some(name), Some(desc)) = (utf8_str(name_idx), utf8_str(desc_idx)) {
+                            if let (Some(name), Some(desc)) =
+                                (utf8_str(name_idx), utf8_str(desc_idx))
+                            {
                                 if name != "<init>" && name != "<clinit>" {
                                     if let Some(mapped) = idx.lookup_method(fqn, name, desc) {
                                         if mapped != name {
@@ -527,9 +593,13 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
         match tag {
             1 => {
                 // CONSTANT_Utf8: tag(1) length(2) bytes(length)
-                if pos + 3 > input.len() { return input.to_vec(); }
+                if pos + 3 > input.len() {
+                    return input.to_vec();
+                }
                 let orig_len = u16::from_be_bytes([input[pos + 1], input[pos + 2]]) as usize;
-                if pos + 3 + orig_len > input.len() { return input.to_vec(); }
+                if pos + 3 + orig_len > input.len() {
+                    return input.to_vec();
+                }
                 let content = &input[pos + 3..pos + 3 + orig_len];
 
                 // slot+1 is the 1-based pool index for this entry.
@@ -565,42 +635,54 @@ pub fn remap_class_bytes(input: &[u8], idx: &ObfIndex) -> Vec<u8> {
                 slot += 1;
             }
             3 | 4 => {
-                if pos + 5 > input.len() { return input.to_vec(); }
+                if pos + 5 > input.len() {
+                    return input.to_vec();
+                }
                 out.extend_from_slice(&input[pos..pos + 5]);
                 pos += 5;
                 slot += 1;
             }
             5 | 6 => {
                 // Long / Double: tag(1) + 8 bytes, occupies two pool slots.
-                if pos + 9 > input.len() { return input.to_vec(); }
+                if pos + 9 > input.len() {
+                    return input.to_vec();
+                }
                 out.extend_from_slice(&input[pos..pos + 9]);
                 pos += 9;
                 slot += 2;
             }
             7 | 8 | 16 | 19 | 20 => {
                 // Class / String / MethodType / Module / Package: tag(1) + index(2)
-                if pos + 3 > input.len() { return input.to_vec(); }
+                if pos + 3 > input.len() {
+                    return input.to_vec();
+                }
                 out.extend_from_slice(&input[pos..pos + 3]);
                 pos += 3;
                 slot += 1;
             }
             9 | 10 | 11 | 12 => {
                 // FieldRef / MethodRef / InterfaceMethodRef / NameAndType: tag(1) + index(2) + index(2)
-                if pos + 5 > input.len() { return input.to_vec(); }
+                if pos + 5 > input.len() {
+                    return input.to_vec();
+                }
                 out.extend_from_slice(&input[pos..pos + 5]);
                 pos += 5;
                 slot += 1;
             }
             15 => {
                 // MethodHandle: tag(1) + kind(1) + index(2)
-                if pos + 4 > input.len() { return input.to_vec(); }
+                if pos + 4 > input.len() {
+                    return input.to_vec();
+                }
                 out.extend_from_slice(&input[pos..pos + 4]);
                 pos += 4;
                 slot += 1;
             }
             17 | 18 => {
                 // Dynamic / InvokeDynamic: tag(1) + bootstrap_attr(2) + nat_index(2)
-                if pos + 5 > input.len() { return input.to_vec(); }
+                if pos + 5 > input.len() {
+                    return input.to_vec();
+                }
                 out.extend_from_slice(&input[pos..pos + 5]);
                 pos += 5;
                 slot += 1;
@@ -626,24 +708,46 @@ mod tests {
     #[test]
     fn parse_args_minimal() {
         let raw = vec![
-            "--in-jar".into(), "/i".into(),
-            "--out-jar".into(), "/o".into(),
-            "--srg-in".into(), "/m".into(),
+            "--in-jar".into(),
+            "/i".into(),
+            "--out-jar".into(),
+            "/o".into(),
+            "--srg-in".into(),
+            "/m".into(),
         ];
         let p = parse_args(&raw).unwrap();
-        assert_eq!((p.in_jar.as_str(), p.out_jar.as_str(), p.srg_in.as_str()), ("/i", "/o", "/m"));
+        assert_eq!(
+            (p.in_jar.as_str(), p.out_jar.as_str(), p.srg_in.as_str()),
+            ("/i", "/o", "/m")
+        );
         assert!(!p.kill_lvt);
     }
 
     #[test]
     fn parse_args_kill_lvt_flag() {
-        let raw = vec!["--in-jar".into(), "/i".into(), "--out-jar".into(), "/o".into(), "--srg-in".into(), "/m".into(), "--kill-lvt".into()];
+        let raw = vec![
+            "--in-jar".into(),
+            "/i".into(),
+            "--out-jar".into(),
+            "/o".into(),
+            "--srg-in".into(),
+            "/m".into(),
+            "--kill-lvt".into(),
+        ];
         assert!(parse_args(&raw).unwrap().kill_lvt);
     }
 
     #[test]
     fn parse_args_rejects_live() {
-        let raw = vec!["--in-jar".into(), "/i".into(), "--out-jar".into(), "/o".into(), "--srg-in".into(), "/m".into(), "--live".into()];
+        let raw = vec![
+            "--in-jar".into(),
+            "/i".into(),
+            "--out-jar".into(),
+            "/o".into(),
+            "--srg-in".into(),
+            "/m".into(),
+            "--live".into(),
+        ];
         assert!(parse_args(&raw).is_err());
     }
 

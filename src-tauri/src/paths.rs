@@ -74,7 +74,10 @@ mod tests {
         root.join("versions")
     }
     fn mods_dir_from(root: PathBuf, instance: &str) -> PathBuf {
-        root.join("instances").join(instance).join(".minecraft").join("mods")
+        root.join("instances")
+            .join(instance)
+            .join(".minecraft")
+            .join("mods")
     }
 
     #[test]
