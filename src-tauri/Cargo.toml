@@ -1,6 +1,6 @@
 [package]
 name = "ftlauncher"
-version = "0.1.0"
+version = "0.9.0-test.1"
 description = "Free Tauri Launcher — a clean, transparent open-source Minecraft launcher for Windows. No telemetry, no ad injection, no hidden processes, no bundled adware."
 authors = ["AntonBabchenko"]
 license = "GPL-3.0-or-later"
