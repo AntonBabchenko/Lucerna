@@ -218,6 +218,14 @@ export const commands = {
 	mod_shas: string[],
 } | null, Error>(__TAURI_INVOKE("mods_pack_origin_summary", { instanceId })),
 	/**
+	 *  Identify the instance's modpack override-bundled mods by file hash
+	 *  and backfill their platform identity into the registry. Returns the
+	 *  number of mods newly resolved. Best-effort and idempotent: a no-op
+	 *  (returns 0) for instances that were not modpack-imported, or whose
+	 *  pack mods are all already identified or already attempted.
+	 */
+	modsEnrichPackMods: (instanceId: string) => typedError<number, Error>(__TAURI_INVOKE("mods_enrich_pack_mods", { instanceId })),
+	/**
 	 *  Apply one mod update: resolve `target`'s required dependencies,
 	 *  pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
 	 *  its required deps, and preserve the old mod's enabled state. Emits
@@ -525,6 +533,13 @@ export type InstalledMod = {
 	version_number: string | null,
 	installed_at: string,
 	enabled: boolean,
+	/**
+	 *  `true` once a modpack hash-enrichment pass has tried this mod —
+	 *  whether or not a platform identified it. Stops the backfill from
+	 *  re-querying a permanently-unidentifiable jar. `#[serde(default)]`
+	 *  so registry files written before this feature load as `false`.
+	 */
+	enrich_attempted?: boolean,
 };
 
 /**  What the UI sees per row in the instance dropdown. */
@@ -782,7 +797,7 @@ export type ModpackHit = {
  *  `install_progress` channel from sub-3 so PhaseStatusRow + the
  *  import progress view can both render fine-grained state.
  */
-export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "done"; instance_id: string };
+export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "enriching" } | { phase: "done"; instance_id: string };
 
 export type ModpackSearchPage = {
 	hits: ModpackHit[],

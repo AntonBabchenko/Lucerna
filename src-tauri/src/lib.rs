@@ -73,6 +73,7 @@ pub fn run() {
             commands::mods_uninstall,
             commands::mods_check_updates,
             commands::mods_pack_origin_summary,
+            commands::mods_enrich_pack_mods,
             commands::mods_update_one,
             commands::mods_inspect_local,
             commands::mods_install_local,

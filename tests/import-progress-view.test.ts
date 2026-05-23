@@ -1,4 +1,4 @@
-import { render } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
 
@@ -78,6 +78,13 @@ describe('ImportProgressView', () => {
       },
     });
     expect(container.querySelector('.bg-blue-500')).toBeNull();
+  });
+
+  it('labels the enriching phase', () => {
+    render(ImportProgressView, {
+      props: { phase: { phase: 'enriching' }, modBytes: null },
+    });
+    expect(screen.getByText('Identifying bundled mods…')).toBeTruthy();
   });
 
   it('renders the done label', () => {

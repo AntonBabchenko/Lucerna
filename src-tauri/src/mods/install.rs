@@ -198,6 +198,7 @@ pub async fn install_one(
             version_number: Some(version.version_number.clone()),
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
+            enrich_attempted: false,
         },
     )
     .await?;

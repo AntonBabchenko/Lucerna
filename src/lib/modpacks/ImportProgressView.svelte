@@ -34,6 +34,8 @@
         return `Installing file ${p.current}/${p.total}: ${p.file_name}`;
       case 'extracting_overrides':
         return `Extracting overrides ${p.current}/${p.total}…`;
+      case 'enriching':
+        return 'Identifying bundled mods…';
       case 'done':
         return 'Done.';
     }

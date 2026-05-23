@@ -810,6 +810,28 @@ pub async fn mods_pack_origin_summary(
         .map(crate::mods::updates::pack_origin_summary))
 }
 
+/// Identify the instance's modpack override-bundled mods by file hash
+/// and backfill their platform identity into the registry. Returns the
+/// number of mods newly resolved. Best-effort and idempotent: a no-op
+/// (returns 0) for instances that were not modpack-imported, or whose
+/// pack mods are all already identified or already attempted.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_enrich_pack_mods(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<u32> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    crate::mods::enrich::enrich_instance(
+        &inst_root,
+        "https://api.modrinth.com",
+        "https://api.curseforge.com",
+        cf_key.as_deref(),
+    )
+    .await
+}
+
 /// Apply one mod update: resolve `target`'s required dependencies,
 /// pre-warm the cache, swap the old jar (`old_sha1`) for `target` plus
 /// its required deps, and preserve the old mod's enabled state. Emits

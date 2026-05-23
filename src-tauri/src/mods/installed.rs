@@ -7,7 +7,7 @@
 //! deleted files reconcile cleanly. Hand-editing the mods folder is a
 //! supported workflow.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
@@ -21,7 +21,7 @@ use crate::error::Error;
 use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable};
 use crate::mods::platform::{InstalledMod, ModSource};
 
-const FILE_VERSION: u32 = 2;
+const FILE_VERSION: u32 = 3;
 
 /// Process-lifetime SHA-1 cache for files in `mods/`, keyed by path.
 /// `reconcile()` re-uses the stored digest when a file's (mtime, size)
@@ -118,11 +118,19 @@ pub fn mods_dir(instance_root: &Path) -> PathBuf {
 }
 
 /// Read the registry from disk and reconcile against the actual `mods/`
-/// directory contents. Persists changes if reconciliation modified state.
+/// directory contents. Runs the one-shot schema migration before
+/// reconciling so callers see the post-migration `mods` slice — without
+/// this, `InstalledModsView.refresh()` would see pre-migration
+/// `enrich_attempted` values from its `modsListInstalled` call and the
+/// later `modsPackOriginSummary` call (which also runs migrate) would
+/// only flip the on-disk values, leaving the in-memory backfill check
+/// stale until the next refresh. Persists changes if migration or
+/// reconciliation modified state.
 pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
     let mut state = read_or_empty(instance_root).await?;
-    let changed = reconcile(instance_root, &mut state).await?;
-    if changed {
+    let migrated = migrate(&mut state);
+    let reconciled = reconcile(instance_root, &mut state).await?;
+    if migrated || reconciled {
         write(instance_root, &state).await?;
     }
     Ok(state.mods)
@@ -228,6 +236,7 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
                 version_number: None,
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: *enabled,
+                enrich_attempted: false,
             });
             changed = true;
         }
@@ -269,17 +278,62 @@ pub async fn set_pack_origin(instance_root: &Path, origin: PackOrigin) -> Result
     write(instance_root, &state).await
 }
 
-/// One-shot migration for `installed-mods.json`. Schema v1 imports
-/// recorded non-`mods/` `pack_origin` entries for files that were never
-/// installed (the v1 pipeline ignored `install_path`). Drop them and
-/// bump the schema version so the migration runs exactly once. Returns
-/// true if `state` was changed (the caller must then persist it).
+/// Apply an enrichment pass to the registry. `resolved` maps an
+/// installed mod's SHA-1 (lowercased) to the platform identity
+/// recovered for it; `attempted` is the SHA-1 of every mod the pass
+/// tried, resolved or not. Every attempted mod gets
+/// `enrich_attempted = true`; a resolved mod additionally gets its
+/// `source`/`project_id`/`version_id` filled in. Read-modify-write;
+/// SHA-1 matching is case-insensitive. Called by `enrich::enrich_instance`.
+pub async fn apply_enrichment(
+    instance_root: &Path,
+    resolved: &HashMap<String, crate::mods::platform::VersionRef>,
+    attempted: &HashSet<String>,
+) -> Result<(), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    for m in state.mods.iter_mut() {
+        let key = m.sha1.to_ascii_lowercase();
+        if attempted.contains(&key) {
+            m.enrich_attempted = true;
+        }
+        if let Some(id) = resolved.get(&key) {
+            m.source = Some(id.source);
+            m.project_id = Some(id.project_id.clone());
+            m.version_id = Some(id.version_id.clone());
+        }
+    }
+    write(instance_root, &state).await
+}
+
+/// One-shot migration for `installed-mods.json`. Each step is gated on
+/// the source version, so a v1 file migrates straight to the current
+/// version in one pass. Returns true if `state` was changed (the caller
+/// must then persist it).
+///
+/// - v1 → v2: drop non-`mods/` `pack_origin` entries that the v1
+///   pipeline recorded for files it never installed.
+/// - v2 → v3: reset `enrich_attempted = false` on every mod still
+///   `source = None`. Earlier code keyed CurseForge fingerprint-match
+///   lookups off `exactMatches[].id` (the modId), not `file.fileFingerprint`,
+///   silently dropping every CF match — so pack-bundled mods that CF
+///   could have identified got permanently flagged "attempted but
+///   unresolved". Resetting the flag puts them back in scope so the
+///   fixed code can identify them on the next pass.
 fn migrate(state: &mut OnDisk) -> bool {
     if state.version >= FILE_VERSION {
         return false;
     }
-    if let Some(origin) = state.pack_origin.as_mut() {
-        origin.files.retain(|f| f.install_path.starts_with("mods/"));
+    if state.version < 2 {
+        if let Some(origin) = state.pack_origin.as_mut() {
+            origin.files.retain(|f| f.install_path.starts_with("mods/"));
+        }
+    }
+    if state.version < 3 {
+        for m in state.mods.iter_mut() {
+            if m.source.is_none() && m.enrich_attempted {
+                m.enrich_attempted = false;
+            }
+        }
     }
     state.version = FILE_VERSION;
     true
@@ -353,6 +407,7 @@ mod tests {
             version_number: Some("1.0".into()),
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
+            enrich_attempted: false,
         };
         add(td.path(), stale).await.unwrap();
         let mods = list(td.path()).await.unwrap();
@@ -373,6 +428,7 @@ mod tests {
             version_number: Some("15.2.0.27".into()),
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
+            enrich_attempted: false,
         }).await.unwrap();
         let mods = list(td.path()).await.unwrap();
         assert_eq!(mods.len(), 1);
@@ -448,6 +504,7 @@ mod tests {
             version_number: Some("1.0".into()),
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
+            enrich_attempted: false,
         }).await.unwrap();
         set_pack_origin(td.path(), sample_origin()).await.unwrap();
         let mods = list(td.path()).await.unwrap();
@@ -469,6 +526,21 @@ mod tests {
         fs::write(registry_path(td.path()), legacy).await.unwrap();
         let origin = get_pack_origin(td.path()).await.unwrap();
         assert!(origin.is_none());
+    }
+
+    #[tokio::test]
+    async fn installed_mod_without_enrich_attempted_loads_as_false() {
+        // Registry files written before this feature have no
+        // `enrich_attempted` field on their mod entries. `#[serde(default)]`
+        // must load them as `false` rather than failing with "missing field".
+        let td = TempDir::new().unwrap();
+        let dir = registry_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let legacy = br#"{"version":2,"mods":[{"filename":"a.jar","sha1":"aa","source":null,"project_id":null,"version_id":null,"name":"A","version_number":null,"installed_at":"2026-01-01T00:00:00Z","enabled":true}]}"#;
+        fs::write(registry_path(td.path()), legacy).await.unwrap();
+        let state = read_or_empty(td.path()).await.unwrap();
+        assert_eq!(state.mods.len(), 1);
+        assert!(!state.mods[0].enrich_attempted);
     }
 
     #[tokio::test]
@@ -500,7 +572,105 @@ mod tests {
             tokio::fs::read(registry_path(td.path())).await.unwrap(),
         )
         .unwrap();
-        assert!(raw.contains("\"version\": 2"), "got {raw}");
+        // Migration bumps a v1 file straight to the current
+        // FILE_VERSION (3) in one pass.
+        assert!(raw.contains("\"version\": 3"), "got {raw}");
+    }
+
+    #[tokio::test]
+    async fn list_runs_migration_so_callers_see_post_migration_values() {
+        // The Installed-view backfill issues `modsListInstalled` BEFORE
+        // `modsPackOriginSummary`. If only `get_pack_origin` triggered
+        // migrate(), the list returned to the frontend would still carry
+        // stale `enrich_attempted=true` values and the backfill check
+        // would skip the affected mods until the next refresh. Pin the
+        // single-refresh behaviour: `list()` returns post-migration mods.
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "stuck.jar", b"stuck-bytes").await;
+        let v2 = OnDisk {
+            version: 2,
+            mods: vec![InstalledMod {
+                filename: "stuck.jar".into(),
+                sha1: sha.clone(),
+                source: None,
+                project_id: None,
+                version_id: None,
+                name: "stuck.jar".into(),
+                version_number: None,
+                installed_at: Utc::now().to_rfc3339(),
+                enabled: true,
+                enrich_attempted: true,
+            }],
+            pack_origin: None,
+        };
+        write(td.path(), &v2).await.unwrap();
+        let mods = list(td.path()).await.unwrap();
+        let m = mods.iter().find(|m| m.sha1 == sha).unwrap();
+        assert!(!m.enrich_attempted, "list() must return post-migration values");
+    }
+
+    #[tokio::test]
+    async fn migrate_v2_resets_enrich_attempted_on_unresolved_mods() {
+        // v2 was the schema while `resolve_curseforge` misread
+        // `exactMatches[].id` as the fingerprint, silently dropping
+        // every CF match. Pack-bundled jars CF could have identified
+        // were left `source = None` but flagged `enrich_attempted =
+        // true`, permanently out of scope for the backfill. v3 resets
+        // the flag on every `source = None` mod so the fixed code can
+        // identify them on the next pass; mods with a resolved source
+        // are untouched.
+        let td = TempDir::new().unwrap();
+        let v2 = OnDisk {
+            version: 2,
+            mods: vec![
+                InstalledMod {
+                    filename: "unresolved.jar".into(),
+                    sha1: "aaa".into(),
+                    source: None,
+                    project_id: None,
+                    version_id: None,
+                    name: "Unresolved".into(),
+                    version_number: None,
+                    installed_at: Utc::now().to_rfc3339(),
+                    enabled: true,
+                    enrich_attempted: true, // stuck under the buggy build
+                },
+                InstalledMod {
+                    filename: "resolved.jar".into(),
+                    sha1: "bbb".into(),
+                    source: Some(ModSource::Modrinth),
+                    project_id: Some("p".into()),
+                    version_id: Some("v".into()),
+                    name: "Resolved".into(),
+                    version_number: None,
+                    installed_at: Utc::now().to_rfc3339(),
+                    enabled: true,
+                    enrich_attempted: false,
+                },
+            ],
+            pack_origin: Some(sample_origin()),
+        };
+        write(td.path(), &v2).await.unwrap();
+        // `get_pack_origin` runs migrate() and persists the change.
+        // (`list()` would also reconcile against `mods/`, dropping
+        // entries whose jars are absent on disk — we use
+        // `read_or_empty` to inspect the migrated state directly.)
+        let _ = get_pack_origin(td.path()).await.unwrap();
+        let state = read_or_empty(td.path()).await.unwrap();
+        let unr = state.mods.iter().find(|m| m.sha1 == "aaa").unwrap();
+        assert!(!unr.enrich_attempted, "unresolved mod's flag should reset");
+        let res = state.mods.iter().find(|m| m.sha1 == "bbb").unwrap();
+        assert_eq!(
+            res.source,
+            Some(ModSource::Modrinth),
+            "resolved mod's identity must be preserved",
+        );
+        assert!(!res.enrich_attempted);
+        let raw = String::from_utf8(
+            tokio::fs::read(registry_path(td.path())).await.unwrap(),
+        )
+        .unwrap();
+        assert!(raw.contains("\"version\": 3"), "got {raw}");
     }
 
     #[tokio::test]
@@ -643,5 +813,44 @@ mod tests {
         .unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(v2, "hash-new");
+    }
+
+    #[tokio::test]
+    async fn apply_enrichment_fills_identity_and_sets_attempted() {
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "sodium.jar", b"sodium").await;
+        // Synthesize the source=None entry by listing once.
+        let _ = list(td.path()).await.unwrap();
+        let mut resolved = HashMap::new();
+        resolved.insert(
+            sha.clone(),
+            crate::mods::platform::VersionRef {
+                source: ModSource::Modrinth,
+                project_id: "AANobbMI".into(),
+                version_id: "vvv".into(),
+            },
+        );
+        let mut attempted = std::collections::HashSet::new();
+        attempted.insert(sha.clone());
+        apply_enrichment(td.path(), &resolved, &attempted).await.unwrap();
+        let mods = list(td.path()).await.unwrap();
+        assert_eq!(mods[0].source, Some(ModSource::Modrinth));
+        assert_eq!(mods[0].project_id.as_deref(), Some("AANobbMI"));
+        assert_eq!(mods[0].version_id.as_deref(), Some("vvv"));
+        assert!(mods[0].enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn apply_enrichment_marks_attempted_even_without_a_match() {
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "mystery.jar", b"mystery").await;
+        let _ = list(td.path()).await.unwrap();
+        let resolved = HashMap::new(); // no match for this jar
+        let mut attempted = std::collections::HashSet::new();
+        attempted.insert(sha.clone());
+        apply_enrichment(td.path(), &resolved, &attempted).await.unwrap();
+        let mods = list(td.path()).await.unwrap();
+        assert!(mods[0].source.is_none());
+        assert!(mods[0].enrich_attempted);
     }
 }

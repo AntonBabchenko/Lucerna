@@ -558,6 +558,23 @@ pub async fn import(
         eprintln!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
     }
 
+    // Final phase: hash-enrich the override-bundled mods so the
+    // Installed view shows their icons on first open. Best-effort — the
+    // import (instance + mods on disk) is already complete; a failure
+    // here only delays enrichment to the Installed-view backfill.
+    on_progress(ModpackProgress::Enriching);
+    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    if let Err(e) = crate::mods::enrich::enrich_instance(
+        &instance_root,
+        "https://api.modrinth.com",
+        cf_base,
+        cf_key.as_deref(),
+    )
+    .await
+    {
+        eprintln!("[modpack::import] enrich_instance failed (non-fatal): {e}");
+    }
+
     on_progress(ModpackProgress::Done { instance_id: inst.id.clone() });
 
     if failures.is_empty() {
@@ -798,6 +815,7 @@ mod tests {
             version_number: None,
             installed_at: chrono::Utc::now().to_rfc3339(),
             enabled: true,
+            enrich_attempted: false,
         }
     }
 
@@ -1152,6 +1170,7 @@ mod tests {
             version_number: None,
             installed_at: chrono::Utc::now().to_rfc3339(),
             enabled,
+            enrich_attempted: false,
         }
     }
 

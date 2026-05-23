@@ -51,6 +51,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     // The view now fetches ModProject for each platform-installed mod
     // so it can render the project's display name via the shared
@@ -189,5 +190,112 @@ describe('InstalledModsView', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/📦 Cool Pack/)).toBeTruthy();
+  });
+
+  it('labels an unresolved pack-origin mod "from modpack" with a chip', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        {
+          filename: 'bundled.jar',
+          sha1: 'pack1',
+          source: null,
+          project_id: null,
+          version_id: null,
+          name: 'bundled.jar',
+          version_number: null,
+          installed_at: '2026-05-18T00:00:00Z',
+          enabled: true,
+          // already attempted — suppresses the backfill for this test
+          enrich_attempted: true,
+        },
+      ],
+    });
+    (mod.commands.modsPackOriginSummary as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { project_name: 'Parasites Reloaded', mod_shas: ['pack1'] },
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/from modpack/)).toBeTruthy();
+    expect(screen.getByText(/📦 Parasites Reloaded/)).toBeTruthy();
+  });
+
+  it('keeps "manual mod" for a hand-dropped jar not in the pack', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        {
+          filename: 'handdrop.jar',
+          sha1: 'hand1',
+          source: null,
+          project_id: null,
+          version_id: null,
+          name: 'handdrop.jar',
+          version_number: null,
+          installed_at: '2026-05-18T00:00:00Z',
+          enabled: true,
+          enrich_attempted: true,
+        },
+      ],
+    });
+    (mod.commands.modsPackOriginSummary as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { project_name: 'Some Pack', mod_shas: ['other-sha'] },
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/manual mod/)).toBeTruthy();
+  });
+
+  it('runs an enrichment backfill when a pack mod is unenriched', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockClear();
+    const unresolved = {
+      filename: 'bundled.jar',
+      sha1: 'pack1',
+      source: null,
+      project_id: null,
+      version_id: null,
+      name: 'bundled.jar',
+      version_number: null,
+      installed_at: '2026-05-18T00:00:00Z',
+      enabled: true,
+      enrich_attempted: false,
+    };
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ status: 'ok', data: [unresolved] })
+      .mockResolvedValueOnce({
+        status: 'ok',
+        // Distinguishable filename so the assertion proves the re-fetched
+        // list (not the pre-backfill list) is what gets rendered.
+        data: [
+          {
+            ...unresolved,
+            filename: 'bundled-after-backfill.jar',
+            name: 'bundled-after-backfill.jar',
+            enrich_attempted: true,
+          },
+        ],
+      });
+    (mod.commands.modsPackOriginSummary as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ok',
+      data: { project_name: 'Parasites Reloaded', mod_shas: ['pack1'] },
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mod.commands.modsEnrichPackMods).toHaveBeenCalledWith('i');
+    expect(mod.commands.modsListInstalled).toHaveBeenCalledTimes(2);
+    // The re-fetched list is what renders — proves `r = r2` was consumed.
+    expect(screen.getByText('bundled-after-backfill.jar')).toBeTruthy();
+    expect(screen.queryByText('bundled.jar')).toBeNull();
   });
 });

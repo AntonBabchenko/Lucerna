@@ -258,6 +258,7 @@ pub async fn install_local(
         version_number: None,
         installed_at: Utc::now().to_rfc3339(),
         enabled: true,
+        enrich_attempted: false,
     };
     installed::add(instance_root, entry.clone()).await?;
     Ok(entry)

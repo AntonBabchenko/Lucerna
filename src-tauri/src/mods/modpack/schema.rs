@@ -141,6 +141,7 @@ pub enum ModpackProgress {
     CreatingInstance { name: String },
     InstallingFile { current: u32, total: u32, file_name: String },
     ExtractingOverrides { current: u32, total: u32 },
+    Enriching,
     Done { instance_id: String },
 }
 

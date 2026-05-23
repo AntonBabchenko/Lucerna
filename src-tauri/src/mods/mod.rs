@@ -6,6 +6,7 @@
 
 pub mod cache;
 pub mod curseforge;
+pub mod enrich;
 pub mod install;
 pub mod installed;
 pub mod local;

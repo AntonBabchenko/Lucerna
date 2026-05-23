@@ -156,6 +156,12 @@ pub struct InstalledMod {
     pub version_number: Option<String>,
     pub installed_at: String, // RFC 3339
     pub enabled: bool,
+    /// `true` once a modpack hash-enrichment pass has tried this mod —
+    /// whether or not a platform identified it. Stops the backfill from
+    /// re-querying a permanently-unidentifiable jar. `#[serde(default)]`
+    /// so registry files written before this feature load as `false`.
+    #[serde(default)]
+    pub enrich_attempted: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]

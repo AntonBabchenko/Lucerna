@@ -138,7 +138,7 @@
     }
     loading = true;
     error = null;
-    const r = await commands.modsListInstalled(instanceId);
+    let r = await commands.modsListInstalled(instanceId);
     if (r.status === 'error') {
       error = formatError(r.error);
       loading = false;
@@ -147,12 +147,33 @@
 
     // Pack-origin chip data — a local file read, no network.
     const ps = await commands.modsPackOriginSummary(instanceId);
-    packSummary = ps.status === 'ok' ? ps.data : null;
+    const summary = ps.status === 'ok' ? ps.data : null;
+    packSummary = summary;
+
+    // Backfill: if this instance has modpack override-bundled mods that
+    // still lack a platform identity and have never been hash-enriched,
+    // run one enrichment pass and re-fetch the list. `enrich_attempted`
+    // flips true for every mod the pass tries, so this branch can never
+    // run twice for the same mod — no loop.
+    if (
+      summary &&
+      r.data.some(
+        (m) =>
+          m.source === null &&
+          !m.enrich_attempted &&
+          summary.mod_shas.includes(m.sha1),
+      )
+    ) {
+      await commands.modsEnrichPackMods(instanceId);
+      const r2 = await commands.modsListInstalled(instanceId);
+      if (r2.status === 'ok') r = r2;
+    }
 
     // Fetch ModSummary for every platform-installed mod in parallel.
-    // Manual mods (source: null) skip the fetch and stay as a degraded
-    // row. If a project lookup fails (network blip, mod taken down
-    // upstream), the row still renders with the locally-cached name.
+    // Manual / unidentifiable mods (source: null) skip the fetch and
+    // stay as a degraded row. If a project lookup fails (network blip,
+    // mod taken down upstream), the row still renders with the
+    // locally-cached name.
     const enriched = await Promise.all(
       r.data.map(async (m): Promise<Row> => {
         if (m.source === null || m.project_id === null) {
@@ -468,8 +489,11 @@
               : null}
           />
         {:else}
-          <!-- Manual mod (no platform metadata). Render a degraded row that
-               matches the ModCard layout for visual consistency. -->
+          <!-- No platform metadata. Either a hand-dropped "manual mod"
+               or a modpack override-bundled jar that hash-enrichment
+               could not identify ("from modpack" + 📦 chip). -->
+          {@const fromPack =
+            !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
           <div class="border border-neutral-200 rounded bg-white p-3 flex gap-3">
             <div
               class="w-12 h-12 rounded bg-neutral-100 flex items-center justify-center text-neutral-400"
@@ -480,10 +504,20 @@
             <div class="flex-1 min-w-0">
               <div class="font-medium text-neutral-900 truncate">{row.installed.filename}</div>
               <div class="text-xs text-neutral-500 truncate">
-                manual mod · {row.installed.enabled ? 'Enabled' : 'Disabled'}
+                {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled
+                  ? 'Enabled'
+                  : 'Disabled'}
               </div>
             </div>
             <div class="self-center flex items-center gap-1">
+              {#if fromPack && packSummary}
+                <span
+                  class="text-xs px-2 py-1 rounded bg-indigo-50 text-indigo-700"
+                  title="From modpack: {packSummary.project_name}"
+                >
+                  📦 {packSummary.project_name}
+                </span>
+              {/if}
               <button
                 type="button"
                 class="text-xs px-2 py-1 border rounded"
