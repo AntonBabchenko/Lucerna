@@ -91,14 +91,15 @@ pub fn kill_process_tree(pid: u32) {
         .status();
 }
 
-/// POSIX path — included so non-Windows builds compile; the Windows
-/// build is the supported target.
+/// POSIX path — the launcher targets Windows; this is included only so
+/// non-Windows builds compile (e.g. `cargo test` on Linux CI runners).
+/// Deliberately a no-op: shelling out to `kill <pid>` on POSIX is
+/// unsafe when `pid` is large enough to wrap to a negative pid_t
+/// (POSIX `kill -1` targets every process the user can kill — caught
+/// by the Ubuntu CI runner taking SIGTERM from a unit test). The real
+/// launcher never reaches this path; non-Windows callers are stubs.
 #[cfg(not(target_os = "windows"))]
-pub fn kill_process_tree(pid: u32) {
-    let _ = std::process::Command::new("kill")
-        .arg(pid.to_string())
-        .status();
-}
+pub fn kill_process_tree(_pid: u32) {}
 
 #[cfg(test)]
 mod tests {
@@ -140,7 +141,13 @@ mod tests {
 
     #[test]
     fn kill_process_tree_unknown_pid_does_not_panic() {
-        // u32::MAX is not a live PID; the call must be a no-op, not a panic.
+        // The Windows taskkill path is no-op for unknown PIDs; the
+        // POSIX path is intentionally a no-op for ALL pids (see the
+        // `#[cfg(not(target_os = "windows"))]` body). u32::MAX was the
+        // value that, before this stub, made the CI runner take
+        // SIGTERM — POSIX `kill 4294967295` wraps to `kill -1`
+        // ("kill all processes the user can kill"). Test pinned at
+        // u32::MAX as a regression sentinel.
         kill_process_tree(u32::MAX);
     }
 }
