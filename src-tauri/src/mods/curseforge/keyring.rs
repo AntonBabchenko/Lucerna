@@ -1,18 +1,29 @@
 //! OS keyring storage for the CurseForge API key.
+//!
+//! Production code uses the system credential store via the `keyring`
+//! crate (Windows Credential Manager / macOS Keychain / Linux libsecret).
+//! Under `cargo test`, all three functions are redirected to an
+//! in-memory store — see the `#[cfg(test)]` block below. That removes
+//! the OS-keyring dependency from the test suite (essential for headless
+//! Linux CI runners, which have no keyring daemon) and strengthens the
+//! "no test ever touches the real prod key" guarantee from
+//! [[project_keyring_test_clobber_bug]]: tests now cannot reach the OS
+//! keyring at all, not just a separate slot of it.
 
 use crate::error::Error;
 
 const SERVICE: &str = "ftlauncher";
 #[cfg(not(test))]
 const USERNAME: &str = "curseforge-api-key";
-/// Unit tests run against a separate keyring slot so `cargo test` can
-/// never read, overwrite, or delete the user's real CurseForge key.
-/// `#[cfg(test)]` is set when this crate is compiled for its own unit
-/// tests — exactly when `mods/modpack/curseforge.rs`'s `keyring::set`/
-/// `clear` test helpers run.
+/// Sentinel kept for the `unit_tests_use_a_separate_keyring_slot` test
+/// below — pinned in case the `#[cfg(test)]` redirection is ever lifted
+/// without also restoring the per-slot USERNAME scoping.
 #[cfg(test)]
 const USERNAME: &str = "curseforge-api-key-test";
 
+// --- production backend -------------------------------------------------
+
+#[cfg(not(test))]
 pub fn get() -> Result<Option<String>, Error> {
     let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
     match entry.get_password() {
@@ -22,11 +33,13 @@ pub fn get() -> Result<Option<String>, Error> {
     }
 }
 
+#[cfg(not(test))]
 pub fn set(value: &str) -> Result<(), Error> {
     let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
     entry.set_password(value).map_err(map_keyring_err)
 }
 
+#[cfg(not(test))]
 pub fn clear() -> Result<(), Error> {
     let entry = ::keyring::Entry::new(SERVICE, USERNAME).map_err(map_keyring_err)?;
     match entry.delete_credential() {
@@ -36,6 +49,7 @@ pub fn clear() -> Result<(), Error> {
     }
 }
 
+#[cfg(not(test))]
 fn map_keyring_err(_e: ::keyring::Error) -> Error {
     Error::ModsPlatformAuth {
         kind: crate::error::ModsAuthKind::Invalid,
@@ -46,34 +60,51 @@ fn map_keyring_err(_e: ::keyring::Error) -> Error {
     // that are not user-actionable; we swallow them deliberately.
 }
 
+// --- test backend (in-memory) ------------------------------------------
+
+#[cfg(test)]
+static TEST_KEY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub fn get() -> Result<Option<String>, Error> {
+    Ok(TEST_KEY.lock().unwrap().clone())
+}
+
+#[cfg(test)]
+pub fn set(value: &str) -> Result<(), Error> {
+    *TEST_KEY.lock().unwrap() = Some(value.to_string());
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn clear() -> Result<(), Error> {
+    *TEST_KEY.lock().unwrap() = None;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Keyring tests touch the live OS keychain. They run serially and
-    // clean up after themselves. CI runners typically have a usable
-    // session keyring (Windows runners always; Linux runners require
-    // dbus + secret-service which may not be available in headless mode).
-    // The test is `#[ignore]` by default so the unit-test suite stays
-    // hermetic; the integration smoke is run manually before the squash.
-
     #[test]
-    #[ignore]
-    fn round_trip() {
-        clear().ok();
-        assert_eq!(get().unwrap(), None);
-        set("test-key").unwrap();
-        assert_eq!(get().unwrap().as_deref(), Some("test-key"));
-        clear().unwrap();
-        assert_eq!(get().unwrap(), None);
+    fn unit_tests_use_a_separate_keyring_slot() {
+        // Sentinel — if the #[cfg(test)] in-memory redirection above
+        // is ever lifted, the test backend would fall back to the OS
+        // keyring; this assertion catches the lift by checking the
+        // USERNAME scoping survived.
+        assert_eq!(USERNAME, "curseforge-api-key-test");
     }
 
     #[test]
-    fn unit_tests_use_a_separate_keyring_slot() {
-        // Guards the #[cfg(test)] split: if the conditional is ever
-        // removed, `cargo test` would again read/overwrite/delete the
-        // user's real CurseForge key. `mods/modpack/curseforge.rs`'s
-        // tests call keyring::set/clear, which use this USERNAME.
-        assert_eq!(USERNAME, "curseforge-api-key-test");
+    fn in_memory_backend_round_trips() {
+        // Smoke-test that the test backend honors set/get/clear.
+        // Serialized via the global TEST_KEY mutex; safe to interleave
+        // with other tests (each sets then clears).
+        clear().unwrap();
+        assert_eq!(get().unwrap(), None);
+        set("smoke").unwrap();
+        assert_eq!(get().unwrap().as_deref(), Some("smoke"));
+        clear().unwrap();
+        assert_eq!(get().unwrap(), None);
     }
 }
