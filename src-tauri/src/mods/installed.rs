@@ -305,6 +305,30 @@ pub async fn apply_enrichment(
     write(instance_root, &state).await
 }
 
+/// Reset `enrich_attempted = false` on every mod still missing a
+/// platform identity (`source = None`). Idempotent. Used by the
+/// CurseForge key-set hook to retry the backfill on mods that had
+/// been Modrinth-only-attempted under a keyless install — once a CF
+/// key is configured, those mods become re-queryable. Resolved mods
+/// (`source.is_some()`) are not touched. A no-op on instances whose
+/// `source = None` mods are already `enrich_attempted = false`.
+pub async fn reset_enrichment_attempts_for_unresolved(
+    instance_root: &Path,
+) -> Result<(), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    let mut changed = false;
+    for m in state.mods.iter_mut() {
+        if m.source.is_none() && m.enrich_attempted {
+            m.enrich_attempted = false;
+            changed = true;
+        }
+    }
+    if changed {
+        write(instance_root, &state).await?;
+    }
+    Ok(())
+}
+
 /// One-shot migration for `installed-mods.json`. Each step is gated on
 /// the source version, so a v1 file migrates straight to the current
 /// version in one pass. Returns true if `state` was changed (the caller
@@ -852,5 +876,109 @@ mod tests {
         let mods = list(td.path()).await.unwrap();
         assert!(mods[0].source.is_none());
         assert!(mods[0].enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn reset_enrichment_attempts_for_unresolved_flips_only_source_none_mods() {
+        // The helper resets enrich_attempted on mods still missing a
+        // platform identity (source=None). Mods that DID resolve (source
+        // set) are left alone — they have no reason to be re-queried.
+        let td = TempDir::new().unwrap();
+        let sha_unr = place_jar(&mods_dir(td.path()), "unresolved.jar", b"u").await;
+        let sha_res = place_jar(&mods_dir(td.path()), "resolved.jar", b"r").await;
+        // Synthesize entries via list(), then mark them with the
+        // attempted-but-source-mismatch starting state we want.
+        let _ = list(td.path()).await.unwrap();
+        // Manually set up the starting state: both flagged
+        // attempted=true; only the resolved one has a source.
+        let mut state = read_or_empty(td.path()).await.unwrap();
+        for m in state.mods.iter_mut() {
+            m.enrich_attempted = true;
+            if m.sha1 == sha_res {
+                m.source = Some(ModSource::Modrinth);
+                m.project_id = Some("p".into());
+                m.version_id = Some("v".into());
+            }
+        }
+        write(td.path(), &state).await.unwrap();
+
+        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+
+        let state = read_or_empty(td.path()).await.unwrap();
+        let unr = state.mods.iter().find(|m| m.sha1 == sha_unr).unwrap();
+        let res = state.mods.iter().find(|m| m.sha1 == sha_res).unwrap();
+        assert!(!unr.enrich_attempted, "source=None mod must be reset");
+        assert!(
+            res.enrich_attempted,
+            "resolved mod's flag must be left alone"
+        );
+        assert_eq!(res.source, Some(ModSource::Modrinth));
+    }
+
+    #[tokio::test]
+    async fn reset_enrichment_attempts_for_unresolved_is_idempotent() {
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "unresolved.jar", b"u").await;
+        let _ = list(td.path()).await.unwrap();
+        let mut state = read_or_empty(td.path()).await.unwrap();
+        state.mods[0].enrich_attempted = true;
+        write(td.path(), &state).await.unwrap();
+
+        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+
+        let state = read_or_empty(td.path()).await.unwrap();
+        let m = state.mods.iter().find(|m| m.sha1 == sha).unwrap();
+        assert!(!m.enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn reset_enrichment_attempts_for_unresolved_no_op_on_already_clean() {
+        // No source=None+attempted=true mods anywhere → helper returns
+        // Ok and leaves state alone.
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "resolved.jar", b"r").await;
+        let _ = list(td.path()).await.unwrap();
+        let mut state = read_or_empty(td.path()).await.unwrap();
+        state.mods[0].source = Some(ModSource::Modrinth);
+        state.mods[0].project_id = Some("p".into());
+        state.mods[0].version_id = Some("v".into());
+        state.mods[0].enrich_attempted = true;
+        write(td.path(), &state).await.unwrap();
+
+        reset_enrichment_attempts_for_unresolved(td.path()).await.unwrap();
+
+        let state = read_or_empty(td.path()).await.unwrap();
+        let m = state.mods.iter().find(|m| m.sha1 == sha).unwrap();
+        // Resolved mod kept its attempted flag (no reset for it) and
+        // its identity.
+        assert!(m.enrich_attempted);
+        assert_eq!(m.source, Some(ModSource::Modrinth));
+    }
+
+    #[tokio::test]
+    async fn reset_helper_clears_attempted_across_multiple_instances() {
+        // Pin the iteration semantic the command uses: calling the
+        // helper across N instance roots flips the flag in each.
+        let td_a = TempDir::new().unwrap();
+        let td_b = TempDir::new().unwrap();
+        let sha_a = place_jar(&mods_dir(td_a.path()), "a.jar", b"a-bytes").await;
+        let sha_b = place_jar(&mods_dir(td_b.path()), "b.jar", b"b-bytes").await;
+        for td in [&td_a, &td_b] {
+            let _ = list(td.path()).await.unwrap();
+            let mut state = read_or_empty(td.path()).await.unwrap();
+            state.mods[0].enrich_attempted = true;
+            write(td.path(), &state).await.unwrap();
+        }
+
+        // The command's iteration:
+        for root in [td_a.path(), td_b.path()] {
+            reset_enrichment_attempts_for_unresolved(root).await.unwrap();
+        }
+
+        let s_a = read_or_empty(td_a.path()).await.unwrap();
+        let s_b = read_or_empty(td_b.path()).await.unwrap();
+        assert!(!s_a.mods.iter().find(|m| m.sha1 == sha_a).unwrap().enrich_attempted);
+        assert!(!s_b.mods.iter().find(|m| m.sha1 == sha_b).unwrap().enrich_attempted);
     }
 }

@@ -95,13 +95,21 @@ struct MrVersionLite {
 }
 
 /// Batch-resolve SHA-1 hashes against Modrinth's `version_files`
-/// endpoint. Returns `sha1 (lowercased) -> VersionRef` for every hash
-/// the platform knows. Best-effort: any failure logs to stderr and
-/// yields an empty map. No API key required.
-async fn resolve_modrinth(base: &str, shas: &[String]) -> HashMap<String, VersionRef> {
+/// endpoint. Returns `(matches, succeeded)`: `matches` is `sha1
+/// (lowercased) -> VersionRef` for every hash the platform knows;
+/// `succeeded` is `true` iff the platform returned a parsed-OK 2xx
+/// response (with or without matches). Failures (transport, non-2xx,
+/// decode) yield `(empty, false)`. The empty-input short-circuit yields
+/// `(empty, true)` — vacuous success, no failure occurred. Best-effort:
+/// any failure logs to stderr and is treated as "no matches." No API
+/// key required.
+async fn resolve_modrinth(
+    base: &str,
+    shas: &[String],
+) -> (HashMap<String, VersionRef>, bool) {
     let mut out = HashMap::new();
     if shas.is_empty() {
-        return out;
+        return (out, true);
     }
     let url = format!("{base}/v2/version_files");
     let body = serde_json::to_vec(&serde_json::json!({
@@ -120,18 +128,18 @@ async fn resolve_modrinth(base: &str, shas: &[String]) -> HashMap<String, Versio
         Ok(r) => r,
         Err(e) => {
             eprintln!("[enrich] modrinth version_files query failed: {e}");
-            return out;
+            return (out, false);
         }
     };
     if !(200..300).contains(&resp.status) {
         eprintln!("[enrich] modrinth version_files HTTP {}", resp.status);
-        return out;
+        return (out, false);
     }
     let map: HashMap<String, MrVersionLite> = match serde_json::from_slice(&resp.body) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[enrich] modrinth version_files decode failed: {e}");
-            return out;
+            return (out, false);
         }
     };
     for (sha, v) in map {
@@ -144,7 +152,7 @@ async fn resolve_modrinth(base: &str, shas: &[String]) -> HashMap<String, Versio
             },
         );
     }
-    out
+    (out, true)
 }
 
 #[derive(Deserialize)]
@@ -185,20 +193,23 @@ struct CfFingerprintFile {
 
 /// Batch-resolve Murmur2 fingerprints against CurseForge's
 /// `fingerprints` endpoint. `fingerprints` pairs each jar's fingerprint
-/// with its SHA-1; the returned map is keyed by SHA-1 (lowercased) so
-/// the caller can match it to the registry. Best-effort: any failure
-/// (including 401/403) logs to stderr and yields an empty map. The
-/// stored key is deliberately NOT cleared on 401/403 — enrichment is
-/// a background pass and must not disrupt the user's interactive
-/// CurseForge session.
+/// with its SHA-1; the returned `matches` map is keyed by SHA-1
+/// (lowercased) so the caller can match it to the registry.
+/// `succeeded` is `true` iff CF returned a parsed-OK 2xx response (with
+/// or without exactMatches). Failures (transport, non-2xx including
+/// 401/403, decode) yield `(empty, false)`. The empty-input
+/// short-circuit yields `(empty, true)`. Best-effort: any failure logs
+/// to stderr. On 401/403 the stored key is deliberately NOT cleared —
+/// enrichment runs in the background and must not disrupt the user's
+/// interactive CurseForge session.
 async fn resolve_curseforge(
     base: &str,
     key: &str,
     fingerprints: &[(u32, String)],
-) -> HashMap<String, VersionRef> {
+) -> (HashMap<String, VersionRef>, bool) {
     let mut out = HashMap::new();
     if fingerprints.is_empty() {
-        return out;
+        return (out, true);
     }
     // Two jars colliding on the 32-bit Murmur2 fingerprint is
     // astronomically unlikely at modpack scale (< ~1000 jars). If it
@@ -222,18 +233,18 @@ async fn resolve_curseforge(
         Ok(r) => r,
         Err(e) => {
             eprintln!("[enrich] curseforge fingerprints query failed: {e}");
-            return out;
+            return (out, false);
         }
     };
     if !(200..300).contains(&resp.status) {
         eprintln!("[enrich] curseforge fingerprints HTTP {}", resp.status);
-        return out;
+        return (out, false);
     }
     let parsed: CfFingerprintEnvelope = match serde_json::from_slice(&resp.body) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("[enrich] curseforge fingerprints decode failed: {e}");
-            return out;
+            return (out, false);
         }
     };
     for m in parsed.data.exact_matches {
@@ -248,7 +259,7 @@ async fn resolve_curseforge(
             );
         }
     }
-    out
+    (out, true)
 }
 
 /// Hash-enrich an instance's modpack override-bundled mods. Reads the
@@ -305,10 +316,11 @@ pub async fn enrich_instance(
         }
     }
 
-    let mr = resolve_modrinth(modrinth_base, &shas).await;
-    let cf = match cf_key {
+    let cf_tried = cf_key.is_some();
+    let (mr, mr_ok) = resolve_modrinth(modrinth_base, &shas).await;
+    let (cf, cf_ok) = match cf_key {
         Some(k) => resolve_curseforge(cf_base, k, &fingerprints).await,
-        None => HashMap::new(),
+        None => (HashMap::new(), true),
     };
 
     let home = pack_origin.source;
@@ -320,14 +332,19 @@ pub async fn enrich_instance(
         }
     }
 
-    // `attempted` covers every in-scope mod, resolved or not — each gets
-    // `enrich_attempted = true` so a later backfill never re-queries a
-    // jar no platform could identify. (Spec §4.) A jar whose disk read
-    // failed above is still here: it has no CurseForge fingerprint, but
-    // its SHA-1 was still sent to Modrinth, and `list()` reconciled the
-    // registry against `mods/` just above — so an in-scope mod's jar is
-    // on disk in practice and the read-failure branch is only defensive.
-    let attempted: HashSet<String> = shas.into_iter().collect();
+    // `attempted` gates on whether every platform we TRIED in this pass
+    // succeeded with a parsed-OK response. A platform we did not query
+    // (CF when `cf_key.is_none()`) does not count as tried. When any
+    // tried platform failed, no mod gets the attempted flag — the next
+    // pass retries. The `resolved` map is written back regardless so
+    // partial-success identities (Modrinth hit while CF was down) still
+    // land. (Spec §1-§2.)
+    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
+    let attempted: HashSet<String> = if all_tried_succeeded {
+        shas.into_iter().collect()
+    } else {
+        HashSet::new()
+    };
     installed::apply_enrichment(instance_root, &resolved, &attempted).await?;
     Ok(resolved.len() as u32)
 }
@@ -480,8 +497,10 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let got = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        let (got, succeeded) =
+            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got.get("abc123").expect("hash should resolve");
         assert_eq!(id.source, ModSource::Modrinth);
         assert_eq!(id.project_id, "MR-PROJ");
@@ -490,13 +509,14 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_modrinth_empty_input_makes_no_request() {
-        // No MockServer: an empty hash list must short-circuit.
-        let got = resolve_modrinth("http://127.0.0.1:1", &[]).await;
+        // Empty hashes → no request, vacuous success.
+        let (got, succeeded) = resolve_modrinth("http://127.0.0.1:1", &[]).await;
         assert!(got.is_empty());
+        assert!(succeeded, "no failure occurred — succeeded should be true");
     }
 
     #[tokio::test]
-    async fn resolve_modrinth_non_2xx_yields_empty_map() {
+    async fn resolve_modrinth_non_2xx_yields_empty_map_and_succeeded_false() {
         let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
@@ -505,20 +525,70 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let got = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        let (got, succeeded) =
+            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
+        assert!(!succeeded, "non-2xx should be succeeded=false");
+    }
+
+    #[tokio::test]
+    async fn resolve_modrinth_200_with_no_matches_is_succeeded_true() {
+        // A successful 2xx with an empty object body means "platform
+        // definitively does not know this hash" — that IS a successful
+        // attempt; the mod's attempted flag should flip.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(succeeded, "200 + empty object should be succeeded=true");
+    }
+
+    #[tokio::test]
+    async fn resolve_modrinth_transport_failure_is_succeeded_false() {
+        // Port 1 is unreachable — connection fails before any status.
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_modrinth("http://127.0.0.1:1", &["abc123".to_string()]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(!succeeded, "transport failure should be succeeded=false");
+    }
+
+    #[tokio::test]
+    async fn resolve_modrinth_200_with_bad_body_is_succeeded_false() {
+        // A 200 response whose body is not the expected
+        // `HashMap<String, MrVersionLite>` shape (e.g. an HTML error
+        // page slipped through by the CDN) is a decode failure —
+        // logged and reported as succeeded=false so the mod's attempted
+        // flag does not flip and the next pass retries.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(!succeeded, "decode failure should be succeeded=false");
     }
 
     #[tokio::test]
     async fn resolve_curseforge_maps_fingerprint_to_identity() {
         let _g = test_lock();
         let s = MockServer::start().await;
-        // Real CurseForge response shape: top-level `exactMatches[].id`
-        // is the modId, NOT the fingerprint we sent — the fingerprint
-        // is echoed at `file.fileFingerprint`. The two ids and the
-        // fingerprint are deliberately distinct numbers below: a bug
-        // that confused them (as earlier code did) would fail this test.
         let body = serde_json::json!({
             "data": {
                 "exactMatches": [
@@ -539,8 +609,10 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let got = resolve_curseforge(&s.uri(), "test-key", &[(111u32, "sha-a".to_string())]).await;
+        let (got, succeeded) =
+            resolve_curseforge(&s.uri(), "test-key", &[(111u32, "sha-a".to_string())]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got.get("sha-a").expect("fingerprint should map back to its sha1");
         assert_eq!(id.source, ModSource::Curseforge);
         assert_eq!(id.project_id, "12345");
@@ -549,12 +621,13 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_curseforge_empty_input_makes_no_request() {
-        let got = resolve_curseforge("http://127.0.0.1:1", "k", &[]).await;
+        let (got, succeeded) = resolve_curseforge("http://127.0.0.1:1", "k", &[]).await;
         assert!(got.is_empty());
+        assert!(succeeded, "no failure occurred — succeeded should be true");
     }
 
     #[tokio::test]
-    async fn resolve_curseforge_unauthorized_yields_empty_map() {
+    async fn resolve_curseforge_unauthorized_yields_empty_map_and_succeeded_false() {
         let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
@@ -563,9 +636,80 @@ mod tests {
             .mount(&s)
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let got = resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
+        let (got, succeeded) =
+            resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
+        assert!(!succeeded, "403 should be succeeded=false");
+    }
+
+    #[tokio::test]
+    async fn resolve_curseforge_200_with_no_matches_is_succeeded_true() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let body = serde_json::json!({ "data": { "exactMatches": [] } });
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(succeeded, "200 + empty exactMatches should be succeeded=true");
+    }
+
+    #[tokio::test]
+    async fn resolve_curseforge_401_is_succeeded_false() {
+        // 401 is the same class of failure as 403 — auth rejected. The
+        // key is deliberately NOT cleared (enrichment runs in the
+        // background and must not disrupt the user's interactive CF
+        // session); the mod's attempted flag stays unflipped.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(!succeeded, "401 should be succeeded=false");
+    }
+
+    #[tokio::test]
+    async fn resolve_curseforge_transport_failure_is_succeeded_false() {
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_curseforge("http://127.0.0.1:1", "k", &[(111u32, "sha-a".to_string())]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(!succeeded, "transport failure should be succeeded=false");
+    }
+
+    #[tokio::test]
+    async fn resolve_curseforge_200_with_bad_body_is_succeeded_false() {
+        // A 200 with a body that doesn't match the expected envelope
+        // (decode failure) reports succeeded=false so the mod's
+        // attempted flag does not flip — parallel to the Modrinth case.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let (got, succeeded) =
+            resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(got.is_empty());
+        assert!(!succeeded, "decode failure should be succeeded=false");
     }
 
     #[tokio::test]
@@ -712,5 +856,170 @@ mod tests {
         assert_eq!(m.source, Some(ModSource::Curseforge));
         assert_eq!(m.project_id.as_deref(), Some("12345"));
         assert_eq!(m.version_id.as_deref(), Some("999"));
+    }
+
+    #[tokio::test]
+    async fn enrich_instance_does_not_mark_attempted_when_cf_fails() {
+        // Both platforms in scope (CF key configured). Modrinth returns
+        // 2xx-empty (succeeded, no match). CF returns 5xx (failed). The
+        // mod must stay source=None AND enrich_attempted=false so the
+        // next pass retries.
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let bytes = b"sodium-jar-bytes";
+        let sha = place_jar(td.path(), "sodium.jar", bytes).await;
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Curseforge, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
+
+        let mr = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&mr)
+            .await;
+        let cf = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&cf)
+            .await;
+
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let n = enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
+            .await
+            .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(n, 0);
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        assert!(m.source.is_none());
+        assert!(
+            !m.enrich_attempted,
+            "CF failed → mod must NOT be marked attempted so next pass retries"
+        );
+    }
+
+    #[tokio::test]
+    async fn enrich_instance_does_not_mark_attempted_when_modrinth_fails() {
+        // Modrinth returns 5xx; CF returns 2xx-empty. Mirror of the
+        // above. The mod stays attempted=false.
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let bytes = b"sodium-jar-bytes";
+        let sha = place_jar(td.path(), "sodium.jar", bytes).await;
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Curseforge, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
+
+        let mr = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mr)
+            .await;
+        let cf = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "data": { "exactMatches": [] } })
+            ))
+            .mount(&cf)
+            .await;
+
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let n = enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
+            .await
+            .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(n, 0);
+
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        assert!(m.source.is_none());
+        assert!(!m.enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn enrich_instance_marks_attempted_when_only_modrinth_tried_and_succeeded() {
+        // No CF key configured. Modrinth returns 2xx-empty. Since CF
+        // was never tried, the "every tried platform succeeded" gate
+        // passes — the mod becomes enrich_attempted=true.
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Modrinth, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
+
+        let mr = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&mr)
+            .await;
+
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
+            .await
+            .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        assert!(m.source.is_none());
+        assert!(m.enrich_attempted, "no-CF-key pass should still mark attempted");
+    }
+
+    #[tokio::test]
+    async fn enrich_instance_marks_attempted_when_both_platforms_succeed_no_matches() {
+        // Both platforms in scope (CF key configured). Both return
+        // 2xx-empty. The mod really is unidentifiable — mark attempted
+        // so the backfill stops retrying.
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Curseforge, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
+
+        let mr = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&mr)
+            .await;
+        let cf = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/fingerprints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "data": { "exactMatches": [] } })
+            ))
+            .mount(&cf)
+            .await;
+
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
+            .await
+            .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods.iter().find(|m| m.sha1.eq_ignore_ascii_case(&sha)).unwrap();
+        assert!(m.source.is_none(), "no matches → source must remain None");
+        assert!(m.enrich_attempted);
     }
 }

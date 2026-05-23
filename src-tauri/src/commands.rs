@@ -1011,11 +1011,21 @@ pub async fn mods_get_curseforge_key_status() -> crate::error::Result<KeyStatus>
 /// Validate a candidate CurseForge API key by pinging `/v1/games/432`
 /// (the Minecraft game id) with `x-api-key`. On a non-success HTTP
 /// response we return `ModsPlatformAuth { kind: Invalid }` and do NOT
-/// persist anything. Only a successful ping causes the key to be written
-/// to the OS keyring.
+/// persist anything. Only a successful ping causes the key to be
+/// written to the OS keyring.
+///
+/// After a successful key set, this command also iterates every
+/// instance and resets `enrich_attempted = false` on each instance's
+/// `source = None` mods, so any mods that were Modrinth-only-attempted
+/// under a keyless install are retried (now with CF) on the next
+/// Installed-tab open. Reset failures are logged and swallowed — a
+/// single instance's registry write failure must not fail the key set.
 #[tauri::command]
 #[specta::specta]
-pub async fn mods_set_curseforge_key(key: String) -> crate::error::Result<()> {
+pub async fn mods_set_curseforge_key(
+    app: tauri::AppHandle,
+    key: String,
+) -> crate::error::Result<()> {
     let url = "https://api.curseforge.com/v1/games/432";
     let resp = crate::network::request::get(url, &[("x-api-key", key.as_str())], "mods")
         .await
@@ -1028,7 +1038,33 @@ pub async fn mods_set_curseforge_key(key: String) -> crate::error::Result<()> {
             kind: crate::error::ModsAuthKind::Invalid,
         });
     }
-    cf_keyring::set(&key)
+    cf_keyring::set(&key)?;
+
+    // Self-heal: any instance whose source=None mods were attempted
+    // under a keyless or CF-down pass becomes eligible for backfill
+    // again on the next Installed-tab open. Best-effort.
+    let instances = match crate::instances::list_instances_with_status(&app) {
+        Ok(xs) => xs,
+        Err(e) => {
+            eprintln!("[mods_set_curseforge_key] could not list instances for reset: {e}");
+            return Ok(());
+        }
+    };
+    for inst in instances {
+        let root = match crate::paths::instance_dir(&app, &inst.id) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[mods_set_curseforge_key] no instance_dir for {}: {e}", inst.id);
+                continue;
+            }
+        };
+        if let Err(e) =
+            crate::mods::installed::reset_enrichment_attempts_for_unresolved(&root).await
+        {
+            eprintln!("[mods_set_curseforge_key] reset failed for {}: {e}", inst.id);
+        }
+    }
+    Ok(())
 }
 
 /// Remove the stored CurseForge API key. No-op if no key is set.

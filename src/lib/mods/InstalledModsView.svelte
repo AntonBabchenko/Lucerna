@@ -153,8 +153,11 @@
     // Backfill: if this instance has modpack override-bundled mods that
     // still lack a platform identity and have never been hash-enriched,
     // run one enrichment pass and re-fetch the list. `enrich_attempted`
-    // flips true for every mod the pass tries, so this branch can never
-    // run twice for the same mod — no loop.
+    // flips true only when EVERY platform the pass tried responded
+    // successfully — a transient CF/Modrinth outage leaves the flag
+    // unflipped, so this branch can fire again on a later Installed-tab
+    // open until both platforms answered. Bounded by tab events, not a
+    // hot loop.
     if (
       summary &&
       r.data.some(
