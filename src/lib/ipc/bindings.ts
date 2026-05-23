@@ -256,8 +256,15 @@ export const commands = {
 	 *  Validate a candidate CurseForge API key by pinging `/v1/games/432`
 	 *  (the Minecraft game id) with `x-api-key`. On a non-success HTTP
 	 *  response we return `ModsPlatformAuth { kind: Invalid }` and do NOT
-	 *  persist anything. Only a successful ping causes the key to be written
-	 *  to the OS keyring.
+	 *  persist anything. Only a successful ping causes the key to be
+	 *  written to the OS keyring.
+	 * 
+	 *  After a successful key set, this command also iterates every
+	 *  instance and resets `enrich_attempted = false` on each instance's
+	 *  `source = None` mods, so any mods that were Modrinth-only-attempted
+	 *  under a keyless install are retried (now with CF) on the next
+	 *  Installed-tab open. Reset failures are logged and swallowed — a
+	 *  single instance's registry write failure must not fail the key set.
 	 */
 	modsSetCurseforgeKey: (key: string) => typedError<null, Error>(__TAURI_INVOKE("mods_set_curseforge_key", { key })),
 	/**  Remove the stored CurseForge API key. No-op if no key is set. */
