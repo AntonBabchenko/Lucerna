@@ -1,5 +1,7 @@
 # FTlauncher
 
+[![CI](https://github.com/AntonBabchenko/FTlauncher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AntonBabchenko/FTlauncher/actions/workflows/ci.yml?query=branch%3Amain)
+
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
 **F**ree **T**auri **Launcher** — a clean, transparent open-source Minecraft launcher for
