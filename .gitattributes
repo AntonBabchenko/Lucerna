@@ -17,3 +17,5 @@
 *.jar  binary
 *.exe  binary
 *.dll  binary
+*.class binary
+*.icns  binary
