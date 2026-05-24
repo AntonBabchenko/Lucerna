@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { commands, type CrashReport, type LogFileMeta, type LogSource } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type CrashReport,
+    type Diagnosis,
+    type LogFileMeta,
+    type LogSource,
+  } from '$lib/ipc/bindings';
 
   let {
     open = $bindable(false),
@@ -31,6 +37,7 @@
   let listError = $state<string | null>(null);
   let selectedPath = $state<string | null>(null);
   let selectedContent = $state<string>('');
+  let diagnosis = $state<Diagnosis | null>(null);
   let contentError = $state<string | null>(null);
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
@@ -71,10 +78,24 @@
   async function loadContent(path: string) {
     loadingContent = true;
     contentError = null;
+    diagnosis = null;
     const result = await commands.readLogFile(path, capBytes);
     loadingContent = false;
     if (result.status === 'ok') {
       selectedContent = result.data;
+      // Diagnose is best-effort — never blocks the user from seeing
+      // the raw content. Errors (missing instance, IO) are logged
+      // and swallowed; UI just hides the Diagnosis section.
+      if (instanceId) {
+        const d = await commands.diagnoseLog(instanceId, path);
+        if (d.status === 'ok') {
+          diagnosis = d.data;
+        } else {
+          // biome-ignore lint/suspicious/noConsole: best-effort UI degradation when IPC fails
+          console.warn('[LogsPopover] diagnose_log failed:', d.error);
+          diagnosis = null;
+        }
+      }
     } else {
       contentError = JSON.stringify(result.error);
       selectedContent = '';
@@ -256,6 +277,22 @@
             <div class="px-3 py-1 bg-yellow-50 text-yellow-800 text-xs border-b">
               Truncated — showing last {formatBytes(capBytes)}. Raise cap to see more.
             </div>
+          {/if}
+          {#if diagnosis}
+            <details open class="mx-3 mt-3 border border-amber-300 bg-amber-50 rounded p-3">
+              <summary class="cursor-pointer font-semibold text-amber-900 select-none">
+                ⚠ {diagnosis.title}
+              </summary>
+              <p class="mt-2 text-sm text-amber-900">{diagnosis.explanation}</p>
+              <p class="mt-2 text-sm text-amber-900">
+                <span class="font-semibold">What to try:</span>
+                {diagnosis.recommendation}
+              </p>
+              {#if diagnosis.matched_excerpt}
+                <pre
+                  class="mt-2 text-xs font-mono bg-white p-2 rounded border border-amber-200 overflow-x-auto whitespace-pre-wrap">{diagnosis.matched_excerpt}</pre>
+              {/if}
+            </details>
           {/if}
           <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-neutral-50">
             <pre
