@@ -82,9 +82,9 @@ pub const PATTERNS: &[Pattern] = &[
             "One of your mods was built for a newer version of Java than the instance is \
              currently running. Minecraft launched the game, but the mod's classes failed to load.",
         recommendation:
-            "Open Manage for this instance, switch to a newer JRE (Java 21 covers most modern \
-             mods), then try again. If no newer JRE is installed, the launcher will offer to \
-             download one.",
+            "Bump the instance's Minecraft version under Manage → Minecraft version — newer \
+             MC versions install a newer JRE automatically. If your modpack is locked to this \
+             MC version, the mod itself likely needs an update from its author.",
         source_hint: SourceHint::Any,
     },
     Pattern {
@@ -98,7 +98,7 @@ pub const PATTERNS: &[Pattern] = &[
             "Open the crash log below to see which mods are named. Disable one of the two in the \
              Installed tab and try again. If you imported a modpack, see if the pack author lists \
              a known-bad combination.",
-        source_hint: SourceHint::GameLog,
+        source_hint: SourceHint::Any,
     },
     Pattern {
         id: "fabric-loader-missing-main",

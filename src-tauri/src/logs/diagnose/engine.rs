@@ -1,6 +1,5 @@
 //! Pattern-matching engine + excerpt extraction. Pure functions —
-//! no I/O, no globals, no network. Stub bodies are filled in by
-//! Task 2.
+//! no I/O, no globals, no network.
 
 use super::patterns::{Pattern, PATTERNS};
 use super::Diagnosis;
