@@ -44,6 +44,7 @@ pub fn run() {
             commands::list_log_files,
             commands::read_log_file,
             commands::latest_crash,
+            commands::diagnose_log,
             commands::open_mods_folder,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,

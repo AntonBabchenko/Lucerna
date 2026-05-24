@@ -88,6 +88,20 @@ export const commands = {
 	preview: string,
 } | null, Error>(__TAURI_INVOKE("latest_crash", { instanceId })),
 	/**
+	 *  Run the diagnoser over `path`. Returns `Ok(None)` when no known
+	 *  pattern matches or the file is empty/too short. Path must be
+	 *  under one of `instance_id`'s allowed log roots — anything else
+	 *  is rejected with `Error::Io` (mirrors `read_log_file` semantics
+	 *  but scoped to a single instance rather than all instances).
+	 */
+	diagnoseLog: (instanceId: string, path: string) => typedError<{
+	pattern_id: string,
+	title: string,
+	explanation: string,
+	recommendation: string,
+	matched_excerpt: string,
+} | null, Error>(__TAURI_INVOKE("diagnose_log", { instanceId, path })),
+	/**
 	 *  Ensure `<instance>/.minecraft/mods/` exists, then open it in the OS
 	 *  file manager. Idempotent — safe to click repeatedly. Vanilla MC
 	 *  does not load mods; the UI carries a caveat below the button.
@@ -489,6 +503,20 @@ export type CrashReport = {
 export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
 export type DepProjectRef = { source: "modrinth"; project_id: string; version_id: string | null } | { source: "curseforge"; mod_id: number; file_id: number | null };
+
+/**
+ *  A single diagnoser hit. Returned by `diagnose` and consumed
+ *  directly by the UI. Pattern_id is on the wire so per-pattern
+ *  presentation tweaks (icons, etc.) can be added later without
+ *  changing the protocol.
+ */
+export type Diagnosis = {
+	pattern_id: string,
+	title: string,
+	explanation: string,
+	recommendation: string,
+	matched_excerpt: string,
+};
 
 /**
  *  Progress event emitted during a download. The UI subscribes via

@@ -213,6 +213,24 @@ pub fn latest_crash(
     crate::logs::files::latest_crash(&app, &instance_id)
 }
 
+/// Run the diagnoser over `path`. Returns `Ok(None)` when no known
+/// pattern matches or the file is empty/too short. Path must be
+/// under one of `instance_id`'s allowed log roots — anything else
+/// is rejected with `Error::Io` (mirrors `read_log_file` semantics
+/// but scoped to a single instance rather than all instances).
+#[tauri::command]
+#[specta::specta]
+pub async fn diagnose_log(
+    app: tauri::AppHandle,
+    instance_id: String,
+    path: String,
+) -> Result<Option<crate::logs::diagnose::Diagnosis>, crate::error::Error> {
+    let roots = crate::logs::files::allowed_roots(&app, &instance_id)?;
+    let path_buf = std::path::PathBuf::from(&path);
+    crate::logs::files::assert_under_allowed_roots(&path_buf, &roots)?;
+    crate::logs::diagnose::diagnose(&path_buf).await
+}
+
 /// Ensure `<instance>/.minecraft/mods/` exists, then open it in the OS
 /// file manager. Idempotent — safe to click repeatedly. Vanilla MC
 /// does not load mods; the UI carries a caveat below the button.
