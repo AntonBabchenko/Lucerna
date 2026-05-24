@@ -100,7 +100,7 @@ fn list_root_into(root: &Path, source: LogSource, out: &mut Vec<LogFileMeta>) {
         out.push(LogFileMeta {
             path: entry.path().to_string_lossy().into_owned(),
             name: name.to_string(),
-            source: source.clone(),
+            source,
             size_bytes: meta.len() as f64,
             modified_unix_ms,
         });
