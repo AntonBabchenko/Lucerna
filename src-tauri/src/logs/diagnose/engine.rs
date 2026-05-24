@@ -306,4 +306,131 @@ mod tests {
 
     use once_cell::sync::Lazy;
     use regex::Regex;
+
+    // --- Per-pattern positive + negative coverage -------------------
+    //
+    // Each pattern in PATTERNS has one positive test against a
+    // real-shaped log excerpt and one negative test against an
+    // unrelated trace. Excerpts are simplified-but-realistic — the
+    // long form lives in tests/logs_diagnose_integration.rs.
+
+    fn assert_diag(content: &str, src: LogSource, expected_id: &str) {
+        let d = match_log(content, src)
+            .unwrap_or_else(|| panic!("expected pattern {expected_id} to match, got None"));
+        assert_eq!(d.pattern_id, expected_id);
+    }
+
+    fn assert_no_diag(content: &str, src: LogSource) {
+        if let Some(d) = match_log(content, src) {
+            panic!("expected no match, got {}", d.pattern_id);
+        }
+    }
+
+    // 1. java-version-too-old
+
+    #[test]
+    fn pattern_java_version_matches_real_jvm_trace() {
+        let content = "java.lang.UnsupportedClassVersionError: net/optifine/Config has been compiled by a more recent version of the Java Runtime (class file version 65.0), this version of the Java Runtime only recognizes class file versions up to 61.0";
+        assert_diag(content, LogSource::Game, "java-version-too-old");
+    }
+
+    #[test]
+    fn pattern_java_version_does_not_match_unrelated_classcast() {
+        assert_no_diag(
+            "java.lang.ClassCastException: cannot cast Foo to Bar",
+            LogSource::Game,
+        );
+    }
+
+    // 2. mod-resolution-conflict
+
+    #[test]
+    fn pattern_mod_conflict_matches_fabric_resolution_exception() {
+        let content = "[10:00:01] [main/ERROR]: Failed to start! \
+                       net.fabricmc.loader.impl.discovery.ModResolutionException: \
+                       Mod resolution encountered an incompatible mod set!";
+        assert_diag(content, LogSource::Game, "mod-resolution-conflict");
+    }
+
+    #[test]
+    fn pattern_mod_conflict_does_not_match_generic_runtime_exception() {
+        assert_no_diag(
+            "java.lang.RuntimeException: oops something went wrong",
+            LogSource::Game,
+        );
+    }
+
+    // 3. fabric-loader-missing-main
+
+    #[test]
+    fn pattern_fabric_missing_main_matches_launcher_stdout() {
+        let content = "Error: Could not find or load main class net.fabricmc.loader.impl.launch.knot.KnotClient";
+        assert_diag(content, LogSource::Launcher, "fabric-loader-missing-main");
+    }
+
+    #[test]
+    fn pattern_fabric_missing_main_skipped_on_game_log_source() {
+        // source_hint = LauncherStdout — must NOT fire on a game-log.
+        let content = "Error: Could not find or load main class net.fabricmc.loader.impl.launch.knot.KnotClient";
+        assert_no_diag(content, LogSource::Game);
+    }
+
+    // 4. corrupt-mod-jar
+
+    #[test]
+    fn pattern_corrupt_jar_matches_zip_exception() {
+        let content = "Caused by: java.util.zip.ZipException: zip END header not found";
+        assert_diag(content, LogSource::Game, "corrupt-mod-jar");
+    }
+
+    #[test]
+    fn pattern_corrupt_jar_does_not_match_arbitrary_io_exception() {
+        assert_no_diag("java.io.IOException: Connection refused", LogSource::Game);
+    }
+
+    // 5. out-of-memory
+
+    #[test]
+    fn pattern_oom_matches_heap_space_message() {
+        let content = "[Server thread/ERROR]: Encountered an unexpected exception \
+                       java.lang.OutOfMemoryError: Java heap space";
+        assert_diag(content, LogSource::Game, "out-of-memory");
+    }
+
+    #[test]
+    fn pattern_oom_does_not_match_stack_overflow() {
+        assert_no_diag("java.lang.StackOverflowError", LogSource::Game);
+    }
+
+    // 6. port-already-in-use
+
+    #[test]
+    fn pattern_port_in_use_matches_bind_exception() {
+        let content = "[Server thread/WARN]: java.net.BindException: Address already in use: bind";
+        assert_diag(content, LogSource::Game, "port-already-in-use");
+    }
+
+    #[test]
+    fn pattern_port_in_use_does_not_match_generic_socket_error() {
+        assert_no_diag(
+            "java.net.SocketException: Connection reset by peer",
+            LogSource::Game,
+        );
+    }
+
+    // 7. disk-full
+
+    #[test]
+    fn pattern_disk_full_matches_no_space_left() {
+        let content = "java.io.IOException: No space left on device";
+        assert_diag(content, LogSource::Game, "disk-full");
+    }
+
+    #[test]
+    fn pattern_disk_full_does_not_match_read_only_filesystem() {
+        assert_no_diag(
+            "java.io.IOException: Read-only file system",
+            LogSource::Game,
+        );
+    }
 }
