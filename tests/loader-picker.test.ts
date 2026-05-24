@@ -48,4 +48,35 @@ describe('LoaderPicker', () => {
     const select = await findByLabelText(/loader version/i);
     expect(select).toBeTruthy();
   });
+
+  it('preserves a non-stable loaderVersion passed by the parent on mount', async () => {
+    // Regression: load() used to unconditionally overwrite loaderVersion
+    // with the stable entry after the fetch resolved, even when the
+    // parent had just passed a valid non-stable choice (the user's
+    // previously committed pick). On every modal reopen the dropdown
+    // visually reverted to "(recommended)" — the silent UI lie users
+    // saw as "I can't pick anything but recommended."
+    //
+    // The mock returns [0.16.0 (stable), 0.17.0-beta.1 (non-stable)].
+    // Mount with loaderVersion='0.17.0-beta.1' (in the list, non-stable);
+    // after load() resolves, the dropdown must still show that value,
+    // not auto-flip to 0.16.0.
+    const { findByLabelText } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'fabric', loaderVersion: '0.17.0-beta.1' },
+    });
+    const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
+    expect(select.value).toBe('0.17.0-beta.1');
+  });
+
+  it('auto-picks the stable entry when the parent passes a value not in the fetched list', async () => {
+    // Companion to the above: a stale loaderVersion (e.g. user changed
+    // MC and the previous loader-version is no longer compatible) must
+    // still auto-pick stable rather than leave a broken-combo selection.
+    const { findByLabelText } = render(LoaderPicker, {
+      // 'nonexistent' is not in the mock list — must fall through to stable.
+      props: { mc: '1.20.1', loader: 'fabric', loaderVersion: 'nonexistent-0.99' },
+    });
+    const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
+    expect(select.value).toBe('0.16.0');
+  });
 });

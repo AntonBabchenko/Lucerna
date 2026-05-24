@@ -71,8 +71,18 @@
             : await commands.listForgeLoaders(m);
     if (result.status === 'ok') {
       versions = result.data;
-      const stable = result.data.find((l) => l.stable);
-      loaderVersion = (stable ?? result.data[0])?.version ?? null;
+      // Only auto-pick when the current loaderVersion is null or no
+      // longer in the fetched list (e.g. fresh init, switched loader,
+      // or stale after an MC change). Preserves the parent's committed
+      // pick on mount — without this guard, reopening Manage silently
+      // flipped a non-stable choice back to (recommended) every time,
+      // surfacing to users as "I can't pick anything but recommended."
+      const currentIsValid =
+        loaderVersion != null && result.data.some((l) => l.version === loaderVersion);
+      if (!currentIsValid) {
+        const stable = result.data.find((l) => l.stable);
+        loaderVersion = (stable ?? result.data[0])?.version ?? null;
+      }
     } else {
       versions = [];
       loaderVersion = null;
