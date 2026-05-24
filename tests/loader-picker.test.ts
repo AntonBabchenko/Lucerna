@@ -1,9 +1,12 @@
-import { fireEvent, render } from '@testing-library/svelte';
+import { fireEvent, render, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
 
 // Mock the IPC commands module so the component doesn't try to call
-// real Tauri commands during unit tests.
+// real Tauri commands during unit tests. Fabric + Quilt mocks share
+// the version "0.16.0" deliberately — the cross-loader regression
+// test below pins that switching loaders never preserves a version
+// just because the new loader's list happens to contain it.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     listFabricLoaders: vi.fn().mockResolvedValue({
@@ -13,7 +16,13 @@ vi.mock('$lib/ipc/bindings', () => ({
         { version: '0.17.0-beta.1', stable: false },
       ],
     }),
-    listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listQuiltLoaders: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: [
+        { version: '0.20.0', stable: true },
+        { version: '0.16.0', stable: false },
+      ],
+    }),
     listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listNeoforgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
@@ -78,5 +87,26 @@ describe('LoaderPicker', () => {
     });
     const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
     expect(select.value).toBe('0.16.0');
+  });
+
+  it('resets to the new loader stable on switch, even when versions overlap', async () => {
+    // Regression: a previous fix preserved loaderVersion across remount
+    // by checking "is the current value in the fetched list" — but that
+    // also preserved across loader SWITCHES when the two loaders shared
+    // a version number. Concrete repro: pick Fabric → auto-picks 0.16.0
+    // (Fabric's stable). Switch to Quilt → Quilt's list contains 0.16.0
+    // (non-stable) AND 0.20.0 (stable). Previous fix kept 0.16.0; right
+    // behavior is to reset to 0.20.0 — a loader switch is an explicit
+    // user-driven ecosystem change, not a remount preservation case.
+    const { getByText, findByLabelText } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'vanilla', loaderVersion: null },
+    });
+
+    await fireEvent.click(getByText('Fabric'));
+    const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe('0.16.0'));
+
+    await fireEvent.click(getByText('Quilt'));
+    await waitFor(() => expect(select.value).toBe('0.20.0'));
   });
 });

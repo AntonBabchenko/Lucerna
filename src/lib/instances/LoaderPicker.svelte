@@ -39,10 +39,18 @@
   let versions = $state<LoaderVersion[]>([]);
   let error = $state<string | null>(null);
 
-  // Refetch + auto-pick whenever (mc, loader) change. Auto-pick the
-  // `stable` version if present, else the first entry. If the list is
-  // empty (loader doesn't support this MC), clear loaderVersion so
-  // submitters refuse to persist a broken combo.
+  // Tracks the loader value the LAST $effect run dispatched a load() for.
+  // Used to distinguish "the user just switched loader" (reset to new
+  // loader's stable — explicit ecosystem change) from "same loader, just
+  // a remount or MC tweak" (preserve the parent's pick if still valid).
+  // Per-instance non-reactive let — only read/written inside $effect,
+  // no consumer needs reactivity on it.
+  let prevLoader: LoaderKind | undefined;
+
+  // Refetch + auto-pick whenever (mc, loader) change. On loader switch:
+  // reset to the new loader's stable. On mount / MC change: preserve
+  // the parent's loaderVersion if it's in the fetched list, else fall
+  // back to stable so the UI never shows a broken-combo selection.
   $effect(() => {
     const m = mc;
     const k = loader;
@@ -54,12 +62,15 @@
       // leaves "Quilt does not support Minecraft 26.1.2" hanging below
       // the loader row from a prior failed pick.
       error = null;
+      prevLoader = k;
       return;
     }
-    void load(k, m);
+    const loaderChanged = prevLoader !== undefined && prevLoader !== k;
+    prevLoader = k;
+    void load(k, m, loaderChanged);
   });
 
-  async function load(k: LoaderKind, m: string) {
+  async function load(k: LoaderKind, m: string, resetToStable: boolean) {
     error = null;
     const result =
       k === 'fabric'
@@ -71,17 +82,24 @@
             : await commands.listForgeLoaders(m);
     if (result.status === 'ok') {
       versions = result.data;
-      // Only auto-pick when the current loaderVersion is null or no
-      // longer in the fetched list (e.g. fresh init, switched loader,
-      // or stale after an MC change). Preserves the parent's committed
-      // pick on mount — without this guard, reopening Manage silently
-      // flipped a non-stable choice back to (recommended) every time,
-      // surfacing to users as "I can't pick anything but recommended."
-      const currentIsValid =
-        loaderVersion != null && result.data.some((l) => l.version === loaderVersion);
-      if (!currentIsValid) {
+      // resetToStable=true when this load was triggered by a user-driven
+      // loader switch — pick the new ecosystem's stable regardless of
+      // what loaderVersion happens to carry over (which is meaningless
+      // for the new loader even when version numbers happen to overlap,
+      // e.g. Fabric 0.16.0 and Quilt 0.16.0 are unrelated builds).
+      // resetToStable=false on mount + on MC change — preserve the
+      // parent's committed loaderVersion when still in the list, else
+      // fall back to stable so the UI never shows a broken-combo.
+      if (resetToStable) {
         const stable = result.data.find((l) => l.stable);
         loaderVersion = (stable ?? result.data[0])?.version ?? null;
+      } else {
+        const currentIsValid =
+          loaderVersion != null && result.data.some((l) => l.version === loaderVersion);
+        if (!currentIsValid) {
+          const stable = result.data.find((l) => l.stable);
+          loaderVersion = (stable ?? result.data[0])?.version ?? null;
+        }
       }
     } else {
       versions = [];
