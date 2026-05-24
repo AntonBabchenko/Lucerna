@@ -10,7 +10,7 @@ use serde::Serialize;
 use specta::Type;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Type, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LogSource {
     Game,
