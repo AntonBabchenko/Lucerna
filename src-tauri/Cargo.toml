@@ -47,6 +47,11 @@ noak = "0.4"
 xz2 = "0.1"
 async-trait = "0.1.83"
 chrono = { version = "0.4.39", default-features = false, features = ["serde", "clock"] }
+# Pattern-matching for the crash log diagnoser (logs/diagnose). Already
+# present transitively via reqwest/tracing; promoting to direct adds
+# zero new compiled bytes — only declares the dep our module imports.
+regex = { version = "1.12", default-features = false, features = ["std", "perf"] }
+once_cell = "1.21"
 keyring = { version = "3.6.2", features = ["windows-native"] }
 # dunce 1.0: Windows-friendly path canonicalisation (no \\?\ prefix) for zip-slip protection
 dunce = "1.0"
