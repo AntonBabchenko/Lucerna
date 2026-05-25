@@ -121,9 +121,9 @@ pub fn backups_root(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf
 }
 
 /// Delete a world folder AND its associated backups directory.
-/// Idempotent on the world side (missing world → WorldNotFound);
-/// best-effort on the backups side (silently ignores a missing
-/// backups subdirectory — user could have deleted it manually).
+/// Errors with WorldNotFound on missing world; best-effort cleanup
+/// of the backups subdirectory (silently ignores a missing backups
+/// subdirectory).
 pub fn delete_world(
     app: &tauri::AppHandle,
     instance_id: &str,

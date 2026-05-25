@@ -2,7 +2,6 @@
 
 use crate::error::{Error, Result};
 use crate::worlds::{
-    backup::parse_timestamp_from_filename,
     backups_root,
     fs as wfs,
     saves_dir,
@@ -13,8 +12,8 @@ use crate::worlds::{
 use chrono::Utc;
 use std::path::PathBuf;
 
-/// Public entrypoint. Dispatches to one of the two mode-specific
-/// flows. Both modes validate inputs identically up-front.
+/// Public entrypoint. Resolves paths from the AppHandle then
+/// delegates to `restore_backup_at_saves`.
 pub async fn restore_backup(
     app: &tauri::AppHandle,
     instance_id: &str,
@@ -27,21 +26,36 @@ pub async fn restore_backup(
     let saves = saves_dir(app, instance_id)?;
     let backups_dir = backups_root(app, instance_id)?.join(world_folder_name);
     let backup_path = backups_dir.join(backup_filename);
+    restore_backup_at_saves(&saves, &backups_dir, &backup_path, world_folder_name, mode).await
+}
+
+/// Test-friendly variant that takes the saves dir + backups dir
+/// directly (skips the AppHandle path-resolution). Public API uses
+/// this internally; integration tests use it too.
+pub async fn restore_backup_at_saves(
+    saves: &std::path::Path,
+    backups_dir: &std::path::Path,
+    backup_path: &std::path::Path,
+    world_folder_name: &str,
+    mode: RestoreMode,
+) -> Result<RestoredWorld> {
+    wfs::validate_segment(world_folder_name)?;
     if !backup_path.is_file() {
         return Err(Error::BackupNotFound {
-            instance_id: instance_id.into(),
+            instance_id: "<test>".into(),
             world_folder: world_folder_name.into(),
-            filename: backup_filename.into(),
+            filename: backup_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("?")
+                .into(),
         });
     }
-
     match mode {
         RestoreMode::Replace => {
-            restore_replace(&saves, &backups_dir, &backup_path, world_folder_name).await
+            restore_replace(saves, backups_dir, backup_path, world_folder_name).await
         }
-        RestoreMode::AsCopy => {
-            restore_as_copy(&saves, &backup_path, world_folder_name).await
-        }
+        RestoreMode::AsCopy => restore_as_copy(saves, backup_path, world_folder_name).await,
     }
 }
 
@@ -189,7 +203,6 @@ async fn restore_as_copy(
     std::fs::rename(&inner, &final_path)
         .map_err(|e| Error::io(final_path.display().to_string(), e))?;
     let _ = std::fs::remove_dir_all(&tmp_extract);
-    let _ = parse_timestamp_from_filename; // suppress unused import
     Ok(RestoredWorld {
         final_folder_name: chosen,
     })

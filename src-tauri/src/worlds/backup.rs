@@ -243,11 +243,6 @@ mod tests {
 
     use crate::worlds::Backup;
 
-    fn write_zip(dir: &std::path::Path, name: &str) {
-        std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join(name), b"fake-zip").unwrap();
-    }
-
     #[test]
     fn list_backups_filename_parse_orders_newest_first() {
         // Local pure-fn test of the sort order — we exercise the
