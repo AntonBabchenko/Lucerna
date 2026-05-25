@@ -108,6 +108,42 @@ export const commands = {
 	 */
 	openModsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_mods_folder", { instanceId })),
 	/**
+	 *  List singleplayer worlds in `instance_id`, newest-first by mtime.
+	 *  Empty Vec for an instance with no `.minecraft/saves/` dir yet.
+	 */
+	listWorlds: (instanceId: string) => typedError<World[], Error>(__TAURI_INVOKE("list_worlds", { instanceId })),
+	/**
+	 *  Create a new backup zip of `world_folder_name` under
+	 *  `<instance>/backups/<world>/`. Returns the new Backup descriptor.
+	 */
+	backupWorld: (instanceId: string, worldFolderName: string) => typedError<Backup, Error>(__TAURI_INVOKE("backup_world", { instanceId, worldFolderName })),
+	/**
+	 *  List backups of `world_folder_name`, newest-first by parsed
+	 *  filename timestamp. Empty Vec when none exist.
+	 */
+	listBackups: (instanceId: string, worldFolderName: string) => typedError<Backup[], Error>(__TAURI_INVOKE("list_backups", { instanceId, worldFolderName })),
+	/**
+	 *  Restore a backup. Mode determines the semantic — see RestoreMode
+	 *  docs. Returns the final folder name (= original for Replace,
+	 *  suffixed for AsCopy).
+	 */
+	restoreBackup: (instanceId: string, worldFolderName: string, backupFilename: string, mode: RestoreMode) => typedError<RestoredWorld, Error>(__TAURI_INVOKE("restore_backup", { instanceId, worldFolderName, backupFilename, mode })),
+	/**  Delete a single backup zip. */
+	deleteBackup: (instanceId: string, worldFolderName: string, backupFilename: string) => typedError<null, Error>(__TAURI_INVOKE("delete_backup", { instanceId, worldFolderName, backupFilename })),
+	/**  Delete a world folder AND its backups subdir (cascade). */
+	deleteWorld: (instanceId: string, worldFolderName: string) => typedError<null, Error>(__TAURI_INVOKE("delete_world", { instanceId, worldFolderName })),
+	/**
+	 *  Open `<instance>/.minecraft/saves/` in the OS file manager.
+	 *  Idempotent — creates the dir if missing.
+	 */
+	openSavesFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_saves_folder", { instanceId })),
+	/**
+	 *  Open `<instance>/backups/<world>/` in the OS file manager.
+	 *  Idempotent — creates the dir if missing (so the user can navigate
+	 *  even before the first backup exists).
+	 */
+	openBackupsFolder: (instanceId: string, worldFolderName: string) => typedError<null, Error>(__TAURI_INVOKE("open_backups_folder", { instanceId, worldFolderName })),
+	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
 	 *  Cached 5 minutes per `mc_id`.
@@ -471,6 +507,18 @@ export type AppFile_Serialize = {
 	onboarding: OnboardingState_Serialize,
 };
 
+/**  One on-disk backup zip for a world. */
+export type Backup = {
+	/**
+	 *  Filename under `<instance>/backups/<world>/`. Encodes
+	 *  timestamp; see `backup::parse_timestamp_from_filename`.
+	 */
+	filename: string,
+	size_bytes: number | null,
+	/**  Convenience: timestamp parsed from the filename. ms since epoch. */
+	created_unix_ms: number | null,
+};
+
 /**
  *  Compatibility verdict for a local mod jar against a target instance.
  *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
@@ -535,7 +583,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string };
 
 export type Greeting = {
 	message: string,
@@ -1090,6 +1138,17 @@ export type ResolvedDeps = {
 	unresolvable: DepProjectRef[],
 };
 
+export type RestoreMode = "replace" | "as_copy";
+
+/**
+ *  Returned by `restore_backup` so the UI knows where the restored
+ *  world landed. Equals the original `world_folder_name` for
+ *  `RestoreMode::Replace`; suffixed for `RestoreMode::AsCopy`.
+ */
+export type RestoredWorld = {
+	final_folder_name: string,
+};
+
 export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path";
 
 /**
@@ -1115,6 +1174,17 @@ export type VersionRef = {
 };
 
 export type VersionType = "release" | "snapshot" | "old_alpha" | "old_beta";
+
+/**
+ *  A singleplayer world inside an instance, surfaced to the UI.
+ *  Display name = `folder_name` in v1 (no NBT parsing).
+ */
+export type World = {
+	folder_name: string,
+	size_bytes: number | null,
+	modified_unix_ms: number | null,
+	backup_count: number,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

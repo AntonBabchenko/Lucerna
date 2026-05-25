@@ -113,6 +113,18 @@ export function formatError(e: IpcError): string {
       return `'${e.mod_name}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.`;
     case 'modpack_cf_distribution_disabled':
       return `"${e.pack_name}" cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge to download the pack manually.`;
+    case 'world_not_found':
+      return `World "${e.folder_name}" not found in this instance`;
+    case 'world_in_use':
+      return `World "${e.folder_name}" is currently in use — quit Minecraft and try again`;
+    case 'world_path_invalid':
+      return `Invalid name "${e.name}": ${e.reason}`;
+    case 'world_name_unresolvable':
+      return `Couldn't find a free name for "${e.folder_name}" — too many similarly-named copies exist`;
+    case 'backup_not_found':
+      return `Backup "${e.filename}" not found`;
+    case 'backup_corrupt':
+      return `Backup "${e.filename}" is unreadable or corrupted: ${e.details}`;
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of
