@@ -64,8 +64,8 @@ pub fn list_worlds(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<Worl
     }
     let backups_root = backups_root(app, instance_id)?;
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(&saves_dir)
-        .map_err(|e| Error::io(saves_dir.display().to_string(), e))?
+    for entry in
+        std::fs::read_dir(&saves_dir).map_err(|e| Error::io(saves_dir.display().to_string(), e))?
     {
         let entry = entry.map_err(|e| Error::io(saves_dir.display().to_string(), e))?;
         let meta = entry

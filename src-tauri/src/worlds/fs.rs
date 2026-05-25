@@ -220,7 +220,7 @@ mod tests {
         let sub = td.path().join("sub");
         fs::create_dir_all(&sub).unwrap();
         fs::write(sub.join("b.bin"), b"\x00\x01\x02\x03").unwrap(); // 4
-        fs::write(sub.join("c.bin"), vec![0u8; 100]).unwrap();      // 100
+        fs::write(sub.join("c.bin"), vec![0u8; 100]).unwrap(); // 100
         assert_eq!(dir_size(td.path()).unwrap(), 5 + 4 + 100);
     }
 

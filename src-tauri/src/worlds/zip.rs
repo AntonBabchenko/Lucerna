@@ -18,11 +18,9 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 /// `deflate` feature). Acceptable balance of CPU and compression for
 /// Minecraft NBT + region files.
 pub fn zip_dir(src_dir: &Path, dest_zip: &Path, root_name: &str) -> Result<()> {
-    let file = File::create(dest_zip)
-        .map_err(|e| Error::io(dest_zip.display().to_string(), e))?;
+    let file = File::create(dest_zip).map_err(|e| Error::io(dest_zip.display().to_string(), e))?;
     let mut zw = ZipWriter::new(BufWriter::new(file));
-    let options =
-        SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     add_dir_contents(&mut zw, src_dir, &PathBuf::from(root_name), &options)?;
     zw.finish()
         .map_err(|e| Error::io(dest_zip.display().to_string(), format!("zip finish: {e}")))?;
@@ -41,8 +39,8 @@ fn add_dir_contents<W: Write + std::io::Seek>(
     let dir_entry = format!("{}/", zip_prefix.to_string_lossy().replace('\\', "/"));
     zw.add_directory(&dir_entry, *options)
         .map_err(|e| Error::io(fs_dir.display().to_string(), format!("zip dir: {e}")))?;
-    for entry in std::fs::read_dir(fs_dir)
-        .map_err(|e| Error::io(fs_dir.display().to_string(), e))?
+    for entry in
+        std::fs::read_dir(fs_dir).map_err(|e| Error::io(fs_dir.display().to_string(), e))?
     {
         let entry = entry.map_err(|e| Error::io(fs_dir.display().to_string(), e))?;
         let path = entry.path();
@@ -55,14 +53,12 @@ fn add_dir_contents<W: Write + std::io::Seek>(
             add_dir_contents(zw, &path, &zip_path, options)?;
         } else if meta.is_file() {
             let zip_name = zip_path.to_string_lossy().replace('\\', "/");
-            zw.start_file(&zip_name, *options).map_err(|e| {
-                Error::io(path.display().to_string(), format!("zip start: {e}"))
-            })?;
+            zw.start_file(&zip_name, *options)
+                .map_err(|e| Error::io(path.display().to_string(), format!("zip start: {e}")))?;
             let mut f = BufReader::new(
                 File::open(&path).map_err(|e| Error::io(path.display().to_string(), e))?,
             );
-            std::io::copy(&mut f, zw)
-                .map_err(|e| Error::io(path.display().to_string(), e))?;
+            std::io::copy(&mut f, zw).map_err(|e| Error::io(path.display().to_string(), e))?;
         }
         // symlinks/special files: skipped (defensive; saves don't have them)
     }
@@ -76,17 +72,14 @@ fn add_dir_contents<W: Write + std::io::Seek>(
 /// the bad entry; partial extracts are NOT cleaned up here (caller
 /// responsibility — see restore.rs's tmp-dir flow).
 pub fn extract_zip(src_zip: &Path, dest_dir: &Path) -> Result<()> {
-    let file = File::open(src_zip)
-        .map_err(|e| Error::io(src_zip.display().to_string(), e))?;
-    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(|e| {
-        Error::BackupCorrupt {
-            filename: src_zip
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("?")
-                .into(),
-            details: format!("open: {e}"),
-        }
+    let file = File::open(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(|e| Error::BackupCorrupt {
+        filename: src_zip
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .into(),
+        details: format!("open: {e}"),
     })?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| Error::BackupCorrupt {
@@ -126,21 +119,18 @@ pub fn extract_zip(src_zip: &Path, dest_dir: &Path) -> Result<()> {
                 .map_err(|e| Error::io(parent.display().to_string(), e))?;
         }
         let mut out = BufWriter::new(
-            File::create(&dest_path)
-                .map_err(|e| Error::io(dest_path.display().to_string(), e))?,
+            File::create(&dest_path).map_err(|e| Error::io(dest_path.display().to_string(), e))?,
         );
         let mut buf = [0u8; 64 * 1024];
         loop {
-            let n = entry
-                .read(&mut buf)
-                .map_err(|e| Error::BackupCorrupt {
-                    filename: src_zip
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("?")
-                        .into(),
-                    details: format!("read {raw_name}: {e}"),
-                })?;
+            let n = entry.read(&mut buf).map_err(|e| Error::BackupCorrupt {
+                filename: src_zip
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("?")
+                    .into(),
+                details: format!("read {raw_name}: {e}"),
+            })?;
             if n == 0 {
                 break;
             }
@@ -203,7 +193,14 @@ mod tests {
         let out = tempdir().unwrap();
         extract_zip(&zip_path, out.path()).unwrap();
         assert_eq!(
-            read_file(&out.path().join("W").join("a").join("b").join("c").join("x.txt")),
+            read_file(
+                &out.path()
+                    .join("W")
+                    .join("a")
+                    .join("b")
+                    .join("c")
+                    .join("x.txt")
+            ),
             b"deep"
         );
     }
@@ -216,8 +213,8 @@ mod tests {
         {
             let file = File::create(&zip_path).unwrap();
             let mut zw = ZipWriter::new(BufWriter::new(file));
-            let options = SimpleFileOptions::default()
-                .compression_method(CompressionMethod::Stored);
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
             zw.start_file("../escape.txt", options).unwrap();
             zw.write_all(b"pwned").unwrap();
             zw.finish().unwrap();
@@ -239,8 +236,8 @@ mod tests {
         {
             let file = File::create(&zip_path).unwrap();
             let mut zw = ZipWriter::new(BufWriter::new(file));
-            let options = SimpleFileOptions::default()
-                .compression_method(CompressionMethod::Stored);
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
             // Note: zip-spec entry paths use forward slash. Leading slash
             // would make this an absolute-path attack.
             zw.start_file("/etc/passwd", options).unwrap();

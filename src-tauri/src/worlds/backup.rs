@@ -171,8 +171,7 @@ pub fn delete_backup(
             filename: backup_filename.into(),
         });
     }
-    std::fs::remove_file(&p)
-        .map_err(|e| Error::io(p.display().to_string(), e))?;
+    std::fs::remove_file(&p).map_err(|e| Error::io(p.display().to_string(), e))?;
     Ok(())
 }
 
@@ -252,14 +251,12 @@ mod tests {
             Backup {
                 filename: "2026-05-20T10-00-00.zip".into(),
                 size_bytes: 1.0,
-                created_unix_ms: parse_timestamp_from_filename("2026-05-20T10-00-00.zip")
-                    .unwrap(),
+                created_unix_ms: parse_timestamp_from_filename("2026-05-20T10-00-00.zip").unwrap(),
             },
             Backup {
                 filename: "2026-05-24T10-00-00.zip".into(),
                 size_bytes: 1.0,
-                created_unix_ms: parse_timestamp_from_filename("2026-05-24T10-00-00.zip")
-                    .unwrap(),
+                created_unix_ms: parse_timestamp_from_filename("2026-05-24T10-00-00.zip").unwrap(),
             },
         ];
         backups.sort_by(|a, b| {

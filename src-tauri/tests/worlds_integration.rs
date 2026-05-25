@@ -104,7 +104,10 @@ async fn end_to_end_backup_then_restore_as_copy_keeps_original() {
     assert_eq!(r.final_folder_name, "Survival (restored)");
 
     // Original kept v2, the copy has v1.
-    assert_eq!(fs::read(saves_dir.join("Survival").join("level.dat")).unwrap(), b"v2");
+    assert_eq!(
+        fs::read(saves_dir.join("Survival").join("level.dat")).unwrap(),
+        b"v2"
+    );
     assert_eq!(
         fs::read(saves_dir.join("Survival (restored)").join("level.dat")).unwrap(),
         b"v1"

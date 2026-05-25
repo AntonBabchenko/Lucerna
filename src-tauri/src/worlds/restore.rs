@@ -1,14 +1,7 @@
 //! Restore-side operations.
 
 use crate::error::{Error, Result};
-use crate::worlds::{
-    backups_root,
-    fs as wfs,
-    saves_dir,
-    zip as wzip,
-    RestoreMode,
-    RestoredWorld,
-};
+use crate::worlds::{backups_root, fs as wfs, saves_dir, zip as wzip, RestoreMode, RestoredWorld};
 use chrono::Utc;
 use std::path::PathBuf;
 
@@ -75,10 +68,7 @@ async fn restore_replace(
 
     // 1. Auto-pre-restore zip BEFORE any destructive step. Failure
     //    here aborts cleanly — original world untouched.
-    let pre_restore_name = format!(
-        "pre-restore-{}.zip",
-        Utc::now().format("%Y-%m-%dT%H-%M-%S")
-    );
+    let pre_restore_name = format!("pre-restore-{}.zip", Utc::now().format("%Y-%m-%dT%H-%M-%S"));
     let pre_restore_path = backups_dir.join(&pre_restore_name);
     let world_clone = world_path.clone();
     let pre_clone = pre_restore_path.clone();
@@ -119,9 +109,7 @@ async fn restore_replace(
                     .and_then(|s| s.to_str())
                     .unwrap_or("?")
                     .into(),
-                details: format!(
-                    "extract did not produce expected folder '{world_folder}/'"
-                ),
+                details: format!("extract did not produce expected folder '{world_folder}/'"),
             });
         }
         Ok(())
@@ -237,8 +225,7 @@ mod tests {
     #[tokio::test]
     async fn restore_replace_rolls_back_on_extract_failure() {
         // World "W" with marker file inside.
-        let (_td, saves, backups_dir) =
-            make_world_with_files("W", &[("marker.txt", b"original")]);
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
 
         // Place a CORRUPT backup zip in backups_dir — extract will fail.
         let bad_backup = backups_dir.join("2026-05-24T10-00-00.zip");
@@ -277,8 +264,7 @@ mod tests {
     #[tokio::test]
     async fn restore_replace_happy_path_swaps_contents() {
         // World "W" with v1 content.
-        let (_td, saves, backups_dir) =
-            make_world_with_files("W", &[("file.txt", b"v1")]);
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("file.txt", b"v1")]);
         // Make a real backup of v1.
         let backup_path = backups_dir.join("2026-05-24T10-00-00.zip");
         wzip::zip_dir(&saves.join("W"), &backup_path, "W").unwrap();
@@ -308,8 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn restore_as_copy_suffixes_on_conflict() {
-        let (_td, saves, backups_dir) =
-            make_world_with_files("W", &[("file.txt", b"v1")]);
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("file.txt", b"v1")]);
         let backup_path = backups_dir.join("2026-05-24T10-00-00.zip");
         wzip::zip_dir(&saves.join("W"), &backup_path, "W").unwrap();
 
@@ -334,8 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn restore_as_copy_basic_no_conflict() {
-        let (_td, saves, backups_dir) =
-            make_world_with_files("W", &[("file.txt", b"v1")]);
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("file.txt", b"v1")]);
         let backup_path = backups_dir.join("2026-05-24T10-00-00.zip");
         wzip::zip_dir(&saves.join("W"), &backup_path, "W").unwrap();
 
