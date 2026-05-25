@@ -120,6 +120,34 @@ pub fn backups_root(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf
         .map_err(|e| Error::io("<backups_root>", e))
 }
 
+/// Delete a world folder AND its associated backups directory.
+/// Idempotent on the world side (missing world → WorldNotFound);
+/// best-effort on the backups side (silently ignores a missing
+/// backups subdirectory — user could have deleted it manually).
+pub fn delete_world(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    world_folder_name: &str,
+) -> Result<()> {
+    fs::validate_segment(world_folder_name)?;
+    let world_path = saves_dir(app, instance_id)?.join(world_folder_name);
+    if !world_path.is_dir() {
+        return Err(Error::WorldNotFound {
+            instance_id: instance_id.into(),
+            folder_name: world_folder_name.into(),
+        });
+    }
+    std::fs::remove_dir_all(&world_path)
+        .map_err(|e| Error::io(world_path.display().to_string(), e))?;
+    // Cascade: drop the backups dir for this world if it exists.
+    let backups_for_world = backups_root(app, instance_id)?.join(world_folder_name);
+    if backups_for_world.exists() {
+        std::fs::remove_dir_all(&backups_for_world)
+            .map_err(|e| Error::io(backups_for_world.display().to_string(), e))?;
+    }
+    Ok(())
+}
+
 fn count_backups(backups_root: &std::path::Path, world_folder: &str) -> Result<u32> {
     let world_backups = backups_root.join(world_folder);
     if !world_backups.exists() {

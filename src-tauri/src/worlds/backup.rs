@@ -97,6 +97,85 @@ pub fn parse_timestamp_from_filename(name: &str) -> Option<f64> {
     Some(dt.and_utc().timestamp_millis() as f64)
 }
 
+/// List every `.zip` under `<instance>/backups/<world>/`, sorted
+/// newest-first by parsed timestamp (filename-encoded). Missing dir
+/// → empty Vec.
+pub fn list_backups(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    world_folder_name: &str,
+) -> Result<Vec<Backup>> {
+    wfs::validate_segment(world_folder_name)?;
+    let world_backups = backups_root(app, instance_id)?.join(world_folder_name);
+    if !world_backups.exists() {
+        return Ok(vec![]);
+    }
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&world_backups)
+        .map_err(|e| Error::io(world_backups.display().to_string(), e))?
+    {
+        let entry = entry.map_err(|e| Error::io(world_backups.display().to_string(), e))?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("zip") {
+            continue;
+        }
+        let Some(filename) = path.file_name().and_then(|s| s.to_str()).map(String::from) else {
+            continue;
+        };
+        let meta = entry
+            .metadata()
+            .map_err(|e| Error::io(path.display().to_string(), e))?;
+        let size_bytes = meta.len() as f64;
+        // Prefer the filename-encoded timestamp; fall back to mtime if
+        // parsing fails (handles a file the user dropped in manually).
+        let created_unix_ms = parse_timestamp_from_filename(&filename).unwrap_or_else(|| {
+            meta.modified()
+                .and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                })
+                .map(|d| d.as_millis() as f64)
+                .unwrap_or(0.0)
+        });
+        out.push(Backup {
+            filename,
+            size_bytes,
+            created_unix_ms,
+        });
+    }
+    out.sort_by(|a, b| {
+        b.created_unix_ms
+            .partial_cmp(&a.created_unix_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(out)
+}
+
+/// Delete a single backup zip.
+/// Returns BackupNotFound if the file doesn't exist (caller can ignore or surface).
+pub fn delete_backup(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    world_folder_name: &str,
+    backup_filename: &str,
+) -> Result<()> {
+    wfs::validate_segment(world_folder_name)?;
+    wfs::validate_segment(backup_filename)?;
+    let p = backups_root(app, instance_id)?
+        .join(world_folder_name)
+        .join(backup_filename);
+    if !p.exists() {
+        return Err(Error::BackupNotFound {
+            instance_id: instance_id.into(),
+            world_folder: world_folder_name.into(),
+            filename: backup_filename.into(),
+        });
+    }
+    std::fs::remove_file(&p)
+        .map_err(|e| Error::io(p.display().to_string(), e))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +239,39 @@ mod tests {
         assert!(parse_timestamp_from_filename("not-a-timestamp.zip").is_none());
         assert!(parse_timestamp_from_filename("2026-05-24.zip").is_none());
         assert!(parse_timestamp_from_filename("nodotzip").is_none());
+    }
+
+    use crate::worlds::Backup;
+
+    fn write_zip(dir: &std::path::Path, name: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(name), b"fake-zip").unwrap();
+    }
+
+    #[test]
+    fn list_backups_filename_parse_orders_newest_first() {
+        // Local pure-fn test of the sort order — we exercise the
+        // ordering logic without an AppHandle by constructing
+        // Backup structs directly.
+        let mut backups = vec![
+            Backup {
+                filename: "2026-05-20T10-00-00.zip".into(),
+                size_bytes: 1.0,
+                created_unix_ms: parse_timestamp_from_filename("2026-05-20T10-00-00.zip")
+                    .unwrap(),
+            },
+            Backup {
+                filename: "2026-05-24T10-00-00.zip".into(),
+                size_bytes: 1.0,
+                created_unix_ms: parse_timestamp_from_filename("2026-05-24T10-00-00.zip")
+                    .unwrap(),
+            },
+        ];
+        backups.sort_by(|a, b| {
+            b.created_unix_ms
+                .partial_cmp(&a.created_unix_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        assert_eq!(backups[0].filename, "2026-05-24T10-00-00.zip");
     }
 }

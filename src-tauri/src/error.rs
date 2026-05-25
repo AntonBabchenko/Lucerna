@@ -212,7 +212,7 @@ pub enum Error {
     #[error("Invalid world or backup name '{name}': {reason}")]
     WorldPathInvalid { name: String, reason: String },
 
-    #[error("Could not resolve a free name for '{folder_name}' after trying 999 suffixes")]
+    #[error("Could not resolve a free name for '{folder_name}' after trying 99 suffixes")]
     WorldNameUnresolvable { folder_name: String },
 
     #[error("Backup '{filename}' not found for world '{world_folder}' in instance {instance_id}")]
