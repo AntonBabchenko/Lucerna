@@ -6,6 +6,7 @@
   import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
+  import WorldsTab from '$lib/worlds/WorldsTab.svelte';
   import {
     modBrowserNav,
     modpacksNav,
@@ -14,7 +15,7 @@
     dragActive,
   } from '$lib/settings/state.svelte';
 
-  type Tab = 'overview' | 'mod_browser' | 'modpacks';
+  type Tab = 'overview' | 'mod_browser' | 'modpacks' | 'worlds';
 
   let {
     overview,
@@ -140,6 +141,20 @@
     >
       Modpacks
     </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active === 'worlds'}
+      class="px-3 py-2 text-base border-b-2 -mb-px"
+      class:border-blue-600={active === 'worlds'}
+      class:text-neutral-900={active === 'worlds'}
+      class:font-semibold={active === 'worlds'}
+      class:border-transparent={active !== 'worlds'}
+      class:text-neutral-400={active !== 'worlds'}
+      onclick={() => (active = 'worlds')}
+    >
+      Worlds
+    </button>
   </div>
 
   <div class="flex-1 overflow-y-auto relative">
@@ -161,6 +176,8 @@
         }}
         {onListChanged}
       />
+    {:else if active === 'worlds'}
+      <WorldsTab {instanceId} {onListChanged} />
     {/if}
   </div>
 </div>
