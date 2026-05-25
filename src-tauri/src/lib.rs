@@ -11,6 +11,7 @@ pub mod network;
 pub mod paths;
 pub mod process;
 pub mod versions;
+pub mod worlds;
 
 /// Process-wide lock for tests that mutate `FTLAUNCHER_EXTRA_ALLOWED_HOSTS`.
 /// All wiremock-backed unit tests must hold this lock for the duration of

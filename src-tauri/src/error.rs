@@ -199,6 +199,31 @@ pub enum Error {
 
     #[error("The CurseForge modpack '{pack_name}' cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge and install the .zip manually.")]
     ModpackCfDistributionDisabled { pack_name: String },
+
+    #[error("World '{folder_name}' not found in instance {instance_id}")]
+    WorldNotFound {
+        instance_id: String,
+        folder_name: String,
+    },
+
+    #[error("World '{folder_name}' is currently in use — quit Minecraft and try again")]
+    WorldInUse { folder_name: String },
+
+    #[error("Invalid world or backup name '{name}': {reason}")]
+    WorldPathInvalid { name: String, reason: String },
+
+    #[error("Could not resolve a free name for '{folder_name}' after trying 999 suffixes")]
+    WorldNameUnresolvable { folder_name: String },
+
+    #[error("Backup '{filename}' not found for world '{world_folder}' in instance {instance_id}")]
+    BackupNotFound {
+        instance_id: String,
+        world_folder: String,
+        filename: String,
+    },
+
+    #[error("Backup '{filename}' is unreadable or corrupted: {details}")]
+    BackupCorrupt { filename: String, details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
