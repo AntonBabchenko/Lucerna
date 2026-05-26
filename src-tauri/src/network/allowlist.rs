@@ -57,6 +57,9 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "cdn.modrinth.com",
     "edge.forgecdn.net",
     "mediafilez.forgecdn.net",
+    // v0.6.0 — Log sharing via mclo.gs paste service.
+    "api.mclo.gs",
+    "mclo.gs",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -200,8 +203,8 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"cdn.modrinth.com"));
         assert!(ALLOWED_PATTERNS.contains(&"edge.forgecdn.net"));
         assert!(ALLOWED_PATTERNS.contains(&"mediafilez.forgecdn.net"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0.
-        assert_eq!(ALLOWED_PATTERNS.len(), 17);
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0.
+        assert_eq!(ALLOWED_PATTERNS.len(), 19);
     }
 
     #[test]
