@@ -375,6 +375,21 @@ pub async fn open_backups_folder(
     Ok(())
 }
 
+// --- Playtime (backlog #21) --------------------------------------------
+
+/// Read accumulated playtime stats for `instance_id`.
+/// Returns zeros when no sessions have been recorded yet.
+#[tauri::command]
+#[specta::specta]
+pub fn get_playtime(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::playtime::PlaytimeStats> {
+    let root = crate::paths::instance_dir(&app, &instance_id)
+        .map_err(|e| crate::error::Error::io("<instance_dir>", e))?;
+    crate::playtime::get_stats_at(&root)
+}
+
 /// List Fabric loader versions compatible with `mc_id`. Sorted
 /// newest-first by build. Empty list → `Error::LoaderUnavailable`.
 /// Cached 5 minutes per `mc_id`.

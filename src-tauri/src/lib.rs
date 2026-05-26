@@ -72,6 +72,7 @@ pub fn run() {
             commands::set_instance_memory,
             commands::set_instance_jvm_args,
             commands::open_instance_folder,
+            commands::get_playtime,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,

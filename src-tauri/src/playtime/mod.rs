@@ -3,15 +3,18 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default, PartialEq)]
 pub struct PlaytimeStats {
-    pub total_seconds: u64,
+    /// f64 not u64 — specta-typescript forbids BigInt-style exports.
+    /// 2^53 seconds ≈ 285 million years; precision loss is irrelevant.
+    pub total_seconds: f64,
     pub session_count: u32,
-    pub last_session_seconds: u64,
+    /// f64 not u64 — same reason as `total_seconds`.
+    pub last_session_seconds: f64,
     /// `None` if no session has ever been recorded — lets the UI
     /// distinguish "never played" from "played for 0s, last session
-    /// ended at the epoch".
-    pub last_session_unix_ms: Option<i64>,
+    /// ended at the epoch". f64 not i64 — same specta constraint.
+    pub last_session_unix_ms: Option<f64>,
 }
 
 const PLAYTIME_FILE: &str = "playtime.json";
@@ -49,10 +52,10 @@ pub fn get_stats_at(instance_root: &Path) -> Result<PlaytimeStats> {
 /// — count still ticks because the session did occur.
 pub fn record_session_at(instance_root: &Path, duration_seconds: u64) -> Result<()> {
     let mut stats = get_stats_at(instance_root)?;
-    stats.total_seconds = stats.total_seconds.saturating_add(duration_seconds);
+    stats.total_seconds += duration_seconds as f64;
     stats.session_count = stats.session_count.saturating_add(1);
-    stats.last_session_seconds = duration_seconds;
-    stats.last_session_unix_ms = Some(chrono::Utc::now().timestamp_millis());
+    stats.last_session_seconds = duration_seconds as f64;
+    stats.last_session_unix_ms = Some(chrono::Utc::now().timestamp_millis() as f64);
 
     let path = playtime_path(instance_root);
     if let Some(parent) = path.parent() {
@@ -85,9 +88,9 @@ mod tests {
         let (_tmp, inst) = temp_instance_root();
         record_session_at(&inst, 60).unwrap();
         let stats = get_stats_at(&inst).unwrap();
-        assert_eq!(stats.total_seconds, 60);
+        assert_eq!(stats.total_seconds, 60.0);
         assert_eq!(stats.session_count, 1);
-        assert_eq!(stats.last_session_seconds, 60);
+        assert_eq!(stats.last_session_seconds, 60.0);
         assert!(stats.last_session_unix_ms.is_some());
     }
 
@@ -97,18 +100,18 @@ mod tests {
         record_session_at(&inst, 100).unwrap();
         record_session_at(&inst, 250).unwrap();
         let stats = get_stats_at(&inst).unwrap();
-        assert_eq!(stats.total_seconds, 350);
+        assert_eq!(stats.total_seconds, 350.0);
         assert_eq!(stats.session_count, 2);
-        assert_eq!(stats.last_session_seconds, 250);
+        assert_eq!(stats.last_session_seconds, 250.0);
     }
 
     #[test]
     fn get_stats_missing_file_returns_zero_with_none_timestamp() {
         let (_tmp, inst) = temp_instance_root();
         let stats = get_stats_at(&inst).unwrap();
-        assert_eq!(stats.total_seconds, 0);
+        assert_eq!(stats.total_seconds, 0.0);
         assert_eq!(stats.session_count, 0);
-        assert_eq!(stats.last_session_seconds, 0);
+        assert_eq!(stats.last_session_seconds, 0.0);
         assert_eq!(stats.last_session_unix_ms, None);
     }
 
@@ -119,7 +122,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"not json {{").unwrap();
         let stats = get_stats_at(&inst).unwrap();
-        assert_eq!(stats.total_seconds, 0);
+        assert_eq!(stats.total_seconds, 0.0);
         assert_eq!(stats.session_count, 0);
     }
 }
