@@ -21,3 +21,21 @@ body[data-tour-active] {
 body[data-tour-active] .tour-overlay {
   pointer-events: auto;
 }
+
+/* Native <select> options inherit their text colour from the <select>,
+   so toggling the closed control between black and grey drags every
+   dropdown row with it. The mods/modpacks loader filter wants:
+   closed-when-empty → grey "Any" (placeholder-like); open dropdown
+   → loader names in normal black, "Any" greyed to mark it as the
+   no-selection choice. The explicit option rules below escape the
+   inheritance so each row keeps its own colour regardless of the
+   select's. */
+.filter-select.is-empty {
+  color: rgb(163 163 163); /* neutral-400 */
+}
+.filter-select option {
+  color: rgb(23 23 23); /* neutral-900 */
+}
+.filter-select option[value=''] {
+  color: rgb(163 163 163);
+}
