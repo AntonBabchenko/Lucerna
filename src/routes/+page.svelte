@@ -384,7 +384,7 @@
   <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
     {#if crashReport}
       <div
-        class="bg-red-50 border-b border-red-200 text-red-800 px-4 py-2 flex items-center justify-between gap-3"
+        class="bg-danger/10 border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
       >
         <span class="text-sm">
           Minecraft crashed.
@@ -392,13 +392,13 @@
         </span>
         <div class="flex items-center gap-2">
           <button
-            class="text-xs bg-red-600 text-white rounded px-2 py-1 hover:bg-red-700"
+            class="text-xs bg-danger text-white rounded px-2 py-1 hover:bg-danger"
             onclick={openCrashInLogs}
           >
             View crash report
           </button>
           <button
-            class="text-xs border border-red-400 rounded px-2 py-1 hover:bg-red-100"
+            class="text-xs border border-danger rounded px-2 py-1 hover:bg-danger/10"
             onclick={() => (crashReport = null)}
           >
             Dismiss
@@ -432,55 +432,55 @@
         {#snippet overview()}
           <div class="p-6 flex flex-col gap-4">
             {#if offlineNameError}
-              <p class="text-xs text-red-700">
+              <p class="text-xs text-danger">
                 {offlineNameError}
                 <button
-                  class="text-neutral-500 hover:text-neutral-800"
+                  class="text-muted hover:text-primary"
                   onclick={() => (offlineNameError = null)}
                   aria-label="Dismiss">×</button
                 >
               </p>
             {/if}
             {#if listAccountsError}
-              <p class="text-xs text-red-700">
+              <p class="text-xs text-danger">
                 {listAccountsError}
                 <button
-                  class="text-neutral-500 hover:text-neutral-800"
+                  class="text-muted hover:text-primary"
                   onclick={() => (listAccountsError = null)}>×</button
                 >
               </p>
             {/if}
             {#if removeError}
-              <p class="text-xs text-red-700">
+              <p class="text-xs text-danger">
                 {removeError}
                 <button
-                  class="text-neutral-500 hover:text-neutral-800"
+                  class="text-muted hover:text-primary"
                   onclick={() => (removeError = null)}>×</button
                 >
               </p>
             {/if}
             {#if instancesError}
-              <p class="text-xs text-red-700">{instancesError}</p>
+              <p class="text-xs text-danger">{instancesError}</p>
             {/if}
             {#if versionsError}
-              <p class="text-xs text-red-700">{versionsError}</p>
+              <p class="text-xs text-danger">{versionsError}</p>
             {/if}
             {#if activeInstance}
               <div class="flex flex-col gap-1">
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Configuration</div>
+                <div class="text-xs uppercase tracking-wide text-muted">Configuration</div>
                 <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-                  <span class="text-neutral-500">Minecraft</span>
+                  <span class="text-muted">Minecraft</span>
                   <span class="font-mono">{activeInstance.mc_version || '(not set)'}</span>
-                  <span class="text-neutral-500">Loader</span>
+                  <span class="text-muted">Loader</span>
                   <span class="font-mono">
                     {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
                       · {activeInstance.loader_version}
                     {/if}
                   </span>
-                  <span class="text-neutral-500">Memory</span>
+                  <span class="text-muted">Memory</span>
                   <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
                 </div>
-                <p class="text-xs text-neutral-500">
+                <p class="text-xs text-muted">
                   Edit via
                   <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
                     >Manage</button
@@ -489,9 +489,9 @@
               </div>
 
               <div class="flex flex-col gap-1">
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Installed mods</div>
+                <div class="text-xs uppercase tracking-wide text-muted">Installed mods</div>
                 {#if installedStats.total === 0}
-                  <p class="text-sm text-neutral-500">
+                  <p class="text-sm text-muted">
                     No mods installed yet. Open
                     <button
                       type="button"
@@ -505,22 +505,22 @@
                 {:else}
                   <div class="text-sm flex gap-3">
                     <span
-                      >Total: <span class="font-medium text-neutral-700"
+                      >Total: <span class="font-medium text-secondary"
                         >{installedStats.total}</span
                       ></span
                     >
                     <span
-                      >Enabled: <span class="font-medium text-green-700"
+                      >Enabled: <span class="font-medium text-success"
                         >{installedStats.enabled}</span
                       ></span
                     >
                     <span
-                      >Disabled: <span class="font-medium text-neutral-700"
+                      >Disabled: <span class="font-medium text-secondary"
                         >{installedStats.disabled}</span
                       ></span
                     >
                   </div>
-                  <p class="text-xs text-neutral-500">
+                  <p class="text-xs text-muted">
                     Manage in
                     <button
                       type="button"
@@ -535,13 +535,13 @@
               </div>
 
               <div class="flex flex-col gap-1" data-testid="overview-playtime">
-                <div class="text-xs uppercase tracking-wide text-neutral-500">Playtime</div>
+                <div class="text-xs uppercase tracking-wide text-muted">Playtime</div>
                 {#if playtime.last_session_unix_ms == null}
-                  <p class="text-sm text-neutral-500">Not yet played</p>
+                  <p class="text-sm text-muted">Not yet played</p>
                 {:else}
                   <div class="text-sm">
                     Total:
-                    <span class="font-medium text-neutral-800"
+                    <span class="font-medium text-primary"
                       >{formatDuration(playtime.total_seconds)}</span
                     >
                     ·
@@ -550,7 +550,7 @@
                       {playtime.session_count === 1 ? 'session' : 'sessions'}</span
                     >
                   </div>
-                  <p class="text-xs text-neutral-500">
+                  <p class="text-xs text-muted">
                     Last session: {formatDuration(playtime.last_session_seconds)},
                     {relativeTime(playtime.last_session_unix_ms)}
                   </p>
@@ -560,7 +560,7 @@
               {#if unresolvedMissing.length > 0}
                 <button
                   type="button"
-                  class="flex items-center gap-2 text-sm text-left rounded border border-amber-200 bg-amber-50 px-3 py-2 hover:bg-amber-100"
+                  class="flex items-center gap-2 text-sm text-left rounded border border-warning-text/30 bg-warning-bg px-3 py-2 hover:bg-warning-bg"
                   onclick={() => {
                     if (activeInstance) {
                       modpacksNav.value = { openDrawerForInstance: activeInstance.id };
@@ -573,7 +573,7 @@
                     {unresolvedMissing.length}
                     {unresolvedMissing.length === 1 ? 'pack mod needs' : 'pack mods need'} attention
                   </span>
-                  <span class="text-xs text-amber-700 underline">View</span>
+                  <span class="text-xs text-warning-text underline">View</span>
                 </button>
               {/if}
 
@@ -583,7 +583,7 @@
                     >Running {running.version_id} (PID {running.pid})</span
                   >
                 {:else if activeInstance.mc_version === ''}
-                  <span class="text-sm text-neutral-500"
+                  <span class="text-sm text-muted"
                     >Pick a Minecraft version in <button
                       type="button"
                       class="btn-tertiary"
@@ -591,22 +591,22 @@
                     > before installing.</span
                   >
                 {:else if installing}
-                  <span class="text-sm text-blue-700">Working…</span>
+                  <span class="text-sm text-accent">Working…</span>
                 {:else if !activeInstance.ready}
-                  <span class="text-sm text-neutral-500"
-                    >Click <span class="font-semibold text-neutral-700">Install</span> in the sidebar
+                  <span class="text-sm text-muted"
+                    >Click <span class="font-semibold text-secondary">Install</span> in the sidebar
                     to download Minecraft + selected loader.</span
                   >
                 {:else}
-                  <span class="text-sm text-green-700"
+                  <span class="text-sm text-success"
                     >Ready to play — click <span class="font-semibold">Play</span> in the sidebar.</span
                   >
                 {/if}
                 {#if installError}
-                  <span class="text-xs text-red-700 flex items-center gap-1">
+                  <span class="text-xs text-danger flex items-center gap-1">
                     {installError}
                     <button
-                      class="text-neutral-500 hover:text-neutral-800"
+                      class="text-muted hover:text-primary"
                       onclick={() => (installError = null)}
                       aria-label="Dismiss"
                     >
@@ -615,13 +615,13 @@
                   </span>
                 {/if}
                 {#if exited && !running}
-                  <span class="text-xs text-neutral-600">Exited (code {exited.code})</span>
+                  <span class="text-xs text-secondary">Exited (code {exited.code})</span>
                 {/if}
                 {#if modsError}
-                  <span class="text-xs text-red-700 flex items-center gap-1">
+                  <span class="text-xs text-danger flex items-center gap-1">
                     {modsError}
                     <button
-                      class="text-neutral-500 hover:text-neutral-800"
+                      class="text-muted hover:text-primary"
                       onclick={() => (modsError = null)}
                       aria-label="Dismiss"
                     >
@@ -631,7 +631,7 @@
                 {/if}
               </div>
             {:else}
-              <p class="text-sm text-neutral-500">
+              <p class="text-sm text-muted">
                 No instance selected. Create one via the sidebar.
               </p>
             {/if}

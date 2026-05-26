@@ -71,17 +71,17 @@
 </script>
 
 <div class="flex flex-col overflow-hidden">
-  <div role="tablist" class="border-b border-neutral-200 px-3 flex gap-1 bg-white">
+  <div role="tablist" class="border-b border-border-subtle px-3 flex gap-1 bg-surface">
     <button
       type="button"
       role="tab"
       aria-selected={active === 'overview'}
       class="px-3 py-2 text-base border-b-2 -mb-px"
-      class:border-blue-600={active === 'overview'}
-      class:text-neutral-900={active === 'overview'}
+      class:border-accent={active === 'overview'}
+      class:text-primary={active === 'overview'}
       class:font-semibold={active === 'overview'}
       class:border-transparent={active !== 'overview'}
-      class:text-neutral-400={active !== 'overview'}
+      class:text-placeholder={active !== 'overview'}
       onclick={() => (active = 'overview')}
     >
       Overview
@@ -92,11 +92,11 @@
       data-tour="tab-mods"
       aria-selected={active === 'mod_browser'}
       class="px-3 py-2 text-base border-b-2 -mb-px"
-      class:border-blue-600={active === 'mod_browser'}
-      class:text-neutral-900={active === 'mod_browser'}
+      class:border-accent={active === 'mod_browser'}
+      class:text-primary={active === 'mod_browser'}
       class:font-semibold={active === 'mod_browser'}
       class:border-transparent={active !== 'mod_browser'}
-      class:text-neutral-400={active !== 'mod_browser'}
+      class:text-placeholder={active !== 'mod_browser'}
       onclick={() => (active = 'mod_browser')}
     >
       Mod browser
@@ -106,11 +106,11 @@
       role="tab"
       aria-selected={active === 'worlds'}
       class="px-3 py-2 text-base border-b-2 -mb-px"
-      class:border-blue-600={active === 'worlds'}
-      class:text-neutral-900={active === 'worlds'}
+      class:border-accent={active === 'worlds'}
+      class:text-primary={active === 'worlds'}
       class:font-semibold={active === 'worlds'}
       class:border-transparent={active !== 'worlds'}
-      class:text-neutral-400={active !== 'worlds'}
+      class:text-placeholder={active !== 'worlds'}
       onclick={() => (active = 'worlds')}
     >
       Worlds

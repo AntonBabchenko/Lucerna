@@ -57,14 +57,14 @@
 </script>
 
 <aside
-  class="h-full bg-neutral-50 border-r border-neutral-200 p-3 flex flex-col gap-3 overflow-y-auto"
+  class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto"
 >
-  <div class="font-bold text-lg text-neutral-900">FTlauncher</div>
+  <div class="font-bold text-lg text-primary">FTlauncher</div>
 
-  <div class="flex flex-col gap-1 pt-3 border-t border-neutral-200">
-    <div class="text-xs uppercase tracking-wide text-neutral-500">Account</div>
+  <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
+    <div class="text-xs uppercase tracking-wide text-muted">Account</div>
     {#if accounts.length === 0}
-      <p class="text-xs text-neutral-500">No accounts yet — add one below.</p>
+      <p class="text-xs text-muted">No accounts yet — add one below.</p>
     {:else}
       <select
         class="border rounded px-2 py-1 text-sm"
@@ -126,18 +126,18 @@
         </div>
       </div>
     {/if}
-    <p class="text-xs text-neutral-500 italic mt-1">
+    <p class="text-xs text-muted italic mt-1">
       Microsoft account login deferred — revisit after v0.5.0.
     </p>
   </div>
 
-  <div class="flex flex-col gap-1 pt-3 border-t border-neutral-200">
-    <div class="text-xs uppercase tracking-wide text-neutral-500 flex items-center gap-1">
+  <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
+    <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
       <span>Instance</span>
       <InstanceConceptTooltip />
     </div>
     {#if instances.length === 0}
-      <p class="text-xs text-neutral-500">No instances yet.</p>
+      <p class="text-xs text-muted">No instances yet.</p>
       <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}> + Create </button>
     {:else}
       <select
@@ -210,7 +210,7 @@
     {/if}
   </div>
 
-  <div class="mt-auto flex flex-col gap-3 pt-3 border-t border-neutral-200">
+  <div class="mt-auto flex flex-col gap-3 pt-3 border-t border-border-subtle">
     <!--
       Modpacks live at the sidebar level (not the per-instance tab strip)
       because installing a pack creates a NEW instance, so there's nothing
@@ -218,10 +218,10 @@
     -->
     <button
       type="button"
-      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-blue-50 hover:border-blue-300"
-      class:bg-blue-50={modpacksActive}
-      class:border-blue-400={modpacksActive}
-      class:text-blue-800={modpacksActive}
+      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-accent-soft hover:border-accent"
+      class:bg-accent-soft={modpacksActive}
+      class:border-accent={modpacksActive}
+      class:text-accent={modpacksActive}
       class:font-medium={modpacksActive}
       data-tour="open-modpacks"
       data-testid="sidebar-open-modpacks"
