@@ -18,7 +18,12 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
 
-  const canDelete = $derived(typed === world.folder_name && !busy);
+  // Confirm by typing the literal word "Delete" rather than the folder
+  // name — players name their worlds anything (long, unicode, emoji,
+  // accidental whitespace) and re-typing it as a safety gate becomes
+  // user-hostile.
+  const CONFIRM_WORD = 'Delete';
+  const canDelete = $derived(typed === CONFIRM_WORD && !busy);
 
   async function onConfirm() {
     busy = true;
@@ -48,13 +53,15 @@
       will also be removed. This cannot be undone.
     </p>
     <label class="block text-xs text-neutral-600 mb-1" for="del-world-confirm">
-      Type the world's name to confirm:
+      Type <span class="font-mono font-semibold">{CONFIRM_WORD}</span> to confirm:
     </label>
     <input
       id="del-world-confirm"
       class="border rounded px-2 py-1 w-full mb-3"
       bind:value={typed}
       disabled={busy}
+      placeholder={CONFIRM_WORD}
+      autocomplete="off"
     />
     {#if error}
       <p class="text-xs text-red-700 mb-2">{error}</p>
