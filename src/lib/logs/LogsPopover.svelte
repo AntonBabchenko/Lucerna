@@ -1,13 +1,17 @@
 <script lang="ts">
-  import {
-    commands,
-    type CrashReport,
-    type Diagnosis,
-    type LogFileMeta,
-    type LogSource,
-  } from '$lib/ipc/bindings';
+  import { commands, type Diagnosis, type LogFileMeta, type LogSource } from '$lib/ipc/bindings';
+  import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import {
+    groupStackFolds,
+    maybeParseCrashReport,
+    tagWithSeverity,
+    type CrashSection,
+    type RenderUnit,
+    type Severity,
+  } from './render';
 
   let {
     open = $bindable(false),
@@ -18,6 +22,10 @@
     initialPath?: string | null;
     instanceId?: string | null;
   } = $props();
+
+  // ---------------------------------------------------------------------------
+  // Read-cap
+  // ---------------------------------------------------------------------------
 
   const CAP_STORAGE_KEY = 'ftl.logs.cap_bytes';
   const CAP_OPTIONS: { label: string; value: number }[] = [
@@ -35,6 +43,10 @@
     return parsed;
   }
 
+  // ---------------------------------------------------------------------------
+  // Core state
+  // ---------------------------------------------------------------------------
+
   let files = $state<LogFileMeta[]>([]);
   let listError = $state<string | null>(null);
   let selectedPath = $state<string | null>(null);
@@ -44,6 +56,101 @@
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
   let search = $state('');
+
+  // ---------------------------------------------------------------------------
+  // Toolbar display preferences (persisted)
+  // ---------------------------------------------------------------------------
+
+  let wrap = $state(localStorage.getItem('ftl.logs.wrap') !== '0');
+  let fold = $state(localStorage.getItem('ftl.logs.fold') !== '0');
+  let hiddenLevels = $state<Set<Severity>>(
+    new Set(
+      (localStorage.getItem('ftl.logs.levels') ?? '').split(',').filter(Boolean) as Severity[],
+    ),
+  );
+
+  $effect(() => {
+    localStorage.setItem('ftl.logs.wrap', wrap ? '1' : '0');
+  });
+  $effect(() => {
+    localStorage.setItem('ftl.logs.fold', fold ? '1' : '0');
+  });
+  $effect(() => {
+    localStorage.setItem('ftl.logs.levels', Array.from(hiddenLevels).join(','));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Share state
+  // ---------------------------------------------------------------------------
+
+  let shareConfirm = $state(false);
+  let shareUploading = $state(false);
+  let shareUrl = $state<string | null>(null);
+
+  // Clear share pill when a different file is opened
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    selectedPath; // reactive dependency
+    shareUrl = null;
+    shareConfirm = false;
+  });
+
+  async function doShare() {
+    if (!selectedContent) return;
+    shareUploading = true;
+    const result = await commands.shareLogToMclogs(selectedContent);
+    shareUploading = false;
+    shareConfirm = false;
+    if (result.status === 'ok') {
+      shareUrl = result.data;
+    } else {
+      pushWarning('Log upload failed', [formatError(result.error)]);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Crash-report raw-view toggle
+  // ---------------------------------------------------------------------------
+
+  let rawView = $state(false);
+
+  // Reset when switching files
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    selectedPath;
+    rawView = false;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Fold-expansion map (per render-unit index, crash-section expansion map)
+  // ---------------------------------------------------------------------------
+
+  let foldExpanded = $state<Map<number, boolean>>(new Map());
+  let sectionExpanded = $state<Map<number, boolean>>(new Map());
+
+  function toggleFold(index: number) {
+    const next = new Map(foldExpanded);
+    next.set(index, !next.get(index));
+    foldExpanded = next;
+  }
+
+  function toggleSection(index: number) {
+    const next = new Map(sectionExpanded);
+    next.set(index, !next.get(index));
+    sectionExpanded = next;
+  }
+
+  // Reset fold/section maps when content changes
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    selectedContent;
+    foldExpanded = new Map();
+    sectionExpanded = new Map();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Effects: load on open / initialPath
+  // ---------------------------------------------------------------------------
 
   $effect(() => {
     if (open) {
@@ -57,6 +164,10 @@
       void loadContent(initialPath);
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Data-loading functions
+  // ---------------------------------------------------------------------------
 
   async function reloadList() {
     if (!instanceId) {
@@ -85,9 +196,6 @@
     loadingContent = false;
     if (result.status === 'ok') {
       selectedContent = result.data;
-      // Diagnose is best-effort — never blocks the user from seeing
-      // the raw content. Errors (missing instance, IO) are logged
-      // and swallowed; UI just hides the Diagnosis section.
       if (instanceId) {
         const d = await commands.diagnoseLog(instanceId, path);
         if (d.status === 'ok') {
@@ -114,6 +222,10 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
   function sourceLabel(s: LogSource): string {
     switch (s) {
       case 'game':
@@ -138,28 +250,6 @@
     return new Date(ms).toLocaleString();
   }
 
-  let groupedFiles = $derived(
-    (['game', 'crash', 'launcher'] as LogSource[]).map((src) => ({
-      source: src,
-      label: sourceLabel(src),
-      items: files.filter((f) => f.source === src),
-    })),
-  );
-
-  let selectedMeta = $derived(files.find((f) => f.path === selectedPath) ?? null);
-  // For plain files: meta.size_bytes (raw) > cap reliably implies truncation.
-  // For .gz files: meta.size_bytes is the COMPRESSED size, which is almost
-  // always < cap even when the decompressed body would exceed it. As a
-  // fallback signal we also flag when the returned content length sits
-  // exactly at the cap — that's the .take(cap) boundary in read_gz.
-  let isTruncated = $derived(
-    !!selectedMeta &&
-      selectedContent.length > 0 &&
-      ((selectedMeta.size_bytes ?? 0) > capBytes || selectedContent.length === capBytes),
-  );
-
-  let contentLines = $derived(selectedContent.split('\n'));
-
   function escapeHtml(s: string): string {
     return s
       .replaceAll('&', '&amp;')
@@ -173,12 +263,225 @@
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  function highlight(line: string): string {
-    if (!search) return escapeHtml(line);
-    const escapedLine = escapeHtml(line);
-    const escapedNeedle = escapeHtml(search);
-    const re = new RegExp(escapeRegExp(escapedNeedle), 'gi');
-    return escapedLine.replace(re, (match) => `<mark>${match}</mark>`);
+  // ---------------------------------------------------------------------------
+  // Derived state
+  // ---------------------------------------------------------------------------
+
+  let groupedFiles = $derived(
+    (['game', 'crash', 'launcher'] as LogSource[]).map((src) => ({
+      source: src,
+      label: sourceLabel(src),
+      items: files.filter((f) => f.source === src),
+    })),
+  );
+
+  let selectedMeta = $derived(files.find((f) => f.path === selectedPath) ?? null);
+
+  let isTruncated = $derived(
+    !!selectedMeta &&
+      selectedContent.length > 0 &&
+      ((selectedMeta.size_bytes ?? 0) > capBytes || selectedContent.length === capBytes),
+  );
+
+  // Render pipeline
+  const renderModel = $derived.by((): RenderUnit[] => {
+    const lines = selectedContent.split('\n');
+    const tagged = tagWithSeverity(lines);
+    const units = fold
+      ? groupStackFolds(tagged)
+      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level }));
+    return units.filter((u) => !hiddenLevels.has(u.level));
+  });
+
+  // Crash-report detection
+  const crashSections = $derived(maybeParseCrashReport(selectedContent));
+  const isStructured = $derived(crashSections !== null && !rawView);
+
+  // Severity counts
+  const severityCounts = $derived.by(() => {
+    const lines = selectedContent.split('\n');
+    const tagged = tagWithSeverity(lines);
+    const counts = new Map<Severity, number>();
+    for (const l of tagged) {
+      counts.set(l.level, (counts.get(l.level) ?? 0) + 1);
+    }
+    return counts;
+  });
+
+  // Levels that actually appear in the current file (for toolbar checkboxes)
+  const activeLevels = $derived<Severity[]>(
+    (['error', 'warn', 'info', 'debug', 'trace', 'fatal', 'other'] as Severity[]).filter((lv) =>
+      severityCounts.has(lv),
+    ),
+  );
+
+  // Level display names
+  function levelLabel(lv: Severity): string {
+    return lv.toUpperCase();
+  }
+
+  function toggleLevel(lv: Severity) {
+    const next = new Set(hiddenLevels);
+    if (next.has(lv)) {
+      next.delete(lv);
+    } else {
+      next.add(lv);
+    }
+    hiddenLevels = next;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Search navigation
+  // ---------------------------------------------------------------------------
+
+  interface MatchLocation {
+    unitIndex: number;
+    charStart: number;
+    charEnd: number;
+  }
+
+  // Collect all match locations from the renderModel
+  const allMatches = $derived.by((): MatchLocation[] => {
+    if (!search) return [];
+    const needle = search.toLowerCase();
+    const locs: MatchLocation[] = [];
+    for (let ui = 0; ui < renderModel.length; ui++) {
+      const unit = renderModel[ui];
+      const text = unit.kind === 'line' ? unit.text : unit.firstFrame;
+      let pos = 0;
+      const lower = text.toLowerCase();
+      while (pos < lower.length) {
+        const idx = lower.indexOf(needle, pos);
+        if (idx === -1) break;
+        locs.push({ unitIndex: ui, charStart: idx, charEnd: idx + needle.length });
+        pos = idx + needle.length;
+      }
+    }
+    return locs;
+  });
+
+  let currentMatchIndex = $state(0);
+  const totalMatches = $derived(allMatches.length);
+
+  // Reset current index when search or content changes
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    search;
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    selectedContent;
+    currentMatchIndex = 0;
+  });
+
+  function nextMatch() {
+    if (totalMatches === 0) return;
+    currentMatchIndex = (currentMatchIndex + 1) % totalMatches;
+    scrollToCurrentMatch();
+  }
+
+  function prevMatch() {
+    if (totalMatches === 0) return;
+    currentMatchIndex = (currentMatchIndex - 1 + totalMatches) % totalMatches;
+    scrollToCurrentMatch();
+  }
+
+  function scrollToCurrentMatch() {
+    // Use a microtask so the DOM has updated
+    requestAnimationFrame(() => {
+      const el = document.querySelector('[data-match-active="true"]');
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }
+
+  function onSearchKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      search = '';
+    } else if (e.key === 'Enter') {
+      if (e.shiftKey) {
+        prevMatch();
+      } else {
+        nextMatch();
+      }
+      e.preventDefault();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Highlight helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Render a line's text with search match highlighting.
+   * Active match: bg-accent text-white; others: <mark> (yellow).
+   * Returns HTML string.
+   */
+  function highlightLine(text: string, unitIndex: number, matchesForUnit: MatchLocation[]): string {
+    if (!search || matchesForUnit.length === 0) return escapeHtml(text);
+    let result = '';
+    let pos = 0;
+    for (const loc of matchesForUnit) {
+      result += escapeHtml(text.slice(pos, loc.charStart));
+      const matchText = escapeHtml(text.slice(loc.charStart, loc.charEnd));
+      const globalIdx = allMatches.findIndex(
+        (m) => m.unitIndex === unitIndex && m.charStart === loc.charStart,
+      );
+      const isActive = globalIdx === currentMatchIndex;
+      if (isActive) {
+        result += `<mark class="bg-accent text-white" data-match-active="true">${matchText}</mark>`;
+      } else {
+        result += `<mark>${matchText}</mark>`;
+      }
+      pos = loc.charEnd;
+    }
+    result += escapeHtml(text.slice(pos));
+    return result;
+  }
+
+  function matchesForUnit(unitIndex: number): MatchLocation[] {
+    return allMatches.filter((m) => m.unitIndex === unitIndex);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Severity CSS classes
+  // ---------------------------------------------------------------------------
+
+  function severityLineClass(level: Severity): string {
+    switch (level) {
+      case 'error':
+      case 'fatal':
+        return 'border-l-2 pl-2 border-danger bg-danger/10';
+      case 'warn':
+        return 'border-l-2 pl-2 border-warning-text bg-warning-bg/30';
+      case 'debug':
+      case 'trace':
+        return 'border-l-2 pl-2 border-border-subtle text-muted';
+      case 'info':
+        return 'border-l-2 pl-2 border-border-subtle';
+      default:
+        return 'border-l-2 pl-2 border-transparent';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Crash section helpers
+  // ---------------------------------------------------------------------------
+
+  function isSectionDefaultOpen(section: CrashSection, index: number): boolean {
+    if (section.title === 'Head') return true;
+    if (section.body.includes('Exception') || section.body.includes('Error')) return true;
+    return false;
+  }
+
+  function sectionRenderUnits(body: string): RenderUnit[] {
+    const lines = body.split('\n');
+    const tagged = tagWithSeverity(lines);
+    const units = fold
+      ? groupStackFolds(tagged)
+      : tagged.map((l) => ({ kind: 'line' as const, text: l.text, level: l.level }));
+    return units.filter((u) => !hiddenLevels.has(u.level));
+  }
+
+  function copyToClipboard(text: string) {
+    void navigator.clipboard.writeText(text);
   }
 </script>
 
@@ -196,38 +499,137 @@
     <aside
       class="relative bg-surface rounded shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col m-4"
     >
-      <header class="flex items-center justify-between px-4 py-2 border-b">
-        <h2 class="text-sm font-semibold text-primary">Logs</h2>
-        <div class="flex items-center gap-3">
-          <label class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
-            Read cap:
-            <select
-              class="border rounded px-1 py-0.5 text-xs"
-              value={capBytes}
-              onchange={(e) => onCapChange(Number((e.currentTarget as HTMLSelectElement).value))}
+      <!-- Header row 1: Read cap / Share / Reload / Close -->
+      <header class="flex flex-col border-b">
+        <div class="flex items-center justify-between px-4 py-2">
+          <h2 class="text-sm font-semibold text-primary">Logs</h2>
+          <div class="flex items-center gap-3 flex-wrap">
+            <label class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
+              Read cap:
+              <select
+                class="border rounded px-1 py-0.5 text-xs"
+                value={capBytes}
+                onchange={(e) => onCapChange(Number((e.currentTarget as HTMLSelectElement).value))}
+              >
+                {#each CAP_OPTIONS as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </label>
+            <button
+              class="text-xs border rounded px-2 py-0.5 hover:bg-subtle"
+              onclick={() => void reloadList()}
             >
-              {#each CAP_OPTIONS as opt}
-                <option value={opt.value}>{opt.label}</option>
-              {/each}
-            </select>
+              Reload
+            </button>
+
+            <!-- Share button -->
+            <button
+              class="btn-warning btn-xs text-xs border rounded px-2 py-0.5"
+              disabled={!selectedContent || shareUploading}
+              onclick={() => (shareConfirm = true)}
+            >
+              {shareUploading ? 'Uploading…' : 'Share'}
+            </button>
+
+            <button
+              class="text-muted hover:text-primary text-lg leading-none px-1"
+              aria-label="Close"
+              onclick={() => (open = false)}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <!-- Header row 2: toolbar (wrap / fold / level filters) -->
+        <div class="flex items-center gap-4 px-4 py-1.5 border-t text-xs flex-wrap">
+          <label class="flex items-center gap-1 cursor-pointer select-none">
+            <input type="checkbox" bind:checked={wrap} class="accent-primary" />
+            Wrap lines
           </label>
-          <button
-            class="text-xs border rounded px-2 py-0.5 hover:bg-subtle"
-            onclick={() => void reloadList()}
+          <label class="flex items-center gap-1 cursor-pointer select-none">
+            <input type="checkbox" bind:checked={fold} class="accent-primary" />
+            Collapse stacks
+          </label>
+          {#if activeLevels.length > 0}
+            <span class="text-muted">Show:</span>
+            {#each activeLevels as lv}
+              <label class="flex items-center gap-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!hiddenLevels.has(lv)}
+                  onchange={() => toggleLevel(lv)}
+                  class="accent-primary"
+                />
+                {levelLabel(lv)}
+                <span class="text-muted">({severityCounts.get(lv) ?? 0})</span>
+              </label>
+            {/each}
+          {/if}
+          {#if crashSections !== null}
+            <label class="flex items-center gap-1 cursor-pointer select-none ml-auto">
+              <input type="checkbox" bind:checked={rawView} class="accent-primary" />
+              Raw view
+            </label>
+          {/if}
+        </div>
+      </header>
+
+      <!-- Share confirm dialog -->
+      {#if shareConfirm}
+        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 class="font-semibold text-sm mb-2">Share log to mclo.gs?</h3>
+            <p class="text-xs text-muted mb-4">
+              Removes paths and tokens before upload. Double-check sensitive contents before
+              sharing.
+            </p>
+            <div class="flex gap-2 justify-end">
+              <button
+                class="text-xs border rounded px-3 py-1 hover:bg-subtle"
+                onclick={() => (shareConfirm = false)}
+              >
+                Cancel
+              </button>
+              <button
+                class="text-xs bg-warning-text text-white rounded px-3 py-1 hover:opacity-90"
+                onclick={() => void doShare()}
+              >
+                Upload &amp; share
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Share URL pill -->
+      {#if shareUrl}
+        <div
+          class="flex items-center gap-2 px-4 py-1.5 bg-warning-bg border-b text-xs text-warning-text"
+        >
+          <span class="font-semibold">Shared:</span>
+          <a href={shareUrl} target="_blank" rel="noopener noreferrer" class="underline truncate"
+            >{shareUrl}</a
           >
-            Reload
+          <button
+            class="text-xs border border-warning-text/40 rounded px-2 py-0.5 hover:bg-warning-bg/60"
+            onclick={() => copyToClipboard(shareUrl!)}
+          >
+            Copy
           </button>
           <button
-            class="text-muted hover:text-primary text-lg leading-none px-1"
-            aria-label="Close"
-            onclick={() => (open = false)}
+            class="ml-auto text-warning-text hover:text-primary leading-none"
+            aria-label="Dismiss share URL"
+            onclick={() => (shareUrl = null)}
           >
             ×
           </button>
         </div>
-      </header>
+      {/if}
 
       <div class="flex-1 flex overflow-hidden">
+        <!-- Sidebar: grouped file list -->
         <nav class="w-72 border-r overflow-y-auto text-sm" data-tour-ctx="logs-sidebar">
           {#if listError}
             <p class="p-3 text-danger text-xs">Could not list logs: {listError}</p>
@@ -261,16 +663,42 @@
           {/if}
         </nav>
 
-        <section class="flex-1 flex flex-col">
-          <div class="px-3 py-2 border-b flex items-center gap-2">
+        <!-- Main content area -->
+        <section class="flex-1 flex flex-col overflow-hidden">
+          <!-- Search bar -->
+          <div class="px-3 py-2 border-b flex items-center gap-2" data-tour-ctx="logs-search">
             <input
               class="flex-1 border rounded px-2 py-1 text-xs"
               placeholder="Find in file (case-insensitive)…"
               bind:value={search}
               disabled={!selectedPath}
-              data-tour-ctx="logs-search"
+              onkeydown={onSearchKeydown}
             />
+            {#if search && totalMatches > 0}
+              <span class="text-xs text-muted whitespace-nowrap">
+                {currentMatchIndex + 1} / {totalMatches}
+              </span>
+            {:else if search && totalMatches === 0}
+              <span class="text-xs text-muted whitespace-nowrap">No matches</span>
+            {/if}
+            <button
+              class="btn-secondary btn-xs text-xs border rounded px-1.5 py-0.5 disabled:opacity-40"
+              disabled={totalMatches === 0}
+              title="Previous match (Shift+Enter)"
+              onclick={prevMatch}
+            >
+              ↑
+            </button>
+            <button
+              class="btn-secondary btn-xs text-xs border rounded px-1.5 py-0.5 disabled:opacity-40"
+              disabled={totalMatches === 0}
+              title="Next match (Enter)"
+              onclick={nextMatch}
+            >
+              ↓
+            </button>
           </div>
+
           {#if loadingContent}
             <p class="p-4 text-sm text-muted">Reading…</p>
           {:else if contentError}
@@ -283,10 +711,12 @@
                 Truncated — showing last {formatBytes(capBytes)}. Raise cap to see more.
               </div>
             {/if}
+
+            <!-- Diagnosis card -->
             {#if diagnosis}
               <details
                 open
-                class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3"
+                class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
               >
                 <summary class="cursor-pointer font-semibold text-warning-text select-none">
                   ⚠ {diagnosis.title}
@@ -302,13 +732,139 @@
                 {/if}
               </details>
             {/if}
+
+            <!-- Log body: structured crash view or standard line view -->
             <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base">
-              <pre
-                class="px-3 py-2 whitespace-pre-wrap break-words">{#each contentLines as line, i}<span
-                    class="text-placeholder select-none"
-                    >{(i + 1).toString().padStart(6, ' ')}: </span>{@html highlight(
-                    line,
-                  )}{'\n'}{/each}</pre>
+              {#if isStructured && crashSections}
+                <!-- Path A: structured crash report sections -->
+                <div class="px-3 py-2 space-y-2">
+                  {#each crashSections as section, si}
+                    {@const defaultOpen = isSectionDefaultOpen(section, si)}
+                    {@const expanded = sectionExpanded.get(si) ?? defaultOpen}
+                    {@const units = sectionRenderUnits(section.body)}
+                    <div class="border rounded overflow-hidden">
+                      <button
+                        type="button"
+                        class="w-full text-left px-3 py-1.5 bg-subtle hover:bg-accent-soft font-semibold flex items-center gap-1"
+                        onclick={() => toggleSection(si)}
+                      >
+                        <span class="text-muted">{expanded ? '▾' : '▸'}</span>
+                        {section.title}
+                      </button>
+                      {#if expanded}
+                        <div class="px-0 py-1">
+                          {#each units as unit, ui}
+                            {@const globalUnitIndex = renderModel.findIndex(
+                              (u) =>
+                                u.kind === unit.kind &&
+                                (u.kind === 'line' ? u.text : u.firstFrame) ===
+                                  (unit.kind === 'line' ? unit.text : unit.firstFrame),
+                            )}
+                            {#if unit.kind === 'line'}
+                              <div class={severityLineClass(unit.level)}>
+                                <span
+                                  class={wrap
+                                    ? 'whitespace-pre-wrap break-words'
+                                    : 'whitespace-pre'}
+                                  ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
+                                    unit.text,
+                                    globalUnitIndex >= 0 ? globalUnitIndex : ui,
+                                    matchesForUnit(globalUnitIndex >= 0 ? globalUnitIndex : ui),
+                                  )}</span
+                                >
+                              </div>
+                            {:else}
+                              {@const foldKey = si * 100000 + ui}
+                              {@const isExpanded = foldExpanded.get(foldKey) ?? false}
+                              <div class={severityLineClass(unit.level)}>
+                                <button
+                                  type="button"
+                                  class="text-left text-muted hover:text-primary w-full"
+                                  onclick={() => toggleFold(foldKey)}
+                                >
+                                  {isExpanded ? '▾' : '▸'}
+                                  <span
+                                    class={wrap
+                                      ? 'whitespace-pre-wrap break-words'
+                                      : 'whitespace-pre'}>{unit.firstFrame}</span
+                                  >
+                                  {#if !isExpanded}
+                                    <span class="text-muted italic"
+                                      >(and {unit.hiddenFrames.length} more)</span
+                                    >
+                                  {/if}
+                                </button>
+                                {#if isExpanded}
+                                  {#each unit.hiddenFrames as frame}
+                                    <div class="pl-4">
+                                      <span
+                                        class={wrap
+                                          ? 'whitespace-pre-wrap break-words'
+                                          : 'whitespace-pre'}>{frame}</span
+                                      >
+                                    </div>
+                                  {/each}
+                                {/if}
+                              </div>
+                            {/if}
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <!-- Path B: standard line-by-line view -->
+                <div class="px-3 py-2">
+                  {#each renderModel as unit, ui}
+                    {#if unit.kind === 'line'}
+                      <div class={severityLineClass(unit.level)}>
+                        <span class="text-placeholder select-none"
+                          >{(ui + 1).toString().padStart(6, ' ')}:
+                        </span><span
+                          class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                          ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
+                            unit.text,
+                            ui,
+                            matchesForUnit(ui),
+                          )}</span
+                        >
+                      </div>
+                    {:else}
+                      {@const isExpanded = foldExpanded.get(ui) ?? false}
+                      <div class={severityLineClass(unit.level)}>
+                        <button
+                          type="button"
+                          class="text-left text-muted hover:text-primary w-full"
+                          onclick={() => toggleFold(ui)}
+                        >
+                          <span class="text-placeholder select-none"
+                            >{(ui + 1).toString().padStart(6, ' ')}:
+                          </span>{isExpanded ? '▾' : '▸'}
+                          <span class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                            >{unit.firstFrame}</span
+                          >
+                          {#if !isExpanded}
+                            <span class="text-muted italic"
+                              >(and {unit.hiddenFrames.length} more)</span
+                            >
+                          {/if}
+                        </button>
+                        {#if isExpanded}
+                          {#each unit.hiddenFrames as frame}
+                            <div class="pl-8">
+                              <span
+                                class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                                >{frame}</span
+                              >
+                            </div>
+                          {/each}
+                        {/if}
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/if}
         </section>
