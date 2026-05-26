@@ -109,6 +109,7 @@ pub fn run() {
             // Onboarding (v0.5.0 sub-feature 5):
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,
+            commands::app_settings_set_general,
         ])
         .events(collect_events![
             network::DownloadProgress,

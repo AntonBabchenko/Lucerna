@@ -1989,6 +1989,21 @@ pub async fn app_settings_mark_tour_completed(
     crate::instances::store::write_app_json(&path, &current)
 }
 
+/// Persist the GeneralSettings block. Read-modify-write of app.json
+/// — leaves `active_instance`, `onboarding`, and `version` untouched.
+#[tauri::command]
+#[specta::specta]
+pub async fn app_settings_set_general(
+    app: tauri::AppHandle,
+    general: crate::instances::schema::GeneralSettings,
+) -> crate::error::Result<()> {
+    let path =
+        crate::paths::app_file(&app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    let mut current = crate::instances::store::read_app_json(&path)?;
+    current.general = general;
+    crate::instances::store::write_app_json(&path, &current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
