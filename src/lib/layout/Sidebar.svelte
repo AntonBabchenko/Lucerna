@@ -246,9 +246,14 @@
       class:font-medium={modpacksActive}
       data-tour="open-modpacks"
       data-testid="sidebar-open-modpacks"
+      title={modpacksActive ? 'Click to return to the instance view' : undefined}
       onclick={onOpenModpacks}
     >
-      📦 Browse modpacks
+      {#if modpacksActive}
+        ← Back to instance
+      {:else}
+        📦 Browse modpacks
+      {/if}
     </button>
     <div class="pt-2 border-t border-neutral-200 flex gap-1">
       <button
