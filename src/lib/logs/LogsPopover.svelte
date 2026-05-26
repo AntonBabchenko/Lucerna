@@ -190,7 +190,9 @@
       if (e.key === 'Escape') open = false;
     }}
   ></div>
-  <aside class="fixed inset-y-0 right-0 z-50 w-[min(1100px,95vw)] bg-white shadow-xl flex flex-col">
+  <aside
+    class="fixed inset-y-0 right-0 z-50 w-[min(1100px,95vw)] bg-surface shadow-xl flex flex-col"
+  >
     <header class="flex items-center justify-between px-4 py-2 border-b">
       <h2 class="text-sm font-semibold">Logs</h2>
       <div class="flex items-center gap-3">

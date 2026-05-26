@@ -581,7 +581,7 @@
         <select
           bind:value={loaderFilter}
           aria-label="Loader filter"
-          class="filter-select border rounded px-2 py-0.5 text-sm bg-white"
+          class="filter-select border rounded px-2 py-0.5 text-sm"
           class:is-empty={!loaderFilter}
         >
           <option value="">Any</option>
