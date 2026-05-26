@@ -9,44 +9,74 @@ Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.
 The launcher itself is open-source under GPL-3.0-or-later; the Java runtime and Minecraft
 files come straight from Mojang and are never modified.
 
-FTlauncher supports both Microsoft / Xbox Live sign-in and offline play (LAN sessions,
-single-player without internet, development testing) as equal first-class options.
-Mod loaders supported: Fabric, Quilt, Forge, NeoForge. Mod browsing via the official
-Modrinth and CurseForge APIs (mod browser ships in v0.5.0).
+FTlauncher integrates the official Modrinth and CurseForge APIs for mod and modpack
+browsing, supports Fabric / Quilt / Forge / NeoForge, isolates every Minecraft install
+into its own instance, and ships offline play as a first-class option. Microsoft / Xbox
+Live sign-in is implemented but currently blocked upstream — see
+[v0.5.0 polish notes](docs/superpowers/notes/) for status.
 
 The principles that constrain every decision live in
 [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply-chain stance
 lives in [`docs/SECURITY.md`](docs/SECURITY.md).
 
-## v0.1.0 — what works
+## What works today
 
-- Type a name → it persists across launcher restarts (offline account, UUID
-  derived from the name).
-- Pick a vanilla Minecraft version from the official Mojang manifest
-  (releases by default; snapshots / old-alpha / old-beta on demand).
-- Click Play → launcher downloads Java + libraries + assets + client.jar,
-  then launches Minecraft. Idempotent: re-clicking on the same version
-  starts the game in a few seconds.
-- Network Activity popover lists every outbound request the launcher made,
-  with byte counts and status codes. Allowlist violations are flagged
-  in red.
-- Logs popover surfaces Minecraft's own logs, crash reports, and the
-  launcher's stdout/stderr capture. Search + line numbers + size cap.
-- Open mods folder button (no Fabric/Forge support yet — Fabric in v0.2.0,
-  Forge in v0.4.0).
+**Instances** — multiple isolated `.minecraft` directories side-by-side. Each
+instance has its own MC version, mod loader, mods, configs, worlds, and
+JVM args. Switching instance switches Minecraft install with one click.
 
-## v0.1.0 — known limitations
+**Mod loaders** — Fabric (Quilt as a Fabric superset), Forge (every era,
+1.7.10 through current), NeoForge. Installer logic runs in-process; no
+external Forge installer wizard required.
 
-- Windows-only. macOS / Linux builds in a later release.
-- One running Minecraft instance at a time. Multi-instance in v0.3.0.
-- No Microsoft (Xbox Live) account support yet — offline accounts only.
-  Microsoft auth lands in v0.2.0.
-- No mod loader installed by default. The "Open mods folder" button gets
-  you to the directory, but vanilla Minecraft does not load mods. Fabric
-  support in v0.2.0, Forge in v0.4.0.
-- The launcher binary is not code-signed. Windows SmartScreen will warn
-  on first run. Click "More info" → "Run anyway". Code signing is a v1.0
-  concern.
+**Mod browser** — search Modrinth + CurseForge inside the launcher. Filter
+by MC version + loader (defaulted to the active instance), live MC
+version combobox. Install resolves required dependencies automatically;
+optional deps are surfaced as checkboxes in the dependency dialog.
+"Installed" sub-tab manages on-disk mods, with one-click standalone
+update check across the whole instance.
+
+**Modpacks** — Modrinth and CurseForge modpack browser as a sidebar-level
+view (not per-instance, since installing a pack creates a new instance).
+Browse + drag-drop import of `.mrpack` and CurseForge `.zip`. Pack
+updates carry their version provenance forward; missing-mod and
+distribution-disabled cases are surfaced to the user instead of silently
+failing.
+
+**Worlds** — per-instance world list with size + last-played, zip-backed
+backups (Replace / As-copy restore modes), and a delete-with-confirmation
+flow.
+
+**Logs** — three-source viewer (game / crash reports / launcher) with
+severity colour stripes, search-and-navigate (next/prev + N-of-M),
+line-wrap and stack-trace folding toggles, structured crash-report view
+with collapsible sections, and one-click "Share to mclo.gs" with
+client-side anonymisation of user paths, session tokens, and LAN IPs.
+
+**Playtime** — per-instance session-time tracking shown on the Overview
+tab (total / sessions / last session).
+
+**System integration** — opt-in "hide launcher to tray when Minecraft
+starts" with auto-restore on game exit, light/dark/system theme picker,
+and a guided tour the first time you visit Manage / Logs / Modpacks /
+Worlds.
+
+**Transparency** — every outbound HTTP request goes through a single
+chokepoint with a static host allowlist; every process the launcher
+spawns goes through one Rust module. Adding a network destination or a
+process is a deliberate code change, not an emergent capability.
+
+## Known limitations
+
+- **Windows-only.** macOS / Linux ports are tracked but not started.
+- **One running Minecraft instance at a time.** Multi-instance launch is
+  not planned for v1.
+- **No Microsoft (Xbox Live) account support in the released build.** The
+  implementation exists at git tag `v0.2.0-msauth-attempt` but is blocked
+  by an upstream Microsoft policy change. Offline accounts work as a
+  first-class option.
+- **Not code-signed.** Windows SmartScreen warns on first run; click
+  "More info" → "Run anyway". Code signing is a v1.0 concern.
 
 ## System requirements
 
