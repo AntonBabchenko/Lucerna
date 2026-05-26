@@ -100,17 +100,50 @@
     };
   });
 
-  // Popover positioning per anchor. Returns inline style string.
+  // Popover positioning per anchor with viewport-overflow clamping.
+  // When the target sits in the bottom half of the viewport, anchor
+  // the popover by its BOTTOM edge (sticking up from the target)
+  // rather than its top — otherwise a target near the bottom (e.g.
+  // sidebar's Browse modpacks for step 6) pushes the popover off the
+  // screen. Same idea horizontally for `anchor: 'below'`.
+  const POPOVER_WIDTH = 320;
+  const MARGIN = 16;
+
   function popoverStyle(r: DOMRect | null, anchor: string): string {
     if (!r) {
       return 'top:50%; left:50%; transform:translate(-50%,-50%);';
     }
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+
     if (anchor === 'right') {
-      return `top:${r.top}px; left:${r.right + 16}px;`;
+      // Horizontal: prefer right of target; fall back left if no room.
+      let leftPart: string;
+      if (r.right + MARGIN + POPOVER_WIDTH + MARGIN <= vw) {
+        leftPart = `left:${r.right + MARGIN}px;`;
+      } else {
+        const fallbackLeft = Math.max(MARGIN, r.left - POPOVER_WIDTH - MARGIN);
+        leftPart = `left:${fallbackLeft}px;`;
+      }
+      // Vertical: if target's vertical centre is in the bottom half of
+      // the viewport, anchor the popover BOTTOM to the target bottom
+      // (popover grows upward). Otherwise top-align as before.
+      const targetMidY = r.top + r.height / 2;
+      const verticalPart =
+        targetMidY > vh / 2 ? `bottom:${Math.max(MARGIN, vh - r.bottom)}px;` : `top:${r.top}px;`;
+      return `${verticalPart} ${leftPart}`;
     }
+
     if (anchor === 'below') {
-      return `top:${r.bottom + 12}px; left:${r.left}px;`;
+      // Horizontal: keep popover inside the viewport when target is
+      // near the right edge.
+      let leftCoord = r.left;
+      if (leftCoord + POPOVER_WIDTH + MARGIN > vw) {
+        leftCoord = Math.max(MARGIN, vw - POPOVER_WIDTH - MARGIN);
+      }
+      return `top:${r.bottom + 12}px; left:${leftCoord}px;`;
     }
+
     return 'top:50%; left:50%; transform:translate(-50%,-50%);';
   }
 
