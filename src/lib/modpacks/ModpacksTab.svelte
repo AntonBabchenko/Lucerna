@@ -224,16 +224,16 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div role="tablist" class="border-b flex gap-1 px-3 bg-white">
+  <div role="tablist" class="border-b flex gap-1 px-3 bg-surface">
     <button
       type="button"
       role="tab"
       aria-selected={activeSub === 'browse'}
       class="px-3 py-2 text-sm border-b-2 -mb-px"
-      class:border-blue-600={activeSub === 'browse'}
+      class:border-accent={activeSub === 'browse'}
       class:font-semibold={activeSub === 'browse'}
       class:border-transparent={activeSub !== 'browse'}
-      class:text-neutral-400={activeSub !== 'browse'}
+      class:text-placeholder={activeSub !== 'browse'}
       onclick={() => (activeSub = 'browse')}
     >
       Browse
@@ -243,10 +243,10 @@
       role="tab"
       aria-selected={activeSub === 'imported'}
       class="px-3 py-2 text-sm border-b-2 -mb-px"
-      class:border-blue-600={activeSub === 'imported'}
+      class:border-accent={activeSub === 'imported'}
       class:font-semibold={activeSub === 'imported'}
       class:border-transparent={activeSub !== 'imported'}
-      class:text-neutral-400={activeSub !== 'imported'}
+      class:text-placeholder={activeSub !== 'imported'}
       onclick={() => (activeSub = 'imported')}
     >
       Imported
@@ -262,7 +262,7 @@
 
   <div class="flex-1 overflow-y-auto">
     {#if error}
-      <div class="m-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-900">
+      <div class="m-4 p-3 bg-danger/10 border border-danger rounded text-sm text-danger">
         {error}
       </div>
     {/if}

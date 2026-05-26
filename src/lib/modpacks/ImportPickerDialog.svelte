@@ -60,10 +60,10 @@
   aria-modal="true"
   aria-label="Modpack import picker"
 >
-  <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+  <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
     <header class="p-4 border-b">
       <h2 class="text-lg font-semibold">{summary.name}</h2>
-      <div class="text-sm text-neutral-500">
+      <div class="text-sm text-muted">
         v{summary.version} ·
         {summary.format === 'modrinth' ? 'Modrinth .mrpack' : 'CurseForge .zip'}
         · MC {summary.game_version} · {summary.loader}{summary.loader_version
@@ -73,14 +73,16 @@
     </header>
 
     {#if summary.has_saves_in_overrides}
-      <div class="m-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900">
+      <div
+        class="m-4 p-3 bg-warning-bg border border-warning-text/30 rounded text-sm text-warning-text"
+      >
         ⚠ This pack includes saved worlds in its overrides. They will be copied into the new
         instance.
       </div>
     {/if}
 
     <div class="flex-1 overflow-y-auto p-4">
-      <h3 class="font-medium text-sm text-neutral-700 mb-2">Required ({required.length})</h3>
+      <h3 class="font-medium text-sm text-secondary mb-2">Required ({required.length})</h3>
       <ul class="space-y-1 mb-4">
         {#each required as f (f.sha1)}
           <li class="text-sm py-1 flex items-center">
@@ -92,13 +94,13 @@
               aria-label={`Required: ${f.name}`}
             />
             <span>{f.name}</span>
-            <span class="ml-auto text-neutral-400 text-xs">{formatSize(f.size)}</span>
+            <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
           </li>
         {/each}
       </ul>
 
       {#if optional.length > 0}
-        <h3 class="font-medium text-sm text-neutral-700 mb-2">Optional ({optional.length})</h3>
+        <h3 class="font-medium text-sm text-secondary mb-2">Optional ({optional.length})</h3>
         <ul class="space-y-1 mb-4">
           {#each optional as f (f.sha1)}
             <li class="text-sm py-1 flex items-center">
@@ -110,25 +112,25 @@
                 aria-label={`Install ${f.name}`}
               />
               <span>{f.name}</span>
-              <span class="ml-auto text-neutral-400 text-xs">{formatSize(f.size)}</span>
+              <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
             </li>
           {/each}
         </ul>
       {/if}
 
       {#if unresolvable.length > 0}
-        <h3 class="font-medium text-sm text-red-700 mb-2">
+        <h3 class="font-medium text-sm text-danger mb-2">
           Cannot auto-install ({unresolvable.length})
         </h3>
         <ul class="space-y-1">
           {#each unresolvable as u (u.manual_action_url)}
-            <li class="text-sm py-1 flex items-center bg-red-50 px-2 rounded">
+            <li class="text-sm py-1 flex items-center bg-danger/10 px-2 rounded">
               <span class="flex-1">{u.mod_name}</span>
               <a
                 href={u.manual_action_url}
                 target="_blank"
                 rel="noopener"
-                class="text-blue-600 hover:underline text-xs">Open ↗</a
+                class="text-accent hover:underline text-xs">Open ↗</a
               >
             </li>
           {/each}
@@ -142,7 +144,7 @@
       >
       <button
         type="button"
-        class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white disabled:bg-neutral-300"
+        class="px-3 py-1.5 text-sm rounded bg-accent text-white disabled:bg-muted"
         disabled={selectedShas.length === 0}
         onclick={() => onConfirm(selectedShas)}
       >

@@ -83,7 +83,7 @@
   <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
   ></button>
   <div
-    class="relative bg-white rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto m-4"
+    class="relative bg-surface rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto m-4"
     role="dialog"
     aria-modal="true"
     aria-label="Modpack version list"
@@ -92,7 +92,7 @@
       <h3 class="font-semibold flex-1">{hit.title}</h3>
       <button
         type="button"
-        class="text-neutral-500 hover:text-neutral-900"
+        class="text-muted hover:text-primary"
         onclick={onClose}
         aria-label="Close"
       >
@@ -101,7 +101,7 @@
     </header>
     <div class="p-4">
       {#if blocked}
-        <div class="text-sm text-neutral-700">
+        <div class="text-sm text-secondary">
           <p class="mb-3">
             The author of this CurseForge modpack disabled third-party launcher downloads, so it
             cannot be installed automatically. Open it on CurseForge to download the
@@ -109,18 +109,18 @@
           </p>
           <button
             type="button"
-            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded"
+            class="px-3 py-1.5 text-sm bg-accent text-white rounded"
             onclick={openOnCurseForge}
           >
             Open on CurseForge ↗
           </button>
         </div>
       {:else if loading}
-        <div class="text-sm text-neutral-500">Loading versions...</div>
+        <div class="text-sm text-muted">Loading versions...</div>
       {:else if error}
-        <div class="text-sm text-red-600">{error}</div>
+        <div class="text-sm text-danger">{error}</div>
       {:else if visibleVersions.length === 0}
-        <div class="text-sm text-neutral-500">
+        <div class="text-sm text-muted">
           {#if mcFilter}
             No versions for MC {mcFilter}. Clear the MC filter in the search to see all.
           {:else}
@@ -134,13 +134,13 @@
               <div class="flex items-center">
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{v.name}</div>
-                  <div class="text-xs text-neutral-500">
+                  <div class="text-xs text-muted">
                     MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
                   </div>
                 </div>
                 <button
                   type="button"
-                  class="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:bg-neutral-300"
+                  class="ml-2 px-2 py-1 text-xs bg-accent text-white rounded disabled:bg-muted"
                   disabled={downloading}
                   onclick={() => install(v.id)}
                 >

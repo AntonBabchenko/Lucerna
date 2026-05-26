@@ -127,7 +127,7 @@
 
 {#if allPacks.length === 0}
   <div class="p-4">
-    <div class="text-sm text-neutral-400 text-center mt-12">
+    <div class="text-sm text-placeholder text-center mt-12">
       No packs imported yet. Drop a .mrpack on the Browse tab or pick one from search.
     </div>
   </div>
@@ -142,7 +142,7 @@
     />
     <select
       bind:value={mcFilter}
-      class="px-2 py-1.5 border rounded text-sm bg-white"
+      class="px-2 py-1.5 border rounded text-sm bg-surface"
       data-testid="imported-mc-filter"
     >
       <option value="">All MC versions</option>
@@ -152,7 +152,7 @@
     </select>
     <select
       bind:value={loaderFilter}
-      class="px-2 py-1.5 border rounded text-sm bg-white"
+      class="px-2 py-1.5 border rounded text-sm bg-surface"
       data-testid="imported-loader-filter"
     >
       <option value="">All loaders</option>
@@ -163,7 +163,7 @@
     </select>
     <select
       bind:value={sort}
-      class="px-2 py-1.5 border rounded text-sm bg-white"
+      class="px-2 py-1.5 border rounded text-sm bg-surface"
       data-testid="imported-sort"
     >
       <option value="newest">Newest first</option>
@@ -174,7 +174,7 @@
 
   <div class="p-4 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
     {#if packs.length === 0}
-      <div class="col-span-full text-sm text-neutral-400 text-center mt-8">
+      <div class="col-span-full text-sm text-placeholder text-center mt-8">
         No packs match the filter.
       </div>
     {:else}

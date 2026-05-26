@@ -121,13 +121,13 @@
   }
 </script>
 
-<p class="block text-xs uppercase text-neutral-600 mb-1">Loader</p>
+<p class="block text-xs uppercase text-secondary mb-1">Loader</p>
 <div class="flex gap-1 mb-3">
   {#each LOADER_KINDS as lk}
     <button
       type="button"
       class="flex-1 border rounded px-2 py-1 text-xs"
-      class:bg-blue-600={loader === lk}
+      class:bg-accent={loader === lk}
       class:text-white={loader === lk}
       {disabled}
       onclick={() => pickLoader(lk)}
@@ -138,7 +138,7 @@
 </div>
 
 {#if loader !== 'vanilla' && versions.length > 0}
-  <label class="block text-xs uppercase text-neutral-600 mb-1" for="loader-version-select">
+  <label class="block text-xs uppercase text-secondary mb-1" for="loader-version-select">
     Loader version
   </label>
   <select
@@ -157,5 +157,5 @@
 {/if}
 
 {#if error}
-  <p class="text-xs text-red-700 mb-2">{error}</p>
+  <p class="text-xs text-danger mb-2">{error}</p>
 {/if}

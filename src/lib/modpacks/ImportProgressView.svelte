@@ -49,17 +49,17 @@
 
 {#if phase}
   <div
-    class="fixed top-4 right-4 z-40 w-72 bg-white rounded-lg shadow-xl border p-4"
+    class="fixed top-4 right-4 z-40 w-72 bg-surface rounded-lg shadow-xl border p-4"
     role="status"
     aria-label="Modpack import progress"
     data-testid="import-progress-view"
   >
     <h3 class="font-semibold text-sm mb-1">Importing modpack…</h3>
-    <div class="text-sm text-neutral-600 truncate">{label(phase)}</div>
+    <div class="text-sm text-secondary truncate">{label(phase)}</div>
     {#if modBytes && modBytes.total && modBytes.total > 0 && modBytes.current != null}
-      <div class="h-2 bg-neutral-200 rounded mt-2 overflow-hidden">
+      <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">
         <div
-          class="h-full bg-blue-500"
+          class="h-full bg-accent"
           style="width: {percent(modBytes.current, modBytes.total)}%"
         ></div>
       </div>

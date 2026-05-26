@@ -18,15 +18,17 @@
   aria-modal="true"
   aria-label="Modpack update confirmation"
 >
-  <div class="bg-white rounded-lg shadow-xl w-[480px] max-h-[80vh] p-5 flex flex-col gap-3">
+  <div class="bg-surface rounded-lg shadow-xl w-[480px] max-h-[80vh] p-5 flex flex-col gap-3">
     <h3 class="font-semibold text-base">Update to {diff.new_version_number}</h3>
 
-    <div class="text-sm text-neutral-700">
+    <div class="text-sm text-secondary">
       +{diff.added.length} added · −{diff.removed.length} removed · ⟳{diff.updated.length} updated
     </div>
 
     {#if diff.version_bump}
-      <div class="text-sm bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
+      <div
+        class="text-sm bg-warning-bg border border-warning-text/30 rounded p-2 text-warning-text"
+      >
         Minecraft {diff.version_bump.old_game_version} → {diff.version_bump.new_game_version}. After
         updating, click <span class="font-semibold">Install</span> to download the new Minecraft version.
       </div>
@@ -37,16 +39,16 @@
       data-testid="update-diff-list"
     >
       {#each diff.added as f (f.install_path)}
-        <div class="px-2 py-1 text-green-700">+ {f.name}</div>
+        <div class="px-2 py-1 text-success">+ {f.name}</div>
       {/each}
       {#each diff.updated as e (e.new.install_path)}
-        <div class="px-2 py-1 text-blue-700">⟳ {e.new.name}</div>
+        <div class="px-2 py-1 text-accent">⟳ {e.new.name}</div>
       {/each}
       {#each diff.removed as f (f.install_path)}
-        <div class="px-2 py-1 text-red-700 line-through">− {f.name}</div>
+        <div class="px-2 py-1 text-danger line-through">− {f.name}</div>
       {/each}
       {#if diff.added.length + diff.updated.length + diff.removed.length === 0}
-        <div class="px-2 py-3 text-neutral-500 text-center">No file changes in this version.</div>
+        <div class="px-2 py-3 text-muted text-center">No file changes in this version.</div>
       {/if}
     </div>
 
@@ -56,7 +58,7 @@
       </button>
       <button
         type="button"
-        class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700"
+        class="bg-accent text-white rounded px-3 py-1 text-sm hover:bg-accent"
         onclick={onConfirm}
         data-testid="update-confirm"
       >

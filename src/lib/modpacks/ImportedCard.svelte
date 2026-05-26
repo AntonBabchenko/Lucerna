@@ -41,13 +41,13 @@
 
 <button
   type="button"
-  class="text-left p-3 bg-white border rounded hover:border-blue-300 hover:shadow-sm transition-all w-full"
+  class="text-left p-3 bg-surface border rounded hover:border-accent hover:shadow-sm transition-all w-full"
   onclick={onClick}
   data-testid="imported-card"
 >
   <div class="flex gap-3">
     <div
-      class="w-12 h-12 bg-neutral-100 rounded flex items-center justify-center text-2xl flex-shrink-0"
+      class="w-12 h-12 bg-subtle rounded flex items-center justify-center text-2xl flex-shrink-0"
     >
       📦
     </div>
@@ -56,7 +56,7 @@
         {inst.mrpack_name} v{inst.mrpack_version}
         {#if isModified}
           <span
-            class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 align-middle"
+            class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-bg text-warning-text align-middle"
             title="installed mods differ from the imported pack"
             data-testid="imported-card-modified-tag"
           >
@@ -64,8 +64,8 @@
           </span>
         {/if}
       </div>
-      <div class="text-xs text-neutral-500 truncate">Instance: {inst.name}</div>
-      <div class="text-xs text-neutral-400 mt-1 truncate">
+      <div class="text-xs text-muted truncate">Instance: {inst.name}</div>
+      <div class="text-xs text-placeholder mt-1 truncate">
         MC {inst.mc_version} · {displayLoader(inst.loader)}{inst.loader_version
           ? ' ' + inst.loader_version
           : ''}{inst.created_unix_ms != null

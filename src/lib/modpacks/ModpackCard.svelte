@@ -15,7 +15,7 @@
 
 <button
   type="button"
-  class="text-left p-3 bg-white border rounded hover:border-blue-300 hover:shadow-sm transition-all w-full"
+  class="text-left p-3 bg-surface border rounded hover:border-accent hover:shadow-sm transition-all w-full"
   onclick={onClick}
   data-testid="modpack-card"
 >
@@ -24,19 +24,21 @@
       <img src={hit.icon_url} alt="" class="w-12 h-12 rounded object-cover flex-shrink-0" />
     {:else}
       <div
-        class="w-12 h-12 bg-neutral-100 rounded flex items-center justify-center text-neutral-400 flex-shrink-0"
+        class="w-12 h-12 bg-subtle rounded flex items-center justify-center text-placeholder flex-shrink-0"
       >
         📦
       </div>
     {/if}
     <div class="min-w-0 flex-1">
       <div class="font-semibold text-sm truncate">{hit.title}</div>
-      <div class="text-xs text-neutral-500 line-clamp-2">{hit.description}</div>
-      <div class="text-xs text-neutral-400 mt-1">
+      <div class="text-xs text-muted line-clamp-2">{hit.description}</div>
+      <div class="text-xs text-placeholder mt-1">
         {(hit.downloads ?? 0).toLocaleString()} downloads
       </div>
       {#if hit.distribution_allowed === false}
-        <div class="mt-1 inline-block text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+        <div
+          class="mt-1 inline-block text-xs px-1.5 py-0.5 rounded bg-warning-bg text-warning-text"
+        >
           CurseForge download disabled
         </div>
       {/if}

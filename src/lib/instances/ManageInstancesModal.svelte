@@ -225,17 +225,19 @@
 
 {#if open}
   <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-[760px] max-h-[80vh] overflow-hidden flex flex-col">
+    <div
+      class="bg-surface rounded-lg shadow-xl w-[760px] max-h-[80vh] overflow-hidden flex flex-col"
+    >
       <header class="flex items-center justify-between px-4 py-2 border-b">
         <h2 class="font-semibold">Manage Instances</h2>
-        <button class="text-neutral-500 hover:text-neutral-800" onclick={close}>×</button>
+        <button class="text-muted hover:text-primary" onclick={close}>×</button>
       </header>
       <div class="flex flex-1 overflow-hidden">
         <aside class="w-[220px] border-r overflow-y-auto p-2 flex flex-col gap-1">
           {#each instances as i}
             <button
-              class="text-left px-2 py-1 rounded text-sm hover:bg-neutral-100"
-              class:bg-blue-100={i.id === selectedId}
+              class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
+              class:bg-accent-soft={i.id === selectedId}
               onclick={() => {
                 createMode = false;
                 selectedId = i.id;
@@ -245,16 +247,16 @@
                 {i.ready ? '✓' : '↓'}
                 {i.name}
                 {#if i.id === activeInstance?.id}
-                  <span class="text-xs text-neutral-500">(active)</span>
+                  <span class="text-xs text-muted">(active)</span>
                 {/if}
               </div>
-              <div class="text-xs text-neutral-500">
+              <div class="text-xs text-muted">
                 {displayLoader(i.loader)} · {i.mc_version || '(pick MC)'}
               </div>
             </button>
           {/each}
           <button
-            class="mt-2 text-sm border border-dashed rounded px-2 py-1 hover:bg-neutral-100"
+            class="mt-2 text-sm border border-dashed rounded px-2 py-1 hover:bg-subtle"
             onclick={openCreate}
           >
             + New instance
@@ -265,10 +267,10 @@
             <h3 class="font-semibold mb-3">New instance</h3>
             <label
               for="create-name"
-              class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between"
+              class="block text-xs uppercase text-secondary mb-1 flex justify-between"
             >
               <span>Name</span>
-              <span class="text-neutral-400 normal-case font-normal">{draftName.length}/32</span>
+              <span class="text-placeholder normal-case font-normal">{draftName.length}/32</span>
             </label>
             <input
               id="create-name"
@@ -277,7 +279,7 @@
               bind:value={draftName}
             />
 
-            <label for="create-mc-version" class="block text-xs uppercase text-neutral-600 mb-1"
+            <label for="create-mc-version" class="block text-xs uppercase text-secondary mb-1"
               >Minecraft version</label
             >
             <select
@@ -307,7 +309,7 @@
                 Cancel
               </button>
               <button
-                class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:bg-neutral-300 disabled:cursor-not-allowed"
+                class="bg-accent text-white rounded px-3 py-1 text-sm hover:bg-accent disabled:bg-muted disabled:cursor-not-allowed"
                 disabled={!!createDisabledReason}
                 title={createDisabledReason}
                 onclick={submitCreate}
@@ -318,17 +320,17 @@
           {:else if selected}
             <h3 class="font-semibold mb-3">
               {selected.name}
-              {#if selected.id === activeInstance?.id}<span class="text-xs text-neutral-500"
+              {#if selected.id === activeInstance?.id}<span class="text-xs text-muted"
                   >(active)</span
                 >{/if}
             </h3>
 
             <label
               for="detail-name"
-              class="block text-xs uppercase text-neutral-600 mb-1 flex justify-between"
+              class="block text-xs uppercase text-secondary mb-1 flex justify-between"
             >
               <span>Name</span>
-              <span class="text-neutral-400 normal-case font-normal">{nameDraft.length}/32</span>
+              <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
             </label>
             <input
               id="detail-name"
@@ -338,7 +340,7 @@
               onblur={commitName}
             />
 
-            <label for="detail-mc-version" class="block text-xs uppercase text-neutral-600 mb-1"
+            <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
               >Minecraft version</label
             >
             <select
@@ -368,7 +370,7 @@
               }}
             />
 
-            <label for="detail-memory" class="block text-xs uppercase text-neutral-600 mb-1">
+            <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
               Memory (max heap): {selected.max_heap_mb} MB
             </label>
             <input
@@ -382,7 +384,7 @@
               class="w-full mb-3"
             />
 
-            <label for="detail-jvm-args" class="block text-xs uppercase text-neutral-600 mb-1"
+            <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
               >Extra JVM args</label
             >
             <input
@@ -399,7 +401,7 @@
               </button>
               <div class="flex gap-2">
                 <button
-                  class="border border-red-300 text-red-700 rounded px-3 py-1 text-xs hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  class="border border-danger text-danger rounded px-3 py-1 text-xs hover:bg-danger/10 disabled:opacity-40 disabled:cursor-not-allowed"
                   disabled={instances.length <= 1}
                   title={instances.length <= 1 ? 'Cannot delete the last instance' : ''}
                   onclick={() => (deleteConfirmOpen = true)}
@@ -407,7 +409,7 @@
                   🗑 Delete
                 </button>
                 <button
-                  class="bg-blue-600 text-white rounded px-3 py-1 text-xs hover:bg-blue-700"
+                  class="bg-accent text-white rounded px-3 py-1 text-xs hover:bg-accent"
                   onclick={close}
                 >
                   Done
@@ -415,13 +417,11 @@
               </div>
             </div>
           {:else}
-            <p class="text-neutral-500 text-sm">
-              Pick an instance on the left, or click + New instance.
-            </p>
+            <p class="text-muted text-sm">Pick an instance on the left, or click + New instance.</p>
           {/if}
 
           {#if modalError}
-            <p class="text-xs text-red-700 mt-3">{modalError}</p>
+            <p class="text-xs text-danger mt-3">{modalError}</p>
           {/if}
         </section>
       </div>
@@ -430,12 +430,12 @@
 
   {#if deleteConfirmOpen && selected}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-      <div class="bg-white rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
+      <div class="bg-surface rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
         <h3 class="font-semibold text-base">Delete instance?</h3>
-        <p class="text-sm text-neutral-700">
+        <p class="text-sm text-secondary">
           Delete <span class="font-mono font-semibold">{selected.name}</span>?
         </p>
-        <p class="text-sm text-neutral-600">
+        <p class="text-sm text-secondary">
           This permanently removes the instance directory including its
           <span class="font-mono">.minecraft/</span> folder — saved worlds, installed mods, configs, resource
           packs, screenshots. This cannot be undone.
@@ -448,7 +448,7 @@
             Cancel
           </button>
           <button
-            class="bg-red-600 text-white rounded px-3 py-1 text-sm hover:bg-red-700"
+            class="bg-danger text-white rounded px-3 py-1 text-sm hover:bg-danger"
             onclick={async () => {
               deleteConfirmOpen = false;
               await deleteSelected();

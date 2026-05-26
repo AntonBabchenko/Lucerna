@@ -336,7 +336,7 @@
   <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
   ></button>
   <div
-    class="relative bg-white rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto flex flex-col m-4"
+    class="relative bg-surface rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto flex flex-col m-4"
     role="dialog"
     aria-modal="true"
     aria-label="Imported pack details"
@@ -346,13 +346,13 @@
       <div class="text-2xl leading-none flex-shrink-0">📦</div>
       <div class="flex-1 min-w-0">
         <h3 class="font-semibold truncate">{inst.mrpack_name}</h3>
-        <div class="text-xs text-neutral-500 truncate">
+        <div class="text-xs text-muted truncate">
           v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
         </div>
       </div>
       <button
         type="button"
-        class="text-neutral-500 hover:text-neutral-900 flex-shrink-0"
+        class="text-muted hover:text-primary flex-shrink-0"
         onclick={onClose}
         aria-label="Close"
       >
@@ -361,7 +361,7 @@
     </header>
 
     {#if inst.mrpack_summary}
-      <div class="px-4 pt-3 pb-2 text-sm text-neutral-700" data-testid="imported-detail-summary">
+      <div class="px-4 pt-3 pb-2 text-sm text-secondary" data-testid="imported-detail-summary">
         {inst.mrpack_summary}
       </div>
     {/if}
@@ -372,7 +372,7 @@
           target="_blank"
           rel="noopener"
           href={sourceUrl(inst) ?? ''}
-          class="text-blue-600 hover:underline text-sm"
+          class="text-accent hover:underline text-sm"
           data-testid="imported-detail-source-link"
         >
           Open on {sourceLabel(inst.mrpack_source)} ↗
@@ -381,23 +381,24 @@
     {/if}
 
     {#if updateError}
-      <div class="px-4 pb-2 text-xs text-red-700" data-testid="imported-detail-update-error">
+      <div class="px-4 pb-2 text-xs text-danger" data-testid="imported-detail-update-error">
         {updateError}
       </div>
     {/if}
     {#if updating}
-      <div class="px-4 pb-3 text-sm text-blue-700" data-testid="imported-detail-updating">
+      <div class="px-4 pb-3 text-sm text-accent" data-testid="imported-detail-updating">
         Updating…
       </div>
     {:else if updateAvailable}
       <div class="px-4 pb-3">
-        <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2 text-sm">
-          <span class="flex-1 text-blue-900"
-            >Update available → {updateAvailable.version_number}</span
+        <div
+          class="flex items-center gap-2 bg-accent-soft border border-accent rounded p-2 text-sm"
+        >
+          <span class="flex-1 text-accent">Update available → {updateAvailable.version_number}</span
           >
           <button
             type="button"
-            class="text-xs px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700"
+            class="text-xs px-2 py-0.5 rounded bg-accent text-white hover:bg-accent"
             onclick={() => void openUpdateDialog()}
             data-testid="imported-detail-update-button"
           >
@@ -408,13 +409,11 @@
     {/if}
 
     <div class="flex-1 overflow-y-auto px-4 pb-4">
-      <h4 class="font-medium text-sm text-neutral-700 mt-2 mb-2">Mods</h4>
+      <h4 class="font-medium text-sm text-secondary mt-2 mb-2">Mods</h4>
       {#if mods === null}
-        <div class="text-sm text-neutral-500" data-testid="imported-detail-mods-loading">
-          Loading…
-        </div>
+        <div class="text-sm text-muted" data-testid="imported-detail-mods-loading">Loading…</div>
       {:else if mods.length === 0}
-        <div class="text-sm text-neutral-500" data-testid="imported-detail-mods-empty">
+        <div class="text-sm text-muted" data-testid="imported-detail-mods-empty">
           No mods installed.
         </div>
       {:else}
@@ -424,13 +423,13 @@
             <li class="flex items-center gap-2 text-sm py-1">
               <div
                 class="w-2 h-2 rounded-full flex-shrink-0"
-                class:bg-blue-500={m.enabled}
-                class:bg-neutral-300={!m.enabled}
+                class:bg-accent={m.enabled}
+                class:bg-muted={!m.enabled}
                 aria-hidden="true"
               ></div>
               {#if prov === 'pack'}
                 <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 flex-shrink-0"
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
                   title="from pack"
                   data-testid="mod-badge-pack-{m.sha1}"
                 >
@@ -446,7 +445,7 @@
                 </span>
               {:else}
                 <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
                   title="manually placed"
                   data-testid="mod-badge-manual-{m.sha1}"
                 >
@@ -456,7 +455,7 @@
               <span class="truncate flex-1">{displayName(m)}</span>
               {#if !m.enabled}
                 <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500 flex-shrink-0"
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
                 >
                   disabled
                 </span>
@@ -472,7 +471,7 @@
         {@const configs = presentAssets('configs')}
 
         {#if resourcepacks.length > 0}
-          <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
+          <h4 class="font-medium text-sm text-secondary mt-5 mb-2">
             Resource packs ({resourcepacks.length})
           </h4>
           <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
@@ -485,7 +484,7 @@
         {/if}
 
         {#if shaderpacks.length > 0}
-          <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
+          <h4 class="font-medium text-sm text-secondary mt-5 mb-2">
             Shader packs ({shaderpacks.length})
           </h4>
           <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
@@ -500,7 +499,7 @@
         {#if configs.length > 0}
           <button
             type="button"
-            class="font-medium text-sm text-neutral-700 mt-5 mb-2 flex items-center gap-1 hover:text-neutral-900"
+            class="font-medium text-sm text-secondary mt-5 mb-2 flex items-center gap-1 hover:text-primary"
             onclick={() => (configsExpanded = !configsExpanded)}
             data-testid="imported-detail-configs-toggle"
           >
@@ -511,7 +510,7 @@
             <ul class="space-y-1" data-testid="imported-detail-configs">
               {#each configs as f (f.install_path)}
                 <li class="flex items-center gap-2 text-sm py-1">
-                  <span class="truncate flex-1 text-neutral-600">{f.install_path}</span>
+                  <span class="truncate flex-1 text-secondary">{f.install_path}</span>
                 </li>
               {/each}
             </ul>
@@ -521,20 +520,20 @@
 
       {#if status && status.removed_files.length > 0}
         <div class="mt-5" data-testid="imported-detail-removed-section">
-          <h4 class="font-medium text-sm text-neutral-700 mb-2">
+          <h4 class="font-medium text-sm text-secondary mb-2">
             Removed from pack ({status.removed_files.length})
           </h4>
           {#if restoreError}
-            <p class="text-xs text-red-700 mb-2" data-testid="imported-detail-restore-error">
+            <p class="text-xs text-danger mb-2" data-testid="imported-detail-restore-error">
               {restoreError}
             </p>
           {/if}
           <ul class="space-y-1">
             {#each status.removed_files as f (f.sha1)}
               <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-red-50 border border-red-100"
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger/10 border border-danger"
               >
-                <span class="truncate flex-1 line-through text-neutral-700">{f.name}</span>
+                <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
                 {#if f.url === ''}
                   <!-- Bundled mod from overrides/mods/ — no network source
                      to re-fetch from. Disable Restore and explain why on
@@ -542,7 +541,7 @@
                      the .mrpack. -->
                   <button
                     type="button"
-                    class="text-xs px-2 py-0.5 rounded border border-neutral-200 text-neutral-400 cursor-not-allowed flex-shrink-0"
+                    class="text-xs px-2 py-0.5 rounded border border-border-subtle text-placeholder cursor-not-allowed flex-shrink-0"
                     disabled
                     title="Bundled inside the .mrpack — cannot restore automatically. Re-import the pack to recover."
                     data-testid="imported-detail-restore-{f.sha1}"
@@ -552,7 +551,7 @@
                 {:else}
                   <button
                     type="button"
-                    class="text-xs px-2 py-0.5 rounded border border-red-200 text-red-700 hover:bg-red-100 flex-shrink-0"
+                    class="text-xs px-2 py-0.5 rounded border border-danger text-danger hover:bg-danger/10 flex-shrink-0"
                     onclick={() => void restore(f)}
                     data-testid="imported-detail-restore-{f.sha1}"
                   >
@@ -565,7 +564,7 @@
           {#if status.removed_files.some((f) => f.url === '')}
             <button
               type="button"
-              class="mt-2 text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50"
+              class="mt-2 text-xs px-2 py-1 rounded border border-border-emphasis hover:bg-subtle disabled:opacity-50"
               onclick={() => void reimportPackFiles()}
               disabled={reimporting}
               data-testid="imported-detail-reimport"
@@ -578,11 +577,11 @@
 
       {#if status && status.missing_mods.length > 0}
         <div class="mt-5" data-testid="imported-detail-missing-section">
-          <h4 class="font-medium text-sm text-neutral-700 mb-2">
+          <h4 class="font-medium text-sm text-secondary mb-2">
             Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed')
               .length})
           </h4>
-          <p class="text-xs text-neutral-500 mb-2">
+          <p class="text-xs text-muted mb-2">
             The pack author disabled automatic downloads for these. Download each from its source
             and drop the jar onto the Mods tab.
           </p>
@@ -591,11 +590,9 @@
               {@const isInstalled = m.state === 'installed'}
               {@const isDifferentVersion = m.state === 'different_version'}
               <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded border"
-                class:bg-amber-50={!isInstalled}
-                class:border-amber-100={!isInstalled}
-                class:bg-green-50={isInstalled}
-                class:border-green-100={isInstalled}
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded border {isInstalled
+                  ? 'bg-success/10 border-success'
+                  : 'bg-warning-bg border-warning-text/30'}"
               >
                 <!-- ✓ when the mod is present at all (installed or a
                    different version); ⚠ only when truly missing — so
@@ -603,17 +600,17 @@
                 <span class="flex-shrink-0" aria-hidden="true">
                   {m.state === 'missing' ? '⚠' : '✓'}
                 </span>
-                <span class="truncate flex-1" class:text-neutral-500={isInstalled}>
+                <span class="truncate flex-1" class:text-muted={isInstalled}>
                   {m.entry.mod_name}
                   {#if isDifferentVersion}
-                    <span class="text-neutral-500 text-xs">
+                    <span class="text-muted text-xs">
                       — different version than the pack — may be incompatible</span
                     >
                   {/if}
                 </span>
                 {#if !isInstalled}
                   <span
-                    class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
                   >
                     {m.entry.reason === 'distribution_disabled'
                       ? 'Distribution disabled'
@@ -625,7 +622,7 @@
                     href={m.entry.manual_action_url}
                     target="_blank"
                     rel="noopener"
-                    class="text-blue-600 hover:underline text-xs flex-shrink-0"
+                    class="text-accent hover:underline text-xs flex-shrink-0"
                   >
                     Open ↗
                   </a>
@@ -637,10 +634,10 @@
       {/if}
     </div>
 
-    <footer class="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-white flex-shrink-0">
+    <footer class="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-surface flex-shrink-0">
       <button
         type="button"
-        class="px-3 py-1.5 text-sm rounded text-red-600 hover:bg-red-50 border border-transparent"
+        class="px-3 py-1.5 text-sm rounded text-danger hover:bg-danger/10 border border-transparent"
         onclick={() => (deleting = true)}
         data-testid="imported-detail-delete"
       >
@@ -648,7 +645,7 @@
       </button>
       <button
         type="button"
-        class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+        class="px-3 py-1.5 text-sm rounded bg-accent text-white hover:bg-accent"
         onclick={() => onOpenInstance(inst.id)}
         data-testid="imported-detail-open"
       >
@@ -676,14 +673,14 @@
     aria-modal="true"
     aria-label="Delete pack confirmation"
   >
-    <div class="bg-white rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
+    <div class="bg-surface rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
       <h3 class="font-semibold text-base">Delete pack and its instance?</h3>
-      <p class="text-sm text-neutral-700">
+      <p class="text-sm text-secondary">
         Worlds, mods, configs, screenshots for this instance will be permanently lost. This cannot
         be undone.
       </p>
       {#if deleteError}
-        <p class="text-xs text-red-700" data-testid="imported-detail-delete-error">
+        <p class="text-xs text-danger" data-testid="imported-detail-delete-error">
           {deleteError}
         </p>
       {/if}
@@ -701,7 +698,7 @@
         </button>
         <button
           type="button"
-          class="bg-red-600 text-white rounded px-3 py-1 text-sm hover:bg-red-700"
+          class="bg-danger text-white rounded px-3 py-1 text-sm hover:bg-danger"
           onclick={confirmDelete}
           data-testid="imported-detail-delete-confirm"
         >

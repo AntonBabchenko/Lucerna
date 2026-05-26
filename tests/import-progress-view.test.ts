@@ -64,7 +64,7 @@ describe('ImportProgressView', () => {
         modBytes: { phase: 'downloading', current: 50, total: 100 },
       },
     });
-    const bar = container.querySelector('.bg-blue-500') as HTMLElement | null;
+    const bar = container.querySelector('.bg-accent') as HTMLElement | null;
     expect(bar).not.toBeNull();
     // 50/100 == 50% width style.
     expect(bar?.getAttribute('style')).toContain('50%');

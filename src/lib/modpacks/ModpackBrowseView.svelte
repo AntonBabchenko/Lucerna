@@ -170,7 +170,7 @@
   </select>
   <button
     type="button"
-    class="text-xs text-neutral-600 underline hover:text-neutral-900 disabled:opacity-40 disabled:no-underline"
+    class="text-xs text-secondary underline hover:text-primary disabled:opacity-40 disabled:no-underline"
     disabled={!mcFilter && !loaderFilter}
     data-testid="modpack-clear-filters"
     onclick={() => {
@@ -186,11 +186,11 @@
   {#if source === 'curseforge' && needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
   {:else if loading}
-    <div class="mt-4 text-sm text-neutral-500">Searching...</div>
+    <div class="mt-4 text-sm text-muted">Searching...</div>
   {:else if error}
-    <div class="mt-4 text-sm text-red-600">{error}</div>
+    <div class="mt-4 text-sm text-danger">{error}</div>
   {:else if page && page.hits.length === 0}
-    <div class="mt-8 text-sm text-neutral-400 text-center">No modpacks found.</div>
+    <div class="mt-8 text-sm text-placeholder text-center">No modpacks found.</div>
   {:else if page}
     <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
       {#each page.hits as hit (hit.project_id)}
@@ -206,7 +206,7 @@
       >
         ← Previous
       </button>
-      <span class="text-neutral-500">
+      <span class="text-muted">
         Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / 20))}
       </span>
       <button

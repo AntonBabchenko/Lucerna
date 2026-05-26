@@ -63,7 +63,7 @@
   <button
     bind:this={trigger}
     type="button"
-    class="relative z-50 text-xs text-neutral-400 hover:text-neutral-700 leading-none px-1"
+    class="relative z-50 text-xs text-placeholder hover:text-secondary leading-none px-1"
     aria-label="What is an instance?"
     title="What is an instance?"
     aria-expanded={open}
@@ -82,10 +82,10 @@
     ></button>
     <div
       id="instance-concept-popover"
-      class="fixed z-40 w-[260px] bg-white border border-neutral-200 rounded shadow-md p-2.5"
+      class="fixed z-40 w-[260px] bg-surface border border-border-subtle rounded shadow-md p-2.5"
       style="top: {popoverTop}px; left: {popoverLeft}px;"
     >
-      <p class="text-xs text-neutral-700 leading-snug">
+      <p class="text-xs text-secondary leading-snug">
         Each instance is a self-contained world — its own Minecraft version, loader, mods, configs
         and saves. Switching instance = switching Minecraft install, without touching the others.
       </p>
