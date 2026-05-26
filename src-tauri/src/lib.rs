@@ -48,6 +48,7 @@ pub fn run() {
             commands::read_log_file,
             commands::latest_crash,
             commands::diagnose_log,
+            commands::share_log_to_mclogs,
             commands::open_mods_folder,
             commands::list_worlds,
             commands::backup_world,

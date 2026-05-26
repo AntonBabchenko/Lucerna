@@ -59,6 +59,8 @@ export function formatError(e: IpcError): string {
       return 'Instance name cannot be empty';
     case 'instance_name_too_long':
       return `Instance name is too long: ${e.actual}/${e.max} characters`;
+    case 'mc_logs_upload':
+      return `Couldn't upload log to mclo.gs: ${e.details}`;
     case 'mods_network':
       return `Network error talking to ${e.url}: ${e.details}`;
     case 'mods_platform_auth':

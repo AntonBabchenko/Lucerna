@@ -231,6 +231,17 @@ pub async fn diagnose_log(
     crate::logs::diagnose::diagnose(&path_buf).await
 }
 
+/// Anonymise a log body and upload it to mclo.gs. Returns the
+/// shareable URL. Frontend caller is the Logs popover "Share"
+/// button. Anonymisation runs server-side so the frontend can't
+/// accidentally bypass it.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_log_to_mclogs(content: String) -> crate::error::Result<String> {
+    let anon = crate::logs::share::anonymise(&content);
+    crate::logs::share::upload_to_mclogs(&anon).await
+}
+
 /// Ensure `<instance>/.minecraft/mods/` exists, then open it in the OS
 /// file manager. Idempotent — safe to click repeatedly. Vanilla MC
 /// does not load mods; the UI carries a caveat below the button.
