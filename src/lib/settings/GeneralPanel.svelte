@@ -1,11 +1,12 @@
 <script lang="ts">
-  // Settings → General. Onboarding replay + the playing-time
-  // preferences. Future general settings (theme, language, update
+  // Settings → General. Appearance + playing-time preferences +
+  // onboarding replay. Future general settings (language, update
   // prefs) accumulate here per the post-v0.5.0 backlog.
   import { onMount } from 'svelte';
-  import { commands, type GeneralSettings } from '$lib/ipc/bindings';
+  import { commands, type GeneralSettings, type ThemePreference } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { replayTour } from '$lib/onboarding/state.svelte';
+  import { themeState, setThemePref, resolvedTheme } from '$lib/theme/state.svelte';
   import { settingsOpen } from './state.svelte';
 
   let general = $state<GeneralSettings>({ hide_to_tray_during_game: false });
@@ -36,6 +37,30 @@
 </script>
 
 <section class="flex flex-col gap-6">
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm">Appearance</h3>
+    <fieldset class="flex flex-col gap-2">
+      {#each [{ v: 'system' as ThemePreference, label: 'System' }, { v: 'light' as ThemePreference, label: 'Light' }, { v: 'dark' as ThemePreference, label: 'Dark' }] as opt (opt.v)}
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            type="radio"
+            name="theme"
+            value={opt.v}
+            checked={themeState.pref === opt.v}
+            onchange={() => void setThemePref(opt.v)}
+            data-testid="theme-{opt.v}"
+          />
+          <span class="text-sm">{opt.label}</span>
+        </label>
+      {/each}
+    </fieldset>
+    {#if themeState.pref === 'system'}
+      <p class="text-xs text-neutral-500">
+        Following OS preference (currently: {resolvedTheme()}).
+      </p>
+    {/if}
+  </div>
+
   <div class="flex flex-col gap-3">
     <h3 class="font-medium text-sm">Playing</h3>
     {#if loadError}

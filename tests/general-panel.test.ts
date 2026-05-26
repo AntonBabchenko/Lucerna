@@ -8,7 +8,7 @@ const appSettingsGet = vi.fn().mockResolvedValue({
     version: 1,
     active_instance: null,
     onboarding: { tour_completed_version: null },
-    general: { hide_to_tray_during_game: false },
+    general: { hide_to_tray_during_game: false, theme: 'system' },
   },
 });
 const appSettingsSetGeneral = vi.fn().mockResolvedValue({ status: 'ok', data: null });
