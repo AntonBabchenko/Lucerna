@@ -12,8 +12,8 @@ use crate::jre::java_executable_path;
 use crate::launch::args::{build_argv, ArgvInput};
 use crate::launch::natives::extract_natives;
 use crate::paths::{
-    assets_dir, instance_dir, instance_logs_dir, instance_natives_dir, libraries_dir, minecraft_dir,
-    versions_dir,
+    assets_dir, instance_dir, instance_logs_dir, instance_natives_dir, libraries_dir,
+    minecraft_dir, versions_dir,
 };
 use crate::versions::loaders::Loader;
 use crate::versions::version_json::{parse, VersionDetails};
@@ -73,7 +73,11 @@ fn note_session_start(instance_root: std::path::PathBuf) {
 }
 
 fn note_session_end() {
-    let Some(start) = session().lock().expect("playtime session mutex poisoned").take() else {
+    let Some(start) = session()
+        .lock()
+        .expect("playtime session mutex poisoned")
+        .take()
+    else {
         return;
     };
     let end = chrono::Utc::now().timestamp_millis();
@@ -239,8 +243,7 @@ pub async fn start(
     // Record session start. `instance_dir` resolves to
     // `<app_data>/instances/<id>`, which is the instance root expected
     // by `crate::playtime::record_session_at`.
-    let inst_root = instance_dir(app, &instance.id)
-        .map_err(|e| Error::io("<instance_dir>", e))?;
+    let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
     note_session_start(inst_root);
 
     let app_clone = app.clone();
