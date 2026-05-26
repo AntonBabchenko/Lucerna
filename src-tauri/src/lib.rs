@@ -9,6 +9,7 @@ pub mod logs;
 pub mod mods;
 pub mod network;
 pub mod paths;
+pub mod playtime;
 pub mod process;
 pub mod versions;
 pub mod worlds;

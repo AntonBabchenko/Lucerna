@@ -224,6 +224,9 @@ pub enum Error {
 
     #[error("Backup '{filename}' is unreadable or corrupted: {details}")]
     BackupCorrupt { filename: String, details: String },
+
+    #[error("Playtime I/O error: {details}")]
+    PlaytimeIo { details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
