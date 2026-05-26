@@ -505,7 +505,7 @@
             <div class="self-center flex items-center gap-1">
               {#if fromPack && packSummary}
                 <span
-                  class="text-xs px-2 py-1 rounded bg-indigo-50 text-indigo-700"
+                  class="text-xs px-2 py-1 rounded bg-accent-soft text-accent"
                   title="From modpack: {packSummary.project_name}"
                 >
                   📦 {packSummary.project_name}

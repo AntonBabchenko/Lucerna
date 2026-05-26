@@ -81,7 +81,7 @@
     {#if installed}
       {#if packChip}
         <span
-          class="text-xs px-2 py-1 rounded bg-indigo-50 text-indigo-700"
+          class="text-xs px-2 py-1 rounded bg-accent-soft text-accent"
           title="From modpack: {packChip}"
         >
           📦 {packChip}

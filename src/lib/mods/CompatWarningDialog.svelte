@@ -43,13 +43,7 @@
       <button type="button" class="px-3 py-1.5 text-sm rounded border" onclick={onCancel}>
         Skip these
       </button>
-      <button
-        type="button"
-        class="px-3 py-1.5 text-sm rounded bg-amber-600 text-white"
-        onclick={onConfirm}
-      >
-        Install anyway
-      </button>
+      <button type="button" class="btn-warning btn-sm" onclick={onConfirm}> Install anyway </button>
     </footer>
   </div>
 </div>

@@ -273,7 +273,7 @@
           <p class="p-4 text-sm text-muted">Select a file on the left to read it.</p>
         {:else}
           {#if isTruncated}
-            <div class="px-3 py-1 bg-yellow-50 text-yellow-800 text-xs border-b">
+            <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
               Truncated — showing last {formatBytes(capBytes)}. Raise cap to see more.
             </div>
           {/if}
