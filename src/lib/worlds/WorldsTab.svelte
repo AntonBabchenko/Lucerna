@@ -17,8 +17,47 @@
   let listError = $state<string | null>(null);
   let loading = $state(false);
   let openMenuFor = $state<string | null>(null);
+  let menuTop = $state(0);
+  let menuLeft = $state(0);
   let backupsFor = $state<World | null>(null);
   let deleteFor = $state<World | null>(null);
+
+  // The MainTabs content area is overflow-y:auto which (per the CSS
+  // overflow spec) forces overflow-x:auto too, clipping any
+  // absolute-positioned popover that extends past the area's bottom or
+  // right. Same fix as the sidebar (?)-tooltip in
+  // InstanceConceptTooltip.svelte: render the kebab menu position:fixed
+  // with coords measured from the trigger on open, then close on
+  // scroll/resize so a fixed popover never drifts from a moved trigger.
+  const MENU_WIDTH = 192; // = Tailwind w-48
+  const GAP = 4;
+  const MARGIN = 8;
+
+  function toggleMenu(folderName: string, e: MouseEvent) {
+    if (openMenuFor === folderName) {
+      openMenuFor = null;
+      return;
+    }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menuTop = r.bottom + GAP;
+    const wantLeft = r.right - MENU_WIDTH; // right-align with trigger
+    const maxLeft = window.innerWidth - MENU_WIDTH - MARGIN;
+    menuLeft = Math.min(Math.max(wantLeft, MARGIN), Math.max(MARGIN, maxLeft));
+    openMenuFor = folderName;
+  }
+
+  $effect(() => {
+    if (openMenuFor == null) return;
+    const close = () => (openMenuFor = null);
+    // capture-phase so the MainTabs scroll container also fires (scroll
+    // events do not bubble).
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  });
 
   async function reload() {
     if (!instanceId) {
@@ -110,53 +149,15 @@
               {formatBytes(w.size_bytes)} · {relativeTime(w.modified_unix_ms)}
             </div>
           </div>
-          <div class="relative">
-            <button
-              type="button"
-              class="border rounded px-2 py-1 text-sm hover:bg-neutral-50"
-              aria-label="Actions for {w.folder_name}"
-              onclick={() => (openMenuFor = openMenuFor === w.folder_name ? null : w.folder_name)}
-            >
-              ⋮
-            </button>
-            {#if openMenuFor === w.folder_name}
-              <div
-                class="absolute right-0 mt-1 w-48 bg-white border border-neutral-200 rounded shadow z-10"
-                role="menu"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
-                  onclick={() => void onBackupNow(w)}
-                >
-                  Back up now
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
-                  onclick={() => {
-                    openMenuFor = null;
-                    backupsFor = w;
-                  }}
-                >
-                  View backups…
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 text-red-700"
-                  onclick={() => {
-                    openMenuFor = null;
-                    deleteFor = w;
-                  }}
-                >
-                  Delete world…
-                </button>
-              </div>
-            {/if}
-          </div>
+          <button
+            type="button"
+            class="border rounded px-2 py-1 text-sm hover:bg-neutral-50"
+            aria-label="Actions for {w.folder_name}"
+            aria-expanded={openMenuFor === w.folder_name}
+            onclick={(e) => toggleMenu(w.folder_name, e)}
+          >
+            ⋮
+          </button>
         </li>
       {/each}
     </ul>
@@ -169,6 +170,55 @@
     Open saves folder ↗
   </button>
 </div>
+
+{#if openMenuFor}
+  {@const activeWorld = worlds.find((x) => x.folder_name === openMenuFor)}
+  {#if activeWorld}
+    <!-- Click-outside backdrop -->
+    <button
+      type="button"
+      class="fixed inset-0 z-40"
+      aria-label="Close menu"
+      onclick={() => (openMenuFor = null)}
+    ></button>
+    <div
+      class="fixed z-50 w-48 bg-white border border-neutral-200 rounded shadow"
+      style="top: {menuTop}px; left: {menuLeft}px;"
+      role="menu"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+        onclick={() => void onBackupNow(activeWorld)}
+      >
+        Back up now
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+        onclick={() => {
+          backupsFor = activeWorld;
+          openMenuFor = null;
+        }}
+      >
+        View backups…
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 text-red-700"
+        onclick={() => {
+          deleteFor = activeWorld;
+          openMenuFor = null;
+        }}
+      >
+        Delete world…
+      </button>
+    </div>
+  {/if}
+{/if}
 
 {#if backupsFor && instanceId}
   <BackupsDialog

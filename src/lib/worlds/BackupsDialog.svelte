@@ -19,7 +19,42 @@
   let error = $state<string | null>(null);
   let loading = $state(false);
   let openMenuFor = $state<string | null>(null);
+  let menuTop = $state(0);
+  let menuLeft = $state(0);
   let restoreFor = $state<Backup | null>(null);
+
+  // The backups list is a max-h-80 overflow-auto <ul> so the kebab's
+  // absolute-positioned popover would be clipped inside that scrollable
+  // box. Same fix as the sidebar (?)-tooltip in
+  // InstanceConceptTooltip.svelte: render position:fixed with coords
+  // measured from the trigger on open + close on scroll/resize.
+  const MENU_WIDTH = 160; // = Tailwind w-40
+  const GAP = 4;
+  const MARGIN = 8;
+
+  function toggleMenu(filename: string, e: MouseEvent) {
+    if (openMenuFor === filename) {
+      openMenuFor = null;
+      return;
+    }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menuTop = r.bottom + GAP;
+    const wantLeft = r.right - MENU_WIDTH; // right-align with trigger
+    const maxLeft = window.innerWidth - MENU_WIDTH - MARGIN;
+    menuLeft = Math.min(Math.max(wantLeft, MARGIN), Math.max(MARGIN, maxLeft));
+    openMenuFor = filename;
+  }
+
+  $effect(() => {
+    if (openMenuFor == null) return;
+    const close = () => (openMenuFor = null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  });
 
   async function reload() {
     loading = true;
@@ -99,42 +134,15 @@
               <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
               <div class="text-xs text-neutral-500">{formatBytes(b.size_bytes)}</div>
             </div>
-            <div class="relative">
-              <button
-                type="button"
-                class="border rounded px-2 py-1 text-sm hover:bg-neutral-50"
-                aria-label="Actions for backup {b.filename}"
-                onclick={() => (openMenuFor = openMenuFor === b.filename ? null : b.filename)}
-              >
-                ⋮
-              </button>
-              {#if openMenuFor === b.filename}
-                <div
-                  class="absolute right-0 mt-1 w-40 bg-white border border-neutral-200 rounded shadow z-10"
-                  role="menu"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
-                    onclick={() => {
-                      openMenuFor = null;
-                      restoreFor = b;
-                    }}
-                  >
-                    Restore…
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 text-red-700"
-                    onclick={() => void onDelete(b)}
-                  >
-                    Delete backup
-                  </button>
-                </div>
-              {/if}
-            </div>
+            <button
+              type="button"
+              class="border rounded px-2 py-1 text-sm hover:bg-neutral-50"
+              aria-label="Actions for backup {b.filename}"
+              aria-expanded={openMenuFor === b.filename}
+              onclick={(e) => toggleMenu(b.filename, e)}
+            >
+              ⋮
+            </button>
           </li>
         {/each}
       </ul>
@@ -156,6 +164,44 @@
     </div>
   </div>
 </div>
+
+{#if openMenuFor}
+  {@const activeBackup = backups.find((b) => b.filename === openMenuFor)}
+  {#if activeBackup}
+    <!-- Click-outside backdrop. z-[60] sits above the dialog (z-50). -->
+    <button
+      type="button"
+      class="fixed inset-0 z-[60]"
+      aria-label="Close menu"
+      onclick={() => (openMenuFor = null)}
+    ></button>
+    <div
+      class="fixed z-[70] w-40 bg-white border border-neutral-200 rounded shadow"
+      style="top: {menuTop}px; left: {menuLeft}px;"
+      role="menu"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+        onclick={() => {
+          restoreFor = activeBackup;
+          openMenuFor = null;
+        }}
+      >
+        Restore…
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 text-red-700"
+        onclick={() => void onDelete(activeBackup)}
+      >
+        Delete backup
+      </button>
+    </div>
+  {/if}
+{/if}
 
 {#if restoreFor}
   <RestoreBackupDialog
