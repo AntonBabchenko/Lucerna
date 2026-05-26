@@ -11,6 +11,7 @@
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import { relativeTime } from '$lib/format/relative-time';
+  import { formatDuration } from '$lib/format/duration';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
@@ -89,15 +90,6 @@
     }
     const r = await commands.getPlaytime(id);
     if (r.status === 'ok') playtime = r.data;
-  }
-
-  function formatDuration(seconds: number | null | undefined): string {
-    const s = seconds ?? 0;
-    if (s < 60) return '< 1m';
-    const hours = Math.floor(s / 3600);
-    const minutes = Math.floor((s % 3600) / 60);
-    if (hours === 0) return `${minutes}m`;
-    return `${hours}h ${minutes}m`;
   }
 
   // Missing mods for the active pack-origin instance — drives the
