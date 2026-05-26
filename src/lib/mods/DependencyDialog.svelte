@@ -67,7 +67,7 @@
   <div
     role="dialog"
     aria-modal="true"
-    class="bg-white rounded shadow-xl w-[480px] max-w-[90vw] p-5"
+    class="bg-surface rounded shadow-xl w-[480px] max-w-[90vw] p-5"
   >
     <h2 class="text-base font-semibold mb-3">
       Install {primaryProjectName}
@@ -76,14 +76,14 @@
 
     {#if required.length > 0}
       <div class="mb-3">
-        <div class="text-xs uppercase tracking-wide text-neutral-500 mb-1">
+        <div class="text-xs uppercase tracking-wide text-muted mb-1">
           Required (will be installed)
         </div>
-        <ul class="text-sm text-neutral-800 list-disc pl-5">
+        <ul class="text-sm text-primary list-disc pl-5">
           {#each required as r (r.version.version_id)}
             <li>
               {r.projectName}
-              <span class="text-neutral-500">· {r.version.version_number} · {r.projectSource}</span>
+              <span class="text-muted">· {r.version.version_number} · {r.projectSource}</span>
             </li>
           {/each}
         </ul>
@@ -92,16 +92,14 @@
 
     {#if optional.length > 0}
       <div class="mb-3">
-        <div class="text-xs uppercase tracking-wide text-neutral-500 mb-1">Optional</div>
-        <ul class="text-sm text-neutral-800 space-y-1">
+        <div class="text-xs uppercase tracking-wide text-muted mb-1">Optional</div>
+        <ul class="text-sm text-primary space-y-1">
           {#each optional as o, i (o.version.version_id)}
             <li>
               <label class="inline-flex items-center gap-2">
                 <input type="checkbox" bind:checked={optionalChosen[i]} />
                 {o.projectName}
-                <span class="text-neutral-500"
-                  >· {o.version.version_number} · {o.projectSource}</span
-                >
+                <span class="text-muted">· {o.version.version_number} · {o.projectSource}</span>
               </label>
             </li>
           {/each}
@@ -110,7 +108,7 @@
     {/if}
 
     {#if loaderMismatch}
-      <div class="mb-3 bg-red-50 border border-red-200 rounded p-2 text-sm text-red-900">
+      <div class="mb-3 bg-danger/10 border border-danger rounded p-2 text-sm text-danger">
         ⚠ <span class="font-medium">Loader mismatch.</span> This version targets
         {loaderMismatch.modLoaders.join(' / ')} but your instance uses
         {loaderMismatch.instanceLoader}. Installing will leave a jar in the mods folder that
@@ -119,20 +117,24 @@
     {/if}
 
     {#if loaderRequirements.length > 0}
-      <div class="mb-3 bg-blue-50 border border-blue-200 rounded p-2 text-xs text-blue-900">
+      <div class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent">
         ⓘ This mod targets {loaderRequirements.join(' / ')}. Make sure your instance uses a
         compatible loader.
       </div>
     {/if}
 
     {#if incompatible.length > 0}
-      <div class="mb-3 bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-900">
+      <div
+        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
+      >
         ⚠ Incompatible with: {incompatible.join(', ')}
       </div>
     {/if}
 
     {#if unresolvable.length > 0}
-      <div class="mb-3 bg-amber-50 border border-amber-200 rounded p-2 text-sm text-amber-900">
+      <div
+        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
+      >
         ⚠ Could not find compatible versions of: {unresolvable.join(', ')} — install anyway?
       </div>
     {/if}
@@ -143,7 +145,7 @@
       </button>
       <button
         type="button"
-        class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
+        class="px-3 py-1 bg-accent hover:bg-accent text-white rounded text-sm"
         onclick={confirm}
       >
         Install ({total} mod{total === 1 ? '' : 's'})

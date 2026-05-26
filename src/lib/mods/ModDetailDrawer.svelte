@@ -107,7 +107,7 @@
   <div
     role="dialog"
     aria-modal="true"
-    class="relative bg-white rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto p-4 m-4"
+    class="relative bg-surface rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto p-4 m-4"
   >
     <div class="flex items-start justify-between">
       <h2 class="text-base font-semibold flex-1">
@@ -115,24 +115,24 @@
       </h2>
       <button
         type="button"
-        class="text-neutral-500 hover:text-neutral-700"
+        class="text-muted hover:text-secondary"
         aria-label="Close"
         onclick={onClose}>×</button
       >
     </div>
     {#if project}
-      <div class="text-xs text-neutral-500 mt-1">
+      <div class="text-xs text-muted mt-1">
         by {project.summary.author} · {project.summary.source} · {(
           project.summary.downloads ?? 0
         ).toLocaleString()} downloads
       </div>
-      <p class="text-sm text-neutral-700 mt-3 whitespace-pre-line">
+      <p class="text-sm text-secondary mt-3 whitespace-pre-line">
         {project.summary.summary}
       </p>
       <div class="text-xs mt-2 flex gap-3 flex-wrap">
         <button
           type="button"
-          class="text-blue-600 hover:underline"
+          class="text-accent hover:underline"
           onclick={() => openExternal(externalUrl)}
         >
           Read full description on {source === 'modrinth' ? 'Modrinth' : 'CurseForge'} ↗
@@ -140,7 +140,7 @@
         {#if project.website_url}
           <button
             type="button"
-            class="text-blue-600 hover:underline"
+            class="text-accent hover:underline"
             onclick={() => openExternal(project?.website_url ?? '')}
           >
             Project website ↗
@@ -150,7 +150,7 @@
     {/if}
 
     {#if error}
-      <div class="bg-red-50 border border-red-200 text-red-900 text-sm rounded p-2 mt-3">
+      <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2 mt-3">
         {error}
       </div>
     {/if}
@@ -158,20 +158,20 @@
     {#if versions}
       <div class="mt-4">
         <div class="flex items-center justify-between mb-2">
-          <div class="text-xs uppercase tracking-wide text-neutral-500">
+          <div class="text-xs uppercase tracking-wide text-muted">
             {#if showAll}
               All versions
             {:else}
               Versions for {mcVersion ?? '?'} / {loader ?? '?'}
             {/if}
           </div>
-          <label class="inline-flex items-center gap-1 text-xs text-neutral-700">
+          <label class="inline-flex items-center gap-1 text-xs text-secondary">
             <input type="checkbox" bind:checked={showAll} data-testid="mod-detail-show-all" />
             Show all versions
           </label>
         </div>
         {#if versions.length === 0}
-          <div class="text-sm text-neutral-400">
+          <div class="text-sm text-placeholder">
             {#if showAll}
               No versions returned by the platform.
             {:else}
@@ -184,26 +184,25 @@
             {@const hasOtherInstalled =
               installedVersionId !== null && installedVersionId !== v.version_id}
             <div
-              class="border-t py-2 flex items-center gap-2 text-sm"
-              class:bg-green-50={isInstalled}
+              class="border-t py-2 flex items-center gap-2 text-sm {isInstalled
+                ? 'bg-success/10'
+                : ''}"
             >
               <div class="flex-1 min-w-0">
                 <div class="truncate font-medium">
                   {v.version_number}{isInstalled ? ' · installed' : ''}
                 </div>
-                <div class="text-xs text-neutral-500 truncate">
+                <div class="text-xs text-muted truncate">
                   MC: {v.mc_versions.join(', ')}
                 </div>
               </div>
               <button
                 type="button"
-                class="px-2 py-0.5 text-xs rounded disabled:opacity-50"
-                class:bg-blue-600={!isInstalled && v.primary_file.distribution_allowed}
-                class:hover:bg-blue-700={!isInstalled && v.primary_file.distribution_allowed}
-                class:text-white={!isInstalled && v.primary_file.distribution_allowed}
-                class:border={isInstalled}
-                class:border-green-300={isInstalled}
-                class:text-green-700={isInstalled}
+                class="px-2 py-0.5 text-xs rounded disabled:opacity-50 {isInstalled
+                  ? 'border border-success text-success'
+                  : !v.primary_file.distribution_allowed
+                    ? ''
+                    : 'bg-accent text-white'}"
                 disabled={!v.primary_file.distribution_allowed || isInstalled}
                 onclick={() => onInstall(v)}
                 title={hasOtherInstalled

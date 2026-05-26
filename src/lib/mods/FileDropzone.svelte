@@ -28,10 +28,10 @@
 <div
   class="border-2 border-dashed rounded-lg p-3 text-center text-sm transition-colors"
   class:cursor-pointer={!disabled}
-  class:border-blue-400={dragActive.value && !disabled}
-  class:bg-blue-50={dragActive.value && !disabled}
-  class:border-neutral-300={!dragActive.value || disabled}
-  class:hover:border-blue-300={!disabled && !dragActive.value}
+  class:border-accent={dragActive.value && !disabled}
+  class:bg-accent-soft={dragActive.value && !disabled}
+  class:border-border-emphasis={!dragActive.value || disabled}
+  class:hover:border-accent={!disabled && !dragActive.value}
   class:opacity-50={disabled}
   onclick={activate}
   onkeydown={(e) => {
@@ -42,5 +42,5 @@
   aria-disabled={disabled}
   data-testid="file-dropzone"
 >
-  <span class="text-neutral-700">{disabled ? (disabledLabel ?? label) : label}</span>
+  <span class="text-secondary">{disabled ? (disabledLabel ?? label) : label}</span>
 </div>

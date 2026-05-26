@@ -165,17 +165,17 @@
 <div class="flex flex-col h-full">
   <!-- Sub-tab row. Underline style — matches the Modpacks tab's
        Browse/Imported sub-tabs and the top-level tab row. -->
-  <div class="flex items-center justify-between px-3 border-b border-neutral-200 bg-white">
+  <div class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface">
     <div role="tablist" class="flex gap-1">
       <button
         type="button"
         role="tab"
         aria-selected={view === 'browse'}
         class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-blue-600={view === 'browse'}
+        class:border-accent={view === 'browse'}
         class:font-semibold={view === 'browse'}
         class:border-transparent={view !== 'browse'}
-        class:text-neutral-400={view !== 'browse'}
+        class:text-placeholder={view !== 'browse'}
         onclick={() => (view = 'browse')}
       >
         Browse
@@ -185,10 +185,10 @@
         role="tab"
         aria-selected={view === 'installed'}
         class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-blue-600={view === 'installed'}
+        class:border-accent={view === 'installed'}
         class:font-semibold={view === 'installed'}
         class:border-transparent={view !== 'installed'}
-        class:text-neutral-400={view !== 'installed'}
+        class:text-placeholder={view !== 'installed'}
         onclick={() => (view = 'installed')}
       >
         Installed

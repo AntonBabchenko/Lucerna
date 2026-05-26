@@ -539,9 +539,11 @@
 </script>
 
 {#if loader === 'vanilla'}
-  <div class="p-6 bg-amber-50 border border-amber-200 rounded mx-3 my-4 text-sm text-amber-900">
+  <div
+    class="p-6 bg-warning-bg border border-warning-text/30 rounded mx-3 my-4 text-sm text-warning-text"
+  >
     <div class="font-medium mb-1">This instance is vanilla Minecraft</div>
-    <p class="text-amber-800">
+    <p class="text-warning-text">
       Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded
       at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance
       via the Manage panel in the sidebar.
@@ -550,18 +552,18 @@
 {:else if needsCfKey}
   <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
 {:else}
-  <div class="px-3 py-3 space-y-2 sticky top-0 z-10 bg-neutral-50 border-b border-neutral-200">
+  <div class="px-3 py-3 space-y-2 sticky top-0 z-10 bg-base border-b border-border-subtle">
     <div class="flex gap-2 items-center">
       <input
         type="search"
         placeholder="Search mods..."
         aria-label="Search mods"
-        class="flex-1 border border-neutral-300 rounded px-3 py-1.5 text-sm"
+        class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
         oninput={onQueryInput}
       />
-      <label class="text-sm text-neutral-600 inline-flex items-center gap-1">
+      <label class="text-sm text-secondary inline-flex items-center gap-1">
         Sort:
-        <select bind:value={sort} class="border rounded px-2 py-1 text-sm bg-white">
+        <select bind:value={sort} class="border rounded px-2 py-1 text-sm bg-surface">
           <option value="downloads">Downloads</option>
           <option value="relevance">Relevance</option>
           <option value="updated">Updated</option>
@@ -569,7 +571,7 @@
       </label>
     </div>
     <div class="flex gap-3 items-center text-sm">
-      <span class="text-neutral-600">Filters:</span>
+      <span class="text-secondary">Filters:</span>
       <label class="inline-flex items-center gap-1">
         MC:
         <McVersionCombobox bind:value={mcFilter} placeholder="Any" />
@@ -591,7 +593,7 @@
       </label>
       <button
         type="button"
-        class="text-xs text-neutral-600 underline hover:text-neutral-900 disabled:opacity-40 disabled:no-underline"
+        class="text-xs text-secondary underline hover:text-primary disabled:opacity-40 disabled:no-underline"
         disabled={!mcFilter && !loaderFilter}
         data-testid="mod-clear-filters"
         onclick={() => {
@@ -610,10 +612,10 @@
 
   <div class="p-3 space-y-2">
     {#if error}
-      <div class="bg-red-50 border border-red-200 text-red-900 text-sm rounded p-2">{error}</div>
+      <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2">{error}</div>
     {/if}
     {#if loading}
-      <div class="text-neutral-400 text-sm py-8 text-center">Searching…</div>
+      <div class="text-placeholder text-sm py-8 text-center">Searching…</div>
     {:else if pageHits.length > 0}
       {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
         <ModCard
@@ -625,7 +627,7 @@
           onUninstall={() => uninstallCard(hit)}
         />
       {/each}
-      <div class="flex items-center justify-center gap-3 text-sm text-neutral-600 pt-2">
+      <div class="flex items-center justify-center gap-3 text-sm text-secondary pt-2">
         <button
           type="button"
           class="px-3 py-1 border rounded disabled:opacity-50"
@@ -647,7 +649,7 @@
         </button>
       </div>
     {:else}
-      <div class="text-neutral-400 text-sm py-8 text-center">No results.</div>
+      <div class="text-placeholder text-sm py-8 text-center">No results.</div>
     {/if}
   </div>
 

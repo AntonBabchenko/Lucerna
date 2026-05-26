@@ -123,11 +123,11 @@
       id={listboxId}
       bind:this={listEl}
       role="listbox"
-      class="absolute z-30 mt-1 w-32 max-h-60 overflow-y-auto bg-white border border-neutral-200 rounded shadow"
+      class="absolute z-30 mt-1 w-32 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow"
     >
       <button
         type="button"
-        class="block w-full text-left px-3 py-1 text-sm hover:bg-neutral-100 text-neutral-500 italic"
+        class="block w-full text-left px-3 py-1 text-sm hover:bg-subtle text-muted italic"
         onclick={clear}
       >
         Any version
@@ -137,15 +137,15 @@
           type="button"
           role="option"
           aria-selected={activeIndex === i}
-          class="block w-full text-left px-3 py-1 text-sm hover:bg-neutral-100"
-          class:bg-blue-50={activeIndex === i}
+          class="block w-full text-left px-3 py-1 text-sm hover:bg-subtle"
+          class:bg-accent-soft={activeIndex === i}
           onclick={() => pick(id)}
         >
           {id}
         </button>
       {/each}
       {#if filtered.length === 0}
-        <div class="px-3 py-2 text-xs text-neutral-500">No match</div>
+        <div class="px-3 py-2 text-xs text-muted">No match</div>
       {/if}
     </div>
   {/if}

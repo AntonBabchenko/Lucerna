@@ -4,9 +4,9 @@
   let { value = $bindable<ModSource>('modrinth') }: { value: ModSource } = $props();
 </script>
 
-<label class="text-sm text-neutral-600 inline-flex items-center gap-1">
+<label class="text-sm text-secondary inline-flex items-center gap-1">
   Source:
-  <select aria-label="Mod source" class="border rounded px-2 py-1 text-sm bg-white" bind:value>
+  <select aria-label="Mod source" class="border rounded px-2 py-1 text-sm bg-surface" bind:value>
     <option value="modrinth">Modrinth</option>
     <option value="curseforge">CurseForge</option>
   </select>

@@ -207,13 +207,13 @@
           </select>
         </label>
         <button
-          class="text-xs border rounded px-2 py-0.5 hover:bg-neutral-100"
+          class="text-xs border rounded px-2 py-0.5 hover:bg-subtle"
           onclick={() => void reloadList()}
         >
           Reload
         </button>
         <button
-          class="text-neutral-500 hover:text-neutral-800 text-lg leading-none px-1"
+          class="text-muted hover:text-primary text-lg leading-none px-1"
           aria-label="Close"
           onclick={() => (open = false)}
         >
@@ -225,27 +225,26 @@
     <div class="flex-1 flex overflow-hidden">
       <nav class="w-72 border-r overflow-y-auto text-sm">
         {#if listError}
-          <p class="p-3 text-red-700 text-xs">Could not list logs: {listError}</p>
+          <p class="p-3 text-danger text-xs">Could not list logs: {listError}</p>
         {:else if files.length === 0}
-          <p class="p-3 text-neutral-500 text-xs">No log files yet. Launch Minecraft once.</p>
+          <p class="p-3 text-muted text-xs">No log files yet. Launch Minecraft once.</p>
         {:else}
           {#each groupedFiles as group}
             {#if group.items.length > 0}
-              <h3 class="px-3 pt-2 pb-1 text-xs font-semibold uppercase text-neutral-500">
+              <h3 class="px-3 pt-2 pb-1 text-xs font-semibold uppercase text-muted">
                 {group.label}
               </h3>
               <ul>
                 {#each group.items as f}
                   <li>
                     <button
-                      class="w-full text-left px-3 py-1 hover:bg-neutral-100 {selectedPath ===
-                      f.path
-                        ? 'bg-blue-50'
+                      class="w-full text-left px-3 py-1 hover:bg-subtle {selectedPath === f.path
+                        ? 'bg-accent-soft'
                         : ''}"
                       onclick={() => void selectFile(f.path)}
                     >
                       <div class="font-mono text-xs truncate">{f.name}</div>
-                      <div class="text-[10px] text-neutral-500">
+                      <div class="text-[10px] text-muted">
                         {formatBytes(f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
                       </div>
                     </button>
@@ -267,11 +266,11 @@
           />
         </div>
         {#if loadingContent}
-          <p class="p-4 text-sm text-neutral-500">Reading…</p>
+          <p class="p-4 text-sm text-muted">Reading…</p>
         {:else if contentError}
-          <p class="p-4 text-sm text-red-700">{contentError}</p>
+          <p class="p-4 text-sm text-danger">{contentError}</p>
         {:else if !selectedPath}
-          <p class="p-4 text-sm text-neutral-500">Select a file on the left to read it.</p>
+          <p class="p-4 text-sm text-muted">Select a file on the left to read it.</p>
         {:else}
           {#if isTruncated}
             <div class="px-3 py-1 bg-yellow-50 text-yellow-800 text-xs border-b">
@@ -279,25 +278,25 @@
             </div>
           {/if}
           {#if diagnosis}
-            <details open class="mx-3 mt-3 border border-amber-300 bg-amber-50 rounded p-3">
-              <summary class="cursor-pointer font-semibold text-amber-900 select-none">
+            <details open class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3">
+              <summary class="cursor-pointer font-semibold text-warning-text select-none">
                 ⚠ {diagnosis.title}
               </summary>
-              <p class="mt-2 text-sm text-amber-900">{diagnosis.explanation}</p>
-              <p class="mt-2 text-sm text-amber-900">
+              <p class="mt-2 text-sm text-warning-text">{diagnosis.explanation}</p>
+              <p class="mt-2 text-sm text-warning-text">
                 <span class="font-semibold">What to try:</span>
                 {diagnosis.recommendation}
               </p>
               {#if diagnosis.matched_excerpt}
                 <pre
-                  class="mt-2 text-xs font-mono bg-white p-2 rounded border border-amber-200 overflow-x-auto whitespace-pre-wrap">{diagnosis.matched_excerpt}</pre>
+                  class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap">{diagnosis.matched_excerpt}</pre>
               {/if}
             </details>
           {/if}
-          <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-neutral-50">
+          <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base">
             <pre
               class="px-3 py-2 whitespace-pre-wrap break-words">{#each contentLines as line, i}<span
-                  class="text-neutral-400 select-none"
+                  class="text-placeholder select-none"
                   >{(i + 1).toString().padStart(6, ' ')}: </span>{@html highlight(
                   line,
                 )}{'\n'}{/each}</pre>

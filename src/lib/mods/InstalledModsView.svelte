@@ -366,10 +366,10 @@
 <div class="p-3">
   <div class="mb-2 space-y-2">
     {#if totalCount > 0}
-      <div class="text-xs text-neutral-500 flex gap-3">
-        <span>Total: <span class="font-medium text-neutral-700">{totalCount}</span></span>
-        <span>Enabled: <span class="font-medium text-green-700">{enabledCount}</span></span>
-        <span>Disabled: <span class="font-medium text-neutral-700">{disabledCount}</span></span>
+      <div class="text-xs text-muted flex gap-3">
+        <span>Total: <span class="font-medium text-secondary">{totalCount}</span></span>
+        <span>Enabled: <span class="font-medium text-success">{enabledCount}</span></span>
+        <span>Disabled: <span class="font-medium text-secondary">{disabledCount}</span></span>
       </div>
     {/if}
     <div class="flex gap-2 items-center">
@@ -377,12 +377,12 @@
         type="search"
         placeholder="Filter installed…"
         aria-label="Filter installed mods"
-        class="flex-1 border border-neutral-300 rounded px-3 py-1.5 text-sm"
+        class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
         bind:value={filter}
       />
-      <label class="text-xs text-neutral-600 inline-flex items-center gap-1">
+      <label class="text-xs text-secondary inline-flex items-center gap-1">
         Sort:
-        <select bind:value={sortBy} class="border rounded px-2 py-1 text-xs bg-white">
+        <select bind:value={sortBy} class="border rounded px-2 py-1 text-xs bg-surface">
           <option value="name-asc">Name (A → Z)</option>
           <option value="name-desc">Name (Z → A)</option>
           <option value="recent">Recently installed</option>
@@ -391,7 +391,7 @@
       </label>
       <button
         type="button"
-        class="text-xs px-2 py-1 border rounded bg-white hover:bg-neutral-50 disabled:opacity-50"
+        class="text-xs px-2 py-1 border rounded bg-surface hover:bg-subtle disabled:opacity-50"
         disabled={busy || checking || rows.length === 0}
         onclick={checkUpdates}
       >
@@ -400,7 +400,7 @@
       {#if updateCount > 0}
         <button
           type="button"
-          class="text-xs px-2 py-1 border border-amber-300 rounded bg-amber-100 text-amber-900 hover:bg-amber-200 disabled:opacity-50"
+          class="text-xs px-2 py-1 border border-warning-text/30 rounded bg-warning-bg text-warning-text hover:bg-warning-bg disabled:opacity-50"
           disabled={busy}
           onclick={updateAll}
         >
@@ -414,11 +414,9 @@
           type="button"
           role="tab"
           aria-selected={enabledFilter === 'all'}
-          class="px-2 py-1 rounded border"
-          class:bg-blue-50={enabledFilter === 'all'}
-          class:text-blue-700={enabledFilter === 'all'}
-          class:font-medium={enabledFilter === 'all'}
-          class:bg-white={enabledFilter !== 'all'}
+          class="px-2 py-1 rounded border {enabledFilter === 'all'
+            ? 'bg-accent-soft text-accent font-medium'
+            : 'bg-surface'}"
           onclick={() => (enabledFilter = 'all')}
         >
           All ({totalCount})
@@ -427,11 +425,9 @@
           type="button"
           role="tab"
           aria-selected={enabledFilter === 'enabled'}
-          class="px-2 py-1 rounded border"
-          class:bg-green-50={enabledFilter === 'enabled'}
-          class:text-green-700={enabledFilter === 'enabled'}
-          class:font-medium={enabledFilter === 'enabled'}
-          class:bg-white={enabledFilter !== 'enabled'}
+          class="px-2 py-1 rounded border {enabledFilter === 'enabled'
+            ? 'bg-success/10 text-success font-medium'
+            : 'bg-surface'}"
           onclick={() => (enabledFilter = 'enabled')}
         >
           Enabled ({enabledCount})
@@ -440,11 +436,9 @@
           type="button"
           role="tab"
           aria-selected={enabledFilter === 'disabled'}
-          class="px-2 py-1 rounded border"
-          class:bg-neutral-100={enabledFilter === 'disabled'}
-          class:text-neutral-700={enabledFilter === 'disabled'}
-          class:font-medium={enabledFilter === 'disabled'}
-          class:bg-white={enabledFilter !== 'disabled'}
+          class="px-2 py-1 rounded border {enabledFilter === 'disabled'
+            ? 'bg-subtle text-secondary font-medium'
+            : 'bg-surface'}"
           onclick={() => (enabledFilter = 'disabled')}
         >
           Disabled ({disabledCount})
@@ -454,7 +448,7 @@
   </div>
 
   {#if error}
-    <div class="bg-red-50 border border-red-200 text-red-900 text-sm rounded p-2 mb-2">
+    <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2 mb-2">
       {error}
     </div>
   {/if}
@@ -463,11 +457,11 @@
   {/if}
 
   {#if !instanceId}
-    <div class="text-neutral-400 text-sm py-8 text-center">Pick an instance first.</div>
+    <div class="text-placeholder text-sm py-8 text-center">Pick an instance first.</div>
   {:else if loading && rows.length === 0}
-    <div class="text-neutral-400 text-sm py-8 text-center">Loading installed mods…</div>
+    <div class="text-placeholder text-sm py-8 text-center">Loading installed mods…</div>
   {:else if rows.length === 0}
-    <div class="text-neutral-400 text-sm py-8 text-center">
+    <div class="text-placeholder text-sm py-8 text-center">
       No mods installed in this instance yet.
     </div>
   {:else}
@@ -493,16 +487,16 @@
                or a modpack override-bundled jar that hash-enrichment
                could not identify ("from modpack" + 📦 chip). -->
           {@const fromPack = !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
-          <div class="border border-neutral-200 rounded bg-white p-3 flex gap-3">
+          <div class="border border-border-subtle rounded bg-surface p-3 flex gap-3">
             <div
-              class="w-12 h-12 rounded bg-neutral-100 flex items-center justify-center text-neutral-400"
+              class="w-12 h-12 rounded bg-subtle flex items-center justify-center text-placeholder"
               aria-hidden="true"
             >
               ◆
             </div>
             <div class="flex-1 min-w-0">
-              <div class="font-medium text-neutral-900 truncate">{row.installed.filename}</div>
-              <div class="text-xs text-neutral-500 truncate">
+              <div class="font-medium text-primary truncate">{row.installed.filename}</div>
+              <div class="text-xs text-muted truncate">
                 {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled
                   ? 'Enabled'
                   : 'Disabled'}
@@ -527,7 +521,7 @@
               </button>
               <button
                 type="button"
-                class="text-xs px-2 py-1 border rounded text-red-700 hover:bg-red-50"
+                class="text-xs px-2 py-1 border rounded text-danger hover:bg-danger/10"
                 disabled={busy}
                 onclick={() => uninstall(row.installed)}
               >

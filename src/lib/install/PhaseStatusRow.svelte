@@ -114,38 +114,38 @@
 </script>
 
 {#if modProgress}
-  <div class="border-t bg-neutral-50 px-4 py-1 flex items-center gap-3 text-xs">
-    <span class="font-medium text-neutral-900">{modPhaseLabel(modProgress.phase)}</span>
+  <div class="border-t bg-base px-4 py-1 flex items-center gap-3 text-xs">
+    <span class="font-medium text-primary">{modPhaseLabel(modProgress.phase)}</span>
     {#if modProgress.phase === 'downloading' && modProgress.bytes_total && modProgress.bytes_total > 0}
-      <span class="text-neutral-600 font-mono">
+      <span class="text-secondary font-mono">
         {percent(modProgress.bytes_done ?? 0, modProgress.bytes_total)}%
       </span>
-      <div class="flex-1 h-1 bg-neutral-200 rounded overflow-hidden">
+      <div class="flex-1 h-1 bg-subtle rounded overflow-hidden">
         <div
-          class="h-full bg-blue-600 transition-all"
+          class="h-full bg-accent transition-all"
           style="width: {percent(modProgress.bytes_done ?? 0, modProgress.bytes_total)}%"
         ></div>
       </div>
     {/if}
   </div>
 {:else if progress}
-  <div class="border-t bg-neutral-50 px-4 py-1 flex items-center gap-3 text-xs">
-    <span class="font-medium text-neutral-900">{phaseLabel(progress.phase)}</span>
-    <span class="text-neutral-600 font-mono">
+  <div class="border-t bg-base px-4 py-1 flex items-center gap-3 text-xs">
+    <span class="font-medium text-primary">{phaseLabel(progress.phase)}</span>
+    <span class="text-secondary font-mono">
       {progress.files_done}/{progress.files_total}
       {#if progress.bytes_done && progress.bytes_done > 0}
         · {formatBytes(progress.bytes_done)}
       {/if}
     </span>
     {#if progress.phase !== 'complete'}
-      <div class="flex-1 h-1 bg-neutral-200 rounded overflow-hidden">
+      <div class="flex-1 h-1 bg-subtle rounded overflow-hidden">
         <div
-          class="h-full bg-blue-600 transition-all"
+          class="h-full bg-accent transition-all"
           style="width: {percent(progress.files_done, progress.files_total)}%"
         ></div>
       </div>
     {:else}
-      <span class="text-green-700">— click Play to launch</span>
+      <span class="text-success">— click Play to launch</span>
     {/if}
   </div>
 {/if}

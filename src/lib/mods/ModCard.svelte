@@ -60,21 +60,21 @@
   );
 </script>
 
-<div class="border border-neutral-200 rounded bg-white p-3 flex gap-3">
+<div class="border border-border-subtle rounded bg-surface p-3 flex gap-3">
   {#if summary.icon_url}
     <img src={summary.icon_url} alt="" class="w-12 h-12 rounded" />
   {:else}
-    <div class="w-12 h-12 rounded bg-neutral-100 flex items-center justify-center text-neutral-400">
+    <div class="w-12 h-12 rounded bg-subtle flex items-center justify-center text-placeholder">
       ◆
     </div>
   {/if}
 
   <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
-    <div class="font-medium text-neutral-900 truncate">{summary.name}</div>
-    <div class="text-xs text-neutral-500 truncate">
+    <div class="font-medium text-primary truncate">{summary.name}</div>
+    <div class="text-xs text-muted truncate">
       by {summary.author} · {(summary.downloads ?? 0).toLocaleString()} dl
     </div>
-    <div class="text-sm text-neutral-700 truncate">{summary.summary}</div>
+    <div class="text-sm text-secondary truncate">{summary.summary}</div>
   </button>
 
   <div class="self-center flex items-center gap-1">
@@ -87,29 +87,30 @@
           📦 {packChip}
         </span>
       {:else if checking}
-        <span class="text-xs px-2 py-1 text-neutral-400">Checking…</span>
+        <span class="text-xs px-2 py-1 text-placeholder">Checking…</span>
       {:else if updateState && updateState.kind === 'update_available'}
-        <span class="text-xs px-2 py-1 rounded bg-amber-50 text-amber-800" title="Update available">
+        <span
+          class="text-xs px-2 py-1 rounded bg-warning-bg text-warning-text"
+          title="Update available"
+        >
           v{installed.version_number ?? '?'} → v{updateState.target.version_number}
         </span>
         <button
           type="button"
-          class="text-xs px-2 py-1 border border-amber-300 rounded bg-amber-100 text-amber-900 hover:bg-amber-200"
+          class="text-xs px-2 py-1 border border-warning-text/30 rounded bg-warning-bg text-warning-text hover:bg-warning-bg"
           onclick={onUpdate}
         >
           Update
         </button>
       {:else if updateState && updateState.kind === 'check_failed'}
-        <span class="text-xs px-2 py-1 text-neutral-400" title={updateState.reason}>
+        <span class="text-xs px-2 py-1 text-placeholder" title={updateState.reason}>
           couldn't check
         </span>
       {/if}
       <span
-        class="text-xs px-2 py-1 rounded"
-        class:bg-green-50={installed.enabled}
-        class:text-green-700={installed.enabled}
-        class:bg-neutral-100={!installed.enabled}
-        class:text-neutral-500={!installed.enabled}
+        class="text-xs px-2 py-1 rounded {installed.enabled
+          ? 'bg-success/10 text-success'
+          : 'bg-subtle text-muted'}"
         title={crossPlatform && otherPlatformLabel
           ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`
           : installed.version_number
@@ -127,7 +128,7 @@
       </button>
       <button
         type="button"
-        class="text-xs px-2 py-1 border rounded text-red-700 hover:bg-red-50"
+        class="text-xs px-2 py-1 border rounded text-danger hover:bg-danger/10"
         onclick={onUninstall}
       >
         Uninstall
@@ -135,7 +136,7 @@
     {:else}
       <button
         type="button"
-        class="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
+        class="px-3 py-1 text-sm bg-accent hover:bg-accent text-white rounded"
         onclick={onInstall}
       >
         Install

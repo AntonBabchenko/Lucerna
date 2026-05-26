@@ -25,17 +25,17 @@
   aria-modal="true"
   aria-label="Mod compatibility warning"
 >
-  <div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
+  <div class="bg-surface rounded-lg shadow-xl max-w-lg w-full">
     <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold text-amber-900">
+      <h2 class="text-lg font-semibold text-warning-text">
         ⚠ {rows.length} mod{rows.length === 1 ? '' : 's'} may not be compatible
       </h2>
     </header>
     <ul class="p-4 space-y-2 max-h-[50vh] overflow-y-auto">
       {#each rows as r (r.filename)}
-        <li class="text-sm bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+        <li class="text-sm bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5">
           <span class="font-medium">{r.filename}</span>
-          <span class="text-amber-800"> — {r.reason}</span>
+          <span class="text-warning-text"> — {r.reason}</span>
         </li>
       {/each}
     </ul>
