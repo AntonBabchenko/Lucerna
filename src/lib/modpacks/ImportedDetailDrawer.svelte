@@ -332,324 +332,330 @@
   }
 </script>
 
-<div
-  class="fixed top-0 right-0 h-full w-96 bg-white shadow-xl border-l overflow-y-auto flex flex-col"
-  role="dialog"
-  aria-label="Imported pack details"
-  data-testid="imported-detail-drawer"
->
-  <header class="p-4 border-b flex items-start gap-3">
-    <div class="text-2xl leading-none flex-shrink-0">📦</div>
-    <div class="flex-1 min-w-0">
-      <h3 class="font-semibold truncate">{inst.mrpack_name}</h3>
-      <div class="text-xs text-neutral-500 truncate">
-        v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
+<div class="fixed inset-0 z-30 flex items-center justify-center">
+  <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
+  ></button>
+  <div
+    class="relative bg-white rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto flex flex-col m-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Imported pack details"
+    data-testid="imported-detail-drawer"
+  >
+    <header class="p-4 border-b flex items-start gap-3">
+      <div class="text-2xl leading-none flex-shrink-0">📦</div>
+      <div class="flex-1 min-w-0">
+        <h3 class="font-semibold truncate">{inst.mrpack_name}</h3>
+        <div class="text-xs text-neutral-500 truncate">
+          v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
+        </div>
       </div>
-    </div>
-    <button
-      type="button"
-      class="text-neutral-500 hover:text-neutral-900 flex-shrink-0"
-      onclick={onClose}
-      aria-label="Close"
-    >
-      ×
-    </button>
-  </header>
-
-  {#if inst.mrpack_summary}
-    <div class="px-4 pt-3 pb-2 text-sm text-neutral-700" data-testid="imported-detail-summary">
-      {inst.mrpack_summary}
-    </div>
-  {/if}
-
-  {#if sourceUrl(inst)}
-    <div class="px-4 pb-3">
-      <a
-        target="_blank"
-        rel="noopener"
-        href={sourceUrl(inst) ?? ''}
-        class="text-blue-600 hover:underline text-sm"
-        data-testid="imported-detail-source-link"
+      <button
+        type="button"
+        class="text-neutral-500 hover:text-neutral-900 flex-shrink-0"
+        onclick={onClose}
+        aria-label="Close"
       >
-        Open on {sourceLabel(inst.mrpack_source)} ↗
-      </a>
-    </div>
-  {/if}
+        ×
+      </button>
+    </header>
 
-  {#if updateError}
-    <div class="px-4 pb-2 text-xs text-red-700" data-testid="imported-detail-update-error">
-      {updateError}
-    </div>
-  {/if}
-  {#if updating}
-    <div class="px-4 pb-3 text-sm text-blue-700" data-testid="imported-detail-updating">
-      Updating…
-    </div>
-  {:else if updateAvailable}
-    <div class="px-4 pb-3">
-      <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2 text-sm">
-        <span class="flex-1 text-blue-900">Update available → {updateAvailable.version_number}</span
-        >
-        <button
-          type="button"
-          class="text-xs px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700"
-          onclick={() => void openUpdateDialog()}
-          data-testid="imported-detail-update-button"
-        >
-          Update
-        </button>
+    {#if inst.mrpack_summary}
+      <div class="px-4 pt-3 pb-2 text-sm text-neutral-700" data-testid="imported-detail-summary">
+        {inst.mrpack_summary}
       </div>
-    </div>
-  {/if}
-
-  <div class="flex-1 overflow-y-auto px-4 pb-4">
-    <h4 class="font-medium text-sm text-neutral-700 mt-2 mb-2">Mods</h4>
-    {#if mods === null}
-      <div class="text-sm text-neutral-500" data-testid="imported-detail-mods-loading">
-        Loading…
-      </div>
-    {:else if mods.length === 0}
-      <div class="text-sm text-neutral-500" data-testid="imported-detail-mods-empty">
-        No mods installed.
-      </div>
-    {:else}
-      <ul class="space-y-1" data-testid="imported-detail-mods-list">
-        {#each mods as m (m.sha1)}
-          {@const prov = provenance(m)}
-          <li class="flex items-center gap-2 text-sm py-1">
-            <div
-              class="w-2 h-2 rounded-full flex-shrink-0"
-              class:bg-blue-500={m.enabled}
-              class:bg-neutral-300={!m.enabled}
-              aria-hidden="true"
-            ></div>
-            {#if prov === 'pack'}
-              <span
-                class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 flex-shrink-0"
-                title="from pack"
-                data-testid="mod-badge-pack-{m.sha1}"
-              >
-                📦 pack
-              </span>
-            {:else if prov === 'user'}
-              <span
-                class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 flex-shrink-0"
-                title="added via Mod browser"
-                data-testid="mod-badge-user-{m.sha1}"
-              >
-                + added
-              </span>
-            {:else}
-              <span
-                class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
-                title="manually placed"
-                data-testid="mod-badge-manual-{m.sha1}"
-              >
-                ? manual
-              </span>
-            {/if}
-            <span class="truncate flex-1">{displayName(m)}</span>
-            {#if !m.enabled}
-              <span
-                class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500 flex-shrink-0"
-              >
-                disabled
-              </span>
-            {/if}
-          </li>
-        {/each}
-      </ul>
     {/if}
 
-    {#if status}
-      {@const resourcepacks = presentAssets('resourcepacks')}
-      {@const shaderpacks = presentAssets('shaderpacks')}
-      {@const configs = presentAssets('configs')}
-
-      {#if resourcepacks.length > 0}
-        <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
-          Resource packs ({resourcepacks.length})
-        </h4>
-        <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
-          {#each resourcepacks as f (f.install_path)}
-            <li class="flex items-center gap-2 text-sm py-1">
-              <span class="truncate flex-1">{f.name}</span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-
-      {#if shaderpacks.length > 0}
-        <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
-          Shader packs ({shaderpacks.length})
-        </h4>
-        <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
-          {#each shaderpacks as f (f.install_path)}
-            <li class="flex items-center gap-2 text-sm py-1">
-              <span class="truncate flex-1">{f.name}</span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-
-      {#if configs.length > 0}
-        <button
-          type="button"
-          class="font-medium text-sm text-neutral-700 mt-5 mb-2 flex items-center gap-1 hover:text-neutral-900"
-          onclick={() => (configsExpanded = !configsExpanded)}
-          data-testid="imported-detail-configs-toggle"
+    {#if sourceUrl(inst)}
+      <div class="px-4 pb-3">
+        <a
+          target="_blank"
+          rel="noopener"
+          href={sourceUrl(inst) ?? ''}
+          class="text-blue-600 hover:underline text-sm"
+          data-testid="imported-detail-source-link"
         >
-          <span>{configsExpanded ? '▾' : '▸'}</span>
-          Configs ({configs.length})
-        </button>
-        {#if configsExpanded}
-          <ul class="space-y-1" data-testid="imported-detail-configs">
-            {#each configs as f (f.install_path)}
+          Open on {sourceLabel(inst.mrpack_source)} ↗
+        </a>
+      </div>
+    {/if}
+
+    {#if updateError}
+      <div class="px-4 pb-2 text-xs text-red-700" data-testid="imported-detail-update-error">
+        {updateError}
+      </div>
+    {/if}
+    {#if updating}
+      <div class="px-4 pb-3 text-sm text-blue-700" data-testid="imported-detail-updating">
+        Updating…
+      </div>
+    {:else if updateAvailable}
+      <div class="px-4 pb-3">
+        <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2 text-sm">
+          <span class="flex-1 text-blue-900"
+            >Update available → {updateAvailable.version_number}</span
+          >
+          <button
+            type="button"
+            class="text-xs px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-700"
+            onclick={() => void openUpdateDialog()}
+            data-testid="imported-detail-update-button"
+          >
+            Update
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <div class="flex-1 overflow-y-auto px-4 pb-4">
+      <h4 class="font-medium text-sm text-neutral-700 mt-2 mb-2">Mods</h4>
+      {#if mods === null}
+        <div class="text-sm text-neutral-500" data-testid="imported-detail-mods-loading">
+          Loading…
+        </div>
+      {:else if mods.length === 0}
+        <div class="text-sm text-neutral-500" data-testid="imported-detail-mods-empty">
+          No mods installed.
+        </div>
+      {:else}
+        <ul class="space-y-1" data-testid="imported-detail-mods-list">
+          {#each mods as m (m.sha1)}
+            {@const prov = provenance(m)}
+            <li class="flex items-center gap-2 text-sm py-1">
+              <div
+                class="w-2 h-2 rounded-full flex-shrink-0"
+                class:bg-blue-500={m.enabled}
+                class:bg-neutral-300={!m.enabled}
+                aria-hidden="true"
+              ></div>
+              {#if prov === 'pack'}
+                <span
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 flex-shrink-0"
+                  title="from pack"
+                  data-testid="mod-badge-pack-{m.sha1}"
+                >
+                  📦 pack
+                </span>
+              {:else if prov === 'user'}
+                <span
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 flex-shrink-0"
+                  title="added via Mod browser"
+                  data-testid="mod-badge-user-{m.sha1}"
+                >
+                  + added
+                </span>
+              {:else}
+                <span
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
+                  title="manually placed"
+                  data-testid="mod-badge-manual-{m.sha1}"
+                >
+                  ? manual
+                </span>
+              {/if}
+              <span class="truncate flex-1">{displayName(m)}</span>
+              {#if !m.enabled}
+                <span
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500 flex-shrink-0"
+                >
+                  disabled
+                </span>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      {#if status}
+        {@const resourcepacks = presentAssets('resourcepacks')}
+        {@const shaderpacks = presentAssets('shaderpacks')}
+        {@const configs = presentAssets('configs')}
+
+        {#if resourcepacks.length > 0}
+          <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
+            Resource packs ({resourcepacks.length})
+          </h4>
+          <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
+            {#each resourcepacks as f (f.install_path)}
               <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1 text-neutral-600">{f.install_path}</span>
+                <span class="truncate flex-1">{f.name}</span>
               </li>
             {/each}
           </ul>
         {/if}
-      {/if}
-    {/if}
 
-    {#if status && status.removed_files.length > 0}
-      <div class="mt-5" data-testid="imported-detail-removed-section">
-        <h4 class="font-medium text-sm text-neutral-700 mb-2">
-          Removed from pack ({status.removed_files.length})
-        </h4>
-        {#if restoreError}
-          <p class="text-xs text-red-700 mb-2" data-testid="imported-detail-restore-error">
-            {restoreError}
-          </p>
+        {#if shaderpacks.length > 0}
+          <h4 class="font-medium text-sm text-neutral-700 mt-5 mb-2">
+            Shader packs ({shaderpacks.length})
+          </h4>
+          <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
+            {#each shaderpacks as f (f.install_path)}
+              <li class="flex items-center gap-2 text-sm py-1">
+                <span class="truncate flex-1">{f.name}</span>
+              </li>
+            {/each}
+          </ul>
         {/if}
-        <ul class="space-y-1">
-          {#each status.removed_files as f (f.sha1)}
-            <li
-              class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-red-50 border border-red-100"
-            >
-              <span class="truncate flex-1 line-through text-neutral-700">{f.name}</span>
-              {#if f.url === ''}
-                <!-- Bundled mod from overrides/mods/ — no network source
+
+        {#if configs.length > 0}
+          <button
+            type="button"
+            class="font-medium text-sm text-neutral-700 mt-5 mb-2 flex items-center gap-1 hover:text-neutral-900"
+            onclick={() => (configsExpanded = !configsExpanded)}
+            data-testid="imported-detail-configs-toggle"
+          >
+            <span>{configsExpanded ? '▾' : '▸'}</span>
+            Configs ({configs.length})
+          </button>
+          {#if configsExpanded}
+            <ul class="space-y-1" data-testid="imported-detail-configs">
+              {#each configs as f (f.install_path)}
+                <li class="flex items-center gap-2 text-sm py-1">
+                  <span class="truncate flex-1 text-neutral-600">{f.install_path}</span>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {/if}
+      {/if}
+
+      {#if status && status.removed_files.length > 0}
+        <div class="mt-5" data-testid="imported-detail-removed-section">
+          <h4 class="font-medium text-sm text-neutral-700 mb-2">
+            Removed from pack ({status.removed_files.length})
+          </h4>
+          {#if restoreError}
+            <p class="text-xs text-red-700 mb-2" data-testid="imported-detail-restore-error">
+              {restoreError}
+            </p>
+          {/if}
+          <ul class="space-y-1">
+            {#each status.removed_files as f (f.sha1)}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-red-50 border border-red-100"
+              >
+                <span class="truncate flex-1 line-through text-neutral-700">{f.name}</span>
+                {#if f.url === ''}
+                  <!-- Bundled mod from overrides/mods/ — no network source
                      to re-fetch from. Disable Restore and explain why on
                      hover; the user's only recovery path is re-importing
                      the .mrpack. -->
-                <button
-                  type="button"
-                  class="text-xs px-2 py-0.5 rounded border border-neutral-200 text-neutral-400 cursor-not-allowed flex-shrink-0"
-                  disabled
-                  title="Bundled inside the .mrpack — cannot restore automatically. Re-import the pack to recover."
-                  data-testid="imported-detail-restore-{f.sha1}"
-                >
-                  Restore
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  class="text-xs px-2 py-0.5 rounded border border-red-200 text-red-700 hover:bg-red-100 flex-shrink-0"
-                  onclick={() => void restore(f)}
-                  data-testid="imported-detail-restore-{f.sha1}"
-                >
-                  Restore
-                </button>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-        {#if status.removed_files.some((f) => f.url === '')}
-          <button
-            type="button"
-            class="mt-2 text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50"
-            onclick={() => void reimportPackFiles()}
-            disabled={reimporting}
-            data-testid="imported-detail-reimport"
-          >
-            {reimporting ? 'Re-importing…' : 'Re-import pack files'}
-          </button>
-        {/if}
-      </div>
-    {/if}
-
-    {#if status && status.missing_mods.length > 0}
-      <div class="mt-5" data-testid="imported-detail-missing-section">
-        <h4 class="font-medium text-sm text-neutral-700 mb-2">
-          Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed')
-            .length})
-        </h4>
-        <p class="text-xs text-neutral-500 mb-2">
-          The pack author disabled automatic downloads for these. Download each from its source and
-          drop the jar onto the Mods tab.
-        </p>
-        <ul class="space-y-1">
-          {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
-            {@const isInstalled = m.state === 'installed'}
-            {@const isDifferentVersion = m.state === 'different_version'}
-            <li
-              class="flex items-center gap-2 text-sm py-1 px-2 rounded border"
-              class:bg-amber-50={!isInstalled}
-              class:border-amber-100={!isInstalled}
-              class:bg-green-50={isInstalled}
-              class:border-green-100={isInstalled}
+                  <button
+                    type="button"
+                    class="text-xs px-2 py-0.5 rounded border border-neutral-200 text-neutral-400 cursor-not-allowed flex-shrink-0"
+                    disabled
+                    title="Bundled inside the .mrpack — cannot restore automatically. Re-import the pack to recover."
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    Restore
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    class="text-xs px-2 py-0.5 rounded border border-red-200 text-red-700 hover:bg-red-100 flex-shrink-0"
+                    onclick={() => void restore(f)}
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    Restore
+                  </button>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if status.removed_files.some((f) => f.url === '')}
+            <button
+              type="button"
+              class="mt-2 text-xs px-2 py-1 rounded border border-neutral-300 hover:bg-neutral-50 disabled:opacity-50"
+              onclick={() => void reimportPackFiles()}
+              disabled={reimporting}
+              data-testid="imported-detail-reimport"
             >
-              <!-- ✓ when the mod is present at all (installed or a
+              {reimporting ? 'Re-importing…' : 'Re-import pack files'}
+            </button>
+          {/if}
+        </div>
+      {/if}
+
+      {#if status && status.missing_mods.length > 0}
+        <div class="mt-5" data-testid="imported-detail-missing-section">
+          <h4 class="font-medium text-sm text-neutral-700 mb-2">
+            Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed')
+              .length})
+          </h4>
+          <p class="text-xs text-neutral-500 mb-2">
+            The pack author disabled automatic downloads for these. Download each from its source
+            and drop the jar onto the Mods tab.
+          </p>
+          <ul class="space-y-1">
+            {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
+              {@const isInstalled = m.state === 'installed'}
+              {@const isDifferentVersion = m.state === 'different_version'}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded border"
+                class:bg-amber-50={!isInstalled}
+                class:border-amber-100={!isInstalled}
+                class:bg-green-50={isInstalled}
+                class:border-green-100={isInstalled}
+              >
+                <!-- ✓ when the mod is present at all (installed or a
                    different version); ⚠ only when truly missing — so
                    "different version" is not mistaken for "missing". -->
-              <span class="flex-shrink-0" aria-hidden="true">
-                {m.state === 'missing' ? '⚠' : '✓'}
-              </span>
-              <span class="truncate flex-1" class:text-neutral-500={isInstalled}>
-                {m.entry.mod_name}
-                {#if isDifferentVersion}
-                  <span class="text-neutral-500 text-xs">
-                    — different version than the pack — may be incompatible</span
-                  >
-                {/if}
-              </span>
-              {#if !isInstalled}
-                <span
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
-                >
-                  {m.entry.reason === 'distribution_disabled'
-                    ? 'Distribution disabled'
-                    : 'Host not allowed'}
+                <span class="flex-shrink-0" aria-hidden="true">
+                  {m.state === 'missing' ? '⚠' : '✓'}
                 </span>
-              {/if}
-              {#if !isInstalled && m.entry.manual_action_url}
-                <a
-                  href={m.entry.manual_action_url}
-                  target="_blank"
-                  rel="noopener"
-                  class="text-blue-600 hover:underline text-xs flex-shrink-0"
-                >
-                  Open ↗
-                </a>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      </div>
-    {/if}
-  </div>
+                <span class="truncate flex-1" class:text-neutral-500={isInstalled}>
+                  {m.entry.mod_name}
+                  {#if isDifferentVersion}
+                    <span class="text-neutral-500 text-xs">
+                      — different version than the pack — may be incompatible</span
+                    >
+                  {/if}
+                </span>
+                {#if !isInstalled}
+                  <span
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 flex-shrink-0"
+                  >
+                    {m.entry.reason === 'distribution_disabled'
+                      ? 'Distribution disabled'
+                      : 'Host not allowed'}
+                  </span>
+                {/if}
+                {#if !isInstalled && m.entry.manual_action_url}
+                  <a
+                    href={m.entry.manual_action_url}
+                    target="_blank"
+                    rel="noopener"
+                    class="text-blue-600 hover:underline text-xs flex-shrink-0"
+                  >
+                    Open ↗
+                  </a>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </div>
 
-  <footer class="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-white flex-shrink-0">
-    <button
-      type="button"
-      class="px-3 py-1.5 text-sm rounded text-red-600 hover:bg-red-50 border border-transparent"
-      onclick={() => (deleting = true)}
-      data-testid="imported-detail-delete"
-    >
-      Delete pack
-    </button>
-    <button
-      type="button"
-      class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
-      onclick={() => onOpenInstance(inst.id)}
-      data-testid="imported-detail-open"
-    >
-      Open instance
-    </button>
-  </footer>
+    <footer class="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-white flex-shrink-0">
+      <button
+        type="button"
+        class="px-3 py-1.5 text-sm rounded text-red-600 hover:bg-red-50 border border-transparent"
+        onclick={() => (deleting = true)}
+        data-testid="imported-detail-delete"
+      >
+        Delete pack
+      </button>
+      <button
+        type="button"
+        class="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+        onclick={() => onOpenInstance(inst.id)}
+        data-testid="imported-detail-open"
+      >
+        Open instance
+      </button>
+    </footer>
+  </div>
 </div>
 
 {#if updateDiff}

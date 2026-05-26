@@ -87,9 +87,14 @@
   );
 </script>
 
-<div class="fixed inset-0 z-30 flex">
-  <button type="button" class="flex-1 bg-black/30" aria-label="Close" onclick={onClose}></button>
-  <div role="dialog" aria-modal="true" class="w-[420px] bg-white shadow-xl overflow-y-auto p-4">
+<div class="fixed inset-0 z-30 flex items-center justify-center">
+  <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
+  ></button>
+  <div
+    role="dialog"
+    aria-modal="true"
+    class="relative bg-white rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto p-4 m-4"
+  >
     <div class="flex items-start justify-between">
       <h2 class="text-base font-semibold flex-1">
         {project?.summary.name ?? 'Loading…'}
