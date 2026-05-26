@@ -227,6 +227,9 @@ pub enum Error {
 
     #[error("Playtime I/O error: {details}")]
     PlaytimeIo { details: String },
+
+    #[error("Tray I/O error: {details}")]
+    TrayIo { details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
