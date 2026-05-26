@@ -468,6 +468,20 @@
 
     const allRequired = await Promise.all(d.required.map((r) => enrichDep(r.version)));
     const allOptional = await Promise.all(d.optional.map((o) => enrichDep(o.version)));
+
+    // Look up a human-readable name for a DepProjectRef. Falls back
+    // to the raw project_id / mod_id when the project lookup fails
+    // (network, deleted project, etc.) — so the dialog never shows a
+    // bare slug like "9s6osm5g" when the API call succeeded.
+    type DepRef = (typeof d.incompatible)[number];
+    const enrichRefName = async (r: DepRef): Promise<string> => {
+      const source: ModSource = 'project_id' in r ? 'modrinth' : 'curseforge';
+      const id = 'project_id' in r ? r.project_id : String(r.mod_id);
+      const p = await commands.modsProject(source, id);
+      return p.status === 'ok' ? p.data.summary.name : id;
+    };
+    const incompatibleNames = await Promise.all(d.incompatible.map(enrichRefName));
+    const unresolvableNames = await Promise.all(d.unresolvable.map(enrichRefName));
     const requiredEnriched = allRequired.filter(
       (x): x is Extract<EnrichResult, { kind: 'normal' }> => x.kind === 'normal',
     );
@@ -525,12 +539,8 @@
         primaryProjectName,
         required: requiredEnriched,
         optional: optionalEnriched,
-        incompatible: d.incompatible.map((r) =>
-          'project_id' in r ? r.project_id : String(r.mod_id),
-        ),
-        unresolvable: d.unresolvable.map((r) =>
-          'project_id' in r ? r.project_id : String(r.mod_id),
-        ),
+        incompatible: incompatibleNames,
+        unresolvable: unresolvableNames,
         loaderRequirements,
         loaderMismatch,
       };
