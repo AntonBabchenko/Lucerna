@@ -10,6 +10,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
+  import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import ModpackCard from './ModpackCard.svelte';
 
@@ -144,13 +145,7 @@
     class="flex-1 min-w-[10rem] px-3 py-2 border rounded text-sm"
     data-testid="modpack-search-input"
   />
-  <input
-    type="text"
-    bind:value={mcFilter}
-    placeholder="MC version"
-    class="w-28 px-3 py-2 border rounded text-sm"
-    data-testid="modpack-mc-input"
-  />
+  <McVersionCombobox bind:value={mcFilter} dataTestid="modpack-mc-input" />
   <select
     bind:value={loaderFilter}
     class="px-3 py-2 border rounded text-sm"
@@ -172,6 +167,18 @@
     <option value="newest">Sort: newest</option>
     <option value="updated">Sort: updated</option>
   </select>
+  <button
+    type="button"
+    class="text-xs text-neutral-600 underline hover:text-neutral-900 disabled:opacity-40 disabled:no-underline"
+    disabled={!mcFilter && !loaderFilter}
+    data-testid="modpack-clear-filters"
+    onclick={() => {
+      mcFilter = '';
+      loaderFilter = '';
+    }}
+  >
+    Clear filters
+  </button>
 </div>
 
 <div class="px-4 pb-4">

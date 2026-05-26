@@ -14,6 +14,7 @@
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
+  import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailDrawer from './ModDetailDrawer.svelte';
 
@@ -69,7 +70,6 @@
     loaderFilter = loader && loader !== 'vanilla' ? loader : '';
   });
   let sort = $state<ModSort>('downloads');
-  let showAll = $state(false);
   // Default: include installed mods in the result list (current
   // behaviour). Toggle off → filter them out client-side for a
   // cleaner "discovery" view. The pagination counter still reflects
@@ -290,8 +290,6 @@
     const _mc = mcFilter;
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _ld = loaderFilter;
-    // biome-ignore lint/correctness/noUnusedVariables: reactive read
-    const _all = showAll;
     // `untrack` prevents the async work in `resetSearch` / `fill` from
     // registering `buffer`, `exhausted`, etc. as dependencies of this
     // effect, which would create an update cycle (write → re-run → write).
@@ -304,8 +302,12 @@
     const result = await commands.modsSearch({
       source,
       query,
-      mc_version: showAll ? null : mcFilter || null,
-      loader: showAll ? null : ((loaderFilter || null) as LoaderKind | null),
+      // Empty input strings collapse to `null` — the search backend
+      // treats null as "no MC / no loader facet", same as the old
+      // "Show all" checkbox did when checked. Clearing both fields
+      // (or hitting Clear filters) is the explicit way to widen.
+      mc_version: mcFilter || null,
+      loader: (loaderFilter || null) as LoaderKind | null,
       sort,
       page_size: pageSize,
       offset: buffer.length,
@@ -570,19 +572,12 @@
       <span class="text-neutral-600">Filters:</span>
       <label class="inline-flex items-center gap-1">
         MC:
-        <input
-          type="text"
-          bind:value={mcFilter}
-          disabled={showAll}
-          aria-label="MC version filter"
-          class="border rounded px-2 py-0.5 text-sm w-20"
-        />
+        <McVersionCombobox bind:value={mcFilter} placeholder="Any" />
       </label>
       <label class="inline-flex items-center gap-1">
         Loader:
         <select
           bind:value={loaderFilter}
-          disabled={showAll}
           aria-label="Loader filter"
           class="border rounded px-2 py-0.5 text-sm bg-white"
         >
@@ -593,16 +588,21 @@
           <option value="neoforge">NeoForge</option>
         </select>
       </label>
+      <button
+        type="button"
+        class="text-xs text-neutral-600 underline hover:text-neutral-900 disabled:opacity-40 disabled:no-underline"
+        disabled={!mcFilter && !loaderFilter}
+        data-testid="mod-clear-filters"
+        onclick={() => {
+          mcFilter = '';
+          loaderFilter = '';
+        }}
+      >
+        Clear filters
+      </button>
       <label class="inline-flex items-center gap-1 ml-auto">
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
-      </label>
-      <label
-        class="inline-flex items-center gap-1"
-        title="Search every Minecraft version and loader, ignoring the MC / Loader filters above"
-      >
-        <input type="checkbox" bind:checked={showAll} />
-        Any MC + loader
       </label>
     </div>
   </div>

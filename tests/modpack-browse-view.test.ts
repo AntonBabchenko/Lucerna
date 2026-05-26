@@ -18,6 +18,10 @@ vi.mock('$lib/ipc/bindings', () => ({
 vi.mock('$lib/settings/state.svelte', () => ({
   cfKeyVersion: { value: 0 },
   settingsOpen: { value: null },
+  // McVersionCombobox reads from this rune. Empty list is fine — the
+  // combobox just shows the "Any version" row and the test types into
+  // the input directly.
+  mcVersions: { value: [] },
 }));
 
 import ModpackBrowseView from '$lib/modpacks/ModpackBrowseView.svelte';

@@ -22,7 +22,7 @@
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
-  import { modBrowserNav, modpacksNav } from '$lib/settings/state.svelte';
+  import { modBrowserNav, modpacksNav, mcVersions } from '$lib/settings/state.svelte';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -186,6 +186,10 @@
     const versionsResult = await commands.listVersions();
     if (versionsResult.status === 'ok') {
       versions = versionsResult.data;
+      // Publish to the shared rune so the McVersionCombobox in the mod
+      // and modpack browsers can read the list without prop drilling
+      // through MainTabs / ModpacksTab.
+      mcVersions.value = versionsResult.data;
     } else {
       versionsError = formatError(versionsResult.error);
     }

@@ -47,3 +47,12 @@ export const droppedModpack = $state<{ value: string | null }>({ value: null });
 // drag-drop listener sets it; FileDropzone reads it to show its drag
 // highlight.
 export const dragActive = $state<{ value: boolean }>({ value: false });
+
+// Mojang's Minecraft version list — fetched once at app startup
+// (+page.svelte onMount) and consumed by both the McVersionCombobox in
+// the mod / modpack browsers and the Manage modal's version picker.
+// Stored in a rune so the leaf components don't need a 3+ level prop
+// drill through MainTabs / ModpacksTab. Empty until startup fetch
+// completes; combobox shows just the "Any version" entry until then.
+import type { VersionEntry } from '$lib/ipc/bindings';
+export const mcVersions = $state<{ value: VersionEntry[] }>({ value: [] });
