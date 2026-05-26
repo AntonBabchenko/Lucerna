@@ -61,7 +61,7 @@
 >
   <div class="font-bold text-lg text-neutral-900">FTlauncher</div>
 
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-1 pt-3 border-t border-neutral-200">
     <div class="text-xs uppercase tracking-wide text-neutral-500">Account</div>
     {#if accounts.length === 0}
       <p class="text-xs text-neutral-500">No accounts yet — add one below.</p>
@@ -131,7 +131,7 @@
     </p>
   </div>
 
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-1 pt-3 border-t border-neutral-200">
     <div class="text-xs uppercase tracking-wide text-neutral-500 flex items-center gap-1">
       <span>Instance</span>
       <InstanceConceptTooltip />
@@ -230,12 +230,11 @@
     {/if}
   </div>
 
-  <div class="mt-auto flex flex-col gap-2">
+  <div class="mt-auto flex flex-col gap-3 pt-3 border-t border-neutral-200">
     <!--
       Modpacks live at the sidebar level (not the per-instance tab strip)
       because installing a pack creates a NEW instance, so there's nothing
-      "current instance" about the action. Visually separated from the
-      instance section by the border above to reinforce that distinction.
+      "current instance" about the action.
     -->
     <button
       type="button"
@@ -255,22 +254,24 @@
         📦 Browse modpacks
       {/if}
     </button>
-    <div class="pt-2 border-t border-neutral-200 flex gap-1">
+    <div class="flex justify-end gap-1">
       <button
         type="button"
-        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+        class="w-9 h-9 inline-flex items-center justify-center border rounded text-base hover:bg-white"
+        aria-label="Logs"
+        title="Logs"
         onclick={onOpenLogs}
       >
-        📜 Logs
+        📜
       </button>
       <button
         type="button"
-        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+        class="w-9 h-9 inline-flex items-center justify-center border rounded text-base hover:bg-white"
         aria-label="Settings"
         title="Settings"
         onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
       >
-        Settings
+        ⚙
       </button>
     </div>
   </div>
