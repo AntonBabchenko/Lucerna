@@ -2,6 +2,8 @@
   import { commands, events, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { relativeTime } from '$lib/format/relative-time';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -134,7 +136,10 @@
   {:else if worlds.length === 0}
     <p class="text-sm text-muted">No worlds yet. Play Minecraft to create one.</p>
   {:else}
-    <ul class="border border-border-subtle rounded divide-y divide-border-subtle">
+    <ul
+      class="border border-border-subtle rounded divide-y divide-border-subtle"
+      data-tour-ctx="worlds-list"
+    >
       {#each worlds as w (w.folder_name)}
         <li>
           <button
@@ -169,10 +174,17 @@
   <button
     type="button"
     class="self-start text-sm text-accent hover:underline"
+    data-tour-ctx="worlds-open-folder"
     onclick={() => void onOpenSavesFolder()}
   >
     Open saves folder ↗
   </button>
+
+  <!-- Tour fires only once worlds exist — most steps point at the
+       list which is absent on a fresh instance. -->
+  {#if worlds.length > 0}
+    <ContextualTour id="worlds" steps={WORLDS_STEPS} />
+  {/if}
 </div>
 
 {#if openMenuFor}

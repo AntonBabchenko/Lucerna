@@ -526,6 +526,7 @@
             <!-- Share button -->
             <button
               class="btn-warning btn-xs text-xs border rounded px-2 py-0.5"
+              data-tour-ctx="logs-share"
               disabled={!selectedContent || shareUploading}
               onclick={() => (shareConfirm = true)}
             >
@@ -543,7 +544,10 @@
         </div>
 
         <!-- Header row 2: toolbar (wrap / fold / level filters) -->
-        <div class="flex items-center gap-4 px-4 py-1.5 border-t text-xs flex-wrap">
+        <div
+          class="flex items-center gap-4 px-4 py-1.5 border-t text-xs flex-wrap"
+          data-tour-ctx="logs-toolbar"
+        >
           <label class="flex items-center gap-1 cursor-pointer select-none">
             <input type="checkbox" bind:checked={wrap} class="accent-primary" />
             Wrap lines

@@ -106,9 +106,9 @@ describe('maybeParseCrashReport', () => {
     ].join('\n');
     const parsed = maybeParseCrashReport(body);
     expect(parsed).not.toBeNull();
-    expect(parsed!.length).toBeGreaterThanOrEqual(3);
-    expect(parsed![0].title).toBe('Head');
-    expect(parsed!.some((s) => s.title === 'Affected level')).toBe(true);
-    expect(parsed!.some((s) => s.title === 'System Details')).toBe(true);
+    expect(parsed?.length).toBeGreaterThanOrEqual(3);
+    expect(parsed?.[0].title).toBe('Head');
+    expect(parsed?.some((s) => s.title === 'Affected level')).toBe(true);
+    expect(parsed?.some((s) => s.title === 'System Details')).toBe(true);
   });
 });
