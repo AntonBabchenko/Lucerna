@@ -254,24 +254,22 @@
         📦 Browse modpacks
       {/if}
     </button>
-    <div class="flex justify-end gap-1">
+    <div class="flex gap-1">
       <button
         type="button"
-        class="w-9 h-9 inline-flex items-center justify-center border rounded text-base hover:bg-white"
-        aria-label="Logs"
-        title="Logs"
+        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
         onclick={onOpenLogs}
       >
-        📜
+        📜 Logs
       </button>
       <button
         type="button"
-        class="w-9 h-9 inline-flex items-center justify-center border rounded text-base hover:bg-white"
+        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
         aria-label="Settings"
         title="Settings"
         onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
       >
-        ⚙
+        Settings
       </button>
     </div>
   </div>
