@@ -35,10 +35,16 @@
 
   let {
     instances,
+    mcVersion = null,
+    loader = null,
     onInstanceCreated,
     onListChanged,
   }: {
     instances: InstanceWithStatus[];
+    // Active instance's MC + loader, forwarded to ModpackBrowseView so
+    // the browser defaults its filters to "what the user is playing".
+    mcVersion?: string | null;
+    loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     onInstanceCreated: (id: string) => void;
     onListChanged?: () => void;
   } = $props();
@@ -238,7 +244,7 @@
 
     {#if browseEverActive}
       <div class:hidden={activeSub !== 'browse'}>
-        <ModpackBrowseView onPickHit={(h) => (drawerHit = h)} />
+        <ModpackBrowseView {mcVersion} {loader} onPickHit={(h) => (drawerHit = h)} />
       </div>
     {/if}
     {#if importedEverActive}

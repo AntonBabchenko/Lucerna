@@ -167,6 +167,8 @@
     {:else if active === 'modpacks'}
       <ModpacksTab
         {instances}
+        {mcVersion}
+        {loader}
         onInstanceCreated={(id) => {
           onSwitchInstance(id);
           // Open instance / post-import — user expects to land on the

@@ -20,7 +20,20 @@
   // ModpackHit back to the parent (ModpacksTab), which opens the
   // version drawer.
 
-  let { onPickHit }: { onPickHit: (hit: ModpackHit) => void } = $props();
+  let {
+    onPickHit,
+    mcVersion = null,
+    loader = null,
+  }: {
+    onPickHit: (hit: ModpackHit) => void;
+    // Active instance's MC + loader, threaded through MainTabs →
+    // ModpacksTab. Used to pre-fill the filter inputs so the default
+    // search matches what the user is currently playing — instead of
+    // dumping every Minecraft version's modpacks into the grid. Both
+    // null on app startup / vanilla instance with no loader.
+    mcVersion?: string | null;
+    loader?: LoaderKind | 'vanilla' | null;
+  } = $props();
 
   let query = $state('');
   let source = $state<ModSource>('modrinth');
@@ -53,8 +66,24 @@
     void refreshCfKey();
   });
 
+  // Filters mirror the active instance's MC + loader and re-sync on
+  // switch. Same pattern as ModBrowseView — keeping a stale filter from
+  // a previous instance would surface modpacks for a version the user
+  // isn't on. "Show all" below is the escape hatch.
   let mcFilter = $state('');
   let loaderFilter = $state<'' | 'fabric' | 'quilt' | 'forge' | 'neoforge'>('');
+  let showAll = $state(false);
+
+  $effect(() => {
+    mcFilter = mcVersion ?? '';
+    // Vanilla instances → empty loader facet (Modrinth has no
+    // "vanilla" modpack loader; sending it would return ~0 hits).
+    loaderFilter =
+      loader && loader !== 'vanilla'
+        ? (loader as '' | 'fabric' | 'quilt' | 'forge' | 'neoforge')
+        : '';
+  });
+
   let sortChoice = $state<ModpackSort>('relevance');
   let page = $state<ModpackSearchPage | null>(null);
   let pageNum = $state(0);
@@ -76,9 +105,16 @@
       loading = true;
       error = null;
       try {
-        const mc = mcFilter.trim() || null;
-        const loader = loaderFilter ? (loaderFilter as LoaderKind) : null;
-        const result = await commands.modpackSearch(source, query, pageNum, mc, loader, sortChoice);
+        const mc = showAll ? null : mcFilter.trim() || null;
+        const loaderArg = showAll ? null : loaderFilter ? (loaderFilter as LoaderKind) : null;
+        const result = await commands.modpackSearch(
+          source,
+          query,
+          pageNum,
+          mc,
+          loaderArg,
+          sortChoice,
+        );
         if (result.status === 'ok') {
           page = result.data;
         } else if (result.error.kind === 'mods_platform_auth') {
@@ -102,6 +138,7 @@
     void mcFilter;
     void loaderFilter;
     void sortChoice;
+    void showAll;
     void pageNum;
     runSearch();
   });
@@ -110,7 +147,7 @@
   // a narrowed query could land the user on an empty page mid-list.
   let prevFilters = $state('');
   $effect(() => {
-    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}`;
+    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}|${showAll}`;
     if (fp !== prevFilters) {
       prevFilters = fp;
       if (pageNum !== 0) pageNum = 0;
@@ -133,12 +170,14 @@
     type="text"
     bind:value={mcFilter}
     placeholder="MC version"
-    class="w-28 px-3 py-2 border rounded text-sm"
+    disabled={showAll}
+    class="w-28 px-3 py-2 border rounded text-sm disabled:bg-neutral-100 disabled:text-neutral-400"
     data-testid="modpack-mc-input"
   />
   <select
     bind:value={loaderFilter}
-    class="px-3 py-2 border rounded text-sm"
+    disabled={showAll}
+    class="px-3 py-2 border rounded text-sm disabled:bg-neutral-100 disabled:text-neutral-400"
     data-testid="modpack-loader-select"
   >
     <option value="">All loaders</option>
@@ -157,6 +196,10 @@
     <option value="newest">Sort: newest</option>
     <option value="updated">Sort: updated</option>
   </select>
+  <label class="inline-flex items-center gap-1 text-sm text-neutral-700">
+    <input type="checkbox" bind:checked={showAll} data-testid="modpack-show-all" />
+    Show all
+  </label>
 </div>
 
 <div class="px-4 pb-4">
