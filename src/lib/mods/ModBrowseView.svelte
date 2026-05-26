@@ -597,9 +597,12 @@
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
       </label>
-      <label class="inline-flex items-center gap-1">
+      <label
+        class="inline-flex items-center gap-1"
+        title="Search every Minecraft version and loader, ignoring the MC / Loader filters above"
+      >
         <input type="checkbox" bind:checked={showAll} />
-        Show all
+        Any MC + loader
       </label>
     </div>
   </div>
