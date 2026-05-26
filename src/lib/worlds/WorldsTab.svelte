@@ -122,7 +122,6 @@
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
-
 </script>
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">

@@ -7,8 +7,10 @@
     type Error as IpcError,
     type InstanceWithStatus,
     type MissingModStatus,
+    type PlaytimeStats,
     type VersionEntry,
   } from '$lib/ipc/bindings';
+  import { relativeTime } from '$lib/format/relative-time';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
@@ -61,6 +63,41 @@
     const total = r.data.length;
     const enabled = r.data.filter((m) => m.enabled).length;
     installedStats = { total, enabled, disabled: total - enabled };
+  }
+
+  // Per-instance playtime stats — refreshed on instance switch and
+  // after every game exit (via the existing processExited handler).
+  // last_session_unix_ms === null is the canonical "never played"
+  // signal; the other fields can read null from the f64-via-specta
+  // quirk and are coerced to 0 with ??.
+  let playtime = $state<PlaytimeStats>({
+    total_seconds: 0,
+    session_count: 0,
+    last_session_seconds: 0,
+    last_session_unix_ms: null,
+  });
+
+  async function refreshPlaytime(id: string | null) {
+    if (!id) {
+      playtime = {
+        total_seconds: 0,
+        session_count: 0,
+        last_session_seconds: 0,
+        last_session_unix_ms: null,
+      };
+      return;
+    }
+    const r = await commands.getPlaytime(id);
+    if (r.status === 'ok') playtime = r.data;
+  }
+
+  function formatDuration(seconds: number | null | undefined): string {
+    const s = seconds ?? 0;
+    if (s < 60) return '< 1m';
+    const hours = Math.floor(s / 3600);
+    const minutes = Math.floor((s % 3600) / 60);
+    if (hours === 0) return `${minutes}m`;
+    return `${hours}h ${minutes}m`;
   }
 
   // Missing mods for the active pack-origin instance — drives the
@@ -121,6 +158,7 @@
         crashReport = null;
         void refreshInstalledStats(newId);
         void refreshPackStatus(newId);
+        void refreshPlaytime(newId);
       }
     });
   });
@@ -168,6 +206,7 @@
         running = null;
         exited = { code: event.payload.code, log_path: event.payload.log_path };
         void refreshInstances();
+        void refreshPlaytime(activeInstance?.id ?? null);
         if (event.payload.code !== 0 && activeInstance) {
           const result = await commands.latestCrash(activeInstance.id);
           if (result.status === 'ok' && result.data) {
@@ -493,6 +532,29 @@
                       Installed
                     </button>
                     tab.
+                  </p>
+                {/if}
+              </div>
+
+              <div class="flex flex-col gap-1" data-testid="overview-playtime">
+                <div class="text-xs uppercase tracking-wide text-neutral-500">Playtime</div>
+                {#if playtime.last_session_unix_ms == null}
+                  <p class="text-sm text-neutral-500">Not yet played</p>
+                {:else}
+                  <div class="text-sm">
+                    Total:
+                    <span class="font-medium text-neutral-800"
+                      >{formatDuration(playtime.total_seconds)}</span
+                    >
+                    ·
+                    <span
+                      >{playtime.session_count}
+                      {playtime.session_count === 1 ? 'session' : 'sessions'}</span
+                    >
+                  </div>
+                  <p class="text-xs text-neutral-500">
+                    Last session: {formatDuration(playtime.last_session_seconds)},
+                    {relativeTime(playtime.last_session_unix_ms)}
                   </p>
                 {/if}
               </div>
