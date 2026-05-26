@@ -95,6 +95,15 @@ pub struct OnboardingState {
     pub tour_completed_version: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
@@ -102,6 +111,10 @@ pub struct GeneralSettings {
     /// via Settings → General.
     #[serde(default)]
     pub hide_to_tray_during_game: bool,
+    /// UI theme preference: system (follow OS), light, or dark.
+    /// Default system — user can override via Settings → General.
+    #[serde(default)]
+    pub theme: ThemePreference,
 }
 
 /// What the UI sees per row in the instance dropdown.
@@ -371,5 +384,49 @@ mod tests {
         let parsed: AppFile = serde_json::from_str(old_json).unwrap();
         assert!(!parsed.general.hide_to_tray_during_game);
         assert_eq!(parsed.active_instance.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn theme_preference_default_is_system() {
+        let pref = ThemePreference::default();
+        assert_eq!(pref, ThemePreference::System);
+    }
+
+    #[test]
+    fn general_settings_default_theme_is_system() {
+        let gs = GeneralSettings::default();
+        assert_eq!(gs.theme, ThemePreference::System);
+    }
+
+    #[test]
+    fn theme_preference_serde_round_trip() {
+        for pref in [
+            ThemePreference::System,
+            ThemePreference::Light,
+            ThemePreference::Dark,
+        ] {
+            let json = serde_json::to_string(&pref).unwrap();
+            let back: ThemePreference = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, pref);
+        }
+    }
+
+    #[test]
+    fn theme_preference_serializes_lowercase() {
+        let json = serde_json::to_string(&ThemePreference::Light).unwrap();
+        assert_eq!(json, r#""light""#);
+    }
+
+    #[test]
+    fn app_file_parses_old_general_block_without_theme() {
+        let old_json = r#"{
+            "version": 1,
+            "active_instance": null,
+            "onboarding": { "tour_completed_version": null },
+            "general": { "hide_to_tray_during_game": true }
+        }"#;
+        let parsed: AppFile = serde_json::from_str(old_json).unwrap();
+        assert!(parsed.general.hide_to_tray_during_game);
+        assert_eq!(parsed.general.theme, ThemePreference::System);
     }
 }
