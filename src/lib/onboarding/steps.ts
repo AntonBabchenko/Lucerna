@@ -51,7 +51,7 @@ export const STEPS: ReadonlyArray<TourStep> = [
   {
     title: 'Import modpacks',
     body: 'Drop a .mrpack or CurseForge .zip here, or browse Modrinth modpacks. Each import becomes a new instance — your existing instances stay untouched.',
-    targetSelector: '[data-tour="tab-modpacks"]',
-    anchor: 'below',
+    targetSelector: '[data-tour="open-modpacks"]',
+    anchor: 'right',
   },
 ];
