@@ -125,6 +125,8 @@ export function formatError(e: IpcError): string {
       return `Backup "${e.filename}" not found`;
     case 'backup_corrupt':
       return `Backup "${e.filename}" is unreadable or corrupted: ${e.details}`;
+    case 'playtime_io':
+      return `Couldn't read or write playtime stats: ${e.details}`;
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands, events, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { relativeTime } from '$lib/format/relative-time';
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -122,18 +123,6 @@
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 
-  function relativeTime(ms: number | null | undefined): string {
-    if (!ms) return 'never';
-    const diff = Date.now() - ms;
-    const sec = Math.floor(diff / 1000);
-    if (sec < 60) return `${sec}s ago`;
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const days = Math.floor(hr / 24);
-    return `${days}d ago`;
-  }
 </script>
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
