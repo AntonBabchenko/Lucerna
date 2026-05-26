@@ -42,6 +42,8 @@ describe('Sidebar', () => {
         onOpenManage: vi.fn(),
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -67,6 +69,8 @@ describe('Sidebar', () => {
         onOpenManage: vi.fn(),
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -76,5 +80,31 @@ describe('Sidebar', () => {
     });
     const select = getByDisplayValue(/Tester/) as HTMLSelectElement;
     expect(select).toBeTruthy();
+  });
+
+  it('renders the Browse modpacks button at the sidebar level', () => {
+    const { getByTestId } = render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    expect(getByTestId('sidebar-open-modpacks')).toBeTruthy();
   });
 });

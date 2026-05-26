@@ -182,11 +182,15 @@ pub enum KeyStatus {
 pub trait ModPlatform: Send + Sync {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error>;
     async fn project(&self, project_id: &str) -> Result<ModProject, Error>;
+    /// Fetch every release of `project_id`. When `mc_version` or
+    /// `loader` is None, the corresponding facet is omitted from the
+    /// upstream query — used by the "Show all versions" toggle in the
+    /// mod detail drawer.
     async fn versions(
         &self,
         project_id: &str,
-        mc_version: &str,
-        loader: LoaderKind,
+        mc_version: Option<&str>,
+        loader: Option<LoaderKind>,
     ) -> Result<Vec<ModVersion>, Error>;
     async fn resolve_deps(
         &self,

@@ -578,11 +578,11 @@ pub async fn mods_project(
 pub async fn mods_versions(
     source: ModSource,
     project_id: String,
-    mc_version: String,
-    loader: LoaderKind,
+    mc_version: Option<String>,
+    loader: Option<LoaderKind>,
 ) -> crate::error::Result<Vec<ModVersion>> {
     platform_for(source)
-        .versions(&project_id, &mc_version, loader)
+        .versions(&project_id, mc_version.as_deref(), loader)
         .await
 }
 
@@ -701,7 +701,9 @@ async fn find_version(
     mc: &str,
     loader: LoaderKind,
 ) -> crate::error::Result<ModVersion> {
-    let vs = platform.versions(&vr.project_id, mc, loader).await?;
+    let vs = platform
+        .versions(&vr.project_id, Some(mc), Some(loader))
+        .await?;
     vs.into_iter()
         .find(|v| v.version_id == vr.version_id)
         .ok_or_else(|| crate::error::Error::ModsNotFound {
@@ -912,7 +914,7 @@ pub async fn mods_check_updates(
             continue;
         };
         let state = match platform_for(source)
-            .versions(&project_id, &mc_version, loader)
+            .versions(&project_id, Some(&mc_version), Some(loader))
             .await
         {
             Ok(versions) => classify_update(m, &versions),

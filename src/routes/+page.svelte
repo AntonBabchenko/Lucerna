@@ -15,6 +15,7 @@
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
+  import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import { initOnboarding } from '$lib/onboarding/state.svelte';
@@ -88,6 +89,21 @@
   let logsInitialPath = $state<string | null>(null);
   let crashReport = $state<CrashReport | null>(null);
   let modsError = $state<string | null>(null);
+
+  // Right-pane mode. 'instance' = MainTabs scoped to the active
+  // instance; 'modpacks' = global modpack browser. Modpacks aren't
+  // instance-scoped (installing one creates a new instance), so they
+  // live at the sidebar level instead of as a 4th instance tab.
+  let view = $state<'instance' | 'modpacks'>('instance');
+
+  // The Overview missing-mods indicator and any other deep-link that
+  // sets modpacksNav expects the Modpacks view to come up. ModpacksTab
+  // itself reads the same rune to flip to the Imported sub-tab.
+  $effect(() => {
+    if (modpacksNav.value !== null) {
+      view = 'modpacks';
+    }
+  });
 
   // Whenever the active instance changes, clear per-instance error banners.
   // They refer to the previously-active instance and confuse the user when
@@ -218,6 +234,10 @@
       instancesError = formatError(result.error);
       return;
     }
+    // Picking an instance from the sidebar is an "I want to work on
+    // this instance" signal — bring the per-instance view back if the
+    // user was in the Modpacks browser.
+    view = 'instance';
     await refreshInstances();
     // The $effect watching activeInstance.id clears per-instance error
     // banners (installError, modsError, exited, crashReport) automatically.
@@ -286,6 +306,8 @@
       {activeAccount}
       {instances}
       {activeInstance}
+      modpacksActive={view === 'modpacks'}
+      onOpenModpacks={() => (view = 'modpacks')}
       {onSelectAccount}
       onRemoveAccount={onRemoveActive}
       onAddOffline={async (name) => {
@@ -340,205 +362,217 @@
       </div>
     {/if}
 
-    <MainTabs
-      instanceId={activeInstance?.id ?? null}
-      mcVersion={activeInstance?.mc_version ?? null}
-      loader={activeInstance?.loader ?? null}
-      {instances}
-      onSwitchInstance={(id) => {
-        void onSelectInstance(id);
-      }}
-      onListChanged={() => {
-        void refreshInstances();
-      }}
-    >
-      {#snippet overview()}
-        <div class="p-6 flex flex-col gap-4">
-          {#if offlineNameError}
-            <p class="text-xs text-red-700">
-              {offlineNameError}
-              <button
-                class="text-neutral-500 hover:text-neutral-800"
-                onclick={() => (offlineNameError = null)}
-                aria-label="Dismiss">×</button
-              >
-            </p>
-          {/if}
-          {#if listAccountsError}
-            <p class="text-xs text-red-700">
-              {listAccountsError}
-              <button
-                class="text-neutral-500 hover:text-neutral-800"
-                onclick={() => (listAccountsError = null)}>×</button
-              >
-            </p>
-          {/if}
-          {#if removeError}
-            <p class="text-xs text-red-700">
-              {removeError}
-              <button
-                class="text-neutral-500 hover:text-neutral-800"
-                onclick={() => (removeError = null)}>×</button
-              >
-            </p>
-          {/if}
-          {#if instancesError}
-            <p class="text-xs text-red-700">{instancesError}</p>
-          {/if}
-          {#if versionsError}
-            <p class="text-xs text-red-700">{versionsError}</p>
-          {/if}
-          {#if activeInstance}
-            <div class="flex flex-col gap-1">
-              <div class="text-xs uppercase tracking-wide text-neutral-500">Configuration</div>
-              <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-                <span class="text-neutral-500">Minecraft</span>
-                <span class="font-mono">{activeInstance.mc_version || '(not set)'}</span>
-                <span class="text-neutral-500">Loader</span>
-                <span class="font-mono">
-                  {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
-                    · {activeInstance.loader_version}
-                  {/if}
-                </span>
-                <span class="text-neutral-500">Memory</span>
-                <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
-              </div>
-              <p class="text-xs text-neutral-500">
-                Edit via
+    {#if view === 'modpacks'}
+      <ModpacksTab
+        {instances}
+        onInstanceCreated={(id) => {
+          // Post-import: bring the user back to the per-instance view
+          // for the newly created instance.
+          view = 'instance';
+          void onSelectInstance(id);
+        }}
+        onListChanged={() => {
+          void refreshInstances();
+        }}
+      />
+    {:else}
+      <MainTabs
+        instanceId={activeInstance?.id ?? null}
+        mcVersion={activeInstance?.mc_version ?? null}
+        loader={activeInstance?.loader ?? null}
+        onListChanged={() => {
+          void refreshInstances();
+        }}
+      >
+        {#snippet overview()}
+          <div class="p-6 flex flex-col gap-4">
+            {#if offlineNameError}
+              <p class="text-xs text-red-700">
+                {offlineNameError}
                 <button
-                  type="button"
-                  class="underline hover:text-neutral-800"
-                  onclick={() => (manageOpen = true)}>Manage</button
-                >.
+                  class="text-neutral-500 hover:text-neutral-800"
+                  onclick={() => (offlineNameError = null)}
+                  aria-label="Dismiss">×</button
+                >
               </p>
-            </div>
-
-            <div class="flex flex-col gap-1">
-              <div class="text-xs uppercase tracking-wide text-neutral-500">Installed mods</div>
-              {#if installedStats.total === 0}
-                <p class="text-sm text-neutral-500">
-                  No mods installed yet. Open
-                  <button
-                    type="button"
-                    class="underline hover:text-neutral-800"
-                    onclick={() => (modBrowserNav.value = { view: 'browse' })}
-                  >
-                    Mod browser
-                  </button>
-                  to add some.
-                </p>
-              {:else}
-                <div class="text-sm flex gap-3">
-                  <span
-                    >Total: <span class="font-medium text-neutral-700">{installedStats.total}</span
-                    ></span
-                  >
-                  <span
-                    >Enabled: <span class="font-medium text-green-700"
-                      >{installedStats.enabled}</span
-                    ></span
-                  >
-                  <span
-                    >Disabled: <span class="font-medium text-neutral-700"
-                      >{installedStats.disabled}</span
-                    ></span
-                  >
+            {/if}
+            {#if listAccountsError}
+              <p class="text-xs text-red-700">
+                {listAccountsError}
+                <button
+                  class="text-neutral-500 hover:text-neutral-800"
+                  onclick={() => (listAccountsError = null)}>×</button
+                >
+              </p>
+            {/if}
+            {#if removeError}
+              <p class="text-xs text-red-700">
+                {removeError}
+                <button
+                  class="text-neutral-500 hover:text-neutral-800"
+                  onclick={() => (removeError = null)}>×</button
+                >
+              </p>
+            {/if}
+            {#if instancesError}
+              <p class="text-xs text-red-700">{instancesError}</p>
+            {/if}
+            {#if versionsError}
+              <p class="text-xs text-red-700">{versionsError}</p>
+            {/if}
+            {#if activeInstance}
+              <div class="flex flex-col gap-1">
+                <div class="text-xs uppercase tracking-wide text-neutral-500">Configuration</div>
+                <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+                  <span class="text-neutral-500">Minecraft</span>
+                  <span class="font-mono">{activeInstance.mc_version || '(not set)'}</span>
+                  <span class="text-neutral-500">Loader</span>
+                  <span class="font-mono">
+                    {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
+                      · {activeInstance.loader_version}
+                    {/if}
+                  </span>
+                  <span class="text-neutral-500">Memory</span>
+                  <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
                 </div>
                 <p class="text-xs text-neutral-500">
-                  Manage in
+                  Edit via
                   <button
-                    type="button"
-                    class="underline hover:text-neutral-800"
-                    onclick={() => (modBrowserNav.value = { view: 'installed' })}
-                  >
-                    Installed
-                  </button>
-                  tab.
-                </p>
-              {/if}
-            </div>
-
-            {#if unresolvedMissing.length > 0}
-              <button
-                type="button"
-                class="flex items-center gap-2 text-sm text-left rounded border border-amber-200 bg-amber-50 px-3 py-2 hover:bg-amber-100"
-                onclick={() => {
-                  if (activeInstance) {
-                    modpacksNav.value = { openDrawerForInstance: activeInstance.id };
-                  }
-                }}
-                data-testid="overview-missing-mods"
-              >
-                <span aria-hidden="true">⚠</span>
-                <span class="flex-1">
-                  {unresolvedMissing.length}
-                  {unresolvedMissing.length === 1 ? 'pack mod needs' : 'pack mods need'} attention
-                </span>
-                <span class="text-xs text-amber-700 underline">View</span>
-              </button>
-            {/if}
-
-            <div class="flex items-center gap-4 mt-2">
-              {#if running}
-                <span class="text-sm font-mono"
-                  >Running {running.version_id} (PID {running.pid})</span
-                >
-              {:else if activeInstance.mc_version === ''}
-                <span class="text-sm text-neutral-500"
-                  >Pick a Minecraft version in <button
                     type="button"
                     class="underline hover:text-neutral-800"
                     onclick={() => (manageOpen = true)}>Manage</button
-                  > before installing.</span
+                  >.
+                </p>
+              </div>
+
+              <div class="flex flex-col gap-1">
+                <div class="text-xs uppercase tracking-wide text-neutral-500">Installed mods</div>
+                {#if installedStats.total === 0}
+                  <p class="text-sm text-neutral-500">
+                    No mods installed yet. Open
+                    <button
+                      type="button"
+                      class="underline hover:text-neutral-800"
+                      onclick={() => (modBrowserNav.value = { view: 'browse' })}
+                    >
+                      Mod browser
+                    </button>
+                    to add some.
+                  </p>
+                {:else}
+                  <div class="text-sm flex gap-3">
+                    <span
+                      >Total: <span class="font-medium text-neutral-700"
+                        >{installedStats.total}</span
+                      ></span
+                    >
+                    <span
+                      >Enabled: <span class="font-medium text-green-700"
+                        >{installedStats.enabled}</span
+                      ></span
+                    >
+                    <span
+                      >Disabled: <span class="font-medium text-neutral-700"
+                        >{installedStats.disabled}</span
+                      ></span
+                    >
+                  </div>
+                  <p class="text-xs text-neutral-500">
+                    Manage in
+                    <button
+                      type="button"
+                      class="underline hover:text-neutral-800"
+                      onclick={() => (modBrowserNav.value = { view: 'installed' })}
+                    >
+                      Installed
+                    </button>
+                    tab.
+                  </p>
+                {/if}
+              </div>
+
+              {#if unresolvedMissing.length > 0}
+                <button
+                  type="button"
+                  class="flex items-center gap-2 text-sm text-left rounded border border-amber-200 bg-amber-50 px-3 py-2 hover:bg-amber-100"
+                  onclick={() => {
+                    if (activeInstance) {
+                      modpacksNav.value = { openDrawerForInstance: activeInstance.id };
+                    }
+                  }}
+                  data-testid="overview-missing-mods"
                 >
-              {:else if installing}
-                <span class="text-sm text-blue-700">Working…</span>
-              {:else if !activeInstance.ready}
-                <span class="text-sm text-neutral-500"
-                  >Click <span class="font-semibold text-neutral-700">Install</span> in the sidebar to
-                  download Minecraft + selected loader.</span
-                >
-              {:else}
-                <span class="text-sm text-green-700"
-                  >Ready to play — click <span class="font-semibold">Play</span> in the sidebar.</span
-                >
+                  <span aria-hidden="true">⚠</span>
+                  <span class="flex-1">
+                    {unresolvedMissing.length}
+                    {unresolvedMissing.length === 1 ? 'pack mod needs' : 'pack mods need'} attention
+                  </span>
+                  <span class="text-xs text-amber-700 underline">View</span>
+                </button>
               {/if}
-              {#if installError}
-                <span class="text-xs text-red-700 flex items-center gap-1">
-                  {installError}
-                  <button
-                    class="text-neutral-500 hover:text-neutral-800"
-                    onclick={() => (installError = null)}
-                    aria-label="Dismiss"
+
+              <div class="flex items-center gap-4 mt-2">
+                {#if running}
+                  <span class="text-sm font-mono"
+                    >Running {running.version_id} (PID {running.pid})</span
                   >
-                    ×
-                  </button>
-                </span>
-              {/if}
-              {#if exited && !running}
-                <span class="text-xs text-neutral-600">Exited (code {exited.code})</span>
-              {/if}
-              {#if modsError}
-                <span class="text-xs text-red-700 flex items-center gap-1">
-                  {modsError}
-                  <button
-                    class="text-neutral-500 hover:text-neutral-800"
-                    onclick={() => (modsError = null)}
-                    aria-label="Dismiss"
+                {:else if activeInstance.mc_version === ''}
+                  <span class="text-sm text-neutral-500"
+                    >Pick a Minecraft version in <button
+                      type="button"
+                      class="underline hover:text-neutral-800"
+                      onclick={() => (manageOpen = true)}>Manage</button
+                    > before installing.</span
                   >
-                    ×
-                  </button>
-                </span>
-              {/if}
-            </div>
-          {:else}
-            <p class="text-sm text-neutral-500">
-              No instance selected. Create one via the sidebar.
-            </p>
-          {/if}
-        </div>
-      {/snippet}
-    </MainTabs>
+                {:else if installing}
+                  <span class="text-sm text-blue-700">Working…</span>
+                {:else if !activeInstance.ready}
+                  <span class="text-sm text-neutral-500"
+                    >Click <span class="font-semibold text-neutral-700">Install</span> in the sidebar
+                    to download Minecraft + selected loader.</span
+                  >
+                {:else}
+                  <span class="text-sm text-green-700"
+                    >Ready to play — click <span class="font-semibold">Play</span> in the sidebar.</span
+                  >
+                {/if}
+                {#if installError}
+                  <span class="text-xs text-red-700 flex items-center gap-1">
+                    {installError}
+                    <button
+                      class="text-neutral-500 hover:text-neutral-800"
+                      onclick={() => (installError = null)}
+                      aria-label="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </span>
+                {/if}
+                {#if exited && !running}
+                  <span class="text-xs text-neutral-600">Exited (code {exited.code})</span>
+                {/if}
+                {#if modsError}
+                  <span class="text-xs text-red-700 flex items-center gap-1">
+                    {modsError}
+                    <button
+                      class="text-neutral-500 hover:text-neutral-800"
+                      onclick={() => (modsError = null)}
+                      aria-label="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </span>
+                {/if}
+              </div>
+            {:else}
+              <p class="text-sm text-neutral-500">
+                No instance selected. Create one via the sidebar.
+              </p>
+            {/if}
+          </div>
+        {/snippet}
+      </MainTabs>
+    {/if}
   </div>
 
   <div class="col-start-1 col-end-3 row-start-2">

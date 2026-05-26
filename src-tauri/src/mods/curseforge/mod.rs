@@ -160,16 +160,18 @@ impl ModPlatform for CurseForgeClient {
     async fn versions(
         &self,
         project_id: &str,
-        mc: &str,
-        loader: LoaderKind,
+        mc: Option<&str>,
+        loader: Option<LoaderKind>,
     ) -> Result<Vec<ModVersion>, Error> {
         let auth = self.auth()?;
-        let mut params: Vec<(&str, String)> = vec![
-            ("gameVersion", mc.to_string()),
-            ("pageSize", "50".to_string()),
-        ];
-        if loader != LoaderKind::Vanilla {
-            params.push(("modLoaderType", types::loader_type(loader).to_string()));
+        let mut params: Vec<(&str, String)> = vec![("pageSize", "50".to_string())];
+        if let Some(v) = mc {
+            params.push(("gameVersion", v.to_string()));
+        }
+        if let Some(l) = loader {
+            if l != LoaderKind::Vanilla {
+                params.push(("modLoaderType", types::loader_type(l).to_string()));
+            }
         }
         let url = format!(
             "{}/v1/mods/{}/files?{}",
@@ -217,7 +219,7 @@ impl ModPlatform for CurseForgeClient {
                 DepKind::Embedded => continue,
                 _ => {}
             }
-            let vs = self.versions(&pid, mc, loader).await?;
+            let vs = self.versions(&pid, Some(mc), Some(loader)).await?;
             if let Some(v) = vs.into_iter().next() {
                 let resolved = ResolvedDep {
                     project_ref: dep.project_ref.clone(),
@@ -460,7 +462,7 @@ mod tests {
             .await;
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let v = client(s.uri())
-            .versions("12345", "1.20.1", LoaderKind::Fabric)
+            .versions("12345", Some("1.20.1"), Some(LoaderKind::Fabric))
             .await
             .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");

@@ -1,37 +1,25 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { onMount } from 'svelte';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
-  import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
-  import {
-    modBrowserNav,
-    modpacksNav,
-    droppedMods,
-    droppedModpack,
-    dragActive,
-  } from '$lib/settings/state.svelte';
+  import { modBrowserNav, droppedMods, dragActive } from '$lib/settings/state.svelte';
 
-  type Tab = 'overview' | 'mod_browser' | 'modpacks' | 'worlds';
+  type Tab = 'overview' | 'mod_browser' | 'worlds';
 
   let {
     overview,
     instanceId = null,
     mcVersion = null,
     loader = null,
-    instances = [],
-    onSwitchInstance = () => {},
     onListChanged = () => {},
   }: {
     overview?: Snippet;
     instanceId?: string | null;
     mcVersion?: string | null;
     loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
-    instances?: InstanceWithStatus[];
-    onSwitchInstance?: (id: string) => void;
     onListChanged?: () => void;
   } = $props();
 
@@ -47,26 +35,18 @@
     }
   });
 
-  // Honour the Modpacks-tab navigation rune (set by the Overview
-  // missing-mods indicator). ModpacksTab + ImportedView read the same
-  // rune to open the right drawer; ImportedView clears it.
-  $effect(() => {
-    if (modpacksNav.value !== null) {
-      active = 'modpacks';
-    }
-  });
-
   // Whether the active instance can take mods (selected + non-vanilla).
   // Shared with ModBrowserTab via canInstallMods() so the rule lives once.
   const canInstall = $derived(canInstallMods(instanceId, loader));
 
-  // One window-level drag-drop listener for the whole app. Routes a drop
-  // by the active top-level tab: .jar → the Mods tab, .mrpack/.zip → the
-  // Modpacks tab, nothing on Overview.
+  // One window-level drag-drop listener for the per-instance tabs.
+  // Modpacks live outside MainTabs now (sidebar-level Browse modpacks
+  // view owns its own drag-drop), so this listener only handles .jar
+  // drops onto the Mod browser tab.
   onMount(() => {
     const pending = getCurrentWebview().onDragDropEvent((event) => {
       const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;
-      if (active === 'overview') {
+      if (active !== 'mod_browser') {
         dragActive.value = false;
         return;
       }
@@ -78,14 +58,9 @@
         dragActive.value = false;
         const paths =
           (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
-        if (active === 'mod_browser') {
-          const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
-          if (jars.length > 0 && canInstall) {
-            droppedMods.value = jars;
-          }
-        } else if (active === 'modpacks') {
-          const pack = paths.find((p) => /\.(mrpack|zip)$/i.test(p));
-          if (pack) droppedModpack.value = pack;
+        const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
+        if (jars.length > 0 && canInstall) {
+          droppedMods.value = jars;
         }
       }
     });
@@ -129,21 +104,6 @@
     <button
       type="button"
       role="tab"
-      data-tour="tab-modpacks"
-      aria-selected={active === 'modpacks'}
-      class="px-3 py-2 text-base border-b-2 -mb-px"
-      class:border-blue-600={active === 'modpacks'}
-      class:text-neutral-900={active === 'modpacks'}
-      class:font-semibold={active === 'modpacks'}
-      class:border-transparent={active !== 'modpacks'}
-      class:text-neutral-400={active !== 'modpacks'}
-      onclick={() => (active = 'modpacks')}
-    >
-      Modpacks
-    </button>
-    <button
-      type="button"
-      role="tab"
       aria-selected={active === 'worlds'}
       class="px-3 py-2 text-base border-b-2 -mb-px"
       class:border-blue-600={active === 'worlds'}
@@ -164,20 +124,6 @@
       {/if}
     {:else if active === 'mod_browser'}
       <ModBrowserTab {instanceId} {mcVersion} {loader} />
-    {:else if active === 'modpacks'}
-      <ModpacksTab
-        {instances}
-        {mcVersion}
-        {loader}
-        onInstanceCreated={(id) => {
-          onSwitchInstance(id);
-          // Open instance / post-import — user expects to land on the
-          // active instance's home view, not stay on the (now stale)
-          // Modpacks tab.
-          active = 'overview';
-        }}
-        {onListChanged}
-      />
     {:else if active === 'worlds'}
       <WorldsTab {instanceId} {onListChanged} />
     {/if}

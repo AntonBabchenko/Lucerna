@@ -11,10 +11,16 @@
 
   let {
     hit,
+    mcFilter = null,
     onClose,
     onInstall,
   }: {
     hit: ModpackHit;
+    // MC version filter forwarded from the browse toolbar. When set,
+    // hide pack versions whose `game_versions` don't include it — the
+    // user came in with that filter applied to the grid, so the drawer
+    // should reflect the same scope. Null = show every version.
+    mcFilter?: string | null;
     onClose: () => void;
     onInstall: (tempPath: string, versionId: string) => void;
   } = $props();
@@ -23,6 +29,10 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let downloading = $state(false);
+
+  const visibleVersions = $derived(
+    mcFilter ? versions.filter((v) => v.game_versions.includes(mcFilter)) : versions,
+  );
 
   // A pack whose author disabled third-party distribution cannot be
   // installed in-app. The flag arrives on the hit (advance hint); the
@@ -109,9 +119,17 @@
         <div class="text-sm text-neutral-500">Loading versions...</div>
       {:else if error}
         <div class="text-sm text-red-600">{error}</div>
+      {:else if visibleVersions.length === 0}
+        <div class="text-sm text-neutral-500">
+          {#if mcFilter}
+            No versions for MC {mcFilter}. Clear the MC filter in the search to see all.
+          {:else}
+            No versions available.
+          {/if}
+        </div>
       {:else}
         <ul class="space-y-2">
-          {#each versions as v (v.id)}
+          {#each visibleVersions as v (v.id)}
             <li class="p-2 border rounded text-sm">
               <div class="flex items-center">
                 <div class="flex-1 min-w-0">

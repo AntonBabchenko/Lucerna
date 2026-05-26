@@ -16,6 +16,8 @@
     onOpenManage,
     onOpenMods,
     onOpenLogs,
+    onOpenModpacks,
+    modpacksActive,
     running,
     installing,
     onPlay,
@@ -33,6 +35,12 @@
     onOpenManage: () => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
+    // Switch the right pane between the per-instance MainTabs view and
+    // the global Modpacks browser. Modpacks aren't tied to the selected
+    // instance — installing a pack creates a new one — so they live at
+    // the sidebar level rather than as a 4th instance tab.
+    onOpenModpacks: () => void;
+    modpacksActive: boolean;
     // Launch-state inputs (moved here from the Overview pane in
     // +page.svelte). running !== null = MC is up; installing = an
     // install pipeline is in flight; otherwise the button morphs
@@ -222,22 +230,43 @@
     {/if}
   </div>
 
-  <div class="mt-auto pt-2 border-t border-neutral-200 flex gap-1">
+  <div class="mt-auto flex flex-col gap-2">
+    <!--
+      Modpacks live at the sidebar level (not the per-instance tab strip)
+      because installing a pack creates a NEW instance, so there's nothing
+      "current instance" about the action. Visually separated from the
+      instance section by the border above to reinforce that distinction.
+    -->
     <button
       type="button"
-      class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
-      onclick={onOpenLogs}
+      class="border rounded px-2 py-2 text-sm hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center gap-1.5"
+      class:bg-blue-50={modpacksActive}
+      class:border-blue-400={modpacksActive}
+      class:text-blue-800={modpacksActive}
+      class:font-medium={modpacksActive}
+      data-tour="open-modpacks"
+      data-testid="sidebar-open-modpacks"
+      onclick={onOpenModpacks}
     >
-      📜 Logs
+      📦 Browse modpacks
     </button>
-    <button
-      type="button"
-      class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
-      aria-label="Settings"
-      title="Settings"
-      onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
-    >
-      Settings
-    </button>
+    <div class="pt-2 border-t border-neutral-200 flex gap-1">
+      <button
+        type="button"
+        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+        onclick={onOpenLogs}
+      >
+        📜 Logs
+      </button>
+      <button
+        type="button"
+        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+        aria-label="Settings"
+        title="Settings"
+        onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
+      >
+        Settings
+      </button>
+    </div>
   </div>
 </aside>

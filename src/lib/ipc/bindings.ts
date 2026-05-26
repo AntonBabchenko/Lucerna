@@ -213,7 +213,7 @@ export const commands = {
 	openInstanceFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("open_instance_folder", { id })),
 	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
-	modsVersions: (source: ModSource, projectId: string, mcVersion: string, loader: LoaderKind) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
+	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
 	modsResolveDeps: (version: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
 	/**
 	 *  Install `primary` plus all server-resolved required dependencies, plus

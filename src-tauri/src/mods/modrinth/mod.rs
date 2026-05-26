@@ -159,18 +159,31 @@ impl ModPlatform for ModrinthClient {
     async fn versions(
         &self,
         project_id: &str,
-        mc: &str,
-        loader: LoaderKind,
+        mc: Option<&str>,
+        loader: Option<LoaderKind>,
     ) -> Result<Vec<ModVersion>, Error> {
-        let loaders = serde_json::to_string(&[Self::loader_facet(loader)]).unwrap();
-        let games = serde_json::to_string(&[mc]).unwrap();
-        let url = format!(
-            "{}/v2/project/{}/version?loaders={}&game_versions={}",
-            self.base,
-            project_id,
-            urlencode(&loaders),
-            urlencode(&games),
-        );
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(l) = loader {
+            let loaders = serde_json::to_string(&[Self::loader_facet(l)]).unwrap();
+            params.push(("loaders", urlencode(&loaders)));
+        }
+        if let Some(v) = mc {
+            let games = serde_json::to_string(&[v]).unwrap();
+            params.push(("game_versions", urlencode(&games)));
+        }
+        let query = if params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "?{}",
+                params
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("&")
+            )
+        };
+        let url = format!("{}/v2/project/{}/version{}", self.base, project_id, query);
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
             .map_err(|e| Error::ModsNetwork {
@@ -217,7 +230,7 @@ impl ModPlatform for ModrinthClient {
                 DepKind::Embedded => continue,
                 _ => {}
             }
-            let versions = self.versions(&pid, mc, loader).await?;
+            let versions = self.versions(&pid, Some(mc), Some(loader)).await?;
             if let Some(v) = versions.into_iter().next() {
                 let resolved = ResolvedDep {
                     project_ref: dep.project_ref.clone(),
@@ -436,7 +449,7 @@ mod tests {
         let c = ModrinthClient::with_base(s.uri());
         std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let vs = c
-            .versions("jei", "1.20.1", LoaderKind::Fabric)
+            .versions("jei", Some("1.20.1"), Some(LoaderKind::Fabric))
             .await
             .unwrap();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");

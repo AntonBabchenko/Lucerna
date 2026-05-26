@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Channel } from '@tauri-apps/api/core';
+  import { onMount } from 'svelte';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -11,7 +13,7 @@
     ProgressTick,
   } from '$lib/ipc/bindings';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { droppedModpack, modpacksNav } from '$lib/settings/state.svelte';
+  import { droppedModpack, modpacksNav, dragActive } from '$lib/settings/state.svelte';
   import ImportPickerDialog from './ImportPickerDialog.svelte';
   import ImportProgressView from './ImportProgressView.svelte';
   import ImportedView from './ImportedView.svelte';
@@ -35,16 +37,10 @@
 
   let {
     instances,
-    mcVersion = null,
-    loader = null,
     onInstanceCreated,
     onListChanged,
   }: {
     instances: InstanceWithStatus[];
-    // Active instance's MC + loader, forwarded to ModpackBrowseView so
-    // the browser defaults its filters to "what the user is playing".
-    mcVersion?: string | null;
-    loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     onInstanceCreated: (id: string) => void;
     onListChanged?: () => void;
   } = $props();
@@ -70,10 +66,9 @@
     }
   });
 
-  // A modpack dropped on the Modpacks tab arrives via the droppedModpack
-  // rune (routed by MainTabs' single window-level drag-drop listener).
-  // Consume and reset immediately. A drag-drop import has no Browse-flow
-  // context, so clear any stale hints first.
+  // A modpack dropped on the Modpacks view arrives via the
+  // droppedModpack rune. Consume and reset immediately. A drag-drop
+  // import has no Browse-flow context, so clear any stale hints first.
   $effect(() => {
     const v = droppedModpack.value;
     if (v !== null) {
@@ -81,6 +76,31 @@
       resetHints();
       void inspect(v);
     }
+  });
+
+  // Window-level drag-drop listener scoped to this view's lifetime —
+  // Modpacks moved out of MainTabs into the sidebar, so MainTabs no
+  // longer routes .mrpack/.zip drops. The listener (re)mounts when
+  // the user opens the Modpacks view and tears down on close, so
+  // there's never more than one active.
+  onMount(() => {
+    const pending = getCurrentWebview().onDragDropEvent((event) => {
+      const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;
+      if (t === 'enter' || t === 'over') {
+        dragActive.value = true;
+      } else if (t === 'leave') {
+        dragActive.value = false;
+      } else if (t === 'drop') {
+        dragActive.value = false;
+        const paths =
+          (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
+        const pack = paths.find((p) => /\.(mrpack|zip)$/i.test(p));
+        if (pack) droppedModpack.value = pack;
+      }
+    });
+    return () => {
+      void pending.then((un) => un());
+    };
   });
 
   async function importFromFile() {
@@ -99,6 +119,11 @@
   let importing = $state(false);
   let error = $state<string | null>(null);
   let drawerHit = $state<ModpackHit | null>(null);
+  // MC version filter the user had in the toolbar when they clicked the
+  // card. Null = no filter → drawer lists every version of the pack.
+  // Set = drawer only shows versions matching that MC, so the visible
+  // list reflects the filtered grid the user came from.
+  let drawerMcFilter = $state<string | null>(null);
 
   // Latest values pushed over the two channels during an active import.
   // Reset on each new import so a previous run's progress can't bleed
@@ -244,7 +269,12 @@
 
     {#if browseEverActive}
       <div class:hidden={activeSub !== 'browse'}>
-        <ModpackBrowseView {mcVersion} {loader} onPickHit={(h) => (drawerHit = h)} />
+        <ModpackBrowseView
+          onPickHit={(h, mc) => {
+            drawerHit = h;
+            drawerMcFilter = mc;
+          }}
+        />
       </div>
     {/if}
     {#if importedEverActive}
@@ -266,6 +296,7 @@
 {#if drawerHit}
   <ModpackVersionDrawer
     hit={drawerHit}
+    mcFilter={drawerMcFilter}
     onClose={() => (drawerHit = null)}
     onInstall={(p, vid) => {
       // Stash the Modrinth project_id + version id so confirmImport can

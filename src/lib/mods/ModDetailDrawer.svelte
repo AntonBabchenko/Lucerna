@@ -43,8 +43,15 @@
   let project = $state<ModProject | null>(null);
   let versions = $state<ModVersion[] | null>(null);
   let error = $state<string | null>(null);
+  // Toggle the MC + loader compatibility filter off. Default = filtered
+  // (compatible only). Flipping it re-runs modsVersions with both
+  // facets null so the user sees every release of the mod — useful
+  // for inspecting changelogs / deciding whether to switch their
+  // instance's loader.
+  let showAll = $state(false);
 
   $effect(() => {
+    void showAll;
     void load();
   });
 
@@ -57,7 +64,14 @@
       error = formatError(p.error);
       return;
     }
-    if (mcVersion && loader) {
+    if (showAll) {
+      const v = await commands.modsVersions(source, projectId, null, null);
+      if (v.status === 'ok') {
+        versions = v.data;
+      } else {
+        error = formatError(v.error);
+      }
+    } else if (mcVersion && loader) {
       const v = await commands.modsVersions(source, projectId, mcVersion, loader);
       if (v.status === 'ok') {
         versions = v.data;
@@ -143,11 +157,27 @@
 
     {#if versions}
       <div class="mt-4">
-        <div class="text-xs uppercase tracking-wide text-neutral-500 mb-2">
-          Versions for {mcVersion ?? '?'} / {loader ?? '?'}
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs uppercase tracking-wide text-neutral-500">
+            {#if showAll}
+              All versions
+            {:else}
+              Versions for {mcVersion ?? '?'} / {loader ?? '?'}
+            {/if}
+          </div>
+          <label class="inline-flex items-center gap-1 text-xs text-neutral-700">
+            <input type="checkbox" bind:checked={showAll} data-testid="mod-detail-show-all" />
+            Show all versions
+          </label>
         </div>
         {#if versions.length === 0}
-          <div class="text-sm text-neutral-400">No compatible versions for this MC + loader.</div>
+          <div class="text-sm text-neutral-400">
+            {#if showAll}
+              No versions returned by the platform.
+            {:else}
+              No compatible versions for this MC + loader.
+            {/if}
+          </div>
         {:else}
           {#each versions as v (v.version_id)}
             {@const isInstalled = v.version_id === installedVersionId}

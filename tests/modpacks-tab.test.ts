@@ -28,6 +28,14 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue(nu
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: vi.fn(),
 }));
+// ModpacksTab registers a window-level drag-drop listener on mount
+// (modpacks moved out of MainTabs into the sidebar). Stub the webview
+// API so the listener registration is a no-op in jsdom.
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: () => Promise.resolve(() => {}),
+  }),
+}));
 
 import { commands } from '$lib/ipc/bindings';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
