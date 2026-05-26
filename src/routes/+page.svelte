@@ -367,27 +367,6 @@
     {/if}
 
     {#if view === 'modpacks'}
-      <!--
-        Breadcrumb bar — without it, switching to Modpacks view is a
-        one-way trip: the sidebar instance-selector only fires on
-        change, so re-picking the already-active instance does
-        nothing. This bar plus the toggle behaviour on the Sidebar's
-        Browse modpacks button give two visible exits.
-      -->
-      <div
-        class="border-b border-neutral-200 bg-neutral-50 px-4 py-2 flex items-center gap-2 text-sm"
-      >
-        <button
-          type="button"
-          class="text-blue-700 hover:underline flex items-center gap-1"
-          data-testid="modpacks-back-to-instance"
-          onclick={() => (view = 'instance')}
-        >
-          ← Back to {activeInstance?.name ?? 'instance'}
-        </button>
-        <span class="text-neutral-400">·</span>
-        <span class="text-neutral-600">Browse modpacks (creates a new instance)</span>
-      </div>
       <ModpacksTab
         {instances}
         onInstanceCreated={(id) => {
