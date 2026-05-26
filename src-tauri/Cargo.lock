@@ -1201,6 +1201,7 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "windows-sys 0.59.0",
  "wiremock",
  "xz2",
  "zip",

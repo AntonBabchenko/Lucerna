@@ -16,7 +16,9 @@
 
 use crate::error::{Error, Result};
 use crate::instances::ids::new_id;
-use crate::instances::schema::{AppFile, GeneralSettings, InstanceFile, LoaderKind, OnboardingState};
+use crate::instances::schema::{
+    AppFile, GeneralSettings, InstanceFile, LoaderKind, OnboardingState,
+};
 use crate::instances::store::{read_app_json, write_app_json, write_instance_json};
 use crate::paths::{app_dir, app_file, instance_json};
 use std::path::Path;
