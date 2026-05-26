@@ -230,6 +230,9 @@ pub enum Error {
 
     #[error("Tray I/O error: {details}")]
     TrayIo { details: String },
+
+    #[error("mclo.gs upload failed: {details}")]
+    McLogsUpload { details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

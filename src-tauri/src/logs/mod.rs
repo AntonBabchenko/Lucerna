@@ -6,3 +6,4 @@
 pub mod diagnose;
 pub mod files;
 pub mod read;
+pub mod share;
