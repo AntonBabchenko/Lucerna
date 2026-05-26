@@ -16,7 +16,7 @@
 
 use crate::error::{Error, Result};
 use crate::instances::ids::new_id;
-use crate::instances::schema::{AppFile, InstanceFile, LoaderKind, OnboardingState};
+use crate::instances::schema::{AppFile, GeneralSettings, InstanceFile, LoaderKind, OnboardingState};
 use crate::instances::store::{read_app_json, write_app_json, write_instance_json};
 use crate::paths::{app_dir, app_file, instance_json};
 use std::path::Path;
@@ -96,6 +96,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
             version: 1,
             active_instance: Some(id),
             onboarding: OnboardingState::default(),
+            general: GeneralSettings::default(),
         },
     )?;
     Ok(())

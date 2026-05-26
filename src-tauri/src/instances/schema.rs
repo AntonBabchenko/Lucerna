@@ -74,6 +74,8 @@ pub struct AppFile {
     pub active_instance: Option<String>,
     #[serde(default)]
     pub onboarding: OnboardingState,
+    #[serde(default)]
+    pub general: GeneralSettings,
 }
 
 impl Default for AppFile {
@@ -82,6 +84,7 @@ impl Default for AppFile {
             version: 1,
             active_instance: None,
             onboarding: OnboardingState::default(),
+            general: GeneralSettings::default(),
         }
     }
 }
@@ -90,6 +93,15 @@ impl Default for AppFile {
 pub struct OnboardingState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tour_completed_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
+pub struct GeneralSettings {
+    /// When true, the launcher window hides to a system-tray icon on
+    /// MC spawn and auto-restores on MC exit. Default false — opt-in
+    /// via Settings → General.
+    #[serde(default)]
+    pub hide_to_tray_during_game: bool,
 }
 
 /// What the UI sees per row in the instance dropdown.
@@ -331,5 +343,33 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: InstanceFile = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
+    }
+
+    #[test]
+    fn app_file_default_general_settings_are_off() {
+        let app = AppFile::default();
+        assert!(!app.general.hide_to_tray_during_game);
+    }
+
+    #[test]
+    fn app_file_round_trips_general_block() {
+        let mut app = AppFile::default();
+        app.general.hide_to_tray_during_game = true;
+        let json = serde_json::to_string(&app).unwrap();
+        let back: AppFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, app);
+    }
+
+    #[test]
+    fn app_file_parses_old_json_without_general_block() {
+        // Real on-disk shape from a v1 install — no `general` field.
+        let old_json = r#"{
+            "version": 1,
+            "active_instance": "abc",
+            "onboarding": { "tour_completed_version": "0.5.0" }
+        }"#;
+        let parsed: AppFile = serde_json::from_str(old_json).unwrap();
+        assert!(!parsed.general.hide_to_tray_during_game);
+        assert_eq!(parsed.active_instance.as_deref(), Some("abc"));
     }
 }
