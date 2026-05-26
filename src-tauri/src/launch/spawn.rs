@@ -72,6 +72,33 @@ fn note_session_start(instance_root: std::path::PathBuf) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Tray hide / restore
+// ---------------------------------------------------------------------------
+
+fn maybe_hide_to_tray(app: &tauri::AppHandle) {
+    let path = match crate::paths::app_file(app) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("tray: skipping hide — no app.json path: {e}");
+            return;
+        }
+    };
+    let settings = match crate::instances::store::read_app_json(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("tray: skipping hide — read failed: {e}");
+            return;
+        }
+    };
+    if !settings.general.hide_to_tray_during_game {
+        return;
+    }
+    if let Err(e) = crate::tray::hide_to_tray(app) {
+        eprintln!("tray: hide failed — leaving window visible: {e}");
+    }
+}
+
 fn note_session_end() {
     let Some(start) = session()
         .lock()
@@ -245,6 +272,7 @@ pub async fn start(
     // by `crate::playtime::record_session_at`.
     let inst_root = instance_dir(app, &instance.id).map_err(|e| Error::io("<instance_dir>", e))?;
     note_session_start(inst_root);
+    maybe_hide_to_tray(app);
 
     let app_clone = app.clone();
     tokio::spawn(async move {
@@ -269,6 +297,9 @@ pub async fn start(
         // (non-zero / -1) exits — the spec requires we always persist
         // the duration regardless of exit reason.
         note_session_end();
+        // Restore window from tray. Idempotent — no-op when the window
+        // was never hidden (hide_to_tray_during_game was off).
+        let _ = crate::tray::restore_from_tray(&app_clone);
     });
 
     Ok(pid)
