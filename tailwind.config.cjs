@@ -21,10 +21,16 @@ module.exports = {
         'warning-bg': 'rgb(var(--warning-bg) / <alpha-value>)',
         'warning-text': 'rgb(var(--warning-text) / <alpha-value>)',
       },
+      // Note: textColor overrides Tailwind's colors map for text-*
+      // utilities, so `text-muted` here resolves to --text-muted
+      // (not colors.muted's --bg-muted). The bare-key naming
+      // (primary, secondary, muted, placeholder) is the right
+      // shape — using `text-X` as the key would generate the
+      // surprising `text-text-X` utility.
       textColor: {
         primary: 'rgb(var(--text-primary) / <alpha-value>)',
         secondary: 'rgb(var(--text-secondary) / <alpha-value>)',
-        'text-muted': 'rgb(var(--text-muted) / <alpha-value>)',
+        muted: 'rgb(var(--text-muted) / <alpha-value>)',
         placeholder: 'rgb(var(--text-placeholder) / <alpha-value>)',
       },
     },
