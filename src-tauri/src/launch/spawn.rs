@@ -12,7 +12,8 @@ use crate::jre::java_executable_path;
 use crate::launch::args::{build_argv, ArgvInput};
 use crate::launch::natives::extract_natives;
 use crate::paths::{
-    assets_dir, instance_logs_dir, instance_natives_dir, libraries_dir, minecraft_dir, versions_dir,
+    assets_dir, instance_dir, instance_logs_dir, instance_natives_dir, libraries_dir, minecraft_dir,
+    versions_dir,
 };
 use crate::versions::loaders::Loader;
 use crate::versions::version_json::{parse, VersionDetails};
@@ -47,6 +48,43 @@ struct RunningState {
 fn state() -> &'static Mutex<Option<RunningState>> {
     static STATE: OnceLock<Mutex<Option<RunningState>>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(None))
+}
+
+// ---------------------------------------------------------------------------
+// Playtime session tracking
+// ---------------------------------------------------------------------------
+
+struct SessionStart {
+    instance_root: std::path::PathBuf,
+    started_unix_ms: i64,
+}
+
+fn session() -> &'static Mutex<Option<SessionStart>> {
+    static SESSION: OnceLock<Mutex<Option<SessionStart>>> = OnceLock::new();
+    SESSION.get_or_init(|| Mutex::new(None))
+}
+
+fn note_session_start(instance_root: std::path::PathBuf) {
+    let start = chrono::Utc::now().timestamp_millis();
+    *session().lock().expect("playtime session mutex poisoned") = Some(SessionStart {
+        instance_root,
+        started_unix_ms: start,
+    });
+}
+
+fn note_session_end() {
+    let Some(start) = session().lock().expect("playtime session mutex poisoned").take() else {
+        return;
+    };
+    let end = chrono::Utc::now().timestamp_millis();
+    let delta_ms = (end - start.started_unix_ms).max(0) as u64;
+    let seconds = delta_ms / 1000;
+    if let Err(e) = crate::playtime::record_session_at(&start.instance_root, seconds) {
+        eprintln!(
+            "playtime: failed to record session at {}: {e}",
+            start.instance_root.display()
+        );
+    }
 }
 
 /// True iff a Minecraft process is currently running.
@@ -198,6 +236,13 @@ pub async fn start(
     }
     .emit(app);
 
+    // Record session start. `instance_dir` resolves to
+    // `<app_data>/instances/<id>`, which is the instance root expected
+    // by `crate::playtime::record_session_at`.
+    let inst_root = instance_dir(app, &instance.id)
+        .map_err(|e| Error::io("<instance_dir>", e))?;
+    note_session_start(inst_root);
+
     let app_clone = app.clone();
     tokio::spawn(async move {
         let exit_code = child
@@ -217,6 +262,10 @@ pub async fn start(
             log_path: log_path_to_emit.to_string_lossy().into_owned(),
         }
         .emit(&app_clone);
+        // Record session end. Fires for both clean (code 0) and crash
+        // (non-zero / -1) exits — the spec requires we always persist
+        // the duration regardless of exit reason.
+        note_session_end();
     });
 
     Ok(pid)
