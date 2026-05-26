@@ -112,45 +112,45 @@
   aria-modal="true"
   aria-labelledby="backups-dialog-title"
 >
-  <div class="bg-white border border-neutral-200 rounded shadow-lg max-w-lg w-full p-4">
+  <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-lg w-full p-4">
     <h3 id="backups-dialog-title" class="font-semibold text-lg mb-3">
       Backups for "{world.folder_name}"
     </h3>
     {#if loading}
-      <p class="text-sm text-neutral-500">Loading backups…</p>
+      <p class="text-sm text-muted">Loading backups…</p>
     {:else if error}
-      <p class="text-sm text-red-700 mb-2">{error}</p>
+      <p class="text-sm text-danger mb-2">{error}</p>
     {:else if backups.length === 0}
-      <p class="text-sm text-neutral-500">
+      <p class="text-sm text-muted">
         No backups yet. Click "Back up now" on the world to create one.
       </p>
     {:else}
       <ul
-        class="border border-neutral-200 rounded divide-y divide-neutral-200 mb-3 max-h-80 overflow-auto"
+        class="border border-border-subtle rounded divide-y divide-border-subtle mb-3 max-h-80 overflow-auto"
       >
         {#each backups as b (b.filename)}
           <li>
             <button
               type="button"
-              class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-neutral-50"
+              class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
               aria-label="Actions for backup {b.filename}"
               aria-expanded={openMenuFor === b.filename}
               onclick={(e) => toggleMenu(b.filename, e)}
             >
               <div class="min-w-0">
                 <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
-                <div class="text-xs text-neutral-500">{formatBytes(b.size_bytes)}</div>
+                <div class="text-xs text-muted">{formatBytes(b.size_bytes)}</div>
               </div>
-              <span class="text-neutral-400 text-sm select-none" aria-hidden="true">⋮</span>
+              <span class="text-placeholder text-sm select-none" aria-hidden="true">⋮</span>
             </button>
           </li>
         {/each}
       </ul>
-      <div class="text-xs text-neutral-500 mb-3 flex justify-between">
+      <div class="text-xs text-muted mb-3 flex justify-between">
         <span>Total: {formatBytes(totalSize)}</span>
         <button
           type="button"
-          class="text-blue-700 hover:underline"
+          class="text-accent hover:underline"
           onclick={() => void onOpenBackupsFolder()}
         >
           Open backups folder ↗
@@ -176,14 +176,14 @@
       onclick={() => (openMenuFor = null)}
     ></button>
     <div
-      class="fixed z-[70] w-40 bg-white border border-neutral-200 rounded shadow"
+      class="fixed z-[70] w-40 bg-surface border border-border-subtle rounded shadow"
       style="top: {menuTop}px; left: {menuLeft}px;"
       role="menu"
     >
       <button
         type="button"
         role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
         onclick={() => {
           restoreFor = activeBackup;
           openMenuFor = null;
@@ -194,7 +194,7 @@
       <button
         type="button"
         role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 text-red-700"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle text-danger"
         onclick={() => void onDelete(activeBackup)}
       >
         Delete backup

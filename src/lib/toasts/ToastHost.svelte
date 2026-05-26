@@ -10,13 +10,11 @@
 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2" data-testid="toast-host">
   {#each toasts as t (t.id)}
     <div
-      class="w-72 rounded-lg border shadow-lg p-3 text-sm"
-      class:bg-green-50={t.kind === 'success'}
-      class:border-green-200={t.kind === 'success'}
-      class:text-green-900={t.kind === 'success'}
-      class:bg-amber-50={t.kind === 'warning'}
-      class:border-amber-200={t.kind === 'warning'}
-      class:text-amber-900={t.kind === 'warning'}
+      class="w-72 rounded-lg border shadow-lg p-3 text-sm {t.kind === 'success'
+        ? 'bg-success/10 border-success text-success'
+        : t.kind === 'warning'
+          ? 'bg-warning-bg border-warning-text/30 text-warning-text'
+          : ''}"
       role="status"
       data-testid={`toast-${t.kind}`}
     >

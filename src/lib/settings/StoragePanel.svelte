@@ -60,25 +60,25 @@
   <div class="text-sm mb-2">
     Mod download cache: <span class="font-medium">{bytes === null ? '…' : fmt(bytes)}</span>
   </div>
-  <p class="text-xs text-neutral-500 mb-3">
+  <p class="text-xs text-muted mb-3">
     Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs
     will re-download.
   </p>
 
   {#if error}
-    <div class="bg-red-50 border border-red-200 text-red-900 text-sm rounded p-2 mb-2">
+    <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2 mb-2">
       {error}
     </div>
   {/if}
   {#if toast}
-    <div class="bg-green-50 border border-green-200 text-green-900 text-sm rounded p-2 mb-2">
+    <div class="bg-success/10 border border-success text-success text-sm rounded p-2 mb-2">
       {toast}
     </div>
   {/if}
 
   <button
     type="button"
-    class="px-3 py-1 border border-neutral-300 text-sm rounded disabled:opacity-50"
+    class="px-3 py-1 border border-border-emphasis text-sm rounded disabled:opacity-50"
     disabled={clearing || bytes === 0 || bytes === null}
     onclick={clear}
   >

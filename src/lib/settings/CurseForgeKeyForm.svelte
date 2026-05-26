@@ -84,25 +84,25 @@
 
 <div>
   <div class="text-sm mb-3">
-    <span class="text-neutral-500">Status: </span>
+    <span class="text-muted">Status: </span>
     {#if status === 'set'}
-      <span class="text-green-700 font-medium">OK — key is set</span>
+      <span class="text-success font-medium">OK — key is set</span>
     {:else if status === 'invalid'}
-      <span class="text-red-700 font-medium">Invalid — please enter a new key</span>
+      <span class="text-danger font-medium">Invalid — please enter a new key</span>
     {:else if status === 'missing'}
-      <span class="text-neutral-700">Not configured</span>
+      <span class="text-secondary">Not configured</span>
     {:else}
-      <span class="text-neutral-400">Checking…</span>
+      <span class="text-placeholder">Checking…</span>
     {/if}
   </div>
 
   {#if status === 'missing'}
-    <ol class="text-sm text-neutral-700 list-decimal pl-5 space-y-1 mb-3">
+    <ol class="text-sm text-secondary list-decimal pl-5 space-y-1 mb-3">
       <li>
         Open
         <button
           type="button"
-          class="font-mono text-blue-600 hover:text-blue-700 hover:underline"
+          class="font-mono text-accent hover:underline"
           onclick={openConsoleHome}
         >
           console.curseforge.com ↗
@@ -113,7 +113,7 @@
         Once logged in, go to the
         <button
           type="button"
-          class="font-mono text-blue-600 hover:text-blue-700 hover:underline"
+          class="font-mono text-accent hover:underline"
           onclick={openApiKeysPage}
         >
           API Keys ↗
@@ -124,27 +124,23 @@
       <li>Paste it below</li>
     </ol>
   {:else}
-    <p class="text-xs text-neutral-600 mb-3">
+    <p class="text-xs text-secondary mb-3">
       To replace the stored key, paste a new one below and click <span class="font-medium"
         >Update key</span
       >. Get one at
-      <button
-        type="button"
-        class="font-mono text-blue-600 hover:text-blue-700 hover:underline"
-        onclick={openApiKeysPage}
-      >
+      <button type="button" class="font-mono text-accent hover:underline" onclick={openApiKeysPage}>
         console.curseforge.com → API Keys ↗
       </button>.
     </p>
   {/if}
 
   <label class="block">
-    <span class="text-xs text-neutral-500"
+    <span class="text-xs text-muted"
       >{status === 'missing' ? 'Key' : 'New key (overwrites stored)'}</span
     >
     <input
       type="password"
-      class="w-full border border-neutral-300 rounded px-3 py-1.5 text-sm font-mono"
+      class="w-full border border-border-emphasis rounded px-3 py-1.5 text-sm font-mono"
       placeholder="$2a$10$..."
       bind:value={pendingKey}
       disabled={saving}
@@ -152,7 +148,7 @@
   </label>
 
   {#if error}
-    <div class="bg-red-50 border border-red-200 text-red-900 text-sm rounded p-2 mt-2">
+    <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2 mt-2">
       {error}
     </div>
   {/if}
@@ -160,7 +156,7 @@
   <div class="flex gap-2 mt-3">
     <button
       type="button"
-      class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded disabled:opacity-50"
+      class="px-3 py-1 bg-accent hover:bg-accent text-white text-sm rounded disabled:opacity-50"
       disabled={saving || pendingKey.trim() === ''}
       onclick={save}
     >
@@ -169,7 +165,7 @@
     {#if status === 'set' || status === 'invalid'}
       <button
         type="button"
-        class="px-3 py-1 border border-neutral-300 text-sm rounded"
+        class="px-3 py-1 border border-border-emphasis text-sm rounded"
         onclick={clear}
       >
         Clear key
@@ -177,5 +173,5 @@
     {/if}
   </div>
 
-  <p class="text-xs text-neutral-500 mt-3">Stored in OS keyring (Windows Credential Manager).</p>
+  <p class="text-xs text-muted mt-3">Stored in OS keyring (Windows Credential Manager).</p>
 </div>

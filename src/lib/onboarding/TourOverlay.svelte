@@ -145,20 +145,20 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="tour-popover-title"
-      class="fixed z-50 bg-white rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
+      class="fixed z-50 bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
       style={popoverStyle(rect, step.anchor)}
     >
-      <div class="text-xs text-neutral-500 mb-1">
+      <div class="text-xs text-muted mb-1">
         Step {tourState.currentStep + 1} of {TOTAL_STEPS}
       </div>
       <h3 id="tour-popover-title" class="font-semibold text-sm mb-2">
         {step.title}
       </h3>
-      <p class="text-sm text-neutral-700 mb-4">{step.body}</p>
+      <p class="text-sm text-secondary mb-4">{step.body}</p>
       <div class="flex justify-between gap-2">
         <button
           type="button"
-          class="text-sm text-neutral-500 hover:text-neutral-800 disabled:opacity-30"
+          class="text-sm text-muted hover:text-primary disabled:opacity-30"
           disabled={isFirst}
           onclick={() => back()}
         >
@@ -168,7 +168,7 @@
           {#if !isLast}
             <button
               type="button"
-              class="text-sm text-neutral-500 hover:text-neutral-800"
+              class="text-sm text-muted hover:text-primary"
               onclick={() => void finishOrSkip()}
             >
               Skip tour
@@ -177,7 +177,7 @@
           <button
             type="button"
             data-tour-primary
-            class="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+            class="text-sm px-3 py-1 rounded bg-accent text-white hover:bg-accent"
             onclick={() => (isLast ? void finishOrSkip() : next())}
           >
             {isLast ? 'Finish ✓' : 'Next →'}

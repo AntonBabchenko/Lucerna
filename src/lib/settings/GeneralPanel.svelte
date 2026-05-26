@@ -55,7 +55,7 @@
       {/each}
     </fieldset>
     {#if themeState.pref === 'system'}
-      <p class="text-xs text-neutral-500">
+      <p class="text-xs text-muted">
         Following OS preference (currently: {resolvedTheme()}).
       </p>
     {/if}
@@ -64,7 +64,7 @@
   <div class="flex flex-col gap-3">
     <h3 class="font-medium text-sm">Playing</h3>
     {#if loadError}
-      <p class="text-xs text-red-700">{loadError}</p>
+      <p class="text-xs text-danger">{loadError}</p>
     {/if}
     <label class="flex items-start gap-2 cursor-pointer">
       <input
@@ -75,15 +75,15 @@
         data-testid="tray-toggle"
       />
       <span class="flex-1">
-        <span class="text-sm text-neutral-800">Hide launcher to tray when Minecraft starts</span>
-        <span class="block text-xs text-neutral-500">
+        <span class="text-sm text-primary">Hide launcher to tray when Minecraft starts</span>
+        <span class="block text-xs text-muted">
           A small icon appears in the system tray. The launcher returns when Minecraft closes; click
           the tray icon to bring it back sooner.
         </span>
       </span>
     </label>
     {#if saveError}
-      <p class="text-xs text-red-700">{saveError}</p>
+      <p class="text-xs text-danger">{saveError}</p>
     {/if}
   </div>
 
@@ -93,7 +93,7 @@
       <button type="button" class="btn-secondary btn-sm" onclick={onReplay}>
         Replay onboarding tour
       </button>
-      <p class="text-xs text-neutral-500">Show the 6-step tutorial again.</p>
+      <p class="text-xs text-muted">Show the 6-step tutorial again.</p>
     </div>
   </div>
 </section>

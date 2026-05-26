@@ -46,7 +46,7 @@
   aria-modal="true"
   aria-labelledby="restore-dialog-title"
 >
-  <div class="bg-white border border-neutral-200 rounded shadow-lg max-w-md w-full p-4">
+  <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
     <h3 id="restore-dialog-title" class="font-semibold text-lg mb-3">
       Restore "{worldFolder}" from {formatTs()}
     </h3>
@@ -55,7 +55,7 @@
       <span class="text-sm">
         <span class="font-medium">Replace current world</span>
         <br />
-        <span class="text-neutral-600">
+        <span class="text-secondary">
           Current state will be auto-saved as a backup first (labeled "pre-restore-…") so you can
           roll back if needed.
         </span>
@@ -66,13 +66,13 @@
       <span class="text-sm">
         <span class="font-medium">Restore as a copy</span>
         <br />
-        <span class="text-neutral-600">
+        <span class="text-secondary">
           Original world stays untouched. The backup is unzipped as "{worldFolder} (restored)".
         </span>
       </span>
     </label>
     {#if error}
-      <p class="text-xs text-red-700 mb-2">{error}</p>
+      <p class="text-xs text-danger mb-2">{error}</p>
     {/if}
     <div class="flex justify-end gap-2">
       <button
@@ -85,7 +85,7 @@
       </button>
       <button
         type="button"
-        class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700 disabled:bg-neutral-300"
+        class="bg-accent text-white rounded px-3 py-1 text-sm hover:bg-accent disabled:bg-muted"
         onclick={() => void onConfirm()}
         disabled={busy}
       >

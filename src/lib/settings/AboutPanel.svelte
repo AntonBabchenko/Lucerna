@@ -17,12 +17,12 @@
 
 <section class="space-y-3 text-sm">
   <h3 class="text-base font-semibold">About</h3>
-  <p class="font-medium text-neutral-800">FTlauncher v{version}</p>
-  <p class="text-neutral-700">{DISCLAIMER_TEXT}</p>
+  <p class="font-medium text-primary">FTlauncher v{version}</p>
+  <p class="text-secondary">{DISCLAIMER_TEXT}</p>
   <p>
     <button
       type="button"
-      class="text-blue-600 underline hover:text-blue-800"
+      class="text-accent underline hover:text-accent"
       title={REPO_URL}
       aria-label={`Open FTlauncher repository on GitHub (${REPO_URL})`}
       onclick={openRepo}
@@ -30,7 +30,7 @@
       View on GitHub
     </button>
   </p>
-  <p class="text-xs text-neutral-500">
+  <p class="text-xs text-muted">
     Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang
     at runtime and are never modified.
   </p>

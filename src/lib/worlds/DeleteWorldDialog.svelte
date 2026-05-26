@@ -44,15 +44,15 @@
   aria-modal="true"
   aria-labelledby="delete-world-title"
 >
-  <div class="bg-white border border-neutral-200 rounded shadow-lg max-w-md w-full p-4">
+  <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
     <h3 id="delete-world-title" class="font-semibold text-lg mb-2">
       Delete "{world.folder_name}"?
     </h3>
-    <p class="text-sm text-neutral-700 mb-3">
+    <p class="text-sm text-secondary mb-3">
       This will permanently delete the world folder and all its contents. The backups for this world
       will also be removed. This cannot be undone.
     </p>
-    <label class="block text-xs text-neutral-600 mb-1" for="del-world-confirm">
+    <label class="block text-xs text-secondary mb-1" for="del-world-confirm">
       Type <span class="font-mono font-semibold">{CONFIRM_WORD}</span> to confirm:
     </label>
     <input
@@ -64,7 +64,7 @@
       autocomplete="off"
     />
     {#if error}
-      <p class="text-xs text-red-700 mb-2">{error}</p>
+      <p class="text-xs text-danger mb-2">{error}</p>
     {/if}
     <div class="flex justify-end gap-2">
       <button
@@ -77,7 +77,7 @@
       </button>
       <button
         type="button"
-        class="bg-red-600 text-white rounded px-3 py-1 text-sm hover:bg-red-700 disabled:bg-neutral-300"
+        class="bg-danger text-white rounded px-3 py-1 text-sm hover:bg-danger disabled:bg-muted"
         disabled={!canDelete}
         onclick={() => void onConfirm()}
       >

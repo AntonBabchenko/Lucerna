@@ -126,20 +126,20 @@
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
   {#if !instanceId}
-    <p class="text-sm text-neutral-500">Select an instance to view its worlds.</p>
+    <p class="text-sm text-muted">Select an instance to view its worlds.</p>
   {:else if loading}
-    <p class="text-sm text-neutral-500">Loading worlds…</p>
+    <p class="text-sm text-muted">Loading worlds…</p>
   {:else if listError}
-    <p class="text-sm text-red-700">{listError}</p>
+    <p class="text-sm text-danger">{listError}</p>
   {:else if worlds.length === 0}
-    <p class="text-sm text-neutral-500">No worlds yet. Play Minecraft to create one.</p>
+    <p class="text-sm text-muted">No worlds yet. Play Minecraft to create one.</p>
   {:else}
-    <ul class="border border-neutral-200 rounded divide-y divide-neutral-200">
+    <ul class="border border-border-subtle rounded divide-y divide-border-subtle">
       {#each worlds as w (w.folder_name)}
         <li>
           <button
             type="button"
-            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-neutral-50"
+            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
             aria-label="Actions for {w.folder_name}"
             aria-expanded={openMenuFor === w.folder_name}
             onclick={(e) => toggleMenu(w.folder_name, e)}
@@ -149,18 +149,18 @@
                 <span class="font-medium truncate">{w.folder_name}</span>
                 {#if w.backup_count > 0}
                   <span
-                    class="text-xs text-amber-800 bg-amber-100 rounded px-1.5 py-0.5"
+                    class="text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
                     aria-label="{w.backup_count} backups"
                   >
                     📦 {w.backup_count}
                   </span>
                 {/if}
               </div>
-              <div class="text-xs text-neutral-500">
+              <div class="text-xs text-muted">
                 {formatBytes(w.size_bytes)} · {relativeTime(w.modified_unix_ms)}
               </div>
             </div>
-            <span class="text-neutral-400 text-sm select-none" aria-hidden="true">⋮</span>
+            <span class="text-placeholder text-sm select-none" aria-hidden="true">⋮</span>
           </button>
         </li>
       {/each}
@@ -168,7 +168,7 @@
   {/if}
   <button
     type="button"
-    class="self-start text-sm text-blue-700 hover:underline"
+    class="self-start text-sm text-accent hover:underline"
     onclick={() => void onOpenSavesFolder()}
   >
     Open saves folder ↗
@@ -186,14 +186,14 @@
       onclick={() => (openMenuFor = null)}
     ></button>
     <div
-      class="fixed z-50 w-48 bg-white border border-neutral-200 rounded shadow"
+      class="fixed z-50 w-48 bg-surface border border-border-subtle rounded shadow"
       style="top: {menuTop}px; left: {menuLeft}px;"
       role="menu"
     >
       <button
         type="button"
         role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
         onclick={() => void onBackupNow(activeWorld)}
       >
         Back up now
@@ -201,7 +201,7 @@
       <button
         type="button"
         role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
         onclick={() => {
           backupsFor = activeWorld;
           openMenuFor = null;
@@ -212,7 +212,7 @@
       <button
         type="button"
         role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50 text-red-700"
+        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle text-danger"
         onclick={() => {
           deleteFor = activeWorld;
           openMenuFor = null;

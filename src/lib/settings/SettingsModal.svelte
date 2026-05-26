@@ -55,7 +55,7 @@
         <h2 class="text-base font-semibold">Settings</h2>
         <button
           type="button"
-          class="text-neutral-500 hover:text-neutral-800 text-lg leading-none px-1"
+          class="text-muted hover:text-primary text-lg leading-none px-1"
           aria-label="Close"
           onclick={close}
         >
@@ -70,7 +70,7 @@
           class="px-3 py-1 text-sm rounded -mb-px"
           class:font-medium={active === 'curseforge'}
           class:border-b-2={active === 'curseforge'}
-          class:border-blue-600={active === 'curseforge'}
+          class:border-accent={active === 'curseforge'}
           onclick={() => (active = 'curseforge')}
         >
           CurseForge
@@ -82,7 +82,7 @@
           class="px-3 py-1 text-sm rounded -mb-px"
           class:font-medium={active === 'storage'}
           class:border-b-2={active === 'storage'}
-          class:border-blue-600={active === 'storage'}
+          class:border-accent={active === 'storage'}
           onclick={() => (active = 'storage')}
         >
           Storage
@@ -94,7 +94,7 @@
           class="px-3 py-1 text-sm rounded -mb-px"
           class:font-medium={active === 'about'}
           class:border-b-2={active === 'about'}
-          class:border-blue-600={active === 'about'}
+          class:border-accent={active === 'about'}
           onclick={() => (active = 'about')}
         >
           About
@@ -106,7 +106,7 @@
           class="px-3 py-1 text-sm rounded -mb-px"
           class:font-medium={active === 'general'}
           class:border-b-2={active === 'general'}
-          class:border-blue-600={active === 'general'}
+          class:border-accent={active === 'general'}
           onclick={() => (active = 'general')}
         >
           General
