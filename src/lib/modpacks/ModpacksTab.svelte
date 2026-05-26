@@ -20,6 +20,8 @@
   import ModpackBrowseView from './ModpackBrowseView.svelte';
   import ModpackVersionDrawer from './ModpackVersionDrawer.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
 
   // Top-level pane wired into MainTabs. Owns:
   //   • The Browse | Imported sub-tab shell (same lazy-mount + CSS-hide
@@ -224,7 +226,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div role="tablist" class="border-b flex gap-1 px-3 bg-surface">
+  <div role="tablist" class="border-b flex gap-1 px-3 bg-surface" data-tour-ctx="modpacks-tabs">
     <button
       type="button"
       role="tab"
@@ -253,12 +255,14 @@
     </button>
   </div>
 
-  <div class="px-4 pt-3">
+  <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">
     <FileDropzone
       label="Drop a .mrpack or .zip here to import — or click to browse"
       onClick={importFromFile}
     />
   </div>
+
+  <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />
 
   <div class="flex-1 overflow-y-auto">
     {#if error}

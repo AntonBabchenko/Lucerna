@@ -134,7 +134,7 @@
   });
 </script>
 
-<div class="p-4 pb-2 flex flex-wrap gap-2">
+<div class="p-4 pb-2 flex flex-wrap gap-2" data-tour-ctx="modpacks-filters">
   <SourcePicker bind:value={source} />
   <input
     type="search"
