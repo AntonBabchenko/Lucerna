@@ -22,6 +22,63 @@ body[data-tour-active] .tour-overlay {
   pointer-events: auto;
 }
 
+/*
+  Button system. Every button across the launcher should reach for one
+  of these utility classes rather than hand-rolling Tailwind. The
+  hierarchy maps to button *purpose*, not colour:
+
+    .btn-primary    Default solid CTA. Use for the most important
+                    action in a given context (Save, Confirm, Add).
+    .btn-success    Play. Solid green, distinct from primary so it
+                    never competes with secondary CTAs.
+    .btn-danger     Stop, Delete confirmation, destructive actions.
+    .btn-secondary  Outlined neutral. Repeatable tools that aren't
+                    the headline action (Manage, Mods folder, Cancel,
+                    View). Most "do a thing" buttons land here.
+    .btn-tertiary   Text-only with hover underline. Inline links and
+                    soft actions (Clear filters, "View installed").
+
+  Sizes are layered on top: .btn-sm (default density) or .btn-xs (for
+  card actions / dense toolbars). Add `disabled:opacity-50` is baked
+  in — call sites just set the disabled attribute.
+*/
+.btn-primary,
+.btn-success,
+.btn-danger,
+.btn-secondary {
+  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700;
+}
+.btn-success {
+  @apply bg-green-600 text-white hover:bg-green-700;
+}
+.btn-danger {
+  @apply bg-red-600 text-white hover:bg-red-700;
+}
+.btn-secondary {
+  @apply border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50;
+}
+.btn-tertiary {
+  @apply text-neutral-700 hover:text-neutral-900 hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed;
+}
+.btn-sm {
+  @apply px-3 py-1.5 text-sm;
+}
+.btn-xs {
+  @apply px-2 py-1 text-xs;
+}
+.btn-lg {
+  @apply px-4 py-2 text-base font-semibold;
+}
+/* Icon-only square buttons. Same height as .btn-sm for visual line-up. */
+.btn-icon {
+  @apply inline-flex items-center justify-center rounded text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 disabled:cursor-not-allowed;
+  width: 2rem;
+  height: 2rem;
+}
+
 /* Native <select> options inherit their text colour from the <select>,
    so toggling the closed control between black and grey drags every
    dropdown row with it. The mods/modpacks loader filter wants:

@@ -445,10 +445,8 @@
                 </div>
                 <p class="text-xs text-neutral-500">
                   Edit via
-                  <button
-                    type="button"
-                    class="underline hover:text-neutral-800"
-                    onclick={() => (manageOpen = true)}>Manage</button
+                  <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
+                    >Manage</button
                   >.
                 </p>
               </div>
@@ -460,7 +458,7 @@
                     No mods installed yet. Open
                     <button
                       type="button"
-                      class="underline hover:text-neutral-800"
+                      class="btn-tertiary"
                       onclick={() => (modBrowserNav.value = { view: 'browse' })}
                     >
                       Mod browser
@@ -489,7 +487,7 @@
                     Manage in
                     <button
                       type="button"
-                      class="underline hover:text-neutral-800"
+                      class="btn-tertiary"
                       onclick={() => (modBrowserNav.value = { view: 'installed' })}
                     >
                       Installed
@@ -528,7 +526,7 @@
                   <span class="text-sm text-neutral-500"
                     >Pick a Minecraft version in <button
                       type="button"
-                      class="underline hover:text-neutral-800"
+                      class="btn-tertiary"
                       onclick={() => (manageOpen = true)}>Manage</button
                     > before installing.</span
                   >

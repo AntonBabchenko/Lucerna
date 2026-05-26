@@ -79,14 +79,14 @@
     <div class="flex gap-1">
       <button
         type="button"
-        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+        class="btn-secondary btn-xs flex-1"
         onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
       >
         + Add offline
       </button>
       <button
         type="button"
-        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white disabled:opacity-40"
+        class="btn-secondary btn-xs flex-1"
         disabled={!activeAccount}
         onclick={onRemoveAccount}
       >
@@ -104,7 +104,7 @@
         <div class="flex gap-1">
           <button
             type="button"
-            class="flex-1 border rounded px-2 py-1.5 text-xs bg-blue-600 text-white hover:bg-blue-700"
+            class="btn-primary btn-xs flex-1"
             onclick={() => {
               onAddOffline(offlineNameDraft.trim());
               showAddOfflineInput = false;
@@ -115,7 +115,7 @@
           </button>
           <button
             type="button"
-            class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+            class="btn-secondary btn-xs flex-1"
             onclick={() => {
               showAddOfflineInput = false;
               offlineNameDraft = '';
@@ -138,13 +138,7 @@
     </div>
     {#if instances.length === 0}
       <p class="text-xs text-neutral-500">No instances yet.</p>
-      <button
-        type="button"
-        class="border rounded px-2 py-1.5 text-xs bg-blue-600 text-white hover:bg-blue-700"
-        onclick={onOpenManage}
-      >
-        + Create
-      </button>
+      <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}> + Create </button>
     {:else}
       <select
         data-tour="instance-picker"
@@ -164,65 +158,51 @@
         <button
           type="button"
           data-tour="manage-btn"
-          class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+          class="btn-secondary btn-xs flex-1"
           onclick={onOpenManage}
         >
           ⚙ Manage
         </button>
-        <button
-          type="button"
-          class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
-          onclick={onOpenMods}
-        >
+        <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenMods}>
           📂 Mods
         </button>
       </div>
 
       {#if activeInstance}
         {#if running}
-          <button
-            type="button"
-            data-tour="play-btn"
-            class="bg-red-600 hover:bg-red-700 text-white rounded px-3 py-2 text-sm font-semibold"
-            onclick={onStop}
-          >
+          <button type="button" data-tour="play-btn" class="btn-danger btn-lg" onclick={onStop}>
             Stop
           </button>
         {:else if activeInstance.mc_version === ''}
           <button
             type="button"
             data-tour="play-btn"
-            class="bg-neutral-300 text-neutral-600 rounded px-3 py-2 text-sm font-semibold cursor-not-allowed"
+            class="btn-success btn-lg"
             disabled
             title="Pick a Minecraft version first"
           >
             Play
           </button>
         {:else if installing}
-          <button
-            type="button"
-            data-tour="play-btn"
-            class="bg-blue-400 text-white rounded px-3 py-2 text-sm font-semibold cursor-not-allowed"
-            disabled
-          >
+          <button type="button" data-tour="play-btn" class="btn-primary btn-lg" disabled>
             Working…
           </button>
         {:else if !activeInstance.ready}
+          <!--
+            Install is one-shot — once it succeeds the button morphs
+            to the loud green Play. Keep it secondary-tier so it
+            doesn't compete with Play's eventual loudness.
+          -->
           <button
             type="button"
             data-tour="play-btn"
-            class="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-2 text-sm font-semibold"
+            class="btn-secondary btn-lg"
             onclick={onInstall}
           >
-            Install
+            ↓ Install
           </button>
         {:else}
-          <button
-            type="button"
-            data-tour="play-btn"
-            class="bg-green-600 hover:bg-green-700 text-white rounded px-3 py-2 text-sm font-semibold"
-            onclick={onPlay}
-          >
+          <button type="button" data-tour="play-btn" class="btn-success btn-lg" onclick={onPlay}>
             Play
           </button>
         {/if}
@@ -238,7 +218,7 @@
     -->
     <button
       type="button"
-      class="border rounded px-2 py-2 text-sm hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center gap-1.5"
+      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-blue-50 hover:border-blue-300"
       class:bg-blue-50={modpacksActive}
       class:border-blue-400={modpacksActive}
       class:text-blue-800={modpacksActive}
@@ -255,16 +235,12 @@
       {/if}
     </button>
     <div class="flex gap-1">
-      <button
-        type="button"
-        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
-        onclick={onOpenLogs}
-      >
+      <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenLogs}>
         📜 Logs
       </button>
       <button
         type="button"
-        class="flex-1 border rounded px-2 py-1.5 text-xs hover:bg-white"
+        class="btn-secondary btn-xs flex-1"
         aria-label="Settings"
         title="Settings"
         onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
