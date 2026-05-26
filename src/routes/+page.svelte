@@ -22,6 +22,7 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import { initOnboarding } from '$lib/onboarding/state.svelte';
+  import { initTheme } from '$lib/theme/state.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
@@ -211,6 +212,11 @@
       .then((u) => {
         exitUnlisten = u;
       });
+
+    const settingsResult = await commands.appSettingsGet();
+    if (settingsResult.status === 'ok') {
+      initTheme(settingsResult.data.general.theme ?? 'system');
+    }
 
     await refreshAccounts();
 

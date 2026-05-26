@@ -604,6 +604,11 @@ export type GeneralSettings = {
 	 *  via Settings → General.
 	 */
 	hide_to_tray_during_game?: boolean,
+	/**
+	 *  UI theme preference: system (follow OS), light, or dark.
+	 *  Default system — user can override via Settings → General.
+	 */
+	theme?: ThemePreference,
 };
 
 export type Greeting = {
@@ -1186,6 +1191,8 @@ export type RestoreMode = "replace" | "as_copy";
 export type RestoredWorld = {
 	final_folder_name: string,
 };
+
+export type ThemePreference = "system" | "light" | "dark";
 
 export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path";
 
