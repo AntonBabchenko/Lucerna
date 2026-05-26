@@ -22,6 +22,14 @@ vi.mock('$lib/ipc/bindings', () => ({
       ],
     }),
   },
+  events: {
+    // No-op listener — WorldsTab subscribes to processExited to auto-
+    // reload after MC exit. The mock returns a thenable that resolves
+    // to an unlisten function (matches @tauri-apps/api/event shape).
+    processExited: {
+      listen: vi.fn().mockResolvedValue(() => {}),
+    },
+  },
 }));
 
 describe('WorldsTab', () => {

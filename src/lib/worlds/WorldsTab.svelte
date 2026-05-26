@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { commands, type World } from '$lib/ipc/bindings';
+  import { commands, events, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
@@ -80,6 +80,22 @@
     void reload();
   });
 
+  // Refresh after MC exits — size + mtime + backup_count can change
+  // (a backup taken pre-launch, a new region file written by the game).
+  // Subscribe-and-cleanup so multiple WorldsTab mounts don't pile up
+  // listeners.
+  $effect(() => {
+    let unlisten: (() => void) | null = null;
+    void events.processExited
+      .listen(() => void reload())
+      .then((u) => {
+        unlisten = u;
+      });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  });
+
   async function onBackupNow(w: World) {
     if (!instanceId) return;
     openMenuFor = null;
@@ -132,31 +148,31 @@
   {:else}
     <ul class="border border-neutral-200 rounded divide-y divide-neutral-200">
       {#each worlds as w (w.folder_name)}
-        <li class="flex items-center justify-between gap-2 px-3 py-2">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="font-medium truncate">{w.folder_name}</span>
-              {#if w.backup_count > 0}
-                <span
-                  class="text-xs text-amber-800 bg-amber-100 rounded px-1.5 py-0.5"
-                  aria-label="{w.backup_count} backups"
-                >
-                  📦 {w.backup_count}
-                </span>
-              {/if}
-            </div>
-            <div class="text-xs text-neutral-500">
-              {formatBytes(w.size_bytes)} · {relativeTime(w.modified_unix_ms)}
-            </div>
-          </div>
+        <li>
           <button
             type="button"
-            class="border rounded px-2 py-1 text-sm hover:bg-neutral-50"
+            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-neutral-50"
             aria-label="Actions for {w.folder_name}"
             aria-expanded={openMenuFor === w.folder_name}
             onclick={(e) => toggleMenu(w.folder_name, e)}
           >
-            ⋮
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium truncate">{w.folder_name}</span>
+                {#if w.backup_count > 0}
+                  <span
+                    class="text-xs text-amber-800 bg-amber-100 rounded px-1.5 py-0.5"
+                    aria-label="{w.backup_count} backups"
+                  >
+                    📦 {w.backup_count}
+                  </span>
+                {/if}
+              </div>
+              <div class="text-xs text-neutral-500">
+                {formatBytes(w.size_bytes)} · {relativeTime(w.modified_unix_ms)}
+              </div>
+            </div>
+            <span class="text-neutral-400 text-sm select-none" aria-hidden="true">⋮</span>
           </button>
         </li>
       {/each}

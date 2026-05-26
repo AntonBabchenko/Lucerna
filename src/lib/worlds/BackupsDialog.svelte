@@ -129,19 +129,19 @@
         class="border border-neutral-200 rounded divide-y divide-neutral-200 mb-3 max-h-80 overflow-auto"
       >
         {#each backups as b (b.filename)}
-          <li class="flex items-center justify-between gap-2 px-3 py-2">
-            <div class="min-w-0">
-              <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
-              <div class="text-xs text-neutral-500">{formatBytes(b.size_bytes)}</div>
-            </div>
+          <li>
             <button
               type="button"
-              class="border rounded px-2 py-1 text-sm hover:bg-neutral-50"
+              class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-neutral-50"
               aria-label="Actions for backup {b.filename}"
               aria-expanded={openMenuFor === b.filename}
               onclick={(e) => toggleMenu(b.filename, e)}
             >
-              ⋮
+              <div class="min-w-0">
+                <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
+                <div class="text-xs text-neutral-500">{formatBytes(b.size_bytes)}</div>
+              </div>
+              <span class="text-neutral-400 text-sm select-none" aria-hidden="true">⋮</span>
             </button>
           </li>
         {/each}
