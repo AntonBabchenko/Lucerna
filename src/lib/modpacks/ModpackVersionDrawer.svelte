@@ -89,7 +89,7 @@
     aria-label="Modpack version list"
   >
     <header class="p-4 border-b flex items-center">
-      <h3 class="font-semibold flex-1">{hit.title}</h3>
+      <h3 class="font-semibold text-primary flex-1">{hit.title}</h3>
       <button
         type="button"
         class="text-muted hover:text-primary"

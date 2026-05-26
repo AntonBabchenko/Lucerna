@@ -69,7 +69,7 @@
     aria-modal="true"
     class="bg-surface rounded shadow-xl w-[480px] max-w-[90vw] p-5"
   >
-    <h2 class="text-base font-semibold mb-3">
+    <h2 class="text-base font-semibold text-primary mb-3">
       Install {primaryProjectName}
       {primary.version_number}
     </h2>

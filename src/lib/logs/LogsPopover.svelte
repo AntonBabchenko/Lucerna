@@ -195,7 +195,7 @@
       class="relative bg-surface rounded shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col m-4"
     >
       <header class="flex items-center justify-between px-4 py-2 border-b">
-        <h2 class="text-sm font-semibold">Logs</h2>
+        <h2 class="text-sm font-semibold text-primary">Logs</h2>
         <div class="flex items-center gap-3">
           <label class="text-xs flex items-center gap-1">
             Read cap:

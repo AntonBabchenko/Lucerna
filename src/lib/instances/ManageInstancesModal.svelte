@@ -229,7 +229,7 @@
       class="bg-surface rounded-lg shadow-xl w-[760px] max-h-[80vh] overflow-hidden flex flex-col"
     >
       <header class="flex items-center justify-between px-4 py-2 border-b">
-        <h2 class="font-semibold">Manage Instances</h2>
+        <h2 class="font-semibold text-primary">Manage Instances</h2>
         <button class="text-muted hover:text-primary" onclick={close}>×</button>
       </header>
       <div class="flex flex-1 overflow-hidden">
@@ -264,7 +264,7 @@
         </aside>
         <section class="flex-1 overflow-y-auto p-4">
           {#if createMode}
-            <h3 class="font-semibold mb-3">New instance</h3>
+            <h3 class="font-semibold text-primary mb-3">New instance</h3>
             <label
               for="create-name"
               class="block text-xs uppercase text-secondary mb-1 flex justify-between"
@@ -318,7 +318,7 @@
               </button>
             </div>
           {:else if selected}
-            <h3 class="font-semibold mb-3">
+            <h3 class="font-semibold text-primary mb-3">
               {selected.name}
               {#if selected.id === activeInstance?.id}<span class="text-xs text-muted"
                   >(active)</span
@@ -431,7 +431,7 @@
   {#if deleteConfirmOpen && selected}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
       <div class="bg-surface rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-base">Delete instance?</h3>
+        <h3 class="font-semibold text-primary text-base">Delete instance?</h3>
         <p class="text-sm text-secondary">
           Delete <span class="font-mono font-semibold">{selected.name}</span>?
         </p>

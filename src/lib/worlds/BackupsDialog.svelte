@@ -113,7 +113,7 @@
   aria-labelledby="backups-dialog-title"
 >
   <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-lg w-full p-4">
-    <h3 id="backups-dialog-title" class="font-semibold text-lg mb-3">
+    <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary mb-3">
       Backups for "{world.folder_name}"
     </h3>
     {#if loading}

@@ -38,7 +38,7 @@
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm">Appearance</h3>
+    <h3 class="font-medium text-sm text-primary">Appearance</h3>
     <fieldset class="flex flex-col gap-2">
       {#each [{ v: 'system' as ThemePreference, label: 'System' }, { v: 'light' as ThemePreference, label: 'Light' }, { v: 'dark' as ThemePreference, label: 'Dark' }] as opt (opt.v)}
         <label class="flex items-center gap-2 cursor-pointer">
@@ -57,7 +57,7 @@
   </div>
 
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm">Playing</h3>
+    <h3 class="font-medium text-sm text-primary">Playing</h3>
     {#if loadError}
       <p class="text-xs text-danger">{loadError}</p>
     {/if}
@@ -83,7 +83,7 @@
   </div>
 
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm">Onboarding</h3>
+    <h3 class="font-medium text-sm text-primary">Onboarding</h3>
     <div class="flex items-center gap-3">
       <button type="button" class="btn-secondary btn-sm" onclick={onReplay}>
         Replay onboarding tour

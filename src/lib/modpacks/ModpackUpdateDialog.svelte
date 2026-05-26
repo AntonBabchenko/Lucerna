@@ -19,7 +19,7 @@
   aria-label="Modpack update confirmation"
 >
   <div class="bg-surface rounded-lg shadow-xl w-[480px] max-h-[80vh] p-5 flex flex-col gap-3">
-    <h3 class="font-semibold text-base">Update to {diff.new_version_number}</h3>
+    <h3 class="font-semibold text-base text-primary">Update to {diff.new_version_number}</h3>
 
     <div class="text-sm text-secondary">
       +{diff.added.length} added · −{diff.removed.length} removed · ⟳{diff.updated.length} updated

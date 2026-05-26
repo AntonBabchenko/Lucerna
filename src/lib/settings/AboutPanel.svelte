@@ -16,7 +16,7 @@
 </script>
 
 <section class="space-y-3 text-sm">
-  <h3 class="text-base font-semibold">About</h3>
+  <h3 class="text-base font-semibold text-primary">About</h3>
   <p class="font-medium text-primary">FTlauncher v{version}</p>
   <p class="text-secondary">{DISCLAIMER_TEXT}</p>
   <p>

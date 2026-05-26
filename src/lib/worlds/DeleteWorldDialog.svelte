@@ -45,7 +45,7 @@
   aria-labelledby="delete-world-title"
 >
   <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
-    <h3 id="delete-world-title" class="font-semibold text-lg mb-2">
+    <h3 id="delete-world-title" class="font-semibold text-lg text-primary mb-2">
       Delete "{world.folder_name}"?
     </h3>
     <p class="text-sm text-secondary mb-3">

@@ -54,7 +54,7 @@
     aria-label="Modpack import progress"
     data-testid="import-progress-view"
   >
-    <h3 class="font-semibold text-sm mb-1">Importing modpack…</h3>
+    <h3 class="font-semibold text-sm text-primary mb-1">Importing modpack…</h3>
     <div class="text-sm text-secondary truncate">{label(phase)}</div>
     {#if modBytes && modBytes.total && modBytes.total > 0 && modBytes.current != null}
       <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">

@@ -409,7 +409,7 @@
     {/if}
 
     <div class="flex-1 overflow-y-auto px-4 pb-4">
-      <h4 class="font-medium text-sm text-secondary mt-2 mb-2">Mods</h4>
+      <h4 class="font-medium text-sm text-primary mt-2 mb-2">Mods</h4>
       {#if mods === null}
         <div class="text-sm text-muted" data-testid="imported-detail-mods-loading">Loading…</div>
       {:else if mods.length === 0}
@@ -471,7 +471,7 @@
         {@const configs = presentAssets('configs')}
 
         {#if resourcepacks.length > 0}
-          <h4 class="font-medium text-sm text-secondary mt-5 mb-2">
+          <h4 class="font-medium text-sm text-primary mt-5 mb-2">
             Resource packs ({resourcepacks.length})
           </h4>
           <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
@@ -484,7 +484,7 @@
         {/if}
 
         {#if shaderpacks.length > 0}
-          <h4 class="font-medium text-sm text-secondary mt-5 mb-2">
+          <h4 class="font-medium text-sm text-primary mt-5 mb-2">
             Shader packs ({shaderpacks.length})
           </h4>
           <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
@@ -520,7 +520,7 @@
 
       {#if status && status.removed_files.length > 0}
         <div class="mt-5" data-testid="imported-detail-removed-section">
-          <h4 class="font-medium text-sm text-secondary mb-2">
+          <h4 class="font-medium text-sm text-primary mb-2">
             Removed from pack ({status.removed_files.length})
           </h4>
           {#if restoreError}
@@ -577,7 +577,7 @@
 
       {#if status && status.missing_mods.length > 0}
         <div class="mt-5" data-testid="imported-detail-missing-section">
-          <h4 class="font-medium text-sm text-secondary mb-2">
+          <h4 class="font-medium text-sm text-primary mb-2">
             Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed')
               .length})
           </h4>

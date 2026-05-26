@@ -62,7 +62,7 @@
 >
   <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
     <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold">{summary.name}</h2>
+      <h2 class="text-lg font-semibold text-primary">{summary.name}</h2>
       <div class="text-sm text-muted">
         v{summary.version} ·
         {summary.format === 'modrinth' ? 'Modrinth .mrpack' : 'CurseForge .zip'}
@@ -82,7 +82,7 @@
     {/if}
 
     <div class="flex-1 overflow-y-auto p-4">
-      <h3 class="font-medium text-sm text-secondary mb-2">Required ({required.length})</h3>
+      <h3 class="font-medium text-sm text-primary mb-2">Required ({required.length})</h3>
       <ul class="space-y-1 mb-4">
         {#each required as f (f.sha1)}
           <li class="text-sm py-1 flex items-center">
@@ -100,7 +100,7 @@
       </ul>
 
       {#if optional.length > 0}
-        <h3 class="font-medium text-sm text-secondary mb-2">Optional ({optional.length})</h3>
+        <h3 class="font-medium text-sm text-primary mb-2">Optional ({optional.length})</h3>
         <ul class="space-y-1 mb-4">
           {#each optional as f (f.sha1)}
             <li class="text-sm py-1 flex items-center">
@@ -119,7 +119,7 @@
       {/if}
 
       {#if unresolvable.length > 0}
-        <h3 class="font-medium text-sm text-danger mb-2">
+        <h3 class="font-medium text-sm text-primary mb-2">
           Cannot auto-install ({unresolvable.length})
         </h3>
         <ul class="space-y-1">

@@ -110,7 +110,7 @@
     class="relative bg-surface rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto p-4 m-4"
   >
     <div class="flex items-start justify-between">
-      <h2 class="text-base font-semibold flex-1">
+      <h2 class="text-base font-semibold text-primary flex-1">
         {project?.summary.name ?? 'Loading…'}
       </h2>
       <button

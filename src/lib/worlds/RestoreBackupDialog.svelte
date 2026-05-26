@@ -47,7 +47,7 @@
   aria-labelledby="restore-dialog-title"
 >
   <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
-    <h3 id="restore-dialog-title" class="font-semibold text-lg mb-3">
+    <h3 id="restore-dialog-title" class="font-semibold text-lg text-primary mb-3">
       Restore "{worldFolder}" from {formatTs()}
     </h3>
     <label class="flex items-start gap-2 mb-3">

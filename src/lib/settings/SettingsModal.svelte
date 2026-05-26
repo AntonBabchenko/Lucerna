@@ -52,7 +52,7 @@
       class="relative bg-surface rounded shadow-xl w-[640px] max-w-[95vw] max-h-[80vh] overflow-y-auto"
     >
       <header class="flex items-center justify-between px-4 py-3 border-b">
-        <h2 class="text-base font-semibold">Settings</h2>
+        <h2 class="text-base font-semibold text-primary">Settings</h2>
         <button
           type="button"
           class="text-muted hover:text-primary text-lg leading-none px-1"

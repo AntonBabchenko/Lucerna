@@ -151,7 +151,7 @@
       <div class="text-xs text-muted mb-1">
         Step {tourState.currentStep + 1} of {TOTAL_STEPS}
       </div>
-      <h3 id="tour-popover-title" class="font-semibold text-sm mb-2">
+      <h3 id="tour-popover-title" class="font-semibold text-sm text-primary mb-2">
         {step.title}
       </h3>
       <p class="text-sm text-secondary mb-4">{step.body}</p>
