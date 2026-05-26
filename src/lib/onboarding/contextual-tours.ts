@@ -20,7 +20,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   manage: 'v1',
   logs: 'v2', // bumped 2026-05-26 — log viewer v2 features added
   modpacks: 'v1',
-  worlds: 'v1',
+  worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
 };
 
 export function storageKey(id: ContextualTourId): string {
@@ -120,26 +120,14 @@ export const MODPACKS_STEPS: ReadonlyArray<TourStep> = [
 
 export const WORLDS_STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Your singleplayer worlds',
-    body: "Every world this instance has saved. Click a row to open actions: backup, restore, or delete. The badge with a 📦 shows how many backups you've taken.",
-    targetSelector: '[data-tour-ctx="worlds-list"]',
-    anchor: 'below',
-  },
-  {
-    title: 'Back up before risky changes',
-    body: "Back up now zips the world into FTlauncher's backup folder. Use it before installing a new mod, switching loader, or testing builds — restoring is one click away.",
-    targetSelector: '[data-tour-ctx="worlds-list"]',
-    anchor: 'below',
-  },
-  {
-    title: 'Restore replaces or duplicates',
-    body: 'View backups… opens the backup list per world. Restore offers two modes: Replace (swap the live world for the backup, the current state becomes its own auto-backup first) or As copy (extract alongside, keeping both).',
+    title: 'Your worlds, with backups',
+    body: 'Each row is one singleplayer save. The 📦 N badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world.',
     targetSelector: '[data-tour-ctx="worlds-list"]',
     anchor: 'below',
   },
   {
     title: 'Open saves folder',
-    body: 'Jumps to the saves/ folder in your file manager for manual operations (moving a world to another instance, copying out for a server upload, etc.).',
+    body: 'Jumps to the saves/ folder in your file manager for manual operations — moving a world to another instance, copying out for a server upload, etc.',
     targetSelector: '[data-tour-ctx="worlds-open-folder"]',
     anchor: 'right',
   },
