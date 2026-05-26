@@ -149,9 +149,10 @@
   <select
     bind:value={loaderFilter}
     class="px-3 py-2 border rounded text-sm"
+    class:text-neutral-400={!loaderFilter}
     data-testid="modpack-loader-select"
   >
-    <option value="">Any</option>
+    <option value="" class="text-neutral-400">Any</option>
     <option value="fabric">Fabric</option>
     <option value="quilt">Quilt</option>
     <option value="forge">Forge</option>
