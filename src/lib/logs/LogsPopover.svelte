@@ -181,130 +181,135 @@
 </script>
 
 {#if open}
-  <div
-    class="fixed inset-0 z-40 bg-black/30"
-    role="button"
-    tabindex="-1"
-    onclick={() => (open = false)}
-    onkeydown={(e) => {
-      if (e.key === 'Escape') open = false;
-    }}
-  ></div>
-  <aside
-    class="fixed inset-y-0 right-0 z-50 w-[min(1100px,95vw)] bg-surface shadow-xl flex flex-col"
-  >
-    <header class="flex items-center justify-between px-4 py-2 border-b">
-      <h2 class="text-sm font-semibold">Logs</h2>
-      <div class="flex items-center gap-3">
-        <label class="text-xs flex items-center gap-1">
-          Read cap:
-          <select
-            class="border rounded px-1 py-0.5 text-xs"
-            value={capBytes}
-            onchange={(e) => onCapChange(Number((e.currentTarget as HTMLSelectElement).value))}
+  <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+    <button
+      type="button"
+      class="absolute inset-0"
+      aria-label="Close logs"
+      onclick={() => (open = false)}
+      onkeydown={(e) => {
+        if (e.key === 'Escape') open = false;
+      }}
+    ></button>
+    <aside
+      class="relative bg-surface rounded shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col m-4"
+    >
+      <header class="flex items-center justify-between px-4 py-2 border-b">
+        <h2 class="text-sm font-semibold">Logs</h2>
+        <div class="flex items-center gap-3">
+          <label class="text-xs flex items-center gap-1">
+            Read cap:
+            <select
+              class="border rounded px-1 py-0.5 text-xs"
+              value={capBytes}
+              onchange={(e) => onCapChange(Number((e.currentTarget as HTMLSelectElement).value))}
+            >
+              {#each CAP_OPTIONS as opt}
+                <option value={opt.value}>{opt.label}</option>
+              {/each}
+            </select>
+          </label>
+          <button
+            class="text-xs border rounded px-2 py-0.5 hover:bg-subtle"
+            onclick={() => void reloadList()}
           >
-            {#each CAP_OPTIONS as opt}
-              <option value={opt.value}>{opt.label}</option>
-            {/each}
-          </select>
-        </label>
-        <button
-          class="text-xs border rounded px-2 py-0.5 hover:bg-subtle"
-          onclick={() => void reloadList()}
-        >
-          Reload
-        </button>
-        <button
-          class="text-muted hover:text-primary text-lg leading-none px-1"
-          aria-label="Close"
-          onclick={() => (open = false)}
-        >
-          ×
-        </button>
-      </div>
-    </header>
-
-    <div class="flex-1 flex overflow-hidden">
-      <nav class="w-72 border-r overflow-y-auto text-sm">
-        {#if listError}
-          <p class="p-3 text-danger text-xs">Could not list logs: {listError}</p>
-        {:else if files.length === 0}
-          <p class="p-3 text-muted text-xs">No log files yet. Launch Minecraft once.</p>
-        {:else}
-          {#each groupedFiles as group}
-            {#if group.items.length > 0}
-              <h3 class="px-3 pt-2 pb-1 text-xs font-semibold uppercase text-muted">
-                {group.label}
-              </h3>
-              <ul>
-                {#each group.items as f}
-                  <li>
-                    <button
-                      class="w-full text-left px-3 py-1 hover:bg-subtle {selectedPath === f.path
-                        ? 'bg-accent-soft'
-                        : ''}"
-                      onclick={() => void selectFile(f.path)}
-                    >
-                      <div class="font-mono text-xs truncate">{f.name}</div>
-                      <div class="text-[10px] text-muted">
-                        {formatBytes(f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
-                      </div>
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          {/each}
-        {/if}
-      </nav>
-
-      <section class="flex-1 flex flex-col">
-        <div class="px-3 py-2 border-b flex items-center gap-2">
-          <input
-            class="flex-1 border rounded px-2 py-1 text-xs"
-            placeholder="Find in file (case-insensitive)…"
-            bind:value={search}
-            disabled={!selectedPath}
-          />
+            Reload
+          </button>
+          <button
+            class="text-muted hover:text-primary text-lg leading-none px-1"
+            aria-label="Close"
+            onclick={() => (open = false)}
+          >
+            ×
+          </button>
         </div>
-        {#if loadingContent}
-          <p class="p-4 text-sm text-muted">Reading…</p>
-        {:else if contentError}
-          <p class="p-4 text-sm text-danger">{contentError}</p>
-        {:else if !selectedPath}
-          <p class="p-4 text-sm text-muted">Select a file on the left to read it.</p>
-        {:else}
-          {#if isTruncated}
-            <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
-              Truncated — showing last {formatBytes(capBytes)}. Raise cap to see more.
+      </header>
+
+      <div class="flex-1 flex overflow-hidden">
+        <nav class="w-72 border-r overflow-y-auto text-sm">
+          {#if listError}
+            <p class="p-3 text-danger text-xs">Could not list logs: {listError}</p>
+          {:else if files.length === 0}
+            <p class="p-3 text-muted text-xs">No log files yet. Launch Minecraft once.</p>
+          {:else}
+            {#each groupedFiles as group}
+              {#if group.items.length > 0}
+                <h3 class="px-3 pt-2 pb-1 text-xs font-semibold uppercase text-muted">
+                  {group.label}
+                </h3>
+                <ul>
+                  {#each group.items as f}
+                    <li>
+                      <button
+                        class="w-full text-left px-3 py-1 hover:bg-subtle {selectedPath === f.path
+                          ? 'bg-accent-soft'
+                          : ''}"
+                        onclick={() => void selectFile(f.path)}
+                      >
+                        <div class="font-mono text-xs truncate">{f.name}</div>
+                        <div class="text-[10px] text-muted">
+                          {formatBytes(f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
+                        </div>
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            {/each}
+          {/if}
+        </nav>
+
+        <section class="flex-1 flex flex-col">
+          <div class="px-3 py-2 border-b flex items-center gap-2">
+            <input
+              class="flex-1 border rounded px-2 py-1 text-xs"
+              placeholder="Find in file (case-insensitive)…"
+              bind:value={search}
+              disabled={!selectedPath}
+            />
+          </div>
+          {#if loadingContent}
+            <p class="p-4 text-sm text-muted">Reading…</p>
+          {:else if contentError}
+            <p class="p-4 text-sm text-danger">{contentError}</p>
+          {:else if !selectedPath}
+            <p class="p-4 text-sm text-muted">Select a file on the left to read it.</p>
+          {:else}
+            {#if isTruncated}
+              <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
+                Truncated — showing last {formatBytes(capBytes)}. Raise cap to see more.
+              </div>
+            {/if}
+            {#if diagnosis}
+              <details
+                open
+                class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3"
+              >
+                <summary class="cursor-pointer font-semibold text-warning-text select-none">
+                  ⚠ {diagnosis.title}
+                </summary>
+                <p class="mt-2 text-sm text-warning-text">{diagnosis.explanation}</p>
+                <p class="mt-2 text-sm text-warning-text">
+                  <span class="font-semibold">What to try:</span>
+                  {diagnosis.recommendation}
+                </p>
+                {#if diagnosis.matched_excerpt}
+                  <pre
+                    class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap">{diagnosis.matched_excerpt}</pre>
+                {/if}
+              </details>
+            {/if}
+            <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base">
+              <pre
+                class="px-3 py-2 whitespace-pre-wrap break-words">{#each contentLines as line, i}<span
+                    class="text-placeholder select-none"
+                    >{(i + 1).toString().padStart(6, ' ')}: </span>{@html highlight(
+                    line,
+                  )}{'\n'}{/each}</pre>
             </div>
           {/if}
-          {#if diagnosis}
-            <details open class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3">
-              <summary class="cursor-pointer font-semibold text-warning-text select-none">
-                ⚠ {diagnosis.title}
-              </summary>
-              <p class="mt-2 text-sm text-warning-text">{diagnosis.explanation}</p>
-              <p class="mt-2 text-sm text-warning-text">
-                <span class="font-semibold">What to try:</span>
-                {diagnosis.recommendation}
-              </p>
-              {#if diagnosis.matched_excerpt}
-                <pre
-                  class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap">{diagnosis.matched_excerpt}</pre>
-              {/if}
-            </details>
-          {/if}
-          <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base">
-            <pre
-              class="px-3 py-2 whitespace-pre-wrap break-words">{#each contentLines as line, i}<span
-                  class="text-placeholder select-none"
-                  >{(i + 1).toString().padStart(6, ' ')}: </span>{@html highlight(
-                  line,
-                )}{'\n'}{/each}</pre>
-          </div>
-        {/if}
-      </section>
-    </div>
-  </aside>
+        </section>
+      </div>
+    </aside>
+  </div>
 {/if}

@@ -74,9 +74,23 @@ body {
   the theme via the html bg below.
 */
 @layer base {
-  html {
+  html,
+  body {
     background-color: rgb(var(--bg-base));
     color: rgb(var(--text-primary));
+  }
+  /* Tailwind preflight resets h1-h6 font-size/weight to inherit but
+     not colour, and bare headings without an explicit text-* utility
+     were showing browser-default black in dark mode because the
+     inheritance chain hadn't reached them yet at first paint. Force
+     inherit so headings always follow the active text token. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: inherit;
   }
   input,
   textarea,
