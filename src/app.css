@@ -26,25 +26,32 @@
 }
 
 .dark {
+  /*
+    Dark palette lifted one tier above pure black — base = neutral-900,
+    surface = neutral-800, etc. Mirrors shadcn/ui 2025 (oklch ≈ #232323
+    for base) and GitHub Dimmed (#22272e). Pure black (neutral-950)
+    tires the eyes against light text and creates OLED transition
+    artifacts; the launcher reads softer at this tier.
+  */
   /* Surfaces */
-  --bg-base: 10 10 10;
-  --bg-surface: 23 23 23;
-  --bg-subtle: 38 38 38;
-  --bg-muted: 64 64 64;
-  /* Text */
+  --bg-base: 23 23 23; /* neutral-900 — was 10 10 10 (neutral-950) */
+  --bg-surface: 38 38 38; /* neutral-800 — was 23 23 23 */
+  --bg-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
+  --bg-muted: 82 82 91; /* zinc-600 — was 64 64 64 */
+  /* Text — slightly desaturated whites read gentler on dark grey */
   --text-primary: 245 245 245;
   --text-secondary: 212 212 212;
   --text-muted: 163 163 163;
   --text-placeholder: 115 115 115;
-  /* Borders */
-  --border-subtle: 38 38 38;
-  --border-emphasis: 64 64 64;
+  /* Borders — bumped a tier to stay visible against lighter surfaces */
+  --border-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
+  --border-emphasis: 115 115 115; /* neutral-500 — was 64 64 64 */
   /* Accent / state */
   --accent: 59 130 246;
-  --accent-soft: 23 37 84;
+  --accent-soft: 30 58 138; /* blue-900 — was 23 37 84 (blue-950) */
   --success: 34 197 94;
   --danger: 239 68 68;
-  --warning-bg: 69 26 3;
+  --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
   --warning-text: 252 211 77;
 }
 
