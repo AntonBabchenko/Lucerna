@@ -136,10 +136,11 @@
     {:else}
       <button
         type="button"
-        class="px-3 py-1 text-sm bg-accent hover:bg-accent text-white rounded"
+        class="px-3 py-1 text-sm bg-accent hover:bg-accent text-white rounded whitespace-nowrap"
+        title="Installs the latest compatible version. Click the card to pick a specific version."
         onclick={onInstall}
       >
-        Install
+        Install recommended
       </button>
     {/if}
   </div>

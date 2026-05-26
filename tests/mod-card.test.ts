@@ -39,7 +39,7 @@ const noopProps = {
 describe('ModCard', () => {
   it('shows Install button when the mod is not installed', () => {
     render(ModCard, { props: { summary, installed: null, ...noopProps } });
-    expect(screen.getByRole('button', { name: /^install$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /install recommended/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /uninstall/i })).toBeNull();
   });
 
