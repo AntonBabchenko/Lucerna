@@ -6,6 +6,8 @@
     type LogFileMeta,
     type LogSource,
   } from '$lib/ipc/bindings';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
 
   let {
     open = $bindable(false),
@@ -197,7 +199,7 @@
       <header class="flex items-center justify-between px-4 py-2 border-b">
         <h2 class="text-sm font-semibold text-primary">Logs</h2>
         <div class="flex items-center gap-3">
-          <label class="text-xs flex items-center gap-1">
+          <label class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
             Read cap:
             <select
               class="border rounded px-1 py-0.5 text-xs"
@@ -226,7 +228,7 @@
       </header>
 
       <div class="flex-1 flex overflow-hidden">
-        <nav class="w-72 border-r overflow-y-auto text-sm">
+        <nav class="w-72 border-r overflow-y-auto text-sm" data-tour-ctx="logs-sidebar">
           {#if listError}
             <p class="p-3 text-danger text-xs">Could not list logs: {listError}</p>
           {:else if files.length === 0}
@@ -266,6 +268,7 @@
               placeholder="Find in file (case-insensitive)…"
               bind:value={search}
               disabled={!selectedPath}
+              data-tour-ctx="logs-search"
             />
           </div>
           {#if loadingContent}
@@ -310,6 +313,7 @@
           {/if}
         </section>
       </div>
+      <ContextualTour id="logs" steps={LOGS_STEPS} />
     </aside>
   </div>
 {/if}
