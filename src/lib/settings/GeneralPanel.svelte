@@ -6,7 +6,7 @@
   import { commands, type GeneralSettings, type ThemePreference } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { replayTour } from '$lib/onboarding/state.svelte';
-  import { themeState, setThemePref, resolvedTheme } from '$lib/theme/state.svelte';
+  import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { settingsOpen } from './state.svelte';
 
   let general = $state<GeneralSettings>({ hide_to_tray_during_game: false });
@@ -54,11 +54,6 @@
         </label>
       {/each}
     </fieldset>
-    {#if themeState.pref === 'system'}
-      <p class="text-xs text-muted">
-        Following OS preference (currently: {resolvedTheme()}).
-      </p>
-    {/if}
   </div>
 
   <div class="flex flex-col gap-3">

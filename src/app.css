@@ -54,6 +54,43 @@ body {
   margin: 0;
 }
 
+/*
+  Theme-aware defaults for native chrome elements. Without these the
+  browser uses its built-in colours (white form bg, black option text)
+  which look fine in light mode but explode in dark — white input
+  fields on a dark page, white-on-white text in <button> elements
+  that didn't get an explicit .btn-* class.
+
+  The base layer means component classes still win (e.g. .btn-primary's
+  bg-accent overrides the bare-button transparent here). Bare buttons
+  inherit from their parent — fine, because the parent now follows
+  the theme via the html bg below.
+*/
+@layer base {
+  html {
+    background-color: rgb(var(--bg-base));
+    color: rgb(var(--text-primary));
+  }
+  input,
+  textarea,
+  select {
+    background-color: rgb(var(--bg-surface));
+    color: rgb(var(--text-primary));
+    border-color: rgb(var(--border-emphasis));
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(var(--text-placeholder));
+  }
+  /* Bare <button> elements (no .btn-* utility) — transparent so they
+     inherit the surrounding surface colour rather than picking up
+     browser-native white. .btn-* utility classes always override. */
+  button {
+    background-color: transparent;
+    color: inherit;
+  }
+}
+
 /* While the onboarding tour is active, disable interaction with the
    underlying UI. `pointer-events` is an inherited property, so the
    correct pattern is to disable it on <body> and re-enable it on
