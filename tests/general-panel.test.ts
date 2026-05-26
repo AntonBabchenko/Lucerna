@@ -2,12 +2,22 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const appSettingsMarkTourCompleted = vi.fn();
-const appSettingsGet = vi.fn();
+const appSettingsGet = vi.fn().mockResolvedValue({
+  status: 'ok',
+  data: {
+    version: 1,
+    active_instance: null,
+    onboarding: { tour_completed_version: null },
+    general: { hide_to_tray_during_game: false },
+  },
+});
+const appSettingsSetGeneral = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     appSettingsGet: (...args: unknown[]) => appSettingsGet(...args),
     appSettingsMarkTourCompleted: (...args: unknown[]) => appSettingsMarkTourCompleted(...args),
+    appSettingsSetGeneral: (...args: unknown[]) => appSettingsSetGeneral(...args),
   },
 }));
 
