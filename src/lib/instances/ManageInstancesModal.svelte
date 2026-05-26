@@ -9,6 +9,8 @@
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
 
   let {
     open = $bindable(),
@@ -233,7 +235,10 @@
         <button class="text-muted hover:text-primary" onclick={close}>×</button>
       </header>
       <div class="flex flex-1 overflow-hidden">
-        <aside class="w-[220px] border-r overflow-y-auto p-2 flex flex-col gap-1">
+        <aside
+          class="w-[220px] border-r overflow-y-auto p-2 flex flex-col gap-1"
+          data-tour-ctx="manage-list"
+        >
           {#each instances as i}
             <button
               class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
@@ -262,7 +267,7 @@
             + New instance
           </button>
         </aside>
-        <section class="flex-1 overflow-y-auto p-4">
+        <section class="flex-1 overflow-y-auto p-4" data-tour-ctx="manage-form">
           {#if createMode}
             <h3 class="font-semibold text-primary mb-3">New instance</h3>
             <label
@@ -395,7 +400,10 @@
               onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
             />
 
-            <div class="flex items-center justify-between pt-3 border-t">
+            <div
+              class="flex items-center justify-between pt-3 border-t"
+              data-tour-ctx="manage-actions"
+            >
               <button class="border rounded px-3 py-1 text-xs" onclick={openFolder}>
                 📁 Open folder
               </button>
@@ -426,6 +434,7 @@
         </section>
       </div>
     </div>
+    <ContextualTour id="manage" steps={MANAGE_STEPS} />
   </div>
 
   {#if deleteConfirmOpen && selected}
