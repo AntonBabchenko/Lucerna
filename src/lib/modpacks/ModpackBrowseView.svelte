@@ -151,7 +151,7 @@
     class="px-3 py-2 border rounded text-sm"
     data-testid="modpack-loader-select"
   >
-    <option value="">All loaders</option>
+    <option value="">Any</option>
     <option value="fabric">Fabric</option>
     <option value="quilt">Quilt</option>
     <option value="forge">Forge</option>

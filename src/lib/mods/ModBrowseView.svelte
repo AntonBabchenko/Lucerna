@@ -581,7 +581,7 @@
           aria-label="Loader filter"
           class="border rounded px-2 py-0.5 text-sm bg-white"
         >
-          <option value="">—</option>
+          <option value="">Any</option>
           <option value="fabric">Fabric</option>
           <option value="quilt">Quilt</option>
           <option value="forge">Forge</option>
