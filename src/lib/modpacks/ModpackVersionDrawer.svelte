@@ -69,71 +69,70 @@
   }
 </script>
 
-<!--
-  Drawer container is a <div role="dialog"> (not <aside>) so the
-  interactive `dialog` role is on an element that accepts it; <aside>
-  is a landmark and svelte-check warns about marking it interactive.
-  Matches the v0.5.0 sub-3 ModDetailDrawer convention.
--->
-<div
-  class="fixed top-0 right-0 h-full w-96 bg-white shadow-xl border-l overflow-y-auto"
-  role="dialog"
-  aria-label="Modpack version list"
->
-  <header class="p-4 border-b flex items-center">
-    <h3 class="font-semibold flex-1">{hit.title}</h3>
-    <button
-      type="button"
-      class="text-neutral-500 hover:text-neutral-900"
-      onclick={onClose}
-      aria-label="Close"
-    >
-      ×
-    </button>
-  </header>
-  <div class="p-4">
-    {#if blocked}
-      <div class="text-sm text-neutral-700">
-        <p class="mb-3">
-          The author of this CurseForge modpack disabled third-party launcher downloads, so it
-          cannot be installed automatically. Open it on CurseForge to download the <code>.zip</code
-          >, then import it with the drag-and-drop box above.
-        </p>
-        <button
-          type="button"
-          class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded"
-          onclick={openOnCurseForge}
-        >
-          Open on CurseForge ↗
-        </button>
-      </div>
-    {:else if loading}
-      <div class="text-sm text-neutral-500">Loading versions...</div>
-    {:else if error}
-      <div class="text-sm text-red-600">{error}</div>
-    {:else}
-      <ul class="space-y-2">
-        {#each versions as v (v.id)}
-          <li class="p-2 border rounded text-sm">
-            <div class="flex items-center">
-              <div class="flex-1 min-w-0">
-                <div class="font-medium truncate">{v.name}</div>
-                <div class="text-xs text-neutral-500">
-                  MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
+<div class="fixed inset-0 z-30 flex items-center justify-center">
+  <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
+  ></button>
+  <div
+    class="relative bg-white rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto m-4"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Modpack version list"
+  >
+    <header class="p-4 border-b flex items-center">
+      <h3 class="font-semibold flex-1">{hit.title}</h3>
+      <button
+        type="button"
+        class="text-neutral-500 hover:text-neutral-900"
+        onclick={onClose}
+        aria-label="Close"
+      >
+        ×
+      </button>
+    </header>
+    <div class="p-4">
+      {#if blocked}
+        <div class="text-sm text-neutral-700">
+          <p class="mb-3">
+            The author of this CurseForge modpack disabled third-party launcher downloads, so it
+            cannot be installed automatically. Open it on CurseForge to download the
+            <code>.zip</code>, then import it with the drag-and-drop box above.
+          </p>
+          <button
+            type="button"
+            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded"
+            onclick={openOnCurseForge}
+          >
+            Open on CurseForge ↗
+          </button>
+        </div>
+      {:else if loading}
+        <div class="text-sm text-neutral-500">Loading versions...</div>
+      {:else if error}
+        <div class="text-sm text-red-600">{error}</div>
+      {:else}
+        <ul class="space-y-2">
+          {#each versions as v (v.id)}
+            <li class="p-2 border rounded text-sm">
+              <div class="flex items-center">
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate">{v.name}</div>
+                  <div class="text-xs text-neutral-500">
+                    MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  class="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:bg-neutral-300"
+                  disabled={downloading}
+                  onclick={() => install(v.id)}
+                >
+                  Install
+                </button>
               </div>
-              <button
-                type="button"
-                class="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:bg-neutral-300"
-                disabled={downloading}
-                onclick={() => install(v.id)}
-              >
-                Install
-              </button>
-            </div>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
   </div>
 </div>
