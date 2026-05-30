@@ -41,6 +41,18 @@ pub enum Error {
     #[error("Account not set — enter your name first")]
     AccountNotSet,
 
+    #[error("Microsoft sign-in cancelled")]
+    AuthCancelled,
+
+    #[error("Microsoft auth failed at {stage}: {details}")]
+    AuthFailed { stage: String, details: String },
+
+    #[error("This Microsoft account does not own Minecraft")]
+    NoMinecraftProfile,
+
+    #[error("Microsoft has not yet approved this launcher's app registration")]
+    AuthPendingApproval,
+
     #[error("Version {id} not found in manifest")]
     UnknownVersion { id: String },
 

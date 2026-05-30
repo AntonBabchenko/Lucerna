@@ -3,6 +3,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
+  import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
 
   let {
     accounts,
@@ -23,6 +24,9 @@
     onPlay,
     onStop,
     onInstall,
+    msSigningIn = $bindable(false),
+    onMicrosoftSignedIn,
+    onMicrosoftError,
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -50,6 +54,9 @@
     onPlay: () => void;
     onStop: () => void;
     onInstall: () => void;
+    msSigningIn?: boolean;
+    onMicrosoftSignedIn?: (account: unknown) => void;
+    onMicrosoftError?: (err: unknown) => void;
   } = $props();
 
   let showAddOfflineInput = $state(false);
@@ -70,7 +77,8 @@
         onchange={(e) => onSelectAccount((e.currentTarget as HTMLSelectElement).value)}
       >
         {#each accounts as a}
-          <option value={a.id}>{a.name} (offline)</option>
+          <option value={a.id}>{a.name} ({a.kind === 'microsoft' ? 'Microsoft' : 'offline'})</option
+          >
         {/each}
       </select>
     {/if}
@@ -124,9 +132,13 @@
         </div>
       </div>
     {/if}
-    <p class="text-xs text-muted italic mt-1">
-      Microsoft account login deferred — revisit after v0.5.0.
-    </p>
+    <div class="mt-2">
+      <MicrosoftSignInButton
+        bind:signingIn={msSigningIn}
+        onSignedIn={(account) => onMicrosoftSignedIn?.(account)}
+        onError={(err) => onMicrosoftError?.(err)}
+      />
+    </div>
   </div>
 
   <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">

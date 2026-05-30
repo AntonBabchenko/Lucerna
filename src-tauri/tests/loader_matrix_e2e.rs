@@ -1022,6 +1022,7 @@ async fn launch_and_watch(
         name: "MatrixTester".into(),
         uuid: "00000000-0000-0000-0000-000000000000".into(),
         expires_at: None,
+        kind: ftlauncher_lib::accounts::AccountKind::Offline,
     };
 
     // Mirror production spawn.rs: Forge/NeoForge ship a patched MC in

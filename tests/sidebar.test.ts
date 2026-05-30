@@ -1,10 +1,22 @@
-import { render } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
 import Sidebar from '$lib/layout/Sidebar.svelte';
 
+vi.mock('$lib/ipc/bindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/ipc/bindings')>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      beginMicrosoftSignin: vi.fn().mockResolvedValue({ status: 'ok', data: {} }),
+    },
+  };
+});
+
 const sampleAccount: Account = {
   id: 'a1',
+  kind: 'offline',
   name: 'Tester',
   uuid: '00000000-0000-0000-0000-000000000000',
   expires_at: null,
@@ -106,5 +118,116 @@ describe('Sidebar', () => {
       },
     });
     expect(getByTestId('sidebar-open-modpacks')).toBeTruthy();
+  });
+
+  it('does NOT render the deferred-MS italic text', () => {
+    render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    expect(screen.queryByText(/Microsoft account login deferred/i)).toBeNull();
+  });
+
+  it('shows (offline) suffix for offline accounts in the dropdown', () => {
+    render(Sidebar, {
+      props: {
+        accounts: [sampleAccount],
+        activeAccount: sampleAccount,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    expect(screen.getByText('Tester (offline)')).toBeTruthy();
+  });
+
+  it('shows (Microsoft) suffix for microsoft accounts in the dropdown', () => {
+    const msAccount: Account = {
+      id: 'ms1',
+      kind: 'microsoft',
+      name: 'MSPlayer',
+      uuid: '11111111-0000-0000-0000-000000000000',
+      expires_at: 9999999999,
+    };
+    render(Sidebar, {
+      props: {
+        accounts: [msAccount],
+        activeAccount: msAccount,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    expect(screen.getByText('MSPlayer (Microsoft)')).toBeTruthy();
+  });
+
+  it('renders the Sign in with Microsoft button', () => {
+    render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        modpacksActive: false,
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    expect(screen.getByRole('button', { name: /sign in with microsoft/i })).toBeTruthy();
   });
 });

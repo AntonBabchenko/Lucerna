@@ -2015,6 +2015,32 @@ pub async fn app_settings_set_general(
     crate::instances::store::write_app_json(&path, &current)
 }
 
+// =========================================================================
+// Microsoft authentication (task 12)
+// =========================================================================
+
+/// Begin a Microsoft sign-in flow. Opens the OAuth browser, exchanges
+/// the auth code for tokens, queries the Mojang API for a profile,
+/// and persists the account. Returns the new Account.
+#[tauri::command]
+#[specta::specta]
+pub async fn begin_microsoft_signin(
+    app: tauri::AppHandle,
+) -> crate::error::Result<crate::accounts::store::Account> {
+    crate::accounts::microsoft::sign_in(&app).await
+}
+
+/// Refresh an existing Microsoft account by id. Queries the Mojang API
+/// to validate/update the profile, and re-persists. Returns the updated Account.
+#[tauri::command]
+#[specta::specta]
+pub async fn refresh_microsoft_account(
+    app: tauri::AppHandle,
+    id: String,
+) -> crate::error::Result<crate::accounts::store::Account> {
+    crate::accounts::microsoft::refresh(&app, &id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

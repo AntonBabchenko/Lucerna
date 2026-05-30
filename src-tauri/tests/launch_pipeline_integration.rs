@@ -5,7 +5,7 @@
 //! end-to-end against a realistic 1.20.4 fixture from outside the
 //! crate to confirm the public surface is well-formed.
 
-use ftlauncher_lib::accounts::Account;
+use ftlauncher_lib::accounts::{Account, AccountKind};
 use ftlauncher_lib::launch::args::{build_argv, build_classpath, ArgvInput};
 use ftlauncher_lib::versions::version_json::parse;
 use std::path::PathBuf;
@@ -43,6 +43,7 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         name: "IntegrationTester".into(),
         uuid: "aaaabbbb-cccc-dddd-eeee-ffff00112233".into(),
         expires_at: None,
+        kind: AccountKind::Offline,
     };
     let input = ArgvInput {
         details: &details,

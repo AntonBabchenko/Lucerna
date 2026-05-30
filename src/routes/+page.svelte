@@ -21,12 +21,14 @@
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
+  import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
   import { initOnboarding } from '$lib/onboarding/state.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
   import { modBrowserNav, modpacksNav, mcVersions } from '$lib/settings/state.svelte';
+  import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -45,6 +47,7 @@
   let instancesError = $state<string | null>(null);
 
   let manageOpen = $state(false);
+  let msSigningIn = $state(false);
 
   // Lightweight installed-mods stats for the Overview pane. Re-fetched
   // on instance change and whenever the launcher emits an install /
@@ -378,6 +381,20 @@
       {onPlay}
       {onStop}
       {onInstall}
+      bind:msSigningIn
+      onMicrosoftSignedIn={async () => {
+        await refreshAccounts();
+        pushSuccess('Signed in with Microsoft');
+      }}
+      onMicrosoftError={(err) => {
+        const kind = (err as { kind?: string })?.kind;
+        const msg = formatError(err as never);
+        if (kind === 'auth_pending_approval') {
+          pushInfo('Microsoft sign-in pending approval', [msg]);
+        } else {
+          pushWarning('Microsoft sign-in failed', [msg]);
+        }
+      }}
     />
   </div>
 
@@ -659,3 +676,9 @@
   <TourOverlay />
 </main>
 <ToastHost />
+<MicrosoftSigningInModal
+  open={msSigningIn}
+  onCancel={() => {
+    msSigningIn = false;
+  }}
+/>

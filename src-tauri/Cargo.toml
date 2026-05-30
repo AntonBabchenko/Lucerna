@@ -55,6 +55,12 @@ once_cell = "1.21"
 keyring = { version = "3.6.2", features = ["windows-native"] }
 # dunce 1.0: Windows-friendly path canonicalisation (no \\?\ prefix) for zip-slip protection
 dunce = "1.0"
+# v0.2.0 Slice B (revived as cluster C) — Microsoft authentication chain.
+# `keyring` and `hex` are already direct deps above and are reused here.
+base64 = "0.22"
+rand = "0.8"
+sha2 = "0.10"
+urlencoding = "2.1"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process
 # has created its window (and so is visible on screen) before we hide

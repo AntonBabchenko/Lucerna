@@ -1,11 +1,13 @@
 // Shared toast-notification store. A success toast confirms a completed
 // download/install and auto-dismisses; a warning toast reports a failure
-// (with a detail list) and stays until the user closes it.
+// (with a detail list) and stays until the user closes it; an info toast
+// surfaces a neutral informational state (blue accent) and stays until the
+// user closes it.
 //
 // Rune-state-in-a-.svelte.ts module — the same idiom as
 // `$lib/settings/state.svelte` and `$lib/onboarding/state.svelte`.
 
-export type ToastKind = 'success' | 'warning';
+export type ToastKind = 'success' | 'warning' | 'info';
 
 export type Toast = {
   id: number;
@@ -41,6 +43,13 @@ export function pushSuccess(title: string): number {
 export function pushWarning(title: string, lines: string[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'warning', title, lines }];
+  return id;
+}
+
+/** Show a blue info toast for neutral informational states; stays until `dismiss` is called. */
+export function pushInfo(title: string, lines: string[] = []): number {
+  const id = nextId++;
+  store.toasts = [...store.toasts, { id, kind: 'info', title, lines }];
   return id;
 }
 

@@ -126,4 +126,26 @@ describe('formatError', () => {
       } as never),
     ).toContain('FooMod');
   });
+
+  it('formats auth_cancelled', () => {
+    expect(formatError({ kind: 'auth_cancelled' })).toBe('Microsoft sign-in cancelled.');
+  });
+
+  it('formats auth_failed with stage and details', () => {
+    expect(formatError({ kind: 'auth_failed', stage: 'xsts', details: 'no Xbox account' })).toBe(
+      'Microsoft sign-in failed at xsts: no Xbox account',
+    );
+  });
+
+  it('formats no_minecraft_profile', () => {
+    expect(formatError({ kind: 'no_minecraft_profile' })).toBe(
+      "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.",
+    );
+  });
+
+  it('formats auth_pending_approval', () => {
+    expect(formatError({ kind: 'auth_pending_approval' })).toBe(
+      "Microsoft hasn't approved FTlauncher's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
+    );
+  });
 });

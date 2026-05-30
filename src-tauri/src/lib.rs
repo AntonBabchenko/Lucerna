@@ -39,6 +39,8 @@ pub fn run() {
             commands::set_active_account,
             commands::remove_account,
             commands::add_offline_account,
+            commands::begin_microsoft_signin,
+            commands::refresh_microsoft_account,
             commands::list_versions,
             commands::install_version,
             commands::install_instance,
@@ -147,6 +149,44 @@ pub fn run() {
                 eprintln!("[setup] instances::migrate_or_seed failed: {e}");
             }
             builder.mount_events(app);
+
+            // Idle refresh task: every 60s, scan accounts and refresh any
+            // Microsoft account whose access token is within 5 minutes of expiry.
+            // Mirrors Mojang reference launcher's silent-renew behaviour. Failures
+            // are logged to stderr but don't surface to the UI — the next interactive
+            // sign-in will prompt the user if the refresh chain is unrecoverable.
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64())
+                        .unwrap_or(0.0);
+                    let accounts = match crate::accounts::list_accounts(&app_handle) {
+                        Ok(xs) => xs,
+                        Err(e) => {
+                            eprintln!("microsoft refresh: list_accounts failed: {e}");
+                            continue;
+                        }
+                    };
+                    for a in accounts {
+                        if a.kind != crate::accounts::store::AccountKind::Microsoft {
+                            continue;
+                        }
+                        let Some(exp) = a.expires_at else {
+                            continue;
+                        };
+                        if exp <= now + 300.0 {
+                            let res = crate::accounts::microsoft::refresh(&app_handle, &a.id).await;
+                            if let Err(e) = res {
+                                eprintln!("microsoft refresh: failed for account {}: {e}", a.id);
+                            }
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())

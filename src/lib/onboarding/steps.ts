@@ -32,6 +32,12 @@ export const STEPS: ReadonlyArray<TourStep> = [
     disclaimer: DISCLAIMER_TEXT,
   },
   {
+    title: 'Sign in (optional)',
+    body: "Click 'Sign in with Microsoft' to play online with your Microsoft account, or skip this step and use an offline account for LAN and single-player.",
+    targetSelector: '[data-tour="ms-signin-btn"]',
+    anchor: 'right',
+  },
+  {
     title: 'Pick an instance',
     body: 'An instance is a self-contained Minecraft install. FTlauncher starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected.',
     targetSelector: '[data-tour="instance-picker"]',

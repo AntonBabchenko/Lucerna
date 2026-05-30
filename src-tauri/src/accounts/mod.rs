@@ -3,6 +3,8 @@
 //! flat file. Microsoft auth was implemented and then deferred — the work
 //! is preserved under git tag `v0.2.0-msauth-attempt` for future revival.
 
+pub mod keychain;
+pub mod microsoft;
 pub mod offline;
 pub mod store;
 
@@ -11,7 +13,7 @@ use crate::paths::account_file;
 use offline::derive_offline_uuid;
 use store::{read_account_file, write_account_file};
 
-pub use store::Account;
+pub use store::{upsert_microsoft_account, Account, AccountKind};
 
 /// List every stored account. Returns an empty vec for a fresh install.
 pub fn list_accounts(app: &tauri::AppHandle) -> Result<Vec<Account>> {
@@ -53,7 +55,15 @@ pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
     if was_active {
         file.active_id = file.accounts.first().map(|a| a.id.clone());
     }
-    write_account_file(&path, &file)
+    write_account_file(&path, &file)?;
+
+    // Best-effort keychain cleanup for Microsoft accounts. Don't surface
+    // errors — the account is already gone from disk; orphan keychain
+    // entries are harmless (overwritten by the next sign-in with the
+    // same uuid → same id derivation).
+    let _ = keychain::delete(&keychain::refresh_token_key(id));
+    let _ = keychain::delete(&keychain::mc_access_key(id));
+    Ok(())
 }
 
 /// Add an offline account. UUID is deterministically derived from `name`.
@@ -68,6 +78,7 @@ pub fn add_offline_account(app: &tauri::AppHandle, name: &str) -> Result<Account
     }
     let account = Account {
         id: format!("of-{}", uuid::Uuid::new_v4()),
+        kind: AccountKind::Offline,
         name: name.to_string(),
         uuid,
         expires_at: None,

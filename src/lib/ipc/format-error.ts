@@ -29,6 +29,14 @@ export function formatError(e: IpcError): string {
       return 'Minecraft is already running';
     case 'account_not_set':
       return 'Account not set — enter your name first';
+    case 'auth_cancelled':
+      return 'Microsoft sign-in cancelled.';
+    case 'auth_failed':
+      return `Microsoft sign-in failed at ${e.stage}: ${e.details}`;
+    case 'no_minecraft_profile':
+      return "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.";
+    case 'auth_pending_approval':
+      return "Microsoft hasn't approved FTlauncher's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.";
     case 'unknown_version':
       return `Version ${e.id} not found in manifest`;
     case 'unsupported_platform':

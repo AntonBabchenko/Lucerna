@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dismiss,
+  pushInfo,
   pushSuccess,
   pushWarning,
   SUCCESS_TTL_MS,
@@ -41,6 +42,17 @@ describe('toasts store', () => {
     expect(list).toHaveLength(1);
     expect(list[0].kind).toBe('warning');
     expect(list[0].lines).toEqual(['a.jar', 'b.jar']);
+    vi.advanceTimersByTime(SUCCESS_TTL_MS * 10);
+    expect(toastList()).toHaveLength(1);
+  });
+
+  it('pushInfo adds an info toast with lines and never auto-dismisses', () => {
+    pushInfo('Microsoft sign-in pending approval', ['Awaiting admin approval']);
+    const list = toastList();
+    expect(list).toHaveLength(1);
+    expect(list[0].kind).toBe('info');
+    expect(list[0].title).toBe('Microsoft sign-in pending approval');
+    expect(list[0].lines).toEqual(['Awaiting admin approval']);
     vi.advanceTimersByTime(SUCCESS_TTL_MS * 10);
     expect(toastList()).toHaveLength(1);
   });

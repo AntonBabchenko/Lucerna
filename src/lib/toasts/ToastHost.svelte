@@ -16,13 +16,15 @@
         ? 'bg-success/10 border-success text-success'
         : t.kind === 'warning'
           ? 'bg-warning-bg border-warning-text/30 text-warning-text'
-          : ''}"
+          : t.kind === 'info'
+            ? 'bg-accent-soft border-accent/30 text-accent'
+            : ''}"
       role="status"
       data-testid={`toast-${t.kind}`}
     >
       <div class="flex items-start gap-2">
         <span class="flex-1 font-medium">{t.title}</span>
-        {#if t.kind === 'warning'}
+        {#if t.kind === 'warning' || t.kind === 'info'}
           <button
             type="button"
             class="leading-none opacity-60 hover:opacity-100"

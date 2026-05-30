@@ -24,7 +24,7 @@ describe('TourOverlay', () => {
   test('renders the welcome step on initial active state', () => {
     render(TourOverlay);
     expect(screen.getByText(/Welcome to FTlauncher/i)).toBeTruthy();
-    expect(screen.getByText(/Step 1 of 6/i)).toBeTruthy();
+    expect(screen.getByText(/Step 1 of 7/i)).toBeTruthy();
   });
 
   test('Next button advances currentStep', async () => {

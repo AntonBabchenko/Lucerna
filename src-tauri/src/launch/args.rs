@@ -7,7 +7,7 @@
 //! - pre-1.13 : `details.minecraft_arguments` single space-separated
 //!   game-args string; JVM args we synthesise ourselves.
 
-use crate::accounts::Account;
+use crate::accounts::{Account, AccountKind};
 use crate::error::Result;
 use crate::versions::libraries::artifacts_to_install;
 use crate::versions::version_json::{
@@ -72,11 +72,28 @@ fn substitution_map<'a>(
     m.insert("auth_player_name", input.account.name.clone());
     m.insert("auth_uuid", input.account.uuid.replace('-', ""));
 
-    // Offline auth: token is "0", user_type is "legacy". Microsoft auth was
-    // implemented and deferred — see git tag `v0.2.0-msauth-attempt`.
-    m.insert("auth_access_token", "0".into());
-    m.insert("auth_session", "0".into());
-    m.insert("user_type", "legacy".into());
+    // Auth tokens by account kind. Offline = "0" / "legacy" placeholder
+    // (MC accepts these in offline mode). Microsoft = real MC access
+    // token from the keychain + user_type "msa".
+    match input.account.kind {
+        AccountKind::Offline => {
+            m.insert("auth_access_token", "0".into());
+            m.insert("auth_session", "0".into());
+            m.insert("user_type", "legacy".into());
+        }
+        AccountKind::Microsoft => {
+            let mc_token = crate::accounts::keychain::retrieve(
+                &crate::accounts::keychain::mc_access_key(&input.account.id),
+            )?
+            .ok_or_else(|| crate::error::Error::AuthFailed {
+                stage: "launch".into(),
+                details: "MC access token missing from keychain — sign in again".into(),
+            })?;
+            m.insert("auth_access_token", mc_token.clone());
+            m.insert("auth_session", mc_token);
+            m.insert("user_type", "msa".into());
+        }
+    }
     m.insert("user_properties", "{}".into());
     m.insert("version_name", input.details.id.clone());
     m.insert("version_type", "release".into());
@@ -255,6 +272,7 @@ mod tests {
     fn account() -> Account {
         Account {
             id: "of-test".into(),
+            kind: AccountKind::Offline,
             name: "TestPlayer".into(),
             uuid: "12345678-1234-1234-1234-123456789abc".into(),
             expires_at: None,
@@ -287,6 +305,7 @@ mod tests {
           "--version", "${version_name}",
           "--uuid", "${auth_uuid}",
           "--accessToken", "${auth_access_token}",
+          "--userType", "${user_type}",
           "--assetsDir", "${assets_root}",
           "--assetIndex", "${assets_index_name}",
           {"rules": [{"action": "allow", "features": {"is_demo_user": true}}], "value": "--demo"}
@@ -449,5 +468,68 @@ mod tests {
         let acct = account();
         let r = build_argv(&input(&details, &acct));
         assert!(r.is_err(), "expected Err when details.assets = None");
+    }
+
+    #[test]
+    fn build_argv_microsoft_account_reads_mc_access_token_from_keychain() {
+        let ms_account = Account {
+            id: "ms-test-account-1".into(),
+            kind: AccountKind::Microsoft,
+            name: "Notch".into(),
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            expires_at: Some(2_000_000_000.0),
+        };
+        // Pre-populate the keychain (in-memory backend in tests) with the
+        // MC access token that the substitution map should pick up.
+        crate::accounts::keychain::store(
+            &crate::accounts::keychain::mc_access_key(&ms_account.id),
+            "expected-mc-token-xyz",
+        )
+        .unwrap();
+
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        let argv = build_argv(&input(&details, &ms_account)).expect("build");
+
+        // Argv must contain --accessToken expected-mc-token-xyz
+        let access_idx = argv
+            .iter()
+            .position(|a| a == "--accessToken")
+            .expect("--accessToken present");
+        assert_eq!(argv[access_idx + 1], "expected-mc-token-xyz");
+        // user_type must be msa for Microsoft accounts
+        let user_type_idx = argv
+            .iter()
+            .position(|a| a == "--userType")
+            .expect("--userType present");
+        assert_eq!(argv[user_type_idx + 1], "msa");
+
+        // Cleanup
+        crate::accounts::keychain::delete(&crate::accounts::keychain::mc_access_key(
+            &ms_account.id,
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn build_argv_microsoft_account_without_keychain_entry_errors() {
+        let ms_account = Account {
+            id: "ms-no-keychain".into(),
+            kind: AccountKind::Microsoft,
+            name: "Notch".into(),
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            expires_at: Some(2_000_000_000.0),
+        };
+        // No keychain entry — substitution must error, not silently use "0".
+
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        let result = build_argv(&input(&details, &ms_account));
+        assert!(
+            matches!(
+                result,
+                Err(crate::error::Error::AuthFailed { ref stage, .. }) if stage == "launch"
+            ),
+            "expected AuthFailed{{stage=launch}}, got {:?}",
+            result
+        );
     }
 }

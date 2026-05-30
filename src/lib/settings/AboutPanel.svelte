@@ -38,4 +38,8 @@
     Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This
     launcher is not affiliated with either.
   </p>
+  <p class="text-xs text-muted">
+    Microsoft refresh tokens are stored in the OS keyring (Windows Credential Manager) and removed
+    when you sign out.
+  </p>
 </section>

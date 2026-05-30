@@ -71,10 +71,7 @@ process is a deliberate code change, not an emergent capability.
 - **Windows-only.** macOS / Linux ports are tracked but not started.
 - **One running Minecraft instance at a time.** Multi-instance launch is
   not planned for v1.
-- **No Microsoft (Xbox Live) account support in the released build.** The
-  implementation exists at git tag `v0.2.0-msauth-attempt` but is blocked
-  by an upstream Microsoft policy change. Offline accounts work as a
-  first-class option.
+- **Microsoft (Xbox Live) account support** is wired up in the launcher. The full PKCE OAuth → Xbox Live → XSTS → Minecraft Services chain executes when you click "Sign in with Microsoft". Until Microsoft approves FTlauncher's Azure app registration, the final step returns a typed pending-approval response and the launcher shows a friendly info toast; offline accounts remain fully usable for LAN and single-player. Once Microsoft approves, sign-in starts working with no launcher update required.
 - **Not code-signed.** Windows SmartScreen warns on first run; click
   "More info" → "Run anyway". Code signing is a v1.0 concern.
 

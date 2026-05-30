@@ -39,6 +39,7 @@ FTlauncher exists to give players a transparent open-source Minecraft launcher: 
    | `maven.minecraftforge.net` | Forge installer JARs + library/processor mavens | on when user picks Forge loader |
    | `files.minecraftforge.net` | Forge `promotions_slim.json` (recommended/latest tags) | on when user picks Forge loader |
    | `maven.neoforged.net` | NeoForge installer + library mavens | on when user picks NeoForge loader (v0.4.1) |
+   | `login.microsoftonline.com`, `login.live.com`, `user.auth.xboxlive.com`, `xsts.auth.xboxlive.com`, `api.minecraftservices.com` | Microsoft Xbox Live → Minecraft Services authentication chain (cluster C, see `accounts::microsoft::*`) | on when user chooses Microsoft account |
 
    The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the single source of truth; this table mirrors it for human readers and is kept in sync by code review.
 
