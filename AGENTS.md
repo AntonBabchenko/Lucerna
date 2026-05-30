@@ -1,8 +1,8 @@
 # FTlauncher — Working Agreement
 
-This file is the working agreement between the human maintainer and Claude. Claude loads it automatically every session. Keep it short, accurate, and actionable.
+This file is the working agreement between the human maintainer and Codex. Codex loads it automatically every session. Keep it short, accurate, and actionable.
 
-> Sister file: [`AGENTS.md`](AGENTS.md) (loaded by Codex). Keep both in sync.
+> Sister file: [`CLAUDE.md`](CLAUDE.md) (loaded by Claude). Keep both in sync.
 
 ## What this project is
 
@@ -73,7 +73,7 @@ docs/                               Principles, security, superpowers/specs, sup
 
 ## Auto-memory location
 
-Persistent project memory across Claude sessions: `***REMOVED***\.claude\projects\c--Projects-FTlauncher\memory\`. The repository URL and maintainer handle are recorded there.
+Persistent project memory across Codex sessions: `***REMOVED***\.Codex\projects\c--Projects-FTlauncher\memory\`. The repository URL and maintainer handle are recorded there.
 
 ## Forbidden patterns (grep-able quick reference)
 
