@@ -148,3 +148,60 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: pnpm lint
         run: pnpm lint
+
+  # Coverage gate. Enforces the ratchet floors from
+  # docs/superpowers/notes/2026-05-30-coverage-audit.md. Frontend thresholds
+  # live in vitest.config.ts; the Rust floor is passed explicitly below.
+  # Rust coverage runs single-threaded (`--test-threads=1`) to defeat the
+  # process-global env-var race (audit finding F2) — see backlog E6-env-race.
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    # Manual-only. This job is heavy (Tauri build under llvm-cov + single-
+    # threaded test run, ~15-20 min), so it must NOT auto-attach to every
+    # push/PR when the triggers above are re-enabled. To promote it to a
+    # blocking per-PR gate, remove this `if:` AND add it to branch-protection
+    # required checks — a deliberate decision, not an accident of re-enabling.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Install pnpm
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2  # v4.0.0
+      - name: Install Node
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+      - name: Frontend coverage (gated by vitest.config.ts thresholds)
+        run: pnpm test:coverage
+      - name: Install Tauri Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            build-essential
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable @ 2026-05-23
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab  # v2.7.5
+        with:
+          workspaces: src-tauri
+      - name: Install cargo-llvm-cov
+        # Plain `cargo install` (not a third-party action) keeps the
+        # SHA-pinning supply-chain policy intact — no new unpinned action.
+        # Version-pinned so CI output/flags stay reproducible run-to-run.
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
+      - name: Rust coverage (gated, single-threaded)
+        run: >-
+          cargo llvm-cov --manifest-path src-tauri/Cargo.toml
+          --summary-only --fail-under-lines 70 -- --test-threads=1

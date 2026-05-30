@@ -54,3 +54,9 @@ test-results/
 playwright-report/
 tests-e2e/.auth/
 .claude/reviews/
+
+# Coverage artifacts
+/coverage/
+/coverage-fe/
+/src-tauri/llvm-cov.json
+**/*.profraw
