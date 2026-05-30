@@ -2,6 +2,7 @@
   import { commands } from '$lib/ipc/bindings';
   import type { ModpackHit, ModpackVersionEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
 
   // Right-side drawer that lists the Modrinth versions for a picked
   // modpack. Clicking Install resolves the chosen version's .mrpack to a
@@ -90,14 +91,7 @@
   >
     <header class="p-4 border-b flex items-center">
       <h3 class="font-semibold text-primary flex-1">{hit.title}</h3>
-      <button
-        type="button"
-        class="text-muted hover:text-primary"
-        onclick={onClose}
-        aria-label="Close"
-      >
-        ×
-      </button>
+      <CloseButton onClick={onClose} ariaLabel="Close modpack version list" />
     </header>
     <div class="p-4">
       {#if blocked}
@@ -107,11 +101,7 @@
             cannot be installed automatically. Open it on CurseForge to download the
             <code>.zip</code>, then import it with the drag-and-drop box above.
           </p>
-          <button
-            type="button"
-            class="px-3 py-1.5 text-sm bg-accent text-white rounded"
-            onclick={openOnCurseForge}
-          >
+          <button type="button" class="btn-secondary btn-sm" onclick={openOnCurseForge}>
             Open on CurseForge ↗
           </button>
         </div>
@@ -140,7 +130,7 @@
                 </div>
                 <button
                   type="button"
-                  class="ml-2 px-2 py-1 text-xs bg-accent text-white rounded disabled:bg-muted"
+                  class="btn-primary btn-xs ml-2"
                   disabled={downloading}
                   onclick={() => install(v.id)}
                 >

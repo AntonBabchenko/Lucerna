@@ -4,6 +4,7 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import {
     groupStackFolds,
     maybeParseCrashReport,
@@ -516,16 +517,11 @@
                 {/each}
               </select>
             </label>
-            <button
-              class="text-xs border rounded px-2 py-0.5 hover:bg-subtle"
-              onclick={() => void reloadList()}
-            >
-              Reload
-            </button>
+            <button class="btn-secondary btn-xs" onclick={() => void reloadList()}> Reload </button>
 
             <!-- Share button -->
             <button
-              class="btn-warning btn-xs text-xs border rounded px-2 py-0.5"
+              class="btn-secondary btn-xs"
               data-tour-ctx="logs-share"
               disabled={!selectedContent || shareUploading}
               onclick={() => (shareConfirm = true)}
@@ -533,13 +529,7 @@
               {shareUploading ? 'Uploading…' : 'Share'}
             </button>
 
-            <button
-              class="text-muted hover:text-primary text-lg leading-none px-1"
-              aria-label="Close"
-              onclick={() => (open = false)}
-            >
-              ×
-            </button>
+            <CloseButton onClick={() => (open = false)} ariaLabel="Close logs popover" />
           </div>
         </div>
 
@@ -590,16 +580,10 @@
               sharing.
             </p>
             <div class="flex gap-2 justify-end">
-              <button
-                class="text-xs border rounded px-3 py-1 hover:bg-subtle"
-                onclick={() => (shareConfirm = false)}
-              >
+              <button class="btn-secondary btn-xs" onclick={() => (shareConfirm = false)}>
                 Cancel
               </button>
-              <button
-                class="text-xs bg-warning-text text-white rounded px-3 py-1 hover:opacity-90"
-                onclick={() => void doShare()}
-              >
+              <button class="btn-warning btn-xs" onclick={() => void doShare()}>
                 Upload &amp; share
               </button>
             </div>
@@ -616,19 +600,14 @@
           <a href={shareUrl} target="_blank" rel="noopener noreferrer" class="underline truncate"
             >{shareUrl}</a
           >
-          <button
-            class="text-xs border border-warning-text/40 rounded px-2 py-0.5 hover:bg-warning-bg/60"
-            onclick={() => copyToClipboard(shareUrl!)}
-          >
+          <button class="btn-secondary btn-xs" onclick={() => copyToClipboard(shareUrl!)}>
             Copy
           </button>
-          <button
-            class="ml-auto text-warning-text hover:text-primary leading-none"
-            aria-label="Dismiss share URL"
-            onclick={() => (shareUrl = null)}
-          >
-            ×
-          </button>
+          <CloseButton
+            onClick={() => (shareUrl = null)}
+            ariaLabel="Dismiss share URL"
+            class="ml-auto"
+          />
         </div>
       {/if}
 
@@ -686,16 +665,18 @@
               <span class="text-xs text-muted whitespace-nowrap">No matches</span>
             {/if}
             <button
-              class="btn-secondary btn-xs text-xs border rounded px-1.5 py-0.5 disabled:opacity-40"
+              class="btn-icon"
               disabled={totalMatches === 0}
+              aria-label="Previous match"
               title="Previous match (Shift+Enter)"
               onclick={prevMatch}
             >
               ↑
             </button>
             <button
-              class="btn-secondary btn-xs text-xs border rounded px-1.5 py-0.5 disabled:opacity-40"
+              class="btn-icon"
               disabled={totalMatches === 0}
+              aria-label="Next match"
               title="Next match (Enter)"
               onclick={nextMatch}
             >
@@ -783,7 +764,7 @@
                               <div class={severityLineClass(unit.level)}>
                                 <button
                                   type="button"
-                                  class="text-left text-muted hover:text-primary w-full"
+                                  class="btn-tertiary text-left w-full"
                                   onclick={() => toggleFold(foldKey)}
                                 >
                                   {isExpanded ? '▾' : '▸'}
@@ -839,7 +820,7 @@
                       <div class={severityLineClass(unit.level)}>
                         <button
                           type="button"
-                          class="text-left text-muted hover:text-primary w-full"
+                          class="btn-tertiary text-left w-full"
                           onclick={() => toggleFold(ui)}
                         >
                           <span class="text-placeholder select-none"

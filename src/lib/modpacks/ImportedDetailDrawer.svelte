@@ -16,6 +16,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { drawerCache } from './drawer-cache';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
 
   // Right-side drawer that surfaces the metadata captured at import time
   // for a pack-originated instance. Mirrors ModpackVersionDrawer's
@@ -350,14 +351,11 @@
           v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
         </div>
       </div>
-      <button
-        type="button"
-        class="text-muted hover:text-primary flex-shrink-0"
-        onclick={onClose}
-        aria-label="Close"
-      >
-        ×
-      </button>
+      <CloseButton
+        onClick={onClose}
+        ariaLabel="Close imported pack details"
+        class="flex-shrink-0"
+      />
     </header>
 
     {#if inst.mrpack_summary}
@@ -398,7 +396,7 @@
           >
           <button
             type="button"
-            class="text-xs px-2 py-0.5 rounded bg-accent text-white hover:bg-accent"
+            class="btn-primary btn-xs"
             onclick={() => void openUpdateDialog()}
             data-testid="imported-detail-update-button"
           >
@@ -541,7 +539,7 @@
                      the .mrpack. -->
                   <button
                     type="button"
-                    class="text-xs px-2 py-0.5 rounded border border-border-subtle text-placeholder cursor-not-allowed flex-shrink-0"
+                    class="btn-secondary btn-xs flex-shrink-0"
                     disabled
                     title="Bundled inside the .mrpack — cannot restore automatically. Re-import the pack to recover."
                     data-testid="imported-detail-restore-{f.sha1}"
@@ -551,7 +549,7 @@
                 {:else}
                   <button
                     type="button"
-                    class="text-xs px-2 py-0.5 rounded border border-danger text-danger hover:bg-danger/10 flex-shrink-0"
+                    class="btn-secondary btn-xs flex-shrink-0"
                     onclick={() => void restore(f)}
                     data-testid="imported-detail-restore-{f.sha1}"
                   >
@@ -564,7 +562,7 @@
           {#if status.removed_files.some((f) => f.url === '')}
             <button
               type="button"
-              class="mt-2 text-xs px-2 py-1 rounded border border-border-emphasis hover:bg-subtle disabled:opacity-50"
+              class="btn-secondary btn-xs mt-2"
               onclick={() => void reimportPackFiles()}
               disabled={reimporting}
               data-testid="imported-detail-reimport"
@@ -636,10 +634,12 @@
       {/if}
     </div>
 
-    <footer class="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-surface flex-shrink-0">
+    <footer
+      class="p-4 border-t flex justify-between items-center sticky bottom-0 bg-surface flex-shrink-0"
+    >
       <button
         type="button"
-        class="px-3 py-1.5 text-sm rounded text-danger hover:bg-danger/10 border border-transparent"
+        class="btn-ghost-danger"
         onclick={() => (deleting = true)}
         data-testid="imported-detail-delete"
       >
@@ -647,7 +647,7 @@
       </button>
       <button
         type="button"
-        class="px-3 py-1.5 text-sm rounded bg-accent text-white hover:bg-accent"
+        class="btn-primary btn-sm"
         onclick={() => onOpenInstance(inst.id)}
         data-testid="imported-detail-open"
       >
@@ -689,7 +689,7 @@
       <div class="flex justify-end gap-2 mt-2">
         <button
           type="button"
-          class="border rounded px-3 py-1 text-sm"
+          class="btn-secondary btn-sm"
           onclick={() => {
             deleting = false;
             deleteError = null;
@@ -700,7 +700,7 @@
         </button>
         <button
           type="button"
-          class="bg-danger text-white rounded px-3 py-1 text-sm hover:bg-danger"
+          class="btn-danger btn-sm"
           onclick={confirmDelete}
           data-testid="imported-detail-delete-confirm"
         >

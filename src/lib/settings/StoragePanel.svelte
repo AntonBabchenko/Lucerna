@@ -78,7 +78,7 @@
 
   <button
     type="button"
-    class="px-3 py-1 border border-border-emphasis text-sm rounded disabled:opacity-50"
+    class="btn-secondary btn-sm"
     disabled={clearing || bytes === 0 || bytes === null}
     onclick={clear}
   >

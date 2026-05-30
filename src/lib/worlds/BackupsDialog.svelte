@@ -148,19 +148,13 @@
       </ul>
       <div class="text-xs text-muted mb-3 flex justify-between">
         <span>Total: {formatBytes(totalSize)}</span>
-        <button
-          type="button"
-          class="text-accent hover:underline"
-          onclick={() => void onOpenBackupsFolder()}
-        >
+        <button type="button" class="btn-tertiary" onclick={() => void onOpenBackupsFolder()}>
           Open backups folder ↗
         </button>
       </div>
     {/if}
     <div class="flex justify-end">
-      <button type="button" class="border rounded px-3 py-1 text-sm" onclick={onClose}>
-        Close
-      </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onClose}> Close </button>
     </div>
   </div>
 </div>

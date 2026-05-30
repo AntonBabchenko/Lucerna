@@ -127,7 +127,7 @@
     >
       <button
         type="button"
-        class="block w-full text-left px-3 py-1 text-sm hover:bg-subtle text-muted italic"
+        class="block w-full text-left px-3 py-1 btn-tertiary text-sm italic"
         onclick={clear}
       >
         Any version

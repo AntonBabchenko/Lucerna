@@ -233,6 +233,7 @@
       aria-selected={activeSub === 'browse'}
       class="px-3 py-2 text-sm border-b-2 -mb-px"
       class:border-accent={activeSub === 'browse'}
+      class:text-primary={activeSub === 'browse'}
       class:font-semibold={activeSub === 'browse'}
       class:border-transparent={activeSub !== 'browse'}
       class:text-placeholder={activeSub !== 'browse'}
@@ -246,6 +247,7 @@
       aria-selected={activeSub === 'imported'}
       class="px-3 py-2 text-sm border-b-2 -mb-px"
       class:border-accent={activeSub === 'imported'}
+      class:text-primary={activeSub === 'imported'}
       class:font-semibold={activeSub === 'imported'}
       class:border-transparent={activeSub !== 'imported'}
       class:text-placeholder={activeSub !== 'imported'}

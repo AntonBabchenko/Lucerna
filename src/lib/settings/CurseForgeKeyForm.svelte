@@ -100,22 +100,14 @@
     <ol class="text-sm text-secondary list-decimal pl-5 space-y-1 mb-3">
       <li>
         Open
-        <button
-          type="button"
-          class="font-mono text-accent hover:underline"
-          onclick={openConsoleHome}
-        >
+        <button type="button" class="btn-tertiary font-mono" onclick={openConsoleHome}>
           console.curseforge.com ↗
         </button>
         and sign in with a free account
       </li>
       <li>
         Once logged in, go to the
-        <button
-          type="button"
-          class="font-mono text-accent hover:underline"
-          onclick={openApiKeysPage}
-        >
+        <button type="button" class="btn-tertiary font-mono" onclick={openApiKeysPage}>
           API Keys ↗
         </button>
         tab
@@ -128,7 +120,7 @@
       To replace the stored key, paste a new one below and click <span class="font-medium"
         >Update key</span
       >. Get one at
-      <button type="button" class="font-mono text-accent hover:underline" onclick={openApiKeysPage}>
+      <button type="button" class="btn-tertiary font-mono" onclick={openApiKeysPage}>
         console.curseforge.com → API Keys ↗
       </button>.
     </p>
@@ -156,20 +148,14 @@
   <div class="flex gap-2 mt-3">
     <button
       type="button"
-      class="px-3 py-1 bg-accent hover:bg-accent text-white text-sm rounded disabled:opacity-50"
+      class="btn-primary btn-sm"
       disabled={saving || pendingKey.trim() === ''}
       onclick={save}
     >
       {status === 'missing' ? 'Save key' : 'Update key'}
     </button>
     {#if status === 'set' || status === 'invalid'}
-      <button
-        type="button"
-        class="px-3 py-1 border border-border-emphasis text-sm rounded"
-        onclick={clear}
-      >
-        Clear key
-      </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={clear}> Clear key </button>
     {/if}
   </div>
 

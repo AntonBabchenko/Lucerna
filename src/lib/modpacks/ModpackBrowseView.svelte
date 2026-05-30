@@ -170,7 +170,7 @@
   </select>
   <button
     type="button"
-    class="text-xs text-secondary underline hover:text-primary disabled:opacity-40 disabled:no-underline"
+    class="btn-tertiary text-xs"
     disabled={!mcFilter && !loaderFilter}
     data-testid="modpack-clear-filters"
     onclick={() => {
@@ -200,7 +200,7 @@
     <div class="mt-4 flex justify-between text-sm">
       <button
         type="button"
-        class="px-2 py-1 border rounded disabled:opacity-50"
+        class="btn-secondary btn-sm"
         disabled={pageNum === 0}
         onclick={() => (pageNum -= 1)}
       >
@@ -211,7 +211,7 @@
       </span>
       <button
         type="button"
-        class="px-2 py-1 border rounded disabled:opacity-50"
+        class="btn-secondary btn-sm"
         disabled={(pageNum + 1) * 20 >= page.total}
         onclick={() => (pageNum += 1)}
       >

@@ -141,12 +141,10 @@
     </div>
 
     <footer class="p-4 border-t flex justify-end gap-2">
-      <button type="button" class="px-3 py-1.5 text-sm rounded border" onclick={onCancel}
-        >Cancel</button
-      >
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>Cancel</button>
       <button
         type="button"
-        class="px-3 py-1.5 text-sm rounded bg-accent text-white disabled:bg-muted"
+        class="btn-primary btn-sm"
         disabled={selectedShas.length === 0}
         onclick={() => onConfirm(selectedShas)}
       >

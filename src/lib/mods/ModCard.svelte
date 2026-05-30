@@ -123,20 +123,16 @@
             ? ` · v${installed.version_number}`
             : ''}
       </span>
-      <button type="button" class="text-xs px-2 py-1 border rounded" onclick={onToggle}>
+      <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
         {installed.enabled ? 'Disable' : 'Enable'}
       </button>
-      <button
-        type="button"
-        class="text-xs px-2 py-1 border rounded text-danger hover:bg-danger/10"
-        onclick={onUninstall}
-      >
+      <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}>
         Uninstall
       </button>
     {:else}
       <button
         type="button"
-        class="px-3 py-1 text-sm bg-accent hover:bg-accent text-white rounded whitespace-nowrap"
+        class="btn-primary btn-xs whitespace-nowrap"
         title="Installs the latest compatible version. Click the card to pick a specific version."
         onclick={onInstall}
       >

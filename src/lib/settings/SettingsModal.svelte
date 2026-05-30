@@ -15,6 +15,7 @@
   import GeneralPanel from './GeneralPanel.svelte';
   import StoragePanel from './StoragePanel.svelte';
   import { settingsOpen, type SettingsTab } from './state.svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
 
   let active = $state<SettingsTab>('curseforge');
 
@@ -53,14 +54,7 @@
     >
       <header class="flex items-center justify-between px-4 py-3 border-b">
         <h2 class="text-base font-semibold text-primary">Settings</h2>
-        <button
-          type="button"
-          class="text-muted hover:text-primary text-lg leading-none px-1"
-          aria-label="Close"
-          onclick={close}
-        >
-          ×
-        </button>
+        <CloseButton onClick={close} ariaLabel="Close settings" />
       </header>
       <div role="tablist" class="px-4 pt-2 border-b flex gap-1">
         <button

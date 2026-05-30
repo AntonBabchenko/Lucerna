@@ -391,7 +391,7 @@
       </label>
       <button
         type="button"
-        class="text-xs px-2 py-1 border rounded bg-surface hover:bg-subtle disabled:opacity-50"
+        class="btn-secondary btn-xs"
         disabled={busy || checking || rows.length === 0}
         onclick={checkUpdates}
       >
@@ -414,9 +414,10 @@
           type="button"
           role="tab"
           aria-selected={enabledFilter === 'all'}
-          class="px-2 py-1 rounded border {enabledFilter === 'all'
-            ? 'bg-accent-soft text-accent font-medium'
-            : 'bg-surface'}"
+          class="btn-secondary btn-xs"
+          class:bg-accent-soft={enabledFilter === 'all'}
+          class:text-accent={enabledFilter === 'all'}
+          class:font-medium={enabledFilter === 'all'}
           onclick={() => (enabledFilter = 'all')}
         >
           All ({totalCount})
@@ -425,9 +426,9 @@
           type="button"
           role="tab"
           aria-selected={enabledFilter === 'enabled'}
-          class="px-2 py-1 rounded border {enabledFilter === 'enabled'
+          class="btn-secondary btn-xs {enabledFilter === 'enabled'
             ? 'bg-success/10 text-success font-medium'
-            : 'bg-surface'}"
+            : ''}"
           onclick={() => (enabledFilter = 'enabled')}
         >
           Enabled ({enabledCount})
@@ -436,9 +437,10 @@
           type="button"
           role="tab"
           aria-selected={enabledFilter === 'disabled'}
-          class="px-2 py-1 rounded border {enabledFilter === 'disabled'
-            ? 'bg-subtle text-secondary font-medium'
-            : 'bg-surface'}"
+          class="btn-secondary btn-xs"
+          class:bg-subtle={enabledFilter === 'disabled'}
+          class:text-secondary={enabledFilter === 'disabled'}
+          class:font-medium={enabledFilter === 'disabled'}
           onclick={() => (enabledFilter = 'disabled')}
         >
           Disabled ({disabledCount})
@@ -513,7 +515,7 @@
               {/if}
               <button
                 type="button"
-                class="text-xs px-2 py-1 border rounded"
+                class="btn-secondary btn-xs"
                 disabled={busy}
                 onclick={() => toggle(row.installed)}
               >
@@ -521,7 +523,7 @@
               </button>
               <button
                 type="button"
-                class="text-xs px-2 py-1 border rounded text-danger hover:bg-danger/10"
+                class="btn-ghost-danger btn-xs"
                 disabled={busy}
                 onclick={() => uninstall(row.installed)}
               >

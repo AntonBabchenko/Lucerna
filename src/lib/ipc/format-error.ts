@@ -49,8 +49,16 @@ export function formatError(e: IpcError): string {
       return 'Pick a Minecraft version first';
     case 'instance_not_found':
       return `Instance ${e.id} not found`;
-    case 'io':
-      return `IO error at ${e.path}: ${e.details}`;
+    case 'io': {
+      // `details` can be a long parse-error dump (e.g. account.json contents
+      // on a schema-mismatch). Toasts can't wrap 1000+ chars usefully —
+      // truncate and point the user at the launcher log for the full text.
+      const details =
+        e.details.length > 120
+          ? `${e.details.slice(0, 120)}… (open Logs for full text)`
+          : e.details;
+      return `IO error at ${e.path}: ${details}`;
+    }
     case 'forge_promotions_unavailable':
       return `Forge promotions feed for ${e.flavor} is unavailable — versions will not be marked recommended`;
     case 'forge_maven_metadata_parse_failed':

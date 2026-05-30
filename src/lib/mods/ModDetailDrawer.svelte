@@ -7,6 +7,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
 
   // Right-side drawer that loads a ModProject + the version list scoped
   // to the active instance's MC + loader pair. The owning view
@@ -113,12 +114,7 @@
       <h2 class="text-base font-semibold text-primary flex-1">
         {project?.summary.name ?? 'Loading…'}
       </h2>
-      <button
-        type="button"
-        class="text-muted hover:text-secondary"
-        aria-label="Close"
-        onclick={onClose}>×</button
-      >
+      <CloseButton onClick={onClose} ariaLabel="Close mod details" />
     </div>
     {#if project}
       <div class="text-xs text-muted mt-1">
@@ -132,7 +128,7 @@
       <div class="text-xs mt-2 flex gap-3 flex-wrap">
         <button
           type="button"
-          class="text-accent hover:underline"
+          class="btn-tertiary text-xs"
           onclick={() => openExternal(externalUrl)}
         >
           Read full description on {source === 'modrinth' ? 'Modrinth' : 'CurseForge'} ↗
@@ -140,7 +136,7 @@
         {#if project.website_url}
           <button
             type="button"
-            class="text-accent hover:underline"
+            class="btn-tertiary text-xs"
             onclick={() => openExternal(project?.website_url ?? '')}
           >
             Project website ↗
@@ -198,11 +194,11 @@
               </div>
               <button
                 type="button"
-                class="px-2 py-0.5 text-xs rounded disabled:opacity-50 {isInstalled
-                  ? 'border border-success text-success'
+                class="btn-xs rounded {isInstalled
+                  ? 'border border-success text-success disabled:opacity-50'
                   : !v.primary_file.distribution_allowed
-                    ? ''
-                    : 'bg-accent text-white'}"
+                    ? 'text-muted disabled:opacity-50'
+                    : 'btn-primary'}"
                 disabled={!v.primary_file.distribution_allowed || isInstalled}
                 onclick={() => onInstall(v)}
                 title={hasOtherInstalled

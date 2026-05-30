@@ -194,7 +194,7 @@
       <div class="flex justify-between gap-2">
         <button
           type="button"
-          class="text-sm text-muted hover:text-primary disabled:opacity-30"
+          class="btn-secondary btn-sm"
           disabled={isFirst}
           onclick={() => back()}
         >
@@ -202,18 +202,14 @@
         </button>
         <div class="flex gap-2">
           {#if !isLast}
-            <button
-              type="button"
-              class="text-sm text-muted hover:text-primary"
-              onclick={() => void finishOrSkip()}
-            >
+            <button type="button" class="btn-tertiary" onclick={() => void finishOrSkip()}>
               Skip tour
             </button>
           {/if}
           <button
             type="button"
             data-tour-primary
-            class="text-sm px-3 py-1 rounded bg-accent text-white hover:bg-accent"
+            class="btn-primary btn-sm"
             onclick={() => (isLast ? void finishOrSkip() : next())}
           >
             {isLast ? 'Finish ✓' : 'Next →'}

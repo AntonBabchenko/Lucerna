@@ -22,7 +22,7 @@
   <p>
     <button
       type="button"
-      class="text-accent underline hover:text-accent"
+      class="btn-tertiary"
       title={REPO_URL}
       aria-label={`Open FTlauncher repository on GitHub (${REPO_URL})`}
       onclick={openRepo}

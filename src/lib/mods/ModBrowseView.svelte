@@ -603,7 +603,7 @@
       </label>
       <button
         type="button"
-        class="text-xs text-secondary underline hover:text-primary disabled:opacity-40 disabled:no-underline"
+        class="btn-tertiary text-xs"
         disabled={!mcFilter && !loaderFilter}
         data-testid="mod-clear-filters"
         onclick={() => {
@@ -640,7 +640,7 @@
       <div class="flex items-center justify-center gap-3 text-sm text-secondary pt-2">
         <button
           type="button"
-          class="px-3 py-1 border rounded disabled:opacity-50"
+          class="btn-secondary btn-sm"
           disabled={displayPage <= 1}
           onclick={prev}
         >
@@ -649,12 +649,7 @@
         <span>
           Page {displayPage}{showInstalled ? ` of ${Math.max(1, Math.ceil(total / pageSize))}` : ''}
         </span>
-        <button
-          type="button"
-          class="px-3 py-1 border rounded disabled:opacity-50"
-          disabled={!hasNext}
-          onclick={next}
-        >
+        <button type="button" class="btn-secondary btn-sm" disabled={!hasNext} onclick={next}>
           Next ›
         </button>
       </div>

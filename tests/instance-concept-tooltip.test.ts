@@ -14,14 +14,14 @@ describe('InstanceConceptTooltip', () => {
     expect(screen.getByText(/self-contained world/i)).toBeTruthy();
   });
 
-  test('clicking outside closes the popover', async () => {
-    const { container } = render(InstanceConceptTooltip);
+  test('clicking the close button closes the popover', async () => {
+    render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
     expect(screen.getByText(/self-contained world/i)).toBeTruthy();
-    // Simulate outside click via the backdrop button rendered when open.
-    const backdrop = container.querySelector('[aria-label="Close instance concept tooltip"]');
-    expect(backdrop).toBeTruthy();
-    await fireEvent.click(backdrop as HTMLElement);
+    // Simulate close via the CloseButton rendered inside the popover.
+    const closeBtn = screen.getByRole('button', { name: /close tooltip/i });
+    expect(closeBtn).toBeTruthy();
+    await fireEvent.click(closeBtn);
     expect(screen.queryByText(/self-contained world/i)).toBeNull();
   });
 

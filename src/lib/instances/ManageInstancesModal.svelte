@@ -11,6 +11,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
 
   let {
     open = $bindable(),
@@ -232,7 +233,7 @@
     >
       <header class="flex items-center justify-between px-4 py-2 border-b">
         <h2 class="font-semibold text-primary">Manage Instances</h2>
-        <button class="text-muted hover:text-primary" onclick={close}>×</button>
+        <CloseButton onClick={close} ariaLabel="Close manage instances" />
       </header>
       <div class="flex flex-1 overflow-hidden">
         <aside
@@ -260,10 +261,7 @@
               </div>
             </button>
           {/each}
-          <button
-            class="mt-2 text-sm border border-dashed rounded px-2 py-1 hover:bg-subtle"
-            onclick={openCreate}
-          >
+          <button type="button" class="mt-2 btn-primary btn-sm w-full" onclick={openCreate}>
             + New instance
           </button>
         </aside>
@@ -310,11 +308,16 @@
             />
 
             <div class="flex justify-end gap-2 mt-4">
-              <button class="border rounded px-3 py-1 text-sm" onclick={() => (createMode = false)}>
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                onclick={() => (createMode = false)}
+              >
                 Cancel
               </button>
               <button
-                class="bg-accent text-white rounded px-3 py-1 text-sm hover:bg-accent disabled:bg-muted disabled:cursor-not-allowed"
+                type="button"
+                class="btn-primary btn-sm"
                 disabled={!!createDisabledReason}
                 title={createDisabledReason}
                 onclick={submitCreate}
@@ -404,24 +407,20 @@
               class="flex items-center justify-between pt-3 border-t"
               data-tour-ctx="manage-actions"
             >
-              <button class="border rounded px-3 py-1 text-xs" onclick={openFolder}>
-                📁 Open folder
+              <button
+                type="button"
+                class="btn-ghost-danger"
+                disabled={instances.length <= 1}
+                title={instances.length <= 1 ? 'Cannot delete the last instance' : ''}
+                onclick={() => (deleteConfirmOpen = true)}
+              >
+                🗑 Delete instance
               </button>
               <div class="flex gap-2">
-                <button
-                  class="border border-danger text-danger rounded px-3 py-1 text-xs hover:bg-danger/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                  disabled={instances.length <= 1}
-                  title={instances.length <= 1 ? 'Cannot delete the last instance' : ''}
-                  onclick={() => (deleteConfirmOpen = true)}
-                >
-                  🗑 Delete
+                <button type="button" class="btn-secondary btn-sm" onclick={openFolder}>
+                  📁 Open folder
                 </button>
-                <button
-                  class="bg-accent text-white rounded px-3 py-1 text-xs hover:bg-accent"
-                  onclick={close}
-                >
-                  Done
-                </button>
+                <button type="button" class="btn-primary btn-sm" onclick={close}> Done </button>
               </div>
             </div>
           {:else}
@@ -451,13 +450,15 @@
         </p>
         <div class="flex justify-end gap-2 mt-2">
           <button
-            class="border rounded px-3 py-1 text-sm"
+            type="button"
+            class="btn-secondary btn-sm"
             onclick={() => (deleteConfirmOpen = false)}
           >
             Cancel
           </button>
           <button
-            class="bg-danger text-white rounded px-3 py-1 text-sm hover:bg-danger"
+            type="button"
+            class="btn-danger btn-sm"
             onclick={async () => {
               deleteConfirmOpen = false;
               await deleteSelected();

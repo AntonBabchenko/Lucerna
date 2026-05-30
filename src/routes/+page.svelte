@@ -22,6 +22,7 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding } from '$lib/onboarding/state.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { onMount, untrack } from 'svelte';
@@ -408,18 +409,13 @@
           <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
         </span>
         <div class="flex items-center gap-2">
-          <button
-            class="text-xs bg-danger text-white rounded px-2 py-1 hover:bg-danger"
-            onclick={openCrashInLogs}
-          >
+          <button class="btn-secondary btn-sm" onclick={openCrashInLogs}>
             View crash report
           </button>
-          <button
-            class="text-xs border border-danger rounded px-2 py-1 hover:bg-danger/10"
-            onclick={() => (crashReport = null)}
-          >
-            Dismiss
-          </button>
+          <CloseButton
+            onClick={() => (crashReport = null)}
+            ariaLabel="Dismiss crash report banner"
+          />
         </div>
       </div>
     {/if}
@@ -449,30 +445,21 @@
         {#snippet overview()}
           <div class="p-6 flex flex-col gap-4">
             {#if offlineNameError}
-              <p class="text-xs text-danger">
+              <p class="text-xs text-danger flex items-center gap-1">
                 {offlineNameError}
-                <button
-                  class="text-muted hover:text-primary"
-                  onclick={() => (offlineNameError = null)}
-                  aria-label="Dismiss">×</button
-                >
+                <CloseButton onClick={() => (offlineNameError = null)} ariaLabel="Dismiss error" />
               </p>
             {/if}
             {#if listAccountsError}
-              <p class="text-xs text-danger">
+              <p class="text-xs text-danger flex items-center gap-1">
                 {listAccountsError}
-                <button
-                  class="text-muted hover:text-primary"
-                  onclick={() => (listAccountsError = null)}>×</button
-                >
+                <CloseButton onClick={() => (listAccountsError = null)} ariaLabel="Dismiss error" />
               </p>
             {/if}
             {#if removeError}
-              <p class="text-xs text-danger">
+              <p class="text-xs text-danger flex items-center gap-1">
                 {removeError}
-                <button class="text-muted hover:text-primary" onclick={() => (removeError = null)}
-                  >×</button
-                >
+                <CloseButton onClick={() => (removeError = null)} ariaLabel="Dismiss error" />
               </p>
             {/if}
             {#if instancesError}
@@ -620,13 +607,7 @@
                 {#if installError}
                   <span class="text-xs text-danger flex items-center gap-1">
                     {installError}
-                    <button
-                      class="text-muted hover:text-primary"
-                      onclick={() => (installError = null)}
-                      aria-label="Dismiss"
-                    >
-                      ×
-                    </button>
+                    <CloseButton onClick={() => (installError = null)} ariaLabel="Dismiss error" />
                   </span>
                 {/if}
                 {#if exited && !running}
@@ -635,13 +616,7 @@
                 {#if modsError}
                   <span class="text-xs text-danger flex items-center gap-1">
                     {modsError}
-                    <button
-                      class="text-muted hover:text-primary"
-                      onclick={() => (modsError = null)}
-                      aria-label="Dismiss"
-                    >
-                      ×
-                    </button>
+                    <CloseButton onClick={() => (modsError = null)} ariaLabel="Dismiss error" />
                   </span>
                 {/if}
               </div>

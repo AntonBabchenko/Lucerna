@@ -199,16 +199,11 @@
           </button>
         {:else if !activeInstance.ready}
           <!--
-            Install is one-shot — once it succeeds the button morphs
-            to the loud green Play. Keep it secondary-tier so it
-            doesn't compete with Play's eventual loudness.
+            Install is the only available action when an instance is not
+            yet ready. Make it loud so it reads as clickable — Play and
+            Install never appear at the same time, so they don't compete.
           -->
-          <button
-            type="button"
-            data-tour="play-btn"
-            class="btn-secondary btn-lg"
-            onclick={onInstall}
-          >
+          <button type="button" data-tour="play-btn" class="btn-primary btn-lg" onclick={onInstall}>
             ↓ Install
           </button>
         {:else}

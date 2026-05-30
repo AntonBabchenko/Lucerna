@@ -75,17 +75,12 @@
       <p class="text-xs text-danger mb-2">{error}</p>
     {/if}
     <div class="flex justify-end gap-2">
-      <button
-        type="button"
-        class="border rounded px-3 py-1 text-sm"
-        onclick={onClose}
-        disabled={busy}
-      >
+      <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
         Cancel
       </button>
       <button
         type="button"
-        class="bg-accent text-white rounded px-3 py-1 text-sm hover:bg-accent disabled:bg-muted"
+        class="btn-primary btn-sm"
         onclick={() => void onConfirm()}
         disabled={busy}
       >

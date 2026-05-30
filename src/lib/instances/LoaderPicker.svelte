@@ -126,9 +126,9 @@
   {#each LOADER_KINDS as lk}
     <button
       type="button"
-      class="flex-1 border rounded px-2 py-1 text-xs"
-      class:bg-accent={loader === lk}
-      class:text-white={loader === lk}
+      class="flex-1 btn-sm"
+      class:btn-primary={loader === lk}
+      class:btn-secondary={loader !== lk}
       {disabled}
       onclick={() => pickLoader(lk)}
     >

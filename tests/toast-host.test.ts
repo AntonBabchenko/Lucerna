@@ -12,11 +12,13 @@ describe('ToastHost', () => {
     vi.useRealTimers();
   });
 
-  it('renders a success toast with its title', () => {
+  it('renders a success toast with its title and a dismiss button', () => {
     pushSuccess('Installed Sodium');
-    const { getByText, getByTestId } = render(ToastHost);
+    const { getByText, getByTestId, getByLabelText } = render(ToastHost);
     expect(getByText('Installed Sodium')).toBeTruthy();
     expect(getByTestId('toast-success')).toBeTruthy();
+    // A6: success toasts now get a × dismiss button (same as all other levels)
+    expect(getByLabelText('Dismiss notification')).toBeTruthy();
   });
 
   it('renders a warning toast with its title, detail lines and a dismiss button', () => {
@@ -25,14 +27,14 @@ describe('ToastHost', () => {
     expect(getByText('2 mods failed')).toBeTruthy();
     expect(getByText('a.jar')).toBeTruthy();
     expect(getByText('b.jar')).toBeTruthy();
-    expect(getByLabelText('Dismiss')).toBeTruthy();
+    expect(getByLabelText('Dismiss notification')).toBeTruthy();
   });
 
   it('clicking the dismiss button removes the warning toast', async () => {
     pushWarning('failed');
     const { getByLabelText, queryByText } = render(ToastHost);
     expect(queryByText('failed')).toBeTruthy();
-    await fireEvent.click(getByLabelText('Dismiss'));
+    await fireEvent.click(getByLabelText('Dismiss notification'));
     expect(queryByText('failed')).toBeNull();
   });
 });

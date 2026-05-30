@@ -140,14 +140,8 @@
     {/if}
 
     <div class="flex justify-end gap-2 mt-4">
-      <button type="button" class="px-3 py-1 border rounded text-sm" onclick={onCancel}>
-        Cancel
-      </button>
-      <button
-        type="button"
-        class="px-3 py-1 bg-accent hover:bg-accent text-white rounded text-sm"
-        onclick={confirm}
-      >
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}> Cancel </button>
+      <button type="button" class="btn-primary btn-sm" onclick={confirm}>
         Install ({total} mod{total === 1 ? '' : 's'})
       </button>
     </div>

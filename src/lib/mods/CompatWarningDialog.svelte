@@ -40,9 +40,7 @@
       {/each}
     </ul>
     <footer class="p-4 border-t flex justify-end gap-2">
-      <button type="button" class="px-3 py-1.5 text-sm rounded border" onclick={onCancel}>
-        Skip these
-      </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}> Skip these </button>
       <button type="button" class="btn-warning btn-sm" onclick={onConfirm}> Install anyway </button>
     </footer>
   </div>

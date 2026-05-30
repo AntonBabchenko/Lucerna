@@ -165,26 +165,14 @@
     </h3>
     <p class="text-sm text-secondary mb-4">{step.body}</p>
     <div class="flex justify-between gap-2">
-      <button
-        type="button"
-        class="text-sm text-muted hover:text-primary disabled:opacity-30"
-        disabled={isFirst}
-        onclick={back}
-      >
+      <button type="button" class="btn-secondary btn-sm" disabled={isFirst} onclick={back}>
         ← Back
       </button>
       <div class="flex gap-2">
         {#if !isLast}
-          <button type="button" class="text-sm text-muted hover:text-primary" onclick={finish}>
-            Skip
-          </button>
+          <button type="button" class="btn-tertiary" onclick={finish}> Skip </button>
         {/if}
-        <button
-          type="button"
-          data-tour-primary
-          class="text-sm px-3 py-1 rounded bg-accent text-white hover:bg-accent"
-          onclick={next}
-        >
+        <button type="button" data-tour-primary class="btn-primary btn-sm" onclick={next}>
           {isLast ? 'Got it ✓' : 'Next →'}
         </button>
       </div>

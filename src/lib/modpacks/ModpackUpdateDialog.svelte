@@ -53,12 +53,10 @@
     </div>
 
     <div class="flex justify-end gap-2">
-      <button type="button" class="border rounded px-3 py-1 text-sm" onclick={onCancel}>
-        Cancel
-      </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>Cancel</button>
       <button
         type="button"
-        class="bg-accent text-white rounded px-3 py-1 text-sm hover:bg-accent"
+        class="btn-primary btn-sm"
         onclick={onConfirm}
         data-testid="update-confirm"
       >

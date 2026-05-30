@@ -173,7 +173,7 @@
   {/if}
   <button
     type="button"
-    class="self-start text-sm text-accent hover:underline"
+    class="btn-tertiary self-start"
     data-tour-ctx="worlds-open-folder"
     onclick={() => void onOpenSavesFolder()}
   >

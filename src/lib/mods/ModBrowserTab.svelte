@@ -173,6 +173,7 @@
         aria-selected={view === 'browse'}
         class="px-3 py-2 text-sm border-b-2 -mb-px"
         class:border-accent={view === 'browse'}
+        class:text-primary={view === 'browse'}
         class:font-semibold={view === 'browse'}
         class:border-transparent={view !== 'browse'}
         class:text-placeholder={view !== 'browse'}
@@ -186,6 +187,7 @@
         aria-selected={view === 'installed'}
         class="px-3 py-2 text-sm border-b-2 -mb-px"
         class:border-accent={view === 'installed'}
+        class:text-primary={view === 'installed'}
         class:font-semibold={view === 'installed'}
         class:border-transparent={view !== 'installed'}
         class:text-placeholder={view !== 'installed'}

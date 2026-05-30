@@ -15,6 +15,7 @@
   // add a horizontal scrollbar. A fixed popover escapes the sidebar's
   // overflow box. Its position is measured from the trigger each time
   // it opens and clamped into the viewport.
+  import CloseButton from '$lib/ui/CloseButton.svelte';
 
   // Keep POPOVER_WIDTH in sync with the `w-[260px]` class on the popover.
   const POPOVER_WIDTH = 260;
@@ -74,17 +75,16 @@
   </button>
   {#if open}
     <!-- Click-outside backdrop -->
-    <button
-      type="button"
-      class="fixed inset-0 z-30"
-      aria-label="Close instance concept tooltip"
-      onclick={() => (open = false)}
-    ></button>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div role="presentation" class="fixed inset-0 z-30" onclick={() => (open = false)}></div>
     <div
       id="instance-concept-popover"
       class="fixed z-40 w-[260px] bg-surface border border-border-subtle rounded shadow-md p-2.5"
       style="top: {popoverTop}px; left: {popoverLeft}px;"
     >
+      <div class="flex justify-end -mt-1 -mr-1 mb-1">
+        <CloseButton onClick={() => (open = false)} ariaLabel="Close tooltip" />
+      </div>
       <p class="text-xs text-secondary leading-snug">
         Each instance is a self-contained world — its own Minecraft version, loader, mods, configs
         and saves. Switching instance = switching Minecraft install, without touching the others.
