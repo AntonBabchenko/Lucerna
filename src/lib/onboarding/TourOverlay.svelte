@@ -188,6 +188,9 @@
         {step.title}
       </h3>
       <p class="text-sm text-secondary mb-4">{step.body}</p>
+      {#if step.disclaimer}
+        <p class="text-xs text-muted mt-3">{step.disclaimer}</p>
+      {/if}
       <div class="flex justify-between gap-2">
         <button
           type="button"

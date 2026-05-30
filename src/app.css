@@ -110,6 +110,13 @@ body {
     background-color: transparent;
     color: inherit;
   }
+  /* Visible focus ring for keyboard navigation. The .btn-* utilities
+     define their own crisper ring; this rule covers hand-rolled
+     <button>s, links, and inputs until they migrate (B2). */
+  *:focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+  }
 }
 
 /* While the onboarding tour is active, disable interaction with the
@@ -150,7 +157,7 @@ body[data-tour-active] .tour-overlay {
 .btn-success,
 .btn-danger,
 .btn-secondary {
-  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
 }
 .btn-primary {
   @apply bg-accent text-white hover:bg-accent;
@@ -162,13 +169,13 @@ body[data-tour-active] .tour-overlay {
   @apply bg-danger text-white hover:bg-danger;
 }
 .btn-warning {
-  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-warning-text text-surface hover:bg-warning-text;
+  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-warning-text text-surface hover:bg-warning-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
 }
 .btn-secondary {
   @apply border border-border-emphasis bg-surface text-primary hover:bg-subtle;
 }
 .btn-tertiary {
-  @apply text-secondary hover:text-primary hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed;
+  @apply text-secondary hover:text-primary hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
 }
 .btn-sm {
   @apply px-3 py-1.5 text-sm;
@@ -181,7 +188,7 @@ body[data-tour-active] .tour-overlay {
 }
 /* Icon-only square buttons. Same height as .btn-sm for visual line-up. */
 .btn-icon {
-  @apply inline-flex items-center justify-center rounded text-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center rounded text-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
   width: 2rem;
   height: 2rem;
 }

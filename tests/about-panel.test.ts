@@ -31,4 +31,9 @@ describe('AboutPanel', () => {
       expect(openUrlMock).toHaveBeenCalledWith(REPO_URL);
     });
   });
+
+  it('renders the Mojang/Microsoft trademark attribution', () => {
+    render(AboutPanel);
+    expect(screen.getByText(/Minecraft and Mojang are trademarks/)).toBeTruthy();
+  });
 });

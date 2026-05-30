@@ -1,5 +1,11 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+
+const openUrlMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: (url: string) => openUrlMock(url),
+}));
+
 import ImportPickerDialog from '$lib/modpacks/ImportPickerDialog.svelte';
 
 // Minimal happy-path fixture: one required mod (locked-checked) and one
@@ -78,7 +84,7 @@ describe('ImportPickerDialog', () => {
     expect(getByText(/saved worlds/)).toBeTruthy();
   });
 
-  it('renders the unresolvable list with an Open ↗ link', () => {
+  it('renders the unresolvable list with an Open ↗ link', async () => {
     const summary = {
       ...baseSummary,
       unresolvable: [
@@ -96,9 +102,18 @@ describe('ImportPickerDialog', () => {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
     expect(getByText('Embeddium')).toBeTruthy();
-    const link = getByText('Open ↗') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toContain('curseforge.com');
-    expect(link.getAttribute('target')).toBe('_blank');
+    // The "Open ↗" control is now a <button> that routes through the Tauri
+    // opener plugin — not an <a href> — to prevent javascript: injection from
+    // upstream-controlled URLs.
+    const btn = getByText('Open ↗') as HTMLButtonElement;
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.getAttribute('href')).toBeNull();
+    // Clicking must invoke openUrl via the plugin, not navigate the browser.
+    openUrlMock.mockClear();
+    await fireEvent.click(btn);
+    await vi.waitFor(() => {
+      expect(openUrlMock).toHaveBeenCalledWith('https://www.curseforge.com/projects/911');
+    });
   });
 
   it('fires onConfirm with the required + selected optional shas', async () => {

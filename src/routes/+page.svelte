@@ -453,9 +453,8 @@
             {#if removeError}
               <p class="text-xs text-danger">
                 {removeError}
-                <button
-                  class="text-muted hover:text-primary"
-                  onclick={() => (removeError = null)}>×</button
+                <button class="text-muted hover:text-primary" onclick={() => (removeError = null)}
+                  >×</button
                 >
               </p>
             {/if}
@@ -505,8 +504,7 @@
                 {:else}
                   <div class="text-sm flex gap-3">
                     <span
-                      >Total: <span class="font-medium text-secondary"
-                        >{installedStats.total}</span
+                      >Total: <span class="font-medium text-secondary">{installedStats.total}</span
                       ></span
                     >
                     <span
@@ -594,8 +592,8 @@
                   <span class="text-sm text-accent">Working…</span>
                 {:else if !activeInstance.ready}
                   <span class="text-sm text-muted"
-                    >Click <span class="font-semibold text-secondary">Install</span> in the sidebar
-                    to download Minecraft + selected loader.</span
+                    >Click <span class="font-semibold text-secondary">Install</span> in the sidebar to
+                    download Minecraft + selected loader.</span
                   >
                 {:else}
                   <span class="text-sm text-success"
@@ -631,9 +629,7 @@
                 {/if}
               </div>
             {:else}
-              <p class="text-sm text-muted">
-                No instance selected. Create one via the sidebar.
-              </p>
+              <p class="text-sm text-muted">No instance selected. Create one via the sidebar.</p>
             {/if}
           </div>
         {/snippet}

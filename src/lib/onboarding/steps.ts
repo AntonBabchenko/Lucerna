@@ -8,6 +8,8 @@
 // anchor = 'right' | 'below' | 'center' is the popover side relative
 // to the spotlight rect. Centered modal ignores anchor.
 
+import { DISCLAIMER_TEXT } from '../settings/disclaimer';
+
 export type TourAnchor = 'right' | 'below' | 'center';
 
 export interface TourStep {
@@ -15,6 +17,10 @@ export interface TourStep {
   body: string;
   targetSelector: string | null;
   anchor: TourAnchor;
+  /** Optional small-print footer rendered under `body`. Currently used
+   *  on the welcome step to surface the Mojang Usage Guidelines
+   *  disclaimer on first launch. */
+  disclaimer?: string;
 }
 
 export const STEPS: ReadonlyArray<TourStep> = [
@@ -23,6 +29,7 @@ export const STEPS: ReadonlyArray<TourStep> = [
     body: 'FTlauncher organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others.',
     targetSelector: null,
     anchor: 'center',
+    disclaimer: DISCLAIMER_TEXT,
   },
   {
     title: 'Pick an instance',

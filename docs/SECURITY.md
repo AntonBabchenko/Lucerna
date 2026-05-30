@@ -47,6 +47,8 @@ The product value "no hidden phone-home" is enforced in code, not merely display
 
 3. **Single source of truth for the allowlist.** The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the source of truth. The table in `docs/PRINCIPLES.md` Part A mirrors it for human readers and is kept in sync by code review — there is no markdown-parsing build step (an earlier plan to add one was dropped as brittle).
 
+4. **Content Security Policy applies only to production builds.** The CSP declared in `src-tauri/tauri.conf.json` (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; …`) is enforced on the `asset://` custom protocol used by `tauri build`. **It is NOT injected into `pnpm tauri dev`**, which loads `http://localhost:1420` via Vite without the CSP header. A developer adding a new image CDN host and testing only in dev mode will not see a CSP violation; the violation surfaces in production. Always smoke-test new external hosts against a `tauri build` artifact before submitting.
+
 ## Part D — Disclosure
 
 The repository root contains a short [`SECURITY.md`](../SECURITY.md) with the contact channel for reporting vulnerabilities; this document references it.

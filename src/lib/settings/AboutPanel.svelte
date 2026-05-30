@@ -34,4 +34,8 @@
     Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang
     at runtime and are never modified.
   </p>
+  <p class="text-xs text-muted">
+    Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This
+    launcher is not affiliated with either.
+  </p>
 </section>

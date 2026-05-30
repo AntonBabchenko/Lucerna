@@ -126,11 +126,13 @@
           {#each unresolvable as u (u.manual_action_url)}
             <li class="text-sm py-1 flex items-center bg-danger/10 px-2 rounded">
               <span class="flex-1">{u.mod_name}</span>
-              <a
-                href={u.manual_action_url}
-                target="_blank"
-                rel="noopener"
-                class="text-accent hover:underline text-xs">Open ↗</a
+              <button
+                type="button"
+                onclick={() =>
+                  void import('@tauri-apps/plugin-opener').then((m) =>
+                    m.openUrl(u.manual_action_url),
+                  )}
+                class="text-accent hover:underline text-xs">Open ↗</button
               >
             </li>
           {/each}

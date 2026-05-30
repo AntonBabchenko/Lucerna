@@ -33,6 +33,14 @@ module.exports = {
         muted: 'rgb(var(--text-muted) / <alpha-value>)',
         placeholder: 'rgb(var(--text-placeholder) / <alpha-value>)',
       },
+      // Default border color follows the theme token so bare `border`
+      // / `border-b` / `border-t` utilities pick up the dark-palette
+      // colour instead of Tailwind's hardcoded #e5e7eb preflight
+      // default (which produced a stuck light-grey hairline in dark
+      // mode across ~60 sites).
+      borderColor: {
+        DEFAULT: 'rgb(var(--border-subtle) / <alpha-value>)',
+      },
     },
   },
   plugins: [],

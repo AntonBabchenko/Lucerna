@@ -1,6 +1,11 @@
 import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const openUrlMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: (url: string) => openUrlMock(url),
+}));
+
 // Mocks declared before SUT import so vitest hoists them ahead of
 // the module graph. All commands return the tauri-specta
 // `{ status, data | error }` shape — see typedError in bindings.ts.
@@ -149,7 +154,7 @@ describe('ImportedDetailDrawer', () => {
     expect(queryByTestId('imported-detail-summary')).toBeNull();
   });
 
-  it('renders Modrinth source link with /modpack/<id> path', () => {
+  it('renders Modrinth source link with /modpack/<id> path', async () => {
     const { getByTestId } = render(ImportedDetailDrawer, {
       props: {
         inst: instance({ mrpack_source: 'modrinth', mrpack_project_id: 'XYZ789' }),
@@ -158,12 +163,20 @@ describe('ImportedDetailDrawer', () => {
         onDeleted: () => {},
       },
     });
-    const link = getByTestId('imported-detail-source-link') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('https://modrinth.com/modpack/XYZ789');
+    // Source link is now a <button> routing through the Tauri opener plugin.
+    const link = getByTestId('imported-detail-source-link') as HTMLButtonElement;
+    expect(link.tagName).toBe('BUTTON');
+    expect(link.getAttribute('href')).toBeNull();
     expect(link.textContent).toContain('Modrinth');
+    // Clicking must invoke openUrl with the correct Modrinth modpack URL.
+    openUrlMock.mockClear();
+    await fireEvent.click(link);
+    await vi.waitFor(() => {
+      expect(openUrlMock).toHaveBeenCalledWith('https://modrinth.com/modpack/XYZ789');
+    });
   });
 
-  it('renders CurseForge source link with /projects/<id> path', () => {
+  it('renders CurseForge source link with /projects/<id> path', async () => {
     const { getByTestId } = render(ImportedDetailDrawer, {
       props: {
         inst: instance({ mrpack_source: 'curseforge', mrpack_project_id: '12345' }),
@@ -172,9 +185,17 @@ describe('ImportedDetailDrawer', () => {
         onDeleted: () => {},
       },
     });
-    const link = getByTestId('imported-detail-source-link') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('https://www.curseforge.com/projects/12345');
+    // Source link is now a <button> routing through the Tauri opener plugin.
+    const link = getByTestId('imported-detail-source-link') as HTMLButtonElement;
+    expect(link.tagName).toBe('BUTTON');
+    expect(link.getAttribute('href')).toBeNull();
     expect(link.textContent).toContain('CurseForge');
+    // Clicking must invoke openUrl with the correct CurseForge projects URL.
+    openUrlMock.mockClear();
+    await fireEvent.click(link);
+    await vi.waitFor(() => {
+      expect(openUrlMock).toHaveBeenCalledWith('https://www.curseforge.com/projects/12345');
+    });
   });
 
   it('renders the mod list after modsListInstalled resolves', async () => {
@@ -563,9 +584,24 @@ describe('ImportedDetailDrawer', () => {
     // Header count is 2 (missing + different_version, not the installed one).
     expect(section.textContent).toContain('(2)');
 
-    // The first "Open ↗" link points to the missing entry's URL.
-    const links = within(section).getAllByText('Open ↗') as HTMLAnchorElement[];
-    expect(links[0].getAttribute('href')).toBe('https://www.curseforge.com/projects/1');
+    // The "Open ↗" controls are now <button>s routing through the Tauri opener
+    // plugin — not <a href> — to prevent javascript: injection.
+    const links = within(section).getAllByText('Open ↗') as HTMLButtonElement[];
+    expect(links[0].tagName).toBe('BUTTON');
+    expect(links[0].getAttribute('href')).toBeNull();
+    // Clicking each button must invoke openUrl with the correct manual_action_url.
+    // links[0] = SRP (state: missing), links[1] = JEI (state: different_version).
+    // Lib (state: installed) has no Open ↗ button.
+    openUrlMock.mockClear();
+    await fireEvent.click(links[0]);
+    await vi.waitFor(() => {
+      expect(openUrlMock).toHaveBeenCalledWith('https://www.curseforge.com/projects/1');
+    });
+    openUrlMock.mockClear();
+    await fireEvent.click(links[1]);
+    await vi.waitFor(() => {
+      expect(openUrlMock).toHaveBeenCalledWith('https://www.curseforge.com/projects/2');
+    });
   });
 
   afterEach(async () => {

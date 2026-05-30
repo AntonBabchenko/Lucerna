@@ -367,16 +367,16 @@
     {/if}
 
     {#if sourceUrl(inst)}
+      {@const url = sourceUrl(inst)!}
       <div class="px-4 pb-3">
-        <a
-          target="_blank"
-          rel="noopener"
-          href={sourceUrl(inst) ?? ''}
+        <button
+          type="button"
+          onclick={() => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url))}
           class="text-accent hover:underline text-sm"
           data-testid="imported-detail-source-link"
         >
           Open on {sourceLabel(inst.mrpack_source)} ↗
-        </a>
+        </button>
       </div>
     {/if}
 
@@ -437,7 +437,7 @@
                 </span>
               {:else if prov === 'user'}
                 <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 flex-shrink-0"
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success/10 text-success flex-shrink-0"
                   title="added via Mod browser"
                   data-testid="mod-badge-user-{m.sha1}"
                 >
@@ -618,14 +618,16 @@
                   </span>
                 {/if}
                 {#if !isInstalled && m.entry.manual_action_url}
-                  <a
-                    href={m.entry.manual_action_url}
-                    target="_blank"
-                    rel="noopener"
+                  <button
+                    type="button"
+                    onclick={() =>
+                      void import('@tauri-apps/plugin-opener').then((opener) =>
+                        opener.openUrl(m.entry.manual_action_url!),
+                      )}
                     class="text-accent hover:underline text-xs flex-shrink-0"
                   >
                     Open ↗
-                  </a>
+                  </button>
                 {/if}
               </li>
             {/each}

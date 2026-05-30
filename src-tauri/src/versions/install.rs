@@ -40,6 +40,35 @@ pub struct InstallProgress {
     pub current_step: Option<String>,
 }
 
+/// Borrow the `asset_index` field, returning a typed error if the
+/// merged JSON did not provide it. Used to be a `.expect()` — replaced
+/// to keep a tampered or schema-shifted upstream manifest from
+/// panicking the installer.
+fn require_asset_index(
+    details: &VersionDetails,
+) -> Result<&crate::versions::version_json::AssetIndexRef> {
+    details.asset_index.as_ref().ok_or_else(|| {
+        Error::io(
+            "<version_json>",
+            "merged JSON missing assetIndex — upstream schema change?",
+        )
+    })
+}
+
+/// Borrow the `downloads` field, returning a typed error if the
+/// merged JSON did not provide it. Same rationale as
+/// `require_asset_index`.
+fn require_client_downloads(
+    details: &VersionDetails,
+) -> Result<&crate::versions::version_json::Downloads> {
+    details.downloads.as_ref().ok_or_else(|| {
+        Error::io(
+            "<version_json>",
+            "merged JSON missing downloads — upstream schema change?",
+        )
+    })
+}
+
 /// Drive the full install pipeline for `version_id`.
 ///
 /// Phases:
@@ -109,10 +138,7 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     // After ensure_version_json returns, the merged JSON always has
     // asset_index as Some — vanilla parent supplies it; loader profiles
     // inherit it via merge_inherits.
-    let asset_index = details
-        .asset_index
-        .as_ref()
-        .expect("merged JSON should have assetIndex — vanilla parent must provide it");
+    let asset_index = require_asset_index(&details)?;
     let app_clone = app.clone();
     let version_id_owned = version_id.to_string();
     super::assets::ensure_assets(asset_index, app, move |done, total, bytes| {
@@ -131,10 +157,7 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
 
     // Phase 4: client
     // Same invariant: vanilla parent always supplies downloads.
-    let client_download = details
-        .downloads
-        .as_ref()
-        .expect("merged JSON should have downloads — vanilla parent must provide it");
+    let client_download = require_client_downloads(&details)?;
     emit(app, version_id, InstallPhase::Client, 0, 1, 0.0);
     // Vanilla MC client.jar must live at `versions/<mc>/<mc>.jar` only.
     // For synth installs (Fabric/Quilt/Forge/NeoForge), route to the parent
@@ -383,5 +406,40 @@ mod tests {
             "must allow at least loader → vanilla"
         );
         assert!(MAX_INHERITS_DEPTH <= 10, "must not be unboundedly large");
+    }
+
+    fn synth_details() -> VersionDetails {
+        // Minimal VersionDetails with asset_index = None and downloads = None.
+        // Mirrors a Fabric/Quilt loader profile before merge_inherits runs.
+        VersionDetails {
+            id: "fabric-loader-0.15.7-1.20.4".into(),
+            inherits_from: Some("1.20.4".into()),
+            main_class: "net.fabricmc.loader.impl.launch.knot.KnotClient".into(),
+            java_version: None,
+            asset_index: None,
+            assets: None,
+            libraries: vec![],
+            downloads: None,
+            arguments: None,
+            minecraft_arguments: None,
+        }
+    }
+
+    #[test]
+    fn require_asset_index_errors_when_missing() {
+        let d = synth_details();
+        assert!(
+            require_asset_index(&d).is_err(),
+            "expected Err when asset_index = None"
+        );
+    }
+
+    #[test]
+    fn require_client_downloads_errors_when_missing() {
+        let d = synth_details();
+        assert!(
+            require_client_downloads(&d).is_err(),
+            "expected Err when downloads = None"
+        );
     }
 }

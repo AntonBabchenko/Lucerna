@@ -5,6 +5,14 @@
 //! The User-Agent identifies FTlauncher and the launcher version so
 //! upstream hosts (Mojang, Modrinth) can see what client is hitting
 //! their endpoints. This is the only identifying header we send.
+//!
+//! TLS roots come from the OS trust store via `rustls-native-certs`.
+//! This is load-bearing for the Microsoft Azure submission — the
+//! Microsoft Trusted Root Program is the source of truth on Windows,
+//! and changing the cert source (e.g. switching to `webpki-roots`)
+//! silently moves the launcher off the OS root store. If you change
+//! the rustls feature set, confirm the OS-trust path stays intact
+//! and update this comment.
 
 use std::sync::OnceLock;
 use std::time::Duration;

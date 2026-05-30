@@ -46,7 +46,7 @@ pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
         input.os,
         input.arch,
     );
-    let subs = substitution_map(input, &classpath);
+    let subs = substitution_map(input, &classpath)?;
 
     let (jvm, game) = match (&input.details.arguments, &input.details.minecraft_arguments) {
         (Some(args), _) => {
@@ -67,7 +67,7 @@ pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
 fn substitution_map<'a>(
     input: &'a ArgvInput<'a>,
     classpath: &str,
-) -> HashMap<&'static str, String> {
+) -> crate::error::Result<HashMap<&'static str, String>> {
     let mut m = HashMap::new();
     m.insert("auth_player_name", input.account.name.clone());
     m.insert("auth_uuid", input.account.uuid.replace('-', ""));
@@ -96,11 +96,12 @@ fn substitution_map<'a>(
     // (vanilla parent provides them; loader profiles inherit via merge_inherits).
     m.insert(
         "assets_index_name",
-        input
-            .details
-            .assets
-            .clone()
-            .expect("merged JSON should have assets — vanilla parent must provide it"),
+        input.details.assets.clone().ok_or_else(|| {
+            crate::error::Error::io(
+                "<version_json>",
+                "merged JSON missing assets — upstream schema change?",
+            )
+        })?,
     );
     m.insert("classpath", classpath.to_string());
     m.insert(
@@ -114,7 +115,7 @@ fn substitution_map<'a>(
         "library_directory",
         input.libraries_dir.to_string_lossy().into_owned(),
     );
-    m
+    Ok(m)
 }
 
 fn classpath_sep(os: &str) -> &'static str {
@@ -439,5 +440,14 @@ mod tests {
         let libs = vec![];
         let cp = build_classpath(&libs, Path::new("C:/libs"), None, "windows", "x64");
         assert_eq!(cp, "");
+    }
+
+    #[test]
+    fn build_argv_errors_when_assets_missing() {
+        let mut details = parse(FIXTURE_1_20_4).expect("parse");
+        details.assets = None;
+        let acct = account();
+        let r = build_argv(&input(&details, &acct));
+        assert!(r.is_err(), "expected Err when details.assets = None");
     }
 }

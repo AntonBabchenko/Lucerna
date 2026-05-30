@@ -5,21 +5,7 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>FTlauncher</title>
-    <script>
-      // Sync .dark class on <html> before first paint based on the
-      // user's persisted theme preference. Falls through to the OS
-      // setting when pref === 'system' or no pref is stored. Wrapped
-      // in try/catch because private-mode browsers can throw on
-      // localStorage access.
-      (function () {
-        try {
-          var pref = localStorage.getItem('theme') || 'system';
-          var dark = pref === 'dark' || (pref === 'system' &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches);
-          if (dark) document.documentElement.classList.add('dark');
-        } catch (_) {}
-      })();
-    </script>
+    <script src="%sveltekit.assets%/theme-init.js"></script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
