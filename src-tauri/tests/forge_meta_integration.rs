@@ -2,13 +2,13 @@
 //! as fake maven-metadata + promotions endpoints, exercises the full
 //! parse + filter + sort + stable-tag pipeline.
 
-use ftlauncher_lib::forge::ForgeFlavor;
+use lucerna_lib::forge::ForgeFlavor;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // Serializes tests in this binary: they mutate
-// FTLAUNCHER_FORGE_META_OVERRIDE / FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE
+// LUCERNA_FORGE_META_OVERRIDE / LUCERNA_FORGE_PROMOTIONS_OVERRIDE
 // and the Forge meta cache.
 fn test_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -59,12 +59,12 @@ async fn list_versions_returns_sorted_with_recommended_tagged() {
         .mount(&server)
         .await;
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("FTLAUNCHER_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE", server.uri());
-    ftlauncher_lib::forge::meta::clear_cache_for_test();
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
+    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    lucerna_lib::forge::meta::clear_cache_for_test();
 
-    let entries = ftlauncher_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.20.4")
+    let entries = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.20.4")
         .await
         .expect("list_versions");
     assert_eq!(entries.len(), 3);
@@ -74,9 +74,9 @@ async fn list_versions_returns_sorted_with_recommended_tagged() {
     assert!(entries[1].stable, "49.0.30 is recommended");
     assert_eq!(entries[2].version, "49.0.0");
 
-    std::env::remove_var("FTLAUNCHER_FORGE_META_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
+    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -94,21 +94,21 @@ async fn list_versions_filters_to_mc() {
         .mount(&server)
         .await;
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("FTLAUNCHER_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE", server.uri());
-    ftlauncher_lib::forge::meta::clear_cache_for_test();
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
+    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    lucerna_lib::forge::meta::clear_cache_for_test();
 
-    let entries = ftlauncher_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.7.10")
+    let entries = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.7.10")
         .await
         .expect("list_versions");
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].version, "10.13.4.1614");
     assert!(entries[0].stable);
 
-    std::env::remove_var("FTLAUNCHER_FORGE_META_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
+    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -126,12 +126,12 @@ async fn list_versions_promotions_404_falls_back_to_top_non_beta_stable() {
         .mount(&server)
         .await;
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("FTLAUNCHER_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE", server.uri());
-    ftlauncher_lib::forge::meta::clear_cache_for_test();
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
+    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    lucerna_lib::forge::meta::clear_cache_for_test();
 
-    let entries = ftlauncher_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.20.4")
+    let entries = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.20.4")
         .await
         .expect("list_versions");
     assert_eq!(entries.len(), 3);
@@ -145,9 +145,9 @@ async fn list_versions_promotions_404_falls_back_to_top_non_beta_stable() {
     );
     assert_eq!(entries.iter().filter(|e| e.stable).count(), 1);
 
-    std::env::remove_var("FTLAUNCHER_FORGE_META_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
+    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -165,23 +165,23 @@ async fn list_versions_unknown_mc_returns_loader_unavailable() {
         .mount(&server)
         .await;
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("FTLAUNCHER_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE", server.uri());
-    ftlauncher_lib::forge::meta::clear_cache_for_test();
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
+    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    lucerna_lib::forge::meta::clear_cache_for_test();
 
-    let err = ftlauncher_lib::forge::meta::list_versions(ForgeFlavor::Forge, "99.99.99")
+    let err = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "99.99.99")
         .await
         .unwrap_err();
     match err {
-        ftlauncher_lib::error::Error::LoaderUnavailable { loader, mc_version } => {
+        lucerna_lib::error::Error::LoaderUnavailable { loader, mc_version } => {
             assert_eq!(loader, "forge");
             assert_eq!(mc_version, "99.99.99");
         }
         other => panic!("expected LoaderUnavailable, got {other:?}"),
     }
 
-    std::env::remove_var("FTLAUNCHER_FORGE_META_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
+    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }

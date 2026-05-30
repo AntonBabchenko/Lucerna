@@ -5,9 +5,9 @@
 //! end-to-end against a realistic 1.20.4 fixture from outside the
 //! crate to confirm the public surface is well-formed.
 
-use ftlauncher_lib::accounts::{Account, AccountKind};
-use ftlauncher_lib::launch::args::{build_argv, build_classpath, ArgvInput};
-use ftlauncher_lib::versions::version_json::parse;
+use lucerna_lib::accounts::{Account, AccountKind};
+use lucerna_lib::launch::args::{build_argv, build_classpath, ArgvInput};
+use lucerna_lib::versions::version_json::parse;
 use std::path::PathBuf;
 
 const FIXTURE: &str = r#"{
@@ -49,16 +49,16 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         details: &details,
         account: &account,
         java_path: PathBuf::from("C:/jres/java-runtime-gamma/bin/javaw.exe"),
-        libraries_dir: PathBuf::from("C:/Users/foo/AppData/Roaming/com.ftlauncher.app/libraries"),
-        assets_dir: PathBuf::from("C:/Users/foo/AppData/Roaming/com.ftlauncher.app/assets"),
+        libraries_dir: PathBuf::from("C:/Users/foo/AppData/Roaming/com.lucerna.app/libraries"),
+        assets_dir: PathBuf::from("C:/Users/foo/AppData/Roaming/com.lucerna.app/assets"),
         natives_dir: PathBuf::from(
-            "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/instances/default/natives",
+            "C:/Users/foo/AppData/Roaming/com.lucerna.app/instances/default/natives",
         ),
         game_dir: PathBuf::from(
-            "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/instances/default/.minecraft",
+            "C:/Users/foo/AppData/Roaming/com.lucerna.app/instances/default/.minecraft",
         ),
         client_jar: Some(PathBuf::from(
-            "C:/Users/foo/AppData/Roaming/com.ftlauncher.app/versions/1.20.4/1.20.4.jar",
+            "C:/Users/foo/AppData/Roaming/com.lucerna.app/versions/1.20.4/1.20.4.jar",
         )),
         os: "windows",
         arch: "x64",

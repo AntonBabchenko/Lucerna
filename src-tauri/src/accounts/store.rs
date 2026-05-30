@@ -350,7 +350,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("account.json");
         // version=3 but accounts have no `kind` field. This is the literal
-        // shape from `***REMOVED***\AppData\Roaming\com.ftlauncher.app\account.json`
+        // shape from `***REMOVED***\AppData\Roaming\com.lucerna.app\account.json`
         // captured during PR #16 manual e2e.
         std::fs::write(
             &path,

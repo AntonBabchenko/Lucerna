@@ -67,7 +67,7 @@ export const MANAGE_STEPS: ReadonlyArray<TourStep> = [
 export const LOGS_STEPS: ReadonlyArray<TourStep> = [
   {
     title: 'Three log sources',
-    body: "Game logs are Minecraft's output. Crash reports only appear when the game crashes. Launcher logs are FTlauncher's own.",
+    body: "Game logs are Minecraft's output. Crash reports only appear when the game crashes. Launcher logs are Lucerna's own.",
     targetSelector: '[data-tour-ctx="logs-sidebar"]',
     anchor: 'right',
   },
@@ -91,7 +91,7 @@ export const LOGS_STEPS: ReadonlyArray<TourStep> = [
   },
   {
     title: 'Crash reports get a structured view',
-    body: "When you open a crash-*.txt file, FTlauncher splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text.",
+    body: "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text.",
     targetSelector: '[data-tour-ctx="logs-sidebar"]',
     anchor: 'right',
   },

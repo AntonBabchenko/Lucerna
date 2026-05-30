@@ -158,7 +158,7 @@
           {#if project && project.body_html}
             <p class="text-xs text-placeholder italic">
               Content from {source === 'modrinth' ? 'Modrinth' : 'CurseForge'} — any ads or links in it
-              are the author's, not FTlauncher's.
+              are the author's, not Lucerna's.
             </p>
           {/if}
           <ImageGallery images={gallery} />

@@ -9,7 +9,7 @@
 //! The orchestrator is exercised by manual e2e — see Task 9 of the
 //! implementation plan.
 
-use ftlauncher_lib::jre::manifest::{
+use lucerna_lib::jre::manifest::{
     clear_cache_for_test, fetch_top_level, mojang_platform_key, pick_component,
 };
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -17,7 +17,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // Serializes the tests in this binary that mutate
-// FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE and the JRE manifest cache.
+// LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE and the JRE manifest cache.
 fn test_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -67,10 +67,10 @@ async fn fetches_top_level_via_env_override_and_caches() {
         .await;
 
     std::env::set_var(
-        "FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE",
+        "LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE",
         format!("{}/all.json", server.uri()),
     );
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let top = fetch_top_level().await.expect("fetch");
     let gamma = pick_component(&top, "windows-x64", "java-runtime-gamma").expect("pick gamma");
@@ -82,8 +82,8 @@ async fn fetches_top_level_via_env_override_and_caches() {
     let top2 = fetch_top_level().await.expect("from cache");
     assert!(top2.0.contains_key("windows-x64"));
 
-    std::env::remove_var("FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     clear_cache_for_test();
 }
 
@@ -101,18 +101,18 @@ async fn pick_component_falls_through_to_unknown_version_for_missing_component()
         .await;
 
     std::env::set_var(
-        "FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE",
+        "LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE",
         format!("{}/all.json", server.uri()),
     );
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let top = fetch_top_level().await.expect("fetch");
     let err = pick_component(&top, "linux", "jre-legacy").unwrap_err();
     // linux has java-runtime-gamma but not jre-legacy in the fixture.
     assert!(format!("{err}").contains("not found"));
 
-    std::env::remove_var("FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     clear_cache_for_test();
 }
 

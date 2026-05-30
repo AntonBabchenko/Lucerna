@@ -17,14 +17,14 @@
 
 <section class="space-y-3 text-sm selectable">
   <h3 class="text-base font-semibold text-primary">About</h3>
-  <p class="font-medium text-primary">FTlauncher v{version}</p>
+  <p class="font-medium text-primary">Lucerna v{version}</p>
   <p class="text-secondary">{DISCLAIMER_TEXT}</p>
   <p>
     <button
       type="button"
       class="btn-tertiary"
       title={REPO_URL}
-      aria-label={`Open FTlauncher repository on GitHub (${REPO_URL})`}
+      aria-label={`Open Lucerna repository on GitHub (${REPO_URL})`}
       onclick={openRepo}
     >
       View on GitHub

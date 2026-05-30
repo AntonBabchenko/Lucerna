@@ -26,16 +26,16 @@
 //! using public helpers and a tempdir for the data root. We never
 //! construct a Wry AppHandle (would need WebView2 DLLs in test PATH).
 
-use ftlauncher_lib::forge::installer::{detect_era, Era};
-use ftlauncher_lib::forge::patcher::{
+use lucerna_lib::forge::installer::{detect_era, Era};
+use lucerna_lib::forge::patcher::{
     maven_coord_to_relative_path, run_processor, ProcessorContext,
 };
-use ftlauncher_lib::network;
-use ftlauncher_lib::versions::libraries::artifacts_to_install;
-use ftlauncher_lib::versions::loaders::{list_loaders, synth_id, Loader};
-use ftlauncher_lib::versions::manifest::list_manifest;
-use ftlauncher_lib::versions::resolve::merge_inherits;
-use ftlauncher_lib::versions::version_json::{
+use lucerna_lib::network;
+use lucerna_lib::versions::libraries::artifacts_to_install;
+use lucerna_lib::versions::loaders::{list_loaders, synth_id, Loader};
+use lucerna_lib::versions::manifest::list_manifest;
+use lucerna_lib::versions::resolve::merge_inherits;
+use lucerna_lib::versions::version_json::{
     parse as parse_version_json, Library, VersionDetails,
 };
 use std::path::{Path, PathBuf};
@@ -68,7 +68,7 @@ impl MatrixLoader {
 
 /// MC version coverage. Picked to span every Forge/Fabric/Quilt era.
 ///
-/// Override via FTLAUNCHER_MATRIX_MC=mc1,mc2,... to run a subset (useful
+/// Override via LUCERNA_MATRIX_MC=mc1,mc2,... to run a subset (useful
 /// during harness debugging — full matrix is 1.5-3h, single MC is ~10 min).
 const MC_VERSIONS_DEFAULT: &[&str] = &[
     "1.7.10",  // legacy Forge boundary, no Fabric/Quilt
@@ -85,7 +85,7 @@ const MC_VERSIONS_DEFAULT: &[&str] = &[
 ];
 
 fn mc_versions() -> Vec<String> {
-    match std::env::var("FTLAUNCHER_MATRIX_MC") {
+    match std::env::var("LUCERNA_MATRIX_MC") {
         Ok(s) if !s.trim().is_empty() => s.split(',').map(|s| s.trim().to_string()).collect(),
         _ => MC_VERSIONS_DEFAULT.iter().map(|s| s.to_string()).collect(),
     }
@@ -137,7 +137,7 @@ fn loaders_for(mc: &str) -> Vec<MatrixLoader> {
 #[cfg(test)]
 mod loaders_for_tests {
     use super::*;
-    use ftlauncher_lib::versions::loaders::Loader;
+    use lucerna_lib::versions::loaders::Loader;
 
     #[test]
     fn neoforge_excluded_for_1_20_0() {
@@ -760,7 +760,7 @@ async fn install_forge_processor_era(
     profile_value: &serde_json::Value,
     _is_modern: bool,
 ) -> Result<VersionDetails, InstallError> {
-    use ftlauncher_lib::forge::installer::transitional::{
+    use lucerna_lib::forge::installer::transitional::{
         classpath_coords_to_libraries, parse_install_profile, substitute_args,
     };
 
@@ -804,7 +804,7 @@ async fn install_forge_processor_era(
         .java_version
         .as_ref()
         .map(|jv| jv.component.as_str())
-        .unwrap_or(ftlauncher_lib::jre::DEFAULT_LEGACY_COMPONENT);
+        .unwrap_or(lucerna_lib::jre::DEFAULT_LEGACY_COMPONENT);
     let java_bin = ensure_jre_into(component, paths).await.or_else(|_| {
         locate_system_java().ok_or_else(|| InstallError {
             stage: "forge-java".into(),
@@ -982,7 +982,7 @@ async fn launch_and_watch(
     {
         let os_ = detect_os();
         let arch_ = detect_arch();
-        if let Err(e) = ftlauncher_lib::launch::natives::extract_natives(
+        if let Err(e) = lucerna_lib::launch::natives::extract_natives(
             &details.libraries,
             &paths.libraries(),
             &natives_dir,
@@ -1004,7 +1004,7 @@ async fn launch_and_watch(
         .java_version
         .as_ref()
         .map(|jv| jv.component.as_str())
-        .unwrap_or(ftlauncher_lib::jre::DEFAULT_LEGACY_COMPONENT);
+        .unwrap_or(lucerna_lib::jre::DEFAULT_LEGACY_COMPONENT);
     let java = match ensure_jre_into(component, paths).await {
         Ok(j) => j,
         Err(e) => {
@@ -1017,12 +1017,12 @@ async fn launch_and_watch(
     let arch = detect_arch();
 
     // Synthesize an offline account for the launcher's substitution.
-    let account = ftlauncher_lib::accounts::Account {
+    let account = lucerna_lib::accounts::Account {
         id: "matrix-tester".into(),
         name: "MatrixTester".into(),
         uuid: "00000000-0000-0000-0000-000000000000".into(),
         expires_at: None,
-        kind: ftlauncher_lib::accounts::AccountKind::Offline,
+        kind: lucerna_lib::accounts::AccountKind::Offline,
     };
 
     // Mirror production spawn.rs: Forge/NeoForge ship a patched MC in
@@ -1034,7 +1034,7 @@ async fn launch_and_watch(
         MatrixLoader::Real(Loader::Forge) | MatrixLoader::Real(Loader::NeoForge) => None,
         _ => Some(paths.versions().join(&synth).join(format!("{synth}.jar"))),
     };
-    let argv_input = ftlauncher_lib::launch::args::ArgvInput {
+    let argv_input = lucerna_lib::launch::args::ArgvInput {
         details,
         account: &account,
         java_path: java.clone(),
@@ -1046,7 +1046,7 @@ async fn launch_and_watch(
         os,
         arch,
     };
-    let manifest_argv = match ftlauncher_lib::launch::args::build_argv(&argv_input) {
+    let manifest_argv = match lucerna_lib::launch::args::build_argv(&argv_input) {
         Ok(a) => a,
         Err(e) => {
             return Outcome::LaunchSpawnFailed {
@@ -1211,7 +1211,7 @@ fn locate_system_java() -> Option<PathBuf> {
 /// to the `java` executable. Replicates `jre::install::ensure_jre` for the
 /// matrix harness (which doesn't have an AppHandle).
 async fn ensure_jre_into(component: &str, paths: &Paths) -> Result<PathBuf, InstallError> {
-    use ftlauncher_lib::jre::manifest::{
+    use lucerna_lib::jre::manifest::{
         fetch_component_manifest, fetch_top_level, mojang_platform_key, pick_component, FileEntry,
     };
     let os = detect_os();
@@ -1308,7 +1308,7 @@ fn print_summary_table(results: &[(Combo, Outcome)]) {
 // ─── Test entry ─────────────────────────────────────────────────────────────
 
 fn data_root() -> PathBuf {
-    let base = std::env::temp_dir().join("ftlauncher-matrix-data");
+    let base = std::env::temp_dir().join("lucerna-matrix-data");
     std::fs::create_dir_all(&base).expect("create matrix data root");
     base
 }

@@ -17,7 +17,7 @@ use crate::error::Error;
 use crate::mods::installed;
 use crate::mods::platform::{InstalledMod, ModSource, VersionRef};
 
-const UA: &str = "AntonBabchenko/FTlauncher (github.com/AntonBabchenko/FTlauncher)";
+const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
 /// CurseForge file fingerprint: MurmurHash2 (32-bit, seed 1) over the
 /// file bytes with the whitespace bytes 0x09, 0x0a, 0x0d, 0x20 removed,
@@ -515,9 +515,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got.get("abc123").expect("hash should resolve");
         assert_eq!(id.source, ModSource::Modrinth);
@@ -542,9 +542,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(500))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "non-2xx should be succeeded=false");
     }
@@ -561,9 +561,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(succeeded, "200 + empty object should be succeeded=true");
     }
@@ -571,10 +571,10 @@ mod tests {
     #[tokio::test]
     async fn resolve_modrinth_transport_failure_is_succeeded_false() {
         // Port 1 is unreachable — connection fails before any status.
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_modrinth("http://127.0.0.1:1", &["abc123".to_string()]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "transport failure should be succeeded=false");
     }
@@ -593,9 +593,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "decode failure should be succeeded=false");
     }
@@ -623,10 +623,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "test-key", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got
             .get("sha-a")
@@ -652,10 +652,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(403))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "403 should be succeeded=false");
     }
@@ -670,10 +670,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(
             succeeded,
@@ -694,20 +694,20 @@ mod tests {
             .respond_with(ResponseTemplate::new(401))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "401 should be succeeded=false");
     }
 
     #[tokio::test]
     async fn resolve_curseforge_transport_failure_is_succeeded_false() {
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge("http://127.0.0.1:1", "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "transport failure should be succeeded=false");
     }
@@ -724,10 +724,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "decode failure should be succeeded=false");
     }
@@ -756,11 +756,11 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let n = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(n, 1);
         let mods = installed::list(td.path()).await.unwrap();
@@ -796,7 +796,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
             .mount(&mr)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let first = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
@@ -805,7 +805,7 @@ mod tests {
         let second = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(first, 1);
         assert_eq!(second, 0);
     }
@@ -829,11 +829,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
             .mount(&mr)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         let mods = installed::list(td.path()).await.unwrap();
         let hand = mods
             .iter()
@@ -888,11 +888,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
@@ -935,11 +935,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let n = enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(n, 0);
         let mods = installed::list(td.path()).await.unwrap();
@@ -985,11 +985,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let n = enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(n, 0);
 
         let mods = installed::list(td.path()).await.unwrap();
@@ -1023,11 +1023,11 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
@@ -1072,11 +1072,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods

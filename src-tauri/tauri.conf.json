@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FTlauncher",
+  "productName": "Lucerna",
   "version": "0.9.0-test.1",
-  "identifier": "com.ftlauncher.app",
+  "identifier": "com.lucerna.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "FTlauncher",
+        "title": "Lucerna",
         "width": 820,
         "height": 680,
         "minWidth": 820,

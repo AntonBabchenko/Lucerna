@@ -27,7 +27,7 @@
   //
   // Each row pairs a ModSummary (fetched lazily from the platform per
   // installed mod's project_id) with the InstalledMod record from
-  // {instance}/ftlauncher/installed-mods.json. Manual mods (jars the
+  // {instance}/lucerna/installed-mods.json. Manual mods (jars the
   // user dropped into the mods folder by hand — source: null) render a
   // degraded row with no icon and the filename as the title, since
   // they have no platform metadata to fetch.

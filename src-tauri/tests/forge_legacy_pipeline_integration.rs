@@ -20,11 +20,11 @@
 //! the fixture is missing — same `load_or_skip` pattern as
 //! `forge_legacy_era_integration`.
 
-use ftlauncher_lib::forge::installer::legacy::{
+use lucerna_lib::forge::installer::legacy::{
     extract_universal_jar_bytes, extract_version_info, maven_coord_to_relative_path,
 };
-use ftlauncher_lib::versions::libraries::artifacts_to_install;
-use ftlauncher_lib::versions::version_json::Library;
+use lucerna_lib::versions::libraries::artifacts_to_install;
+use lucerna_lib::versions::version_json::Library;
 
 const FIXTURE_PATH: &str =
     "tests/fixtures/forge/installers/forge-1.7.10-10.13.4.1614-installer.jar";
@@ -247,8 +247,8 @@ fn legacy_install_pipeline_smoke_against_real_installer() {
 
     // Era detection on the real file → Legacy.
     assert_eq!(
-        ftlauncher_lib::forge::installer::detect_era(&profile),
-        ftlauncher_lib::forge::installer::Era::Legacy
+        lucerna_lib::forge::installer::detect_era(&profile),
+        lucerna_lib::forge::installer::Era::Legacy
     );
 
     // versionInfo round-trips through our parser.

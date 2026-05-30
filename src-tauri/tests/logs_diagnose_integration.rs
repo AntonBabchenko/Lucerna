@@ -2,7 +2,7 @@
 //! real tempfile, assert the right pattern_id fires. Exercises the
 //! file-read + source inference + match path together.
 
-use ftlauncher_lib::logs::diagnose;
+use lucerna_lib::logs::diagnose;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

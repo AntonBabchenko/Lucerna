@@ -1,6 +1,6 @@
 # Testing
 
-FTlauncher uses a layered test strategy. Each layer targets a different class of failure and runs in a different context. Knowing which layer to run when matters — the cross-loader matrix takes 1.5+ hours; the unit suite takes 100ms.
+Lucerna uses a layered test strategy. Each layer targets a different class of failure and runs in a different context. Knowing which layer to run when matters — the cross-loader matrix takes 1.5+ hours; the unit suite takes 100ms.
 
 ## Layers at a glance
 
@@ -64,7 +64,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --test loader_matrix_e2e -- --ig
 Override the default MC list to focus on one row (faster when debugging):
 
 ```powershell
-$env:FTLAUNCHER_MATRIX_MC = "1.20.4,1.21.11"
+$env:LUCERNA_MATRIX_MC = "1.20.4,1.21.11"
 cargo test --manifest-path src-tauri/Cargo.toml --test loader_matrix_e2e -- --ignored --nocapture
 ```
 
@@ -74,7 +74,7 @@ Outputs:
 - Console: progress line per combo + summary table at the end.
 - `target/loader-matrix-logs/<combo>.log` — `INSTALL FAILED` text or `argv` summary.
 - `target/loader-matrix-logs/<combo>.stdio.log` — child JVM stdout/stderr (useful when MC crashes early before `latest.log` is written).
-- `<TEMP>/ftlauncher-matrix-data/` — sandbox data root. Persistent across runs so the second pass is mostly cache hits.
+- `<TEMP>/lucerna-matrix-data/` — sandbox data root. Persistent across runs so the second pass is mostly cache hits.
 
 Read the postmortem at [superpowers/notes/2026-05-17-phase3-postmortem.md](superpowers/notes/2026-05-17-phase3-postmortem.md) for the bug catalogue this harness produced.
 

@@ -142,7 +142,7 @@ async fn download_lib(url: &str, dest: &std::path::Path, sha1: &str) {
             .await
             .expect("create lib dir");
     }
-    ftlauncher_lib::network::download::download_no_emit(url, dest, sha1, "forge-e2e")
+    lucerna_lib::network::download::download_no_emit(url, dest, sha1, "forge-e2e")
         .await
         .unwrap_or_else(|e| panic!("failed to download {url}: {e:?}"));
 }
@@ -171,7 +171,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
     // 1. Parse install_profile.
     let raw_text =
         serde_json::to_string(&install_profile_value).expect("re-serialise install_profile");
-    let profile = ftlauncher_lib::forge::installer::transitional::parse_install_profile(&raw_text)
+    let profile = lucerna_lib::forge::installer::transitional::parse_install_profile(&raw_text)
         .expect("parse install_profile v2");
 
     eprintln!("profile.minecraft = {}", profile.minecraft);
@@ -186,7 +186,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         let mut entry = archive.by_name("version.json").expect("version.json entry");
         let mut buf = String::new();
         entry.read_to_string(&mut buf).expect("read version.json");
-        ftlauncher_lib::versions::version_json::parse(&buf).expect("parse version.json")
+        lucerna_lib::versions::version_json::parse(&buf).expect("parse version.json")
     };
     eprintln!("version.json id = {}", version_details.id);
     eprintln!("version.json mainClass = {}", version_details.main_class);
@@ -248,7 +248,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
     };
     eprintln!("platform = {os}/{arch}");
 
-    let downloadable: Vec<ftlauncher_lib::versions::version_json::Library> = profile
+    let downloadable: Vec<lucerna_lib::versions::version_json::Library> = profile
         .libraries
         .iter()
         .filter(|l| {
@@ -266,7 +266,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
 
     for lib in &downloadable {
         for (rel_path, url, sha1, _size) in
-            ftlauncher_lib::versions::libraries::artifacts_to_install(lib, os, arch)
+            lucerna_lib::versions::libraries::artifacts_to_install(lib, os, arch)
         {
             download_lib(&url, &libs_root.join(&rel_path), &sha1).await;
         }
@@ -290,7 +290,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
             eprintln!("  [cache] {}", mc_jar_path.display());
         } else {
             // Fetch the Mojang version manifest to find 1.16.5's URL.
-            let entries = ftlauncher_lib::versions::manifest::list_manifest()
+            let entries = lucerna_lib::versions::manifest::list_manifest()
                 .await
                 .expect("fetch version manifest");
             let entry = entries
@@ -300,7 +300,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
 
             // Fetch the per-version JSON to get downloads.client.
             let version_json: serde_json::Value =
-                ftlauncher_lib::network::get_json(&entry.url, "forge-e2e-client-jar")
+                lucerna_lib::network::get_json(&entry.url, "forge-e2e-client-jar")
                     .await
                     .expect("fetch 1.16.5 version JSON");
 
@@ -312,7 +312,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
                 .expect("downloads.client.sha1");
 
             eprintln!("  [download] {client_url}");
-            ftlauncher_lib::network::download::download_no_emit(
+            lucerna_lib::network::download::download_no_emit(
                 client_url,
                 &mc_jar_path,
                 client_sha1,
@@ -329,10 +329,10 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
 
     // 6. Run processors.
     eprintln!("--- step 6: processors ---");
-    use ftlauncher_lib::forge::installer::transitional::{
+    use lucerna_lib::forge::installer::transitional::{
         classpath_coords_to_libraries, substitute_args,
     };
-    use ftlauncher_lib::forge::patcher::{run_processor, ProcessorContext};
+    use lucerna_lib::forge::patcher::{run_processor, ProcessorContext};
 
     for (i, p) in profile.processors.iter().enumerate() {
         // Skip server-side-only processors.
@@ -349,7 +349,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         let cp_libs = classpath_coords_to_libraries(&p.classpath);
         for lib in &cp_libs {
             for (rel_path, url, sha1, _size) in
-                ftlauncher_lib::versions::libraries::artifacts_to_install(lib, os, arch)
+                lucerna_lib::versions::libraries::artifacts_to_install(lib, os, arch)
             {
                 download_lib(&url, &libs_root.join(&rel_path), &sha1).await;
             }
@@ -375,13 +375,13 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
         let mut cp_paths: Vec<std::path::PathBuf> = p
             .classpath
             .iter()
-            .filter_map(|c| ftlauncher_lib::forge::patcher::maven_coord_to_relative_path(c))
+            .filter_map(|c| lucerna_lib::forge::patcher::maven_coord_to_relative_path(c))
             .map(|rel| libs_root.join(rel))
             .collect();
 
         // Include processor's OWN jar so Java can find its main class.
         // Mirrors transitional::install's logic added in the 2026-05-17(b) pivot.
-        if let Some(rel) = ftlauncher_lib::forge::patcher::maven_coord_to_relative_path(&p.jar) {
+        if let Some(rel) = lucerna_lib::forge::patcher::maven_coord_to_relative_path(&p.jar) {
             cp_paths.push(libs_root.join(rel));
         }
 
@@ -402,7 +402,7 @@ async fn install_forge_1_16_5_transitional_era_e2e() {
 
     // 7. Assemble final VersionDetails.
     eprintln!("--- step 7: assemble VersionDetails ---");
-    let final_details = ftlauncher_lib::forge::profile::assemble_from_transitional(version_details);
+    let final_details = lucerna_lib::forge::profile::assemble_from_transitional(version_details);
 
     eprintln!("--- INSTALL SUCCEEDED ---");
     eprintln!("  id            = {}", final_details.id);

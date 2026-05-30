@@ -425,9 +425,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = c.search(&q).await.unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModsPlatformAuth { kind } => {
                 assert_eq!(kind, crate::error::ModsAuthKind::Invalid)
@@ -460,10 +460,10 @@ mod tests {
             })))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let c = client(s.uri());
         let p = c.project("77").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(p.gallery.len(), 1);
         assert_eq!(p.gallery[0].url, "https://media.forgecdn.net/s.png");
         assert!(p.body_html.contains("<p>Hi</p>"));
@@ -497,9 +497,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let page = client(s.uri()).search(&q).await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "12345");
@@ -522,12 +522,12 @@ mod tests {
             ))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let v = client(s.uri())
             .versions("12345", Some("1.20.1"), Some(LoaderKind::Fabric))
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 1);
         assert!(!v[0].primary_file.distribution_allowed);
     }

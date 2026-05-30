@@ -8,7 +8,7 @@
 //! In-memory cache, 5-minute TTL. The cache is process-global — the
 //! manifest is a launcher-wide concern, same shape as the audit log.
 //!
-//! Test override: the env var `FTLAUNCHER_MANIFEST_URL_OVERRIDE`, if
+//! Test override: the env var `LUCERNA_MANIFEST_URL_OVERRIDE`, if
 //! set, replaces the URL. Used by `tests/manifest_integration.rs` to
 //! point at wiremock without baking a config knob into production.
 //! In production runs the env var is never set.
@@ -82,7 +82,7 @@ pub async fn list_manifest() -> Result<Vec<VersionEntry>> {
         }
     }
 
-    let url = std::env::var("FTLAUNCHER_MANIFEST_URL_OVERRIDE")
+    let url = std::env::var("LUCERNA_MANIFEST_URL_OVERRIDE")
         .ok()
         .unwrap_or_else(|| MANIFEST_URL.to_string());
     let raw: RawManifest = get_json(&url, "versions").await?;

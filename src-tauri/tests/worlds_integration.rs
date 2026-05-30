@@ -8,7 +8,7 @@
 //! crate functions directly, which is the same path the commands
 //! delegate to.
 
-use ftlauncher_lib::worlds::{self, RestoreMode};
+use lucerna_lib::worlds::{self, RestoreMode};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -36,7 +36,7 @@ fn make_fixture(instance_id: &str, world_files: &[(&str, &[(&str, &[u8])])]) -> 
 
 #[tokio::test]
 async fn end_to_end_backup_then_restore_replace_round_trip() {
-    use ftlauncher_lib::worlds::zip as wzip;
+    use lucerna_lib::worlds::zip as wzip;
 
     let (_td, inst_dir) = make_fixture("inst-A", &[("World1", &[("level.dat", b"\x01\x02")])]);
     let saves_dir = inst_dir.join(".minecraft").join("saves");
@@ -80,7 +80,7 @@ async fn end_to_end_backup_then_restore_replace_round_trip() {
 
 #[tokio::test]
 async fn end_to_end_backup_then_restore_as_copy_keeps_original() {
-    use ftlauncher_lib::worlds::zip as wzip;
+    use lucerna_lib::worlds::zip as wzip;
 
     let (_td, inst_dir) = make_fixture("inst-B", &[("Survival", &[("level.dat", b"v1")])]);
     let saves_dir = inst_dir.join(".minecraft").join("saves");

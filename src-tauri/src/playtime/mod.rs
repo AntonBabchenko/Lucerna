@@ -18,7 +18,7 @@ pub struct PlaytimeStats {
 }
 
 const PLAYTIME_FILE: &str = "playtime.json";
-const META_DIR: &str = ".ftlauncher";
+const META_DIR: &str = ".lucerna";
 
 fn playtime_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join(META_DIR).join(PLAYTIME_FILE)
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn get_stats_malformed_file_returns_zero_stats() {
         let (_tmp, inst) = temp_instance_root();
-        let path = inst.join(".ftlauncher").join("playtime.json");
+        let path = inst.join(".lucerna").join("playtime.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"not json {{").unwrap();
         let stats = get_stats_at(&inst).unwrap();

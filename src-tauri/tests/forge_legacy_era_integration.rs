@@ -2,7 +2,7 @@
 //! handler. Uses a checked-out installer JAR (downloaded via
 //! ../fixtures/forge/fetch.ps1) — NO network at test time.
 
-use ftlauncher_lib::forge::installer::{detect_era, Era};
+use lucerna_lib::forge::installer::{detect_era, Era};
 
 const FIXTURE_PATH: &str =
     "tests/fixtures/forge/installers/forge-1.7.10-10.13.4.1614-installer.jar";

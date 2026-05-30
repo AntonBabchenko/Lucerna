@@ -21,7 +21,7 @@ use tokio::net::TcpListener;
 /// Azure-issued public OAuth client_id (PKCE, no secret). The value is
 /// public by design — every Mojang/Microsoft auth desktop launcher (Prism,
 /// HMCL, Modrinth Launcher, the official MS launcher) commits theirs in
-/// source. Tied to the FTlauncher app registration in the maintainer's
+/// source. Tied to the Lucerna app registration in the maintainer's
 /// Entra tenant; rotating it requires re-registering at portal.azure.com.
 pub const CLIENT_ID: &str = "f60b30f7-64cb-4d36-bc99-d55c40121603";
 

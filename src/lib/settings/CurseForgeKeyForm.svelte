@@ -112,7 +112,7 @@
         </button>
         tab
       </li>
-      <li>Generate a key for FTlauncher</li>
+      <li>Generate a key for Lucerna</li>
       <li>Paste it below</li>
     </ol>
   {:else}

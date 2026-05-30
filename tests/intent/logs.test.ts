@@ -85,7 +85,7 @@ function makeDiagnosis(over: Partial<Diagnosis> = {}): Diagnosis {
     pattern_id: 'missing_java',
     title: 'Java not found',
     explanation: 'The Java executable could not be located.',
-    recommendation: 'Install Java 21 and point FTlauncher at it.',
+    recommendation: 'Install Java 21 and point Lucerna at it.',
     matched_excerpt: 'Could not find or load main class',
     ...over,
   };

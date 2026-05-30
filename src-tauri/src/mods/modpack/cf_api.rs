@@ -482,7 +482,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(
             &s.uri(),
             Some("k"),
@@ -494,7 +494,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 2);
         assert_eq!(r.hits[0].title, "RLCraft");
         assert_eq!(r.hits[0].project_id, "1234");
@@ -510,7 +510,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(
             &s.uri(),
             Some("k"),
@@ -522,7 +522,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         // First hit has allowModDistribution:false; second omits it.
         assert_eq!(r.hits[0].distribution_allowed, Some(false));
         assert_eq!(r.hits[1].distribution_allowed, None);
@@ -540,7 +540,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         search(
             &s.uri(),
             Some("k"),
@@ -572,7 +572,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -620,9 +620,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let v = list_files(&s.uri(), Some("k"), "1234").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].id, "22"); // newest first
         assert_eq!(v[0].name, "RLCraft 2.9.3");
@@ -659,11 +659,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let url = resolve_file_download(&s.uri(), Some("k"), "1234", "22")
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(url, "https://edge.forgecdn.net/files/22/rl.zip");
     }
 
@@ -680,9 +680,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(name.as_deref(), Some("RLCraft"));
         assert_eq!(summary.as_deref(), Some("A hard pack"));
     }
@@ -696,9 +696,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(name.is_none() && summary.is_none());
     }
 
@@ -731,11 +731,11 @@ mod tests {
             })))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let d = fetch_project_detail(&s.uri(), Some("k"), "1234")
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(d.gallery.len(), 1);
         assert_eq!(d.gallery[0].url, "https://media.forgecdn.net/p.png");
         assert!(d.body_html.contains("<p>Pack</p>"));
@@ -757,11 +757,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = resolve_file_download(&s.uri(), Some("k"), "1234", "22")
             .await
             .unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModpackCfDistributionDisabled { pack_name } => {
                 assert_eq!(pack_name, "Locked Pack");

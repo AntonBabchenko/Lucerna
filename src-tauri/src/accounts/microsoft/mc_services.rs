@@ -9,10 +9,10 @@ pub const LOGIN_DEFAULT: &str = "https://api.minecraftservices.com/authenticatio
 pub const PROFILE_DEFAULT: &str = "https://api.minecraftservices.com/minecraft/profile";
 
 pub fn login_url() -> String {
-    std::env::var("FTLAUNCHER_MC_LOGIN_URL_OVERRIDE").unwrap_or_else(|_| LOGIN_DEFAULT.to_string())
+    std::env::var("LUCERNA_MC_LOGIN_URL_OVERRIDE").unwrap_or_else(|_| LOGIN_DEFAULT.to_string())
 }
 pub fn profile_url() -> String {
-    std::env::var("FTLAUNCHER_MC_PROFILE_URL_OVERRIDE")
+    std::env::var("LUCERNA_MC_PROFILE_URL_OVERRIDE")
         .unwrap_or_else(|_| PROFILE_DEFAULT.to_string())
 }
 
@@ -52,7 +52,7 @@ pub async fn login_with_xbox(userhash: &str, xsts_token: &str) -> Result<LoginRe
         //
         // The exact substring "Invalid app registration" was observed from
         // real api.minecraftservices.com responses on 2026-05-14 with the
-        // FTlauncher Azure app in approval-pending state. If Microsoft
+        // Lucerna Azure app in approval-pending state. If Microsoft
         // changes the wording, the live integration silently degrades to
         // generic AuthFailed (safe direction); automated tests do NOT catch
         // this drift because mocks control both sides. Manual integration
@@ -153,9 +153,9 @@ mod tests {
             )
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_MC_LOGIN_URL_OVERRIDE",
+            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
             format!("{}/authentication/login_with_xbox", server.uri()),
         );
 
@@ -163,8 +163,8 @@ mod tests {
         assert_eq!(r.access_token, "mc-tok");
         assert_eq!(r.expires_in, 86_400);
 
-        std::env::remove_var("FTLAUNCHER_MC_LOGIN_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -183,9 +183,9 @@ mod tests {
             )
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_MC_PROFILE_URL_OVERRIDE",
+            "LUCERNA_MC_PROFILE_URL_OVERRIDE",
             format!("{}/minecraft/profile", server.uri()),
         );
 
@@ -193,8 +193,8 @@ mod tests {
         assert_eq!(profile.id, "7e8d9c0a123456789abcdef012345678");
         assert_eq!(profile.name, "AntonMC");
 
-        std::env::remove_var("FTLAUNCHER_MC_PROFILE_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_MC_PROFILE_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -208,17 +208,17 @@ mod tests {
             .respond_with(ResponseTemplate::new(404).set_body_string("{}"))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_MC_PROFILE_URL_OVERRIDE",
+            "LUCERNA_MC_PROFILE_URL_OVERRIDE",
             format!("{}/minecraft/profile", server.uri()),
         );
 
         let result = fetch_profile("mc-tok").await;
         assert!(matches!(result, Err(Error::NoMinecraftProfile)));
 
-        std::env::remove_var("FTLAUNCHER_MC_PROFILE_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_MC_PROFILE_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 }
 
@@ -250,16 +250,16 @@ mod variant_a_tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
         std::env::set_var(
-            "FTLAUNCHER_MC_LOGIN_URL_OVERRIDE",
+            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
             format!("{}/authentication/login_with_xbox", server.uri()),
         );
 
         let result = login_with_xbox("uhs-abc", "xsts-xyz").await;
 
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
-        std::env::remove_var("FTLAUNCHER_MC_LOGIN_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
 
         assert!(
             matches!(result, Err(crate::error::Error::AuthPendingApproval)),
@@ -284,16 +284,16 @@ mod variant_a_tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
         std::env::set_var(
-            "FTLAUNCHER_MC_LOGIN_URL_OVERRIDE",
+            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
             format!("{}/authentication/login_with_xbox", server.uri()),
         );
 
         let result = login_with_xbox("uhs-abc", "xsts-xyz").await;
 
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
-        std::env::remove_var("FTLAUNCHER_MC_LOGIN_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
 
         assert!(
             matches!(

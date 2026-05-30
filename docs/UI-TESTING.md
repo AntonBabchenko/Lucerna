@@ -1,6 +1,6 @@
 # UI testing
 
-FTlauncher uses two complementary layers of UI regression testing.
+Lucerna uses two complementary layers of UI regression testing.
 
 ## Layer 1 — vitest class-string assertions
 

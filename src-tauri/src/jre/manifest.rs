@@ -97,7 +97,7 @@ fn cache() -> &'static Mutex<Option<Cached>> {
 }
 
 /// Fetch the top-level "all platforms" JRE manifest. Uses an in-memory
-/// 5-minute cache. Env var `FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE`
+/// 5-minute cache. Env var `LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE`
 /// substitutes the URL — only set by integration tests.
 pub async fn fetch_top_level() -> Result<TopLevelManifest> {
     {
@@ -109,7 +109,7 @@ pub async fn fetch_top_level() -> Result<TopLevelManifest> {
         }
     }
 
-    let url = std::env::var("FTLAUNCHER_JRE_TOPLEVEL_URL_OVERRIDE")
+    let url = std::env::var("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE")
         .ok()
         .unwrap_or_else(|| TOP_LEVEL_URL.to_string());
     let manifest: TopLevelManifest = get_json(&url, "jre").await?;

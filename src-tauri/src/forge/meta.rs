@@ -339,8 +339,8 @@ fn list_cache() -> &'static Mutex<std::collections::HashMap<(ForgeFlavor, String
 /// `meta_url_override` for tests — points at a wiremock URL. `None` in production.
 fn meta_url_for(flavor: ForgeFlavor) -> String {
     let env_key = match flavor {
-        ForgeFlavor::Forge => "FTLAUNCHER_FORGE_META_OVERRIDE",
-        ForgeFlavor::NeoForge => "FTLAUNCHER_NEOFORGE_META_OVERRIDE",
+        ForgeFlavor::Forge => "LUCERNA_FORGE_META_OVERRIDE",
+        ForgeFlavor::NeoForge => "LUCERNA_NEOFORGE_META_OVERRIDE",
     };
     if let Ok(base) = std::env::var(env_key) {
         // Treat the override as a base — append the maven-metadata.xml path.
@@ -352,8 +352,8 @@ fn meta_url_for(flavor: ForgeFlavor) -> String {
 
 fn promotions_url_for(flavor: ForgeFlavor) -> Option<String> {
     let env_key = match flavor {
-        ForgeFlavor::Forge => "FTLAUNCHER_FORGE_PROMOTIONS_OVERRIDE",
-        ForgeFlavor::NeoForge => "FTLAUNCHER_NEOFORGE_PROMOTIONS_OVERRIDE",
+        ForgeFlavor::Forge => "LUCERNA_FORGE_PROMOTIONS_OVERRIDE",
+        ForgeFlavor::NeoForge => "LUCERNA_NEOFORGE_PROMOTIONS_OVERRIDE",
     };
     if let Ok(base) = std::env::var(env_key) {
         Some(format!(
@@ -480,8 +480,8 @@ pub async fn fetch_installer_bytes(
     // the canonical `<mc>-<fv>` form.
     let raw = cached_raw_version(flavor, mc, fv);
     let url = if let Ok(base) = std::env::var(match flavor {
-        ForgeFlavor::Forge => "FTLAUNCHER_FORGE_INSTALLER_OVERRIDE",
-        ForgeFlavor::NeoForge => "FTLAUNCHER_NEOFORGE_INSTALLER_OVERRIDE",
+        ForgeFlavor::Forge => "LUCERNA_FORGE_INSTALLER_OVERRIDE",
+        ForgeFlavor::NeoForge => "LUCERNA_NEOFORGE_INSTALLER_OVERRIDE",
     }) {
         format!(
             "{}/forge-{mc}-{fv}-installer.jar",

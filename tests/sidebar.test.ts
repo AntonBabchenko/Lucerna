@@ -40,7 +40,7 @@ const sampleInstance: InstanceWithStatus = {
 };
 
 describe('Sidebar', () => {
-  it('renders FTlauncher title', () => {
+  it('renders Lucerna title', () => {
     const { getByText } = render(Sidebar, {
       props: {
         accounts: [],
@@ -63,7 +63,7 @@ describe('Sidebar', () => {
         onInstall: vi.fn(),
       },
     });
-    expect(getByText('FTlauncher')).toBeTruthy();
+    expect(getByText('Lucerna')).toBeTruthy();
   });
 
   it('lists accounts and emits select on change', async () => {

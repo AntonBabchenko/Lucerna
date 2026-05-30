@@ -2,9 +2,9 @@
 //! placed in instance A is invisible from instance B's filesystem view.
 //! Does not actually launch Minecraft.
 
-use ftlauncher_lib::instances::ids::new_id;
-use ftlauncher_lib::instances::schema::{InstanceFile, LoaderKind};
-use ftlauncher_lib::instances::store::write_instance_json;
+use lucerna_lib::instances::ids::new_id;
+use lucerna_lib::instances::schema::{InstanceFile, LoaderKind};
+use lucerna_lib::instances::store::write_instance_json;
 use tempfile::tempdir;
 
 fn make(id: &str, name: &str) -> InstanceFile {

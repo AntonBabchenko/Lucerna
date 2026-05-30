@@ -1,7 +1,7 @@
 //! Single-mod install pipeline:
 //! resolve instance → fetch ModVersion → cache lookup → cold path →
 //! verify SHA-1 → copy into `{instance}/.minecraft/mods/` → record
-//! in `{instance}/ftlauncher/installed-mods.json`.
+//! in `{instance}/lucerna/installed-mods.json`.
 
 use std::path::Path;
 
@@ -465,11 +465,11 @@ mod tests {
             payload.len() as u64,
             "x.jar",
         );
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let installed = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(installed.sha1, sha);
         assert!(installed::mods_dir(td_inst.path()).join("x.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists());
@@ -493,14 +493,14 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = || fake_version(format!("{}/y.jar", s.uri()), sha.clone(), 3, "y.jar");
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
             .await
             .unwrap();
         install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -519,11 +519,11 @@ mod tests {
         fs::write(dir.join("z.jar"), b"first").await.unwrap(); // pre-existing different bytes
         let sha = hex::encode(Sha1::digest(b"second"));
         let v = fake_version(format!("{}/z.jar", s.uri()), sha, 6, "z.jar");
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(
             matches!(err, Error::ModsFilenameConflict { .. }),
             "expected ModsFilenameConflict, got {err:?}"
@@ -556,7 +556,7 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = fake_version(format!("{}/d.jar", s.uri()), sha.clone(), 2, "d.jar");
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap();
@@ -567,7 +567,7 @@ mod tests {
         assert!(!installed::mods_dir(td_inst.path()).join("d.jar").exists());
         enable(td_inst.path(), &sha).await.unwrap();
         assert!(installed::mods_dir(td_inst.path()).join("d.jar").exists());
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -583,7 +583,7 @@ mod tests {
             .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_asset(
             td_data.path(),
             td_inst.path(),
@@ -595,7 +595,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         let dest = td_inst.path().join(".minecraft/resourcepacks/RP.zip");
         assert_eq!(tokio::fs::read(&dest).await.unwrap(), body);
     }
@@ -634,12 +634,12 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = fake_version(format!("{}/u.jar", s.uri()), sha.clone(), 2, "u.jar");
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap();
         uninstall(td_inst.path(), &sha).await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(!installed::mods_dir(td_inst.path()).join("u.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists()); // cache survives
         assert!(installed::list(td_inst.path()).await.unwrap().is_empty());
@@ -671,7 +671,7 @@ mod tests {
             v1_bytes.len() as u64,
             "v1.jar",
         );
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(td_data.path(), td_inst.path(), v1, &nop_progress())
             .await
             .unwrap();
@@ -691,7 +691,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(outcome.removed_sha1, v1_sha);
         assert_eq!(outcome.primary.sha1, v2_sha);
         assert!(installed::mods_dir(td_inst.path()).join("v2.jar").exists());
@@ -721,7 +721,7 @@ mod tests {
             .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(
             td_data.path(),
             td_inst.path(),
@@ -752,7 +752,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(installed::mods_dir(td_inst.path())
             .join("d2.jar.disabled")
             .exists());
@@ -776,7 +776,7 @@ mod tests {
         // pre-warm download fails before the swap.
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(
             td_data.path(),
             td_inst.path(),
@@ -805,7 +805,7 @@ mod tests {
             &nop_progress(),
         )
         .await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_err());
         // The old version must be untouched.
         assert!(installed::mods_dir(td_inst.path()).join("k1.jar").exists());
@@ -837,7 +837,7 @@ mod tests {
         }
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         install_one(
             td_data.path(),
             td_inst.path(),
@@ -873,7 +873,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(installed::mods_dir(td_inst.path()).join("p2.jar").exists());
         assert!(installed::mods_dir(td_inst.path()).join("dep.jar").exists());
         let list = installed::list(td_inst.path()).await.unwrap();

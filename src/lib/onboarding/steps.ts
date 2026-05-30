@@ -25,8 +25,8 @@ export interface TourStep {
 
 export const STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Welcome to FTlauncher',
-    body: 'FTlauncher organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others.',
+    title: 'Welcome to Lucerna',
+    body: 'Lucerna organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others.',
     targetSelector: null,
     anchor: 'center',
     disclaimer: DISCLAIMER_TEXT,
@@ -39,7 +39,7 @@ export const STEPS: ReadonlyArray<TourStep> = [
   },
   {
     title: 'Pick an instance',
-    body: 'An instance is a self-contained Minecraft install. FTlauncher starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected.',
+    body: 'An instance is a self-contained Minecraft install. Lucerna starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected.',
     targetSelector: '[data-tour="instance-picker"]',
     anchor: 'right',
   },

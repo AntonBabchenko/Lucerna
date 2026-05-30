@@ -56,9 +56,9 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
             details: "no default window icon to use for tray".into(),
         })?;
 
-    let tray = TrayIconBuilder::with_id("ftlauncher-tray")
+    let tray = TrayIconBuilder::with_id("lucerna-tray")
         .icon(icon)
-        .tooltip("FTlauncher — Minecraft running")
+        .tooltip("Lucerna — Minecraft running")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {

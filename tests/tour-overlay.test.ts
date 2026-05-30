@@ -23,7 +23,7 @@ beforeEach(() => {
 describe('TourOverlay', () => {
   test('renders the welcome step on initial active state', () => {
     render(TourOverlay);
-    expect(screen.getByText(/Welcome to FTlauncher/i)).toBeTruthy();
+    expect(screen.getByText(/Welcome to Lucerna/i)).toBeTruthy();
     expect(screen.getByText(/Step 1 of 7/i)).toBeTruthy();
   });
 
@@ -71,7 +71,7 @@ describe('TourOverlay', () => {
   test('Does not render when tourState.active is false', () => {
     tourState.active = false;
     render(TourOverlay);
-    expect(screen.queryByText(/Welcome to FTlauncher/i)).toBeNull();
+    expect(screen.queryByText(/Welcome to Lucerna/i)).toBeNull();
   });
 
   test('dialog uses aria-labelledby pointing at the title', () => {
@@ -80,7 +80,7 @@ describe('TourOverlay', () => {
     const labelledBy = dialog.getAttribute('aria-labelledby');
     expect(labelledBy).toBeTruthy();
     const title = document.getElementById(labelledBy as string);
-    expect(title?.textContent).toMatch(/Welcome to FTlauncher/i);
+    expect(title?.textContent).toMatch(/Welcome to Lucerna/i);
   });
 
   test('Tab on the last focusable wraps to the first (focus trap)', async () => {

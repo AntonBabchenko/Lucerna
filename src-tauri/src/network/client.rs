@@ -2,7 +2,7 @@
 //! single client enables connection pooling and shared TLS session
 //! cache.
 //!
-//! The User-Agent identifies FTlauncher and the launcher version so
+//! The User-Agent identifies Lucerna and the launcher version so
 //! upstream hosts (Mojang, Modrinth) can see what client is hitting
 //! their endpoints. This is the only identifying header we send.
 //!
@@ -23,7 +23,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(60);
 fn build_client() -> reqwest::Client {
     let version = env!("CARGO_PKG_VERSION");
     let user_agent =
-        format!("FTlauncher/{version} (+https://github.com/AntonBabchenko/FTlauncher)");
+        format!("Lucerna/{version} (+https://github.com/AntonBabchenko/Lucerna)");
     reqwest::Client::builder()
         .user_agent(user_agent)
         .connect_timeout(CONNECT_TIMEOUT)
@@ -53,8 +53,8 @@ mod tests {
     #[test]
     fn user_agent_built_with_package_version() {
         let v = env!("CARGO_PKG_VERSION");
-        let expected = format!("FTlauncher/{v} (+https://github.com/AntonBabchenko/FTlauncher)");
-        assert!(expected.starts_with("FTlauncher/"));
+        let expected = format!("Lucerna/{v} (+https://github.com/AntonBabchenko/Lucerna)");
+        assert!(expected.starts_with("Lucerna/"));
         assert!(expected.contains(v));
     }
 }

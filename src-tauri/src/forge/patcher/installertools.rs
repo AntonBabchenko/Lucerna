@@ -228,7 +228,7 @@ async fn mcp_data(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
 
 async fn bundler_extract(_args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     // BUNDLER_EXTRACT unpacks Minecraft's bundled server jar (1.18+) into
-    // its embedded libraries + plain server jar. FTlauncher is client-only,
+    // its embedded libraries + plain server jar. Lucerna is client-only,
     // and the modern install_profile gates this processor behind
     // `sides: ["server"]` — the sides filter in modern::install /
     // transitional::install skips it before reaching here. If this error

@@ -3,10 +3,10 @@
 //! Stores two per-account secrets:
 //! - `refresh_token` — long-lived MS refresh token, used by
 //!   `microsoft::refresh` to renew the MC access token without user
-//!   interaction. Service slot: `"ftlauncher-microsoft-refresh"`.
+//!   interaction. Service slot: `"lucerna-microsoft-refresh"`.
 //! - `mc_access_token` — short-lived MC services access token, used by
 //!   `launch::args::substitution_map` to fill `auth_access_token` in the
-//!   JVM argv. Service slot: `"ftlauncher-mc-access"`.
+//!   JVM argv. Service slot: `"lucerna-mc-access"`.
 //!
 //! Both keyed by the account's local id (`Account.id`). On Sign out,
 //! `remove_account` clears both. On Microsoft account refresh, both are
@@ -22,8 +22,8 @@
 use crate::error::Error;
 use crate::error::Result;
 
-const SERVICE_REFRESH: &str = "ftlauncher-microsoft-refresh";
-const SERVICE_MC_ACCESS: &str = "ftlauncher-mc-access";
+const SERVICE_REFRESH: &str = "lucerna-microsoft-refresh";
+const SERVICE_MC_ACCESS: &str = "lucerna-mc-access";
 
 pub fn refresh_token_key(account_id: &str) -> Key {
     Key {

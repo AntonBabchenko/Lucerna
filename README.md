@@ -1,15 +1,17 @@
-# FTlauncher
+# Lucerna
 
-[![CI](https://github.com/AntonBabchenko/FTlauncher/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AntonBabchenko/FTlauncher/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://github.com/AntonBabchenko/Lucerna/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AntonBabchenko/Lucerna/actions/workflows/ci.yml?query=branch%3Amain)
 
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
-**F**ree **T**auri **Launcher** — a clean, transparent open-source Minecraft launcher for
+**Lucerna** — a clean, transparent open-source Minecraft launcher for
 Windows. No telemetry, no ad injection, no hidden processes, no bundled adware.
 The launcher itself is open-source under GPL-3.0-or-later; the Java runtime and Minecraft
 files come straight from Mojang and are never modified.
 
-FTlauncher integrates the official Modrinth and CurseForge APIs for mod and modpack
+> **Lucerna** /luˈkɛr.na/ — Latin for "lamp / light-bearer". Formerly named "FTlauncher"; renamed in 2026-05.
+
+Lucerna integrates the official Modrinth and CurseForge APIs for mod and modpack
 browsing, supports Fabric / Quilt / Forge / NeoForge, isolates every Minecraft install
 into its own instance, and ships offline play as a first-class option. Microsoft / Xbox
 Live sign-in is implemented but currently blocked upstream — see
@@ -71,13 +73,13 @@ process is a deliberate code change, not an emergent capability.
 - **Windows-only.** macOS / Linux ports are tracked but not started.
 - **One running Minecraft instance at a time.** Multi-instance launch is
   not planned for v1.
-- **Microsoft (Xbox Live) account support** is wired up in the launcher. The full PKCE OAuth → Xbox Live → XSTS → Minecraft Services chain executes when you click "Sign in with Microsoft". Until Microsoft approves FTlauncher's Azure app registration, the final step returns a typed pending-approval response and the launcher shows a friendly info toast; offline accounts remain fully usable for LAN and single-player. Once Microsoft approves, sign-in starts working with no launcher update required.
+- **Microsoft (Xbox Live) account support** is wired up in the launcher. The full PKCE OAuth → Xbox Live → XSTS → Minecraft Services chain executes when you click "Sign in with Microsoft". Until Microsoft approves Lucerna's Azure app registration, the final step returns a typed pending-approval response and the launcher shows a friendly info toast; offline accounts remain fully usable for LAN and single-player. Once Microsoft approves, sign-in starts working with no launcher update required.
 - **Not code-signed.** Windows SmartScreen warns on first run; click
   "More info" → "Run anyway". Code signing is a v1.0 concern.
 
 ## System requirements
 
-FTlauncher itself is a lightweight desktop app — the real hardware demands
+Lucerna itself is a lightweight desktop app — the real hardware demands
 come from Minecraft, which the launcher downloads and runs.
 
 To run the launcher:
@@ -101,17 +103,17 @@ launcher's):
 
 ## Install
 
-Download the latest installer from the [Releases page](https://github.com/AntonBabchenko/FTlauncher/releases).
+Download the latest installer from the [Releases page](https://github.com/AntonBabchenko/Lucerna/releases).
 
 Two formats are published:
 
-- `FTlauncher_<version>_x64-setup.exe` — NSIS installer (most users).
-- `FTlauncher_<version>_x64_en-US.msi` — MSI installer (for IT-managed
+- `Lucerna_<version>_x64-setup.exe` — NSIS installer (most users).
+- `Lucerna_<version>_x64_en-US.msi` — MSI installer (for IT-managed
   deploys).
 
-Both install to `%LOCALAPPDATA%\Programs\FTlauncher\` by default. Launcher
+Both install to `%LOCALAPPDATA%\Programs\Lucerna\` by default. Launcher
 data (downloads, accounts, logs) lives at
-`%APPDATA%\com.ftlauncher.app\`.
+`%APPDATA%\com.lucerna.app\`.
 
 ## Build from source
 
@@ -123,8 +125,8 @@ Prerequisites:
 - A WebView2 runtime (preinstalled on Windows 11).
 
 ```powershell
-git clone https://github.com/AntonBabchenko/FTlauncher.git
-cd FTlauncher
+git clone https://github.com/AntonBabchenko/Lucerna.git
+cd Lucerna
 pnpm install
 pnpm tauri dev      # run in development
 pnpm tauri build    # produce installer + portable in src-tauri/target/release/bundle/
@@ -146,7 +148,7 @@ GPL-3.0-or-later. See [`LICENSE`](LICENSE).
 
 If you fork this project you must license your fork under GPL-3.0 or a later
 version. This is intentional: it prevents the kind of re-skinned-with-telemetry
-fork that motivated FTlauncher in the first place.
+fork that motivated Lucerna in the first place.
 
 ## Contributing
 

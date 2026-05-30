@@ -145,7 +145,7 @@ describe('formatError', () => {
 
   it('formats auth_pending_approval', () => {
     expect(formatError({ kind: 'auth_pending_approval' })).toBe(
-      "Microsoft hasn't approved FTlauncher's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
+      "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
     );
   });
 

@@ -64,7 +64,7 @@
 </script>
 
 <aside class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto">
-  <div class="font-bold text-lg text-primary">FTlauncher</div>
+  <div class="font-bold text-lg text-primary">Lucerna</div>
 
   <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
     <div class="text-xs uppercase tracking-wide text-muted">Account</div>

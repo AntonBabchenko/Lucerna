@@ -19,7 +19,7 @@
 //!
 //! ## Env override (tests only)
 //!
-//! `FTLAUNCHER_EXTRA_ALLOWED_HOSTS=h1,h2,…` adds extra patterns at
+//! `LUCERNA_EXTRA_ALLOWED_HOSTS=h1,h2,…` adds extra patterns at
 //! runtime. Empty in production. Used by integration tests so
 //! wiremock URLs (`127.0.0.1`) aren't flagged as violations.
 
@@ -29,7 +29,7 @@
 /// realising piston-* depend on it.
 ///
 /// **Path scope.** The PRINCIPLES.md table lists `api.github.com`
-/// with a path scope (`/repos/AntonBabchenko/FTlauncher/releases`).
+/// with a path scope (`/repos/AntonBabchenko/Lucerna/releases`).
 /// Our check is host-level only — we accept any path under
 /// `api.github.com`. Path-level allowlisting is deferred until we
 /// actually call GitHub (the self-update path doesn't exist yet in
@@ -69,10 +69,10 @@ const ALLOWED_PATTERNS: &[&str] = &[
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
-/// the `FTLAUNCHER_EXTRA_ALLOWED_HOSTS` env override.
+/// the `LUCERNA_EXTRA_ALLOWED_HOSTS` env override.
 pub fn is_host_allowed(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if let Ok(extra) = std::env::var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS") {
+    if let Ok(extra) = std::env::var("LUCERNA_EXTRA_ALLOWED_HOSTS") {
         for pat in extra.split(',').map(|s| s.trim().to_ascii_lowercase()) {
             if !pat.is_empty() && host_matches_pattern(&host, &pat) {
                 return true;
@@ -121,7 +121,7 @@ mod tests {
     use super::*;
 
     // Serializes the env-var tests below: they mutate
-    // FTLAUNCHER_EXTRA_ALLOWED_HOSTS, which is process-global and shared
+    // LUCERNA_EXTRA_ALLOWED_HOSTS, which is process-global and shared
     // across cargo's parallel test threads. Uses the crate-wide lock so
     // these tests also serialize with wiremock tests in other modules.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -181,19 +181,19 @@ mod tests {
     #[test]
     fn env_override_enables_extra_hosts() {
         let _g = env_lock();
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         assert!(is_host_allowed("127.0.0.1"));
         assert!(is_host_allowed("localhost"));
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]
     fn env_override_empty_is_noop() {
         let _g = env_lock();
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "");
         assert!(!is_host_allowed("127.0.0.1"));
         assert!(!is_host_allowed(""));
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]

@@ -159,13 +159,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let dir = tempdir().unwrap();
         let dest = dir.path().join("loader-lib.jar");
         let url = format!("{}/loader-lib.jar", server.uri());
 
         let result = download_no_emit(&url, &dest, "", "test").await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(result.is_ok(), "expected ok, got {result:?}");
         assert!(dest.exists());
@@ -183,7 +183,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let dir = tempdir().unwrap();
         let dest = dir.path().join("x.jar");
         let url = format!("{}/x.jar", server.uri());
@@ -195,7 +195,7 @@ mod tests {
             "test",
         )
         .await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(matches!(result, Err(Error::HashMismatch { .. })));
         assert!(

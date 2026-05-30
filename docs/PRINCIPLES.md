@@ -1,10 +1,10 @@
 # Principles
 
-This document is the FTlauncher product and technical constitution. Decisions that conflict with what is written here must update this file first (with rationale in the PR) before code lands.
+This document is the Lucerna product and technical constitution. Decisions that conflict with what is written here must update this file first (with rationale in the PR) before code lands.
 
 ## Part A — Product values
 
-FTlauncher exists to give players a transparent open-source Minecraft launcher: telemetry-free, with no ad injection into the game, no hidden processes, and no bundled adware. The launcher never modifies the Minecraft client jar; the Minecraft we run is the Minecraft Mojang ships. Microsoft / Xbox Live and offline accounts are treated as equal first-class options for legitimate use cases (LAN play, single-player without internet, development testing, players who own Minecraft but prefer not to keep a network session live). Historically, the Russian / CIS launcher market has been dominated by clients that pair convenient mod-loader and instance UX with intrusive telemetry, ad injection, and bundled adware; we ship the convenient UX without the intrusive parts. That is the entire mission.
+Lucerna exists to give players a transparent open-source Minecraft launcher: telemetry-free, with no ad injection into the game, no hidden processes, and no bundled adware. The launcher never modifies the Minecraft client jar; the Minecraft we run is the Minecraft Mojang ships. Microsoft / Xbox Live and offline accounts are treated as equal first-class options for legitimate use cases (LAN play, single-player without internet, development testing, players who own Minecraft but prefer not to keep a network session live). Historically, the Russian / CIS launcher market has been dominated by clients that pair convenient mod-loader and instance UX with intrusive telemetry, ad injection, and bundled adware; we ship the convenient UX without the intrusive parts. That is the entire mission.
 
 ### Hard rules — what we never do
 
@@ -28,7 +28,7 @@ FTlauncher exists to give players a transparent open-source Minecraft launcher: 
    |---|---|---|
    | `*.minecraft.net`, `*.mojang.com` | Microsoft / Mojang auth, profile, assets | on |
    | `piston-meta.mojang.com`, `piston-data.mojang.com` | Version manifest, libraries | on |
-   | `api.github.com/repos/AntonBabchenko/FTlauncher/releases` | Launcher self-update check | on |
+   | `api.github.com/repos/AntonBabchenko/Lucerna/releases` | Launcher self-update check | on |
    | `api.modrinth.com` | Modrinth mod browser | requested on first open of mod browser |
    | `api.curseforge.com` | CurseForge mod browser | requested on first open of mod browser |
    | `cdn.modrinth.com` | Modrinth mod jar downloads | enabled when user installs from Modrinth |

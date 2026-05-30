@@ -1,8 +1,8 @@
 # Security Policy
 
-If you believe you have found a security vulnerability in FTlauncher, please report it privately.
+If you believe you have found a security vulnerability in Lucerna, please report it privately.
 
-**Preferred reporting channel:** [GitHub Private Security Advisory](https://github.com/AntonBabchenko/FTlauncher/security/advisories/new).
+**Preferred reporting channel:** [GitHub Private Security Advisory](https://github.com/AntonBabchenko/Lucerna/security/advisories/new).
 
 This goes directly to the maintainer through GitHub's private reporting workflow. The report is not visible publicly. GitHub also supports CVE assignment from the same workflow when applicable.
 

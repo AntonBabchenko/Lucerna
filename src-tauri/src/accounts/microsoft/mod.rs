@@ -40,7 +40,7 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
     use tauri_plugin_opener::OpenerExt;
     let _ = app.opener().open_url(&auth_url, None::<&str>);
 
-    let timeout = std::env::var("FTLAUNCHER_LISTENER_TIMEOUT_SECS")
+    let timeout = std::env::var("LUCERNA_LISTENER_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .map(Duration::from_secs)
@@ -69,7 +69,7 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
         });
     }
 
-    let token_url = std::env::var("FTLAUNCHER_MS_TOKEN_URL_OVERRIDE")
+    let token_url = std::env::var("LUCERNA_MS_TOKEN_URL_OVERRIDE")
         .unwrap_or_else(|_| oauth::MS_TOKEN_URL.to_string());
     let ms_token =
         oauth::exchange_code_for_token(&code, &pkce.verifier, &redirect_uri, &token_url).await?;
@@ -109,7 +109,7 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
                 details: format!("no refresh token found for account {account_id}"),
             }
         })?;
-    let token_url = std::env::var("FTLAUNCHER_MS_TOKEN_URL_OVERRIDE")
+    let token_url = std::env::var("LUCERNA_MS_TOKEN_URL_OVERRIDE")
         .unwrap_or_else(|_| oauth::MS_TOKEN_URL.to_string());
     let ms_token = exchange_refresh_token(&refresh_token, &token_url).await?;
 
@@ -189,7 +189,7 @@ async fn exchange_refresh_token(
 }
 
 /// Cross-module env-var lock for MS auth tests. Every test in
-/// `oauth`, `xbox`, `mc_services` that mutates `FTLAUNCHER_EXTRA_ALLOWED_HOSTS`
+/// `oauth`, `xbox`, `mc_services` that mutates `LUCERNA_EXTRA_ALLOWED_HOSTS`
 /// (or any other process-global env var) must take this lock before the
 /// mutation and hold it until the assertion completes. A per-module lock
 /// is not enough — tests across different submodules run in the same

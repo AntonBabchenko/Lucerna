@@ -1,10 +1,10 @@
 //! Regression shield for the modern-era install pipeline.
 //! Mirrors `forge_transitional_era_integration.rs` shape.
 
-use ftlauncher_lib::forge::installer::transitional::{
+use lucerna_lib::forge::installer::transitional::{
     parse_install_profile, substitute_args, DataEntry,
 };
-use ftlauncher_lib::forge::installer::{detect_era, Era};
+use lucerna_lib::forge::installer::{detect_era, Era};
 use std::collections::HashMap;
 use std::path::PathBuf;
 

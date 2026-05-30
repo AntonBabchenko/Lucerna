@@ -12,7 +12,7 @@
 
 use crate::error::Error;
 
-const SERVICE: &str = "ftlauncher";
+const SERVICE: &str = "lucerna";
 #[cfg(not(test))]
 const USERNAME: &str = "curseforge-api-key";
 /// Sentinel kept for the `unit_tests_use_a_separate_keyring_slot` test

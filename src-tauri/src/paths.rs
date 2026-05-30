@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 /// Root of the launcher's persistent data, resolved from the platform's
-/// app-data dir (`%APPDATA%\com.ftlauncher.app\` on Windows). All other
+/// app-data dir (`%APPDATA%\com.lucerna.app\` on Windows). All other
 /// paths derive from this.
 pub fn app_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     app.path().app_data_dir()

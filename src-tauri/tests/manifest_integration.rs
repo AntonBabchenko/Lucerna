@@ -5,8 +5,8 @@
 //! Tests share the global cache via `clear_cache_for_test()` and
 //! must run single-threaded.
 
-use ftlauncher_lib::versions::manifest::{clear_cache_for_test, list_manifest};
-use ftlauncher_lib::versions::VersionType;
+use lucerna_lib::versions::manifest::{clear_cache_for_test, list_manifest};
+use lucerna_lib::versions::VersionType;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -58,10 +58,10 @@ async fn list_manifest_fetches_parses_sorts_and_caches() {
     // test. Single-threaded execution makes this safe — set/unset
     // happens within the same test body.
     std::env::set_var(
-        "FTLAUNCHER_MANIFEST_URL_OVERRIDE",
+        "LUCERNA_MANIFEST_URL_OVERRIDE",
         format!("{}/mc/game/version_manifest_v2.json", server.uri()),
     );
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
 
     let first = list_manifest().await.expect("first fetch");
     assert_eq!(first.len(), 3);
@@ -88,6 +88,6 @@ async fn list_manifest_fetches_parses_sorts_and_caches() {
         "cached call should not produce additional network requests"
     );
 
-    std::env::remove_var("FTLAUNCHER_MANIFEST_URL_OVERRIDE");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_MANIFEST_URL_OVERRIDE");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }

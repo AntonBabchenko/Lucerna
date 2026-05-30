@@ -1,6 +1,6 @@
 //! Per-instance installed-mods registry.
 //!
-//! File: `{instance}/ftlauncher/installed-mods.json`. Schema v1.
+//! File: `{instance}/lucerna/installed-mods.json`. Schema v1.
 //!
 //! On every read, the registry is scanned against the actual contents
 //! of `{instance}/.minecraft/mods/` so user-placed jars and renamed /
@@ -108,7 +108,7 @@ fn default_version() -> u32 {
 }
 
 pub fn registry_dir(instance_root: &Path) -> PathBuf {
-    instance_root.join("ftlauncher")
+    instance_root.join("lucerna")
 }
 
 pub fn registry_path(instance_root: &Path) -> PathBuf {

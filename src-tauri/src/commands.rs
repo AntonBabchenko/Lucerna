@@ -31,7 +31,7 @@ fn validate_instance_name(name: &str) -> Result<(), crate::error::Error> {
 #[specta::specta]
 pub fn greet(name: String) -> Greeting {
     Greeting {
-        message: format!("Hello, {name}! — FTlauncher is alive."),
+        message: format!("Hello, {name}! — Lucerna is alive."),
     }
 }
 
@@ -719,7 +719,7 @@ pub struct ModInstallFailed {
 
 /// Per-instance root, e.g. `<app_data>/instances/<id>/`. The mod install
 /// pipeline writes under `{root}/.minecraft/mods/` and tracks state in
-/// `{root}/ftlauncher/installed-mods.json`.
+/// `{root}/lucerna/installed-mods.json`.
 fn instance_root(
     app: &tauri::AppHandle,
     instance_id: &str,
@@ -1443,7 +1443,7 @@ pub async fn modpack_fetch_to_temp(
                 format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
             let resp = crate::network::request::get(
                 &url,
-                &[("user-agent", "AntonBabchenko/FTlauncher")],
+                &[("user-agent", "AntonBabchenko/Lucerna")],
                 "modpacks",
             )
             .await
@@ -1518,7 +1518,7 @@ pub async fn modpack_fetch_to_temp(
             path: "<temp>".into(),
             details: e.to_string(),
         })?
-        .join("ftlauncher")
+        .join("lucerna")
         .join("modpack");
     tokio::fs::create_dir_all(&temp_dir)
         .await
@@ -2178,7 +2178,7 @@ mod tests {
     fn greet_includes_name() {
         let g = greet("World".to_string());
         assert!(g.message.contains("World"));
-        assert!(g.message.contains("FTlauncher"));
+        assert!(g.message.contains("Lucerna"));
     }
 
     #[test]
@@ -2272,11 +2272,11 @@ mod tests {
             ))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let entries = crate::commands::fetch_modpack_versions(&server.uri(), "abc")
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "v1");
         assert_eq!(entries[0].game_versions, vec!["1.20.1"]);
@@ -2293,11 +2293,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = crate::commands::fetch_modpack_versions(&server.uri(), "missing")
             .await
             .unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(
             matches!(err, crate::error::Error::ModsNotFound { .. }),
             "got: {err:?}"
@@ -2318,11 +2318,11 @@ mod tests {
             ))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let p = crate::commands::fetch_modrinth_modpack_project(&server.uri(), "abc")
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(p.body_html.contains("<h1>"));
         assert_eq!(p.gallery[0].url, "https://media.modrinth.com/g.png");
         assert_eq!(p.website_url.as_deref(), Some("https://src.example"));

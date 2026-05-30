@@ -334,7 +334,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
     use zip::write::SimpleFileOptions;
 
-    // The CurseForge API key and FTLAUNCHER_EXTRA_ALLOWED_HOSTS env var are
+    // The CurseForge API key and LUCERNA_EXTRA_ALLOWED_HOSTS env var are
     // both process-global. Use the crate-wide env-lock so these tests don't
     // race with wiremock tests in other modules.
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -405,11 +405,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.format, ModpackFormat::Curseforge);
         assert_eq!(r.loader, LoaderKind::Forge);
         assert_eq!(r.loader_version.as_deref(), Some("47.2.0"));
@@ -445,11 +445,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.files.len(), 1);
         assert_eq!(r.unresolvable.len(), 1);
         let u = &r.unresolvable[0];
@@ -482,11 +482,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.unresolvable.len(), 1);
         assert_eq!(r.unresolvable[0].sha1, None);
     }
@@ -549,11 +549,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(mods))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         let jei = r
             .files
             .iter()
@@ -592,11 +592,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await;
         clear_test_key();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::ModpackSha1Unavailable { .. })));
     }
 }

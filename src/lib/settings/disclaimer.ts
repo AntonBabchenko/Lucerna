@@ -8,4 +8,4 @@
 export const DISCLAIMER_TEXT =
   'NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.';
 
-export const REPO_URL = 'https://github.com/AntonBabchenko/FTlauncher';
+export const REPO_URL = 'https://github.com/AntonBabchenko/Lucerna';

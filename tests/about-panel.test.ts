@@ -18,7 +18,7 @@ describe('AboutPanel', () => {
 
   it('renders the app version sourced from package.json', () => {
     render(AboutPanel);
-    expect(screen.getByText(`FTlauncher v${pkg.version}`)).toBeTruthy();
+    expect(screen.getByText(`Lucerna v${pkg.version}`)).toBeTruthy();
   });
 
   it('opens the repo URL via tauri-plugin-opener when the repo button is clicked', async () => {

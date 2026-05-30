@@ -1,4 +1,4 @@
-# FTlauncher — Working Agreement
+# Lucerna — Working Agreement
 
 This file is the working agreement between the human maintainer and Claude. Claude loads it automatically every session. Keep it short, accurate, and actionable.
 
@@ -6,7 +6,7 @@ This file is the working agreement between the human maintainer and Claude. Clau
 
 ## What this project is
 
-FTlauncher is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. Russian-language UX is in scope (v0.2.0+).
+Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. Russian-language UX is in scope (v0.2.0+).
 
 The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes.
 

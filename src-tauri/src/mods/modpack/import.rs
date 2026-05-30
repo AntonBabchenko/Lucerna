@@ -658,7 +658,7 @@ async fn fetch_modrinth_metadata(version_id: &str) -> Result<(Option<String>, Pa
     let v_url = format!("https://api.modrinth.com/v2/version/{version_id}");
     let v_resp = crate::network::request::get(
         &v_url,
-        &[("user-agent", "AntonBabchenko/FTlauncher")],
+        &[("user-agent", "AntonBabchenko/Lucerna")],
         "modpacks",
     )
     .await
@@ -693,7 +693,7 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
     let p_url = format!("https://api.modrinth.com/v2/project/{project_id}");
     let p_resp = crate::network::request::get(
         &p_url,
-        &[("user-agent", "AntonBabchenko/FTlauncher")],
+        &[("user-agent", "AntonBabchenko/Lucerna")],
         "modpacks",
     )
     .await

@@ -4,11 +4,11 @@
 //! `store`/`scan`/`status`/`migrate`. The AppHandle-wrapping orchestrators
 //! are exercised by manual e2e in Task 21.
 
-use ftlauncher_lib::instances::ids::new_id;
-use ftlauncher_lib::instances::scan::list_all;
-use ftlauncher_lib::instances::schema::{AppFile, InstanceFile, LoaderKind};
-use ftlauncher_lib::instances::status::ready_status;
-use ftlauncher_lib::instances::store::{
+use lucerna_lib::instances::ids::new_id;
+use lucerna_lib::instances::scan::list_all;
+use lucerna_lib::instances::schema::{AppFile, InstanceFile, LoaderKind};
+use lucerna_lib::instances::status::ready_status;
+use lucerna_lib::instances::store::{
     read_app_json, read_instance_json, write_app_json, write_instance_json,
 };
 use tempfile::tempdir;

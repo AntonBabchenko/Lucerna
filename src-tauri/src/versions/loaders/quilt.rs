@@ -55,7 +55,7 @@ async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Res
 const META_DEFAULT: &str = "https://meta.quiltmc.org";
 
 fn meta_base() -> String {
-    std::env::var("FTLAUNCHER_QUILT_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
+    std::env::var("LUCERNA_QUILT_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -244,8 +244,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    // Serializes env-var tests: they mutate FTLAUNCHER_QUILT_META_OVERRIDE
-    // and FTLAUNCHER_EXTRA_ALLOWED_HOSTS, which are process-global and
+    // Serializes env-var tests: they mutate LUCERNA_QUILT_META_OVERRIDE
+    // and LUCERNA_EXTRA_ALLOWED_HOSTS, which are process-global and
     // shared across cargo's parallel test threads. Uses the crate-wide lock
     // so these tests also serialize with wiremock tests in other modules.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -289,8 +289,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("FTLAUNCHER_QUILT_META_OVERRIDE", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
 
         let out = list("1.20.4").await.expect("list");
         assert_eq!(out.len(), 2);
@@ -304,8 +304,8 @@ mod tests {
         // Topmost stable → keeps stable=true (only one stable here).
         assert!(out[1].stable);
 
-        std::env::remove_var("FTLAUNCHER_QUILT_META_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]
@@ -361,8 +361,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(fixture))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("FTLAUNCHER_QUILT_META_OVERRIDE", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
 
         let out = list("1.21.11").await.expect("list");
         assert_eq!(out.len(), 4);
@@ -379,8 +379,8 @@ mod tests {
         assert_eq!(out[3].version, "0.20.0-beta.9");
         assert!(!out[3].stable);
 
-        std::env::remove_var("FTLAUNCHER_QUILT_META_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]
@@ -428,8 +428,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(fixture))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("FTLAUNCHER_QUILT_META_OVERRIDE", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
 
         let out = list("26.1.2").await.expect("list");
         // Only 0.27.0 has both mappings populated; 0.29.2 (missing keys)
@@ -437,8 +437,8 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].version, "0.27.0");
 
-        std::env::remove_var("FTLAUNCHER_QUILT_META_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -475,8 +475,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(LIST_ONE_ENTRY))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("FTLAUNCHER_QUILT_META_OVERRIDE", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
 
         let v = profile("1.21.11", "0.29.2").await.expect("profile");
         // quilt-loader + hashed + intermediary = 3.
@@ -502,8 +502,8 @@ mod tests {
             }
         }
 
-        std::env::remove_var("FTLAUNCHER_QUILT_META_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -541,14 +541,14 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(LIST_ONE_ENTRY))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("FTLAUNCHER_QUILT_META_OVERRIDE", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
 
         let v = profile("1.21.11", "0.17.11").await.expect("profile");
         // 3 libraries → no duplicates injected.
         assert_eq!(v.libraries.len(), 3);
 
-        std::env::remove_var("FTLAUNCHER_QUILT_META_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 }

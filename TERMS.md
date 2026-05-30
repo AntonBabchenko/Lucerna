@@ -1,10 +1,10 @@
-# FTlauncher Terms of Service
+# Lucerna Terms of Service
 
 _Last updated: 2026-05-27_
 
 ## 1. License
 
-FTlauncher is open source under **GPL-3.0-or-later**. The full text
+Lucerna is open source under **GPL-3.0-or-later**. The full text
 of the license is in the repository [`LICENSE`](LICENSE) file. Your
 rights to copy, modify, and redistribute the launcher are governed
 entirely by the GPL; nothing in this document narrows them.
@@ -20,8 +20,8 @@ About) and at the top of the README.
 
 ## 3. Account responsibility
 
-To play Minecraft Java Edition through FTlauncher, you must own a
-valid copy purchased from Mojang or Microsoft. FTlauncher only
+To play Minecraft Java Edition through Lucerna, you must own a
+valid copy purchased from Mojang or Microsoft. Lucerna only
 facilitates sign-in with the Microsoft account that owns the copy;
 we do not validate ownership ourselves and we are not the licence
 vendor. You are responsible for the security of your Microsoft
@@ -54,7 +54,7 @@ this document.
 
 ## 6. No service guarantees
 
-FTlauncher does not operate any server. We do not guarantee
+Lucerna does not operate any server. We do not guarantee
 uptime, compatibility with any specific Minecraft / Forge /
 NeoForge / Fabric / Quilt version, or successful sign-in to
 Microsoft services. Upstream service availability and policy
@@ -62,17 +62,17 @@ changes are outside our control.
 
 ## 7. Privacy
 
-Use of FTlauncher is also governed by [`PRIVACY.md`](PRIVACY.md).
+Use of Lucerna is also governed by [`PRIVACY.md`](PRIVACY.md).
 
 ## 8. Changes to these terms
 
 Changes are tracked via the file's git history at
-https://github.com/AntonBabchenko/FTlauncher/commits/main/TERMS.md.
+https://github.com/AntonBabchenko/Lucerna/commits/main/TERMS.md.
 Material changes are also called out in release notes.
 
 ## 9. Governing terms by use
 
-By installing and using FTlauncher, you agree to:
+By installing and using Lucerna, you agree to:
 
 - These terms.
 - The GPL-3.0-or-later license.

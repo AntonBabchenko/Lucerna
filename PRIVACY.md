@@ -1,10 +1,10 @@
-# FTlauncher Privacy Policy
+# Lucerna Privacy Policy
 
 _Last updated: 2026-05-27_
 
 ## 1. Summary
 
-FTlauncher does not transmit anything to FTlauncher servers — there
+Lucerna does not transmit anything to Lucerna servers — there
 are no such servers. All launcher state lives on your machine.
 Third-party APIs are called only for documented purposes: the Mojang
 version manifest and downloads, Microsoft / Xbox Live sign-in (when
@@ -14,14 +14,14 @@ Share), and an optional GitHub Releases check for launcher updates.
 
 ## 2. What data is stored on your machine
 
-- `account.json` in `%APPDATA%/com.ftlauncher.app/`: a list of
+- `account.json` in `%APPDATA%/com.lucerna.app/`: a list of
   accounts with `{id, kind, name, uuid, expires_at}` per entry.
   Microsoft accounts additionally have a refresh token and a
   Minecraft access token in the OS keyring (Windows Credential
   Manager via the `keyring` crate), keyed by the account's local
   `id`. Tokens are never written to disk.
 - Per-instance Minecraft state in
-  `%APPDATA%/com.ftlauncher.app/instances/<instance-id>/.minecraft/`:
+  `%APPDATA%/com.lucerna.app/instances/<instance-id>/.minecraft/`:
   worlds, screenshots, mods, configs, logs — the same shape as the
   Mojang reference launcher's `.minecraft` folder, but isolated to
   one instance.
@@ -89,27 +89,27 @@ modules.
 - Local account state, instance files, mod caches: until you delete
   the instance or uninstall the launcher.
 - Anonymised mclo.gs paste: retention is controlled by mclo.gs (see
-  https://mclo.gs/about). FTlauncher only keeps the resulting URL
+  https://mclo.gs/about). Lucerna only keeps the resulting URL
   in the launcher's local log.
 
 ## 6. Your choices
 
 - You can use offline-only accounts (no Microsoft sign-in
   required) for LAN and single-player.
-- To erase all FTlauncher data: uninstall the launcher, delete
-  `%APPDATA%/com.ftlauncher.app/`, and remove the relevant entries
+- To erase all Lucerna data: uninstall the launcher, delete
+  `%APPDATA%/com.lucerna.app/`, and remove the relevant entries
   from Windows Credential Manager (Control Panel → Credential
   Manager → Generic Credentials → look for entries whose Internet
-  or network address is `ftlauncher` — the username field will be
+  or network address is `lucerna` — the username field will be
   one of `curseforge-api-key`, `microsoft-refresh-<account-id>`,
   or `microsoft-mc-access-<account-id>`. The exact rendering varies
-  by OS; macOS Keychain shows them under service "ftlauncher" with
+  by OS; macOS Keychain shows them under service "lucerna" with
   the same account names, and Linux Secret Service stores them as
   schema attributes on the same SERVICE).
 
 ## 7. Children's privacy
 
-FTlauncher does not knowingly request or process data from
+Lucerna does not knowingly request or process data from
 children under 13. Microsoft Xbox Live sign-in enforces its own
 age-verification flow; XSTS XErr `2148916233` ("child account
 requires parental consent") is surfaced by the launcher as a typed
@@ -118,11 +118,11 @@ error with a user-facing message.
 ## 8. Changes to this policy
 
 Changes are tracked via the file's git history at
-https://github.com/AntonBabchenko/FTlauncher/commits/main/PRIVACY.md.
+https://github.com/AntonBabchenko/Lucerna/commits/main/PRIVACY.md.
 Material changes are also called out in release notes.
 
 ## 9. Contact
 
 For privacy questions, email **anton.babchenko@outlook.com**. For
 non-privacy issues, use
-[GitHub Issues](https://github.com/AntonBabchenko/FTlauncher/issues).
+[GitHub Issues](https://github.com/AntonBabchenko/Lucerna/issues).

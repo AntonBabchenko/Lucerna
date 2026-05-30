@@ -1,6 +1,6 @@
 # Security and Release Policy
 
-FTlauncher positions itself as a transparent alternative to launchers that ship adware, telemetry, or hidden processes. The claim "we have nothing to hide" only means something if it is verifiable. This document specifies the mechanics that make it verifiable.
+Lucerna positions itself as a transparent alternative to launchers that ship adware, telemetry, or hidden processes. The claim "we have nothing to hide" only means something if it is verifiable. This document specifies the mechanics that make it verifiable.
 
 For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at the repository root.
 

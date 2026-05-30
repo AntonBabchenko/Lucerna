@@ -13,7 +13,7 @@ use crate::error::Error;
 use crate::mods::modpack::schema::*;
 use crate::mods::platform::LoaderKind;
 
-const UA: &str = "AntonBabchenko/FTlauncher (github.com/AntonBabchenko/FTlauncher)";
+const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
 #[derive(Debug, Deserialize)]
 struct MrSearch {
@@ -184,11 +184,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(&s.uri(), "test", 0, None, None, ModpackSort::Relevance)
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 1);
         assert_eq!(r.hits[0].project_id, "PaCk1");
         assert_eq!(r.hits[0].supported_loaders, vec![LoaderKind::Fabric]);
@@ -213,7 +213,7 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(
             &s.uri(),
             "x",
@@ -224,7 +224,7 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 0);
     }
 
@@ -245,11 +245,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = search(&s.uri(), "x", 0, None, None, ModpackSort::Downloads)
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 0);
     }
 }

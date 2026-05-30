@@ -89,9 +89,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-200", server.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get(&url, &[], "test").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"hello");
     }
@@ -108,9 +108,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-404", server.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get(&url, &[], "test").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 404);
     }
 
@@ -125,9 +125,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-hdr", server.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get(&url, &[("x-api-key", "secret-123")], "test").await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_ok(), "header should have matched the mock: {r:?}");
     }
 
@@ -135,9 +135,9 @@ mod tests {
     async fn transport_failure_is_err() {
         let _g = test_lock();
         // Port 1 is unreachable — the connection fails before any status.
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = get("http://127.0.0.1:1/nope", &[], "test").await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::Network { .. })), "got: {r:?}");
     }
 
@@ -152,9 +152,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-post", server.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = post(&url, &[], b"{\"k\":1}", "test").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"done");
     }
@@ -170,9 +170,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-post-hdr", server.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let r = post(&url, &[("x-api-key", "k-9")], b"{}", "test").await;
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_ok(), "header should have matched the mock: {r:?}");
     }
 

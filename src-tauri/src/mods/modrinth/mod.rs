@@ -8,7 +8,7 @@ use crate::error::Error;
 use crate::mods::platform::*;
 
 const BASE_DEFAULT: &str = "https://api.modrinth.com";
-const UA: &str = "AntonBabchenko/FTlauncher (github.com/AntonBabchenko/FTlauncher)";
+const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
 pub struct ModrinthClient {
     base: String,
@@ -395,9 +395,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let page = c.search(&q).await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "u6dRKJwZ");
@@ -423,9 +423,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = c.search(&q).await.unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNetwork { .. }), "got: {err:?}");
     }
 
@@ -439,9 +439,9 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = c.project("missing").await.unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNotFound { .. }), "got: {err:?}");
     }
 
@@ -462,10 +462,10 @@ mod tests {
             ))
             .mount(&s)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let c = ModrinthClient::with_base(s.uri());
         let p = c.project("jei").await.unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(p.body_html.contains("<h1>"));
         assert!(p.body_html.contains("https://media.modrinth.com/b.png"));
         // Featured image sorts first regardless of ordering value.
@@ -493,12 +493,12 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let vs = c
             .versions("jei", Some("1.20.1"), Some(LoaderKind::Fabric))
             .await
             .unwrap();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].primary_file.filename, "jei-15.0.0.jar");
         assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("abc"));

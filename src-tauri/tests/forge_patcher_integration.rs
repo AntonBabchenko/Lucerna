@@ -2,7 +2,7 @@
 //! each of the 4 transitional-era processors. Golden-fixture tests
 //! skip gracefully if fixtures aren't present.
 
-use ftlauncher_lib::forge::patcher::{run_processor, ProcessorContext};
+use lucerna_lib::forge::patcher::{run_processor, ProcessorContext};
 use std::io::Write;
 use tempfile::tempdir;
 
@@ -19,7 +19,7 @@ async fn unknown_processor_returns_unsupported() {
         .unwrap_err();
     assert!(matches!(
         err,
-        ftlauncher_lib::error::Error::ForgeUnsupportedProcessor { .. }
+        lucerna_lib::error::Error::ForgeUnsupportedProcessor { .. }
     ));
 }
 
@@ -200,7 +200,7 @@ async fn installertools_bundler_extract_returns_server_only_error() {
         .await
         .unwrap_err();
     match err {
-        ftlauncher_lib::error::Error::ForgeUnsupportedProcessor { coord } => {
+        lucerna_lib::error::Error::ForgeUnsupportedProcessor { coord } => {
             assert!(coord.contains("BUNDLER_EXTRACT"));
             assert!(coord.contains("server-only") || coord.contains("client install"));
         }
@@ -221,7 +221,7 @@ async fn fart_rejects_missing_required_args() {
         .await
         .unwrap_err();
     match err {
-        ftlauncher_lib::error::Error::ForgePatcherFailed { processor, details } => {
+        lucerna_lib::error::Error::ForgePatcherFailed { processor, details } => {
             assert_eq!(processor, "fart");
             assert!(details.contains("missing --input"));
         }

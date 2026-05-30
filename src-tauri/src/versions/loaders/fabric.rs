@@ -33,9 +33,9 @@ async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Res
 const META_DEFAULT: &str = "https://meta.fabricmc.net";
 
 /// In production, `meta.fabricmc.net`. Tests set
-/// `FTLAUNCHER_FABRIC_META_OVERRIDE` to a wiremock URI.
+/// `LUCERNA_FABRIC_META_OVERRIDE` to a wiremock URI.
 fn meta_base() -> String {
-    std::env::var("FTLAUNCHER_FABRIC_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
+    std::env::var("LUCERNA_FABRIC_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,8 +123,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("FTLAUNCHER_FABRIC_META_OVERRIDE", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_FABRIC_META_OVERRIDE", server.uri());
 
         let out = list("1.20.4").await.expect("list");
         assert_eq!(out.len(), 3);
@@ -135,8 +135,8 @@ mod tests {
         assert_eq!(out[2].version, "0.15.5-beta.1");
         assert!(!out[2].stable);
 
-        std::env::remove_var("FTLAUNCHER_FABRIC_META_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_FABRIC_META_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]

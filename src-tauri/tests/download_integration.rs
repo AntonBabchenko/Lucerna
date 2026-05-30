@@ -4,7 +4,7 @@
 //! hash path; the event-emit branch in `download_with_sha`
 //! is covered by manual e2e verification.
 
-use ftlauncher_lib::error::Error;
+use lucerna_lib::error::Error;
 use sha1::{Digest, Sha1};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::tempdir;
@@ -29,7 +29,7 @@ fn test_lock() -> MutexGuard<'static, ()> {
 #[tokio::test]
 async fn download_succeeds_when_hash_matches() {
     let _g = test_lock();
-    let body = b"hello, ftlauncher";
+    let body = b"hello, lucerna";
     let expected_sha = sha1_hex(body);
 
     let server = MockServer::start().await;
@@ -43,11 +43,11 @@ async fn download_succeeds_when_hash_matches() {
     let dest = dir.path().join("out.bin");
     let url = format!("{}/file.bin", server.uri());
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    ftlauncher_lib::network::download::download_no_emit(&url, &dest, &expected_sha, "test")
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    lucerna_lib::network::download::download_no_emit(&url, &dest, &expected_sha, "test")
         .await
         .expect("download should succeed");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     let written = std::fs::read(&dest).unwrap();
     assert_eq!(written, body);
@@ -70,11 +70,11 @@ async fn download_fails_on_hash_mismatch_and_deletes_file() {
     let dest = dir.path().join("wrong.bin");
     let url = format!("{}/wrong.bin", server.uri());
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    let err = ftlauncher_lib::network::download::download_no_emit(&url, &dest, &wrong_sha, "test")
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let err = lucerna_lib::network::download::download_no_emit(&url, &dest, &wrong_sha, "test")
         .await
         .expect_err("hash mismatch should fail");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     match err {
         Error::HashMismatch { expected, got, .. } => {
@@ -101,11 +101,11 @@ async fn http_error_status_returns_network_error() {
     let dest = dir.path().join("nope.bin");
     let url = format!("{}/nope", server.uri());
 
-    std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    let err = ftlauncher_lib::network::download::download_no_emit(&url, &dest, "deadbeef", "test")
+    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let err = lucerna_lib::network::download::download_no_emit(&url, &dest, "deadbeef", "test")
         .await
         .expect_err("404 should fail");
-    std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     assert!(
         matches!(err, Error::Network { .. }),

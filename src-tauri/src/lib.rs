@@ -15,7 +15,7 @@ pub mod tray;
 pub mod versions;
 pub mod worlds;
 
-/// Process-wide lock for tests that mutate `FTLAUNCHER_EXTRA_ALLOWED_HOSTS`.
+/// Process-wide lock for tests that mutate `LUCERNA_EXTRA_ALLOWED_HOSTS`.
 /// All wiremock-backed unit tests must hold this lock for the duration of
 /// the test so that parallel threads don't race on the env-var state.
 #[cfg(test)]

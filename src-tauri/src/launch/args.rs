@@ -16,7 +16,7 @@ use crate::versions::version_json::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-const LAUNCHER_NAME: &str = "FTlauncher";
+const LAUNCHER_NAME: &str = "Lucerna";
 
 pub struct ArgvInput<'a> {
     pub details: &'a VersionDetails,

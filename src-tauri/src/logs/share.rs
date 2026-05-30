@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn anonymise_strips_windows_user_path_basic() {
-        let input = r"at file:/***REMOVED***/AppData/Roaming/FTlauncher/something";
+        let input = r"at file:/***REMOVED***/AppData/Roaming/Lucerna/something";
         assert!(!anonymise(input).contains("Anton"));
         assert!(anonymise(input).contains("<user>"));
     }
@@ -221,11 +221,11 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let url = upload_to_mclogs_at(&server.uri(), "test content")
             .await
             .expect("upload ok");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(url, "https://mclo.gs/abcdef");
     }
 
@@ -240,11 +240,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(413).set_body_string("Log too large"))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = upload_to_mclogs_at(&server.uri(), "test")
             .await
             .unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, crate::error::Error::McLogsUpload { .. }));
     }
 
@@ -262,11 +262,11 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let err = upload_to_mclogs_at(&server.uri(), "test")
             .await
             .unwrap_err();
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, crate::error::Error::McLogsUpload { .. }));
     }
 }

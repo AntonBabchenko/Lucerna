@@ -4,7 +4,7 @@
 //! decoding from JSON. The orchestrator is exercised manually
 //! via `pnpm tauri dev` in Task 11.
 
-use ftlauncher_lib::versions::version_json::{parse, RuleAction};
+use lucerna_lib::versions::version_json::{parse, RuleAction};
 
 #[test]
 fn parses_realistic_1_20_4_skeleton() {
@@ -78,7 +78,7 @@ fn parses_realistic_1_20_4_skeleton() {
 
     // Library rule eval on the natives-osx entry: should install on
     // macos, not on windows.
-    use ftlauncher_lib::versions::libraries::should_install;
+    use lucerna_lib::versions::libraries::should_install;
     let natives_lib = &v.libraries[2];
     assert!(should_install(natives_lib, "macos", "aarch64"));
     assert!(!should_install(natives_lib, "windows", "x64"));
@@ -129,7 +129,7 @@ fn legacy_minecraft_arguments_string_survives_roundtrip() {
 
 #[test]
 fn asset_index_json_decodes() {
-    use ftlauncher_lib::versions::assets::AssetIndex;
+    use lucerna_lib::versions::assets::AssetIndex;
     let json = r#"{
       "objects": {
         "minecraft/lang/en_us.json": {"hash": "aaa111", "size": 1234},

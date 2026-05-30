@@ -8,10 +8,10 @@ pub const XBL_DEFAULT: &str = "https://user.auth.xboxlive.com/user/authenticate"
 pub const XSTS_DEFAULT: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 
 pub fn xbl_url() -> String {
-    std::env::var("FTLAUNCHER_XBL_URL_OVERRIDE").unwrap_or_else(|_| XBL_DEFAULT.to_string())
+    std::env::var("LUCERNA_XBL_URL_OVERRIDE").unwrap_or_else(|_| XBL_DEFAULT.to_string())
 }
 pub fn xsts_url() -> String {
-    std::env::var("FTLAUNCHER_XSTS_URL_OVERRIDE").unwrap_or_else(|_| XSTS_DEFAULT.to_string())
+    std::env::var("LUCERNA_XSTS_URL_OVERRIDE").unwrap_or_else(|_| XSTS_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,9 +184,9 @@ mod tests {
         let _guard = super::super::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_XBL_URL_OVERRIDE",
+            "LUCERNA_XBL_URL_OVERRIDE",
             format!("{}/user/authenticate", server.uri()),
         );
 
@@ -194,8 +194,8 @@ mod tests {
         assert_eq!(token, "xbl-token-abc");
         assert_eq!(uhs, "userhash-xyz");
 
-        std::env::remove_var("FTLAUNCHER_XBL_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_XBL_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -209,9 +209,9 @@ mod tests {
         let _guard = super::super::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_XSTS_URL_OVERRIDE",
+            "LUCERNA_XSTS_URL_OVERRIDE",
             format!("{}/xsts/authorize", server.uri()),
         );
 
@@ -219,8 +219,8 @@ mod tests {
         assert_eq!(result.token, "xsts-token-abc");
         assert_eq!(result.userhash, "userhash-xsts");
 
-        std::env::remove_var("FTLAUNCHER_XSTS_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -234,9 +234,9 @@ mod tests {
         let _guard = super::super::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_XSTS_URL_OVERRIDE",
+            "LUCERNA_XSTS_URL_OVERRIDE",
             format!("{}/xsts/authorize", server.uri()),
         );
 
@@ -249,8 +249,8 @@ mod tests {
             other => panic!("expected child_account AuthFailed, got {other:?}"),
         }
 
-        std::env::remove_var("FTLAUNCHER_XSTS_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -264,9 +264,9 @@ mod tests {
         let _guard = super::super::ENV_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
-            "FTLAUNCHER_XSTS_URL_OVERRIDE",
+            "LUCERNA_XSTS_URL_OVERRIDE",
             format!("{}/xsts/authorize", server.uri()),
         );
 
@@ -279,7 +279,7 @@ mod tests {
             other => panic!("expected no_xbox_account, got {other:?}"),
         }
 
-        std::env::remove_var("FTLAUNCHER_XSTS_URL_OVERRIDE");
-        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 }
