@@ -725,20 +725,22 @@
                 <summary class="cursor-pointer font-semibold text-warning-text select-none">
                   ⚠ {diagnosis.title}
                 </summary>
-                <p class="mt-2 text-sm text-warning-text">{diagnosis.explanation}</p>
-                <p class="mt-2 text-sm text-warning-text">
+                <p class="mt-2 text-sm text-warning-text selectable">{diagnosis.explanation}</p>
+                <p class="mt-2 text-sm text-warning-text selectable">
                   <span class="font-semibold">What to try:</span>
                   {diagnosis.recommendation}
                 </p>
                 {#if diagnosis.matched_excerpt}
                   <pre
-                    class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap">{diagnosis.matched_excerpt}</pre>
+                    class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
                 {/if}
               </details>
             {/if}
 
-            <!-- Log body: structured crash view or standard line view -->
-            <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base">
+            <!-- Log body: structured crash view or standard line view.
+                 selectable so the user can drag-copy log lines / crash
+                 stacks into a bug report or to mclo.gs. -->
+            <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base selectable">
               {#if isStructured && crashSections}
                 <!-- Path A: structured crash report sections -->
                 <div class="px-3 py-2 space-y-2">

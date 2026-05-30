@@ -82,6 +82,10 @@ body {
   body {
     background-color: rgb(var(--bg-base));
     color: rgb(var(--text-primary));
+    /* Native-app feel: don't let the user lasso-select random UI text.
+       Inputs and the .selectable utility opt back in below. */
+    user-select: none;
+    -webkit-user-select: none;
   }
   /* Tailwind preflight resets h1-h6 font-size/weight to inherit but
      not colour, and bare headings without an explicit text-* utility
@@ -103,6 +107,14 @@ body {
     color: rgb(var(--text-primary));
     border-color: rgb(var(--border-emphasis));
   }
+  /* Always-selectable so paste/cut/typing feels native even though the
+     ancestor body explicitly disabled user-select. */
+  input,
+  textarea,
+  [contenteditable='true'] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
   input::placeholder,
   textarea::placeholder {
     color: rgb(var(--text-placeholder));
@@ -114,6 +126,14 @@ body {
     background-color: transparent;
     color: inherit;
   }
+  /* Block the browser's drag-to-Explorer affordance on every <img>. No
+     image in the launcher should be a drag source — mod icons, pack
+     covers, world thumbnails are display-only. Clicks / hover unaffected. */
+  img {
+    -webkit-user-drag: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
   /* Visible focus ring for keyboard navigation. The .btn-* utilities
      define their own crisper ring; this rule covers hand-rolled
      <button>s, links, and inputs until they migrate (B2). */
@@ -121,6 +141,14 @@ body {
     outline: 2px solid rgb(var(--accent));
     outline-offset: 2px;
   }
+}
+
+/* Opt-in text selection for places where copying IS useful (log lines,
+   mod descriptions, About disclaimer, diagnosis details, toast detail
+   rows). Without this, the ancestor body's user-select: none cascades. */
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* While the onboarding tour is active, disable interaction with the

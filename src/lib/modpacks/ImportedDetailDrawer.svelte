@@ -359,7 +359,10 @@
     </header>
 
     {#if inst.mrpack_summary}
-      <div class="px-4 pt-3 pb-2 text-sm text-secondary" data-testid="imported-detail-summary">
+      <div
+        class="px-4 pt-3 pb-2 text-sm text-secondary selectable"
+        data-testid="imported-detail-summary"
+      >
         {inst.mrpack_summary}
       </div>
     {/if}

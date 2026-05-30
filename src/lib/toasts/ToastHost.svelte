@@ -28,7 +28,7 @@
         <CloseButton onClick={() => dismiss(t.id)} ariaLabel="Dismiss notification" />
       </div>
       {#if t.lines.length > 0}
-        <ul class="mt-1 space-y-0.5 text-xs">
+        <ul class="mt-1 space-y-0.5 text-xs selectable">
           {#each t.lines as line}
             <li class="truncate">{line}</li>
           {/each}

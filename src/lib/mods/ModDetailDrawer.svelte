@@ -122,7 +122,7 @@
           project.summary.downloads ?? 0
         ).toLocaleString()} downloads
       </div>
-      <p class="text-sm text-secondary mt-3 whitespace-pre-line">
+      <p class="text-sm text-secondary mt-3 whitespace-pre-line selectable">
         {project.summary.summary}
       </p>
       <div class="text-xs mt-2 flex gap-3 flex-wrap">
