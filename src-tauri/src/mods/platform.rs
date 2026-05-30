@@ -61,10 +61,23 @@ pub struct ModSummary {
     pub updated_at: Option<String>,
 }
 
+/// One screenshot/gallery image for a mod or modpack detail view.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct GalleryImage {
+    pub url: String,
+    /// Caption / alt text when the platform supplies one.
+    pub title: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModProject {
     pub summary: ModSummary,
-    pub description: String,
+    /// Sanitized HTML of the project's long description (Modrinth `body`
+    /// rendered from markdown; CurseForge description endpoint HTML). Empty
+    /// when the platform supplies none — the UI falls back to `summary`.
+    pub body_html: String,
+    /// Screenshots, ordered featured-first then by platform ordering.
+    pub gallery: Vec<GalleryImage>,
     pub website_url: Option<String>,
 }
 

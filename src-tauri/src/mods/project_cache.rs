@@ -64,7 +64,8 @@ mod tests {
                 author: String::new(),
                 updated_at: None,
             },
-            description: String::new(),
+            body_html: String::new(),
+            gallery: vec![],
             website_url: None,
         }
     }

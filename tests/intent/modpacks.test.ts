@@ -1,6 +1,6 @@
 // Modpacks group intent coverage: ModpacksTab (positive sub-tabs), ModpackBrowseView,
 // ModpackCard, ImportedCard, ImportedDetailDrawer (rows NOT covered by D destructive-footer),
-// ImportPickerDialog, ModpackVersionDrawer, ModpackUpdateDialog, ImportProgressView.
+// ImportPickerDialog, ModpackDetailModal, ModpackUpdateDialog, ImportProgressView.
 //
 // Cluster D covers:
 //   - tabs-not-buttons: ModpacksTab negative (Browse/Imported sub-tabs are NOT .btn-*)
@@ -50,7 +50,7 @@
 //     unresolvable entry row → bg-danger-bg
 //     Cancel → btn-secondary btn-sm
 //     Install N selected → btn-primary btn-sm
-//   ModpackVersionDrawer:
+//   ModpackDetailModal:
 //     role="dialog" aria-modal="true" aria-label
 //     CloseButton → btn-icon
 //     loading state ("Loading versions...")
@@ -66,7 +66,7 @@
 //   ImportProgressView:
 //     role="status" aria-label
 
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   InstanceWithStatus,
@@ -89,8 +89,12 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { hits: [], total: 0, offset: 0, limit: 20 },
     }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
-    // ModpackVersionDrawer
+    // ModpackDetailModal
     modpackGetVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    modpackProject: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { body_html: '', gallery: [], website_url: null },
+    }),
     modpackFetchToTemp: vi.fn().mockResolvedValue({ status: 'ok', data: '/tmp/pack.mrpack' }),
     // ImportedDetailDrawer
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -128,9 +132,9 @@ import ImportPickerDialog from '$lib/modpacks/ImportPickerDialog.svelte';
 import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
 import ModpackBrowseView from '$lib/modpacks/ModpackBrowseView.svelte';
 import ModpackCard from '$lib/modpacks/ModpackCard.svelte';
+import ModpackDetailModal from '$lib/modpacks/ModpackDetailModal.svelte';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
 import ModpackUpdateDialog from '$lib/modpacks/ModpackUpdateDialog.svelte';
-import ModpackVersionDrawer from '$lib/modpacks/ModpackVersionDrawer.svelte';
 
 // ── Fixture factories ──────────────────────────────────────────────────────────
 
@@ -1026,67 +1030,71 @@ describe('ImportPickerDialog — Cancel and Install buttons', () => {
   });
 });
 
-// ── ModpackVersionDrawer — dialog structure ───────────────────────────────────
+// ── ModpackDetailModal — dialog structure ───────────────────────────────────
 
-describe('ModpackVersionDrawer — role=dialog aria-modal aria-label', () => {
+describe('ModpackDetailModal — role=dialog aria-modal aria-label', () => {
   it('drawer has role="dialog" aria-modal="true" aria-label="Modpack version list"', () => {
-    render(ModpackVersionDrawer, {
+    render(ModpackDetailModal, {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
-    const dialog = screen.getByRole('dialog', { name: /modpack version list/i });
+    const dialog = screen.getByRole('dialog', { name: /modpack details/i });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 
   it('CloseButton has btn-icon class', () => {
-    render(ModpackVersionDrawer, {
+    render(ModpackDetailModal, {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
-    const closeBtn = screen.getByLabelText(/close modpack version list/i);
+    const closeBtn = screen.getByLabelText(/close modpack details/i);
     expect(closeBtn).toHaveBtnVariant('icon');
   });
 });
 
-describe('ModpackVersionDrawer — loading state renders "Loading versions..."', () => {
+describe('ModpackDetailModal — loading state renders "Loading versions..."', () => {
   it('shows "Loading versions..." while modpackGetVersions is pending', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modpackGetVersions).mockReturnValueOnce(new Promise(() => {}));
-    render(ModpackVersionDrawer, {
+    render(ModpackDetailModal, {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
+    // Version state lives on the Versions tab; Overview shows the gallery.
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const loading = screen.getByText(/loading versions\.\.\./i);
     expect(loading.className).toContain('text-muted');
   });
 });
 
-describe('ModpackVersionDrawer — empty state renders "No versions available."', () => {
+describe('ModpackDetailModal — empty state renders "No versions available."', () => {
   it('shows "No versions available." when version list is empty', async () => {
-    render(ModpackVersionDrawer, {
+    render(ModpackDetailModal, {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const empty = await screen.findByText(/no versions available\./i);
     expect(empty.className).toContain('text-muted');
   });
 });
 
-describe('ModpackVersionDrawer — Install button is btn-primary btn-xs', () => {
+describe('ModpackDetailModal — Install button is btn-primary btn-xs', () => {
   it('Install button is btn-primary btn-xs when versions are present', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modpackGetVersions).mockResolvedValueOnce({
       status: 'ok',
       data: [makeVersionEntry()],
     });
-    render(ModpackVersionDrawer, {
+    render(ModpackDetailModal, {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const installBtn = await screen.findByRole('button', { name: /^install$/i });
     expect(installBtn).toHaveBtnVariant('primary');
     expect(installBtn).toHaveBtnSize('xs');
   });
 });
 
-describe('ModpackVersionDrawer — Open on CurseForge button when blocked', () => {
+describe('ModpackDetailModal — Open on CurseForge button when blocked', () => {
   it('"Open on CurseForge ↗" is btn-secondary btn-sm when distribution_allowed=false', () => {
-    render(ModpackVersionDrawer, {
+    render(ModpackDetailModal, {
       props: {
         hit: makeHit({ source: 'curseforge', distribution_allowed: false }),
         mcFilter: null,

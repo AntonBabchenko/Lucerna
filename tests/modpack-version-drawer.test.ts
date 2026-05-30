@@ -2,18 +2,24 @@ import { fireEvent, render, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModpackHit } from '$lib/ipc/bindings';
 
-// modpack_get_versions resolves to an empty list; the tests here drive
-// the distribution-disabled branch, which renders before any version.
-const { mockGetVersions, mockFetchToTemp } = vi.hoisted(() => ({
+const { mockGetVersions, mockFetchToTemp, mockProject } = vi.hoisted(() => ({
   mockGetVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   mockFetchToTemp: vi.fn(),
+  mockProject: vi.fn().mockResolvedValue({
+    status: 'ok',
+    data: { body_html: '<p>pack body</p>', gallery: [], website_url: null },
+  }),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { modpackGetVersions: mockGetVersions, modpackFetchToTemp: mockFetchToTemp },
+  commands: {
+    modpackGetVersions: mockGetVersions,
+    modpackFetchToTemp: mockFetchToTemp,
+    modpackProject: mockProject,
+  },
   events: {},
 }));
 
-import ModpackVersionDrawer from '$lib/modpacks/ModpackVersionDrawer.svelte';
+import ModpackDetailModal from '$lib/modpacks/ModpackDetailModal.svelte';
 
 const baseHit: ModpackHit = {
   project_id: 'p',
@@ -28,26 +34,39 @@ const baseHit: ModpackHit = {
   distribution_allowed: null,
 };
 
-describe('ModpackVersionDrawer', () => {
+describe('ModpackDetailModal', () => {
   beforeEach(() => {
     mockGetVersions.mockClear();
     mockFetchToTemp.mockClear();
+    mockProject.mockClear();
   });
 
   it('shows the CurseForge fallback for a distribution-disabled pack', async () => {
     const hit: ModpackHit = { ...baseHit, distribution_allowed: false };
-    const { findByText } = render(ModpackVersionDrawer, {
+    const { findByText } = render(ModpackDetailModal, {
       props: { hit, onClose: () => {}, onInstall: () => {} },
     });
     expect(await findByText('Open on CurseForge ↗')).toBeTruthy();
   });
 
-  it('lists versions normally for an allowed pack', async () => {
+  it('lists versions on the Versions tab for an allowed pack', async () => {
     const hit: ModpackHit = { ...baseHit, distribution_allowed: null };
-    render(ModpackVersionDrawer, {
+    const { findByRole } = render(ModpackDetailModal, {
       props: { hit, onClose: () => {}, onInstall: () => {} },
     });
     await waitFor(() => expect(mockGetVersions).toHaveBeenCalledWith('curseforge', 'p'));
+    await fireEvent.click(await findByRole('tab', { name: 'Versions' }));
+  });
+
+  it('renders the pack description on Overview', async () => {
+    const hit: ModpackHit = { ...baseHit, distribution_allowed: null };
+    const { findByText } = render(ModpackDetailModal, {
+      props: { hit, onClose: () => {}, onInstall: () => {} },
+    });
+    expect(await findByText('pack body')).toBeTruthy();
+    expect(await findByText(/any ads or links in it are the author's/i)).toBeTruthy();
+    expect(await findByText(/View on CurseForge/i)).toBeTruthy();
+    await waitFor(() => expect(mockProject).toHaveBeenCalledWith('curseforge', 'p'));
   });
 
   it('shows the fallback when install hits a distribution-disabled file', async () => {
@@ -69,9 +88,10 @@ describe('ModpackVersionDrawer', () => {
       error: { kind: 'modpack_cf_distribution_disabled', pack_name: 'RLCraft' },
     });
     const hit: ModpackHit = { ...baseHit, distribution_allowed: null };
-    const { findByText } = render(ModpackVersionDrawer, {
+    const { findByText, findByRole } = render(ModpackDetailModal, {
       props: { hit, onClose: () => {}, onInstall: () => {} },
     });
+    await fireEvent.click(await findByRole('tab', { name: 'Versions' }));
     const installBtn = await findByText('Install');
     await fireEvent.click(installBtn);
     expect(await findByText('Open on CurseForge ↗')).toBeTruthy();

@@ -1,9 +1,6 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-// Mock is declared before the SUT import so vitest hoists it ahead of
-// the module graph. Both commands return the tauri-specta
-// `{ status, data | error }` shape — see typedError in bindings.ts.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsProject: vi.fn().mockResolvedValue({
@@ -14,13 +11,14 @@ vi.mock('$lib/ipc/bindings', () => ({
           project_id: 'p',
           slug: 'mod',
           name: 'Demo Mod',
-          summary: 'd',
+          summary: 'short summary',
           icon_url: null,
           downloads: 1,
           author: 'a',
           updated_at: null,
         },
-        description: 'long body',
+        body_html: '<p>long body</p>',
+        gallery: [{ url: 'https://x/1.png', title: 'Shot' }],
         website_url: null,
       },
     }),
@@ -50,11 +48,34 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import ModDetailDrawer from '$lib/mods/ModDetailDrawer.svelte';
+import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
 
-describe('ModDetailDrawer', () => {
-  it('loads project and renders a version row', async () => {
-    render(ModDetailDrawer, {
+describe('ModDetailModal', () => {
+  it('renders Overview with body, gallery, and a recommended-install button', async () => {
+    const onInstall = vi.fn();
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'p',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        onClose: () => {},
+        onInstall,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText('Demo Mod')).toBeTruthy();
+    expect(screen.getByText('long body')).toBeTruthy();
+    expect(screen.getByText(/any ads or links in it are the author's/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /View on Modrinth/i })).toBeTruthy();
+    expect(screen.getByRole('img')).toBeTruthy();
+    const btn = screen.getByRole('button', { name: /Install 1\.0/ });
+    await fireEvent.click(btn);
+    expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ version_id: 'v1' }));
+  });
+
+  it('lists versions on the Versions tab', async () => {
+    render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'p',
@@ -64,9 +85,8 @@ describe('ModDetailDrawer', () => {
         onInstall: () => {},
       },
     });
-    // Yield once so the $effect's load() promise resolves before assertions.
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.getByText('Demo Mod')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
     expect(screen.getByText('1.0')).toBeTruthy();
   });
 });

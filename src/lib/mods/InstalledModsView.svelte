@@ -16,7 +16,7 @@
   import { onDestroy, onMount } from 'svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import ModCard from './ModCard.svelte';
-  import ModDetailDrawer from './ModDetailDrawer.svelte';
+  import ModDetailModal from './ModDetailModal.svelte';
   import { updateCheckCache } from './update-check-cache';
 
   // The Installed pane of ModBrowserTab. Renders the same ModCard
@@ -571,7 +571,7 @@
   {/if}
 
   {#if drawerRow && drawerRow.installed.source && drawerRow.installed.project_id && instanceId}
-    <ModDetailDrawer
+    <ModDetailModal
       source={drawerRow.installed.source as ModSource}
       projectId={drawerRow.installed.project_id}
       {mcVersion}

@@ -122,6 +122,18 @@ pub struct ModpackHit {
     pub distribution_allowed: Option<bool>,
 }
 
+/// Full detail of a modpack project for the detail modal's Overview tab.
+/// Header fields (title, author, icon, downloads, distribution flag) stay
+/// on the `ModpackHit` the modal already holds; this carries only what
+/// the Overview tab adds.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ModpackProject {
+    /// Sanitized HTML of the pack's long description. Empty when none.
+    pub body_html: String,
+    pub gallery: Vec<crate::mods::platform::GalleryImage>,
+    pub website_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct ModpackSearchPage {
     pub hits: Vec<ModpackHit>,

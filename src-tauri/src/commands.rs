@@ -1715,6 +1715,98 @@ pub async fn modpack_get_versions(
     }
 }
 
+/// Minimal serde shape for the Modrinth `/v2/project/{id}` fields the
+/// modpack detail modal consumes. Split out so tests inject a base URL.
+#[derive(serde::Deserialize)]
+struct MrModpackProject {
+    body: String,
+    source_url: Option<String>,
+    wiki_url: Option<String>,
+    #[serde(default)]
+    gallery: Vec<MrGalleryEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct MrGalleryEntry {
+    url: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    featured: bool,
+    #[serde(default)]
+    ordering: Option<i64>,
+}
+
+pub(crate) async fn fetch_modrinth_modpack_project(
+    base: &str,
+    project_id: &str,
+) -> crate::error::Result<crate::mods::modpack::schema::ModpackProject> {
+    let url = format!("{base}/v2/project/{project_id}");
+    let resp = crate::network::request::get(&url, &[], "modpacks").await?;
+    if resp.status == 404 {
+        return Err(crate::error::Error::ModsNotFound {
+            platform: "modrinth".into(),
+        });
+    }
+    if !(200..300).contains(&resp.status) {
+        return Err(crate::error::Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status),
+        });
+    }
+    let p: MrModpackProject =
+        serde_json::from_slice(&resp.body).map_err(|e| crate::error::Error::ModsDecode {
+            platform: "modrinth".into(),
+            details: e.to_string(),
+        })?;
+    let mut entries = p.gallery;
+    entries.sort_by(|a, b| {
+        b.featured.cmp(&a.featured).then(
+            a.ordering
+                .unwrap_or(i64::MAX)
+                .cmp(&b.ordering.unwrap_or(i64::MAX)),
+        )
+    });
+    let gallery = entries
+        .into_iter()
+        .filter(|e| crate::mods::render::is_safe_image_url(&e.url))
+        .map(|e| crate::mods::platform::GalleryImage {
+            url: e.url,
+            title: e.title,
+        })
+        .collect();
+    Ok(crate::mods::modpack::schema::ModpackProject {
+        body_html: crate::mods::render::markdown_to_safe_html(&p.body),
+        gallery,
+        website_url: p.source_url.or(p.wiki_url),
+    })
+}
+
+/// Fetch a modpack project's description + gallery for the detail modal's
+/// Overview tab. Modrinth: `/v2/project/{id}`. CurseForge: `/v1/mods/{id}`
+/// + the description endpoint.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_project(
+    source: crate::mods::platform::ModSource,
+    project_id: String,
+) -> crate::error::Result<crate::mods::modpack::schema::ModpackProject> {
+    match source {
+        crate::mods::platform::ModSource::Modrinth => {
+            fetch_modrinth_modpack_project("https://api.modrinth.com", &project_id).await
+        }
+        crate::mods::platform::ModSource::Curseforge => {
+            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            modpack::cf_api::fetch_project_detail(
+                "https://api.curseforge.com",
+                key.as_deref(),
+                &project_id,
+            )
+            .await
+        }
+    }
+}
+
 /// Pick the most-recently-published version, or `None` if the list is
 /// empty or its newest entry's opaque Modrinth `id` already equals
 /// `current_id`. Pure — split out so it is unit-testable.
@@ -2210,6 +2302,30 @@ mod tests {
             matches!(err, crate::error::Error::ModsNotFound { .. }),
             "got: {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn fetch_modrinth_modpack_project_renders_body_and_gallery() {
+        let _g = test_lock();
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/abc"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r##"{"body":"# Pack\n\ntext","source_url":"https://src.example","wiki_url":null,
+                    "gallery":[{"url":"https://media.modrinth.com/g.png","title":"G","featured":true,"ordering":1}]}"##,
+            ))
+            .mount(&server)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let p = crate::commands::fetch_modrinth_modpack_project(&server.uri(), "abc")
+            .await
+            .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(p.body_html.contains("<h1>"));
+        assert_eq!(p.gallery[0].url, "https://media.modrinth.com/g.png");
+        assert_eq!(p.website_url.as_deref(), Some("https://src.example"));
     }
 
     fn ver(num: &str, date: &str) -> crate::mods::modpack::schema::ModpackVersionEntry {

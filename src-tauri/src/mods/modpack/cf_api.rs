@@ -55,11 +55,30 @@ struct CfMod {
     logo: Option<CfLogo>,
     /// CurseForge project-level distribution flag — nullable in the API.
     allow_mod_distribution: Option<bool>,
+    #[serde(default)]
+    screenshots: Vec<CfScreenshot>,
+    #[serde(default)]
+    links: Option<CfLinks>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CfLogo {
     url: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CfScreenshot {
+    url: String,
+    #[serde(default)]
+    title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CfLinks {
+    #[serde(default)]
+    website_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -334,6 +353,58 @@ pub async fn fetch_summary(
         details: e.to_string(),
     })?;
     Ok((Some(env.data.name), Some(env.data.summary)))
+}
+
+/// Fetch a CurseForge modpack's gallery + long description for the detail
+/// modal's Overview tab. The description is a second hop to the dedicated
+/// HTML endpoint; a failure there degrades to an empty body.
+pub async fn fetch_project_detail(
+    base: &str,
+    key: Option<&str>,
+    project_id: &str,
+) -> Result<crate::mods::modpack::schema::ModpackProject, Error> {
+    let key = require_key(key)?;
+    let url = format!("{base}/v1/mods/{project_id}");
+    let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
+        .await
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
+    check_status(&resp, &url)?;
+    let env: Env<CfMod> = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "curseforge".into(),
+        details: e.to_string(),
+    })?;
+    let gallery = env
+        .data
+        .screenshots
+        .into_iter()
+        .filter(|s| crate::mods::render::is_safe_image_url(&s.url))
+        .map(|s| crate::mods::platform::GalleryImage {
+            url: s.url,
+            title: s.title,
+        })
+        .collect();
+    let website_url = env.data.links.and_then(|l| l.website_url);
+
+    let desc_url = format!("{base}/v1/mods/{project_id}/description");
+    let body_html =
+        match crate::network::request::get(&desc_url, &[("x-api-key", key)], "modpacks").await {
+            Ok(r) if (200..300).contains(&r.status) => {
+                match serde_json::from_slice::<Env<String>>(&r.body) {
+                    Ok(e) => crate::mods::render::sanitize_html(&e.data),
+                    Err(_) => String::new(),
+                }
+            }
+            _ => String::new(),
+        };
+
+    Ok(crate::mods::modpack::schema::ModpackProject {
+        body_html,
+        gallery,
+        website_url,
+    })
 }
 
 // ---- single-file download resolution --------------------------------
@@ -637,6 +708,39 @@ mod tests {
             .await
             .unwrap();
         assert!(name.is_none() && summary.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_project_detail_maps_screenshots_and_description() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "id": 1234, "slug": "rlcraft", "name": "RLCraft",
+                          "summary": "hard", "downloadCount": 1, "logo": null,
+                          "screenshots": [{"url":"https://media.forgecdn.net/p.png","title":"P"}],
+                          "links": {"websiteUrl":"https://rlcraft.example"} }
+            })))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/1234/description"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": "<p>Pack</p><script>x()</script>"
+            })))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let d = fetch_project_detail(&s.uri(), Some("k"), "1234")
+            .await
+            .unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(d.gallery.len(), 1);
+        assert_eq!(d.gallery[0].url, "https://media.forgecdn.net/p.png");
+        assert!(d.body_html.contains("<p>Pack</p>"));
+        assert!(!d.body_html.contains("<script"));
+        assert_eq!(d.website_url.as_deref(), Some("https://rlcraft.example"));
     }
 
     #[tokio::test]

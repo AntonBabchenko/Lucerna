@@ -300,7 +300,8 @@ describe('ImportedDetailDrawer', () => {
           author: '',
           updated_at: null,
         },
-        description: '',
+        body_html: '',
+        gallery: [],
         website_url: null,
       },
     });

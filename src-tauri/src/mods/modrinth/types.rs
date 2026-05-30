@@ -35,6 +35,19 @@ pub struct Project {
     pub source_url: Option<String>,
     pub wiki_url: Option<String>,
     pub team: String,
+    #[serde(default)]
+    pub gallery: Vec<GalleryEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GalleryEntry {
+    pub url: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub featured: bool,
+    #[serde(default)]
+    pub ordering: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

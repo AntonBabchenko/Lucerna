@@ -1,5 +1,5 @@
 // Mod-browser group intent coverage: ModBrowserTab (positive sub-tab pattern),
-// ModBrowseView, InstalledModsView, ModCard, ModDetailDrawer.
+// ModBrowseView, InstalledModsView, ModCard, ModDetailModal.
 // SourcePicker is a plain <select>; no btn-* elements to cover per inventory.
 //
 // Inventory rows covered:
@@ -33,7 +33,7 @@
 //                       update_available → Update btn-warning btn-xs (post-6.1 fix)
 //                       packChip → bg-accent-soft text-accent
 //                       card body button NOT .btn-* (click-area pattern)
-//   ModDetailDrawer:    role="dialog" aria-modal="true"
+//   ModDetailModal:    role="dialog" aria-modal="true"
 //                       CloseButton → btn-icon
 //                       error block → bg-danger-bg border-danger text-danger
 //                       version row btn-xs rounded (base present in all branches)
@@ -70,7 +70,8 @@ vi.mock('$lib/ipc/bindings', () => ({
           author: 'TestAuthor',
           updated_at: null,
         },
-        description: 'Full description',
+        body_html: 'Full description',
+        gallery: [],
         website_url: null,
       },
     }),
@@ -129,7 +130,7 @@ import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
 import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import ModCard from '$lib/mods/ModCard.svelte';
-import ModDetailDrawer from '$lib/mods/ModDetailDrawer.svelte';
+import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
 import { updateCheckCache } from '$lib/mods/update-check-cache';
 
 // ── Fixture factories ──────────────────────────────────────────────────────────
@@ -190,7 +191,8 @@ function makeVersion(over: Partial<ModVersion> = {}): ModVersion {
 function makeProject(over: Partial<ModProject> = {}): ModProject {
   return {
     summary: makeSummary(),
-    description: 'Full description',
+    body_html: 'Full description',
+    gallery: [],
     website_url: null,
     ...over,
   };
@@ -894,9 +896,9 @@ describe('ModCard — card body button is NOT a .btn-* variant (click-area patte
   });
 });
 
-// ── ModDetailDrawer — dialog structure ───────────────────────────────────────
+// ── ModDetailModal — dialog structure ───────────────────────────────────────
 
-describe('ModDetailDrawer — role=dialog aria-modal="true"', () => {
+describe('ModDetailModal — role=dialog aria-modal="true"', () => {
   it('drawer panel has role="dialog" and aria-modal="true"', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
@@ -904,7 +906,7 @@ describe('ModDetailDrawer — role=dialog aria-modal="true"', () => {
       data: makeProject(),
     });
     vi.mocked(commands.modsVersions).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(ModDetailDrawer, {
+    render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'proj-abc',
@@ -920,7 +922,7 @@ describe('ModDetailDrawer — role=dialog aria-modal="true"', () => {
   });
 });
 
-describe('ModDetailDrawer — CloseButton is btn-icon', () => {
+describe('ModDetailModal — CloseButton is btn-icon', () => {
   it('CloseButton in header has btn-icon class', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
@@ -928,7 +930,7 @@ describe('ModDetailDrawer — CloseButton is btn-icon', () => {
       data: makeProject(),
     });
     vi.mocked(commands.modsVersions).mockResolvedValueOnce({ status: 'ok', data: [] });
-    render(ModDetailDrawer, {
+    render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'proj-abc',
@@ -944,16 +946,16 @@ describe('ModDetailDrawer — CloseButton is btn-icon', () => {
   });
 });
 
-// ── ModDetailDrawer — error block ─────────────────────────────────────────────
+// ── ModDetailModal — error block ─────────────────────────────────────────────
 
-describe('ModDetailDrawer — error block uses bg-danger-bg border-danger text-danger', () => {
+describe('ModDetailModal — error block uses bg-danger-bg border-danger text-danger', () => {
   it('error block has semantic danger tokens when modsProject errors', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
       status: 'error',
       error: { kind: 'mods_network', url: 'https://api.modrinth.com', details: 'fetch failed' },
     });
-    const { container } = render(ModDetailDrawer, {
+    const { container } = render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'proj-abc',
@@ -981,9 +983,9 @@ describe('ModDetailDrawer — error block uses bg-danger-bg border-danger text-d
   });
 });
 
-// ── ModDetailDrawer — version row buttons ────────────────────────────────────
+// ── ModDetailModal — version row buttons ────────────────────────────────────
 
-describe('ModDetailDrawer — version row Install button is btn-xs btn-primary', () => {
+describe('ModDetailModal — version row Install button is btn-xs btn-primary', () => {
   it('installable version row button has btn-xs and btn-primary classes', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({ version_id: 'v2.0', version_number: '2.0' });
@@ -992,7 +994,7 @@ describe('ModDetailDrawer — version row Install button is btn-xs btn-primary',
       data: makeProject(),
     });
     vi.mocked(commands.modsVersions).mockResolvedValueOnce({ status: 'ok', data: [version] });
-    render(ModDetailDrawer, {
+    render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'proj-abc',
@@ -1003,13 +1005,14 @@ describe('ModDetailDrawer — version row Install button is btn-xs btn-primary',
         onInstall: () => {},
       },
     });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const installBtn = await screen.findByRole('button', { name: /^install$/i });
     expect(installBtn).toHaveBtnVariant('primary');
     expect(installBtn).toHaveBtnSize('xs');
   });
 });
 
-describe('ModDetailDrawer — installed version row button has btn-xs base + success colours', () => {
+describe('ModDetailModal — installed version row button has btn-xs base + success colours', () => {
   it('installed version button has btn-xs border-success text-success', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({ version_id: 'v1.0', version_number: '1.0' });
@@ -1018,7 +1021,7 @@ describe('ModDetailDrawer — installed version row button has btn-xs base + suc
       data: makeProject(),
     });
     vi.mocked(commands.modsVersions).mockResolvedValueOnce({ status: 'ok', data: [version] });
-    render(ModDetailDrawer, {
+    render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'proj-abc',
@@ -1029,6 +1032,7 @@ describe('ModDetailDrawer — installed version row button has btn-xs base + suc
         onInstall: () => {},
       },
     });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const installedBtn = await screen.findByRole('button', { name: /✓ installed/i });
     const cls = installedBtn.className;
     expect(cls).toContain('btn-xs');
@@ -1039,7 +1043,7 @@ describe('ModDetailDrawer — installed version row button has btn-xs base + suc
   });
 });
 
-describe('ModDetailDrawer — restricted version row button has btn-xs text-muted', () => {
+describe('ModDetailModal — restricted version row button has btn-xs text-muted', () => {
   it('restricted version button has btn-xs and text-muted', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({
@@ -1057,7 +1061,7 @@ describe('ModDetailDrawer — restricted version row button has btn-xs text-mute
       data: makeProject(),
     });
     vi.mocked(commands.modsVersions).mockResolvedValueOnce({ status: 'ok', data: [version] });
-    render(ModDetailDrawer, {
+    render(ModDetailModal, {
       props: {
         source: 'modrinth',
         projectId: 'proj-abc',
@@ -1068,6 +1072,7 @@ describe('ModDetailDrawer — restricted version row button has btn-xs text-mute
         onInstall: () => {},
       },
     });
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const restrictedBtn = await screen.findByRole('button', { name: /restricted/i });
     const cls = restrictedBtn.className;
     expect(cls).toContain('btn-xs');

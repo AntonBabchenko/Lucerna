@@ -146,13 +146,41 @@ impl ModPlatform for CurseForgeClient {
                 details: e.to_string(),
             })?;
         let env: types::Envelope<types::Mod> = self.map_status(resp, url)?;
-        let summary = convert_mod_summary(env.data);
+        let mut m = env.data;
+        let screenshots = std::mem::take(&mut m.screenshots);
+        let gallery = screenshots
+            .into_iter()
+            .filter(|s| crate::mods::render::is_safe_image_url(&s.url))
+            .map(|s| crate::mods::platform::GalleryImage {
+                url: s.url,
+                title: s.title,
+            })
+            .collect();
         // CF mod summary discards `links.websiteUrl` during conversion; the
-        // detail drawer falls back to constructing the canonical CurseForge URL
+        // detail modal falls back to constructing the canonical CurseForge URL
         // from `slug`. Keep `website_url` None for v1.
+        let summary = convert_mod_summary(m);
+
+        // Second hop: CurseForge serves the long description as HTML from a
+        // dedicated endpoint. A failure here degrades to an empty body (the
+        // modal falls back to the short summary) rather than failing the
+        // whole detail load.
+        let desc_url = format!("{}/v1/mods/{}/description", self.base, project_id);
+        let body_html =
+            match crate::network::request::get(&desc_url, &[("x-api-key", auth)], "mods").await {
+                Ok(r) if (200..300).contains(&r.status) => {
+                    match serde_json::from_slice::<types::Envelope<String>>(&r.body) {
+                        Ok(e) => crate::mods::render::sanitize_html(&e.data),
+                        Err(_) => String::new(),
+                    }
+                }
+                _ => String::new(),
+            };
+
         Ok(ModProject {
             summary,
-            description: String::new(),
+            body_html,
+            gallery,
             website_url: None,
         })
     }
@@ -406,6 +434,40 @@ mod tests {
             }
             _ => panic!("expected ModsPlatformAuth::Invalid, got {err:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn project_maps_screenshots_and_sanitizes_description() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/77"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "id": 77, "slug": "jei", "name": "JEI", "summary": "items",
+                    "downloadCount": 5, "authors": [{"name":"m"}],
+                    "logo": {"url":"https://example/icon.png"},
+                    "links": {"websiteUrl": null},
+                    "screenshots": [{"url":"https://media.forgecdn.net/s.png","title":"Shot"}]
+                }
+            })))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/77/description"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": "<p>Hi</p><script>alert(1)</script>"
+            })))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let c = client(s.uri());
+        let p = c.project("77").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(p.gallery.len(), 1);
+        assert_eq!(p.gallery[0].url, "https://media.forgecdn.net/s.png");
+        assert!(p.body_html.contains("<p>Hi</p>"));
+        assert!(!p.body_html.contains("<script"));
     }
 
     #[tokio::test]

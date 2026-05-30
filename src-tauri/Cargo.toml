@@ -61,6 +61,12 @@ base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
 urlencoding = "2.1"
+# Render mod/modpack descriptions to safe HTML for the detail modals.
+# pulldown-cmark: Modrinth bodies are CommonMark. ammonia: allowlist HTML
+# sanitizer (used by crates.io itself) — the trust boundary for all
+# externally-authored HTML reaching the webview. Both MIT-licensed.
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+ammonia = "4"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process
 # has created its window (and so is visible on screen) before we hide

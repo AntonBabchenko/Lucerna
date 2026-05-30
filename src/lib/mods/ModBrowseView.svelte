@@ -17,7 +17,7 @@
   import DependencyDialog from './DependencyDialog.svelte';
   import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
-  import ModDetailDrawer from './ModDetailDrawer.svelte';
+  import ModDetailModal from './ModDetailModal.svelte';
 
   // The Browse pane inside ModBrowserTab. Responsibilities:
   //   - Render a search input (300ms debounced), sort dropdown, MC
@@ -663,7 +663,7 @@
   </div>
 
   {#if drawerProject}
-    <ModDetailDrawer
+    <ModDetailModal
       {source}
       projectId={drawerProject}
       {mcVersion}

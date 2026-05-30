@@ -18,7 +18,7 @@
   import ImportProgressView from './ImportProgressView.svelte';
   import ImportedView from './ImportedView.svelte';
   import ModpackBrowseView from './ModpackBrowseView.svelte';
-  import ModpackVersionDrawer from './ModpackVersionDrawer.svelte';
+  import ModpackDetailModal from './ModpackDetailModal.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -300,7 +300,7 @@
 {/if}
 
 {#if drawerHit}
-  <ModpackVersionDrawer
+  <ModpackDetailModal
     hit={drawerHit}
     mcFilter={drawerMcFilter}
     onClose={() => (drawerHit = null)}

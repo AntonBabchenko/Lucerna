@@ -1,0 +1,24 @@
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import TabBar from '$lib/ui/TabBar.svelte';
+
+const tabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'versions', label: 'Versions' },
+];
+
+describe('TabBar', () => {
+  it('marks the active tab selected', () => {
+    render(TabBar, { props: { tabs, active: 'overview', onChange: () => {} } });
+    expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
+  it('calls onChange when another tab is clicked', async () => {
+    const onChange = vi.fn();
+    render(TabBar, { props: { tabs, active: 'overview', onChange } });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
+    expect(onChange).toHaveBeenCalledWith('versions');
+  });
+});

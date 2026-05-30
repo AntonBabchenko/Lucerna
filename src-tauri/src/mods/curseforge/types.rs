@@ -51,6 +51,16 @@ pub struct Mod {
     pub date_modified: Option<String>,
     #[allow(dead_code)]
     pub links: Links,
+    #[serde(default)]
+    pub screenshots: Vec<Screenshot>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Screenshot {
+    pub url: String,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

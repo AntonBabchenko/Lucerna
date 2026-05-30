@@ -14,6 +14,7 @@ pub mod modpack;
 pub mod modrinth;
 pub mod platform;
 pub mod project_cache;
+pub mod render;
 pub mod updates;
 
 pub use platform::*;

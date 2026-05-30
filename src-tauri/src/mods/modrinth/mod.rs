@@ -139,6 +139,23 @@ impl ModPlatform for ModrinthClient {
                 platform: "modrinth".into(),
                 details: e.to_string(),
             })?;
+        let mut gallery_entries = p.gallery;
+        // Featured first, then by the platform's `ordering` (None last).
+        gallery_entries.sort_by(|a, b| {
+            b.featured.cmp(&a.featured).then(
+                a.ordering
+                    .unwrap_or(i64::MAX)
+                    .cmp(&b.ordering.unwrap_or(i64::MAX)),
+            )
+        });
+        let gallery = gallery_entries
+            .into_iter()
+            .filter(|e| crate::mods::render::is_safe_image_url(&e.url))
+            .map(|e| crate::mods::platform::GalleryImage {
+                url: e.url,
+                title: e.title,
+            })
+            .collect();
         Ok(ModProject {
             summary: ModSummary {
                 source: ModSource::Modrinth,
@@ -151,7 +168,8 @@ impl ModPlatform for ModrinthClient {
                 author: p.team,
                 updated_at: None,
             },
-            description: p.body,
+            body_html: crate::mods::render::markdown_to_safe_html(&p.body),
+            gallery,
             website_url: p.source_url.or(p.wiki_url),
         })
     }
@@ -425,6 +443,34 @@ mod tests {
         let err = c.project("missing").await.unwrap_err();
         std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNotFound { .. }), "got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn project_renders_body_and_orders_gallery() {
+        let _g = test_lock();
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/jei"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r##"{"id":"u6dRKJwZ","slug":"jei","title":"JEI","description":"Items",
+                   "body":"# Hello\n\n![s](https://media.modrinth.com/b.png)",
+                   "icon_url":null,"downloads":10,"source_url":null,"wiki_url":null,"team":"t",
+                   "gallery":[
+                     {"url":"https://media.modrinth.com/a.png","title":"A","featured":false,"ordering":2},
+                     {"url":"https://media.modrinth.com/f.png","title":"F","featured":true,"ordering":9}
+                   ]}"##,
+            ))
+            .mount(&s)
+            .await;
+        std::env::set_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let c = ModrinthClient::with_base(s.uri());
+        let p = c.project("jei").await.unwrap();
+        std::env::remove_var("FTLAUNCHER_EXTRA_ALLOWED_HOSTS");
+        assert!(p.body_html.contains("<h1>"));
+        assert!(p.body_html.contains("https://media.modrinth.com/b.png"));
+        // Featured image sorts first regardless of ordering value.
+        assert_eq!(p.gallery[0].url, "https://media.modrinth.com/f.png");
+        assert_eq!(p.gallery[1].url, "https://media.modrinth.com/a.png");
     }
 
     #[tokio::test]
