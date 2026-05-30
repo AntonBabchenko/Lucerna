@@ -562,7 +562,7 @@
               {#if unresolvedMissing.length > 0}
                 <button
                   type="button"
-                  class="flex items-center gap-2 text-sm text-left rounded border border-warning-text/30 bg-warning-bg px-3 py-2 hover:bg-warning-bg"
+                  class="btn-warning-soft btn-sm w-full flex items-center gap-2 text-left"
                   onclick={() => {
                     if (activeInstance) {
                       modpacksNav.value = { openDrawerForInstance: activeInstance.id };

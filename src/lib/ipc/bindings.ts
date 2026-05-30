@@ -171,6 +171,17 @@ export const commands = {
 	 */
 	openBackupsFolder: (instanceId: string, worldFolderName: string) => typedError<null, Error>(__TAURI_INVOKE("open_backups_folder", { instanceId, worldFolderName })),
 	/**
+	 *  Open the parent directory of `path` (a log file path the popover is
+	 *  currently viewing) in the OS file manager. The path is validated
+	 *  against every instance's allowed log roots (mirrors `read_log_file`
+	 *  semantics) so a crafted path cannot escape the log directories. This
+	 *  lets a user click "Open folder" on either an MC game log
+	 *  (`.minecraft/logs/`), a crash report (`.minecraft/crash-reports/`),
+	 *  or a launcher capture (`<instance>/logs/`) and land in the exact dir
+	 *  that contains the file they're looking at.
+	 */
+	openLogFolder: (path: string) => typedError<null, Error>(__TAURI_INVOKE("open_log_folder", { path })),
+	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
 	 *  Cached 5 minutes per `mc_id`.

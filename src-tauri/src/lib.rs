@@ -60,6 +60,7 @@ pub fn run() {
             commands::delete_world,
             commands::open_saves_folder,
             commands::open_backups_folder,
+            commands::open_log_folder,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,
             commands::list_forge_loaders,

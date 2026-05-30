@@ -38,7 +38,7 @@
 //     mods loading state (data-testid="imported-detail-mods-loading")
 //     mods empty state (data-testid="imported-detail-mods-empty")
 //     mod badge "pack" → bg-accent-soft text-accent
-//     mod badge "user" → bg-purple-50 text-purple-700 [H3 backlog — current non-semantic state]
+//     mod badge "user" → bg-success-bg text-success [post H3 + H5 fix]
 //     mod badge "manual" → bg-subtle text-secondary
 //     removed-file row → bg-danger-bg border-danger
 //     Restore (re-download) → btn-secondary btn-xs
@@ -682,12 +682,11 @@ describe('ImportedDetailDrawer — "pack" mod badge has bg-accent-soft text-acce
   });
 });
 
-describe('ImportedDetailDrawer — "user" mod badge has bg-success/10 text-success', () => {
-  // H3 (bg-purple-50 hardcoded colours) was resolved on main during the
-  // B2a button-system squash — the badge now uses semantic success tokens.
-  // The bg-success/10 translucent shorthand is captured by H5 backlog and
-  // will be retrofitted to bg-success-bg in a future cluster.
-  it('user provenance badge uses bg-success/10 text-success (semantic but translucent — H5)', async () => {
+describe('ImportedDetailDrawer — "user" mod badge has bg-success-bg text-success', () => {
+  // H3 (bg-purple-50 hardcoded colours) resolved on main during the B2a
+  // squash → semantic success tokens. H5 (translucent bg-success/10
+  // shorthand) resolved in cluster G → opaque bg-success-bg.
+  it('user provenance badge uses bg-success-bg text-success (post-H5)', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const sha = 'sha222';
     vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
@@ -736,7 +735,7 @@ describe('ImportedDetailDrawer — "user" mod badge has bg-success/10 text-succe
     });
     const badge = await screen.findByTestId(`mod-badge-user-${sha}`);
     const cls = badge.className;
-    expect(cls).toContain('bg-success/10');
+    expect(cls).toContain('bg-success-bg');
     expect(cls).toContain('text-success');
   });
 });

@@ -43,6 +43,15 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modpackImport: vi.fn(),
     modpackFetchToTemp: vi.fn(),
+    // GeneralPanel (now the default Settings tab) calls these on mount.
+    appSettingsGet: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        general: { hide_to_tray_on_launch: false, theme: 'system', replay_tour_pending: false },
+      },
+    }),
+    appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    appSettingsMarkTourCompleted: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },

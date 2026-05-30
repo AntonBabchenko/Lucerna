@@ -13,6 +13,15 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsClearCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsCacheSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     modsClearCache: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
+    // GeneralPanel (new default tab) calls these on mount.
+    appSettingsGet: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        general: { hide_to_tray_on_launch: false, theme: 'system', replay_tour_pending: false },
+      },
+    }),
+    appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    appSettingsMarkTourCompleted: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
 

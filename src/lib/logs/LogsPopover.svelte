@@ -109,6 +109,14 @@
     }
   }
 
+  async function openLogFolder() {
+    if (!selectedPath) return;
+    const r = await commands.openLogFolder(selectedPath);
+    if (r.status !== 'ok') {
+      pushWarning('Could not open logs folder', [formatError(r.error)]);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Crash-report raw-view toggle
   // ---------------------------------------------------------------------------
@@ -518,6 +526,17 @@
               </select>
             </label>
             <button class="btn-secondary btn-xs" onclick={() => void reloadList()}> Reload </button>
+
+            <!-- Open the directory containing the currently-selected log file
+                 in the OS file manager. Disabled when no file is selected. -->
+            <button
+              class="btn-tertiary text-xs"
+              data-tour-ctx="logs-open-folder"
+              disabled={!selectedPath}
+              onclick={() => void openLogFolder()}
+            >
+              Open folder ↗
+            </button>
 
             <!-- Share button -->
             <button

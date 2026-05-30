@@ -1,10 +1,25 @@
 name: CI
 
+# Auto-triggers (push to main, pull_request to main) DISABLED
+# 2026-05-30 because the private-repo Actions free-tier quota was exhausted
+# mid-month — every job was failing in 3 seconds at the runner-pool layer
+# (steps: [], runner_id: 0) regardless of code state. Local gates
+# (`pnpm test`, `cargo test --lib`, `pnpm lint`, `pnpm typecheck`) remain
+# the source of truth in the meantime; PR reviewers can confirm them
+# manually from the commit history.
+#
+# To re-enable: uncomment the `push` and `pull_request` blocks below. Do
+# this either after the monthly quota resets (Actions billing dashboard
+# at https://github.com/settings/billing/summary) OR after one of:
+# (a) upgrading to a paid plan with more Actions minutes,
+# (b) making the repo public (Actions minutes are free on public repos),
+# (c) wiring a self-hosted runner so we don't consume GH-hosted minutes.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

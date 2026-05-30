@@ -435,7 +435,7 @@
                 </span>
               {:else if prov === 'user'}
                 <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success/10 text-success flex-shrink-0"
+                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
                   title="added via Mod browser"
                   data-testid="mod-badge-user-{m.sha1}"
                 >
@@ -589,7 +589,7 @@
               {@const isDifferentVersion = m.state === 'different_version'}
               <li
                 class="flex items-center gap-2 text-sm py-1 px-2 rounded border {isInstalled
-                  ? 'bg-success/10 border-success'
+                  ? 'bg-success-bg border-success'
                   : 'bg-warning-bg border-warning-text/30'}"
               >
                 <!-- ✓ when the mod is present at all (installed or a

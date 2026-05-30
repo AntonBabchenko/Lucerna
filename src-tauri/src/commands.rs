@@ -364,6 +364,38 @@ pub async fn open_saves_folder(
     Ok(())
 }
 
+/// Open the parent directory of `path` (a log file path the popover is
+/// currently viewing) in the OS file manager. The path is validated
+/// against every instance's allowed log roots (mirrors `read_log_file`
+/// semantics) so a crafted path cannot escape the log directories. This
+/// lets a user click "Open folder" on either an MC game log
+/// (`.minecraft/logs/`), a crash report (`.minecraft/crash-reports/`),
+/// or a launcher capture (`<instance>/logs/`) and land in the exact dir
+/// that contains the file they're looking at.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_log_folder(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<(), crate::error::Error> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = std::path::PathBuf::from(&path);
+    let all = crate::instances::list_instances_with_status(&app)?;
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for inst in &all {
+        let mut r = crate::logs::files::allowed_roots(&app, &inst.id)?;
+        roots.append(&mut r);
+    }
+    crate::logs::files::assert_under_allowed_roots(&path, &roots)?;
+    let dir = path.parent().ok_or_else(|| {
+        crate::error::Error::io(path.display().to_string(), "log file has no parent dir")
+    })?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
 /// Open `<instance>/backups/<world>/` in the OS file manager.
 /// Idempotent — creates the dir if missing (so the user can navigate
 /// even before the first backup exists).

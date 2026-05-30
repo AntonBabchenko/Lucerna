@@ -46,7 +46,7 @@
 //   File-list sidebar file button — hover:bg-subtle (bare, not .btn-*)
 //   Selected file button — bg-accent-soft added
 
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Diagnosis, LogFileMeta } from '$lib/ipc/bindings';
 
@@ -58,6 +58,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     diagnoseLog: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     shareLogToMclogs: vi.fn().mockResolvedValue({ status: 'ok', data: 'https://mclo.gs/abc123' }),
     latestCrash: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    openLogFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -134,6 +135,64 @@ describe('LogsPopover — Reload button is btn-secondary btn-xs', () => {
     const btn = screen.getByRole('button', { name: /reload/i });
     expect(btn).toHaveBtnVariant('secondary');
     expect(btn).toHaveBtnSize('xs');
+  });
+});
+
+// ── Open folder button (H11) ──────────────────────────────────────────────────
+
+describe('LogsPopover — Open folder button is btn-tertiary', () => {
+  it('Open folder button has btn-tertiary class', () => {
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+    const btn = screen.getByRole('button', { name: /open folder/i });
+    expect(btn).toHaveBtnVariant('tertiary');
+  });
+
+  it('Open folder button is disabled when no file is selected', () => {
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+    const btn = screen.getByRole('button', { name: /open folder/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('Open folder button becomes enabled once a file is selected', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    const file = makeLogFileMeta({ name: 'latest.log' });
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [file],
+    });
+    render(LogsPopover, {
+      props: { open: true, instanceId: 'inst-1', initialPath: file.path },
+    });
+    await waitFor(() => {
+      const btn = screen.getByRole('button', { name: /open folder/i });
+      if ((btn as HTMLButtonElement).disabled) throw new Error('still disabled');
+      return btn;
+    });
+    const btn = screen.getByRole('button', { name: /open folder/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('clicking Open folder invokes openLogFolder with the selected file path (H-a fix)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    const file = makeLogFileMeta({
+      path: '/inst-1/.minecraft/logs/latest.log',
+      name: 'latest.log',
+    });
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [file],
+    });
+    render(LogsPopover, {
+      props: { open: true, instanceId: 'inst-1', initialPath: file.path },
+    });
+    await waitFor(() => {
+      const btn = screen.getByRole('button', { name: /open folder/i });
+      if ((btn as HTMLButtonElement).disabled) throw new Error('still disabled');
+      return btn;
+    });
+    const btn = screen.getByRole('button', { name: /open folder/i });
+    await fireEvent.click(btn);
+    expect(commands.openLogFolder).toHaveBeenCalledWith(file.path);
   });
 });
 
@@ -499,12 +558,15 @@ describe('LogsPopover — stack-fold expand button is btn-tertiary text-left w-f
     const { container } = render(LogsPopover, {
       props: { open: true, instanceId: 'inst-1', initialPath: logFile.path },
     });
+    // The stack-fold button is distinct from the header "Open folder" button
+    // (also .btn-tertiary) — narrow with .text-left.w-full to hit the inline
+    // log-line one specifically.
     await waitFor(() => {
-      const foldBtn = container.querySelector('button.btn-tertiary');
+      const foldBtn = container.querySelector('button.btn-tertiary.text-left');
       if (!foldBtn) throw new Error('fold button not yet present');
       return foldBtn;
     });
-    const foldBtn = container.querySelector('button.btn-tertiary');
+    const foldBtn = container.querySelector('button.btn-tertiary.text-left');
     expect(foldBtn).not.toBeNull();
     const cls = foldBtn?.className ?? '';
     expect(cls).toContain('btn-tertiary');

@@ -347,24 +347,23 @@ describe('+page.svelte — inline CloseButton variant (inventory lines 398+)', (
 
 // ── +page.svelte — missing-mods warning button (inventory line 546) ────────
 //
-// The missing-mods button uses hand-rolled warning colours. It is a notable
-// gap (inventory "LIGHT") that should eventually be btn-warning. This test
-// records the current state and guards against accidental regression to
-// completely unstyled or btn-primary/secondary.
+// H7 fix: the missing-mods banner now uses the .btn-warning-soft utility
+// (introduced in cluster G for full-width soft-warning banners — light
+// amber bg + dark amber text + thin border, distinct from solid .btn-warning).
+// Class-string guard against accidental regression to .btn-primary / unstyled
+// / solid .btn-warning.
 
-describe('+page.svelte — missing-mods warning button (inventory line 546)', () => {
-  it('missing-mods button uses warning-bg pattern (not btn-primary or unstyled)', () => {
-    // Record the current class set from source line 546. Any change to this
-    // class string requires a deliberate update here.
+describe('+page.svelte — missing-mods warning button (post-H7)', () => {
+  it('missing-mods button uses .btn-warning-soft pattern', () => {
     const btn = document.createElement('button');
-    btn.className =
-      'flex items-center gap-2 text-sm text-left rounded border border-warning-text/30 bg-warning-bg px-3 py-2 hover:bg-warning-bg';
-    expect(btn.className).toContain('bg-warning-bg');
-    expect(btn.className).toContain('border-warning-text/30');
-    // Not using a named btn-* variant — this is the known gap (see inventory).
+    btn.className = 'btn-warning-soft btn-sm w-full flex items-center gap-2 text-left';
+    expect(btn.className).toContain('btn-warning-soft');
+    expect(btn.className).toContain('btn-sm');
+    expect(btn.className).toContain('w-full');
+    // Not the SOLID .btn-warning — that would be too loud for a wide banner.
+    expect(btn).not.toHaveBtnVariant('warning');
     expect(btn).not.toHaveBtnVariant('primary');
     expect(btn).not.toHaveBtnVariant('secondary');
-    expect(btn).not.toHaveBtnVariant('warning');
   });
 });
 

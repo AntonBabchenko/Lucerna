@@ -55,6 +55,32 @@
   let rows = $state<Row[]>([]);
   let filter = $state('');
   let enabledFilter = $state<'all' | 'enabled' | 'disabled'>('all');
+
+  // WCAG radiogroup keyboard pattern. Arrow / Home / End moves selection
+  // within the group; the newly-checked radio gets focus so a screen reader
+  // announces the change. Roving tabindex (0 on checked, -1 elsewhere) keeps
+  // the whole group as one tab stop.
+  const FILTER_VALUES = ['all', 'enabled', 'disabled'] as const;
+  function handleFilterKey(e: KeyboardEvent) {
+    const i = FILTER_VALUES.indexOf(enabledFilter);
+    let next: (typeof FILTER_VALUES)[number] | null = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      next = FILTER_VALUES[(i + 1) % FILTER_VALUES.length];
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      next = FILTER_VALUES[(i - 1 + FILTER_VALUES.length) % FILTER_VALUES.length];
+    } else if (e.key === 'Home') {
+      next = FILTER_VALUES[0];
+    } else if (e.key === 'End') {
+      next = FILTER_VALUES[FILTER_VALUES.length - 1];
+    }
+    if (next !== null) {
+      e.preventDefault();
+      enabledFilter = next;
+      const target = e.currentTarget as HTMLElement | null;
+      const btn = target?.querySelector<HTMLButtonElement>(`button[data-value="${next}"]`);
+      btn?.focus();
+    }
+  }
   let sortBy = $state<'name-asc' | 'name-desc' | 'recent' | 'source'>('name-asc');
   let error = $state<string | null>(null);
   let loading = $state(false);
@@ -404,11 +430,19 @@
       {/if}
     </div>
     {#if totalCount > 0}
-      <div role="radiogroup" aria-label="Mod filter" class="flex gap-1 text-xs">
+      <div
+        role="radiogroup"
+        aria-label="Mod filter"
+        tabindex={-1}
+        class="flex gap-1 text-xs"
+        onkeydown={handleFilterKey}
+      >
         <button
           type="button"
           role="radio"
           aria-checked={enabledFilter === 'all'}
+          tabindex={enabledFilter === 'all' ? 0 : -1}
+          data-value="all"
           class="btn-secondary btn-xs"
           class:bg-accent-soft={enabledFilter === 'all'}
           class:text-accent={enabledFilter === 'all'}
@@ -421,6 +455,8 @@
           type="button"
           role="radio"
           aria-checked={enabledFilter === 'enabled'}
+          tabindex={enabledFilter === 'enabled' ? 0 : -1}
+          data-value="enabled"
           class="btn-secondary btn-xs"
           class:bg-success-bg={enabledFilter === 'enabled'}
           class:text-success={enabledFilter === 'enabled'}
@@ -433,6 +469,8 @@
           type="button"
           role="radio"
           aria-checked={enabledFilter === 'disabled'}
+          tabindex={enabledFilter === 'disabled' ? 0 : -1}
+          data-value="disabled"
           class="btn-secondary btn-xs"
           class:bg-subtle={enabledFilter === 'disabled'}
           class:text-secondary={enabledFilter === 'disabled'}

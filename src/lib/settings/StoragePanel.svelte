@@ -71,7 +71,7 @@
     </div>
   {/if}
   {#if toast}
-    <div class="bg-success/10 border border-success text-success text-sm rounded p-2 mb-2">
+    <div class="bg-success-bg border border-success text-success text-sm rounded p-2 mb-2">
       {toast}
     </div>
   {/if}

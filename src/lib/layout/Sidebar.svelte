@@ -248,7 +248,7 @@
         class="btn-secondary btn-xs flex-1"
         aria-label="Settings"
         title="Settings"
-        onclick={() => (settingsOpen.value = { tab: 'curseforge' })}
+        onclick={() => (settingsOpen.value = { tab: 'general' })}
       >
         Settings
       </button>

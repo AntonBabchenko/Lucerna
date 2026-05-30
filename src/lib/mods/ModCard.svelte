@@ -103,7 +103,7 @@
       {/if}
       <span
         class="text-xs px-2 py-1 rounded {installed.enabled
-          ? 'bg-success/10 text-success'
+          ? 'bg-success-bg text-success'
           : 'bg-subtle text-muted'}"
         title={crossPlatform && otherPlatformLabel
           ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`

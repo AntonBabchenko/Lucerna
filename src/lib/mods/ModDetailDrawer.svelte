@@ -181,7 +181,7 @@
               installedVersionId !== null && installedVersionId !== v.version_id}
             <div
               class="border-t py-2 flex items-center gap-2 text-sm {isInstalled
-                ? 'bg-success/10'
+                ? 'bg-success-bg'
                 : ''}"
             >
               <div class="flex-1 min-w-0">
@@ -194,10 +194,10 @@
               </div>
               <button
                 type="button"
-                class="btn-xs rounded {isInstalled
-                  ? 'border border-success text-success disabled:opacity-50'
+                class="btn-xs {isInstalled
+                  ? 'btn-secondary border-success text-success'
                   : !v.primary_file.distribution_allowed
-                    ? 'text-muted disabled:opacity-50'
+                    ? 'btn-secondary text-muted'
                     : 'btn-primary'}"
                 disabled={!v.primary_file.distribution_allowed || isInstalled}
                 onclick={() => onInstall(v)}

@@ -175,6 +175,13 @@ body[data-tour-active] .tour-overlay {
 .btn-warning {
   @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-warning-text text-surface hover:bg-warning-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
 }
+/* Soft warning banner — light bg, dark text, thin border. For full-width
+   info-banners where a solid .btn-warning would be too loud (e.g. Overview
+   missing-mods, CurseForge key prompt). Hover deepens the border to provide
+   visible feedback without changing the bg tone. */
+.btn-warning-soft {
+  @apply rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-warning-bg text-warning-text border border-warning-text/30 hover:border-warning-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+}
 .btn-ghost-danger {
   @apply text-danger hover:bg-danger/10 px-3 py-1.5 text-sm rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger;
 }

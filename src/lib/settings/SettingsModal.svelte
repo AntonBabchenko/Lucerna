@@ -17,7 +17,7 @@
   import { settingsOpen, type SettingsTab } from './state.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
 
-  let active = $state<SettingsTab>('curseforge');
+  let active = $state<SettingsTab>('general');
 
   // When something opens the modal at a specific tab, snap to it. The
   // untracked rune dependency is fine — every $effect cycle re-reads
@@ -50,26 +50,26 @@
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
-      class="relative bg-surface rounded shadow-xl w-[640px] max-w-[95vw] max-h-[80vh] overflow-y-auto"
+      class="relative bg-surface rounded shadow-xl w-[640px] max-w-[95vw] h-[min(80vh,600px)] flex flex-col"
     >
-      <header class="flex items-center justify-between px-4 py-3 border-b">
+      <header class="flex items-center justify-between px-4 py-3 border-b shrink-0">
         <h2 class="text-base font-semibold text-primary">Settings</h2>
         <CloseButton onClick={close} ariaLabel="Close settings" />
       </header>
-      <div role="tablist" class="px-4 pt-2 border-b flex gap-1">
+      <div role="tablist" class="px-4 pt-2 border-b flex gap-1 shrink-0">
         <button
           type="button"
           role="tab"
-          aria-selected={active === 'curseforge'}
+          aria-selected={active === 'general'}
           class="px-3 py-1 text-sm border-b-2 -mb-px"
-          class:border-accent={active === 'curseforge'}
-          class:text-primary={active === 'curseforge'}
-          class:font-medium={active === 'curseforge'}
-          class:border-transparent={active !== 'curseforge'}
-          class:text-placeholder={active !== 'curseforge'}
-          onclick={() => (active = 'curseforge')}
+          class:border-accent={active === 'general'}
+          class:text-primary={active === 'general'}
+          class:font-medium={active === 'general'}
+          class:border-transparent={active !== 'general'}
+          class:text-placeholder={active !== 'general'}
+          onclick={() => (active = 'general')}
         >
-          CurseForge
+          General
         </button>
         <button
           type="button"
@@ -88,6 +88,20 @@
         <button
           type="button"
           role="tab"
+          aria-selected={active === 'curseforge'}
+          class="px-3 py-1 text-sm border-b-2 -mb-px"
+          class:border-accent={active === 'curseforge'}
+          class:text-primary={active === 'curseforge'}
+          class:font-medium={active === 'curseforge'}
+          class:border-transparent={active !== 'curseforge'}
+          class:text-placeholder={active !== 'curseforge'}
+          onclick={() => (active = 'curseforge')}
+        >
+          CurseForge
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={active === 'about'}
           class="px-3 py-1 text-sm border-b-2 -mb-px"
           class:border-accent={active === 'about'}
@@ -99,30 +113,16 @@
         >
           About
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === 'general'}
-          class="px-3 py-1 text-sm border-b-2 -mb-px"
-          class:border-accent={active === 'general'}
-          class:text-primary={active === 'general'}
-          class:font-medium={active === 'general'}
-          class:border-transparent={active !== 'general'}
-          class:text-placeholder={active !== 'general'}
-          onclick={() => (active = 'general')}
-        >
-          General
-        </button>
       </div>
-      <div class="p-4">
-        {#if active === 'curseforge'}
-          <CurseForgeKeyForm />
+      <div class="p-4 overflow-y-auto flex-1">
+        {#if active === 'general'}
+          <GeneralPanel />
         {:else if active === 'storage'}
           <StoragePanel />
-        {:else if active === 'about'}
-          <AboutPanel />
+        {:else if active === 'curseforge'}
+          <CurseForgeKeyForm />
         {:else}
-          <GeneralPanel />
+          <AboutPanel />
         {/if}
       </div>
     </div>

@@ -79,12 +79,15 @@ struct LegacyV1 {
     uuid: String,
 }
 
-/// Read the account file. Four cases:
+/// Read the account file. Five cases:
 /// 1. Missing — return default empty v3.
 /// 2. v3 (has `"version": 3`, has `kind` field) — parse, return.
 /// 3. v2 (has `"version": 2`, no `kind` field) — migrate to v3 (kind: Offline),
 ///    persist back to disk, return.
-/// 4. v1 (no `version`, has `name` + `uuid`) — migrate to v3,
+/// 4. Malformed v3 (has `"version": 3` but no `kind` field — written by an
+///    intermediate feat/ui-testing-infrastructure-d build pre-cluster-C-merge)
+///    — same migration as v2, persist back as clean v3, return.
+/// 5. v1 (no `version`, has `name` + `uuid`) — migrate to v3,
 ///    persist back to disk, return.
 pub fn read_account_file(file: &Path) -> Result<AccountFile> {
     let raw = match std::fs::read_to_string(file) {
@@ -100,7 +103,13 @@ pub fn read_account_file(file: &Path) -> Result<AccountFile> {
         }
     }
 
-    // Try v2 (no `kind` field). Every existing entry is offline.
+    // Try v2 shape (no `kind` field). This also rescues a malformed-v3 case:
+    // pre-merge feat/ui-testing-infrastructure-d wrote `{ "version": 3, ...
+    // accounts without kind }` as a forward-compat hack. Users who tested
+    // that branch have a kind-less v3 file on disk that strict-v3 parsing
+    // rejects. Accept both `version == 2` (true v2 migration) and `version
+    // == 3` (malformed-v3 rescue); in either case assign `kind: Offline` to
+    // every entry (Microsoft accounts were never expressible without kind).
     #[derive(Deserialize)]
     struct LegacyV2Account {
         id: String,
@@ -115,7 +124,7 @@ pub fn read_account_file(file: &Path) -> Result<AccountFile> {
         active_id: Option<String>,
     }
     if let Ok(v2) = serde_json::from_str::<LegacyV2>(&raw) {
-        if v2.version == 2 {
+        if v2.version == 2 || v2.version == 3 {
             let migrated = AccountFile {
                 version: 3,
                 accounts: v2
@@ -326,6 +335,50 @@ mod tests {
         assert_eq!(file.accounts.len(), 1);
         assert_eq!(file.accounts[0].kind, AccountKind::Offline);
         assert_eq!(file.accounts[0].name, "Steve");
+    }
+
+    /// Reproduces the regression from PR #15 / PR #16 (commit b5b3786 era) where
+    /// maintainer-machine account.json was version=3 but lacked the per-entry
+    /// `kind` field — written by an intermediate feat/ui-testing-infrastructure-d
+    /// build before cluster C's schema landed. After cluster C merged, the strict
+    /// v3 reader rejected the file ("parse: file is neither v3 nor v2 nor v0.1.0
+    /// shape"). The reader now migrates the kind-less-v3 case to a clean v3 with
+    /// `kind: Offline` on each entry, matching the on-disk shape Anton actually
+    /// hit on 2026-05-30.
+    #[test]
+    fn read_v3_file_without_kind_migrates_to_v3_setting_kind_offline() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("account.json");
+        // version=3 but accounts have no `kind` field. This is the literal
+        // shape from `***REMOVED***\AppData\Roaming\com.ftlauncher.app\account.json`
+        // captured during PR #16 manual e2e.
+        std::fs::write(
+            &path,
+            r#"{"version":3,"accounts":[{"id":"of-dde68bac-ebde-4988-96ca-dc6f89d344bc","name":"Reiner","uuid":"1b8e1760-3294-301a-84dc-ac5d2e45a45d","expires_at":null}],"active_id":"of-dde68bac-ebde-4988-96ca-dc6f89d344bc"}"#,
+        )
+        .unwrap();
+
+        let file = read_account_file(&path).unwrap();
+        assert_eq!(file.version, 3);
+        assert_eq!(file.accounts.len(), 1);
+        assert_eq!(file.accounts[0].kind, AccountKind::Offline);
+        assert_eq!(file.accounts[0].name, "Reiner");
+        assert_eq!(
+            file.active_id.as_deref(),
+            Some("of-dde68bac-ebde-4988-96ca-dc6f89d344bc")
+        );
+
+        // After read, the file on disk is rewritten to a clean v3 with `kind`.
+        // Reading it again must go down the strict-v3 happy path (not this
+        // migration branch).
+        let reread = read_account_file(&path).unwrap();
+        assert_eq!(reread.version, 3);
+        assert_eq!(reread.accounts[0].kind, AccountKind::Offline);
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            on_disk.contains("\"kind\""),
+            "rewrite must include kind, got: {on_disk}"
+        );
     }
 
     #[test]

@@ -53,9 +53,12 @@ export function formatError(e: IpcError): string {
       // `details` can be a long parse-error dump (e.g. account.json contents
       // on a schema-mismatch). Toasts can't wrap 1000+ chars usefully —
       // truncate and point the user at the launcher log for the full text.
+      // Slice by code points, not UTF-16 code units, so an emoji or other
+      // surrogate-pair character at the boundary never gets split in half.
+      const codePoints = [...e.details];
       const details =
-        e.details.length > 120
-          ? `${e.details.slice(0, 120)}… (open Logs for full text)`
+        codePoints.length > 120
+          ? `${codePoints.slice(0, 120).join('')}… (open Logs for full text)`
           : e.details;
       return `IO error at ${e.path}: ${details}`;
     }

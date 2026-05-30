@@ -148,4 +148,55 @@ describe('formatError', () => {
       "Microsoft hasn't approved FTlauncher's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
     );
   });
+
+  describe('io error truncation', () => {
+    it('passes details under 120 code points through unchanged', () => {
+      const msg = formatError({
+        kind: 'io',
+        path: 'C:/x/account.json',
+        details: 'short message',
+      });
+      expect(msg).toBe('IO error at C:/x/account.json: short message');
+    });
+
+    it('truncates long ASCII details at 120 code points + ellipsis hint', () => {
+      const longDetails = 'a'.repeat(200);
+      const msg = formatError({
+        kind: 'io',
+        path: 'C:/x/account.json',
+        details: longDetails,
+      });
+      expect(msg).toContain('a'.repeat(120));
+      expect(msg).toContain('… (open Logs for full text)');
+      expect(msg).not.toContain('a'.repeat(121));
+    });
+
+    it('does not split a surrogate pair at the 120 boundary', () => {
+      // Position 119 (the 120th code point) is an emoji — its UTF-16
+      // representation is a surrogate pair. UTF-16-based slice would
+      // split it and leave a lone surrogate (and then the … hint), so
+      // the rendered output would contain a U+FFFD replacement glyph.
+      const before = 'a'.repeat(119);
+      const after = 'b'.repeat(20);
+      const details = `${before}🎉${after}`;
+      const msg = formatError({
+        kind: 'io',
+        path: 'C:/x/file',
+        details,
+      });
+      // Code-point slicing keeps the emoji intact at position 119.
+      expect(msg).toContain('🎉');
+      // No lone surrogate in the output — iterate by code point. A
+      // code-point iteration that yields a value in [D800,DFFF] means a
+      // lone surrogate slipped through. Anything outside that band
+      // (including a full astral code point like U+1F389) is fine.
+      for (const ch of msg) {
+        const cp = ch.codePointAt(0) ?? 0;
+        const isLoneSurrogate = cp >= 0xd800 && cp <= 0xdfff;
+        expect(isLoneSurrogate).toBe(false);
+      }
+      expect(msg).not.toContain('�');
+      expect(msg).toContain('… (open Logs for full text)');
+    });
+  });
 });

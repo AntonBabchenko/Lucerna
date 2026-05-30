@@ -359,17 +359,17 @@ describe('StoragePanel — error block has bg-danger-bg border-danger text-dange
 
 // ── StoragePanel — success toast ──────────────────────────────────────────────
 
-describe('StoragePanel — success toast uses bg-success/10 border-success text-success', () => {
+describe('StoragePanel — success toast uses bg-success-bg border-success text-success', () => {
   it('success-toast pattern class-string guard (inventory line 73)', () => {
-    // Record current class set from StoragePanel source line 74.
-    // The toast uses bg-success/10 (opacity form) — this is the known gap
-    // (inventory: "LIGHT") but not yet changed to bg-success-bg. Guard
-    // against accidental unstyling or btn-* creep.
+    // Mirror the current class set from StoragePanel source line 74.
+    // Post-H5 retrofit the bg is the opaque `bg-success-bg` token.
     const div = document.createElement('div');
-    div.className = 'bg-success/10 border border-success text-success text-sm rounded p-2 mb-2';
-    expect(div.className).toContain('bg-success');
+    div.className = 'bg-success-bg border border-success text-success text-sm rounded p-2 mb-2';
+    expect(div.className).toContain('bg-success-bg');
     expect(div.className).toContain('text-success');
     expect(div.className).toContain('border-success');
+    // Translucent shorthand must NOT come back.
+    expect(div.className).not.toMatch(/bg-success\/\d{1,2}\b/);
     // Not a btn variant.
     expect(div).not.toHaveBtnVariant('primary');
     expect(div).not.toHaveBtnVariant('secondary');

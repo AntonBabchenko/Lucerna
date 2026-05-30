@@ -41,7 +41,7 @@
 //                       installed branch → border-success text-success (NOT btn-primary)
 //                       restricted branch → text-muted (NOT btn-primary)
 
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledMod, ModProject, ModSummary, ModVersion } from '$lib/ipc/bindings';
 
@@ -476,6 +476,71 @@ describe('InstalledModsView — filter radiogroup structure', () => {
     expect(cls).toContain('bg-accent-soft');
     expect(cls).toContain('text-accent');
     expect(cls).toContain('font-medium');
+  });
+
+  it('roving tabindex: checked radio gets tabindex=0, others get -1 (H12)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeInstalled()],
+    });
+    vi.mocked(commands.modsProject).mockResolvedValueOnce({
+      status: 'ok',
+      data: makeProject(),
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    const allBtn = await screen.findByRole('radio', { name: /^all/i });
+    const enabledBtn = await screen.findByRole('radio', { name: /^enabled/i });
+    const disabledBtn = await screen.findByRole('radio', { name: /^disabled/i });
+    expect(allBtn.getAttribute('tabindex')).toBe('0');
+    expect(enabledBtn.getAttribute('tabindex')).toBe('-1');
+    expect(disabledBtn.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('ArrowRight on the radiogroup advances enabledFilter (H12)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeInstalled()],
+    });
+    vi.mocked(commands.modsProject).mockResolvedValueOnce({
+      status: 'ok',
+      data: makeProject(),
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    const group = await screen.findByRole('radiogroup', { name: /mod filter/i });
+    // Default active = All. Fire ArrowRight on the group.
+    await fireEvent.keyDown(group, { key: 'ArrowRight' });
+    const enabledBtn = await screen.findByRole('radio', { name: /^enabled/i });
+    expect(enabledBtn.getAttribute('aria-checked')).toBe('true');
+    expect(enabledBtn.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('Home key returns selection to All (H12)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeInstalled()],
+    });
+    vi.mocked(commands.modsProject).mockResolvedValueOnce({
+      status: 'ok',
+      data: makeProject(),
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    const group = await screen.findByRole('radiogroup', { name: /mod filter/i });
+    // Advance to disabled, then jump back to All via Home.
+    await fireEvent.keyDown(group, { key: 'End' });
+    const disabledBtn = await screen.findByRole('radio', { name: /^disabled/i });
+    expect(disabledBtn.getAttribute('aria-checked')).toBe('true');
+    await fireEvent.keyDown(group, { key: 'Home' });
+    const allBtn = await screen.findByRole('radio', { name: /^all/i });
+    expect(allBtn.getAttribute('aria-checked')).toBe('true');
   });
 });
 
