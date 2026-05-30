@@ -11,6 +11,7 @@
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
+  import { prioritizeByTitle } from '$lib/mods/search-rank';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
   import ModpackCard from './ModpackCard.svelte';
 
@@ -70,6 +71,10 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let debounce: ReturnType<typeof setTimeout> | null = null;
+
+  // Push hits whose title contains the search query to the top — see
+  // prioritizeByTitle for the rationale. Empty page falls back to [].
+  const sortedHits = $derived(page ? prioritizeByTitle(page.hits, query, (h) => h.title) : []);
 
   function runSearch() {
     if (debounce) clearTimeout(debounce);
@@ -193,7 +198,7 @@
     <div class="mt-8 text-sm text-placeholder text-center">No modpacks found.</div>
   {:else if page}
     <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {#each page.hits as hit (hit.project_id)}
+      {#each sortedHits as hit (hit.project_id)}
         <ModpackCard {hit} onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
       {/each}
     </div>

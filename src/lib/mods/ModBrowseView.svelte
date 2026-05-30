@@ -10,6 +10,7 @@
   } from '$lib/ipc/bindings';
   import { untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
+  import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
@@ -215,10 +216,13 @@
     return showInstalled ? hits : hits.filter((h) => installedFor(h) === null);
   }
 
-  // The buffer narrowed by "Show installed", and the 20-card slice for
-  // the current page. `hasNext` is true when there is another page to
-  // show, or more platform results might still be fetched.
-  const filteredHits = $derived(applyInstalledFilter(buffer));
+  // The buffer narrowed by "Show installed", re-ranked so name-matches
+  // come first (see prioritizeByTitle for the rationale), then sliced
+  // for the current page. `hasNext` is true when there is another page
+  // to show, or more platform results might still be fetched.
+  const filteredHits = $derived(
+    prioritizeByTitle(applyInstalledFilter(buffer), query, (h) => h.name),
+  );
   const pageHits = $derived(
     filteredHits.slice((displayPage - 1) * pageSize, displayPage * pageSize),
   );
