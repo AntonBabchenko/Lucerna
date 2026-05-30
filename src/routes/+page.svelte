@@ -402,7 +402,7 @@
   <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
     {#if crashReport}
       <div
-        class="bg-danger/10 border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
+        class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
       >
         <span class="text-sm">
           Minecraft crashed.

@@ -48,3 +48,8 @@ pnpm-debug.log*
 
 # Superpowers brainstorm session artifacts (visual companion mockups)
 .superpowers/
+
+# Playwright artifacts
+test-results/
+playwright-report/
+tests-e2e/.auth/

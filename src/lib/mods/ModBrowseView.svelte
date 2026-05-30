@@ -622,7 +622,7 @@
 
   <div class="p-3 space-y-2">
     {#if error}
-      <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2">{error}</div>
+      <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">{error}</div>
     {/if}
     {#if loading}
       <div class="text-placeholder text-sm py-8 text-center">Searching…</div>

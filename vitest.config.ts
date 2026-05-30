@@ -13,6 +13,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'happy-dom',
+    setupFiles: ['./tests/vitest.setup.ts'],
   },
   resolve: {
     conditions: ['browser'],

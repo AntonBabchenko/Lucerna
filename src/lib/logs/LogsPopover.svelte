@@ -449,7 +449,7 @@
     switch (level) {
       case 'error':
       case 'fatal':
-        return 'border-l-2 pl-2 border-danger bg-danger/10';
+        return 'border-l-2 pl-2 border-danger bg-danger-bg';
       case 'warn':
         return 'border-l-2 pl-2 border-warning-text bg-warning-bg/30';
       case 'debug':
@@ -746,7 +746,7 @@
                                   (unit.kind === 'line' ? unit.text : unit.firstFrame),
                             )}
                             {#if unit.kind === 'line'}
-                              <div class={severityLineClass(unit.level)}>
+                              <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
                                 <span
                                   class={wrap
                                     ? 'whitespace-pre-wrap break-words'
@@ -761,7 +761,7 @@
                             {:else}
                               {@const foldKey = si * 100000 + ui}
                               {@const isExpanded = foldExpanded.get(foldKey) ?? false}
-                              <div class={severityLineClass(unit.level)}>
+                              <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
                                 <button
                                   type="button"
                                   class="btn-tertiary text-left w-full"
@@ -803,7 +803,7 @@
                 <div class="px-3 py-2">
                   {#each renderModel as unit, ui}
                     {#if unit.kind === 'line'}
-                      <div class={severityLineClass(unit.level)}>
+                      <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
                         <span class="text-placeholder select-none"
                           >{(ui + 1).toString().padStart(6, ' ')}:
                         </span><span
@@ -817,7 +817,7 @@
                       </div>
                     {:else}
                       {@const isExpanded = foldExpanded.get(ui) ?? false}
-                      <div class={severityLineClass(unit.level)}>
+                      <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
                         <button
                           type="button"
                           class="btn-tertiary text-left w-full"

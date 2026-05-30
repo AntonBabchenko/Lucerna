@@ -8,7 +8,7 @@
 </script>
 
 <div
-  class="p-6 bg-warning-bg border border-border-subtle rounded mx-3 my-4 text-sm text-warning-text"
+  class="p-6 bg-warning-bg border border-warning-text/30 rounded mx-3 my-4 text-sm text-warning-text"
 >
   <div class="font-medium mb-1">CurseForge requires an API key</div>
   <p class="text-warning-text">

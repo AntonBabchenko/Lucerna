@@ -13,13 +13,13 @@
 <div class="fixed top-4 right-4 z-[200] flex flex-col gap-2" data-testid="toast-host">
   {#each toasts as t (t.id)}
     <div
-      class="w-72 rounded-lg border shadow-lg p-3 text-sm bg-surface {t.kind === 'success'
-        ? 'border-success text-success'
+      class="w-72 rounded-lg border shadow-lg p-3 text-sm {t.kind === 'success'
+        ? 'bg-success-bg border-success text-success'
         : t.kind === 'warning'
-          ? 'border-warning-text text-warning-text'
+          ? 'bg-warning-bg border-warning-text text-warning-text'
           : t.kind === 'info'
-            ? 'border-accent text-accent'
-            : 'border-border-emphasis text-primary'}"
+            ? 'bg-accent-soft border-accent text-accent'
+            : 'bg-surface border-border-emphasis text-primary'}"
       role="status"
       data-testid={`toast-${t.kind}`}
     >

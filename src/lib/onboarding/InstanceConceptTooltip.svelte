@@ -79,13 +79,13 @@
     <div role="presentation" class="fixed inset-0 z-30" onclick={() => (open = false)}></div>
     <div
       id="instance-concept-popover"
-      class="fixed z-40 w-[260px] bg-surface border border-border-subtle rounded shadow-md p-2.5"
+      class="fixed z-40 w-[260px] normal-case tracking-normal bg-surface border border-border-subtle rounded shadow-md p-2.5"
       style="top: {popoverTop}px; left: {popoverLeft}px;"
     >
-      <div class="flex justify-end -mt-1 -mr-1 mb-1">
+      <div class="absolute top-1 right-1">
         <CloseButton onClick={() => (open = false)} ariaLabel="Close tooltip" />
       </div>
-      <p class="text-xs text-secondary leading-snug">
+      <p class="text-xs text-secondary leading-snug pr-6">
         Each instance is a self-contained world — its own Minecraft version, loader, mods, configs
         and saves. Switching instance = switching Minecraft install, without touching the others.
       </p>

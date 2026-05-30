@@ -95,13 +95,7 @@
         >
           v{installed.version_number ?? '?'} → v{updateState.target.version_number}
         </span>
-        <button
-          type="button"
-          class="text-xs px-2 py-1 border border-warning-text/30 rounded bg-warning-bg text-warning-text hover:bg-warning-bg"
-          onclick={onUpdate}
-        >
-          Update
-        </button>
+        <button type="button" class="btn-warning btn-xs" onclick={onUpdate}> Update </button>
       {:else if updateState && updateState.kind === 'check_failed'}
         <span class="text-xs px-2 py-1 text-placeholder" title={updateState.reason}>
           couldn't check

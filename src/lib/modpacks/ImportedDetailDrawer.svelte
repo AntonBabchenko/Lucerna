@@ -529,7 +529,7 @@
           <ul class="space-y-1">
             {#each status.removed_files as f (f.sha1)}
               <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger/10 border border-danger"
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger-bg border border-danger"
               >
                 <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
                 {#if f.url === ''}

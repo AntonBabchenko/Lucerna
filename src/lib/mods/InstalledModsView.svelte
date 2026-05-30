@@ -398,22 +398,17 @@
         {checking ? 'Checking…' : 'Check for updates'}
       </button>
       {#if updateCount > 0}
-        <button
-          type="button"
-          class="text-xs px-2 py-1 border border-warning-text/30 rounded bg-warning-bg text-warning-text hover:bg-warning-bg disabled:opacity-50"
-          disabled={busy}
-          onclick={updateAll}
-        >
+        <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={updateAll}>
           Update all ({updateCount})
         </button>
       {/if}
     </div>
     {#if totalCount > 0}
-      <div role="tablist" aria-label="Filter by state" class="flex gap-1 text-xs">
+      <div role="radiogroup" aria-label="Mod filter" class="flex gap-1 text-xs">
         <button
           type="button"
-          role="tab"
-          aria-selected={enabledFilter === 'all'}
+          role="radio"
+          aria-checked={enabledFilter === 'all'}
           class="btn-secondary btn-xs"
           class:bg-accent-soft={enabledFilter === 'all'}
           class:text-accent={enabledFilter === 'all'}
@@ -424,19 +419,20 @@
         </button>
         <button
           type="button"
-          role="tab"
-          aria-selected={enabledFilter === 'enabled'}
-          class="btn-secondary btn-xs {enabledFilter === 'enabled'
-            ? 'bg-success/10 text-success font-medium'
-            : ''}"
+          role="radio"
+          aria-checked={enabledFilter === 'enabled'}
+          class="btn-secondary btn-xs"
+          class:bg-success-bg={enabledFilter === 'enabled'}
+          class:text-success={enabledFilter === 'enabled'}
+          class:font-medium={enabledFilter === 'enabled'}
           onclick={() => (enabledFilter = 'enabled')}
         >
           Enabled ({enabledCount})
         </button>
         <button
           type="button"
-          role="tab"
-          aria-selected={enabledFilter === 'disabled'}
+          role="radio"
+          aria-checked={enabledFilter === 'disabled'}
           class="btn-secondary btn-xs"
           class:bg-subtle={enabledFilter === 'disabled'}
           class:text-secondary={enabledFilter === 'disabled'}
@@ -450,7 +446,7 @@
   </div>
 
   {#if error}
-    <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2 mb-2">
+    <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-2">
       {error}
     </div>
   {/if}

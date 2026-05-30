@@ -146,7 +146,7 @@
     {/if}
 
     {#if error}
-      <div class="bg-danger/10 border border-danger text-danger text-sm rounded p-2 mt-3">
+      <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mt-3">
         {error}
       </div>
     {/if}

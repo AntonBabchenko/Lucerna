@@ -108,7 +108,7 @@
     {/if}
 
     {#if loaderMismatch}
-      <div class="mb-3 bg-danger/10 border border-danger rounded p-2 text-sm text-danger">
+      <div class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger">
         ⚠ <span class="font-medium">Loader mismatch.</span> This version targets
         {loaderMismatch.modLoaders.join(' / ')} but your instance uses
         {loaderMismatch.instanceLoader}. Installing will leave a jar in the mods folder that

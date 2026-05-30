@@ -268,7 +268,7 @@
 
   <div class="flex-1 overflow-y-auto">
     {#if error}
-      <div class="m-4 p-3 bg-danger/10 border border-danger rounded text-sm text-danger">
+      <div class="m-4 p-3 bg-danger-bg border border-danger rounded text-sm text-danger">
         {error}
       </div>
     {/if}

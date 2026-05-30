@@ -61,10 +61,12 @@
           type="button"
           role="tab"
           aria-selected={active === 'curseforge'}
-          class="px-3 py-1 text-sm rounded -mb-px"
-          class:font-medium={active === 'curseforge'}
-          class:border-b-2={active === 'curseforge'}
+          class="px-3 py-1 text-sm border-b-2 -mb-px"
           class:border-accent={active === 'curseforge'}
+          class:text-primary={active === 'curseforge'}
+          class:font-medium={active === 'curseforge'}
+          class:border-transparent={active !== 'curseforge'}
+          class:text-placeholder={active !== 'curseforge'}
           onclick={() => (active = 'curseforge')}
         >
           CurseForge
@@ -73,10 +75,12 @@
           type="button"
           role="tab"
           aria-selected={active === 'storage'}
-          class="px-3 py-1 text-sm rounded -mb-px"
-          class:font-medium={active === 'storage'}
-          class:border-b-2={active === 'storage'}
+          class="px-3 py-1 text-sm border-b-2 -mb-px"
           class:border-accent={active === 'storage'}
+          class:text-primary={active === 'storage'}
+          class:font-medium={active === 'storage'}
+          class:border-transparent={active !== 'storage'}
+          class:text-placeholder={active !== 'storage'}
           onclick={() => (active = 'storage')}
         >
           Storage
@@ -85,10 +89,12 @@
           type="button"
           role="tab"
           aria-selected={active === 'about'}
-          class="px-3 py-1 text-sm rounded -mb-px"
-          class:font-medium={active === 'about'}
-          class:border-b-2={active === 'about'}
+          class="px-3 py-1 text-sm border-b-2 -mb-px"
           class:border-accent={active === 'about'}
+          class:text-primary={active === 'about'}
+          class:font-medium={active === 'about'}
+          class:border-transparent={active !== 'about'}
+          class:text-placeholder={active !== 'about'}
           onclick={() => (active = 'about')}
         >
           About
@@ -97,10 +103,12 @@
           type="button"
           role="tab"
           aria-selected={active === 'general'}
-          class="px-3 py-1 text-sm rounded -mb-px"
-          class:font-medium={active === 'general'}
-          class:border-b-2={active === 'general'}
+          class="px-3 py-1 text-sm border-b-2 -mb-px"
           class:border-accent={active === 'general'}
+          class:text-primary={active === 'general'}
+          class:font-medium={active === 'general'}
+          class:border-transparent={active !== 'general'}
+          class:text-placeholder={active !== 'general'}
           onclick={() => (active = 'general')}
         >
           General

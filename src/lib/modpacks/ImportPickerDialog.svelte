@@ -124,7 +124,7 @@
         </h3>
         <ul class="space-y-1">
           {#each unresolvable as u (u.manual_action_url)}
-            <li class="text-sm py-1 flex items-center bg-danger/10 px-2 rounded">
+            <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
               <span class="flex-1">{u.mod_name}</span>
               <button
                 type="button"
