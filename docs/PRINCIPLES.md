@@ -4,7 +4,7 @@ This document is the Lucerna product and technical constitution. Decisions that 
 
 ## Part A — Product values
 
-Lucerna exists to give players a transparent open-source Minecraft launcher: telemetry-free, with no ad injection into the game, no hidden processes, and no bundled adware. The launcher never modifies the Minecraft client jar; the Minecraft we run is the Minecraft Mojang ships. Microsoft / Xbox Live and offline accounts are treated as equal first-class options for legitimate use cases (LAN play, single-player without internet, development testing, players who own Minecraft but prefer not to keep a network session live). Historically, the Russian / CIS launcher market has been dominated by clients that pair convenient mod-loader and instance UX with intrusive telemetry, ad injection, and bundled adware; we ship the convenient UX without the intrusive parts. That is the entire mission.
+Lucerna exists to give players a transparent open-source Minecraft launcher: telemetry-free, with no ad injection into the game, no hidden processes, and no bundled adware. The launcher never modifies the Minecraft client jar; the Minecraft we run is the Minecraft Mojang ships. Microsoft / Xbox Live and offline accounts are treated as equal first-class options for legitimate use cases (LAN play, single-player without internet, development testing, players who own Minecraft but prefer not to keep a network session live). Lucerna's aim is to deliver the convenient mod-loader and instance UX players want from a launcher, with none of the telemetry, ad injection, hidden processes, or bundled adware — and to make that verifiable rather than asking for trust. That is the entire mission.
 
 ### Hard rules — what we never do
 
