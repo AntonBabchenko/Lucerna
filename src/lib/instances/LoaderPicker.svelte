@@ -6,6 +6,7 @@
     type Error as IpcError,
   } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { resolveLoaderVersion } from '$lib/instances/loader-version';
   import { formatError } from '$lib/ipc/format-error';
 
   function formatLoaderError(e: IpcError): string {
@@ -90,16 +91,17 @@
       // resetToStable=false on mount + on MC change — preserve the
       // parent's committed loaderVersion when still in the list, else
       // fall back to stable so the UI never shows a broken-combo.
-      if (resetToStable) {
-        const stable = result.data.find((l) => l.stable);
-        loaderVersion = (stable ?? result.data[0])?.version ?? null;
-      } else {
-        const currentIsValid =
-          loaderVersion != null && result.data.some((l) => l.version === loaderVersion);
-        if (!currentIsValid) {
-          const stable = result.data.find((l) => l.stable);
-          loaderVersion = (stable ?? result.data[0])?.version ?? null;
-        }
+      const next = resolveLoaderVersion(loaderVersion, result.data, resetToStable);
+      if (next !== loaderVersion) {
+        loaderVersion = next;
+        // Commit the auto-correction: without this the dropdown would show
+        // a valid version while a stale/invalid one stayed saved on the
+        // instance, so Install kept fetching the broken (mc, fv) pair and
+        // 404'd. Firing onchange persists the picker's pick. The guard
+        // above means a load that changes nothing emits no event, so a
+        // committed-then-reloaded value can't loop. (Create-form usage
+        // passes no onchange → no-op.)
+        onchange?.(k, next);
       }
     } else {
       versions = [];

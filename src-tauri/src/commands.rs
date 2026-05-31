@@ -546,14 +546,64 @@ pub fn set_instance_name(
     crate::instances::set_instance_name(&app, &id, name)
 }
 
+/// Change the MC version of an instance, re-resolving the loader version for
+/// the new MC. If the loader is not supported on the new MC version, the
+/// instance is automatically reset to Vanilla and the report reflects that.
+/// Returns the updated instance plus a `LoaderOutcome` describing what changed.
 #[tauri::command]
 #[specta::specta]
-pub fn set_instance_version(
+pub async fn change_instance_mc(
     app: tauri::AppHandle,
     id: String,
-    mc_version: String,
-) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    crate::instances::set_instance_version(&app, &id, mc_version)
+    mc: String,
+) -> crate::error::Result<crate::instances::McChangeReport> {
+    use crate::instances::schema::LoaderKind;
+    use crate::instances::{self, LoaderDecision, LoaderOutcome};
+    use crate::versions::loaders::{list_loaders, Loader};
+
+    let current = instances::read_instance(&app, &id)?;
+    let loader = current.loader;
+
+    if loader == LoaderKind::Vanilla {
+        // Vanilla instance: nothing to re-resolve, just set the MC version.
+        let instance = instances::set_instance_version(&app, &id, mc)?;
+        return Ok(crate::instances::McChangeReport {
+            instance,
+            loader_outcome: LoaderOutcome::Unchanged,
+        });
+    }
+
+    let as_loader = match loader {
+        LoaderKind::Fabric => Loader::Fabric,
+        LoaderKind::Quilt => Loader::Quilt,
+        LoaderKind::Forge => Loader::Forge,
+        LoaderKind::NeoForge => Loader::NeoForge,
+        // SAFETY: guarded by the `loader == Vanilla` branch above
+        LoaderKind::Vanilla => unreachable!(),
+    };
+    // Resolve over the network BEFORE any write, then apply MC + loader +
+    // loader_version in a SINGLE atomic mutate — a torn write must never leave
+    // the new MC paired with the old loader version (that is the bug).
+    match instances::decide_loader(loader, list_loaders(as_loader, &mc).await) {
+        LoaderDecision::Use(v) => {
+            let instance = instances::apply_mc_and_loader(&app, &id, mc, loader, Some(v.clone()))?;
+            Ok(crate::instances::McChangeReport {
+                instance,
+                loader_outcome: LoaderOutcome::LoaderUpdated { loader, version: v },
+            })
+        }
+        LoaderDecision::ResetToVanilla => {
+            let instance =
+                instances::apply_mc_and_loader(&app, &id, mc, LoaderKind::Vanilla, None)?;
+            Ok(crate::instances::McChangeReport {
+                instance,
+                loader_outcome: LoaderOutcome::LoaderResetToVanilla {
+                    previous_loader: loader,
+                },
+            })
+        }
+        LoaderDecision::Error(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -585,6 +635,19 @@ pub fn set_instance_jvm_args(
     args: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
     crate::instances::set_instance_jvm_args(&app, &id, args)
+}
+
+/// Clear all modpack provenance fields (`mrpack_*`) from an instance,
+/// detaching it from its origin pack. Safe to call on non-pack instances
+/// (idempotent no-op). The UI offers this when the user changes MC or
+/// loader on a pack-imported instance.
+#[tauri::command]
+#[specta::specta]
+pub fn detach_instance_pack(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::instances::detach_instance_pack(&app, &id)
 }
 
 /// Ensure `<instance>/.minecraft/` exists, then open it in the OS
@@ -988,6 +1051,48 @@ pub async fn mods_check_updates(
             current_version_id: version_id,
             current_version_number: m.version_number.clone(),
             state,
+        });
+    }
+    Ok(out)
+}
+
+/// For each installed mod in `id`, report whether any platform version
+/// exists for the given target `mc` + `loader`. Non-destructive — no
+/// files are modified.
+///
+/// Mods with no platform identity (hand-dropped jars) and pack-origin
+/// mods report [`ModCompatStatus::Unknown`]. A single mod's query
+/// failure becomes [`ModCompatStatus::Unknown`] for that mod — the
+/// command fails wholesale only on a catastrophic error (instance
+/// missing, registry unreadable).
+#[tauri::command]
+#[specta::specta]
+pub async fn check_instance_mod_compat(
+    app: tauri::AppHandle,
+    id: String,
+    mc: String,
+    loader: crate::instances::schema::LoaderKind,
+) -> crate::error::Result<Vec<crate::mods::compat::ModCompat>> {
+    use crate::mods::updates::eligible_identity;
+
+    let inst_root = instance_root(&app, &id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+
+    let mut out = Vec::new();
+    for m in &installed {
+        let status = match eligible_identity(m, pack_origin.as_ref()) {
+            None => crate::mods::compat::ModCompatStatus::Unknown,
+            Some((source, project_id, _vid)) => crate::mods::compat::classify_compat(
+                platform_for(source)
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await,
+            ),
+        };
+        out.push(crate::mods::compat::ModCompat {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            status,
         });
     }
     Ok(out)

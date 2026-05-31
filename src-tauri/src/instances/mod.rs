@@ -204,6 +204,28 @@ pub fn set_instance_loader(
     })
 }
 
+/// Apply a Minecraft-version change and its re-resolved loader in ONE
+/// read-modify-write. `change_instance_mc` uses this so a torn write can't
+/// leave the instance with the new MC but the old (incompatible) loader
+/// version — which would re-introduce the very Forge-404 stale-state bug
+/// this module exists to prevent.
+pub(crate) fn apply_mc_and_loader(
+    app: &tauri::AppHandle,
+    id: &str,
+    mc_version: String,
+    loader: LoaderKind,
+    loader_version: Option<String>,
+) -> Result<InstanceWithStatus> {
+    mutate(app, id, |i| {
+        i.mc_version = mc_version;
+        i.loader = loader;
+        i.loader_version = match loader {
+            LoaderKind::Vanilla => None,
+            _ => loader_version,
+        };
+    })
+}
+
 pub fn set_instance_memory(
     app: &tauri::AppHandle,
     id: &str,
@@ -243,6 +265,65 @@ pub fn set_instance_pack_update(
     })
 }
 
+// ---------------------------------------------------------------------------
+// MC-change report types
+// ---------------------------------------------------------------------------
+
+/// Outcome of re-resolving the loader version when MC changes.
+#[derive(Debug, Clone, serde::Serialize, specta::Type, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LoaderOutcome {
+    Unchanged,
+    LoaderUpdated { loader: LoaderKind, version: String },
+    LoaderResetToVanilla { previous_loader: LoaderKind },
+}
+
+/// Return value of `change_instance_mc`: the updated instance plus a
+/// description of what happened to the loader version.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct McChangeReport {
+    pub instance: InstanceWithStatus,
+    pub loader_outcome: LoaderOutcome,
+}
+
+// ---------------------------------------------------------------------------
+// Pure loader-decision helper (testable without I/O)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub(crate) enum LoaderDecision {
+    Use(String),
+    ResetToVanilla,
+    Error(crate::error::Error),
+}
+
+/// Given the result of `list_loaders` for a new MC version, decide what
+/// loader version to use.
+///
+/// - `Ok(list)` with a stable build → `Use` the stable build.
+/// - `Ok(list)` with no stable build but at least one entry → `Use` the first.
+/// - `Ok([])` is unreachable (callers use the cached list that already maps
+///   empty → `LoaderUnavailable`).
+/// - `Err(LoaderUnavailable { .. })` → `ResetToVanilla` (loader not supported
+///   for this MC version).
+/// - Any other `Err` → propagate as `Error`.
+///
+/// `_loader` is unused today (the decision is loader-agnostic) but kept in the
+/// signature, reserved for a future per-loader version-selection policy.
+pub(crate) fn decide_loader(
+    _loader: LoaderKind,
+    list: crate::error::Result<Vec<crate::versions::loaders::LoaderVersion>>,
+) -> LoaderDecision {
+    match list {
+        Ok(v) => match v.iter().find(|x| x.stable).or_else(|| v.first()) {
+            Some(lv) => LoaderDecision::Use(lv.version.clone()),
+            None => LoaderDecision::ResetToVanilla,
+        },
+        Err(crate::error::Error::LoaderUnavailable { .. }) => LoaderDecision::ResetToVanilla,
+        Err(e) => LoaderDecision::Error(e),
+    }
+}
+
 /// Remove `<instance>/` recursively. If `id` was active, auto-switches
 /// to the oldest remaining instance. Errors `LastInstance` if it's the
 /// only one (UI also disables the Delete button — defence in depth).
@@ -269,4 +350,135 @@ pub fn delete_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
         store::write_app_json(&app_file_path, &app_state)?;
     }
     Ok(())
+}
+
+pub(crate) fn clear_pack_origin_fields(i: &mut schema::InstanceFile) {
+    i.mrpack_name = None;
+    i.mrpack_version = None;
+    i.mrpack_project_id = None;
+    i.mrpack_source = None;
+    i.mrpack_summary = None;
+    i.mrpack_version_id = None;
+}
+
+pub fn detach_instance_pack(app: &tauri::AppHandle, id: &str) -> Result<InstanceWithStatus> {
+    mutate(app, id, clear_pack_origin_fields)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::Error;
+    use crate::versions::loaders::LoaderVersion;
+
+    fn stable(version: &str) -> LoaderVersion {
+        LoaderVersion {
+            version: version.to_string(),
+            stable: true,
+            build: 0,
+        }
+    }
+
+    fn unstable(version: &str) -> LoaderVersion {
+        LoaderVersion {
+            version: version.to_string(),
+            stable: false,
+            build: 0,
+        }
+    }
+
+    fn pack_instance() -> schema::InstanceFile {
+        schema::InstanceFile {
+            version: 1,
+            id: "aaaa-bbbb-cccc-dddd-eeeeffffaaaa".into(),
+            name: "Pack Instance".into(),
+            mc_version: "1.20.1".into(),
+            loader: schema::LoaderKind::Fabric,
+            loader_version: Some("0.16.5".into()),
+            max_heap_mb: 4096,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1_700_000_000_000.0,
+            mrpack_name: Some("All The Mods 10".into()),
+            mrpack_version: Some("1.4.7".into()),
+            mrpack_project_id: Some("ABCD1234".into()),
+            mrpack_source: Some(crate::mods::platform::ModSource::Modrinth),
+            mrpack_summary: Some("A great pack".into()),
+            mrpack_version_id: Some("vyRB9jtS".into()),
+        }
+    }
+
+    fn plain_instance() -> schema::InstanceFile {
+        schema::InstanceFile {
+            version: 1,
+            id: "1111-2222-3333-4444-555566667777".into(),
+            name: "Plain".into(),
+            mc_version: "1.20.4".into(),
+            loader: schema::LoaderKind::Vanilla,
+            loader_version: None,
+            max_heap_mb: 2048,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1_700_000_000_000.0,
+            mrpack_name: None,
+            mrpack_version: None,
+            mrpack_project_id: None,
+            mrpack_source: None,
+            mrpack_summary: None,
+            mrpack_version_id: None,
+        }
+    }
+
+    #[test]
+    fn detach_clears_all_mrpack_fields() {
+        let mut f = pack_instance();
+        clear_pack_origin_fields(&mut f);
+        assert!(
+            f.mrpack_name.is_none()
+                && f.mrpack_version.is_none()
+                && f.mrpack_project_id.is_none()
+                && f.mrpack_source.is_none()
+                && f.mrpack_summary.is_none()
+                && f.mrpack_version_id.is_none()
+        );
+    }
+
+    #[test]
+    fn detach_is_idempotent_on_non_pack_instance() {
+        let mut f = plain_instance();
+        clear_pack_origin_fields(&mut f); // must not panic; stays all-None
+        assert!(f.mrpack_name.is_none());
+    }
+
+    #[test]
+    fn picks_stable_build_when_available() {
+        let list = vec![unstable("0.16.0"), stable("0.15.7"), unstable("0.14.0")];
+        let decision = decide_loader(LoaderKind::Fabric, Ok(list));
+        assert!(matches!(decision, LoaderDecision::Use(ref v) if v == "0.15.7"));
+    }
+
+    #[test]
+    fn falls_back_to_first_when_none_stable() {
+        let list = vec![unstable("0.16.0"), unstable("0.15.7")];
+        let decision = decide_loader(LoaderKind::Quilt, Ok(list));
+        assert!(matches!(decision, LoaderDecision::Use(ref v) if v == "0.16.0"));
+    }
+
+    #[test]
+    fn resets_to_vanilla_when_loader_unavailable() {
+        let err = Error::LoaderUnavailable {
+            loader: "forge".to_string(),
+            mc_version: "1.6.4".to_string(),
+        };
+        let decision = decide_loader(LoaderKind::Forge, Err(err));
+        assert!(matches!(decision, LoaderDecision::ResetToVanilla));
+    }
+
+    #[test]
+    fn propagates_network_error() {
+        let err = Error::Network {
+            url: "https://meta.fabricmc.net".to_string(),
+            details: "connection refused".to_string(),
+        };
+        let decision = decide_loader(LoaderKind::Fabric, Err(err));
+        assert!(matches!(decision, LoaderDecision::Error(_)));
+    }
 }

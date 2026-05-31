@@ -80,6 +80,9 @@ pub enum Error {
     #[error("Forge maven-metadata.xml could not be parsed: {details}")]
     ForgeMavenMetadataParseFailed { details: String },
 
+    #[error("No Forge build exists for Minecraft {mc} (tried {fv})")]
+    ForgeNoBuildFor { mc: String, fv: String },
+
     #[error("Forge installer for {mc}-{fv} is corrupted: {details}")]
     ForgeInstallerCorrupted {
         mc: String,

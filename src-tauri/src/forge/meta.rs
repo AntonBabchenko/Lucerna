@@ -198,6 +198,21 @@ pub(crate) fn version_parts(v: &str) -> (u32, u32, u32, u32) {
     )
 }
 
+/// Returns `Ok(())` when a maven entry matching both `mc` and `fv` exists in
+/// `entries`, otherwise `Err(Error::ForgeNoBuildFor)`. Call this before
+/// attempting to download a Forge installer to surface a friendly typed error
+/// instead of a raw HTTP 404.
+pub fn ensure_forge_build_exists(entries: &[MavenEntry], mc: &str, fv: &str) -> Result<()> {
+    if entries.iter().any(|e| e.mc == mc && e.fv == fv) {
+        Ok(())
+    } else {
+        Err(Error::ForgeNoBuildFor {
+            mc: mc.to_string(),
+            fv: fv.to_string(),
+        })
+    }
+}
+
 /// Filter `entries` to `mc_id`, sort descending by version, tag stable
 /// from promotions, and return both the IPC-shaped `LoaderVersion`
 /// list and an `fv → raw maven version` index. The raw index lets the
@@ -472,6 +487,49 @@ pub async fn fetch_installer_bytes(
         return tokio::fs::read(&path)
             .await
             .map_err(|e| Error::io(path.display().to_string(), e));
+    }
+
+    // Guard: for Forge (not NeoForge), validate that a published build
+    // exists for this (mc, fv) pair before attempting the installer
+    // download. This surfaces a friendly typed error instead of a raw
+    // HTTP 404 when the user picks a pair that was never released.
+    //
+    // Re-use the list_versions in-memory cache when it already holds
+    // entries for this MC version; otherwise fetch maven-metadata.xml
+    // and parse it now. Either way we have a `Vec<MavenEntry>` to run
+    // the guard against.
+    if flavor == ForgeFlavor::Forge {
+        let maven_entries: Vec<MavenEntry> = {
+            // Check whether list_versions already cached entries for this MC.
+            let cached = {
+                let guard = list_cache()
+                    .lock()
+                    .expect("forge meta cache mutex poisoned");
+                guard.get(&(ForgeFlavor::Forge, mc.to_string())).map(|c| {
+                    // Reconstruct MavenEntry values from raw_by_fv in the cache.
+                    c.raw_by_fv
+                        .iter()
+                        .map(|(fv_k, raw_v)| MavenEntry {
+                            mc: mc.to_string(),
+                            fv: fv_k.clone(),
+                            raw: raw_v.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+            };
+            match cached {
+                Some(entries) => entries,
+                None => {
+                    // Fresh fetch of maven-metadata.xml for the guard only.
+                    let meta_url = meta_url_for(ForgeFlavor::Forge);
+                    let xml = crate::network::get_text(&meta_url, "forge/meta")
+                        .await
+                        .map_err(|e| Error::network(meta_url.clone(), format!("{e:?}")))?;
+                    parse_maven_metadata(&xml)?
+                }
+            }
+        };
+        ensure_forge_build_exists(&maven_entries, mc, fv)?;
     }
 
     // For MC ranges that use the `<mc>-<fv>-<mc>` maven path quirk
@@ -912,5 +970,32 @@ mod tests {
         assert!(versions[0].stable);
         assert_eq!(versions[1].version, "21.10.63");
         assert!(!versions[1].stable);
+    }
+
+    // ---- ensure_forge_build_exists -------------------------------------------
+
+    #[test]
+    fn forge_build_present_passes() {
+        // FIXTURE contains "1.20.4-49.0.49" → mc="1.20.4", fv="49.0.49".
+        let entries = parse_maven_metadata(FIXTURE).expect("parse");
+        assert!(
+            ensure_forge_build_exists(&entries, "1.20.4", "49.0.49").is_ok(),
+            "a known (mc, fv) pair must pass the guard"
+        );
+    }
+
+    #[test]
+    fn forge_build_absent_yields_typed_error() {
+        // A bogus pair that is not in the fixture.
+        let entries = parse_maven_metadata(FIXTURE).expect("parse");
+        let err = ensure_forge_build_exists(&entries, "1.26.1", "58.1.0")
+            .expect_err("non-existent pair must be rejected");
+        match err {
+            Error::ForgeNoBuildFor { mc, fv } => {
+                assert_eq!(mc, "1.26.1");
+                assert_eq!(fv, "58.1.0");
+            }
+            other => panic!("expected ForgeNoBuildFor, got {other:?}"),
+        }
     }
 }
