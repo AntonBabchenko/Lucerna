@@ -11,6 +11,7 @@
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import { browserPrefs, PAGE_SIZES } from '$lib/mods/browser-prefs.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
+  import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
@@ -197,6 +198,7 @@
       <option value={n}>{n} / page</option>
     {/each}
   </select>
+  <LayoutToggle />
 </div>
 
 <div class="px-4 pb-4">
@@ -209,11 +211,19 @@
   {:else if page && page.hits.length === 0}
     <div class="mt-8 text-sm text-placeholder text-center">No modpacks found.</div>
   {:else if page}
-    <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {#each sortedHits as hit (hit.project_id)}
-        <ModpackCard {hit} onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
-      {/each}
-    </div>
+    {#if browserPrefs.layout === 'grid'}
+      <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {#each sortedHits as hit (hit.project_id)}
+          <ModpackCard {hit} layout="grid" onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
+        {/each}
+      </div>
+    {:else}
+      <div class="mt-2 flex flex-col border border-border-subtle rounded overflow-hidden">
+        {#each sortedHits as hit (hit.project_id)}
+          <ModpackCard {hit} layout="list" onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
+        {/each}
+      </div>
+    {/if}
     <div class="mt-4 flex justify-between text-sm">
       <button
         type="button"

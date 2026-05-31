@@ -25,6 +25,7 @@
     onUpdate = () => {},
     checking = false,
     packChip = null,
+    layout = 'grid',
   }: {
     summary: ModSummary;
     installed: InstalledMod | null;
@@ -40,6 +41,7 @@
     onUpdate?: () => void;
     checking?: boolean;
     packChip?: string | null;
+    layout?: 'grid' | 'list';
   } = $props();
 
   // True when the installed record came from a different platform than
@@ -60,78 +62,129 @@
   );
 </script>
 
-<div class="border border-border-subtle rounded bg-surface p-3 flex gap-3">
-  {#if summary.icon_url}
-    <img src={summary.icon_url} alt="" class="w-12 h-12 rounded" />
-  {:else}
-    <div class="w-12 h-12 rounded bg-subtle flex items-center justify-center text-placeholder">
-      ◆
-    </div>
-  {/if}
-
-  <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
-    <div class="font-medium text-primary truncate">{summary.name}</div>
-    <div class="text-xs text-muted truncate">
-      by {summary.author} · {(summary.downloads ?? 0).toLocaleString()} dl
-    </div>
-    <div class="text-sm text-secondary truncate">{summary.summary}</div>
-  </button>
-
-  <div class="self-center flex items-center gap-1">
-    {#if installed}
-      {#if packChip}
-        <span
-          class="text-xs px-2 py-1 rounded bg-accent-soft text-accent"
-          title="From modpack: {packChip}"
-        >
-          📦 {packChip}
-        </span>
-      {:else if checking}
-        <span class="text-xs px-2 py-1 text-placeholder">Checking…</span>
-      {:else if updateState && updateState.kind === 'update_available'}
-        <span
-          class="text-xs px-2 py-1 rounded bg-warning-bg text-warning-text"
-          title="Update available"
-        >
-          v{installed.version_number ?? '?'} → v{updateState.target.version_number}
-        </span>
-        <button type="button" class="btn-warning btn-xs" onclick={onUpdate}> Update </button>
-      {:else if updateState && updateState.kind === 'check_failed'}
-        <span class="text-xs px-2 py-1 text-placeholder" title={updateState.reason}>
-          couldn't check
-        </span>
-      {/if}
-      <span
-        class="text-xs px-2 py-1 rounded {installed.enabled
-          ? 'bg-success-bg text-success'
-          : 'bg-subtle text-muted'}"
-        title={crossPlatform && otherPlatformLabel
-          ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`
-          : installed.version_number
-            ? `Version ${installed.version_number} on disk`
-            : 'Installed'}
-      >
-        {installed.enabled ? 'Installed' : 'Disabled'}{crossPlatform && otherPlatformLabel
-          ? ` (${otherPlatformLabel})`
-          : installed.version_number
-            ? ` · v${installed.version_number}`
-            : ''}
-      </span>
-      <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
-        {installed.enabled ? 'Disable' : 'Enable'}
-      </button>
-      <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}>
-        Uninstall
-      </button>
+{#if layout === 'grid'}
+  <div class="border border-border-subtle rounded bg-surface p-3 flex gap-3">
+    {#if summary.icon_url}
+      <img src={summary.icon_url} alt="" class="w-12 h-12 rounded" />
     {:else}
-      <button
-        type="button"
-        class="btn-primary btn-xs whitespace-nowrap"
-        title="Installs the latest compatible version. Click the card to pick a specific version."
-        onclick={onInstall}
-      >
-        Install recommended
-      </button>
+      <div class="w-12 h-12 rounded bg-subtle flex items-center justify-center text-placeholder">
+        ◆
+      </div>
     {/if}
+
+    <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
+      <div class="font-medium text-primary truncate">{summary.name}</div>
+      <div class="text-xs text-muted truncate">
+        by {summary.author} · {(summary.downloads ?? 0).toLocaleString()} dl
+      </div>
+      <div class="text-sm text-secondary truncate">{summary.summary}</div>
+    </button>
+
+    <div class="self-center flex items-center gap-1">
+      {#if installed}
+        {#if packChip}
+          <span
+            class="text-xs px-2 py-1 rounded bg-accent-soft text-accent"
+            title="From modpack: {packChip}"
+          >
+            📦 {packChip}
+          </span>
+        {:else if checking}
+          <span class="text-xs px-2 py-1 text-placeholder">Checking…</span>
+        {:else if updateState && updateState.kind === 'update_available'}
+          <span
+            class="text-xs px-2 py-1 rounded bg-warning-bg text-warning-text"
+            title="Update available"
+          >
+            v{installed.version_number ?? '?'} → v{updateState.target.version_number}
+          </span>
+          <button type="button" class="btn-warning btn-xs" onclick={onUpdate}> Update </button>
+        {:else if updateState && updateState.kind === 'check_failed'}
+          <span class="text-xs px-2 py-1 text-placeholder" title={updateState.reason}>
+            couldn't check
+          </span>
+        {/if}
+        <span
+          class="text-xs px-2 py-1 rounded {installed.enabled
+            ? 'bg-success-bg text-success'
+            : 'bg-subtle text-muted'}"
+          title={crossPlatform && otherPlatformLabel
+            ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`
+            : installed.version_number
+              ? `Version ${installed.version_number} on disk`
+              : 'Installed'}
+        >
+          {installed.enabled ? 'Installed' : 'Disabled'}{crossPlatform && otherPlatformLabel
+            ? ` (${otherPlatformLabel})`
+            : installed.version_number
+              ? ` · v${installed.version_number}`
+              : ''}
+        </span>
+        <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
+          {installed.enabled ? 'Disable' : 'Enable'}
+        </button>
+        <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}>
+          Uninstall
+        </button>
+      {:else}
+        <button
+          type="button"
+          class="btn-primary btn-xs whitespace-nowrap"
+          title="Installs the latest compatible version. Click the card to pick a specific version."
+          onclick={onInstall}
+        >
+          Install recommended
+        </button>
+      {/if}
+    </div>
   </div>
-</div>
+{:else}
+  <div
+    class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
+    data-testid="card-list-row"
+  >
+    {#if summary.icon_url}
+      <img src={summary.icon_url} alt="" class="w-8 h-8 rounded flex-shrink-0" />
+    {:else}
+      <div
+        class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0"
+      >
+        ◆
+      </div>
+    {/if}
+
+    <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
+      <span class="font-medium text-primary truncate">{summary.name}</span>
+      <span class="text-xs text-muted ml-2">by {summary.author}</span>
+      <span class="text-xs text-placeholder ml-2"
+        >{(summary.downloads ?? 0).toLocaleString()} dl</span
+      >
+    </button>
+
+    <div class="flex items-center gap-1 flex-shrink-0">
+      {#if installed}
+        <span
+          class="text-xs px-2 py-0.5 rounded {installed.enabled
+            ? 'bg-success-bg text-success'
+            : 'bg-subtle text-muted'}"
+        >
+          {installed.enabled ? 'Installed' : 'Disabled'}
+        </span>
+        <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
+          {installed.enabled ? 'Disable' : 'Enable'}
+        </button>
+        <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}>
+          Uninstall
+        </button>
+      {:else}
+        <button
+          type="button"
+          class="btn-primary btn-xs whitespace-nowrap"
+          onclick={onInstall}
+        >
+          Install
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}

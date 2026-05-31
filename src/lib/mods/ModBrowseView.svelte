@@ -16,6 +16,7 @@
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
+  import LayoutToggle from './LayoutToggle.svelte';
   import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
@@ -641,6 +642,7 @@
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
       </label>
+      <LayoutToggle />
     </div>
   </div>
 
@@ -651,16 +653,35 @@
     {#if loading}
       <div class="text-placeholder text-sm py-8 text-center">Searching…</div>
     {:else if pageHits.length > 0}
-      {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
-        <ModCard
-          summary={hit}
-          installed={installedFor(hit)}
-          onInstall={() => startInstall(hit)}
-          onOpenDetail={() => (drawerProject = hit.project_id)}
-          onToggle={() => toggleCard(hit)}
-          onUninstall={() => uninstallCard(hit)}
-        />
-      {/each}
+      {#if browserPrefs.layout === 'grid'}
+        <div class="space-y-2">
+          {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+            <ModCard
+              summary={hit}
+              installed={installedFor(hit)}
+              onInstall={() => startInstall(hit)}
+              onOpenDetail={() => (drawerProject = hit.project_id)}
+              onToggle={() => toggleCard(hit)}
+              onUninstall={() => uninstallCard(hit)}
+              layout="grid"
+            />
+          {/each}
+        </div>
+      {:else}
+        <div class="mt-1 flex flex-col border border-border-subtle rounded overflow-hidden">
+          {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+            <ModCard
+              summary={hit}
+              installed={installedFor(hit)}
+              onInstall={() => startInstall(hit)}
+              onOpenDetail={() => (drawerProject = hit.project_id)}
+              onToggle={() => toggleCard(hit)}
+              onUninstall={() => uninstallCard(hit)}
+              layout="list"
+            />
+          {/each}
+        </div>
+      {/if}
       <div class="flex items-center justify-center gap-3 text-sm text-secondary pt-2">
         <button
           type="button"
