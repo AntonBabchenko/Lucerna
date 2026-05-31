@@ -39,11 +39,12 @@ vi.mock('$lib/ipc/bindings', () => ({
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 
 describe('ModBrowseView', () => {
-  it('pre-fills MC and Loader filters from props', () => {
+  it('surfaces the MC + Loader props as active-filter chips', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    expect(screen.getByDisplayValue('1.20.1')).toBeTruthy();
+    expect(screen.getByTestId('browse-chip-mc').textContent).toMatch(/1\.20\.1/);
+    expect(screen.getByTestId('browse-chip-loader').textContent).toMatch(/Fabric/);
   });
 
   it('marks a Modrinth-installed mod as installed when viewing the CurseForge entry', async () => {
@@ -317,7 +318,8 @@ describe('ModBrowseView', () => {
       await new Promise((r) => setTimeout(r, 0));
     }
     // Uncheck "Show installed" once the initial render has settled.
-    const toggle = screen.getByRole('checkbox', { name: 'Show installed' });
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    const toggle = screen.getByLabelText(/show installed/i);
     await fireEvent.click(toggle);
     // The non-installed page-2 mod is reached and rendered; the old
     // "already installed — navigate to a different page" dead end is gone.
@@ -358,7 +360,8 @@ describe('ModBrowseView', () => {
     // Checked (default): counter carries "of 1".
     expect(await screen.findByText(/Page 1 of 1/)).toBeTruthy();
     // Unchecked: counter is "Page 1" with no total.
-    const toggle = screen.getByRole('checkbox', { name: 'Show installed' });
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    const toggle = screen.getByLabelText(/show installed/i);
     await fireEvent.click(toggle);
     expect(await screen.findByText('Page 1')).toBeTruthy();
     expect(screen.queryByText(/of 1/)).toBeNull();

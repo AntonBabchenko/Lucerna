@@ -326,36 +326,30 @@ describe('ModBrowseView — filter bar structural elements', () => {
     expect(input.getAttribute('type')).toBe('search');
   });
 
-  it('loader filter select has aria-label="Loader filter"', () => {
+  it('loader facet is a radiogroup labelled "Loader filter" inside the drawer', async () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    const select = screen.getByLabelText(/loader filter/i);
-    expect(select.tagName.toLowerCase()).toBe('select');
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    const group = screen.getByRole('radiogroup', { name: /loader filter/i });
+    expect(group).not.toBeNull();
   });
 
-  it('"Clear filters" button is btn-tertiary text-xs', () => {
+  it('"Clear all" chip-row button is btn-tertiary text-xs and carries mod-clear-filters', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const btn = screen.getByTestId('mod-clear-filters');
     expect(btn).toHaveBtnVariant('tertiary');
-    const cls = btn.className;
-    expect(cls).toContain('text-xs');
+    expect(btn.className).toContain('text-xs');
   });
 
-  it('"Show installed" checkbox is present', () => {
-    const { container } = render(ModBrowseView, {
+  it('"Show installed" toggle lives in the drawer', async () => {
+    render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // Query by label text
-    const allLabels = Array.from(container.querySelectorAll('label'));
-    const showInstalledLabel = allLabels.find((l) =>
-      l.textContent?.toLowerCase().includes('show installed'),
-    );
-    expect(showInstalledLabel).not.toBeNull();
-    const checkbox = showInstalledLabel?.querySelector('input[type="checkbox"]');
-    expect(checkbox).not.toBeNull();
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    expect(screen.getByLabelText(/show installed/i)).not.toBeNull();
   });
 });
 

@@ -16,12 +16,14 @@
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
-  import LayoutToggle from './LayoutToggle.svelte';
   import PageSizePicker from './PageSizePicker.svelte';
-  import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
+  import BrowseFilterChips from '$lib/browse/BrowseFilterChips.svelte';
+  import BrowseFilterDrawer from '$lib/browse/BrowseFilterDrawer.svelte';
+  import { activeChips, activeCount, type FilterChipKey } from '$lib/browse/filter-model';
 
   // The Browse pane inside ModBrowserTab. Responsibilities:
   //   - Render a search input (300ms debounced), sort dropdown, MC
@@ -108,6 +110,7 @@
   let error = $state<string | null>(null);
   let loading = $state(false);
   let drawerProject = $state<string | null>(null);
+  let drawerOpen = $state(false);
   // Dependencies promoted to the dialog carry the project's display name
   // alongside the version (the version's own `name` field is the release
   // title, not the mod name — distinct on Modrinth and confusing in the
@@ -395,18 +398,33 @@
     if (displayPage > 1) displayPage -= 1;
   }
 
-  // Re-page when "Show installed" is toggled: a filter change resets to
-  // page 1. The buffer is kept (same search); fill(1) tops it up when
-  // switching OFF leaves the filtered view shorter than one page.
-  async function onShowInstalledChange(e: Event) {
-    showInstalled = (e.currentTarget as HTMLInputElement).checked;
+  // Single entry point for flipping "Show installed": the drawer toggle
+  // and the chip's × both call this so the re-paging stays in one place.
+  async function setShowInstalled(value: boolean) {
+    showInstalled = value;
     displayPage = 1;
     await fill(1);
   }
 
+  const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter, showInstalled });
+
+  function clearChip(key: FilterChipKey) {
+    if (key === 'loader') loaderFilter = '';
+    else if (key === 'mc') mcFilter = '';
+    else if (key === 'showInstalled') void setShowInstalled(true);
+  }
+
+  function clearAllFilters() {
+    loaderFilter = '';
+    mcFilter = '';
+    void setShowInstalled(true);
+  }
+
   let debounceTimer: number | undefined;
-  function onQueryInput(e: Event) {
-    query = (e.target as HTMLInputElement).value;
+  // Adapter so the debounced search keeps working with the bar's string
+  // callback (the old handler read e.target.value off the event).
+  function onSearchInput(value: string) {
+    query = value;
     if (debounceTimer) window.clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(() => {
       void resetSearch();
@@ -580,64 +598,36 @@
 {:else if needsCfKey}
   <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
 {:else}
-  <div class="px-3 py-3 space-y-2 sticky top-0 z-10 bg-base border-b border-border-subtle">
-    <div class="flex flex-wrap gap-2 items-center">
-      <input
-        type="search"
-        placeholder="Search mods..."
-        aria-label="Search mods"
-        class="filter-control flex-1"
-        oninput={onQueryInput}
-      />
-      <label class="text-sm text-secondary inline-flex items-center gap-1">
-        Sort:
-        <select bind:value={sort} class="filter-control filter-control-select">
-          <option value="downloads">Downloads</option>
-          <option value="relevance">Relevance</option>
-          <option value="updated">Updated</option>
-        </select>
-      </label>
-    </div>
-    <div class="flex flex-wrap gap-3 items-center text-sm">
-      <span class="text-secondary">Filters:</span>
-      <label class="inline-flex items-center gap-1">
-        MC:
-        <McVersionCombobox bind:value={mcFilter} placeholder="Any" />
-      </label>
-      <label class="inline-flex items-center gap-1">
-        Loader:
-        <select
-          bind:value={loaderFilter}
-          aria-label="Loader filter"
-          class="filter-control filter-control-select filter-select"
-          class:is-empty={!loaderFilter}
-        >
-          <option value="">Any</option>
-          <option value="fabric">Fabric</option>
-          <option value="quilt">Quilt</option>
-          <option value="forge">Forge</option>
-          <option value="neoforge">NeoForge</option>
-        </select>
-      </label>
-      <button
-        type="button"
-        class="btn-tertiary text-xs"
-        disabled={!mcFilter && !loaderFilter}
-        data-testid="mod-clear-filters"
-        onclick={() => {
-          mcFilter = '';
-          loaderFilter = '';
-        }}
-      >
-        Clear filters
-      </button>
-      <label class="inline-flex items-center gap-1">
-        <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
-        Show installed
-      </label>
-      <LayoutToggle />
-    </div>
+  <div class="sticky top-0 z-10 bg-base border-b border-border-subtle">
+    <BrowseFilterBar
+      searchAriaLabel="Search mods"
+      searchPlaceholder="Search mods..."
+      {sort}
+      sortOptions={[
+        { value: 'downloads', label: 'Downloads' },
+        { value: 'relevance', label: 'Relevance' },
+        { value: 'updated', label: 'Updated' },
+      ]}
+      activeCount={activeCount(filterFacets)}
+      {onSearchInput}
+      onSortChange={(v) => (sort = v as ModSort)}
+      onOpenDrawer={() => (drawerOpen = true)}
+    />
+    <BrowseFilterChips
+      chips={activeChips(filterFacets)}
+      onClear={clearChip}
+      onClearAll={clearAllFilters}
+      clearAllTestid="mod-clear-filters"
+    />
   </div>
+
+  <BrowseFilterDrawer
+    bind:open={drawerOpen}
+    bind:loader={loaderFilter}
+    bind:mc={mcFilter}
+    {showInstalled}
+    onShowInstalledChange={(v) => void setShowInstalled(v)}
+  />
 
   <div class="p-3 space-y-2">
     {#if error}
