@@ -630,15 +630,6 @@
       >
         Clear filters
       </button>
-      <select
-        class="filter-control filter-control-select"
-        bind:value={browserPrefs.pageSize}
-        data-testid="mod-page-size"
-      >
-        {#each PAGE_SIZES as n}
-          <option value={n}>{n} / page</option>
-        {/each}
-      </select>
       <label class="inline-flex items-center gap-1 ml-auto">
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
@@ -685,7 +676,9 @@
           {/each}
         </div>
       {/if}
-      <div class="flex items-center justify-center gap-3 text-sm text-secondary pt-2">
+      <!-- Steam-style footer: page nav centered, per-page selector on the right. -->
+      <div class="flex items-center gap-3 text-sm text-secondary pt-2">
+        <span class="flex-1"></span>
         <button
           type="button"
           class="btn-secondary btn-sm"
@@ -700,6 +693,18 @@
         <button type="button" class="btn-secondary btn-sm" disabled={!hasNext} onclick={next}>
           Next ›
         </button>
+        <span class="flex-1 flex justify-end">
+          <select
+            class="filter-control filter-control-select"
+            bind:value={browserPrefs.pageSize}
+            aria-label="Results per page"
+            data-testid="mod-page-size"
+          >
+            {#each PAGE_SIZES as n}
+              <option value={n}>{n} / page</option>
+            {/each}
+          </select>
+        </span>
       </div>
     {:else}
       <div class="text-placeholder text-sm py-8 text-center">No results.</div>

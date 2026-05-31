@@ -193,15 +193,6 @@
   >
     Clear filters
   </button>
-  <select
-    class="filter-control filter-control-select"
-    bind:value={browserPrefs.pageSize}
-    data-testid="modpack-page-size"
-  >
-    {#each PAGE_SIZES as n}
-      <option value={n}>{n} / page</option>
-    {/each}
-  </select>
   <LayoutToggle />
 </div>
 
@@ -238,7 +229,9 @@
         {/each}
       </div>
     {/if}
-    <div class="mt-4 flex justify-between text-sm">
+    <!-- Steam-style footer: page nav centered, per-page selector on the right. -->
+    <div class="mt-4 flex items-center gap-3 text-sm text-muted">
+      <span class="flex-1"></span>
       <button
         type="button"
         class="btn-secondary btn-sm"
@@ -247,7 +240,7 @@
       >
         ← Previous
       </button>
-      <span class="text-muted">
+      <span>
         Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
       </span>
       <button
@@ -258,6 +251,18 @@
       >
         Next →
       </button>
+      <span class="flex-1 flex justify-end">
+        <select
+          class="filter-control filter-control-select"
+          bind:value={browserPrefs.pageSize}
+          aria-label="Results per page"
+          data-testid="modpack-page-size"
+        >
+          {#each PAGE_SIZES as n}
+            <option value={n}>{n} / page</option>
+          {/each}
+        </select>
+      </span>
     </div>
   {/if}
 </div>
