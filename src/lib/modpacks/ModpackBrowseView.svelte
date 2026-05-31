@@ -214,13 +214,21 @@
     {#if browserPrefs.layout === 'grid'}
       <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
         {#each sortedHits as hit (hit.project_id)}
-          <ModpackCard {hit} layout="grid" onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
+          <ModpackCard
+            {hit}
+            layout="grid"
+            onClick={() => onPickHit(hit, mcFilter.trim() || null)}
+          />
         {/each}
       </div>
     {:else}
       <div class="mt-2 flex flex-col border border-border-subtle rounded overflow-hidden">
         {#each sortedHits as hit (hit.project_id)}
-          <ModpackCard {hit} layout="list" onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
+          <ModpackCard
+            {hit}
+            layout="list"
+            onClick={() => onPickHit(hit, mcFilter.trim() || null)}
+          />
         {/each}
       </div>
     {/if}

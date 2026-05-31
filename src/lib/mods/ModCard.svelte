@@ -177,11 +177,7 @@
           Uninstall
         </button>
       {:else}
-        <button
-          type="button"
-          class="btn-primary btn-xs whitespace-nowrap"
-          onclick={onInstall}
-        >
+        <button type="button" class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
           Install
         </button>
       {/if}
