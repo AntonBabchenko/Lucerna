@@ -97,9 +97,15 @@ jobs:
         shell: pwsh
         working-directory: dist
         run: |
-          Get-FileHash -Algorithm SHA256 * |
-            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
-            Out-File -FilePath SHA256SUMS -Encoding ascii
+          # Materialize the file list and compute every hash BEFORE opening the
+          # output handle — globbing into the same dir while Out-File streams to
+          # SHA256SUMS would deadlock on the file being written.
+          $files = Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS' }
+          $lines = foreach ($f in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $f.FullName).Hash.ToLower()
+            "$hash  $($f.Name)"
+          }
+          Set-Content -Path SHA256SUMS -Value $lines -Encoding ascii
 
       - name: Sign artifacts (cosign keyless)
         shell: pwsh
@@ -107,11 +113,13 @@ jobs:
         env:
           COSIGN_YES: "true"
         run: |
-          Get-ChildItem -File -Exclude *.cosign.bundle |
-            ForEach-Object {
-              cosign sign-blob $_.Name --bundle "$($_.Name).cosign.bundle"
-              if ($LASTEXITCODE -ne 0) { Write-Error "cosign failed on $($_.Name)"; exit 1 }
-            }
+          # Materialize the list first so the .cosign.bundle files created in the
+          # loop are never re-enumerated mid-stream.
+          $files = Get-ChildItem -File | Where-Object { $_.Name -notlike '*.cosign.bundle' }
+          foreach ($f in $files) {
+            cosign sign-blob $f.Name --bundle "$($f.Name).cosign.bundle"
+            if ($LASTEXITCODE -ne 0) { Write-Error "cosign failed on $($f.Name)"; exit 1 }
+          }
 
       - name: Compose release notes
         shell: pwsh
