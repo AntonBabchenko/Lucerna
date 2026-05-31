@@ -25,6 +25,8 @@ vite.config.ts.timestamp-*
 !.env.example
 *.pem
 *.key
+*.p12
+*.pfx
 KEYS.priv
 
 # OS / Editor
@@ -48,6 +50,9 @@ pnpm-debug.log*
 
 # Superpowers brainstorm session artifacts (visual companion mockups)
 .superpowers/
+
+# Local-only feature-lifecycle artifacts (specs / plans / notes) — not published
+docs/superpowers/
 
 # Playwright artifacts
 test-results/

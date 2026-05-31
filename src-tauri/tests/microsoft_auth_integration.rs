@@ -2,8 +2,7 @@
 //! MS token, XBL, XSTS, MC services login + profile. The loopback OAuth
 //! listener runs for real; the "browser" is emulated via reqwest::get.
 //!
-//! Scenarios match the test plan in
-//! docs/superpowers/specs/2026-05-13-microsoft-auth-design.md § Testing.
+//! Scenarios match the Microsoft auth integration test plan.
 
 use lucerna_lib::error::Error;
 use wiremock::matchers::{method, path};
@@ -19,7 +18,7 @@ const MS_TOKEN_FIXTURE: &str =
 const XBL_FIXTURE: &str = r#"{"Token":"xbl-tok","DisplayClaims":{"xui":[{"uhs":"uhs-xyz"}]}}"#;
 const XSTS_FIXTURE: &str = r#"{"Token":"xsts-tok","DisplayClaims":{"xui":[{"uhs":"uhs-xsts"}]}}"#;
 const MC_LOGIN_FIXTURE: &str = r#"{"access_token":"mc-tok","expires_in":86400}"#;
-const MC_PROFILE_FIXTURE: &str = r#"{"id":"7e8d9c0a123456789abcdef012345678","name":"AntonMC"}"#;
+const MC_PROFILE_FIXTURE: &str = r#"{"id":"7e8d9c0a123456789abcdef012345678","name":"PlayerMC"}"#;
 
 fn mount_happy_chain(server: &MockServer) -> impl std::future::Future<Output = ()> + '_ {
     async move {
@@ -194,7 +193,7 @@ async fn full_chain_smoke_via_test_seam() {
         .await
         .unwrap();
     assert_eq!(profile.0, "7e8d9c0a123456789abcdef012345678");
-    assert_eq!(profile.1, "AntonMC");
+    assert_eq!(profile.1, "PlayerMC");
 
     clear_chain_overrides();
 }
@@ -311,11 +310,9 @@ async fn full_chain_403_invalid_app_registration_maps_to_pending_approval() {
         .await
         .expect("xsts");
 
-    let result = lucerna_lib::accounts::microsoft::mc_services::login_with_xbox(
-        &xsts.userhash,
-        &xsts.token,
-    )
-    .await;
+    let result =
+        lucerna_lib::accounts::microsoft::mc_services::login_with_xbox(&xsts.userhash, &xsts.token)
+            .await;
 
     std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     std::env::remove_var("LUCERNA_XBL_URL_OVERRIDE");
@@ -323,10 +320,7 @@ async fn full_chain_403_invalid_app_registration_maps_to_pending_approval() {
     std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
 
     assert!(
-        matches!(
-            result,
-            Err(lucerna_lib::error::Error::AuthPendingApproval)
-        ),
+        matches!(result, Err(lucerna_lib::error::Error::AuthPendingApproval)),
         "expected AuthPendingApproval, got {:?}",
         result
     );

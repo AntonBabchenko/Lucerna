@@ -7,9 +7,8 @@
 //! remapper output must be byte-identical to what Java SpecialSource
 //! 1.8.5/1.11.0 produces.
 //!
-//! Pure-Rust byte-fidelity proved impractical (see
-//! `docs/superpowers/specs/2026-05-16-forge-loader-design.md#addendum-2026-05-17-b--specialsource-shell-out`),
-//! so we shell out to the canonical Java implementation. The processor
+//! Pure-Rust byte-fidelity proved impractical, so we shell out to the
+//! canonical Java implementation. The processor
 //! JAR + classpath dependencies are passed to `java -cp ... <main>`.
 //!
 //! The pure-Rust `remap_class_bytes` / `remap_descriptor` / `ObfIndex`

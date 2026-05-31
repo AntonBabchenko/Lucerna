@@ -14,8 +14,9 @@ files come straight from Mojang and are never modified.
 Lucerna integrates the official Modrinth and CurseForge APIs for mod and modpack
 browsing, supports Fabric / Quilt / Forge / NeoForge, isolates every Minecraft install
 into its own instance, and ships offline play as a first-class option. Microsoft / Xbox
-Live sign-in is implemented but currently blocked upstream — see
-[v0.5.0 polish notes](docs/superpowers/notes/) for status.
+Live sign-in is wired up end-to-end; its final step is gated on pending Microsoft Azure
+app approval, so until then it returns a typed pending-approval response while offline
+accounts remain fully usable (see [Known limitations](#known-limitations)).
 
 The principles that constrain every decision live in
 [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply-chain stance
@@ -152,10 +153,9 @@ fork that motivated Lucerna in the first place.
 
 ## Contributing
 
-The codebase is built in vertical slices. Each slice has a design doc
-under `docs/superpowers/specs/` and an implementation plan under
-`docs/superpowers/plans/`. The slice cadence is: spec → plan → TDD
-implementation → code review → squash-merge.
+Contributions are welcome. The codebase is built in vertical slices with a
+spec → plan → TDD implementation → code review → squash-merge cadence.
 
-Read `CLAUDE.md` at the repo root for the working agreement, repo
-layout, and forbidden patterns.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch, commit, and PR
+conventions plus the build and test commands, and [`CLAUDE.md`](CLAUDE.md)
+for the working agreement, repo layout, and forbidden patterns.

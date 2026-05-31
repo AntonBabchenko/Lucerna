@@ -22,8 +22,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn build_client() -> reqwest::Client {
     let version = env!("CARGO_PKG_VERSION");
-    let user_agent =
-        format!("Lucerna/{version} (+https://github.com/AntonBabchenko/Lucerna)");
+    let user_agent = format!("Lucerna/{version} (+https://github.com/AntonBabchenko/Lucerna)");
     reqwest::Client::builder()
         .user_agent(user_agent)
         .connect_timeout(CONNECT_TIMEOUT)

@@ -12,8 +12,7 @@ pub fn login_url() -> String {
     std::env::var("LUCERNA_MC_LOGIN_URL_OVERRIDE").unwrap_or_else(|_| LOGIN_DEFAULT.to_string())
 }
 pub fn profile_url() -> String {
-    std::env::var("LUCERNA_MC_PROFILE_URL_OVERRIDE")
-        .unwrap_or_else(|_| PROFILE_DEFAULT.to_string())
+    std::env::var("LUCERNA_MC_PROFILE_URL_OVERRIDE").unwrap_or_else(|_| PROFILE_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -178,7 +177,7 @@ mod tests {
             .and(header("Authorization", "Bearer mc-tok"))
             .respond_with(
                 ResponseTemplate::new(200).set_body_string(
-                    r#"{"id":"7e8d9c0a123456789abcdef012345678","name":"AntonMC"}"#,
+                    r#"{"id":"7e8d9c0a123456789abcdef012345678","name":"PlayerMC"}"#,
                 ),
             )
             .mount(&server)
@@ -191,7 +190,7 @@ mod tests {
 
         let profile = fetch_profile("mc-tok").await.unwrap();
         assert_eq!(profile.id, "7e8d9c0a123456789abcdef012345678");
-        assert_eq!(profile.name, "AntonMC");
+        assert_eq!(profile.name, "PlayerMC");
 
         std::env::remove_var("LUCERNA_MC_PROFILE_URL_OVERRIDE");
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");

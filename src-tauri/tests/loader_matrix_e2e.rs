@@ -27,17 +27,13 @@
 //! construct a Wry AppHandle (would need WebView2 DLLs in test PATH).
 
 use lucerna_lib::forge::installer::{detect_era, Era};
-use lucerna_lib::forge::patcher::{
-    maven_coord_to_relative_path, run_processor, ProcessorContext,
-};
+use lucerna_lib::forge::patcher::{maven_coord_to_relative_path, run_processor, ProcessorContext};
 use lucerna_lib::network;
 use lucerna_lib::versions::libraries::artifacts_to_install;
 use lucerna_lib::versions::loaders::{list_loaders, synth_id, Loader};
 use lucerna_lib::versions::manifest::list_manifest;
 use lucerna_lib::versions::resolve::merge_inherits;
-use lucerna_lib::versions::version_json::{
-    parse as parse_version_json, Library, VersionDetails,
-};
+use lucerna_lib::versions::version_json::{parse as parse_version_json, Library, VersionDetails};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};

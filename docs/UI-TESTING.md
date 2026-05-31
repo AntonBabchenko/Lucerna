@@ -18,9 +18,8 @@ expect(tab).not.toHaveBtnVariant('secondary'); // negative for tabs
 
 **Adding a new intent-critical button.** When you add a new prominent
 button in `src/`, add a one-line assertion in the relevant
-`tests/button-intents-*.test.ts` file. Pick the variant per the
-intent table in
-[`docs/superpowers/specs/2026-05-27-button-system-migration-b2a-design.md`](superpowers/specs/2026-05-27-button-system-migration-b2a-design.md).
+`tests/button-intents-*.test.ts` file. Pick the variant that matches the
+button's intent, consistent with the existing assertions there.
 
 ## Layer 2 — Playwright visual snapshots
 
@@ -69,6 +68,4 @@ expected / actual / diff for every failed test.
 
 ## Related
 
-- [Cluster D design](superpowers/specs/2026-05-27-ui-testing-infrastructure-d-design.md)
-- [Cluster B2a design (button-system intent table)](superpowers/specs/2026-05-27-button-system-migration-b2a-design.md)
 - [`PRINCIPLES.md`](PRINCIPLES.md)

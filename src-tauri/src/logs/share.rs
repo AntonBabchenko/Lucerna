@@ -131,24 +131,24 @@ mod tests {
 
     #[test]
     fn anonymise_strips_windows_user_path_basic() {
-        let input = r"at file:/***REMOVED***/AppData/Roaming/Lucerna/something";
-        assert!(!anonymise(input).contains("Anton"));
+        let input = r"at file:/C:/Users/Player/AppData/Roaming/Lucerna/something";
+        assert!(!anonymise(input).contains("Player"));
         assert!(anonymise(input).contains("<user>"));
     }
 
     #[test]
     fn anonymise_strips_windows_user_path_backslashes() {
-        let input = r"***REMOVED***\AppData\Roaming";
+        let input = r"C:\Users\Player\AppData\Roaming";
         let out = anonymise(input);
-        assert!(!out.contains("Anton"));
+        assert!(!out.contains("Player"));
         assert!(out.contains(r"C:\Users\<user>\"));
     }
 
     #[test]
     fn anonymise_strips_macos_user_path() {
-        let input = "/Users/anton/Library/Application Support/minecraft";
+        let input = "/Users/player/Library/Application Support/minecraft";
         let out = anonymise(input);
-        assert!(!out.contains("/anton/"));
+        assert!(!out.contains("/player/"));
         assert!(out.contains("/Users/<user>/"));
     }
 

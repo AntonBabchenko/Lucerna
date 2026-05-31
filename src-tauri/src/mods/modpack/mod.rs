@@ -1,7 +1,6 @@
 //! Modpack import and discovery. Two formats supported: Modrinth
 //! `.mrpack` (zip with `modrinth.index.json`) and CurseForge `.zip`
-//! (zip with `manifest.json`). See
-//! `docs/superpowers/specs/2026-05-19-v0.5.0-modpack-import-design.md`.
+//! (zip with `manifest.json`).
 
 pub mod cf_api;
 pub mod curseforge;

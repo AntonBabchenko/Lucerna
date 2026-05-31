@@ -1,5 +1,4 @@
-//! Forge / NeoForge loader support. See
-//! `docs/superpowers/specs/2026-05-16-forge-loader-design.md`.
+//! Forge / NeoForge loader support.
 //!
 //! The Forge installer pipeline is reimplemented in Rust (no
 //! `java -jar installer.jar` shell-out). Three installer eras are

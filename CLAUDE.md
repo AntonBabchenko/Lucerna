@@ -6,7 +6,7 @@ This file is the working agreement between the human maintainer and Claude. Clau
 
 ## What this project is
 
-Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. Russian-language UX is in scope (v0.2.0+).
+Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. (The Microsoft sign-in chain is wired up end-to-end; its final step is gated on pending Microsoft Azure app approval, so until then it returns a typed pending-approval response — offline play is unaffected.) Russian-language UX is a roadmap goal — not yet shipped; the UI is English-only today.
 
 The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes.
 
@@ -26,6 +26,8 @@ Every feature follows this sequence:
 6. Commit and push.
 
 No "small fix" exception. A bugfix is still a feature in this sense — it still gets a spec and a plan, however short.
+
+> The `docs/superpowers/` specs / plans / notes are kept **local-only** (gitignored) — they are the maintainer's working artifacts and are not published in the public repository.
 
 ## Git workflow
 
@@ -54,7 +56,7 @@ static/                             Static assets served at root
 tools/                              Small CI/dev helper scripts (Node, .mjs)
 tests/                              Vitest unit tests
 tests-e2e/                          Playwright e2e tests
-docs/                               Principles, security, superpowers/specs, superpowers/plans
+docs/                               Public docs: PRINCIPLES, SECURITY, TESTING, UI-TESTING (superpowers/ is gitignored, local-only)
 .github/workflows/ci.yml            CI: rust-ubuntu, rust-windows, frontend, lint (SHA-pinned)
 ```
 
@@ -73,7 +75,7 @@ docs/                               Principles, security, superpowers/specs, sup
 
 ## Auto-memory location
 
-Persistent project memory across Claude sessions: `***REMOVED***\.claude\projects\c--Projects-FTlauncher\memory\`. The repository URL and maintainer handle are recorded there.
+Persistent project memory lives outside the repository, in the agent's local profile — it is not tracked here.
 
 ## Forbidden patterns (grep-able quick reference)
 

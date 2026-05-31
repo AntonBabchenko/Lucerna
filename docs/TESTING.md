@@ -76,8 +76,6 @@ Outputs:
 - `target/loader-matrix-logs/<combo>.stdio.log` — child JVM stdout/stderr (useful when MC crashes early before `latest.log` is written).
 - `<TEMP>/lucerna-matrix-data/` — sandbox data root. Persistent across runs so the second pass is mostly cache hits.
 
-Read the postmortem at [superpowers/notes/2026-05-17-phase3-postmortem.md](superpowers/notes/2026-05-17-phase3-postmortem.md) for the bug catalogue this harness produced.
-
 ### Manual UI
 
 Run the real launcher and click around. Reserve for changes affecting UI plumbing — backend correctness is covered by the matrix.

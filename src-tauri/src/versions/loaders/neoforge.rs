@@ -1,8 +1,6 @@
 //! NeoForge loader shim. Delegates to `crate::forge::meta::list_versions`
 //! and `crate::forge::install_forge` with `ForgeFlavor::NeoForge`. Mirrors
 //! `forge.rs`.
-//!
-//! See `docs/superpowers/specs/2026-05-17-neoforge-design.md`.
 
 use crate::error::Result;
 use crate::forge::ForgeFlavor;

@@ -343,14 +343,14 @@ mod tests {
     /// build before cluster C's schema landed. After cluster C merged, the strict
     /// v3 reader rejected the file ("parse: file is neither v3 nor v2 nor v0.1.0
     /// shape"). The reader now migrates the kind-less-v3 case to a clean v3 with
-    /// `kind: Offline` on each entry, matching the on-disk shape Anton actually
-    /// hit on 2026-05-30.
+    /// `kind: Offline` on each entry, matching the on-disk shape actually
+    /// captured on 2026-05-30.
     #[test]
     fn read_v3_file_without_kind_migrates_to_v3_setting_kind_offline() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("account.json");
         // version=3 but accounts have no `kind` field. This is the literal
-        // shape from `***REMOVED***\AppData\Roaming\com.lucerna.app\account.json`
+        // shape from `C:\Users\<user>\AppData\Roaming\com.lucerna.app\account.json`
         // captured during PR #16 manual e2e.
         std::fs::write(
             &path,

@@ -8,9 +8,8 @@
 //! be byte-identical to what Java FART 1.0.6 produces.
 //!
 //! Pure-Rust byte-fidelity is impractical (same reasoning as
-//! SpecialSource — see
-//! `docs/superpowers/specs/2026-05-16-forge-loader-design.md#addendum-2026-05-17-b--specialsource-shell-out`),
-//! so we shell out to the canonical Java implementation. The processor
+//! SpecialSource), so we shell out to the canonical Java implementation.
+//! The processor
 //! JAR + classpath dependencies are passed to `java -cp ... <main>`.
 //!
 //! Main-Class per FART 1.0.6 jar manifest: `net.minecraftforge.fart.Main`.

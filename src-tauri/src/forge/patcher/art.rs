@@ -8,9 +8,8 @@
 //! remapper output must be byte-identical to what Java ART produces.
 //!
 //! ART is NeoForge's fork/successor of Forge's FART
-//! (ForgeAutoRenamingTool). See
-//! `docs/superpowers/specs/2026-05-16-forge-loader-design.md` for the
-//! shell-out rationale.
+//! (ForgeAutoRenamingTool); it shells out to the canonical Java
+//! implementation for the same byte-fidelity rationale as SpecialSource.
 //!
 //! Main-Class per jar manifest:
 //!   - ART 1.0.13 (`AutoRenamingTool-1.0.13-all.jar`): `net.minecraftforge.fart.Main`

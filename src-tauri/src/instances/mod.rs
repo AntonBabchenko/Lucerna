@@ -1,5 +1,4 @@
-//! Multi-instance support. See
-//! `docs/superpowers/specs/2026-05-14-multi-instance-design.md`.
+//! Multi-instance support.
 
 pub mod ids;
 pub mod migrate;

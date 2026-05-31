@@ -70,7 +70,7 @@ The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary w
 
 ## Part B — Technical principles
 
-1. **Stack is fixed:** Rust + Tauri 2.x. **SvelteKit** (Svelte 5 with runes, `adapter-static` in SPA mode) + **TypeScript** + **Tailwind CSS** in the webview. Type-safe IPC via `tauri-specta` (Rust signatures are the single source of truth; TS bindings regenerated on debug build; drift caught at typecheck time). See `docs/superpowers/specs/2026-05-12-ui-framework-design.md` for the rationale.
+1. **Stack is fixed:** Rust + Tauri 2.x. **SvelteKit** (Svelte 5 with runes, `adapter-static` in SPA mode) + **TypeScript** + **Tailwind CSS** in the webview. Type-safe IPC via `tauri-specta` (Rust signatures are the single source of truth; TS bindings regenerated on debug build; drift caught at typecheck time).
 
 2. **YAGNI ruthlessly.** No abstractions for hypothetical future requirements. Three similar functions beat a premature generic wrapper. Refactor when the third caller arrives, not before.
 
@@ -90,7 +90,7 @@ The launcher does NOT spawn anything else: no telemetry uploader, no auxiliary w
 
 5. **Dependencies are deliberate.**
    - A new crate requires PR justification: why needed, what alternatives were considered, dependency tree size impact (`cargo tree | wc -l` before and after).
-   - `cargo-deny` blocks non-FOSS licenses, known-vulnerable versions, duplicate crates, unapproved source registries.
+   - `cargo-deny` is intended to block non-FOSS licenses, known-vulnerable versions, duplicate crates, and unapproved source registries *(planned — not yet wired into CI; see `docs/SECURITY.md` Part A)*.
    - No hard cap on total dependency tree size, but more than 500 transitive crates is a red flag worth pausing for.
    - **npm deps follow the same rule.** A new package requires PR justification (why, alternatives, tree size). `strict-peer-dependencies=true` in `.npmrc`. Build scripts run only when explicitly allowed in `pnpm-workspace.yaml` (`pnpm approve-builds`). Telemetry-shipping packages are rejected outright.
 

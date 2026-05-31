@@ -2,8 +2,7 @@
 //!
 //! `ModProject` metadata (name, icon, description) is near-static and a
 //! single app session touches at most a few hundred distinct projects,
-//! so the cache has no TTL and no eviction. See
-//! `docs/superpowers/specs/2026-05-21-mod-list-caching-design.md`.
+//! so the cache has no TTL and no eviction.
 
 use std::collections::HashMap;
 use std::future::Future;

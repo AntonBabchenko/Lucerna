@@ -37,8 +37,7 @@ export default defineConfig({
       reporter: ['text-summary', 'json-summary', 'html'],
       reportsDirectory: './coverage-fe',
       // Ratchet floor — set just under the measured baseline so the gate is
-      // real but doesn't spuriously fail. Raise these as coverage phases land
-      // (see docs/superpowers/notes/2026-05-30-coverage-audit.md).
+      // real but doesn't spuriously fail. Raise these as coverage phases land.
       // Measured baseline 2026-05-30: lines 72.4, statements 75.2,
       // functions 69.9, branches 56.7. Floors sit ~2pt under baseline.
       thresholds: {

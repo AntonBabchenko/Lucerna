@@ -444,9 +444,8 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
     // extra processing on `--clean` before patching (or its binpatch entries
     // carry additional header bytes we don't parse). Re-implementing 1.2.0's
     // exact behavior pure-Rust would re-create the same byte-fidelity quagmire
-    // the SpecialSource → FART pivot already solved. Per
-    // `docs/superpowers/specs/2026-05-16-forge-loader-design.md#addendum-2026-05-17-b--specialsource-shell-out`,
-    // bytecode-rewriting processors that produce inputs to / outputs from
+    // the SpecialSource → FART pivot already solved: bytecode-rewriting
+    // processors that produce inputs to / outputs from
     // byte-offset-encoded patches shell out to the canonical Java tool.
     //
     // Routing key: presence of either 1.2.0 flag. Phase 2's transitional

@@ -8,13 +8,13 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 1. **Reproducible builds are a goal, not a release blocker.** The target: any third party can rebuild the binary from a tagged commit and get the same SHA256. Tauri has known sources of nondeterminism (embedded assets, bundle timestamps); these are documented as they are discovered and the gaps are closed over time. Until full reproducibility is achieved, the pipeline still ships — the gap is honest, not hidden.
 
-2. **All releases come from GitHub Actions, never local machines.** The release workflow is public; its logs are public; its inputs (the tagged commit, the lockfile, the cached dependencies) are public.
+2. **All releases should come from GitHub Actions, never local machines** *(planned)*. The intended release workflow is public; its logs and its inputs (the tagged commit, the lockfile, the cached dependencies) are public. **Status: not yet implemented** — there is no release workflow yet (only the PR/CI workflow exists), and the existing `v0.1.0` tag was built locally. The first workflow-built release is targeted at v0.9.0.
 
-3. **Software Bill of Materials.** `cargo-cyclonedx` generates an SBOM on every release; the SBOM is attached as a release asset.
+3. **Software Bill of Materials** *(planned)*. `cargo-cyclonedx` will generate an SBOM on every release, attached as a release asset. **Status: not yet implemented** (depends on the release workflow above).
 
-4. **`cargo-audit` in CI.** Builds fail on known vulnerabilities. PRs that introduce a vulnerable dependency are blocked.
+4. **`cargo-audit` in CI** *(planned)*. Builds should fail on known vulnerabilities; PRs that introduce a vulnerable dependency are blocked. **Status: not yet implemented** — not currently a CI job.
 
-5. **`cargo-deny` in CI.** Enforces:
+5. **`cargo-deny` in CI** *(planned, not yet implemented)*. Will enforce:
    - License allowlist (FOSS only — no proprietary, no unknown).
    - Banned crate list (none yet; added when needed).
    - No duplicate versions of the same crate.
@@ -26,8 +26,8 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 ## Part B — Signing
 
-1. **Starting position:**
-   - `SHA256SUMS` published with every release.
+1. **Intended starting position** *(planned, not yet implemented — depends on the release workflow in Part A.2)*:
+   - `SHA256SUMS` will be published with every release.
    - `cosign` keyless signature via sigstore on every release artifact. The signer identity is the GitHub Actions OIDC token issued to this repo — verifiable by anyone with the public sigstore transparency log. No long-lived signing key is required to start.
 
 2. **GPG signing is optional and added later** if a maintainer chooses to publish a long-lived key. When that happens, the public key goes into a `KEYS` file at the repository root.

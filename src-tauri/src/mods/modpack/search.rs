@@ -4,8 +4,7 @@
 //! Browse view never sees regular mod hits.
 //!
 //! CurseForge modpack search is out of scope for sub-feature 4 —
-//! users can still import CF modpacks via local file pick. See
-//! `docs/superpowers/specs/2026-05-19-v0.5.0-modpack-import-design.md`.
+//! users can still import CF modpacks via local file pick.
 
 use serde::Deserialize;
 
