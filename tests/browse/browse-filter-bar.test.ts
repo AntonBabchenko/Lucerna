@@ -2,7 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // LayoutToggle reads browser-prefs; stub it so the bar renders in isolation.
-vi.mock('$lib/mods/browser-prefs.svelte', () => ({ browserPrefs: { layout: 'grid', pageSize: 20 } }));
+vi.mock('$lib/mods/browser-prefs.svelte', () => ({
+  browserPrefs: { layout: 'grid', pageSize: 20 },
+}));
 
 import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
 
