@@ -18,6 +18,11 @@ jobs:
   release:
     name: build + sign + publish
     runs-on: windows-latest
+    # The tag is passed via env (not interpolated into run blocks) so a crafted
+    # ref cannot break out of the pwsh scripts — GitHub Actions script-injection
+    # hardening. Reference it as $env:TAG inside steps.
+    env:
+      TAG: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -44,7 +49,7 @@ jobs:
       - name: Verify tag matches manifest version
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"           # e.g. v0.9.0 or v0.9.0-rc.1
+          $tag = $env:TAG                            # e.g. v0.9.0 or v0.9.0-rc.1
           $base = $tag -replace '^v', '' -replace '-rc\.\d+$', ''
           $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           if ($conf.version -ne $base) {
@@ -142,10 +147,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ghArgs = @(
-            "${{ github.ref_name }}",
-            "--title", "Lucerna ${{ github.ref_name }}",
+            $env:TAG,
+            "--title", "Lucerna $env:TAG",
             "--notes-file", "notes.md"
           )
-          if ("${{ github.ref_name }}" -match '-rc') { $ghArgs += "--prerelease" }
+          if ($env:TAG -match '-rc\.') { $ghArgs += "--prerelease" }
           $ghArgs += (Get-ChildItem dist -File | ForEach-Object { $_.FullName })
           gh release create @ghArgs
