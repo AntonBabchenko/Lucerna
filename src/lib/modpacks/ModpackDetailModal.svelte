@@ -11,6 +11,7 @@
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   // Centered detail modal for a modpack. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list + the
@@ -165,7 +166,9 @@
             {/if}
           </div>
         {:else if loading}
-          <div class="text-sm text-muted">Loading versions...</div>
+          <div class="flex justify-center py-8 text-secondary">
+            <Spinner label="Loading versions…" />
+          </div>
         {:else if visibleVersions.length === 0}
           <div class="text-sm text-muted">
             {#if mcFilter}

@@ -20,6 +20,7 @@
   import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   // The Browse pane inside ModBrowserTab. Responsibilities:
   //   - Render a search input (300ms debounced), sort dropdown, MC
@@ -651,7 +652,9 @@
       <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">{error}</div>
     {/if}
     {#if loading}
-      <div class="text-placeholder text-sm py-8 text-center">Searching…</div>
+      <div class="flex justify-center py-8 text-secondary">
+        <Spinner size="lg" label="Searching…" />
+      </div>
     {:else if pageHits.length > 0}
       {#if browserPrefs.layout === 'grid'}
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">

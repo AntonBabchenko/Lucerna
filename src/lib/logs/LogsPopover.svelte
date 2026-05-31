@@ -5,6 +5,7 @@
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import {
     groupStackFolds,
     maybeParseCrashReport,
@@ -704,7 +705,9 @@
           </div>
 
           {#if loadingContent}
-            <p class="p-4 text-sm text-muted">Reading…</p>
+            <div class="flex justify-center p-4 text-secondary">
+              <Spinner delayMs={150} label="Reading log…" />
+            </div>
           {:else if contentError}
             <p class="p-4 text-sm text-danger">{contentError}</p>
           {:else if !selectedPath}

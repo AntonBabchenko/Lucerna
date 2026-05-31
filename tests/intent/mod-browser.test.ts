@@ -263,8 +263,7 @@ describe('ModBrowseView — loading state renders Searching… placeholder', () 
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     // The loading div is rendered synchronously while the promise is pending.
-    const loading = screen.getByText(/Searching…/i);
-    expect(loading.className).toContain('text-placeholder');
+    expect(screen.getByRole('status', { name: /searching/i })).toBeTruthy();
   });
 });
 

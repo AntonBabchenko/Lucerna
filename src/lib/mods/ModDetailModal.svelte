@@ -12,6 +12,7 @@
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   // Centered detail modal for a mod. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list with the
@@ -168,6 +169,10 @@
             <p class="text-sm text-secondary whitespace-pre-line selectable">
               {project.summary.summary}
             </p>
+          {:else}
+            <div class="flex justify-center py-8 text-secondary">
+              <Spinner size="lg" label="Loading description…" />
+            </div>
           {/if}
         </div>
       {:else}
@@ -179,7 +184,9 @@
             </label>
           </div>
           {#if versionList === null}
-            <div class="text-sm text-placeholder">Loading…</div>
+            <div class="flex justify-center py-8 text-secondary">
+              <Spinner label="Loading versions…" />
+            </div>
           {:else if versionList.length === 0}
             <div class="text-sm text-placeholder">
               {#if showAll}

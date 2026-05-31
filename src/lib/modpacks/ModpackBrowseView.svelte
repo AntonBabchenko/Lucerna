@@ -12,6 +12,7 @@
   import { browserPrefs, PAGE_SIZES } from '$lib/mods/browser-prefs.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
@@ -208,7 +209,9 @@
   {#if source === 'curseforge' && needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
   {:else if loading}
-    <div class="mt-4 text-sm text-muted">Searching...</div>
+    <div class="flex justify-center py-8 text-secondary">
+      <Spinner size="lg" label="Searching…" />
+    </div>
   {:else if error}
     <div class="mt-4 text-sm text-danger">{error}</div>
   {:else if page && page.hits.length === 0}

@@ -6,6 +6,7 @@
   import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 
   let {
@@ -130,7 +131,9 @@
   {#if !instanceId}
     <p class="text-sm text-muted">Select an instance to view its worlds.</p>
   {:else if loading}
-    <p class="text-sm text-muted">Loading worlds…</p>
+    <div class="flex justify-center py-8 text-secondary">
+      <Spinner delayMs={150} label="Loading worlds…" />
+    </div>
   {:else if listError}
     <p class="text-sm text-danger">{listError}</p>
   {:else if worlds.length === 0}
