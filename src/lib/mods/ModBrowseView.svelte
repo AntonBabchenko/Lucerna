@@ -654,7 +654,7 @@
       <div class="text-placeholder text-sm py-8 text-center">Searching…</div>
     {:else if pageHits.length > 0}
       {#if browserPrefs.layout === 'grid'}
-        <div class="space-y-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">
           {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
             <ModCard
               summary={hit}

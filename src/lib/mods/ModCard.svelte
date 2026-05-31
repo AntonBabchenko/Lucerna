@@ -63,49 +63,51 @@
 </script>
 
 {#if layout === 'grid'}
-  <div class="border border-border-subtle rounded bg-surface p-3 flex gap-3">
-    {#if summary.icon_url}
-      <img src={summary.icon_url} alt="" class="w-12 h-12 rounded" />
-    {:else}
-      <div class="w-12 h-12 rounded bg-subtle flex items-center justify-center text-placeholder">
-        ◆
-      </div>
-    {/if}
-
-    <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
-      <div class="font-medium text-primary truncate">{summary.name}</div>
-      <div class="text-xs text-muted truncate">
-        by {summary.author} · {(summary.downloads ?? 0).toLocaleString()} dl
-      </div>
-      <div class="text-sm text-secondary truncate">{summary.summary}</div>
+  <!--
+    Compact tile for the multi-column grid: built for browsing + a single
+    install action. Secondary actions (Disable / Uninstall / Update) live in
+    list mode and the detail drawer so the tile stays small.
+  -->
+  <div class="border border-border-subtle rounded bg-surface p-3 flex flex-col gap-2 h-full">
+    <button type="button" class="flex items-start gap-2 text-left min-w-0" onclick={onOpenDetail}>
+      {#if summary.icon_url}
+        <img src={summary.icon_url} alt="" class="w-10 h-10 rounded flex-shrink-0" />
+      {:else}
+        <div
+          class="w-10 h-10 rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0"
+        >
+          ◆
+        </div>
+      {/if}
+      <span class="min-w-0">
+        <span class="block font-medium text-primary truncate">{summary.name}</span>
+        <span class="block text-xs text-muted truncate">
+          by {summary.author} · {(summary.downloads ?? 0).toLocaleString()} dl
+        </span>
+      </span>
     </button>
 
-    <div class="self-center flex items-center gap-1">
+    <p class="text-sm text-secondary line-clamp-2 flex-1">{summary.summary}</p>
+
+    <div class="flex items-center gap-1 flex-wrap">
       {#if installed}
         {#if packChip}
           <span
-            class="text-xs px-2 py-1 rounded bg-accent-soft text-accent"
+            class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
             title="From modpack: {packChip}"
           >
             📦 {packChip}
           </span>
-        {:else if checking}
-          <span class="text-xs px-2 py-1 text-placeholder">Checking…</span>
         {:else if updateState && updateState.kind === 'update_available'}
           <span
-            class="text-xs px-2 py-1 rounded bg-warning-bg text-warning-text"
-            title="Update available"
+            class="text-xs px-2 py-0.5 rounded bg-warning-bg text-warning-text"
+            title="Update available — open the mod to update"
           >
-            v{installed.version_number ?? '?'} → v{updateState.target.version_number}
-          </span>
-          <button type="button" class="btn-warning btn-xs" onclick={onUpdate}> Update </button>
-        {:else if updateState && updateState.kind === 'check_failed'}
-          <span class="text-xs px-2 py-1 text-placeholder" title={updateState.reason}>
-            couldn't check
+            ↑ update
           </span>
         {/if}
         <span
-          class="text-xs px-2 py-1 rounded {installed.enabled
+          class="text-xs px-2 py-0.5 rounded {installed.enabled
             ? 'bg-success-bg text-success'
             : 'bg-subtle text-muted'}"
           title={crossPlatform && otherPlatformLabel
@@ -116,24 +118,16 @@
         >
           {installed.enabled ? 'Installed' : 'Disabled'}{crossPlatform && otherPlatformLabel
             ? ` (${otherPlatformLabel})`
-            : installed.version_number
-              ? ` · v${installed.version_number}`
-              : ''}
+            : ''}
         </span>
-        <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
-          {installed.enabled ? 'Disable' : 'Enable'}
-        </button>
-        <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}>
-          Uninstall
-        </button>
       {:else}
         <button
           type="button"
           class="btn-primary btn-xs whitespace-nowrap"
-          title="Installs the latest compatible version. Click the card to pick a specific version."
+          title="Installs the latest compatible version. Open the card to pick a specific version."
           onclick={onInstall}
         >
-          Install recommended
+          Install
         </button>
       {/if}
     </div>
@@ -163,12 +157,43 @@
 
     <div class="flex items-center gap-1 flex-shrink-0">
       {#if installed}
+        {#if packChip}
+          <span
+            class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
+            title="From modpack: {packChip}"
+          >
+            📦 {packChip}
+          </span>
+        {:else if checking}
+          <span class="text-xs px-2 py-0.5 text-placeholder">Checking…</span>
+        {:else if updateState && updateState.kind === 'update_available'}
+          <span
+            class="text-xs px-2 py-0.5 rounded bg-warning-bg text-warning-text"
+            title="Update available"
+          >
+            v{installed.version_number ?? '?'} → v{updateState.target.version_number}
+          </span>
+          <button type="button" class="btn-warning btn-xs" onclick={onUpdate}> Update </button>
+        {:else if updateState && updateState.kind === 'check_failed'}
+          <span class="text-xs px-2 py-0.5 text-placeholder" title={updateState.reason}>
+            couldn't check
+          </span>
+        {/if}
         <span
           class="text-xs px-2 py-0.5 rounded {installed.enabled
             ? 'bg-success-bg text-success'
             : 'bg-subtle text-muted'}"
+          title={crossPlatform && otherPlatformLabel
+            ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`
+            : installed.version_number
+              ? `Version ${installed.version_number} on disk`
+              : 'Installed'}
         >
-          {installed.enabled ? 'Installed' : 'Disabled'}
+          {installed.enabled ? 'Installed' : 'Disabled'}{crossPlatform && otherPlatformLabel
+            ? ` (${otherPlatformLabel})`
+            : installed.version_number
+              ? ` · v${installed.version_number}`
+              : ''}
         </span>
         <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
           {installed.enabled ? 'Disable' : 'Enable'}
