@@ -6,7 +6,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Development happens continuously on `main`. Versions between `0.1.0` and the first
 published release were untagged feature milestones; the first packaged public
-release is targeted at **0.9.0**.
+release is **0.9.0**.
 
 ## [Unreleased]
 
