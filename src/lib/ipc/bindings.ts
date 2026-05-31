@@ -240,10 +240,23 @@ export const commands = {
 	 */
 	deleteInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("delete_instance", { id })),
 	setInstanceName: (id: string, name: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_name", { id, name })),
-	setInstanceVersion: (id: string, mcVersion: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_version", { id, mcVersion })),
+	/**
+	 *  Change the MC version of an instance, re-resolving the loader version for
+	 *  the new MC. If the loader is not supported on the new MC version, the
+	 *  instance is automatically reset to Vanilla and the report reflects that.
+	 *  Returns the updated instance plus a `LoaderOutcome` describing what changed.
+	 */
+	changeInstanceMc: (id: string, mc: string) => typedError<McChangeReport, Error>(__TAURI_INVOKE("change_instance_mc", { id, mc })),
 	setInstanceLoader: (id: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_loader", { id, loader, loaderVersion })),
 	setInstanceMemory: (id: string, maxHeapMb: number) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_memory", { id, maxHeapMb })),
 	setInstanceJvmArgs: (id: string, args: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_jvm_args", { id, args })),
+	/**
+	 *  Clear all modpack provenance fields (`mrpack_*`) from an instance,
+	 *  detaching it from its origin pack. Safe to call on non-pack instances
+	 *  (idempotent no-op). The UI offers this when the user changes MC or
+	 *  loader on a pack-imported instance.
+	 */
+	detachInstancePack: (id: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("detach_instance_pack", { id })),
 	/**
 	 *  Ensure `<instance>/.minecraft/` exists, then open it in the OS
 	 *  file manager.
@@ -301,6 +314,18 @@ export const commands = {
 	 *  absent from the result.
 	 */
 	modsCheckUpdates: (instanceId: string) => typedError<ModUpdateCheck[], Error>(__TAURI_INVOKE("mods_check_updates", { instanceId })),
+	/**
+	 *  For each installed mod in `id`, report whether any platform version
+	 *  exists for the given target `mc` + `loader`. Non-destructive — no
+	 *  files are modified.
+	 * 
+	 *  Mods with no platform identity (hand-dropped jars) and pack-origin
+	 *  mods report [`ModCompatStatus::Unknown`]. A single mod's query
+	 *  failure becomes [`ModCompatStatus::Unknown`] for that mod — the
+	 *  command fails wholesale only on a catastrophic error (instance
+	 *  missing, registry unreadable).
+	 */
+	checkInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModCompat[], Error>(__TAURI_INVOKE("check_instance_mod_compat", { id, mc, loader })),
 	/**
 	 *  The instance's modpack origin reduced to chip data: the pack name
 	 *  and the SHA-1s of its bundled `mods/` files. `None` for an instance
@@ -651,7 +676,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "mc_logs_upload"; details: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "mc_logs_upload"; details: string };
 
 /**  One screenshot/gallery image for a mod or modpack detail view. */
 export type GalleryImage = {
@@ -738,6 +763,9 @@ export type KeyStatus = "missing" | "set" | "invalid";
 
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
 
+/**  Outcome of re-resolving the loader version when MC changes. */
+export type LoaderOutcome = { kind: "unchanged" } | { kind: "loader_updated"; loader: LoaderKind; version: string } | { kind: "loader_reset_to_vanilla"; previous_loader: LoaderKind };
+
 export type LoaderVersion = {
 	version: string,
 	stable: boolean,
@@ -754,6 +782,15 @@ export type LogFileMeta = {
 };
 
 export type LogSource = "game" | "crash" | "launcher";
+
+/**
+ *  Return value of `change_instance_mc`: the updated instance plus a
+ *  description of what happened to the loader version.
+ */
+export type McChangeReport = {
+	instance: InstanceWithStatus,
+	loader_outcome: LoaderOutcome,
+};
 
 /**
  *  Reconciled state of a `PackOrigin.missing_mods` entry against the
@@ -778,6 +815,38 @@ export type MissingModStatus = {
 	entry: ModpackUnresolvable,
 	state: MissingModState,
 };
+
+/**  One installed mod's compatibility result for a target (mc, loader). */
+export type ModCompat = {
+	/**  SHA-1 of the installed jar — the primary identity key in the registry. */
+	sha1: string,
+	/**  Display name from the registry. */
+	name: string,
+	status: ModCompatStatus,
+};
+
+/**
+ *  The compatibility status of one installed mod against a target
+ *  Minecraft version + loader combination.
+ */
+export type ModCompatStatus = 
+/**
+ *  At least one platform version exists for the target (mc, loader).
+ *  `available_version` is the version number of the newest match when
+ *  present (versions are returned newest-first by the platform layer).
+ */
+{ status: "compatible"; available_version: string | null } | 
+/**
+ *  The platform responded successfully but returned zero versions for
+ *  the target (mc, loader) — the mod has no release for that combination.
+ */
+{ status: "incompatible" } | 
+/**
+ *  The platform query failed (network error, missing CurseForge key,
+ *  project delisted / 404). A fetch error must NOT be read as
+ *  incompatible — the user should be told we simply don't know.
+ */
+{ status: "unknown" };
 
 export type ModDepLink = {
 	kind: DepKind,
