@@ -66,6 +66,8 @@ export function formatError(e: IpcError): string {
       return `Forge promotions feed for ${e.flavor} is unavailable — versions will not be marked recommended`;
     case 'forge_maven_metadata_parse_failed':
       return `Failed to parse Forge maven-metadata.xml: ${e.details}`;
+    case 'forge_no_build_for':
+      return `No Forge build exists for Minecraft ${e.mc} — pick a different Minecraft version or loader.`;
     case 'forge_installer_corrupted':
       return `Forge installer for ${e.mc}-${e.fv} is corrupted: ${e.details}`;
     case 'forge_unsupported_processor':
