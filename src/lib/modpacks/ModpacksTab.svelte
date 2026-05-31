@@ -226,38 +226,52 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="bg-surface" data-tour-ctx="modpacks-tabs">
-    <div class="px-3 pt-2 pb-1 text-sm font-semibold text-primary">Modpacks Browser</div>
-    <div role="tablist" class="border-b flex items-center gap-1 px-3">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeSub === 'browse'}
-        class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-accent={activeSub === 'browse'}
-        class:text-primary={activeSub === 'browse'}
-        class:font-semibold={activeSub === 'browse'}
-        class:border-transparent={activeSub !== 'browse'}
-        class:text-placeholder={activeSub !== 'browse'}
-        onclick={() => (activeSub = 'browse')}
-      >
-        Browse
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeSub === 'imported'}
-        class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-accent={activeSub === 'imported'}
-        class:text-primary={activeSub === 'imported'}
-        class:font-semibold={activeSub === 'imported'}
-        class:border-transparent={activeSub !== 'imported'}
-        class:text-placeholder={activeSub !== 'imported'}
-        onclick={() => (activeSub = 'imported')}
-      >
-        Imported
-      </button>
-    </div>
+  <!-- Top level mirrors MainTabs (Overview / Mod browser / Worlds): a single
+       always-active "Modpacks browser" tab, so the modpacks view has the same
+       two-level tab structure as the per-instance view. -->
+  <div role="tablist" class="border-b border-border-subtle px-3 flex gap-1 bg-surface">
+    <span
+      role="tab"
+      aria-selected="true"
+      class="px-3 py-2 text-base border-b-2 -mb-px border-accent text-primary font-semibold"
+    >
+      Modpacks browser
+    </span>
+  </div>
+  <!-- Second level: Browse | Imported sub-tabs. -->
+  <div
+    role="tablist"
+    class="border-b flex items-center gap-1 px-3 bg-surface"
+    data-tour-ctx="modpacks-tabs"
+  >
+    <button
+      type="button"
+      role="tab"
+      aria-selected={activeSub === 'browse'}
+      class="px-3 py-2 text-sm border-b-2 -mb-px"
+      class:border-accent={activeSub === 'browse'}
+      class:text-primary={activeSub === 'browse'}
+      class:font-semibold={activeSub === 'browse'}
+      class:border-transparent={activeSub !== 'browse'}
+      class:text-placeholder={activeSub !== 'browse'}
+      onclick={() => (activeSub = 'browse')}
+    >
+      Browse
+    </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={activeSub === 'imported'}
+      class="px-3 py-2 text-sm border-b-2 -mb-px"
+      class:border-accent={activeSub === 'imported'}
+      class:text-primary={activeSub === 'imported'}
+      class:font-semibold={activeSub === 'imported'}
+      class:border-transparent={activeSub !== 'imported'}
+      class:text-placeholder={activeSub !== 'imported'}
+      onclick={() => (activeSub = 'imported')}
+    >
+      Imported
+    </button>
   </div>
 
   <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">
