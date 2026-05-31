@@ -26,9 +26,10 @@
   import { activeChips, activeCount, type FilterChipKey } from '$lib/browse/filter-model';
 
   // The Browse pane inside ModBrowserTab. Responsibilities:
-  //   - Render a search input (300ms debounced), sort dropdown, MC
-  //     version + loader filters (pre-filled from the active instance
-  //     when one is selected), and a "Show all" override.
+  //   - Render the shared filter toolbar (search 300ms debounced, sort)
+  //     with a Filters drawer (loader, MC version, Show installed) and a
+  //     removable applied-filter chip row. Loader + MC pre-fill from the
+  //     active instance when one is selected.
   //   - Page through results with Prev / Next.
   //   - Detect when source = CurseForge and no API key is stored, and
   //     swap the whole search UI for CurseForgeKeyBanner — both at
