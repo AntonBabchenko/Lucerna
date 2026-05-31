@@ -19,8 +19,8 @@
 //     loading state ("Searching...")
 //     empty state ("No modpacks found.")
 //     search input present (data-testid="modpack-search-input")
-//     loader select present (data-testid="modpack-loader-select")
-//     "Clear filters" button → btn-tertiary text-xs
+//     loader facet present (radiogroup "Loader filter" inside the Filters drawer)
+//     "Clear all" button → btn-tertiary text-xs (data-testid="modpack-clear-filters")
 //     pack card grid + ModpackCard renders (data-testid="modpack-card")
 //     ModpackCard: distribution_allowed===false warning badge (bg-warning-bg text-warning-text)
 //     ModpackCard: card button NOT .btn-* (click-area pattern)

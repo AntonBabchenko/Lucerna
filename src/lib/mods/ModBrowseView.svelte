@@ -610,6 +610,7 @@
         { value: 'updated', label: 'Updated' },
       ]}
       activeCount={activeCount(filterFacets)}
+      expanded={drawerOpen}
       {onSearchInput}
       onSortChange={(v) => (sort = v as ModSort)}
       onOpenDrawer={() => (drawerOpen = true)}

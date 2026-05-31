@@ -15,6 +15,7 @@
     sortOptions,
     sortTestid,
     activeCount,
+    expanded = false,
     onSearchInput,
     onSortChange,
     onOpenDrawer,
@@ -26,6 +27,7 @@
     sortOptions: SortOption[];
     sortTestid?: string;
     activeCount: number;
+    expanded?: boolean;
     onSearchInput: (value: string) => void;
     onSortChange: (value: string) => void;
     onOpenDrawer: () => void;
@@ -60,6 +62,7 @@
     type="button"
     class="filter-control inline-flex items-center gap-1.5"
     aria-haspopup="dialog"
+    aria-expanded={expanded}
     data-testid="browse-filters-button"
     onclick={onOpenDrawer}
   >

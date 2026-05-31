@@ -39,7 +39,10 @@
   }
 
   function select(i: number) {
-    onChange(options[i]!.value);
+    // Skip the callback when the target is already selected (e.g. an
+    // arrow key at the first/last option, or a click on the active one)
+    // so we don't re-emit an unchanged value.
+    if (i !== selectedIndex) onChange(options[i]!.value);
     focusRadio(i);
   }
 

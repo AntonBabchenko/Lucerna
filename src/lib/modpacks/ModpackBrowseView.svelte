@@ -178,6 +178,7 @@
     ]}
     sortTestid="modpack-sort-select"
     activeCount={activeCount(filterFacets)}
+    expanded={drawerOpen}
     onSearchInput={(v) => (query = v)}
     onSortChange={(v) => (sortChoice = v as ModpackSort)}
     onOpenDrawer={() => (drawerOpen = true)}

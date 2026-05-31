@@ -43,15 +43,22 @@
 
   let panelEl: HTMLDivElement | undefined = $state();
 
-  // Focus the panel on open and wire Escape-to-close.
+  // On open: remember what had focus, move focus into the panel, and wire
+  // Escape-to-close. On close: remove the listener and restore focus to
+  // the element that opened the drawer (typically the Filters trigger) so
+  // keyboard / screen-reader users don't lose their place.
   $effect(() => {
     if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     panelEl?.focus();
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') open = false;
     }
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      previouslyFocused?.focus();
+    };
   });
 </script>
 
@@ -60,7 +67,7 @@
     <button
       type="button"
       class="absolute inset-0 bg-black/30"
-      aria-label="Close filters"
+      aria-label="Close filters overlay"
       onclick={() => (open = false)}
     ></button>
     <div
