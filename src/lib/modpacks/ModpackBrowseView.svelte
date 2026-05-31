@@ -143,7 +143,7 @@
   });
 </script>
 
-<div class="p-4 pb-2 flex flex-wrap gap-2" data-tour-ctx="modpacks-filters">
+<div class="p-4 pb-2 flex flex-wrap gap-2 items-center" data-tour-ctx="modpacks-filters">
   <SourcePicker bind:value={source} />
   <input
     type="search"
@@ -167,16 +167,19 @@
     <option value="forge">Forge</option>
     <option value="neoforge">NeoForge</option>
   </select>
-  <select
-    bind:value={sortChoice}
-    class="filter-control filter-control-select"
-    data-testid="modpack-sort-select"
-  >
-    <option value="relevance">Sort: relevance</option>
-    <option value="downloads">Sort: downloads</option>
-    <option value="newest">Sort: newest</option>
-    <option value="updated">Sort: updated</option>
-  </select>
+  <label class="text-sm text-secondary inline-flex items-center gap-1">
+    Sort:
+    <select
+      bind:value={sortChoice}
+      class="filter-control filter-control-select"
+      data-testid="modpack-sort-select"
+    >
+      <option value="relevance">Relevance</option>
+      <option value="downloads">Downloads</option>
+      <option value="newest">Newest</option>
+      <option value="updated">Updated</option>
+    </select>
+  </label>
   <button
     type="button"
     class="btn-tertiary text-xs"
