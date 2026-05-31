@@ -546,14 +546,60 @@ pub fn set_instance_name(
     crate::instances::set_instance_name(&app, &id, name)
 }
 
+/// Change the MC version of an instance, re-resolving the loader version for
+/// the new MC. If the loader is not supported on the new MC version, the
+/// instance is automatically reset to Vanilla and the report reflects that.
+/// Returns the updated instance plus a `LoaderOutcome` describing what changed.
 #[tauri::command]
 #[specta::specta]
-pub fn set_instance_version(
+pub async fn change_instance_mc(
     app: tauri::AppHandle,
     id: String,
-    mc_version: String,
-) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    crate::instances::set_instance_version(&app, &id, mc_version)
+    mc: String,
+) -> crate::error::Result<crate::instances::McChangeReport> {
+    use crate::instances::schema::LoaderKind;
+    use crate::instances::{self, LoaderDecision, LoaderOutcome};
+    use crate::versions::loaders::{list_loaders, Loader};
+
+    let current = instances::read_instance(&app, &id)?;
+    let loader = current.loader;
+
+    if loader == LoaderKind::Vanilla {
+        let instance = instances::set_instance_version(&app, &id, mc)?;
+        return Ok(crate::instances::McChangeReport {
+            instance,
+            loader_outcome: LoaderOutcome::Unchanged,
+        });
+    }
+
+    let as_loader = match loader {
+        LoaderKind::Fabric => Loader::Fabric,
+        LoaderKind::Quilt => Loader::Quilt,
+        LoaderKind::Forge => Loader::Forge,
+        LoaderKind::NeoForge => Loader::NeoForge,
+        // SAFETY: guarded by the `loader == Vanilla` branch above
+        LoaderKind::Vanilla => unreachable!(),
+    };
+    match instances::decide_loader(loader, list_loaders(as_loader, &mc).await) {
+        LoaderDecision::Use(v) => {
+            instances::set_instance_version(&app, &id, mc.clone())?;
+            let instance = instances::set_instance_loader(&app, &id, loader, Some(v.clone()))?;
+            Ok(crate::instances::McChangeReport {
+                instance,
+                loader_outcome: LoaderOutcome::LoaderUpdated { loader, version: v },
+            })
+        }
+        LoaderDecision::ResetToVanilla => {
+            let previous_loader = loader;
+            instances::set_instance_version(&app, &id, mc)?;
+            let instance = instances::set_instance_loader(&app, &id, LoaderKind::Vanilla, None)?;
+            Ok(crate::instances::McChangeReport {
+                instance,
+                loader_outcome: LoaderOutcome::LoaderResetToVanilla { previous_loader },
+            })
+        }
+        LoaderDecision::Error(e) => Err(e),
+    }
 }
 
 #[tauri::command]

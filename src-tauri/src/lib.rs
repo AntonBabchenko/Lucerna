@@ -72,7 +72,7 @@ pub fn run() {
             commands::create_instance,
             commands::delete_instance,
             commands::set_instance_name,
-            commands::set_instance_version,
+            commands::change_instance_mc,
             commands::set_instance_loader,
             commands::set_instance_memory,
             commands::set_instance_jvm_args,
