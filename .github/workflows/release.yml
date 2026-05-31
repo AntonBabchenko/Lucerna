@@ -141,10 +141,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $prerelease = if ("${{ github.ref_name }}" -match '-rc') { "--prerelease" } else { "" }
-          $assets = (Get-ChildItem dist -File | ForEach-Object { $_.FullName })
-          gh release create "${{ github.ref_name }}" `
-            --title "Lucerna ${{ github.ref_name }}" `
-            --notes-file notes.md `
-            $prerelease `
-            $assets
+          $ghArgs = @(
+            "${{ github.ref_name }}",
+            "--title", "Lucerna ${{ github.ref_name }}",
+            "--notes-file", "notes.md"
+          )
+          if ("${{ github.ref_name }}" -match '-rc') { $ghArgs += "--prerelease" }
+          $ghArgs += (Get-ChildItem dist -File | ForEach-Object { $_.FullName })
+          gh release create @ghArgs
