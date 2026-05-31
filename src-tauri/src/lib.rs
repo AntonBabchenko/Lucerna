@@ -89,6 +89,7 @@ pub fn run() {
             commands::mods_enable,
             commands::mods_uninstall,
             commands::mods_check_updates,
+            commands::check_instance_mod_compat,
             commands::mods_pack_origin_summary,
             commands::mods_enrich_pack_mods,
             commands::mods_update_one,

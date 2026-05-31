@@ -1039,6 +1039,48 @@ pub async fn mods_check_updates(
     Ok(out)
 }
 
+/// For each installed mod in `id`, report whether any platform version
+/// exists for the given target `mc` + `loader`. Non-destructive — no
+/// files are modified.
+///
+/// Mods with no platform identity (hand-dropped jars) and pack-origin
+/// mods report [`ModCompatStatus::Unknown`]. A single mod's query
+/// failure becomes [`ModCompatStatus::Unknown`] for that mod — the
+/// command fails wholesale only on a catastrophic error (instance
+/// missing, registry unreadable).
+#[tauri::command]
+#[specta::specta]
+pub async fn check_instance_mod_compat(
+    app: tauri::AppHandle,
+    id: String,
+    mc: String,
+    loader: crate::instances::schema::LoaderKind,
+) -> crate::error::Result<Vec<crate::mods::compat::ModCompat>> {
+    use crate::mods::updates::eligible_identity;
+
+    let inst_root = instance_root(&app, &id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
+
+    let mut out = Vec::new();
+    for m in &installed {
+        let status = match eligible_identity(m, pack_origin.as_ref()) {
+            None => crate::mods::compat::ModCompatStatus::Unknown,
+            Some((source, project_id, _vid)) => crate::mods::compat::classify_compat(
+                platform_for(source)
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await,
+            ),
+        };
+        out.push(crate::mods::compat::ModCompat {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            status,
+        });
+    }
+    Ok(out)
+}
+
 /// The instance's modpack origin reduced to chip data: the pack name
 /// and the SHA-1s of its bundled `mods/` files. `None` for an instance
 /// that was not created from a modpack import.

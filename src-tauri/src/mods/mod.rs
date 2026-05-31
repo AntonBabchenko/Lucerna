@@ -5,6 +5,7 @@
 //! The install pipeline lives in [`install`].
 
 pub mod cache;
+pub mod compat;
 pub mod curseforge;
 pub mod enrich;
 pub mod install;
