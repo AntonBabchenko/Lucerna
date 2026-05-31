@@ -10,6 +10,8 @@ release is targeted at **0.9.0**.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-05-31
+
 ### Changed
 - **Renamed the project `FTlauncher` → `Lucerna`.** Binary/crate, identifiers
   (`com.lucerna.app`), keyring slots, per-instance directories, user-facing
@@ -45,5 +47,6 @@ release is targeted at **0.9.0**.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/commits/main
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.9.0...main
+[0.9.0]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.0
 [0.1.0]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.1.0
