@@ -62,6 +62,43 @@ pnpm lint
 pnpm test
 ```
 
+## Microsoft sign-in (Azure app)
+
+Microsoft / Xbox Live sign-in uses an OAuth **public client** (PKCE, **no client
+secret** — never add one; a secret cannot be kept secret in a distributed desktop
+binary). The official build is tied to an Azure app registration in the
+maintainer's Entra tenant via a public `client_id`.
+
+The `client_id` is **not a secret** — it is embedded in every shipped binary and
+is public by design. It is, however, an **identity**: any build using it shows
+"Lucerna" on the Microsoft consent screen. So:
+
+- **End users:** nothing to do. The official installer has the official
+  `client_id` compiled in; just sign in with your own Microsoft account (the one
+  that owns Minecraft). No Azure account or env var needed.
+- **If you distribute a fork:** register your **own** Azure app and build with
+  your own id — do **not** ship under Lucerna's identity:
+
+  ```powershell
+  $env:LUCERNA_MS_CLIENT_ID = "<your-azure-app-client-id>"
+  pnpm tauri build
+  ```
+
+  `LUCERNA_MS_CLIENT_ID` is read at **compile time** ([`oauth.rs`](src-tauri/src/accounts/microsoft/oauth.rs));
+  unset, it falls back to the upstream public id, which is fine for local
+  development but should not be used for a redistributed build.
+
+To register your own app at [portal.azure.com](https://portal.azure.com)
+(Entra ID → App registrations):
+
+- **Supported account types:** personal Microsoft accounts ("consumers").
+- **Platform:** Mobile and desktop applications, redirect URI
+  `http://127.0.0.1` (loopback — Lucerna binds an ephemeral port at runtime and
+  appends `/oauth/callback`).
+- **API permissions / scopes:** `XboxLive.signin offline_access`. Xbox/Minecraft
+  scopes require Microsoft approval of the app registration before sign-in
+  succeeds end-to-end.
+
 ## Branches and commits
 
 - Work on short-lived feature branches off `main` (e.g. `feat/quick-play`,

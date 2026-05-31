@@ -8,7 +8,8 @@
 //!   (integration-tested in Task 11 + 19).
 //!
 //! `CLIENT_ID` is a public Azure application id — desktop OAuth uses
-//! PKCE, no client secret. Replace the placeholder before manual e2e.
+//! PKCE, no client secret. Overridable at build time via the
+//! `LUCERNA_MS_CLIENT_ID` env var (see the const doc below).
 
 use crate::error::{Error, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -23,7 +24,20 @@ use tokio::net::TcpListener;
 /// HMCL, Modrinth Launcher, the official MS launcher) commits theirs in
 /// source. Tied to the Lucerna app registration in the maintainer's
 /// Entra tenant; rotating it requires re-registering at portal.azure.com.
-pub const CLIENT_ID: &str = "f60b30f7-64cb-4d36-bc99-d55c40121603";
+///
+/// Overridable at build time via the `LUCERNA_MS_CLIENT_ID` env var, so a
+/// fork can bake in its OWN Azure registration without editing source:
+/// `LUCERNA_MS_CLIENT_ID=<your-id> pnpm tauri build`. Resolved at compile
+/// time (`option_env!`), so the value is embedded in the shipped binary —
+/// the end-user installer needs no env var or Azure account; users just
+/// sign in with their own Microsoft account. If you DISTRIBUTE a fork,
+/// register your own app and set this rather than shipping under Lucerna's
+/// identity (a consumer would otherwise see "Lucerna" on the Microsoft
+/// consent screen). See CONTRIBUTING.md → "Microsoft sign-in (Azure app)".
+pub const CLIENT_ID: &str = match option_env!("LUCERNA_MS_CLIENT_ID") {
+    Some(id) => id,
+    None => "f60b30f7-64cb-4d36-bc99-d55c40121603",
+};
 
 const MS_AUTHORIZE_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
 pub const MS_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
