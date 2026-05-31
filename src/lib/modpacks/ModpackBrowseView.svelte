@@ -147,13 +147,13 @@
     placeholder={source === 'curseforge'
       ? 'Search modpacks on CurseForge...'
       : 'Search modpacks on Modrinth...'}
-    class="flex-1 min-w-[10rem] px-3 py-2 border rounded text-sm"
+    class="filter-control flex-1 min-w-[10rem]"
     data-testid="modpack-search-input"
   />
   <McVersionCombobox bind:value={mcFilter} dataTestid="modpack-mc-input" />
   <select
     bind:value={loaderFilter}
-    class="filter-select px-3 py-2 border rounded text-sm"
+    class="filter-control filter-control-select filter-select"
     class:is-empty={!loaderFilter}
     data-testid="modpack-loader-select"
   >
@@ -165,7 +165,7 @@
   </select>
   <select
     bind:value={sortChoice}
-    class="px-3 py-2 border rounded text-sm"
+    class="filter-control filter-control-select"
     data-testid="modpack-sort-select"
   >
     <option value="relevance">Sort: relevance</option>

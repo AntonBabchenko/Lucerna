@@ -572,12 +572,12 @@
         type="search"
         placeholder="Search mods..."
         aria-label="Search mods"
-        class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
+        class="filter-control flex-1"
         oninput={onQueryInput}
       />
       <label class="text-sm text-secondary inline-flex items-center gap-1">
         Sort:
-        <select bind:value={sort} class="border rounded px-2 py-1 text-sm bg-surface">
+        <select bind:value={sort} class="filter-control filter-control-select">
           <option value="downloads">Downloads</option>
           <option value="relevance">Relevance</option>
           <option value="updated">Updated</option>
@@ -595,7 +595,7 @@
         <select
           bind:value={loaderFilter}
           aria-label="Loader filter"
-          class="filter-select border rounded px-2 py-0.5 text-sm"
+          class="filter-control filter-control-select filter-select"
           class:is-empty={!loaderFilter}
         >
           <option value="">Any</option>
