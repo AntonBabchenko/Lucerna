@@ -61,6 +61,7 @@
   role="radiogroup"
   aria-label={ariaLabel}
   data-testid={testid}
+  tabindex={-1}
   class="inline-flex w-full rounded border border-border-emphasis overflow-hidden"
   onkeydown={onKeyDown}
 >
