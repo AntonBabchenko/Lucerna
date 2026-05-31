@@ -5,9 +5,12 @@
     type LoaderKind,
     type VersionEntry,
     type Error as IpcError,
+    type ModCompat,
   } from '$lib/ipc/bindings';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
@@ -43,6 +46,22 @@
   });
   let modalError = $state<string | null>(null);
   let deleteConfirmOpen = $state(false);
+
+  // Mod-compat summary for the current instance after an MC/loader change.
+  let compatRows = $state<ModCompat[] | null>(null);
+  // Reset compat rows when the selected instance changes.
+  $effect(() => {
+    void selectedId;
+    compatRows = null;
+  });
+
+  // Pending pack-detach confirm state.
+  // Holds { kind: 'mc', value: string } or { kind: 'loader', loaderKind, loaderVersion }
+  // when awaiting the user's decision.
+  type PendingChange =
+    | { kind: 'mc'; value: string }
+    | { kind: 'loader'; loaderKind: LoaderKind; loaderVersion: string | null };
+  let pendingChange = $state<PendingChange | null>(null);
 
   // Snapshot toggle for the MC version pickers. Off by default —
   // most users want stable releases. Shared across the create form
@@ -152,22 +171,100 @@
     else modalError = ipcErrorMessage(result.error);
   }
 
-  async function setMc(mc: string) {
+  async function runModCompatCheck() {
     if (!selected) return;
-    const result = await commands.setInstanceVersion(selected.id, mc);
-    if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
+    try {
+      const r = await commands.checkInstanceModCompat(
+        selected.id,
+        selected.mc_version,
+        selected.loader,
+      );
+      if (r.status === 'ok') compatRows = r.data;
+      // On error: swallow gracefully — compat check is best-effort UX.
+    } catch {
+      // Unexpected throw: silently ignore.
+    }
   }
 
-  async function commitLoader(kind: LoaderKind, version: string | null) {
+  async function applyMcChange(mc: string) {
+    if (!selected) return;
+    const result = await commands.changeInstanceMc(selected.id, mc);
+    if (result.status === 'ok') {
+      const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
+      if (toast?.kind === 'success') pushSuccess(toast.text);
+      else if (toast?.kind === 'warning') pushWarning(toast.text);
+      onChanged();
+      await runModCompatCheck();
+    } else {
+      modalError = ipcErrorMessage(result.error);
+    }
+  }
+
+  async function setMc(mc: string) {
+    if (!selected) return;
+    if (selected.mrpack_name) {
+      pendingChange = { kind: 'mc', value: mc };
+      return;
+    }
+    await applyMcChange(mc);
+  }
+
+  async function applyLoaderChange(kind: LoaderKind, version: string | null) {
     if (!selected) return;
     if (kind !== 'vanilla' && !selected.mc_version) {
       modalError = 'Pick a Minecraft version first';
       return;
     }
     const result = await commands.setInstanceLoader(selected.id, kind, version);
-    if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
+    if (result.status === 'ok') {
+      onChanged();
+      await runModCompatCheck();
+    } else {
+      modalError = ipcErrorMessage(result.error);
+    }
+  }
+
+  async function commitLoader(kind: LoaderKind, version: string | null) {
+    if (!selected) return;
+    if (selected.mrpack_name) {
+      pendingChange = { kind: 'loader', loaderKind: kind, loaderVersion: version };
+      return;
+    }
+    await applyLoaderChange(kind, version);
+  }
+
+  async function confirmDetachAndContinue() {
+    if (!selected || !pendingChange) return;
+    const change = pendingChange;
+    pendingChange = null;
+    const detachResult = await commands.detachInstancePack(selected.id);
+    if (detachResult.status === 'error') {
+      modalError = ipcErrorMessage(detachResult.error);
+      return;
+    }
+    // After detach onChanged() refreshes the instance list; but we need to
+    // apply the change against the updated selected. Trigger the change directly.
+    onChanged();
+    if (change.kind === 'mc') {
+      await applyMcChange(change.value);
+    } else {
+      await applyLoaderChange(change.loaderKind, change.loaderVersion);
+    }
+  }
+
+  async function keepAndContinue() {
+    if (!selected || !pendingChange) return;
+    const change = pendingChange;
+    pendingChange = null;
+    if (change.kind === 'mc') {
+      await applyMcChange(change.value);
+    } else {
+      await applyLoaderChange(change.loaderKind, change.loaderVersion);
+    }
+  }
+
+  function cancelPending() {
+    pendingChange = null;
   }
 
   async function setMemory(mb: number) {
@@ -214,10 +311,11 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
-    // Escape closes the delete-confirm overlay first if it's open;
-    // otherwise it closes the whole Manage modal.
+    // Dismiss overlays in reverse stacking order before closing the modal.
     if (deleteConfirmOpen) {
       deleteConfirmOpen = false;
+    } else if (pendingChange !== null) {
+      pendingChange = null;
     } else {
       close();
     }
@@ -378,6 +476,14 @@
               }}
             />
 
+            {#if compatRows !== null && compatSummary(compatRows) !== null}
+              <p
+                class="text-xs text-warning-text bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
+              >
+                ⚠ {compatSummary(compatRows)}
+              </p>
+            {/if}
+
             <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
               Memory (max heap): {selected.max_heap_mb} MB
             </label>
@@ -465,6 +571,30 @@
             }}
           >
             Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if pendingChange !== null && selected}
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+      <div class="bg-surface rounded-lg shadow-xl w-[460px] p-5 flex flex-col gap-3">
+        <h3 class="font-semibold text-primary text-base">Modpack instance</h3>
+        <p class="text-sm text-secondary">
+          This instance was imported from
+          <span class="font-semibold">{selected.mrpack_name}</span>. Changing its
+          {pendingChange.kind === 'mc' ? 'Minecraft version' : 'loader'} detaches it from the pack.
+        </p>
+        <div class="flex justify-end gap-2 mt-2">
+          <button type="button" class="btn-secondary btn-sm" onclick={cancelPending}>
+            Cancel
+          </button>
+          <button type="button" class="btn-secondary btn-sm" onclick={keepAndContinue}>
+            Keep &amp; continue
+          </button>
+          <button type="button" class="btn-primary btn-sm" onclick={confirmDetachAndContinue}>
+            Detach &amp; continue
           </button>
         </div>
       </div>
