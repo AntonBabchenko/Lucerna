@@ -327,6 +327,19 @@ pub fn delete_instance(app: &tauri::AppHandle, id: &str) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn clear_pack_origin_fields(i: &mut schema::InstanceFile) {
+    i.mrpack_name = None;
+    i.mrpack_version = None;
+    i.mrpack_project_id = None;
+    i.mrpack_source = None;
+    i.mrpack_summary = None;
+    i.mrpack_version_id = None;
+}
+
+pub fn detach_instance_pack(app: &tauri::AppHandle, id: &str) -> Result<InstanceWithStatus> {
+    mutate(app, id, clear_pack_origin_fields)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +360,67 @@ mod tests {
             stable: false,
             build: 0,
         }
+    }
+
+    fn pack_instance() -> schema::InstanceFile {
+        schema::InstanceFile {
+            version: 1,
+            id: "aaaa-bbbb-cccc-dddd-eeeeffffaaaa".into(),
+            name: "Pack Instance".into(),
+            mc_version: "1.20.1".into(),
+            loader: schema::LoaderKind::Fabric,
+            loader_version: Some("0.16.5".into()),
+            max_heap_mb: 4096,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1_700_000_000_000.0,
+            mrpack_name: Some("All The Mods 10".into()),
+            mrpack_version: Some("1.4.7".into()),
+            mrpack_project_id: Some("ABCD1234".into()),
+            mrpack_source: Some(crate::mods::platform::ModSource::Modrinth),
+            mrpack_summary: Some("A great pack".into()),
+            mrpack_version_id: Some("vyRB9jtS".into()),
+        }
+    }
+
+    fn plain_instance() -> schema::InstanceFile {
+        schema::InstanceFile {
+            version: 1,
+            id: "1111-2222-3333-4444-555566667777".into(),
+            name: "Plain".into(),
+            mc_version: "1.20.4".into(),
+            loader: schema::LoaderKind::Vanilla,
+            loader_version: None,
+            max_heap_mb: 2048,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1_700_000_000_000.0,
+            mrpack_name: None,
+            mrpack_version: None,
+            mrpack_project_id: None,
+            mrpack_source: None,
+            mrpack_summary: None,
+            mrpack_version_id: None,
+        }
+    }
+
+    #[test]
+    fn detach_clears_all_mrpack_fields() {
+        let mut f = pack_instance();
+        clear_pack_origin_fields(&mut f);
+        assert!(
+            f.mrpack_name.is_none()
+                && f.mrpack_version.is_none()
+                && f.mrpack_project_id.is_none()
+                && f.mrpack_source.is_none()
+                && f.mrpack_summary.is_none()
+                && f.mrpack_version_id.is_none()
+        );
+    }
+
+    #[test]
+    fn detach_is_idempotent_on_non_pack_instance() {
+        let mut f = plain_instance();
+        clear_pack_origin_fields(&mut f); // must not panic; stays all-None
+        assert!(f.mrpack_name.is_none());
     }
 
     #[test]

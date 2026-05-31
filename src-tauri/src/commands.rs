@@ -633,6 +633,19 @@ pub fn set_instance_jvm_args(
     crate::instances::set_instance_jvm_args(&app, &id, args)
 }
 
+/// Clear all modpack provenance fields (`mrpack_*`) from an instance,
+/// detaching it from its origin pack. Safe to call on non-pack instances
+/// (idempotent no-op). The UI offers this when the user changes MC or
+/// loader on a pack-imported instance.
+#[tauri::command]
+#[specta::specta]
+pub fn detach_instance_pack(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::instances::detach_instance_pack(&app, &id)
+}
+
 /// Ensure `<instance>/.minecraft/` exists, then open it in the OS
 /// file manager.
 #[tauri::command]
