@@ -580,7 +580,7 @@
   <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
 {:else}
   <div class="px-3 py-3 space-y-2 sticky top-0 z-10 bg-base border-b border-border-subtle">
-    <div class="flex gap-2 items-center">
+    <div class="flex flex-wrap gap-2 items-center">
       <input
         type="search"
         placeholder="Search mods..."
@@ -597,7 +597,7 @@
         </select>
       </label>
     </div>
-    <div class="flex gap-3 items-center text-sm">
+    <div class="flex flex-wrap gap-3 items-center text-sm">
       <span class="text-secondary">Filters:</span>
       <label class="inline-flex items-center gap-1">
         MC:
