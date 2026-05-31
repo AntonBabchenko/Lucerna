@@ -60,8 +60,9 @@ pub async fn search(
     mc_version: Option<&str>,
     loader: Option<LoaderKind>,
     sort: ModpackSort,
+    page_size: u32,
 ) -> Result<ModpackSearchPage, Error> {
-    let limit: u32 = 20;
+    let limit: u32 = page_size;
     let offset = page * limit;
     let mut facets: Vec<Vec<String>> = vec![vec!["project_type:modpack".into()]];
     if let Some(mc) = mc_version {
@@ -184,7 +185,7 @@ mod tests {
             .await;
 
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let r = search(&s.uri(), "test", 0, None, None, ModpackSort::Relevance)
+        let r = search(&s.uri(), "test", 0, None, None, ModpackSort::Relevance, 20)
             .await
             .unwrap();
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
@@ -220,6 +221,7 @@ mod tests {
             Some("1.20.1"),
             None,
             ModpackSort::Relevance,
+            20,
         )
         .await
         .unwrap();
@@ -245,7 +247,7 @@ mod tests {
             .await;
 
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let r = search(&s.uri(), "x", 0, None, None, ModpackSort::Downloads)
+        let r = search(&s.uri(), "x", 0, None, None, ModpackSort::Downloads, 20)
             .await
             .unwrap();
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");

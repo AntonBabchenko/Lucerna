@@ -1393,6 +1393,7 @@ pub async fn modpack_search(
     mc_version: Option<String>,
     loader: Option<crate::mods::platform::LoaderKind>,
     sort: ModpackSort,
+    page_size: u32,
 ) -> Result<ModpackSearchPage, crate::error::Error> {
     match source {
         crate::mods::platform::ModSource::Modrinth => {
@@ -1403,6 +1404,7 @@ pub async fn modpack_search(
                 mc_version.as_deref(),
                 loader,
                 sort,
+                page_size,
             )
             .await
         }
@@ -1416,6 +1418,7 @@ pub async fn modpack_search(
                 mc_version.as_deref(),
                 loader,
                 sort,
+                page_size,
             )
             .await
         }
