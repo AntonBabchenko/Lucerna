@@ -343,14 +343,16 @@ describe('ModpackBrowseView — filter bar structural elements', () => {
     expect(input.getAttribute('type')).toBe('search');
   });
 
-  it('loader select has data-testid="modpack-loader-select"', () => {
+  it('loader facet is a radiogroup labelled "Loader filter" inside the drawer', async () => {
     render(ModpackBrowseView, { props: { onPickHit: () => {} } });
-    const select = screen.getByTestId('modpack-loader-select');
-    expect(select.tagName.toLowerCase()).toBe('select');
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    expect(screen.getByRole('radiogroup', { name: /loader filter/i })).toBeTruthy();
   });
 
-  it('"Clear filters" button is btn-tertiary text-xs', () => {
+  it('"Clear all" appears with modpack-clear-filters once a facet is active', async () => {
     render(ModpackBrowseView, { props: { onPickHit: () => {} } });
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    await fireEvent.click(screen.getByRole('radio', { name: 'Forge' }));
     const btn = screen.getByTestId('modpack-clear-filters');
     expect(btn).toHaveBtnVariant('tertiary');
     expect(btn.className).toContain('text-xs');

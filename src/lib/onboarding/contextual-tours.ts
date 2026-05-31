@@ -111,8 +111,8 @@ export const MODPACKS_STEPS: ReadonlyArray<TourStep> = [
     anchor: 'below',
   },
   {
-    title: 'Filter by MC + loader',
-    body: 'Pick a Minecraft version or loader to narrow results. Empty = all versions. Click "Clear filters" to reset.',
+    title: 'Search, sort, and filter',
+    body: 'Search and sort are always here. Click "Filters" to pick a Minecraft version, mod loader, or source — your choices show as removable chips, and "Clear all" resets them.',
     targetSelector: '[data-tour-ctx="modpacks-filters"]',
     anchor: 'below',
   },

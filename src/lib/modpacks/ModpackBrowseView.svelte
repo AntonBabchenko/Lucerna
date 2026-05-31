@@ -11,12 +11,13 @@
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
-  import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
   import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
-  import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
-  import SourcePicker from '$lib/mods/SourcePicker.svelte';
+  import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
+  import BrowseFilterChips from '$lib/browse/BrowseFilterChips.svelte';
+  import BrowseFilterDrawer from '$lib/browse/BrowseFilterDrawer.svelte';
+  import { activeChips, activeCount, type FilterChipKey } from '$lib/browse/filter-model';
   import ModpackCard from './ModpackCard.svelte';
 
   // Search + paginated grid of modpack hits backed by `modpack_search`
@@ -67,13 +68,14 @@
   // selected instance, so we don't make assumptions about what MC /
   // loader the user wants. They pick.
   let mcFilter = $state('');
-  let loaderFilter = $state<'' | 'fabric' | 'quilt' | 'forge' | 'neoforge'>('');
+  let loaderFilter = $state<LoaderKind | ''>('');
 
   let sortChoice = $state<ModpackSort>('relevance');
   let page = $state<ModpackSearchPage | null>(null);
   let pageNum = $state(0);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  let drawerOpen = $state(false);
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
   // Push hits whose title contains the search query to the top — see
@@ -121,6 +123,21 @@
     }, 300);
   }
 
+  // Modpack browser has no "show installed" facet, so it never enters
+  // the chip model. source is a context switch, not a chip (see
+  // filter-model). Only loader + mc surface as chips here.
+  const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter });
+
+  function clearChip(key: FilterChipKey) {
+    if (key === 'loader') loaderFilter = '';
+    else if (key === 'mc') mcFilter = '';
+  }
+
+  function clearAllFilters() {
+    loaderFilter = '';
+    mcFilter = '';
+  }
+
   // Re-run search on any reactive input change.
   $effect(() => {
     void source;
@@ -145,57 +162,41 @@
   });
 </script>
 
-<div class="p-4 pb-2 flex flex-wrap gap-2 items-center" data-tour-ctx="modpacks-filters">
-  <SourcePicker bind:value={source} />
-  <input
-    type="search"
-    bind:value={query}
-    placeholder={source === 'curseforge'
+<div data-tour-ctx="modpacks-filters" class="pt-2">
+  <BrowseFilterBar
+    searchAriaLabel="Search modpacks"
+    searchPlaceholder={source === 'curseforge'
       ? 'Search modpacks on CurseForge...'
       : 'Search modpacks on Modrinth...'}
-    class="filter-control flex-1 min-w-[10rem]"
-    data-testid="modpack-search-input"
+    searchTestid="modpack-search-input"
+    sort={sortChoice}
+    sortOptions={[
+      { value: 'relevance', label: 'Relevance' },
+      { value: 'downloads', label: 'Downloads' },
+      { value: 'newest', label: 'Newest' },
+      { value: 'updated', label: 'Updated' },
+    ]}
+    sortTestid="modpack-sort-select"
+    activeCount={activeCount(filterFacets)}
+    onSearchInput={(v) => (query = v)}
+    onSortChange={(v) => (sortChoice = v as ModpackSort)}
+    onOpenDrawer={() => (drawerOpen = true)}
   />
-  <McVersionCombobox bind:value={mcFilter} dataTestid="modpack-mc-input" />
-  <select
-    bind:value={loaderFilter}
-    class="filter-control filter-control-select filter-select"
-    class:is-empty={!loaderFilter}
-    data-testid="modpack-loader-select"
-  >
-    <option value="">Any</option>
-    <option value="fabric">Fabric</option>
-    <option value="quilt">Quilt</option>
-    <option value="forge">Forge</option>
-    <option value="neoforge">NeoForge</option>
-  </select>
-  <label class="text-sm text-secondary inline-flex items-center gap-1">
-    Sort:
-    <select
-      bind:value={sortChoice}
-      class="filter-control filter-control-select"
-      data-testid="modpack-sort-select"
-    >
-      <option value="relevance">Relevance</option>
-      <option value="downloads">Downloads</option>
-      <option value="newest">Newest</option>
-      <option value="updated">Updated</option>
-    </select>
-  </label>
-  <button
-    type="button"
-    class="btn-tertiary text-xs"
-    disabled={!mcFilter && !loaderFilter}
-    data-testid="modpack-clear-filters"
-    onclick={() => {
-      mcFilter = '';
-      loaderFilter = '';
-    }}
-  >
-    Clear filters
-  </button>
-  <LayoutToggle />
+  <BrowseFilterChips
+    chips={activeChips(filterFacets)}
+    onClear={clearChip}
+    onClearAll={clearAllFilters}
+    clearAllTestid="modpack-clear-filters"
+  />
 </div>
+
+<BrowseFilterDrawer
+  bind:open={drawerOpen}
+  bind:loader={loaderFilter}
+  bind:mc={mcFilter}
+  bind:source
+  mcTestid="modpack-mc-input"
+/>
 
 <div class="px-4 pb-4">
   {#if source === 'curseforge' && needsCfKey}
