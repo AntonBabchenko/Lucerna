@@ -215,7 +215,12 @@
     {/if}
   </div>
 
-  <div class="mt-auto flex flex-col gap-3 pt-3 border-t border-border-subtle">
+  <!--
+    This action group clusters directly under the Install/Play block (no
+    mt-auto) so the controls read as one unit; empty space pools at the
+    bottom of the sidebar rather than between the button and these actions.
+  -->
+  <div class="flex flex-col gap-3 pt-3 border-t border-border-subtle">
     <!--
       Modpacks live at the sidebar level (not the per-instance tab strip)
       because installing a pack creates a NEW instance, so there's nothing
