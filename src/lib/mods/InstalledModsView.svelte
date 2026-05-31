@@ -398,7 +398,7 @@
         <span>Disabled: <span class="font-medium text-secondary">{disabledCount}</span></span>
       </div>
     {/if}
-    <div class="flex gap-2 items-center">
+    <div class="flex flex-wrap gap-2 items-center">
       <input
         type="search"
         placeholder="Filter installed…"

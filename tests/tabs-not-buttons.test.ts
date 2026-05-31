@@ -139,9 +139,15 @@ describe('Modpacks sub-tabs are not .btn-*', () => {
   it('both sub-tabs (Browse, Imported) use underlined-tab style, not .btn-*', () => {
     render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
 
-    const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(2);
-    for (const tab of tabs) {
+    // The view now renders a parent "Modpacks browser" tab above the
+    // Browse | Imported sub-tabs, so there are three role="tab" elements.
+    // This test guards only the underline-style sub-tabs — select them by
+    // name rather than asserting a fixed total.
+    const subTabs = [
+      screen.getByRole('tab', { name: 'Browse' }),
+      screen.getByRole('tab', { name: 'Imported' }),
+    ];
+    for (const tab of subTabs) {
       assertNotBtnVariant(tab);
     }
   });
