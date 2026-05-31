@@ -395,7 +395,7 @@ export const commands = {
 	 *  or CurseForge (requires a stored API key — a missing key surfaces
 	 *  as `ModsPlatformAuth`, which the UI maps to the key banner).
 	 */
-	modpackSearch: (source: ModSource, query: string, page: number, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, sort: ModpackSort) => typedError<ModpackSearchPage, Error>(__TAURI_INVOKE("modpack_search", { source, query, page, mcVersion, loader, sort })),
+	modpackSearch: (source: ModSource, query: string, page: number, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, sort: ModpackSort, pageSize: number) => typedError<ModpackSearchPage, Error>(__TAURI_INVOKE("modpack_search", { source, query, page, mcVersion, loader, sort, pageSize })),
 	/**
 	 *  Pull a modpack version's archive to a temp path under the OS temp
 	 *  dir, and return the absolute path so the UI can hand it to
