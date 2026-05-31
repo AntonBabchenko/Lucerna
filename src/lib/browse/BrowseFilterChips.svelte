@@ -24,7 +24,7 @@
     {#each chips as chip (chip.key)}
       <button
         type="button"
-        class="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 text-xs text-accent"
+        class="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-xs text-accent"
         data-testid={`browse-chip-${chip.key}`}
         onclick={() => onClear(chip.key)}
       >

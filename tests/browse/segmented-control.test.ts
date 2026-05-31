@@ -24,7 +24,7 @@ describe('SegmentedControl', () => {
     });
     const fabric = screen.getByRole('radio', { name: 'Fabric' });
     expect(fabric.getAttribute('aria-checked')).toBe('true');
-    expect(fabric.className).toContain('bg-accent-soft');
+    expect(fabric.className).toContain('bg-accent/15');
     expect(fabric.className).toContain('text-accent');
   });
 

@@ -26,7 +26,12 @@
   // Index of the currently-selected option; falls back to 0 so the
   // group always has exactly one tabbable radio even if `value` matches
   // nothing in `options`.
-  const selectedIndex = $derived(Math.max(0, options.findIndex((o) => o.value === value)));
+  const selectedIndex = $derived(
+    Math.max(
+      0,
+      options.findIndex((o) => o.value === value),
+    ),
+  );
 
   function focusRadio(i: number) {
     const radios = groupEl?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
@@ -71,8 +76,7 @@
       role="radio"
       aria-checked={value === opt.value}
       tabindex={i === selectedIndex ? 0 : -1}
-      class="flex-1 px-2 py-1 text-sm text-center border-r border-border-subtle last:border-r-0"
-      class:bg-accent-soft={value === opt.value}
+      class={`flex-1 px-2 py-1 text-sm text-center border-r border-border-subtle last:border-r-0 ${value === opt.value ? 'bg-accent/15' : ''}`}
       class:text-accent={value === opt.value}
       class:font-medium={value === opt.value}
       class:text-secondary={value !== opt.value}

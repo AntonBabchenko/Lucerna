@@ -67,7 +67,7 @@
     Filters
     {#if activeCount > 0}
       <span
-        class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-accent-soft text-accent text-xs font-medium"
+        class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-accent/15 text-accent text-xs font-medium"
       >
         {activeCount}
       </span>
