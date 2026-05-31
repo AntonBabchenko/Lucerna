@@ -226,9 +226,9 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="border-b flex items-center gap-3 px-3 bg-surface" data-tour-ctx="modpacks-tabs">
-    <span class="text-sm font-semibold text-primary">Modpacks Browser</span>
-    <div role="tablist" class="flex gap-1">
+  <div class="bg-surface" data-tour-ctx="modpacks-tabs">
+    <div class="px-3 pt-2 pb-1 text-sm font-semibold text-primary">Modpacks Browser</div>
+    <div role="tablist" class="border-b flex items-center gap-1 px-3">
       <button
         type="button"
         role="tab"
