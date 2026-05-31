@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
+  import { browserPrefs, PAGE_SIZES } from '$lib/mods/browser-prefs.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
@@ -99,6 +100,7 @@
           mc,
           loaderArg,
           sortChoice,
+          browserPrefs.pageSize,
         );
         if (result.status === 'ok') {
           page = result.data;
@@ -124,6 +126,7 @@
     void loaderFilter;
     void sortChoice;
     void pageNum;
+    void browserPrefs.pageSize;
     runSearch();
   });
 
@@ -131,7 +134,7 @@
   // a narrowed query could land the user on an empty page mid-list.
   let prevFilters = $state('');
   $effect(() => {
-    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}`;
+    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}|${browserPrefs.pageSize}`;
     if (fp !== prevFilters) {
       prevFilters = fp;
       if (pageNum !== 0) pageNum = 0;
@@ -185,6 +188,15 @@
   >
     Clear filters
   </button>
+  <select
+    class="filter-control filter-control-select"
+    bind:value={browserPrefs.pageSize}
+    data-testid="modpack-page-size"
+  >
+    {#each PAGE_SIZES as n}
+      <option value={n}>{n} / page</option>
+    {/each}
+  </select>
 </div>
 
 <div class="px-4 pb-4">
@@ -212,12 +224,12 @@
         ← Previous
       </button>
       <span class="text-muted">
-        Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / 20))}
+        Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
       </span>
       <button
         type="button"
         class="btn-secondary btn-sm"
-        disabled={(pageNum + 1) * 20 >= page.total}
+        disabled={(pageNum + 1) * browserPrefs.pageSize >= page.total}
         onclick={() => (pageNum += 1)}
       >
         Next →

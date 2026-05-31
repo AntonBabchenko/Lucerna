@@ -11,6 +11,7 @@
   import { untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
+  import { browserPrefs, PAGE_SIZES } from './browser-prefs.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
@@ -77,7 +78,17 @@
   // the platform's total, so an early page may render fewer cards
   // when many of its hits are already installed.
   let showInstalled = $state(true);
-  const pageSize = 20;
+  const pageSize = $derived(browserPrefs.pageSize);
+  // Reset to page 1 when the user changes the page size so we never
+  // land on an out-of-range page. The existing buffer is kept — future
+  // fetches will use the new chunk size automatically.
+  let prevPageSize = $state(browserPrefs.pageSize);
+  $effect(() => {
+    if (browserPrefs.pageSize !== prevPageSize) {
+      prevPageSize = browserPrefs.pageSize;
+      displayPage = 1;
+    }
+  });
   // A single fill (fresh search or Next) fetches at most this many
   // platform pages before yielding — bounds the request burst on an
   // instance where most search hits are already installed.
@@ -617,6 +628,15 @@
       >
         Clear filters
       </button>
+      <select
+        class="filter-control filter-control-select"
+        bind:value={browserPrefs.pageSize}
+        data-testid="mod-page-size"
+      >
+        {#each PAGE_SIZES as n}
+          <option value={n}>{n} / page</option>
+        {/each}
+      </select>
       <label class="inline-flex items-center gap-1 ml-auto">
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
