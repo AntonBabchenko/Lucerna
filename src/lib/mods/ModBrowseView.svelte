@@ -631,7 +631,7 @@
       >
         Clear filters
       </button>
-      <label class="inline-flex items-center gap-1 ml-auto">
+      <label class="inline-flex items-center gap-1">
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
       </label>
