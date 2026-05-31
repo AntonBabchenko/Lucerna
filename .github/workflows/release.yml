@@ -110,7 +110,11 @@ jobs:
             $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $f.FullName).Hash.ToLower()
             "$hash  $($f.Name)"
           }
-          Set-Content -Path SHA256SUMS -Value $lines -Encoding ascii
+          # Write LF-only (no BOM): Set-Content emits CRLF on Windows, and GNU
+          # `sha256sum -c` then reads the trailing \r as part of the filename and
+          # fails. WriteAllText keeps the checksum file verifiable on Unix.
+          $content = ($lines -join "`n") + "`n"
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'SHA256SUMS'), $content)
 
       - name: Sign artifacts (cosign keyless)
         shell: pwsh
