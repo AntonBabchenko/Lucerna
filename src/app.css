@@ -370,7 +370,9 @@ body[data-tour-active] .tour-overlay {
 
     .filter-control         Base: h-8, px-3, text-sm, border, rounded, surface bg.
                             Apply to every input / select in a filter row.
-    .filter-control-select  Width ~10rem (w-40) for loader / sort dropdowns.
+    .filter-control-select  Auto width — a <select> sizes to its widest option
+                            (no fixed width, so short option lists like Sort /
+                            Loader don't leave a big empty gap).
     .filter-control-narrow  Width ~7rem (w-28) for the MC-version combobox input.
 
   These classes handle sizing only. Pair .filter-select alongside
@@ -381,7 +383,7 @@ body[data-tour-active] .tour-overlay {
   @apply h-8 px-3 text-sm border border-border-emphasis rounded bg-surface;
 }
 .filter-control-select {
-  @apply w-40;
+  @apply w-auto;
 }
 .filter-control-narrow {
   @apply w-28;
