@@ -9,9 +9,10 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
-  import { browserPrefs, PAGE_SIZES } from '$lib/mods/browser-prefs.svelte';
+  import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
+  import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
@@ -252,16 +253,7 @@
         Next →
       </button>
       <span class="flex-1 flex justify-end">
-        <select
-          class="filter-control filter-control-select"
-          bind:value={browserPrefs.pageSize}
-          aria-label="Results per page"
-          data-testid="modpack-page-size"
-        >
-          {#each PAGE_SIZES as n}
-            <option value={n}>{n} / page</option>
-          {/each}
-        </select>
+        <PageSizePicker />
       </span>
     </div>
   {/if}

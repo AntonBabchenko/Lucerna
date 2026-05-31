@@ -11,12 +11,13 @@
   import { untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
-  import { browserPrefs, PAGE_SIZES } from './browser-prefs.svelte';
+  import { browserPrefs } from './browser-prefs.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
   import LayoutToggle from './LayoutToggle.svelte';
+  import PageSizePicker from './PageSizePicker.svelte';
   import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
@@ -694,16 +695,7 @@
           Next ›
         </button>
         <span class="flex-1 flex justify-end">
-          <select
-            class="filter-control filter-control-select"
-            bind:value={browserPrefs.pageSize}
-            aria-label="Results per page"
-            data-testid="mod-page-size"
-          >
-            {#each PAGE_SIZES as n}
-              <option value={n}>{n} / page</option>
-            {/each}
-          </select>
+          <PageSizePicker />
         </span>
       </div>
     {:else}
