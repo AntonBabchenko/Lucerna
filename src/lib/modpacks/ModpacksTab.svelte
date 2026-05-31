@@ -226,35 +226,38 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div role="tablist" class="border-b flex gap-1 px-3 bg-surface" data-tour-ctx="modpacks-tabs">
-    <button
-      type="button"
-      role="tab"
-      aria-selected={activeSub === 'browse'}
-      class="px-3 py-2 text-sm border-b-2 -mb-px"
-      class:border-accent={activeSub === 'browse'}
-      class:text-primary={activeSub === 'browse'}
-      class:font-semibold={activeSub === 'browse'}
-      class:border-transparent={activeSub !== 'browse'}
-      class:text-placeholder={activeSub !== 'browse'}
-      onclick={() => (activeSub = 'browse')}
-    >
-      Browse
-    </button>
-    <button
-      type="button"
-      role="tab"
-      aria-selected={activeSub === 'imported'}
-      class="px-3 py-2 text-sm border-b-2 -mb-px"
-      class:border-accent={activeSub === 'imported'}
-      class:text-primary={activeSub === 'imported'}
-      class:font-semibold={activeSub === 'imported'}
-      class:border-transparent={activeSub !== 'imported'}
-      class:text-placeholder={activeSub !== 'imported'}
-      onclick={() => (activeSub = 'imported')}
-    >
-      Imported
-    </button>
+  <div class="border-b flex items-center gap-3 px-3 bg-surface" data-tour-ctx="modpacks-tabs">
+    <span class="text-sm font-semibold text-primary">Modpacks Browser</span>
+    <div role="tablist" class="flex gap-1">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeSub === 'browse'}
+        class="px-3 py-2 text-sm border-b-2 -mb-px"
+        class:border-accent={activeSub === 'browse'}
+        class:text-primary={activeSub === 'browse'}
+        class:font-semibold={activeSub === 'browse'}
+        class:border-transparent={activeSub !== 'browse'}
+        class:text-placeholder={activeSub !== 'browse'}
+        onclick={() => (activeSub = 'browse')}
+      >
+        Browse
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeSub === 'imported'}
+        class="px-3 py-2 text-sm border-b-2 -mb-px"
+        class:border-accent={activeSub === 'imported'}
+        class:text-primary={activeSub === 'imported'}
+        class:font-semibold={activeSub === 'imported'}
+        class:border-transparent={activeSub !== 'imported'}
+        class:text-placeholder={activeSub !== 'imported'}
+        onclick={() => (activeSub = 'imported')}
+      >
+        Imported
+      </button>
+    </div>
   </div>
 
   <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">

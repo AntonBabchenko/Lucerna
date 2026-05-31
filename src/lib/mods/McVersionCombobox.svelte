@@ -111,7 +111,7 @@
       open = true;
     }}
     onkeydown={onKeyDown}
-    class="w-28 px-3 py-2 border rounded text-sm"
+    class="filter-control filter-control-narrow"
     autocomplete="off"
     role="combobox"
     aria-autocomplete="list"

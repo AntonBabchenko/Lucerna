@@ -9,7 +9,10 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
+  import { browserPrefs, PAGE_SIZES } from '$lib/mods/browser-prefs.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
+  import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
@@ -99,6 +102,7 @@
           mc,
           loaderArg,
           sortChoice,
+          browserPrefs.pageSize,
         );
         if (result.status === 'ok') {
           page = result.data;
@@ -124,6 +128,7 @@
     void loaderFilter;
     void sortChoice;
     void pageNum;
+    void browserPrefs.pageSize;
     runSearch();
   });
 
@@ -131,7 +136,7 @@
   // a narrowed query could land the user on an empty page mid-list.
   let prevFilters = $state('');
   $effect(() => {
-    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}`;
+    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}|${browserPrefs.pageSize}`;
     if (fp !== prevFilters) {
       prevFilters = fp;
       if (pageNum !== 0) pageNum = 0;
@@ -139,7 +144,7 @@
   });
 </script>
 
-<div class="p-4 pb-2 flex flex-wrap gap-2" data-tour-ctx="modpacks-filters">
+<div class="p-4 pb-2 flex flex-wrap gap-2 items-center" data-tour-ctx="modpacks-filters">
   <SourcePicker bind:value={source} />
   <input
     type="search"
@@ -147,13 +152,13 @@
     placeholder={source === 'curseforge'
       ? 'Search modpacks on CurseForge...'
       : 'Search modpacks on Modrinth...'}
-    class="flex-1 min-w-[10rem] px-3 py-2 border rounded text-sm"
+    class="filter-control flex-1 min-w-[10rem]"
     data-testid="modpack-search-input"
   />
   <McVersionCombobox bind:value={mcFilter} dataTestid="modpack-mc-input" />
   <select
     bind:value={loaderFilter}
-    class="filter-select px-3 py-2 border rounded text-sm"
+    class="filter-control filter-control-select filter-select"
     class:is-empty={!loaderFilter}
     data-testid="modpack-loader-select"
   >
@@ -163,16 +168,19 @@
     <option value="forge">Forge</option>
     <option value="neoforge">NeoForge</option>
   </select>
-  <select
-    bind:value={sortChoice}
-    class="px-3 py-2 border rounded text-sm"
-    data-testid="modpack-sort-select"
-  >
-    <option value="relevance">Sort: relevance</option>
-    <option value="downloads">Sort: downloads</option>
-    <option value="newest">Sort: newest</option>
-    <option value="updated">Sort: updated</option>
-  </select>
+  <label class="text-sm text-secondary inline-flex items-center gap-1">
+    Sort:
+    <select
+      bind:value={sortChoice}
+      class="filter-control filter-control-select"
+      data-testid="modpack-sort-select"
+    >
+      <option value="relevance">Relevance</option>
+      <option value="downloads">Downloads</option>
+      <option value="newest">Newest</option>
+      <option value="updated">Updated</option>
+    </select>
+  </label>
   <button
     type="button"
     class="btn-tertiary text-xs"
@@ -185,23 +193,51 @@
   >
     Clear filters
   </button>
+  <select
+    class="filter-control filter-control-select"
+    bind:value={browserPrefs.pageSize}
+    data-testid="modpack-page-size"
+  >
+    {#each PAGE_SIZES as n}
+      <option value={n}>{n} / page</option>
+    {/each}
+  </select>
+  <LayoutToggle />
 </div>
 
 <div class="px-4 pb-4">
   {#if source === 'curseforge' && needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
   {:else if loading}
-    <div class="mt-4 text-sm text-muted">Searching...</div>
+    <div class="flex justify-center py-8 text-secondary">
+      <Spinner size="lg" label="Searching…" />
+    </div>
   {:else if error}
     <div class="mt-4 text-sm text-danger">{error}</div>
   {:else if page && page.hits.length === 0}
     <div class="mt-8 text-sm text-placeholder text-center">No modpacks found.</div>
   {:else if page}
-    <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {#each sortedHits as hit (hit.project_id)}
-        <ModpackCard {hit} onClick={() => onPickHit(hit, mcFilter.trim() || null)} />
-      {/each}
-    </div>
+    {#if browserPrefs.layout === 'grid'}
+      <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {#each sortedHits as hit (hit.project_id)}
+          <ModpackCard
+            {hit}
+            layout="grid"
+            onClick={() => onPickHit(hit, mcFilter.trim() || null)}
+          />
+        {/each}
+      </div>
+    {:else}
+      <div class="mt-2 flex flex-col border border-border-subtle rounded overflow-hidden">
+        {#each sortedHits as hit (hit.project_id)}
+          <ModpackCard
+            {hit}
+            layout="list"
+            onClick={() => onPickHit(hit, mcFilter.trim() || null)}
+          />
+        {/each}
+      </div>
+    {/if}
     <div class="mt-4 flex justify-between text-sm">
       <button
         type="button"
@@ -212,12 +248,12 @@
         ← Previous
       </button>
       <span class="text-muted">
-        Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / 20))}
+        Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
       </span>
       <button
         type="button"
         class="btn-secondary btn-sm"
-        disabled={(pageNum + 1) * 20 >= page.total}
+        disabled={(pageNum + 1) * browserPrefs.pageSize >= page.total}
         onclick={() => (pageNum += 1)}
       >
         Next →

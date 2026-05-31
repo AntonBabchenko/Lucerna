@@ -1059,8 +1059,7 @@ describe('ModpackDetailModal — loading state renders "Loading versions..."', (
     });
     // Version state lives on the Versions tab; Overview shows the gallery.
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
-    const loading = screen.getByText(/loading versions\.\.\./i);
-    expect(loading.className).toContain('text-muted');
+    expect(screen.getByRole('status', { name: /loading versions/i })).toBeTruthy();
   });
 });
 

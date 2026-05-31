@@ -362,3 +362,27 @@ body[data-tour-active] .tour-overlay {
 .dark .filter-select option[value=''] {
   color: rgb(115 115 115); /* dark --text-placeholder */
 }
+
+/*
+  Filter-control sizing system. Shared across ModBrowseView and
+  ModpackBrowseView so all filter-row controls align to a consistent
+  h-8 (2rem) baseline.
+
+    .filter-control         Base: h-8, px-3, text-sm, border, rounded, surface bg.
+                            Apply to every input / select in a filter row.
+    .filter-control-select  Width ~10rem (w-40) for loader / sort dropdowns.
+    .filter-control-narrow  Width ~7rem (w-28) for the MC-version combobox input.
+
+  These classes handle sizing only. Pair .filter-select alongside
+  .filter-control-select on <select> elements that need the is-empty
+  greying behaviour — .filter-select is intentionally sizing-free.
+*/
+.filter-control {
+  @apply h-8 px-3 text-sm border border-border-emphasis rounded bg-surface;
+}
+.filter-control-select {
+  @apply w-40;
+}
+.filter-control-narrow {
+  @apply w-28;
+}

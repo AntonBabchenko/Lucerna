@@ -25,7 +25,7 @@
 //                       empty state (no mods)
 //                       manual-mod row: Disable/Enable → btn-secondary btn-xs
 //                                       Uninstall → btn-ghost-danger btn-xs
-//   ModCard:            not-installed state → "Install recommended" btn-primary btn-xs
+//   ModCard:            not-installed state → "Install" btn-primary btn-xs
 //                       installed+enabled → "Installed" badge bg-success/10 text-success
 //                       installed+disabled → "Disabled" badge bg-subtle text-muted
 //                       Disable/Enable → btn-secondary btn-xs
@@ -263,8 +263,7 @@ describe('ModBrowseView — loading state renders Searching… placeholder', () 
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     // The loading div is rendered synchronously while the promise is pending.
-    const loading = screen.getByText(/Searching…/i);
-    expect(loading.className).toContain('text-placeholder');
+    expect(screen.getByRole('status', { name: /searching/i })).toBeTruthy();
   });
 });
 
@@ -688,8 +687,8 @@ describe('InstalledModsView — manual-mod row buttons', () => {
 
 // ── ModCard — not-installed state ─────────────────────────────────────────────
 
-describe('ModCard — not-installed state has "Install recommended" btn-primary btn-xs', () => {
-  it('"Install recommended" button is btn-primary btn-xs', () => {
+describe('ModCard — not-installed state has "Install" btn-primary btn-xs', () => {
+  it('"Install" button is btn-primary btn-xs', () => {
     render(ModCard, {
       props: {
         summary: makeSummary(),
@@ -700,7 +699,7 @@ describe('ModCard — not-installed state has "Install recommended" btn-primary 
         onUninstall: () => {},
       },
     });
-    const btn = screen.getByRole('button', { name: /install recommended/i });
+    const btn = screen.getByRole('button', { name: /^install$/i });
     expect(btn).toHaveBtnVariant('primary');
     expect(btn).toHaveBtnSize('xs');
   });
@@ -885,8 +884,10 @@ describe('ModCard — card body button is NOT a .btn-* variant (click-area patte
         onUninstall: () => {},
       },
     });
-    // The card body is `<button class="flex-1 text-left min-w-0">`.
-    const bodyBtn = container.querySelector('button.flex-1');
+    // The card body click-area is the first <button> in the card (grid
+    // layout: icon + title, calls onOpenDetail) — a plain click target,
+    // not a .btn-* action button.
+    const bodyBtn = container.querySelector('button');
     expect(bodyBtn).not.toBeNull();
     const cls = bodyBtn?.className ?? '';
     expect(cls).not.toMatch(/\bbtn-primary\b/);

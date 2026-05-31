@@ -177,8 +177,7 @@ fn check_status(resp: &crate::network::request::HttpResponse, url: &str) -> Resu
 // ---- search ----------------------------------------------------------
 
 /// Search the CurseForge modpack catalogue (`classId` 4471). `page` is a
-/// zero-based page index; the page size is fixed at 20 to match the
-/// Modrinth modpack search.
+/// zero-based page index; `page_size` controls how many results per page.
 pub async fn search(
     base: &str,
     key: Option<&str>,
@@ -187,9 +186,10 @@ pub async fn search(
     mc_version: Option<&str>,
     loader: Option<LoaderKind>,
     sort: ModpackSort,
+    page_size: u32,
 ) -> Result<ModpackSearchPage, Error> {
     let key = require_key(key)?;
-    let limit: u32 = 20;
+    let limit: u32 = page_size;
     let offset = page * limit;
     let mut params: Vec<(&str, String)> = vec![
         ("gameId", GAME_MINECRAFT.to_string()),
@@ -491,6 +491,7 @@ mod tests {
             None,
             None,
             ModpackSort::Relevance,
+            20,
         )
         .await
         .unwrap();
@@ -519,6 +520,7 @@ mod tests {
             None,
             None,
             ModpackSort::Relevance,
+            20,
         )
         .await
         .unwrap();
@@ -549,6 +551,7 @@ mod tests {
             None,
             None,
             ModpackSort::Downloads,
+            20,
         )
         .await
         .unwrap();
@@ -569,6 +572,7 @@ mod tests {
             None,
             None,
             ModpackSort::Newest,
+            20,
         )
         .await
         .unwrap();
@@ -589,6 +593,7 @@ mod tests {
             None,
             None,
             ModpackSort::Relevance,
+            20,
         )
         .await
         .unwrap_err();

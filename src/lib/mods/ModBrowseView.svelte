@@ -11,13 +11,16 @@
   import { untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
+  import { browserPrefs, PAGE_SIZES } from './browser-prefs.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
+  import LayoutToggle from './LayoutToggle.svelte';
   import McVersionCombobox from './McVersionCombobox.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   // The Browse pane inside ModBrowserTab. Responsibilities:
   //   - Render a search input (300ms debounced), sort dropdown, MC
@@ -77,7 +80,17 @@
   // the platform's total, so an early page may render fewer cards
   // when many of its hits are already installed.
   let showInstalled = $state(true);
-  const pageSize = 20;
+  const pageSize = $derived(browserPrefs.pageSize);
+  // Reset to page 1 when the user changes the page size so we never
+  // land on an out-of-range page. The existing buffer is kept — future
+  // fetches will use the new chunk size automatically.
+  let prevPageSize = $state(browserPrefs.pageSize);
+  $effect(() => {
+    if (browserPrefs.pageSize !== prevPageSize) {
+      prevPageSize = browserPrefs.pageSize;
+      displayPage = 1;
+    }
+  });
   // A single fill (fresh search or Next) fetches at most this many
   // platform pages before yielding — bounds the request burst on an
   // instance where most search hits are already installed.
@@ -572,12 +585,12 @@
         type="search"
         placeholder="Search mods..."
         aria-label="Search mods"
-        class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
+        class="filter-control flex-1"
         oninput={onQueryInput}
       />
       <label class="text-sm text-secondary inline-flex items-center gap-1">
         Sort:
-        <select bind:value={sort} class="border rounded px-2 py-1 text-sm bg-surface">
+        <select bind:value={sort} class="filter-control filter-control-select">
           <option value="downloads">Downloads</option>
           <option value="relevance">Relevance</option>
           <option value="updated">Updated</option>
@@ -595,7 +608,7 @@
         <select
           bind:value={loaderFilter}
           aria-label="Loader filter"
-          class="filter-select border rounded px-2 py-0.5 text-sm"
+          class="filter-control filter-control-select filter-select"
           class:is-empty={!loaderFilter}
         >
           <option value="">Any</option>
@@ -617,10 +630,20 @@
       >
         Clear filters
       </button>
+      <select
+        class="filter-control filter-control-select"
+        bind:value={browserPrefs.pageSize}
+        data-testid="mod-page-size"
+      >
+        {#each PAGE_SIZES as n}
+          <option value={n}>{n} / page</option>
+        {/each}
+      </select>
       <label class="inline-flex items-center gap-1 ml-auto">
         <input type="checkbox" checked={showInstalled} onchange={onShowInstalledChange} />
         Show installed
       </label>
+      <LayoutToggle />
     </div>
   </div>
 
@@ -629,18 +652,39 @@
       <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">{error}</div>
     {/if}
     {#if loading}
-      <div class="text-placeholder text-sm py-8 text-center">Searching…</div>
+      <div class="flex justify-center py-8 text-secondary">
+        <Spinner size="lg" label="Searching…" />
+      </div>
     {:else if pageHits.length > 0}
-      {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
-        <ModCard
-          summary={hit}
-          installed={installedFor(hit)}
-          onInstall={() => startInstall(hit)}
-          onOpenDetail={() => (drawerProject = hit.project_id)}
-          onToggle={() => toggleCard(hit)}
-          onUninstall={() => uninstallCard(hit)}
-        />
-      {/each}
+      {#if browserPrefs.layout === 'grid'}
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">
+          {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+            <ModCard
+              summary={hit}
+              installed={installedFor(hit)}
+              onInstall={() => startInstall(hit)}
+              onOpenDetail={() => (drawerProject = hit.project_id)}
+              onToggle={() => toggleCard(hit)}
+              onUninstall={() => uninstallCard(hit)}
+              layout="grid"
+            />
+          {/each}
+        </div>
+      {:else}
+        <div class="mt-1 flex flex-col border border-border-subtle rounded overflow-hidden">
+          {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+            <ModCard
+              summary={hit}
+              installed={installedFor(hit)}
+              onInstall={() => startInstall(hit)}
+              onOpenDetail={() => (drawerProject = hit.project_id)}
+              onToggle={() => toggleCard(hit)}
+              onUninstall={() => uninstallCard(hit)}
+              layout="list"
+            />
+          {/each}
+        </div>
+      {/if}
       <div class="flex items-center justify-center gap-3 text-sm text-secondary pt-2">
         <button
           type="button"
