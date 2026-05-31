@@ -171,14 +171,14 @@
     else modalError = ipcErrorMessage(result.error);
   }
 
-  async function runModCompatCheck() {
-    if (!selected) return;
+  // Takes the NEW mc/loader explicitly rather than reading `selected`: after a
+  // change, `onChanged()` refreshes the `instances` prop via an async round-trip
+  // that isn't awaited here, so `selected` still holds the OLD config. Querying
+  // compatibility against stale values would defeat the whole point of the
+  // summary. The fresh values come straight from the command result.
+  async function runModCompatCheck(id: string, mc: string, loader: LoaderKind) {
     try {
-      const r = await commands.checkInstanceModCompat(
-        selected.id,
-        selected.mc_version,
-        selected.loader,
-      );
+      const r = await commands.checkInstanceModCompat(id, mc, loader);
       if (r.status === 'ok') compatRows = r.data;
       // On error: swallow gracefully — compat check is best-effort UX.
     } catch {
@@ -194,7 +194,8 @@
       if (toast?.kind === 'success') pushSuccess(toast.text);
       else if (toast?.kind === 'warning') pushWarning(toast.text);
       onChanged();
-      await runModCompatCheck();
+      const fresh = result.data.instance;
+      await runModCompatCheck(fresh.id, fresh.mc_version, fresh.loader);
     } else {
       modalError = ipcErrorMessage(result.error);
     }
@@ -218,7 +219,7 @@
     const result = await commands.setInstanceLoader(selected.id, kind, version);
     if (result.status === 'ok') {
       onChanged();
-      await runModCompatCheck();
+      await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
     } else {
       modalError = ipcErrorMessage(result.error);
     }

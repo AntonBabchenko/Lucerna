@@ -204,6 +204,28 @@ pub fn set_instance_loader(
     })
 }
 
+/// Apply a Minecraft-version change and its re-resolved loader in ONE
+/// read-modify-write. `change_instance_mc` uses this so a torn write can't
+/// leave the instance with the new MC but the old (incompatible) loader
+/// version — which would re-introduce the very Forge-404 stale-state bug
+/// this module exists to prevent.
+pub(crate) fn apply_mc_and_loader(
+    app: &tauri::AppHandle,
+    id: &str,
+    mc_version: String,
+    loader: LoaderKind,
+    loader_version: Option<String>,
+) -> Result<InstanceWithStatus> {
+    mutate(app, id, |i| {
+        i.mc_version = mc_version;
+        i.loader = loader;
+        i.loader_version = match loader {
+            LoaderKind::Vanilla => None,
+            _ => loader_version,
+        };
+    })
+}
+
 pub fn set_instance_memory(
     app: &tauri::AppHandle,
     id: &str,
@@ -285,6 +307,9 @@ pub(crate) enum LoaderDecision {
 /// - `Err(LoaderUnavailable { .. })` → `ResetToVanilla` (loader not supported
 ///   for this MC version).
 /// - Any other `Err` → propagate as `Error`.
+///
+/// `_loader` is unused today (the decision is loader-agnostic) but kept in the
+/// signature, reserved for a future per-loader version-selection policy.
 pub(crate) fn decide_loader(
     _loader: LoaderKind,
     list: crate::error::Result<Vec<crate::versions::loaders::LoaderVersion>>,

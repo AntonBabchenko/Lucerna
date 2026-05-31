@@ -565,6 +565,7 @@ pub async fn change_instance_mc(
     let loader = current.loader;
 
     if loader == LoaderKind::Vanilla {
+        // Vanilla instance: nothing to re-resolve, just set the MC version.
         let instance = instances::set_instance_version(&app, &id, mc)?;
         return Ok(crate::instances::McChangeReport {
             instance,
@@ -580,22 +581,25 @@ pub async fn change_instance_mc(
         // SAFETY: guarded by the `loader == Vanilla` branch above
         LoaderKind::Vanilla => unreachable!(),
     };
+    // Resolve over the network BEFORE any write, then apply MC + loader +
+    // loader_version in a SINGLE atomic mutate — a torn write must never leave
+    // the new MC paired with the old loader version (that is the bug).
     match instances::decide_loader(loader, list_loaders(as_loader, &mc).await) {
         LoaderDecision::Use(v) => {
-            instances::set_instance_version(&app, &id, mc.clone())?;
-            let instance = instances::set_instance_loader(&app, &id, loader, Some(v.clone()))?;
+            let instance = instances::apply_mc_and_loader(&app, &id, mc, loader, Some(v.clone()))?;
             Ok(crate::instances::McChangeReport {
                 instance,
                 loader_outcome: LoaderOutcome::LoaderUpdated { loader, version: v },
             })
         }
         LoaderDecision::ResetToVanilla => {
-            let previous_loader = loader;
-            instances::set_instance_version(&app, &id, mc)?;
-            let instance = instances::set_instance_loader(&app, &id, LoaderKind::Vanilla, None)?;
+            let instance =
+                instances::apply_mc_and_loader(&app, &id, mc, LoaderKind::Vanilla, None)?;
             Ok(crate::instances::McChangeReport {
                 instance,
-                loader_outcome: LoaderOutcome::LoaderResetToVanilla { previous_loader },
+                loader_outcome: LoaderOutcome::LoaderResetToVanilla {
+                    previous_loader: loader,
+                },
             })
         }
         LoaderDecision::Error(e) => Err(e),
