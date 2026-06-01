@@ -54,11 +54,17 @@ pnpm-debug.log*
 # Local-only feature-lifecycle artifacts (specs / plans / notes) — not published
 docs/superpowers/
 
+# Local-only roadmap / task tracker — kept out of the public repo by request
+docs/ROADMAP.md
+
 # Playwright artifacts
 test-results/
 playwright-report/
 tests-e2e/.auth/
 .claude/reviews/
+
+# Local-only logo/brand candidate exploration — not published
+brand/logo-candidates/
 
 # Coverage artifacts
 /coverage/
