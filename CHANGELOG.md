@@ -10,6 +10,8 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-06-01
+
 ### Added
 - **Self-update.** On startup the launcher checks GitHub Releases and, when a newer
   version is available, shows a sticky notification with a one-click **Update** button.
