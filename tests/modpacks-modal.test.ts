@@ -18,16 +18,16 @@ describe('ModpacksModal', () => {
     expect(back).toHaveBtnVariant('secondary');
     expect(back).toHaveBtnSize('sm');
     expect(back.textContent).toContain('Back');
-    expect(screen.getByLabelText(/close modpacks$/i)).toHaveBtnVariant('icon');
+    expect(screen.getByLabelText('Close modpacks')).toHaveBtnVariant('icon');
   });
 
   it('Back, ×, and scrim each call onClose when not importing', async () => {
     const onClose = vi.fn();
     render(ModpacksModal, { props: { open: true, importing: false, onClose } });
     await fireEvent.click(screen.getByTestId('modpacks-modal-back'));
-    await fireEvent.click(screen.getByLabelText(/close modpacks$/i));
-    // The scrim is the full-bleed button with aria-label "Close modpacks (backdrop)".
-    await fireEvent.click(screen.getByLabelText(/close modpacks \(backdrop\)/i));
+    await fireEvent.click(screen.getByLabelText('Close modpacks'));
+    // The scrim is the full-bleed backdrop button, labelled simply "Close".
+    await fireEvent.click(screen.getByLabelText('Close'));
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 
@@ -42,8 +42,8 @@ describe('ModpacksModal', () => {
     const onClose = vi.fn();
     render(ModpacksModal, { props: { open: true, importing: true, onClose } });
     await fireEvent.click(screen.getByTestId('modpacks-modal-back'));
-    await fireEvent.click(screen.getByLabelText(/close modpacks$/i));
-    await fireEvent.click(screen.getByLabelText(/close modpacks \(backdrop\)/i));
+    await fireEvent.click(screen.getByLabelText('Close modpacks'));
+    await fireEvent.click(screen.getByLabelText('Close'));
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
   });

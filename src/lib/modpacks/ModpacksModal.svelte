@@ -50,7 +50,7 @@
     <button
       type="button"
       class="absolute inset-0 bg-black/40"
-      aria-label="Close modpacks (backdrop)"
+      aria-label="Close"
       onclick={requestClose}
     ></button>
     <div
