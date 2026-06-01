@@ -741,15 +741,22 @@ const LOADER_SLUGS: &[&str] = &[
 /// Is `version`'s project a loader? Looks up the project slug, memoized in
 /// `loader_cache`. One `project()` call per distinct project, amortized.
 /// Fails open: an un-classifiable project is treated as a normal mod.
+///
+/// Takes the mutex by reference and releases the lock *before* the network
+/// call so that concurrent `join_all` invocations from `fetch_one_level` can
+/// proceed in parallel without each other blocking on the cache lock.
 async fn is_loader_project(
     platform: &dyn ModPlatform,
-    loader_cache: &mut std::collections::HashMap<ProjectKey, bool>,
+    loader_cache: &tokio::sync::Mutex<std::collections::HashMap<ProjectKey, bool>>,
     v: &ModVersion,
 ) -> bool {
     let key = ProjectKey::of_version(v);
-    if let Some(hit) = loader_cache.get(&key) {
-        return *hit;
-    }
+    {
+        let cache = loader_cache.lock().await;
+        if let Some(hit) = cache.get(&key) {
+            return *hit;
+        }
+    } // lock released before the network call
     let is_loader = match platform.project(&v.project_id).await {
         Ok(p) => p
             .summary
@@ -759,36 +766,58 @@ async fn is_loader_project(
             .unwrap_or(false),
         Err(_) => false,
     };
-    loader_cache.insert(key, is_loader);
+    loader_cache.lock().await.insert(key, is_loader);
     is_loader
 }
 
 /// Build `FetchedDeps` for one version: call the platform's one-level
 /// `resolve_deps` and classify each resolved dep as loader / normal.
+///
+/// Loader classification for all deps at this level is done concurrently via
+/// `join_all` — each `is_loader_project` call is an independent project()
+/// lookup memoized in the shared cache. The cache lock is held only for the
+/// brief read/write, not across the network call, so the futures can
+/// genuinely run in parallel.
 async fn fetch_one_level(
     platform: &dyn ModPlatform,
-    loader_cache: &mut std::collections::HashMap<ProjectKey, bool>,
+    loader_cache: &tokio::sync::Mutex<std::collections::HashMap<ProjectKey, bool>>,
     v: &ModVersion,
     mc: &str,
     loader: LoaderKind,
 ) -> Result<FetchedDeps, crate::error::Error> {
     let rd = platform.resolve_deps(v, mc, loader).await?;
-    let mut required = Vec::new();
-    for r in rd.required {
-        let is_loader = is_loader_project(platform, loader_cache, &r.version).await;
-        required.push(ResolvedNode {
+    // Classify all deps' loader-ness concurrently (each is an independent
+    // project() lookup, memoized in the shared cache).
+    let req_flags = futures_util::future::join_all(
+        rd.required
+            .iter()
+            .map(|r| is_loader_project(platform, loader_cache, &r.version)),
+    )
+    .await;
+    let opt_flags = futures_util::future::join_all(
+        rd.optional
+            .iter()
+            .map(|o| is_loader_project(platform, loader_cache, &o.version)),
+    )
+    .await;
+    let required = rd
+        .required
+        .into_iter()
+        .zip(req_flags)
+        .map(|(r, is_loader)| ResolvedNode {
             version: r.version,
             is_loader,
-        });
-    }
-    let mut optional = Vec::new();
-    for o in rd.optional {
-        let is_loader = is_loader_project(platform, loader_cache, &o.version).await;
-        optional.push(ResolvedNode {
+        })
+        .collect();
+    let optional = rd
+        .optional
+        .into_iter()
+        .zip(opt_flags)
+        .map(|(o, is_loader)| ResolvedNode {
             version: o.version,
             is_loader,
-        });
-    }
+        })
+        .collect();
     Ok(FetchedDeps {
         required,
         optional,
@@ -981,10 +1010,7 @@ pub async fn mods_install_with_deps(
             let platform = platform.clone();
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
-            async move {
-                let mut cache = loader_cache.lock().await;
-                fetch_one_level(platform.as_ref(), &mut cache, &v, &mc, loader).await
-            }
+            async move { fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await }
         }
     };
 
@@ -1134,18 +1160,19 @@ pub async fn mods_resolve_install_plan(
             let platform = platform.clone();
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
-            async move {
-                let mut cache = loader_cache.lock().await;
-                fetch_one_level(platform.as_ref(), &mut cache, &v, &mc, loader).await
-            }
+            async move { fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await }
         }
     };
 
     // 1. One-level deps of the primary (required/optional/incompat/unresolvable).
-    let top = {
-        let mut cache = loader_cache.lock().await;
-        fetch_one_level(platform.as_ref(), &mut cache, &primary, &mc_version, loader).await?
-    };
+    let top = fetch_one_level(
+        platform.as_ref(),
+        &loader_cache,
+        &primary,
+        &mc_version,
+        loader,
+    )
+    .await?;
 
     // 2. Primary's transitive required closure; prune already-installed.
     //    The closure walker enqueues the root's required deps, so
