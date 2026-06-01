@@ -5,20 +5,48 @@ import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
 vi.mock('$lib/ipc/bindings', async (orig) => {
   const actual = await orig<typeof import('$lib/ipc/bindings')>();
   const mod = (sha1: string, name: string, enabled = true) => ({
-    filename: `${name}.jar`, sha1, source: 'modrinth', project_id: name, version_id: 'v',
-    name, version_number: '1.0', installed_at: '2026-01-01T00:00:00Z', enabled,
-    enrich_attempted: false, requires: [],
+    filename: `${name}.jar`,
+    sha1,
+    source: 'modrinth',
+    project_id: name,
+    version_id: 'v',
+    name,
+    version_number: '1.0',
+    installed_at: '2026-01-01T00:00:00Z',
+    enabled,
+    enrich_attempted: false,
+    requires: [],
   });
   return {
     ...actual,
     commands: {
       ...actual.commands,
-      modsListInstalled: vi.fn(async () => ({ status: 'ok', data: [mod('a', 'Alpha'), mod('b', 'Beta', false)] })),
+      modsListInstalled: vi.fn(async () => ({
+        status: 'ok',
+        data: [mod('a', 'Alpha'), mod('b', 'Beta', false)],
+      })),
       modsPackOriginSummary: vi.fn(async () => ({ status: 'ok', data: null })),
-      modsProject: vi.fn(async (_s: unknown, id: string) => ({ status: 'ok', data: { summary: { source: 'modrinth', project_id: id, slug: id, name: id, summary: '', icon_url: null, downloads: 0, author: 'x', updated_at: null } } })),
+      modsProject: vi.fn(async (_s: unknown, id: string) => ({
+        status: 'ok',
+        data: {
+          summary: {
+            source: 'modrinth',
+            project_id: id,
+            slug: id,
+            name: id,
+            summary: '',
+            icon_url: null,
+            downloads: 0,
+            author: 'x',
+            updated_at: null,
+          },
+        },
+      })),
       modsDependencyGraph: vi.fn(async () => ({ status: 'ok', data: { roots: [] } })),
     },
-    events: Object.fromEntries(Object.keys(actual.events).map((k) => [k, { listen: async () => () => {} }])),
+    events: Object.fromEntries(
+      Object.keys(actual.events).map((k) => [k, { listen: async () => () => {} }]),
+    ),
   };
 });
 
@@ -52,8 +80,12 @@ describe('InstalledModsView selection', () => {
 
   it('offers orphaned deps and uninstalls them when confirmed', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    (commands.modsFindOrphans as any) = vi.fn(async () => ({ status: 'ok', data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }] }));
-    const uninstall = ((commands.modsUninstall as any) = vi.fn(async () => ({ status: 'ok', data: null })));
+    (commands.modsFindOrphans as any) = vi.fn(async () => ({
+      status: 'ok',
+      data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }],
+    }));
+    (commands.modsUninstall as any) = vi.fn(async () => ({ status: 'ok', data: null }));
+    const uninstall = vi.mocked(commands.modsUninstall);
     render(InstalledModsView, { props });
     await screen.findByText('Alpha');
     await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // select Alpha (sha 'a')
@@ -76,10 +108,29 @@ describe('InstalledModsView selection', () => {
       status: 'ok',
       data: {
         roots: [
-          { sha1: 'a', source: 'modrinth', project_id: 'Alpha', name: 'Alpha', required: [], optional: [] },
           {
-            sha1: 'b', source: 'modrinth', project_id: 'Beta', name: 'Beta',
-            required: [{ source: 'modrinth', project_id: 'Alpha', name: 'Alpha', status: 'satisfied', cycle: false, children: [] }],
+            sha1: 'a',
+            source: 'modrinth',
+            project_id: 'Alpha',
+            name: 'Alpha',
+            required: [],
+            optional: [],
+          },
+          {
+            sha1: 'b',
+            source: 'modrinth',
+            project_id: 'Beta',
+            name: 'Beta',
+            required: [
+              {
+                source: 'modrinth',
+                project_id: 'Alpha',
+                name: 'Alpha',
+                status: 'satisfied',
+                cycle: false,
+                children: [],
+              },
+            ],
             optional: [],
           },
         ],

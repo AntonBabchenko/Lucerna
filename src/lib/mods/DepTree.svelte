@@ -2,7 +2,13 @@
   import type { DepTreeNode } from '$lib/ipc/bindings';
   import Self from './DepTree.svelte';
 
-  let { nodes, hoveredKey, onHover, onInstall, onAdd }: {
+  let {
+    nodes,
+    hoveredKey,
+    onHover,
+    onInstall,
+    onAdd,
+  }: {
     nodes: DepTreeNode[];
     hoveredKey: string | null;
     onHover: (key: string | null) => void;
@@ -34,10 +40,20 @@
           <span class="text-success">✓ installed</span>
         {:else if n.status === 'missing_required'}
           <span class="text-danger">✕ missing</span>
-          <button type="button" class="btn-primary btn-xs" aria-label={`Install ${n.name}`} onclick={() => onInstall(n)}>Install</button>
+          <button
+            type="button"
+            class="btn-primary btn-xs"
+            aria-label={`Install ${n.name}`}
+            onclick={() => onInstall(n)}>Install</button
+          >
         {:else}
           <span class="text-muted italic">optional</span>
-          <button type="button" class="btn-secondary btn-xs" aria-label={`Add ${n.name}`} onclick={() => onAdd(n)}>+ Add</button>
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            aria-label={`Add ${n.name}`}
+            onclick={() => onAdd(n)}>+ Add</button
+          >
         {/if}
         {#if n.cycle}<span class="text-placeholder">↻ cycle</span>{/if}
       </div>

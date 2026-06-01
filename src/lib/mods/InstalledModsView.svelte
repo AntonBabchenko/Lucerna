@@ -203,9 +203,7 @@
     const vr = await commands.modsVersions(node.source, node.project_id, mcVersion, loader);
     if (vr.status === 'error' || vr.data.length === 0) {
       error =
-        vr.status === 'error'
-          ? formatError(vr.error)
-          : `No compatible version of ${node.name}`;
+        vr.status === 'error' ? formatError(vr.error) : `No compatible version of ${node.name}`;
       busy = false;
       return;
     }
@@ -288,7 +286,11 @@
     const visible = new Set(filtered.map((r) => r.installed.sha1));
     let changed = false;
     const next = new Set(selected);
-    for (const sha of next) if (!visible.has(sha)) { next.delete(sha); changed = true; }
+    for (const sha of next)
+      if (!visible.has(sha)) {
+        next.delete(sha);
+        changed = true;
+      }
     if (changed) selected = next;
   });
   $effect(() => {
@@ -297,10 +299,13 @@
     selected = new Set();
   });
 
-  const allSelected = $derived(filtered.length > 0 && filtered.every((r) => selected.has(r.installed.sha1)));
+  const allSelected = $derived(
+    filtered.length > 0 && filtered.every((r) => selected.has(r.installed.sha1)),
+  );
   function toggleSelect(sha1: string, checked: boolean) {
     const next = new Set(selected);
-    if (checked) next.add(sha1); else next.delete(sha1);
+    if (checked) next.add(sha1);
+    else next.delete(sha1);
     selected = next;
   }
   function toggleSelectAll(checked: boolean) {
@@ -521,22 +526,33 @@
 
   const selectedRows = $derived(filtered.filter((r) => selected.has(r.installed.sha1)));
   const selectedUpdatable = $derived(
-    selectedRows.filter((r) => updateChecks.get(r.installed.sha1)?.state.kind === 'update_available'),
+    selectedRows.filter(
+      (r) => updateChecks.get(r.installed.sha1)?.state.kind === 'update_available',
+    ),
   );
 
   async function bulkSetEnabled(enable: boolean) {
     if (!instanceId || selected.size === 0) return;
-    busy = true; error = null;
-    let ok = 0, failed = 0;
+    busy = true;
+    error = null;
+    let ok = 0,
+      failed = 0;
     for (const r of selectedRows) {
-      if (r.installed.enabled === enable) { ok++; continue; }
+      if (r.installed.enabled === enable) {
+        ok++;
+        continue;
+      }
       const res = enable
         ? await commands.modsEnable(instanceId, r.installed.sha1)
         : await commands.modsDisable(instanceId, r.installed.sha1);
-      if (res.status === 'error') failed++; else ok++;
+      if (res.status === 'error') failed++;
+      else ok++;
     }
-    busy = false; selected = new Set(); await refresh();
-    if (failed === 0) pushSuccess(`${enable ? 'Enabled' : 'Disabled'} ${ok} mod${ok === 1 ? '' : 's'}`);
+    busy = false;
+    selected = new Set();
+    await refresh();
+    if (failed === 0)
+      pushSuccess(`${enable ? 'Enabled' : 'Disabled'} ${ok} mod${ok === 1 ? '' : 's'}`);
     else pushWarning(`${enable ? 'Enabled' : 'Disabled'} ${ok}, ${failed} failed`, []);
   }
 
@@ -547,16 +563,28 @@
       return st?.kind === 'update_available' ? [{ sha1: r.installed.sha1, target: st.target }] : [];
     });
     if (targets.length === 0) return;
-    busy = true; error = null;
-    let ok = 0, failed = 0;
-    for (const t of targets) { if (await applyUpdate(t.sha1, t.target)) ok++; else failed++; }
-    updateChecks = new Map(); updateCheckCache.delete(instanceId);
-    busy = false; selected = new Set(); await refresh();
+    busy = true;
+    error = null;
+    let ok = 0,
+      failed = 0;
+    for (const t of targets) {
+      if (await applyUpdate(t.sha1, t.target)) ok++;
+      else failed++;
+    }
+    updateChecks = new Map();
+    updateCheckCache.delete(instanceId);
+    busy = false;
+    selected = new Set();
+    await refresh();
     if (failed === 0) pushSuccess(`Updated ${ok} mod${ok === 1 ? '' : 's'}`);
     else pushWarning(`Updated ${ok}, ${failed} failed`, []);
   }
 
-  let uninstallPrompt = $state<{ removing: string[]; names: string[]; orphans: OrphanRef[] } | null>(null);
+  let uninstallPrompt = $state<{
+    removing: string[];
+    names: string[];
+    orphans: OrphanRef[];
+  } | null>(null);
 
   async function requestBulkUninstall() {
     if (!instanceId || selected.size === 0) return;
@@ -571,13 +599,18 @@
     if (!instanceId || !uninstallPrompt) return;
     const all = [...uninstallPrompt.removing, ...alsoRemove];
     uninstallPrompt = null;
-    busy = true; error = null;
-    let ok = 0, failed = 0;
+    busy = true;
+    error = null;
+    let ok = 0,
+      failed = 0;
     for (const sha1 of all) {
       const res = await commands.modsUninstall(instanceId, sha1);
-      if (res.status === 'error') failed++; else ok++;
+      if (res.status === 'error') failed++;
+      else ok++;
     }
-    busy = false; selected = new Set(); await refresh();
+    busy = false;
+    selected = new Set();
+    await refresh();
     if (failed === 0) pushSuccess(`Uninstalled ${ok} mod${ok === 1 ? '' : 's'}`);
     else pushWarning(`Uninstalled ${ok}, ${failed} failed`, []);
   }
@@ -637,7 +670,12 @@
         </select>
       </label>
       <label class="text-xs text-secondary inline-flex items-center gap-1">
-        <input type="checkbox" aria-label="Select all" checked={allSelected} onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)} />
+        <input
+          type="checkbox"
+          aria-label="Select all"
+          checked={allSelected}
+          onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
+        />
         Select all
       </label>
       <button
@@ -648,7 +686,12 @@
       >
         {checking ? 'Checking…' : 'Check for updates'}
       </button>
-      <button type="button" class="btn-secondary btn-xs" disabled={graphLoading} onclick={recheckDeps}>
+      <button
+        type="button"
+        class="btn-secondary btn-xs"
+        disabled={graphLoading}
+        onclick={recheckDeps}
+      >
         {graphLoading ? 'Resolving…' : '↻ Re-check deps'}
       </button>
       {#if updateCount > 0}
@@ -729,24 +772,54 @@
       No mods installed in this instance yet.
     </div>
   {:else}
-  {#if selected.size > 0}
-    <div data-testid="bulk-bar" class="sticky top-0 z-10 flex items-center gap-2 bg-accent-soft border border-accent rounded px-3 py-2 mb-2 text-sm">
-      <span class="font-medium text-accent">{selected.size} selected</span>
-      <div class="ml-auto flex items-center gap-1">
-        <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={() => bulkSetEnabled(true)}>Enable</button>
-        <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={() => bulkSetEnabled(false)}>Disable</button>
-        <button type="button" class="btn-secondary btn-xs" disabled={busy || selectedUpdatable.length === 0}
-          title={selectedUpdatable.length === 0 ? 'Run "Check for updates" first; only mods with a pending update can be updated' : ''}
-          onclick={bulkUpdate}>Update</button>
-        <button type="button" class="btn-ghost-danger btn-xs" disabled={busy} onclick={requestBulkUninstall}>Uninstall</button>
-        <button type="button" class="btn-ghost btn-xs" onclick={() => (selected = new Set())}>Clear</button>
+    {#if selected.size > 0}
+      <div
+        data-testid="bulk-bar"
+        class="sticky top-0 z-10 flex items-center gap-2 bg-accent-soft border border-accent rounded px-3 py-2 mb-2 text-sm"
+      >
+        <span class="font-medium text-accent">{selected.size} selected</span>
+        <div class="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            disabled={busy}
+            onclick={() => bulkSetEnabled(true)}>Enable</button
+          >
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            disabled={busy}
+            onclick={() => bulkSetEnabled(false)}>Disable</button
+          >
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            disabled={busy || selectedUpdatable.length === 0}
+            title={selectedUpdatable.length === 0
+              ? 'Run "Check for updates" first; only mods with a pending update can be updated'
+              : ''}
+            onclick={bulkUpdate}>Update</button
+          >
+          <button
+            type="button"
+            class="btn-ghost-danger btn-xs"
+            disabled={busy}
+            onclick={requestBulkUninstall}>Uninstall</button
+          >
+          <button type="button" class="btn-ghost btn-xs" onclick={() => (selected = new Set())}
+            >Clear</button
+          >
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
     <div class="border border-border-subtle rounded overflow-hidden">
       {#each filtered as row (row.installed.sha1)}
         {#if row.summary}
-          {@const rowKey = modKey(row.installed.source, row.installed.project_id, row.installed.sha1)}
+          {@const rowKey = modKey(
+            row.installed.source,
+            row.installed.project_id,
+            row.installed.sha1,
+          )}
           {@const root = rootBySha.get(row.installed.sha1)}
           {@const counts = depCounts(root)}
           {@const reqBy = requiredBy.get(row.installed.project_id ?? '') ?? []}
@@ -757,54 +830,80 @@
             onmouseleave={() => (hoveredKey = null)}
             role="group"
           >
-          <ModCard
-            layout="list"
-            summary={row.summary}
-            installed={row.installed}
-            onInstall={() => {}}
-            onOpenDetail={() => (drawerRow = row)}
-            onToggle={() => toggle(row.installed)}
-            onUninstall={() => uninstall(row.installed)}
-            updateState={updateChecks.get(row.installed.sha1)?.state ?? null}
-            onUpdate={() => updateOne(row.installed)}
-            {checking}
-            packChip={packSummary && packSummary.mod_shas.includes(row.installed.sha1)
-              ? packSummary.project_name
-              : null}
-            selectable={true}
-            selected={selected.has(row.installed.sha1)}
-            onSelectChange={(c) => toggleSelect(row.installed.sha1, c)}
-          />
-          <div class="flex items-center gap-2 px-3 pb-1 text-xs">
-            {#if graphLoading && !root}
-              <span class="text-placeholder">resolving…</span>
-            {:else}
-              {#if counts.total > 0}
-                <button type="button" class="px-2 py-0.5 rounded bg-accent-soft text-accent" onclick={() => toggleExpand(row.installed.sha1)}>
-                  {expanded.has(row.installed.sha1) ? '▾' : '▸'} {counts.total} dep{counts.total === 1 ? '' : 's'}{counts.missing > 0 ? ` · ${counts.missing} missing` : ''}
-                </button>
-              {/if}
-              {#if reqBy.length > 0}
-                <button type="button" class="px-2 py-0.5 rounded bg-subtle text-secondary" onclick={() => toggleExpand(row.installed.sha1)}>required by {reqBy.length}</button>
-              {/if}
-            {/if}
-          </div>
-          {#if expanded.has(row.installed.sha1) && root}
-            <div class="px-4 pb-3 bg-subtle/40">
-              {#if root.required.length > 0}
-                <div class="text-[10px] uppercase tracking-wide text-muted mt-1">Requires</div>
-                <DepTree nodes={root.required} {hoveredKey} onHover={(k) => (hoveredKey = k)} onInstall={installDepNode} onAdd={installDepNode} />
-              {/if}
-              {#if root.optional.length > 0}
-                <div class="text-[10px] uppercase tracking-wide text-muted mt-2">Recommended · optional</div>
-                <DepTree nodes={root.optional} {hoveredKey} onHover={(k) => (hoveredKey = k)} onInstall={installDepNode} onAdd={installDepNode} />
-              {/if}
-              {#if reqBy.length > 0}
-                <div class="text-[10px] uppercase tracking-wide text-muted mt-2">Required by</div>
-                <div class="text-xs text-secondary">{reqBy.join(', ')}</div>
+            <ModCard
+              layout="list"
+              summary={row.summary}
+              installed={row.installed}
+              onInstall={() => {}}
+              onOpenDetail={() => (drawerRow = row)}
+              onToggle={() => toggle(row.installed)}
+              onUninstall={() => uninstall(row.installed)}
+              updateState={updateChecks.get(row.installed.sha1)?.state ?? null}
+              onUpdate={() => updateOne(row.installed)}
+              {checking}
+              packChip={packSummary && packSummary.mod_shas.includes(row.installed.sha1)
+                ? packSummary.project_name
+                : null}
+              selectable={true}
+              selected={selected.has(row.installed.sha1)}
+              onSelectChange={(c) => toggleSelect(row.installed.sha1, c)}
+            />
+            <div class="flex items-center gap-2 px-3 pb-1 text-xs">
+              {#if graphLoading && !root}
+                <span class="text-placeholder">resolving…</span>
+              {:else}
+                {#if counts.total > 0}
+                  <button
+                    type="button"
+                    class="px-2 py-0.5 rounded bg-accent-soft text-accent"
+                    onclick={() => toggleExpand(row.installed.sha1)}
+                  >
+                    {expanded.has(row.installed.sha1) ? '▾' : '▸'}
+                    {counts.total} dep{counts.total === 1 ? '' : 's'}{counts.missing > 0
+                      ? ` · ${counts.missing} missing`
+                      : ''}
+                  </button>
+                {/if}
+                {#if reqBy.length > 0}
+                  <button
+                    type="button"
+                    class="px-2 py-0.5 rounded bg-subtle text-secondary"
+                    onclick={() => toggleExpand(row.installed.sha1)}
+                    >required by {reqBy.length}</button
+                  >
+                {/if}
               {/if}
             </div>
-          {/if}
+            {#if expanded.has(row.installed.sha1) && root}
+              <div class="px-4 pb-3 bg-subtle/40">
+                {#if root.required.length > 0}
+                  <div class="text-[10px] uppercase tracking-wide text-muted mt-1">Requires</div>
+                  <DepTree
+                    nodes={root.required}
+                    {hoveredKey}
+                    onHover={(k) => (hoveredKey = k)}
+                    onInstall={installDepNode}
+                    onAdd={installDepNode}
+                  />
+                {/if}
+                {#if root.optional.length > 0}
+                  <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
+                    Recommended · optional
+                  </div>
+                  <DepTree
+                    nodes={root.optional}
+                    {hoveredKey}
+                    onHover={(k) => (hoveredKey = k)}
+                    onInstall={installDepNode}
+                    onAdd={installDepNode}
+                  />
+                {/if}
+                {#if reqBy.length > 0}
+                  <div class="text-[10px] uppercase tracking-wide text-muted mt-2">Required by</div>
+                  <div class="text-xs text-secondary">{reqBy.join(', ')}</div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {:else}
           <!-- No platform metadata. Either a hand-dropped "manual mod"
@@ -821,20 +920,49 @@
             onmouseleave={() => (hoveredKey = null)}
             role="group"
           >
-            <input type="checkbox" class="flex-shrink-0" checked={selected.has(row.installed.sha1)} aria-label={`Select mod ${row.installed.filename}`} onchange={(e) => toggleSelect(row.installed.sha1, (e.currentTarget as HTMLInputElement).checked)} />
-            <div class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0" aria-hidden="true">◆</div>
+            <input
+              type="checkbox"
+              class="flex-shrink-0"
+              checked={selected.has(row.installed.sha1)}
+              aria-label={`Select mod ${row.installed.filename}`}
+              onchange={(e) =>
+                toggleSelect(row.installed.sha1, (e.currentTarget as HTMLInputElement).checked)}
+            />
+            <div
+              class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0"
+              aria-hidden="true"
+            >
+              ◆
+            </div>
             <div class="flex-1 min-w-0">
               <div class="font-medium text-primary truncate">{row.installed.filename}</div>
               <div class="text-xs text-muted truncate">
-                {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled ? 'Enabled' : 'Disabled'}
+                {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled
+                  ? 'Enabled'
+                  : 'Disabled'}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
               {#if fromPack && packSummary}
-                <span class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent" title="From modpack: {packSummary.project_name}">📦 {packSummary.project_name}</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
+                  title="From modpack: {packSummary.project_name}"
+                  >📦 {packSummary.project_name}</span
+                >
               {/if}
-              <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={() => toggle(row.installed)}>{row.installed.enabled ? 'Disable' : 'Enable'}</button>
-              <button type="button" class="btn-ghost-danger btn-xs" disabled={busy} onclick={() => uninstall(row.installed)}>Uninstall</button>
+              <button
+                type="button"
+                class="btn-secondary btn-xs"
+                disabled={busy}
+                onclick={() => toggle(row.installed)}
+                >{row.installed.enabled ? 'Disable' : 'Enable'}</button
+              >
+              <button
+                type="button"
+                class="btn-ghost-danger btn-xs"
+                disabled={busy}
+                onclick={() => uninstall(row.installed)}>Uninstall</button
+              >
             </div>
           </div>
         {/if}
