@@ -69,7 +69,7 @@
   //   1 (primary) + required + each checked optional (the optional itself
   //   + its requires), deduped by source:project_id so a shared sub-dep
   //   that appears in multiple optionals (or in required) is counted once.
-  const total = $derived((): number => {
+  const total = $derived.by((): number => {
     const seen = new Set<string>();
     // The primary is always 1; we don't track it in the set because it
     // won't appear in the dep lists.
@@ -198,7 +198,7 @@
     <div class="flex justify-end gap-2 mt-4">
       <button type="button" class="btn-secondary btn-sm" onclick={onCancel}> Cancel </button>
       <button type="button" class="btn-primary btn-sm" onclick={confirm}>
-        Install ({total()} mod{total() === 1 ? '' : 's'})
+        Install ({total} mod{total === 1 ? '' : 's'})
       </button>
     </div>
   </div>

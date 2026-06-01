@@ -729,7 +729,13 @@ use crate::mods::deps::{FetchedDeps, ProjectKey, ResolvedNode};
 /// ModBrowseView.svelte). A dep whose project slug is one of these is a
 /// loader — managed at the instance level, never installed as a mod jar.
 const LOADER_SLUGS: &[&str] = &[
-    "neoforge", "forge", "fabric", "fabric-loader", "quilt", "quilt-loader", "minecraft",
+    "neoforge",
+    "forge",
+    "fabric",
+    "fabric-loader",
+    "quilt",
+    "quilt-loader",
+    "minecraft",
 ];
 
 /// Is `version`'s project a loader? Looks up the project slug, memoized in
@@ -770,12 +776,18 @@ async fn fetch_one_level(
     let mut required = Vec::new();
     for r in rd.required {
         let is_loader = is_loader_project(platform, loader_cache, &r.version).await;
-        required.push(ResolvedNode { version: r.version, is_loader });
+        required.push(ResolvedNode {
+            version: r.version,
+            is_loader,
+        });
     }
     let mut optional = Vec::new();
     for o in rd.optional {
         let is_loader = is_loader_project(platform, loader_cache, &o.version).await;
-        optional.push(ResolvedNode { version: o.version, is_loader });
+        optional.push(ResolvedNode {
+            version: o.version,
+            is_loader,
+        });
     }
     Ok(FetchedDeps {
         required,
@@ -928,8 +940,8 @@ pub async fn mods_install_with_deps(
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
 ) -> crate::error::Result<crate::mods::platform::InstallSummary> {
-    use std::sync::Arc;
     use crate::mods::deps::{resolve_closure, ProjectKey};
+    use std::sync::Arc;
 
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
@@ -940,25 +952,25 @@ pub async fn mods_install_with_deps(
     let primary_v = find_version(&mut platform_box, &primary, &mc_version, loader).await?;
 
     // Build the set of already-installed mods so resolve_closure can prune them.
-    let installed: std::collections::HashSet<ProjectKey> =
-        crate::mods::installed::list(&inst_root)
-            .await?
-            .into_iter()
-            .filter_map(|m| match (m.source, m.project_id) {
-                (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
-                (Some(ModSource::Curseforge), Some(pid)) => {
-                    pid.parse().ok().map(ProjectKey::Curseforge)
-                }
-                _ => None,
-            })
-            .collect();
+    let installed: std::collections::HashSet<ProjectKey> = crate::mods::installed::list(&inst_root)
+        .await?
+        .into_iter()
+        .filter_map(|m| match (m.source, m.project_id) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
 
     // Shared Arc platform + loader-slug cache for the make_fetch factory.
     let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
         platform_for(primary.source).into();
-    let loader_cache = Arc::new(tokio::sync::Mutex::new(
-        std::collections::HashMap::<ProjectKey, bool>::new(),
-    ));
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        ProjectKey,
+        bool,
+    >::new()));
 
     // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
     let make_fetch = || {
@@ -1014,6 +1026,7 @@ pub async fn mods_install_with_deps(
     // transitive sub-closure (excluding installed + already-collected deps).
     let mut dep_versions: Vec<ModVersion> = primary_required;
     let mut chosen_optionals: Vec<ModVersion> = Vec::new();
+    // Assumption: chosen optionals share the primary's platform (the dialog only offers same-source optionals). A cross-source optional would resolve against the wrong platform.
     for opt in &optional_deps {
         let ov = find_version(&mut platform_box, opt, &mc_version, loader).await?;
         let mut excl = installed.clone();
@@ -1089,29 +1102,28 @@ pub async fn mods_resolve_install_plan(
     mc_version: String,
     loader: LoaderKind,
 ) -> crate::error::Result<InstallPlan> {
-    use std::sync::Arc;
     use crate::mods::deps::{resolve_closure, ProjectKey};
+    use std::sync::Arc;
 
     let root = instance_root(&app, &instance_id)?;
-    let installed: std::collections::HashSet<ProjectKey> =
-        crate::mods::installed::list(&root)
-            .await?
-            .into_iter()
-            .filter_map(|m| match (m.source, m.project_id) {
-                (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
-                (Some(ModSource::Curseforge), Some(pid)) => {
-                    pid.parse().ok().map(ProjectKey::Curseforge)
-                }
-                _ => None,
-            })
-            .collect();
+    let installed: std::collections::HashSet<ProjectKey> = crate::mods::installed::list(&root)
+        .await?
+        .into_iter()
+        .filter_map(|m| match (m.source, m.project_id) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
 
     // Shared platform + loader-slug cache, cloned into each closure via Arc.
-    let platform: Arc<dyn crate::mods::platform::ModPlatform> =
-        platform_for(primary.source).into();
-    let loader_cache = Arc::new(tokio::sync::Mutex::new(
-        std::collections::HashMap::<ProjectKey, bool>::new(),
-    ));
+    let platform: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(primary.source).into();
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        ProjectKey,
+        bool,
+    >::new()));
 
     // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
     let make_fetch = || {
@@ -1196,10 +1208,12 @@ fn dedup_versions(
 
 fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platform::DepProjectRef {
     match v.source {
-        crate::mods::platform::ModSource::Modrinth => crate::mods::platform::DepProjectRef::Modrinth {
-            project_id: v.project_id.clone(),
-            version_id: Some(v.version_id.clone()),
-        },
+        crate::mods::platform::ModSource::Modrinth => {
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: v.project_id.clone(),
+                version_id: Some(v.version_id.clone()),
+            }
+        }
         crate::mods::platform::ModSource::Curseforge => {
             crate::mods::platform::DepProjectRef::Curseforge {
                 mod_id: v.project_id.parse().unwrap_or(0),

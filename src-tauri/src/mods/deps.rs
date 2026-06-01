@@ -22,6 +22,7 @@ impl ProjectKey {
     pub fn of_version(v: &ModVersion) -> ProjectKey {
         match v.source {
             ModSource::Modrinth => ProjectKey::Modrinth(v.project_id.clone()),
+            // CF project_id is always a numeric mod id; unwrap_or(0) is a defensive fallback (never expected in practice).
             ModSource::Curseforge => ProjectKey::Curseforge(v.project_id.parse().unwrap_or(0)),
         }
     }
@@ -73,7 +74,6 @@ where
 {
     let mut closure = Closure::default();
     let mut visited: HashSet<ProjectKey> = HashSet::new();
-    let mut required_keys: HashSet<ProjectKey> = HashSet::new();
     let mut loader_seen: HashSet<ProjectKey> = HashSet::new();
     let mut cache: HashMap<ProjectKey, FetchedDeps> = HashMap::new();
 
@@ -96,11 +96,10 @@ where
 
     while let Some(v) = frontier.pop() {
         let key = ProjectKey::of_version(&v);
-        if visited.contains(&key) || installed.contains(&key) || required_keys.contains(&key) {
+        if visited.contains(&key) || installed.contains(&key) {
             continue;
         }
         visited.insert(key.clone());
-        required_keys.insert(key.clone());
         closure.required.push(v.clone());
         let deps = fetch_memo(&mut cache, &mut fetch, v).await?;
         for n in deps.required.iter().chain(deps.optional.iter()) {
