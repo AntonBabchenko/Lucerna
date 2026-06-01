@@ -69,7 +69,6 @@ pub struct ExportPreview {
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum ModpackExportProgress {
     Resolving { current: u32, total: u32 },
-    Hashing { current: u32, total: u32 },
     Bundling { current: u32, total: u32 },
     Writing,
     Done { path: String },
