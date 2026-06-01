@@ -25,6 +25,15 @@ pub enum Error {
     #[error("Refused a request to a host that is not on the allowlist: {url}")]
     HostNotAllowed { url: String },
 
+    #[error("Update check failed: {details}")]
+    UpdateCheckFailed { details: String },
+
+    #[error("Update verification failed: {details}")]
+    UpdateVerificationFailed { details: String },
+
+    #[error("Update install failed: {details}")]
+    UpdateInstallFailed { details: String },
+
     #[error("Hash mismatch for {path}: expected {expected}, got {got}")]
     HashMismatch {
         path: String,
