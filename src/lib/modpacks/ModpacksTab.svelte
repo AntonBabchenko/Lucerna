@@ -1,21 +1,13 @@
 <script lang="ts">
-  import { Channel } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
-  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import type {
-    InstanceWithStatus,
-    ModpackHit,
-    ModpackProgress,
-    ModpackSummary,
-    ProgressTick,
-  } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, ModpackHit, ModpackSummary } from '$lib/ipc/bindings';
+  import type { ModpackImportRequest } from './import-request';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { droppedModpack, modpacksNav, dragActive } from '$lib/settings/state.svelte';
   import ImportPickerDialog from './ImportPickerDialog.svelte';
-  import ImportProgressView from './ImportProgressView.svelte';
   import ImportedView from './ImportedView.svelte';
   import ModpackBrowseView from './ModpackBrowseView.svelte';
   import ModpackDetailModal from './ModpackDetailModal.svelte';
@@ -23,30 +15,27 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
 
-  // Top-level pane wired into MainTabs. Owns:
-  //   • The Browse | Imported sub-tab shell (same lazy-mount + CSS-hide
-  //     pattern as the sub-3 mod browser, so search query / pagination
-  //     state survives switching tabs and back).
-  //   • The state machine: summary | importing | drawerHit | error.
-  //   • The two `Channel<T>` instances threaded into `modpackImport`.
-  //     `ImportProgressView` is render-only (Task 10's deferred decision);
-  //     this component holds the latest phase + per-mod tick in `$state`
-  //     and feeds them down as props.
+  // Top-level pane rendered inside the Modpacks modal. Owns the Browse |
+  // Imported sub-tab shell (lazy-mount + CSS-hide so search / pagination /
+  // filter state survive switching tabs), the pack-detail drawer, and the
+  // inspect → picker step of an import. Once the user confirms the picker, the
+  // actual import is handed up to the page via `onImport` — the PAGE owns the
+  // progress channels + ImportProgressView, so the modal can be closed
+  // mid-import without losing progress or the new-instance handoff.
   //
-  // The picker dialog stashes the file path on the `ModpackSummary`
-  // (`._path`) so the confirm step can re-pass it to `modpackImport`
-  // without re-inspecting.
+  // The picker dialog stashes the file path on the `ModpackSummary` (`._path`)
+  // so the confirm step can forward it without re-inspecting.
 
   let {
     instances,
     onInstanceCreated,
     onListChanged,
-    importing = $bindable(false),
+    onImport,
   }: {
     instances: InstanceWithStatus[];
     onInstanceCreated: (id: string) => void;
     onListChanged?: () => void;
-    importing?: boolean;
+    onImport?: (req: ModpackImportRequest) => void;
   } = $props();
 
   type SubTab = 'browse' | 'imported';
@@ -128,12 +117,6 @@
   // list reflects the filtered grid the user came from.
   let drawerMcFilter = $state<string | null>(null);
 
-  // Latest values pushed over the two channels during an active import.
-  // Reset on each new import so a previous run's progress can't bleed
-  // into the next.
-  let phase = $state<ModpackProgress | null>(null);
-  let modBytes = $state<ProgressTick | null>(null);
-
   // Hint params for `modpack_import`. Set when the user lands here from
   // the Modrinth Browse flow (so the new instance gets `mrpack_project_id`
   // + `mrpack_source = 'modrinth'` stamped onto it without a second API
@@ -164,64 +147,21 @@
     hintVersionId = null;
   }
 
-  async function confirmImport(selectedShas: string[]) {
+  // The user confirmed the picker. Hand the import request up to the page
+  // (which owns the progress channels + ImportProgressView) and clear the
+  // local picker state. Synchronous — ModpacksTab no longer awaits the import,
+  // so closing the modal here is harmless.
+  function confirmImport(selectedShas: string[]) {
     if (!summary) return;
     const path = (summary as ModpackSummary & { _path: string })._path;
     summary = null;
-    importing = true;
-    phase = null;
-    modBytes = null;
-
-    // Snapshot the hints before the await chain so they survive a
-    // user-driven reset (e.g. closing the drawer mid-import) and so
-    // the resetHints() in the finally branches don't race with the
-    // command call.
-    const pid = hintProjectId;
-    const src = hintSource;
-    const vid = hintVersionId;
-
-    const phaseChannel = new Channel<ModpackProgress>();
-    phaseChannel.onmessage = (m) => {
-      phase = m;
-      if (m.phase === 'done') {
-        importing = false;
-        onInstanceCreated(m.instance_id);
-      }
-    };
-
-    const tickChannel = new Channel<ProgressTick>();
-    tickChannel.onmessage = (t) => {
-      modBytes = t;
-    };
-
-    const r = await commands.modpackImport(
+    onImport?.({
       path,
       selectedShas,
-      true,
-      pid,
-      src,
-      vid,
-      phaseChannel,
-      tickChannel,
-    );
-    // Happy-path: the phase channel surfaces `{ phase: 'done', instance_id }`
-    // and fires `onInstanceCreated` from inside `phaseChannel.onmessage`
-    // above. The command return value is only consulted for the error
-    // branch — the Rust side guarantees the `done` phase is emitted
-    // before the command returns Ok.
-    if (r.status === 'ok') {
-      pushSuccess(`Imported ${r.data.name}`);
-    } else {
-      importing = false;
-      if (r.error.kind === 'modpack_partial_failure') {
-        pushWarning(
-          `Modpack imported — ${r.error.failed.length} mod(s) failed`,
-          r.error.failed.map(([p]) => p.split('/').pop() ?? p),
-        );
-      } else {
-        pushWarning('Modpack import failed', [formatError(r.error)]);
-      }
-    }
+      projectId: hintProjectId,
+      source: hintSource,
+      versionId: hintVersionId,
+    });
     resetHints();
   }
 </script>
@@ -299,10 +239,6 @@
 
 {#if summary}
   <ImportPickerDialog {summary} onCancel={() => (summary = null)} onConfirm={confirmImport} />
-{/if}
-
-{#if importing}
-  <ImportProgressView {phase} {modBytes} />
 {/if}
 
 {#if drawerHit}

@@ -7,9 +7,12 @@
     type Error as IpcError,
     type InstanceWithStatus,
     type MissingModStatus,
+    type ModpackProgress,
     type PlaytimeStats,
+    type ProgressTick,
     type VersionEntry,
   } from '$lib/ipc/bindings';
+  import { Channel } from '@tauri-apps/api/core';
   import { relativeTime } from '$lib/format/relative-time';
   import { formatDuration } from '$lib/format/duration';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
@@ -21,6 +24,8 @@
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
+  import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
+  import type { ModpackImportRequest } from '$lib/modpacks/import-request';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
@@ -142,10 +147,75 @@
   // The modpacks browser floats above the always-present instance view as a
   // full-screen modal (ModpacksModal). It is not instance-scoped — installing a
   // pack creates a new instance — so a scrim-backed modal signals "separate
-  // context, not the current instance". `modpackImporting` mirrors ModpacksTab's
-  // in-flight import so the modal can refuse to close mid-import.
+  // context, not the current instance".
   let modpacksModalOpen = $state(false);
+
+  // Modpack import runs at the PAGE level (not inside ModpacksTab) so the modal
+  // can be closed mid-import: the progress toast (ImportProgressView) lives here
+  // and survives the modal unmounting. `modpackImporting` guards against a
+  // second concurrent import; `importPhase` / `importBytes` drive the toast.
   let modpackImporting = $state(false);
+  let importPhase = $state<ModpackProgress | null>(null);
+  let importBytes = $state<ProgressTick | null>(null);
+
+  // Run a modpack import handed up from ModpacksTab's picker. Owns the two
+  // progress channels; on `done` it closes the modal (if still open) and lands
+  // the user on the freshly created instance.
+  async function runModpackImport(req: ModpackImportRequest) {
+    if (modpackImporting) {
+      pushWarning('A modpack import is already in progress', [
+        'Wait for it to finish before starting another.',
+      ]);
+      return;
+    }
+    modpackImporting = true;
+    importPhase = null;
+    importBytes = null;
+
+    const phaseChannel = new Channel<ModpackProgress>();
+    phaseChannel.onmessage = (m) => {
+      importPhase = m;
+      if (m.phase === 'done') {
+        modpackImporting = false;
+        modpacksModalOpen = false;
+        void onSelectInstance(m.instance_id);
+      }
+    };
+    const tickChannel = new Channel<ProgressTick>();
+    tickChannel.onmessage = (t) => {
+      importBytes = t;
+    };
+
+    const r = await commands.modpackImport(
+      req.path,
+      req.selectedShas,
+      true,
+      req.projectId,
+      req.source,
+      req.versionId,
+      phaseChannel,
+      tickChannel,
+    );
+    // The phase channel emits `{ phase: 'done', instance_id }` and fires the
+    // close + select above; the return value is only read for the error branch
+    // (Rust guarantees `done` is emitted before Ok returns).
+    if (r.status === 'ok') {
+      pushSuccess(`Imported ${r.data.name}`);
+    } else {
+      modpackImporting = false;
+      if (r.error.kind === 'modpack_partial_failure') {
+        pushWarning(
+          `Modpack imported — ${r.error.failed.length} mod(s) failed`,
+          r.error.failed.map(([p]) => p.split('/').pop() ?? p),
+        );
+      } else {
+        pushWarning('Modpack import failed', [formatError(r.error)]);
+      }
+    }
+    // Clear the toast once the run settles (done or error).
+    importPhase = null;
+    importBytes = null;
+  }
 
   // The Overview missing-mods indicator and any other deep-link that
   // sets modpacksNav expects the Modpacks view to come up. ModpacksTab
@@ -681,16 +751,13 @@
   />
 
   <SettingsModal />
-  <ModpacksModal
-    open={modpacksModalOpen}
-    importing={modpackImporting}
-    onClose={() => (modpacksModalOpen = false)}
-  >
+  <ModpacksModal open={modpacksModalOpen} onClose={() => (modpacksModalOpen = false)}>
     <ModpacksTab
       {instances}
-      bind:importing={modpackImporting}
+      onImport={runModpackImport}
       onInstanceCreated={(id) => {
-        // Post-import: close the modal and land on the new instance.
+        // Opening an imported pack's instance from the Imported tab: close the
+        // modal and land on it.
         modpacksModalOpen = false;
         void onSelectInstance(id);
       }}
@@ -699,6 +766,9 @@
       }}
     />
   </ModpacksModal>
+  <!-- Page-level import progress toast — lives outside the modal so it survives
+       the modal being closed mid-import. Renders nothing when no import runs. -->
+  <ImportProgressView phase={importPhase} modBytes={importBytes} />
   <TourOverlay />
   {#if exportDialogOpen && activeInstance}
     <ExportPackDialog

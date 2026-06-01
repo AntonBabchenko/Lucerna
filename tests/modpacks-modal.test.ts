@@ -5,46 +5,27 @@ import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
 describe('ModpacksModal', () => {
   it('renders nothing when open=false', () => {
     const { container } = render(ModpacksModal, {
-      props: { open: false, importing: false, onClose: () => {} },
+      props: { open: false, onClose: () => {} },
     });
     expect(container.querySelector('[data-testid="modpacks-modal"]')).toBeNull();
   });
 
-  it('renders a dialog titled "Modpacks" with Back and Close when open', () => {
-    render(ModpacksModal, { props: { open: true, importing: false, onClose: () => {} } });
+  it('renders a dialog titled "Modpacks" with a single Close control when open', () => {
+    render(ModpacksModal, { props: { open: true, onClose: () => {} } });
     const dialog = screen.getByRole('dialog', { name: /modpacks/i });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    const back = screen.getByTestId('modpacks-modal-back');
-    expect(back).toHaveBtnVariant('secondary');
-    expect(back).toHaveBtnSize('sm');
-    expect(back.textContent).toContain('Back');
+    // Only the × remains; the redundant "← Back" control was removed.
     expect(screen.getByLabelText('Close modpacks')).toHaveBtnVariant('icon');
+    expect(screen.queryByTestId('modpacks-modal-back')).toBeNull();
   });
 
-  it('Back, ×, and scrim each call onClose when not importing', async () => {
+  it('×, scrim, and Escape each call onClose', async () => {
     const onClose = vi.fn();
-    render(ModpacksModal, { props: { open: true, importing: false, onClose } });
-    await fireEvent.click(screen.getByTestId('modpacks-modal-back'));
+    render(ModpacksModal, { props: { open: true, onClose } });
     await fireEvent.click(screen.getByLabelText('Close modpacks'));
     // The scrim is the full-bleed backdrop button, labelled simply "Close".
     await fireEvent.click(screen.getByLabelText('Close'));
+    await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(3);
-  });
-
-  it('Escape calls onClose when open and not importing', async () => {
-    const onClose = vi.fn();
-    render(ModpacksModal, { props: { open: true, importing: false, onClose } });
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('suppresses all close paths while importing', async () => {
-    const onClose = vi.fn();
-    render(ModpacksModal, { props: { open: true, importing: true, onClose } });
-    await fireEvent.click(screen.getByTestId('modpacks-modal-back'));
-    await fireEvent.click(screen.getByLabelText('Close modpacks'));
-    await fireEvent.click(screen.getByLabelText('Close'));
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).not.toHaveBeenCalled();
   });
 });
