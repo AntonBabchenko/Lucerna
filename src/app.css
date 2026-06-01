@@ -388,3 +388,10 @@ body[data-tour-active] .tour-overlay {
 .filter-control-narrow {
   @apply w-28;
 }
+
+/* Amber wash used by DepTree hover highlight and Task 11 cross-highlight.
+   --warning-text is an RGB triple (no rgb() wrapper), so we construct the
+   color inline. color-mix blends 18% amber into transparent for a subtle glow. */
+.bg-highlight {
+  background-color: color-mix(in oklab, rgb(var(--warning-text)) 18%, transparent);
+}

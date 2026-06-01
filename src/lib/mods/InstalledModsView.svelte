@@ -2,6 +2,9 @@
   import {
     commands,
     events,
+    type DepRoot,
+    type DepTreeNode,
+    type DependencyGraph,
     type InstalledMod,
     type LoaderKind,
     type ModSource,
@@ -15,9 +18,11 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { onDestroy, onMount } from 'svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
+  import DepTree from './DepTree.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import OrphanUninstallDialog from './OrphanUninstallDialog.svelte';
+  import { depGraphCache } from './dep-graph-cache';
   import { updateCheckCache } from './update-check-cache';
   import type { OrphanRef } from '$lib/ipc/bindings';
 
@@ -103,6 +108,118 @@
   let checking = $state(false);
   let packSummary = $state<PackOriginSummary | null>(null);
   let showCfBanner = $state(false);
+
+  // Dependency graph — loaded in the background, never blocks the mod list.
+  let graph = $state<DependencyGraph | null>(null);
+  let graphLoading = $state(false);
+  // Set of installed-mod sha1s whose dep subtree is currently expanded.
+  // Reassign the whole Set (never mutate in place) to trigger reactivity.
+  let expanded = $state<Set<string>>(new Set());
+  // Hovered dep-key (`source:project_id`) for cross-highlight. Task 11
+  // adds the full wiring; declared here so DepTree's onHover prop compiles.
+  let hoveredKey = $state<string | null>(null);
+
+  // Strategy C: render the mod list immediately; resolve the graph in the
+  // background. Seed from the session cache on instance change so switching
+  // back to an already-visited instance is instant.
+  $effect(() => {
+    const id = instanceId;
+    graph = id ? (depGraphCache.get(id) ?? null) : null;
+    if (id) void loadGraph(id);
+  });
+
+  async function loadGraph(id: string) {
+    graphLoading = true;
+    const r = await commands.modsDependencyGraph(id);
+    graphLoading = false;
+    if (r.status === 'ok') {
+      graph = r.data;
+      depGraphCache.set(id, r.data);
+    }
+  }
+
+  function recheckDeps() {
+    if (instanceId) {
+      depGraphCache.delete(instanceId);
+      void loadGraph(instanceId);
+    }
+  }
+
+  const rootBySha = $derived(new Map((graph?.roots ?? []).map((r) => [r.sha1, r])));
+
+  // Build a reverse map: for each installed mod's project_id, list the
+  // display names of roots that depend on it (via required subtree).
+  const requiredBy = $derived.by(() => {
+    const map = new Map<string, string[]>();
+    for (const r of graph?.roots ?? []) {
+      const seen = new Set<string>();
+      const walk = (ns: DepTreeNode[]) => {
+        for (const n of ns) {
+          if (n.status === 'satisfied' && !seen.has(n.project_id)) {
+            seen.add(n.project_id);
+            map.set(n.project_id, [...(map.get(n.project_id) ?? []), r.name]);
+          }
+          if (!n.cycle) walk(n.children);
+        }
+      };
+      walk(r.required);
+    }
+    return map;
+  });
+
+  function depCounts(root: DepRoot | undefined) {
+    if (!root) return { total: 0, missing: 0 };
+    let total = 0;
+    let missing = 0;
+    const walk = (ns: DepTreeNode[]) => {
+      for (const n of ns) {
+        total++;
+        if (n.status === 'missing_required') missing++;
+        if (!n.cycle) walk(n.children);
+      }
+    };
+    walk(root.required);
+    return { total, missing };
+  }
+
+  function toggleExpand(sha1: string) {
+    const next = new Set(expanded);
+    if (next.has(sha1)) next.delete(sha1);
+    else next.add(sha1);
+    expanded = next;
+  }
+
+  async function installDepNode(node: DepTreeNode) {
+    if (!instanceId || !mcVersion || !loader) return;
+    busy = true;
+    error = null;
+    const vr = await commands.modsVersions(node.source, node.project_id, mcVersion, loader);
+    if (vr.status === 'error' || vr.data.length === 0) {
+      error =
+        vr.status === 'error'
+          ? formatError(vr.error)
+          : `No compatible version of ${node.name}`;
+      busy = false;
+      return;
+    }
+    const primary = vr.data[0];
+    const res = await commands.modsInstallWithDeps(
+      instanceId,
+      { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
+      [],
+    );
+    if (res.status === 'error') {
+      pushWarning('Install failed', [formatError(res.error)]);
+    } else {
+      pushSuccess(`Installed ${node.name}`);
+    }
+    busy = false;
+    if (instanceId) {
+      depGraphCache.delete(instanceId);
+      await loadGraph(instanceId);
+    }
+    await refresh();
+  }
 
   const updateCount = $derived(
     [...updateChecks.values()].filter((c) => c.state.kind === 'update_available').length,
@@ -524,6 +641,9 @@
       >
         {checking ? 'Checking…' : 'Check for updates'}
       </button>
+      <button type="button" class="btn-secondary btn-xs" disabled={graphLoading} onclick={recheckDeps}>
+        {graphLoading ? 'Resolving…' : '↻ Re-check deps'}
+      </button>
       {#if updateCount > 0}
         <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={updateAll}>
           Update all ({updateCount})
@@ -637,6 +757,39 @@
             selected={selected.has(row.installed.sha1)}
             onSelectChange={(c) => toggleSelect(row.installed.sha1, c)}
           />
+          {@const root = rootBySha.get(row.installed.sha1)}
+          {@const counts = depCounts(root)}
+          {@const reqBy = requiredBy.get(row.installed.project_id ?? '') ?? []}
+          <div class="flex items-center gap-2 px-3 pb-1 text-xs">
+            {#if graphLoading && !root}
+              <span class="text-placeholder">resolving…</span>
+            {:else}
+              {#if counts.total > 0}
+                <button type="button" class="px-2 py-0.5 rounded bg-accent-soft text-accent" onclick={() => toggleExpand(row.installed.sha1)}>
+                  {expanded.has(row.installed.sha1) ? '▾' : '▸'} {counts.total} dep{counts.total === 1 ? '' : 's'}{counts.missing > 0 ? ` · ${counts.missing} missing` : ''}
+                </button>
+              {/if}
+              {#if reqBy.length > 0}
+                <button type="button" class="px-2 py-0.5 rounded bg-subtle text-secondary" onclick={() => toggleExpand(row.installed.sha1)}>required by {reqBy.length}</button>
+              {/if}
+            {/if}
+          </div>
+          {#if expanded.has(row.installed.sha1) && root}
+            <div class="px-4 pb-3 bg-subtle/40">
+              {#if root.required.length > 0}
+                <div class="text-[10px] uppercase tracking-wide text-muted mt-1">Requires</div>
+                <DepTree nodes={root.required} {hoveredKey} onHover={(k) => (hoveredKey = k)} onInstall={installDepNode} onAdd={installDepNode} />
+              {/if}
+              {#if root.optional.length > 0}
+                <div class="text-[10px] uppercase tracking-wide text-muted mt-2">Recommended · optional</div>
+                <DepTree nodes={root.optional} {hoveredKey} onHover={(k) => (hoveredKey = k)} onInstall={installDepNode} onAdd={installDepNode} />
+              {/if}
+              {#if reqBy.length > 0}
+                <div class="text-[10px] uppercase tracking-wide text-muted mt-2">Required by</div>
+                <div class="text-xs text-secondary">{reqBy.join(', ')}</div>
+              {/if}
+            </div>
+          {/if}
         {:else}
           <!-- No platform metadata. Either a hand-dropped "manual mod"
                or a modpack override-bundled jar that hash-enrichment
