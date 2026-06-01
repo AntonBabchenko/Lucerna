@@ -80,6 +80,29 @@ pub fn spawn_minecraft(
     })
 }
 
+/// Launch the downloaded NSIS installer and return immediately. The
+/// caller exits the app right after so the installer can replace the
+/// locked launcher binary. The wizard runs visibly (transparency; and
+/// SmartScreen warns on the unsigned binary regardless). Windows-only —
+/// the launcher targets Windows; other targets return a typed error so
+/// non-Windows builds still compile.
+#[cfg(target_os = "windows")]
+pub fn spawn_installer(installer: &Path) -> Result<()> {
+    std::process::Command::new(installer)
+        .spawn()
+        .map(|_child| ())
+        .map_err(|e| Error::UpdateInstallFailed {
+            details: format!("spawn installer {}: {e}", installer.display()),
+        })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn spawn_installer(installer: &Path) -> Result<()> {
+    Err(Error::UpdateInstallFailed {
+        details: format!("installer launch is Windows-only ({})", installer.display()),
+    })
+}
+
 /// Terminate `pid` and its child processes. Best-effort: if the kill
 /// command fails (e.g. the PID is already gone) the error is ignored —
 /// the launch exit-watcher fires `ProcessExited` regardless of cause.
@@ -137,6 +160,17 @@ mod tests {
             err,
         );
         assert!(matches!(r, Err(Error::JavaSpawn { .. })), "got: {r:?}");
+    }
+
+    #[test]
+    fn spawn_installer_missing_binary_errors() {
+        // On Windows the missing path fails to spawn; on non-Windows the
+        // function is a typed "Windows-only" error. Either way: Err.
+        let r = spawn_installer(Path::new("nonexistent-installer-xyz.exe"));
+        assert!(
+            matches!(r, Err(Error::UpdateInstallFailed { .. })),
+            "got {r:?}"
+        );
     }
 
     #[test]

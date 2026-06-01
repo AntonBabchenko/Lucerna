@@ -99,6 +99,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
             active_instance: Some(id),
             onboarding: OnboardingState::default(),
             general: GeneralSettings::default(),
+            update_dismissed_version: None,
         },
     )?;
     Ok(())

@@ -76,6 +76,11 @@ pub struct AppFile {
     pub onboarding: OnboardingState,
     #[serde(default)]
     pub general: GeneralSettings,
+    /// The latest version the user explicitly dismissed from the
+    /// update toast. Suppresses re-notifying for that same version; a
+    /// newer release clears the suppression naturally (version differs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_dismissed_version: Option<String>,
 }
 
 impl Default for AppFile {
@@ -85,6 +90,7 @@ impl Default for AppFile {
             active_instance: None,
             onboarding: OnboardingState::default(),
             general: GeneralSettings::default(),
+            update_dismissed_version: None,
         }
     }
 }
@@ -104,7 +110,11 @@ pub enum ThemePreference {
     Dark,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
     /// MC spawn and auto-restores on MC exit. Default false — opt-in
@@ -115,6 +125,22 @@ pub struct GeneralSettings {
     /// Default system — user can override via Settings → General.
     #[serde(default)]
     pub theme: ThemePreference,
+    /// When true (default), the launcher checks GitHub Releases on
+    /// startup and shows a sticky toast if a newer version exists. The
+    /// install is always an explicit click — this only gates the check
+    /// and the notification. Opt-out via Settings → General.
+    #[serde(default = "default_true")]
+    pub check_updates_on_startup: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            hide_to_tray_during_game: false,
+            theme: ThemePreference::default(),
+            check_updates_on_startup: true,
+        }
+    }
 }
 
 /// What the UI sees per row in the instance dropdown.
@@ -428,5 +454,33 @@ mod tests {
         let parsed: AppFile = serde_json::from_str(old_json).unwrap();
         assert!(parsed.general.hide_to_tray_during_game);
         assert_eq!(parsed.general.theme, ThemePreference::System);
+    }
+
+    #[test]
+    fn general_settings_defaults_check_updates_on() {
+        let g = GeneralSettings::default();
+        assert!(
+            g.check_updates_on_startup,
+            "updates check should default on (opt-out)"
+        );
+    }
+
+    #[test]
+    fn app_json_missing_update_field_defaults_check_on() {
+        // An app.json from before this field existed must deserialize with
+        // the check enabled (opt-out), not disabled.
+        let json = r#"{ "version": 1, "general": { "hide_to_tray_during_game": false } }"#;
+        let parsed: AppFile = serde_json::from_str(json).unwrap();
+        assert!(parsed.general.check_updates_on_startup);
+        assert_eq!(parsed.update_dismissed_version, None);
+    }
+
+    #[test]
+    fn app_json_roundtrips_dismissed_version() {
+        let mut f = AppFile::default();
+        f.update_dismissed_version = Some("0.9.1".into());
+        let s = serde_json::to_string(&f).unwrap();
+        let back: AppFile = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.update_dismissed_version, Some("0.9.1".into()));
     }
 }

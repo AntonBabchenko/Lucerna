@@ -67,6 +67,12 @@ urlencoding = "2.1"
 # externally-authored HTML reaching the webview. Both MIT-licensed.
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 ammonia = "4"
+# In-app cosign keyless verification of the self-update installer (see
+# update::verify). Modular sigstore-rs crate; embedded offline trust root,
+# no network. cargo-deny justification: ~37 transitive crates, all the
+# RustCrypto + sigstore-rs subtree (der/spki/x509-cert/p256/sha2/rustls-pki),
+# largely overlapping the existing reqwest-rustls tree; no new license class.
+sigstore-verify = "0.8.0"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process
 # has created its window (and so is visible on screen) before we hide

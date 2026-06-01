@@ -25,7 +25,13 @@
     >
       <div class="flex items-start gap-2">
         <span class="flex-1 font-medium">{t.title}</span>
-        <CloseButton onClick={() => dismiss(t.id)} ariaLabel="Dismiss notification" />
+        <CloseButton
+          onClick={() => {
+            t.onDismiss?.();
+            dismiss(t.id);
+          }}
+          ariaLabel="Dismiss notification"
+        />
       </div>
       {#if t.lines.length > 0}
         <ul class="mt-1 space-y-0.5 text-xs selectable">
@@ -33,6 +39,19 @@
             <li class="truncate">{line}</li>
           {/each}
         </ul>
+      {/if}
+      {#if t.action}
+        <button
+          type="button"
+          class="btn-primary btn-sm mt-2"
+          data-testid="toast-action"
+          onclick={() => {
+            t.action?.run();
+            dismiss(t.id);
+          }}
+        >
+          {t.action.label}
+        </button>
       {/if}
     </div>
   {/each}

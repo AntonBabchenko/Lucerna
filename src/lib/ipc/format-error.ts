@@ -152,6 +152,12 @@ export function formatError(e: IpcError): string {
       return `Couldn't read or write playtime stats: ${e.details}`;
     case 'tray_io':
       return `Couldn't show or hide the tray icon: ${e.details}`;
+    case 'update_check_failed':
+      return `Couldn't check for updates: ${e.details}`;
+    case 'update_verification_failed':
+      return `Update verification failed — the download may be corrupt or tampered with. ${e.details}`;
+    case 'update_install_failed':
+      return `Couldn't install the update: ${e.details}`;
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

@@ -62,6 +62,12 @@ pub fn account_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("account.json"))
 }
 
+/// Scratch directory for downloaded update installers + bundles.
+/// Lives under the app dir; cleared/overwritten per update attempt.
+pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("updates"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

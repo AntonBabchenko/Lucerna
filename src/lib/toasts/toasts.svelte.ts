@@ -9,12 +9,19 @@
 
 export type ToastKind = 'success' | 'warning' | 'info';
 
+export type ToastAction = { label: string; run: () => void };
+
 export type Toast = {
   id: number;
   kind: ToastKind;
   title: string;
   /** Detail lines; empty for a plain success toast. */
   lines: string[];
+  /** Optional action button (e.g. "Update" on an update-available toast). */
+  action?: ToastAction;
+  /** Optional callback fired when the toast is dismissed via the × button —
+   *  e.g. persisting a per-version "don't nag again" flag. */
+  onDismiss?: () => void;
 };
 
 /** A success toast auto-dismisses this many milliseconds after it appears. */
@@ -50,6 +57,19 @@ export function pushWarning(title: string, lines: string[] = []): number {
 export function pushInfo(title: string, lines: string[] = []): number {
   const id = nextId++;
   store.toasts = [...store.toasts, { id, kind: 'info', title, lines }];
+  return id;
+}
+
+/** Show a sticky toast (info or warning) with an action button. */
+export function pushActionToast(
+  kind: 'info' | 'warning',
+  title: string,
+  action: ToastAction,
+  lines: string[] = [],
+  onDismiss?: () => void,
+): number {
+  const id = nextId++;
+  store.toasts = [...store.toasts, { id, kind, title, lines, action, onDismiss }];
   return id;
 }
 
