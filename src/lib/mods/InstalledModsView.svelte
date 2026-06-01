@@ -503,10 +503,11 @@
       No mods installed in this instance yet.
     </div>
   {:else}
-    <div class="space-y-2">
+    <div class="border border-border-subtle rounded overflow-hidden">
       {#each filtered as row (row.installed.sha1)}
         {#if row.summary}
           <ModCard
+            layout="list"
             summary={row.summary}
             installed={row.installed}
             onInstall={() => {}}
@@ -525,46 +526,23 @@
                or a modpack override-bundled jar that hash-enrichment
                could not identify ("from modpack" + 📦 chip). -->
           {@const fromPack = !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
-          <div class="border border-border-subtle rounded bg-surface p-3 flex gap-3">
-            <div
-              class="w-12 h-12 rounded bg-subtle flex items-center justify-center text-placeholder"
-              aria-hidden="true"
-            >
-              ◆
-            </div>
+          <div
+            class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface"
+            data-testid="manual-mod-row"
+          >
+            <div class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0" aria-hidden="true">◆</div>
             <div class="flex-1 min-w-0">
               <div class="font-medium text-primary truncate">{row.installed.filename}</div>
               <div class="text-xs text-muted truncate">
-                {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled
-                  ? 'Enabled'
-                  : 'Disabled'}
+                {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled ? 'Enabled' : 'Disabled'}
               </div>
             </div>
-            <div class="self-center flex items-center gap-1">
+            <div class="flex items-center gap-1 flex-shrink-0">
               {#if fromPack && packSummary}
-                <span
-                  class="text-xs px-2 py-1 rounded bg-accent-soft text-accent"
-                  title="From modpack: {packSummary.project_name}"
-                >
-                  📦 {packSummary.project_name}
-                </span>
+                <span class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent" title="From modpack: {packSummary.project_name}">📦 {packSummary.project_name}</span>
               {/if}
-              <button
-                type="button"
-                class="btn-secondary btn-xs"
-                disabled={busy}
-                onclick={() => toggle(row.installed)}
-              >
-                {row.installed.enabled ? 'Disable' : 'Enable'}
-              </button>
-              <button
-                type="button"
-                class="btn-ghost-danger btn-xs"
-                disabled={busy}
-                onclick={() => uninstall(row.installed)}
-              >
-                Uninstall
-              </button>
+              <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={() => toggle(row.installed)}>{row.installed.enabled ? 'Disable' : 'Enable'}</button>
+              <button type="button" class="btn-ghost-danger btn-xs" disabled={busy} onclick={() => uninstall(row.installed)}>Uninstall</button>
             </div>
           </div>
         {/if}
