@@ -41,4 +41,12 @@ describe('InstalledModsView selection', () => {
     await fireEvent.click(first);
     expect(screen.getByText(/1 selected/i)).toBeTruthy();
   });
+
+  it('bulk Update is disabled until a selected mod has a pending update', async () => {
+    render(InstalledModsView, { props });
+    await screen.findByText('Alpha');
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
+    const update = screen.getByRole('button', { name: /^Update$/i });
+    expect((update as HTMLButtonElement).disabled).toBe(true);
+  });
 });

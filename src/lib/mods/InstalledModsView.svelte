@@ -393,6 +393,46 @@
     await refresh();
   }
 
+  const selectedRows = $derived(filtered.filter((r) => selected.has(r.installed.sha1)));
+  const selectedUpdatable = $derived(
+    selectedRows.filter((r) => updateChecks.get(r.installed.sha1)?.state.kind === 'update_available'),
+  );
+
+  async function bulkSetEnabled(enable: boolean) {
+    if (!instanceId || selected.size === 0) return;
+    busy = true; error = null;
+    let ok = 0, failed = 0;
+    for (const r of selectedRows) {
+      if (r.installed.enabled === enable) { ok++; continue; }
+      const res = enable
+        ? await commands.modsEnable(instanceId, r.installed.sha1)
+        : await commands.modsDisable(instanceId, r.installed.sha1);
+      if (res.status === 'error') failed++; else ok++;
+    }
+    busy = false; selected = new Set(); await refresh();
+    if (failed === 0) pushSuccess(`${enable ? 'Enabled' : 'Disabled'} ${ok} mod${ok === 1 ? '' : 's'}`);
+    else pushWarning(`${enable ? 'Enabled' : 'Disabled'} ${ok}, ${failed} failed`, []);
+  }
+
+  async function bulkUpdate() {
+    if (!instanceId) return;
+    const targets = selectedUpdatable.flatMap((r) => {
+      const st = updateChecks.get(r.installed.sha1)?.state;
+      return st?.kind === 'update_available' ? [{ sha1: r.installed.sha1, target: st.target }] : [];
+    });
+    if (targets.length === 0) return;
+    busy = true; error = null;
+    let ok = 0, failed = 0;
+    for (const t of targets) { if (await applyUpdate(t.sha1, t.target)) ok++; else failed++; }
+    updateChecks = new Map(); updateCheckCache.delete(instanceId);
+    busy = false; selected = new Set(); await refresh();
+    if (failed === 0) pushSuccess(`Updated ${ok} mod${ok === 1 ? '' : 's'}`);
+    else pushWarning(`Updated ${ok}, ${failed} failed`, []);
+  }
+
+  // Bulk uninstall is implemented in Task 9; stub so the bar compiles.
+  async function requestBulkUninstall() { /* implemented in Task 9 */ }
+
   async function updateAll() {
     if (!instanceId) return;
     const targets = [...updateChecks.values()].flatMap((c) =>
@@ -540,7 +580,15 @@
   {#if selected.size > 0}
     <div data-testid="bulk-bar" class="sticky top-0 z-10 flex items-center gap-2 bg-accent-soft border border-accent rounded px-3 py-2 mb-2 text-sm">
       <span class="font-medium text-accent">{selected.size} selected</span>
-      <button type="button" class="btn-ghost btn-xs ml-auto" onclick={() => (selected = new Set())}>Clear</button>
+      <div class="ml-auto flex items-center gap-1">
+        <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={() => bulkSetEnabled(true)}>Enable</button>
+        <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={() => bulkSetEnabled(false)}>Disable</button>
+        <button type="button" class="btn-secondary btn-xs" disabled={busy || selectedUpdatable.length === 0}
+          title={selectedUpdatable.length === 0 ? 'Run "Check for updates" first; only mods with a pending update can be updated' : ''}
+          onclick={bulkUpdate}>Update</button>
+        <button type="button" class="btn-ghost-danger btn-xs" disabled={busy} onclick={requestBulkUninstall}>Uninstall</button>
+        <button type="button" class="btn-ghost btn-xs" onclick={() => (selected = new Set())}>Clear</button>
+      </div>
     </div>
   {/if}
     <div class="border border-border-subtle rounded overflow-hidden">
