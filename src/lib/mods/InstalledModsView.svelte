@@ -138,6 +138,10 @@
   async function loadGraph(id: string) {
     graphLoading = true;
     const r = await commands.modsDependencyGraph(id);
+    // Guard against an instance-switch race: if the user moved to another
+    // instance while this (possibly slow) resolve was in flight, drop the
+    // stale result rather than rendering it under the wrong instance.
+    if (instanceId !== id) return;
     graphLoading = false;
     if (r.status === 'ok') {
       graph = r.data;
@@ -297,6 +301,9 @@
     // biome-ignore lint/correctness/noUnusedVariables: reactive read on instanceId
     const _id = instanceId;
     selected = new Set();
+    // Drop per-instance view state too, so nothing carries across a switch.
+    expanded = new Set();
+    hoveredKey = null;
   });
 
   const allSelected = $derived(
@@ -610,6 +617,12 @@
     }
     busy = false;
     selected = new Set();
+    // Removed mods would otherwise linger as stale roots in the dep tree —
+    // invalidate the cached graph and re-resolve (mirrors install-from-tree).
+    if (instanceId) {
+      depGraphCache.delete(instanceId);
+      void loadGraph(instanceId);
+    }
     await refresh();
     if (failed === 0) pushSuccess(`Uninstalled ${ok} mod${ok === 1 ? '' : 's'}`);
     else pushWarning(`Uninstalled ${ok}, ${failed} failed`, []);
