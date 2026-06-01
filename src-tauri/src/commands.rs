@@ -2179,6 +2179,65 @@ pub async fn modpack_reimport_overrides(
     Ok(())
 }
 
+// Modpack export (v0.6.0):
+
+/// Return a preview of what will be included in a modpack export for the
+/// given instance: enabled mods (with their resolution metadata), which
+/// optional content directories exist, and the cumulative saves size for
+/// the privacy/size warning in the export dialog.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_preview(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::mods::modpack::export::ExportPreview, crate::error::Error> {
+    use crate::mods::modpack::export::{ExportModInfo, ExportPreview};
+    let root = instance_root(&app, &instance_id)?;
+    let mc = root.join(".minecraft");
+
+    let mods = crate::mods::installed::list(&root).await?;
+    let mod_infos: Vec<ExportModInfo> = mods
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| ExportModInfo {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            filename: m.filename.clone(),
+            source: m.source,
+            has_ids: m.project_id.is_some() && m.version_id.is_some(),
+        })
+        .collect();
+
+    let has_dir = |name: &str| mc.join(name).is_dir();
+    let saves_size = dir_size_bytes(&mc.join("saves"));
+
+    Ok(ExportPreview {
+        mods: mod_infos,
+        has_config: has_dir("config"),
+        has_resourcepacks: has_dir("resourcepacks"),
+        has_shaderpacks: has_dir("shaderpacks"),
+        has_saves: has_dir("saves"),
+        saves_size_bytes: saves_size as f64,
+    })
+}
+
+/// Best-effort recursive byte total; returns 0 on any error or missing dir.
+fn dir_size_bytes(dir: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in rd.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_dir() {
+            total += dir_size_bytes(&entry.path());
+        } else if meta.is_file() {
+            total += meta.len();
+        }
+    }
+    total
+}
+
 /// Remove one pack-origin file from an instance: a `mods/` jar via the
 /// mod registry, anything else by deleting the file at `install_path`.
 async fn remove_pack_file(
