@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -8,8 +8,8 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn(async () => {}) }));
 
-import { updateState, dismissUpdate } from '$lib/update/state.svelte';
 import { commands } from '$lib/ipc/bindings';
+import { dismissUpdate, updateState } from '$lib/update/state.svelte';
 
 describe('update state', () => {
   beforeEach(() => {

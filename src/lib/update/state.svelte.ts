@@ -1,8 +1,8 @@
 // Cross-component state for the auto-update flow. Mirrors the
 // rune-in-a-.svelte.ts idiom used by $lib/settings/state.svelte.
 import { commands, type UpdateInfo } from '$lib/ipc/bindings';
-import { pushActionToast, pushInfo, dismiss } from '$lib/toasts/toasts.svelte';
 import { formatError } from '$lib/ipc/format-error';
+import { dismiss, pushActionToast, pushInfo } from '$lib/toasts/toasts.svelte';
 
 export const updateState = $state<{ value: UpdateInfo | null }>({ value: null });
 

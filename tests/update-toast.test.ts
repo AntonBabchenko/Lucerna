@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { pushActionToast, toastList, dismiss } from '$lib/toasts/toasts.svelte';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { dismiss, pushActionToast, toastList } from '$lib/toasts/toasts.svelte';
 
 describe('action toast', () => {
   beforeEach(() => {
