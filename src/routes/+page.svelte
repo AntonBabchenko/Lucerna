@@ -29,7 +29,8 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
   import { modBrowserNav, modpacksNav, mcVersions } from '$lib/settings/state.svelte';
-  import { pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { pushActionToast, pushInfo, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { updateState, runUpdate, dismissUpdate } from '$lib/update/state.svelte';
 
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
@@ -220,6 +221,23 @@
     const settingsResult = await commands.appSettingsGet();
     if (settingsResult.status === 'ok') {
       initTheme(settingsResult.data.general.theme ?? 'system');
+    }
+
+    if (settingsResult.status === 'ok' && settingsResult.data.general.check_updates_on_startup) {
+      const upd = await commands.updateCheck();
+      const dismissed = settingsResult.data.update_dismissed_version ?? null;
+      if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
+        updateState.value = upd.data;
+        const latest = upd.data.latest;
+        const current = upd.data.current;
+        pushActionToast(
+          'info',
+          `Lucerna ${latest} is available`,
+          { label: 'Update', run: () => void runUpdate() },
+          [`You're on ${current}.`],
+          () => void dismissUpdate(latest),
+        );
+      }
     }
 
     await refreshAccounts();

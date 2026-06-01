@@ -19,6 +19,9 @@ export type Toast = {
   lines: string[];
   /** Optional action button (e.g. "Update" on an update-available toast). */
   action?: ToastAction;
+  /** Optional callback fired when the toast is dismissed via the × button —
+   *  e.g. persisting a per-version "don't nag again" flag. */
+  onDismiss?: () => void;
 };
 
 /** A success toast auto-dismisses this many milliseconds after it appears. */
@@ -63,9 +66,10 @@ export function pushActionToast(
   title: string,
   action: ToastAction,
   lines: string[] = [],
+  onDismiss?: () => void,
 ): number {
   const id = nextId++;
-  store.toasts = [...store.toasts, { id, kind, title, lines, action }];
+  store.toasts = [...store.toasts, { id, kind, title, lines, action, onDismiss }];
   return id;
 }
 

@@ -19,4 +19,13 @@ describe('action toast', () => {
     const id = pushActionToast('warning', 'Verify failed', { label: 'Open', run: () => {} });
     expect(toastList().some((x) => x.id === id)).toBe(true);
   });
+
+  it('calls onDismiss when the toast is dismissed via dismiss()', () => {
+    let dismissed = 0;
+    const id = pushActionToast('info', 'X', { label: 'go', run: () => {} }, [], () => dismissed++);
+    const t = toastList().find((x) => x.id === id)!;
+    expect(t.onDismiss).toBeTypeOf('function');
+    t.onDismiss!();
+    expect(dismissed).toBe(1);
+  });
 });

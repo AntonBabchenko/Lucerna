@@ -9,7 +9,11 @@
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { settingsOpen } from './state.svelte';
 
-  let general = $state<GeneralSettings>({ hide_to_tray_during_game: false });
+  let general = $state<GeneralSettings>({
+    hide_to_tray_during_game: false,
+    theme: 'system',
+    check_updates_on_startup: true,
+  });
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
 
@@ -80,6 +84,26 @@
     {#if saveError}
       <p class="text-xs text-danger">{saveError}</p>
     {/if}
+  </div>
+
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">Updates</h3>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        bind:checked={general.check_updates_on_startup}
+        onchange={() => void save()}
+        data-testid="updates-toggle"
+      />
+      <span class="flex-1">
+        <span class="text-sm text-primary">Check for updates on startup</span>
+        <span class="block text-xs text-muted">
+          Shows a notification when a newer version is available. Installing is always an explicit
+          click — Lucerna never updates itself silently.
+        </span>
+      </span>
+    </label>
   </div>
 
   <div class="flex flex-col gap-3">
