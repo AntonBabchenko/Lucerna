@@ -720,6 +720,113 @@ pub async fn mods_resolve_deps(
 }
 
 // =========================================================================
+// Transitive-dependency resolver adapter helpers
+// =========================================================================
+
+use crate::mods::deps::{FetchedDeps, ProjectKey, ResolvedNode};
+
+/// Backend loader-project slugs (mirrors the frontend LOADER_SLUGS in
+/// ModBrowseView.svelte). A dep whose project slug is one of these is a
+/// loader — managed at the instance level, never installed as a mod jar.
+const LOADER_SLUGS: &[&str] = &[
+    "neoforge",
+    "forge",
+    "fabric",
+    "fabric-loader",
+    "quilt",
+    "quilt-loader",
+    "minecraft",
+];
+
+/// Is `version`'s project a loader? Looks up the project slug, memoized in
+/// `loader_cache`. One `project()` call per distinct project, amortized.
+/// Fails open: an un-classifiable project is treated as a normal mod.
+///
+/// Takes the mutex by reference and releases the lock *before* the network
+/// call so that concurrent `join_all` invocations from `fetch_one_level` can
+/// proceed in parallel without each other blocking on the cache lock.
+async fn is_loader_project(
+    platform: &dyn ModPlatform,
+    loader_cache: &tokio::sync::Mutex<std::collections::HashMap<ProjectKey, bool>>,
+    v: &ModVersion,
+) -> bool {
+    let key = ProjectKey::of_version(v);
+    {
+        let cache = loader_cache.lock().await;
+        if let Some(hit) = cache.get(&key) {
+            return *hit;
+        }
+    } // lock released before the network call
+    let is_loader = match platform.project(&v.project_id).await {
+        Ok(p) => p
+            .summary
+            .slug
+            .as_deref()
+            .map(|s| LOADER_SLUGS.contains(&s.to_ascii_lowercase().as_str()))
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    loader_cache.lock().await.insert(key, is_loader);
+    is_loader
+}
+
+/// Build `FetchedDeps` for one version: call the platform's one-level
+/// `resolve_deps` and classify each resolved dep as loader / normal.
+///
+/// Loader classification for all deps at this level is done concurrently via
+/// `join_all` — each `is_loader_project` call is an independent project()
+/// lookup memoized in the shared cache. The cache lock is held only for the
+/// brief read/write, not across the network call, so the futures can
+/// genuinely run in parallel.
+async fn fetch_one_level(
+    platform: &dyn ModPlatform,
+    loader_cache: &tokio::sync::Mutex<std::collections::HashMap<ProjectKey, bool>>,
+    v: &ModVersion,
+    mc: &str,
+    loader: LoaderKind,
+) -> Result<FetchedDeps, crate::error::Error> {
+    let rd = platform.resolve_deps(v, mc, loader).await?;
+    // Classify all deps' loader-ness concurrently (each is an independent
+    // project() lookup, memoized in the shared cache).
+    let req_flags = futures_util::future::join_all(
+        rd.required
+            .iter()
+            .map(|r| is_loader_project(platform, loader_cache, &r.version)),
+    )
+    .await;
+    let opt_flags = futures_util::future::join_all(
+        rd.optional
+            .iter()
+            .map(|o| is_loader_project(platform, loader_cache, &o.version)),
+    )
+    .await;
+    let required = rd
+        .required
+        .into_iter()
+        .zip(req_flags)
+        .map(|(r, is_loader)| ResolvedNode {
+            version: r.version,
+            is_loader,
+        })
+        .collect();
+    let optional = rd
+        .optional
+        .into_iter()
+        .zip(opt_flags)
+        .map(|(o, is_loader)| ResolvedNode {
+            version: o.version,
+            is_loader,
+        })
+        .collect();
+    Ok(FetchedDeps {
+        required,
+        optional,
+        incompatible: rd.incompatible,
+        unresolvable: rd.unresolvable,
+    })
+}
+
+// =========================================================================
 // Mod install / list / disable / enable / uninstall (v0.5.0 sub-feature 3)
 // =========================================================================
 
@@ -840,12 +947,16 @@ fn version_matches(v: &ModVersion, vr: &VersionRef) -> bool {
     v.source == vr.source && v.project_id == vr.project_id && v.version_id == vr.version_id
 }
 
-/// Install `primary` plus all server-resolved required dependencies, plus
-/// any user-checked `optional_deps`. Emits:
+/// Install `primary` plus the TRANSITIVE required closure of the primary and
+/// each chosen optional, deduped, installed deps-first, then primary, then
+/// chosen optionals. Emits:
 ///   - `mod-install-progress` repeatedly during downloads,
 ///   - `mod-installed` once per mod that lands successfully,
 ///   - `mod-install-failed` if any single install errors (the run halts
 ///     after the first failure; previously-installed mods are kept).
+///
+/// Returns an `InstallSummary` so the UI can show which dependencies were
+/// pulled in automatically.
 ///
 /// `primary` is a `VersionRef` (not a full `ModVersion`) so the caller
 /// doesn't need to keep a heavy struct around — we re-fetch from the
@@ -857,16 +968,51 @@ pub async fn mods_install_with_deps(
     instance_id: String,
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::platform::InstallSummary> {
+    use crate::mods::deps::{resolve_closure, ProjectKey};
+    use std::sync::Arc;
+
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    let mut platform = platform_for(primary.source);
-    let primary_v = find_version(&mut platform, &primary, &mc_version, loader).await?;
-    let resolved = platform
-        .resolve_deps(&primary_v, &mc_version, loader)
-        .await?;
+    // Two handles: Box for find_version calls, Arc for make_fetch closure.
+    let mut platform_box = platform_for(primary.source);
+    let primary_v = find_version(&mut platform_box, &primary, &mc_version, loader).await?;
+
+    // Build the set of already-installed mods so resolve_closure can prune them.
+    let installed: std::collections::HashSet<ProjectKey> = crate::mods::installed::list(&inst_root)
+        .await?
+        .into_iter()
+        .filter_map(|m| match (m.source, m.project_id) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
+
+    // Shared Arc platform + loader-slug cache for the make_fetch factory.
+    let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(primary.source).into();
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        ProjectKey,
+        bool,
+    >::new()));
+
+    // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
+    let make_fetch = || {
+        let platform = platform_arc.clone();
+        let loader_cache = loader_cache.clone();
+        let mc = mc_version.clone();
+        move |v: ModVersion| {
+            let platform = platform.clone();
+            let loader_cache = loader_cache.clone();
+            let mc = mc.clone();
+            async move { fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await }
+        }
+    };
 
     // Progress callback closes over a clone of the AppHandle and the
     // primary's project_id (used to tag every progress event so the UI
@@ -896,25 +1042,47 @@ pub async fn mods_install_with_deps(
         let _ = payload.emit(&app_for_progress);
     });
 
-    // Install required deps first, then primary, then user-checked optional deps.
-    let mut install_seq: Vec<ModVersion> =
-        resolved.required.into_iter().map(|r| r.version).collect();
-    install_seq.push(primary_v.clone());
-    for opt in optional_deps {
-        if let Some(v) = resolved
-            .optional
-            .iter()
-            .find(|r| version_matches(&r.version, &opt))
-            .cloned()
-        {
-            install_seq.push(v.version);
-        }
-    }
+    // Compute the primary's transitive required closure.
+    let primary_required =
+        resolve_closure(std::slice::from_ref(&primary_v), &installed, make_fetch())
+            .await?
+            .required;
 
+    // For each chosen optional: resolve it to a full version, then compute its
+    // transitive sub-closure (excluding installed + already-collected deps).
+    let mut dep_versions: Vec<ModVersion> = primary_required;
+    let mut chosen_optionals: Vec<ModVersion> = Vec::new();
+    // Assumption: chosen optionals share the primary's platform (the dialog only offers same-source optionals). A cross-source optional would resolve against the wrong platform.
+    for opt in &optional_deps {
+        let ov = find_version(&mut platform_box, opt, &mc_version, loader).await?;
+        let mut excl = installed.clone();
+        for v in &dep_versions {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for v in &chosen_optionals {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        excl.insert(ProjectKey::of_version(&ov));
+        let sub = resolve_closure(std::slice::from_ref(&ov), &excl, make_fetch()).await?;
+        dep_versions.extend(sub.required);
+        chosen_optionals.push(ov);
+    }
+    let dep_versions = dedup_versions(dep_versions.into_iter());
+
+    // Install sequence: required deps first, then primary, then chosen optionals.
+    let mut install_seq = dep_versions.clone();
+    install_seq.push(primary_v.clone());
+    install_seq.extend(chosen_optionals.iter().cloned());
+
+    let mut installed_dependencies: Vec<String> = Vec::new();
     for v in install_seq {
+        let is_primary = version_matches(&v, &primary);
         let v_project_id = v.project_id.clone();
         match crate::mods::install::install_one(&dd, &inst_root, v.clone(), &prog).await {
             Ok(inst) => {
+                if !is_primary {
+                    installed_dependencies.push(inst.name.clone());
+                }
                 let _ = ModInstalled {
                     instance_id: instance_id.clone(),
                     sha1: inst.sha1,
@@ -934,7 +1102,152 @@ pub async fn mods_install_with_deps(
             }
         }
     }
-    Ok(())
+    Ok(crate::mods::platform::InstallSummary {
+        primary_name: primary_v.name.clone(),
+        installed_dependencies,
+    })
+}
+
+// =========================================================================
+// Transitive install-plan command (Task 3)
+// =========================================================================
+
+/// Resolve the full `InstallPlan` for `primary`:
+/// - `required`: primary's transitive required closure (all must be installed)
+/// - `optional`: each direct optional dep + its own transitive required sub-closure
+/// - `incompatible` / `unresolvable`: refs from the primary's one-level scan
+/// - `loader_requirements`: loader project refs (informational, not installed)
+///
+/// Already-installed mods are pruned from all lists.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_resolve_install_plan(
+    app: tauri::AppHandle,
+    instance_id: String,
+    primary: ModVersion,
+    mc_version: String,
+    loader: LoaderKind,
+) -> crate::error::Result<InstallPlan> {
+    use crate::mods::deps::{resolve_closure, ProjectKey};
+    use std::sync::Arc;
+
+    let root = instance_root(&app, &instance_id)?;
+    let installed: std::collections::HashSet<ProjectKey> = crate::mods::installed::list(&root)
+        .await?
+        .into_iter()
+        .filter_map(|m| match (m.source, m.project_id) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+            (Some(ModSource::Curseforge), Some(pid)) => {
+                pid.parse().ok().map(ProjectKey::Curseforge)
+            }
+            _ => None,
+        })
+        .collect();
+
+    // Shared platform + loader-slug cache, cloned into each closure via Arc.
+    let platform: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(primary.source).into();
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        ProjectKey,
+        bool,
+    >::new()));
+
+    // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
+    let make_fetch = || {
+        let platform = platform.clone();
+        let loader_cache = loader_cache.clone();
+        let mc = mc_version.clone();
+        move |v: ModVersion| {
+            let platform = platform.clone();
+            let loader_cache = loader_cache.clone();
+            let mc = mc.clone();
+            async move { fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await }
+        }
+    };
+
+    // 1. One-level deps of the primary (required/optional/incompat/unresolvable).
+    let top = fetch_one_level(
+        platform.as_ref(),
+        &loader_cache,
+        &primary,
+        &mc_version,
+        loader,
+    )
+    .await?;
+
+    // 2. Primary's transitive required closure; prune already-installed.
+    //    The closure walker enqueues the root's required deps, so
+    //    `primary_closure.required` already contains everything that a
+    //    separate `direct_required` collect would have added — a second
+    //    independent fetch would also open a theoretical version-skew
+    //    window between two network calls to the same endpoint.
+    let primary_closure =
+        resolve_closure(std::slice::from_ref(&primary), &installed, make_fetch()).await?;
+    // The transitive closure already includes the primary's direct requireds,
+    // is deduplicated, and has installed mods pruned by `resolve_closure`.
+    let required = primary_closure.required;
+
+    // 3. Each direct optional + its transitive required sub-closure,
+    //    excluding primary's requireds + installed.
+    let mut exclude = installed.clone();
+    for v in &required {
+        exclude.insert(ProjectKey::of_version(v));
+    }
+    let mut optional = Vec::new();
+    for opt in top.optional.iter().filter(|n| !n.is_loader) {
+        let sub =
+            resolve_closure(std::slice::from_ref(&opt.version), &exclude, make_fetch()).await?;
+        optional.push(OptionalDep {
+            version: opt.version.clone(),
+            requires: dedup_versions(sub.required.into_iter()),
+        });
+    }
+
+    // 4. Loader refs seen at the primary's top level.
+    let loader_requirements = top
+        .required
+        .iter()
+        .chain(top.optional.iter())
+        .filter(|n| n.is_loader)
+        .map(|n| version_to_ref(&n.version))
+        .collect();
+
+    Ok(InstallPlan {
+        required,
+        optional,
+        incompatible: top.incompatible,
+        unresolvable: top.unresolvable,
+        loader_requirements,
+    })
+}
+
+fn dedup_versions(
+    it: impl Iterator<Item = crate::mods::platform::ModVersion>,
+) -> Vec<crate::mods::platform::ModVersion> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for v in it {
+        if seen.insert(crate::mods::deps::ProjectKey::of_version(&v)) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platform::DepProjectRef {
+    match v.source {
+        crate::mods::platform::ModSource::Modrinth => {
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: v.project_id.clone(),
+                version_id: Some(v.version_id.clone()),
+            }
+        }
+        crate::mods::platform::ModSource::Curseforge => {
+            crate::mods::platform::DepProjectRef::Curseforge {
+                mod_id: v.project_id.parse().unwrap_or(0),
+                file_id: v.version_id.parse().ok(),
+            }
+        }
+    }
 }
 
 /// Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
