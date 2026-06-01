@@ -160,15 +160,20 @@
 
   // Build a reverse map: for each installed mod's project_id, list the
   // display names of roots that depend on it (via required subtree).
+  // The graph root's own `name` is the registry name, which for many mods is
+  // the version's release title (e.g. "0.26.3"). Prefer the resolved project
+  // name from the loaded rows so "Required by" shows real mod names.
   const requiredBy = $derived.by(() => {
+    const nameBySha = new Map(rows.map((r) => [r.installed.sha1, rowDisplayName(r)]));
     const map = new Map<string, string[]>();
     for (const r of graph?.roots ?? []) {
+      const rootName = nameBySha.get(r.sha1) ?? r.name;
       const seen = new Set<string>();
       const walk = (ns: DepTreeNode[]) => {
         for (const n of ns) {
           if (n.status === 'satisfied' && !seen.has(n.project_id)) {
             seen.add(n.project_id);
-            map.set(n.project_id, [...(map.get(n.project_id) ?? []), r.name]);
+            map.set(n.project_id, [...(map.get(n.project_id) ?? []), rootName]);
           }
           if (!n.cycle) walk(n.children);
         }
