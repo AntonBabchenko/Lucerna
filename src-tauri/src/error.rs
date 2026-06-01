@@ -224,6 +224,9 @@ pub enum Error {
     #[error("The CurseForge modpack '{pack_name}' cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge and install the .zip manually.")]
     ModpackCfDistributionDisabled { pack_name: String },
 
+    #[error("Modpack export failed: {details}")]
+    ModpackExportFailed { details: String },
+
     #[error("World '{folder_name}' not found in instance {instance_id}")]
     WorldNotFound {
         instance_id: String,
