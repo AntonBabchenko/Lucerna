@@ -272,18 +272,32 @@ export const commands = {
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
 	modsResolveDeps: (version: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
 	/**
-	 *  Install `primary` plus all server-resolved required dependencies, plus
-	 *  any user-checked `optional_deps`. Emits:
+	 *  Resolve the full `InstallPlan` for `primary`:
+	 *  - `required`: primary's transitive required closure (all must be installed)
+	 *  - `optional`: each direct optional dep + its own transitive required sub-closure
+	 *  - `incompatible` / `unresolvable`: refs from the primary's one-level scan
+	 *  - `loader_requirements`: loader project refs (informational, not installed)
+	 * 
+	 *  Already-installed mods are pruned from all lists.
+	 */
+	modsResolveInstallPlan: (instanceId: string, primary: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<InstallPlan, Error>(__TAURI_INVOKE("mods_resolve_install_plan", { instanceId, primary, mcVersion, loader })),
+	/**
+	 *  Install `primary` plus the TRANSITIVE required closure of the primary and
+	 *  each chosen optional, deduped, installed deps-first, then primary, then
+	 *  chosen optionals. Emits:
 	 *    - `mod-install-progress` repeatedly during downloads,
 	 *    - `mod-installed` once per mod that lands successfully,
 	 *    - `mod-install-failed` if any single install errors (the run halts
 	 *      after the first failure; previously-installed mods are kept).
 	 * 
+	 *  Returns an `InstallSummary` so the UI can show which dependencies were
+	 *  pulled in automatically.
+	 * 
 	 *  `primary` is a `VersionRef` (not a full `ModVersion`) so the caller
 	 *  doesn't need to keep a heavy struct around — we re-fetch from the
 	 *  platform here. This also re-validates against the live API.
 	 */
-	modsInstallWithDeps: (instanceId: string, primary: VersionRef, optionalDeps: VersionRef[]) => typedError<null, Error>(__TAURI_INVOKE("mods_install_with_deps", { instanceId, primary, optionalDeps })),
+	modsInstallWithDeps: (instanceId: string, primary: VersionRef, optionalDeps: VersionRef[]) => typedError<InstallSummary, Error>(__TAURI_INVOKE("mods_install_with_deps", { instanceId, primary, optionalDeps })),
 	/**
 	 *  Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
 	 *  listed (with synthesized metadata if it wasn't installed via the
@@ -743,6 +757,20 @@ export type Greeting = {
 
 export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | "assets" | "client" | "complete";
 
+/**
+ *  The full plan the dependency dialog renders. `required` is the primary's
+ *  transitive required closure (always installed). `loader_requirements` are
+ *  loader project refs (informational). `incompatible`/`unresolvable` carry
+ *  refs for display.
+ */
+export type InstallPlan = {
+	required: ModVersion[],
+	optional: OptionalDep[],
+	incompatible: DepProjectRef[],
+	unresolvable: DepProjectRef[],
+	loader_requirements: DepProjectRef[],
+};
+
 export type InstallProgress = {
 	version_id: string,
 	phase: InstallPhase,
@@ -756,6 +784,16 @@ export type InstallProgress = {
 	 *  don't have meaningful sub-steps.
 	 */
 	current_step: string | null,
+};
+
+/**  Returned by `mods_install_with_deps` so the UI can show a per-mod toast. */
+export type InstallSummary = {
+	primary_name: string,
+	/**
+	 *  Display names of dependencies that were newly installed (primary
+	 *  excluded). Empty when the primary had no missing deps.
+	 */
+	installed_dependencies: string[],
 };
 
 export type InstalledMod = {
@@ -1264,6 +1302,17 @@ export type OnboardingState_Deserialize = {
 
 export type OnboardingState_Serialize = {
 	tour_completed_version?: string | null,
+};
+
+/**
+ *  A direct optional dependency of the primary, plus ITS own transitive
+ *  required closure (`requires`) — so the dialog can reveal sub-deps live
+ *  when the user opts in. `requires` already excludes the primary's own
+ *  requireds, already-installed projects, and loaders.
+ */
+export type OptionalDep = {
+	version: ModVersion,
+	requires: ModVersion[],
 };
 
 /**
