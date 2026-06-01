@@ -20,7 +20,9 @@ export async function runUpdate(): Promise<void> {
       "Couldn't verify the update",
       {
         label: 'Open release page',
-        run: () => void import('@tauri-apps/plugin-opener').then((m) => url && m.openUrl(url)),
+        run: () => {
+          if (url) void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
+        },
       },
       [formatError(r.error)],
     );
