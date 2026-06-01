@@ -298,12 +298,18 @@
     if (changed) selected = next;
   });
   $effect(() => {
-    // biome-ignore lint/correctness/noUnusedVariables: reactive read on instanceId
-    const _id = instanceId;
+    const id = instanceId;
     selected = new Set();
     // Drop per-instance view state too, so nothing carries across a switch.
     expanded = new Set();
     hoveredKey = null;
+    // Blank the previous instance's mods and any sticky error immediately on
+    // switch so stale content never lingers while the new list loads. (refresh
+    // also clears error, but doing it here avoids a flash of the old list.)
+    if (id) {
+      rows = [];
+      error = null;
+    }
   });
 
   const allSelected = $derived(
@@ -326,13 +332,21 @@
   const disabledCount = $derived(totalCount - enabledCount);
 
   async function refresh() {
-    if (!instanceId) {
+    // Capture the instance this refresh is for. Several awaits happen below;
+    // if the user switches instances mid-flight we must NOT commit this
+    // (now stale) instance's data over the newer one — otherwise the old
+    // instance's mod list can overwrite the current view, and acting on that
+    // stale list (bulk uninstall, etc.) is dangerous. Every commit is guarded
+    // by `instanceId === reqId`.
+    const reqId = instanceId;
+    if (!reqId) {
       rows = [];
       return;
     }
     loading = true;
     error = null;
-    let r = await commands.modsListInstalled(instanceId);
+    let r = await commands.modsListInstalled(reqId);
+    if (instanceId !== reqId) return;
     if (r.status === 'error') {
       error = formatError(r.error);
       loading = false;
@@ -340,7 +354,8 @@
     }
 
     // Pack-origin chip data — a local file read, no network.
-    const ps = await commands.modsPackOriginSummary(instanceId);
+    const ps = await commands.modsPackOriginSummary(reqId);
+    if (instanceId !== reqId) return;
     const summary = ps.status === 'ok' ? ps.data : null;
     packSummary = summary;
 
@@ -358,8 +373,9 @@
         (m) => m.source === null && !m.enrich_attempted && summary.mod_shas.includes(m.sha1),
       )
     ) {
-      await commands.modsEnrichPackMods(instanceId);
-      const r2 = await commands.modsListInstalled(instanceId);
+      await commands.modsEnrichPackMods(reqId);
+      const r2 = await commands.modsListInstalled(reqId);
+      if (instanceId !== reqId) return;
       if (r2.status === 'ok') r = r2;
     }
 
@@ -380,6 +396,10 @@
         return { summary: null, installed: m };
       }),
     );
+    // Drop the result if the user switched instances while the per-mod
+    // project lookups were in flight — committing here would render the
+    // previous instance's mods under the current one.
+    if (instanceId !== reqId) return;
     rows = enriched;
     loading = false;
   }

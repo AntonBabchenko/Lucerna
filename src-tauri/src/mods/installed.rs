@@ -9,8 +9,19 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
+
+/// Monotonic counter giving every `write()` a unique temp-file name.
+/// Several `list()` calls can run concurrently for the same instance (the
+/// Installed view fires `modsListInstalled` + `modsPackOriginSummary` +
+/// `mods_dependency_graph` together, and a first-open schema migration makes
+/// each of them write). A shared fixed `*.json.tmp` name made those writes
+/// race on the same path — the first rename won, the rest failed with
+/// "cannot find the file" (os error 2). A per-write unique name removes the
+/// collision; the final atomic rename still serializes the visible result.
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -162,7 +173,10 @@ async fn write(instance_root: &Path, state: &OnDisk) -> Result<(), Error> {
         .await
         .map_err(|e| io_err(&dir, e))?;
     let final_path = registry_path(instance_root);
-    let tmp = final_path.with_extension("json.tmp");
+    // Unique per-write temp name so concurrent writers don't collide on the
+    // same tmp path and fail the rename (see WRITE_SEQ).
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = final_path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
     let bytes = serde_json::to_vec_pretty(state).map_err(|e| Error::ModsDecode {
         platform: "installed-mods.json".into(),
         details: e.to_string(),
@@ -848,6 +862,35 @@ mod tests {
         assert_eq!(state.version, FILE_VERSION);
         assert_eq!(state.version, 4);
         assert!(state.mods[0].requires.is_empty(), "requires defaults empty");
+    }
+
+    #[tokio::test]
+    async fn concurrent_list_migration_does_not_race_on_temp_file() {
+        // The Installed view fires several commands that each call list()
+        // (modsListInstalled + modsPackOriginSummary + mods_dependency_graph),
+        // and a first-open v3→v4 migration makes every one of them write. With
+        // a shared `*.json.tmp` name those writes raced on the same path — the
+        // first rename won, the rest failed with os error 2 ("cannot find the
+        // file"). A unique per-write temp name fixes it; this guards the fix.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = registry_dir(root);
+        fs::create_dir_all(&dir).await.unwrap();
+        // Seed a pre-migration v3 registry so every list() migrates + writes.
+        fs::write(registry_path(root), br#"{"version":3,"mods":[]}"#)
+            .await
+            .unwrap();
+
+        let results = futures_util::future::join_all((0..16).map(|_| list(root))).await;
+        for r in &results {
+            assert!(
+                r.is_ok(),
+                "concurrent list() must not fail: {:?}",
+                r.as_ref().err()
+            );
+        }
+        let raw = String::from_utf8(fs::read(registry_path(root)).await.unwrap()).unwrap();
+        assert!(raw.contains("\"version\": 4"), "migrated to v4: {raw}");
     }
 
     #[tokio::test]
