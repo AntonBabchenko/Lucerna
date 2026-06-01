@@ -41,10 +41,12 @@
     instances,
     onInstanceCreated,
     onListChanged,
+    importing = $bindable(false),
   }: {
     instances: InstanceWithStatus[];
     onInstanceCreated: (id: string) => void;
     onListChanged?: () => void;
+    importing?: boolean;
   } = $props();
 
   type SubTab = 'browse' | 'imported';
@@ -118,7 +120,6 @@
 
   // Picker / progress / drawer state machine.
   let summary = $state<ModpackSummary | null>(null);
-  let importing = $state(false);
   let error = $state<string | null>(null);
   let drawerHit = $state<ModpackHit | null>(null);
   // MC version filter the user had in the toolbar when they clicked the
@@ -226,18 +227,6 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <!-- Top level mirrors MainTabs (Overview / Mod browser / Worlds): a single
-       always-active "Modpacks browser" tab, so the modpacks view has the same
-       two-level tab structure as the per-instance view. -->
-  <div role="tablist" class="border-b border-border-subtle px-3 flex gap-1 bg-surface">
-    <span
-      role="tab"
-      aria-selected="true"
-      class="px-3 py-2 text-base border-b-2 -mb-px border-accent text-primary font-semibold"
-    >
-      Modpacks browser
-    </span>
-  </div>
   <!-- Second level: Browse | Imported sub-tabs. -->
   <div
     role="tablist"
