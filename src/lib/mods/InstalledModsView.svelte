@@ -16,7 +16,8 @@
   import { formatError } from '$lib/ipc/format-error';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
+  import { PAGE_SIZES } from './browser-prefs.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DepTree from './DepTree.svelte';
   import ModCard from './ModCard.svelte';
@@ -174,10 +175,17 @@
   }
 
   // Scroll the list row for a dependency node into view and highlight it, so
-  // clicking a dep in an expanded tree jumps to that mod's own row.
-  function jumpToMod(node: DepTreeNode) {
+  // clicking a dep in an expanded tree jumps to that mod's own row — flipping
+  // to the right page first when the target is paged out of view.
+  async function jumpToMod(node: DepTreeNode) {
     const key = `${node.source}:${node.project_id}`;
     hoveredKey = key;
+    const idx = filtered.findIndex(
+      (r) => modKey(r.installed.source, r.installed.project_id, r.installed.sha1) === key,
+    );
+    if (idx < 0) return; // not in the current filter (e.g. filtered out)
+    page = Math.floor(idx / pageSize);
+    await tick();
     if (typeof document !== 'undefined') {
       const el = document.querySelector(`[data-mod-row="${key}"]`);
       // scrollIntoView is absent in some test DOMs — call it optionally.
@@ -312,6 +320,27 @@
           filter.trim() === '' || rowDisplayName(r).toLowerCase().includes(filter.toLowerCase()),
       ),
   );
+
+  // Pagination. The installed list can run to a few hundred mods, so render
+  // one page at a time. Selection and the dep graph still operate over the
+  // whole filtered set — only what's *rendered* is paged.
+  let pageSize = $state<number>(50);
+  let page = $state(0);
+  const pageCount = $derived(Math.max(1, Math.ceil(filtered.length / pageSize)));
+  // Reset to the first page whenever the result set's shape changes.
+  $effect(() => {
+    void filter;
+    void enabledFilter;
+    void sortBy;
+    void instanceId;
+    void pageSize;
+    page = 0;
+  });
+  // Keep the page in range if the list shrinks (e.g. after uninstall).
+  $effect(() => {
+    if (page > pageCount - 1) page = pageCount - 1;
+  });
+  const paged = $derived(filtered.slice(page * pageSize, page * pageSize + pageSize));
 
   // Selection state for bulk actions. `selected` holds the sha1s of the
   // currently checked rows. Reassign the whole Set (never mutate in place)
@@ -907,7 +936,7 @@
           >
         {/if}
       </div>
-      {#each filtered as row (row.installed.sha1)}
+      {#each paged as row (row.installed.sha1)}
         {#if row.summary}
           {@const rowKey = modKey(
             row.installed.source,
@@ -1073,6 +1102,43 @@
           </div>
         {/if}
       {/each}
+    </div>
+
+    <!-- Pagination footer. Selection + the dep graph span the whole filtered
+         set; only the rendered rows are paged. -->
+    <div class="flex items-center justify-between gap-3 mt-2 text-sm flex-wrap">
+      <span class="inline-flex items-center gap-2">
+        <span class="text-muted">Per page:</span>
+        {#each PAGE_SIZES as n (n)}
+          <button
+            type="button"
+            class="px-0.5 {pageSize === n
+              ? 'text-primary font-semibold'
+              : 'text-secondary hover:text-primary'}"
+            aria-pressed={pageSize === n}
+            onclick={() => (pageSize = n)}
+          >
+            {n}
+          </button>
+        {/each}
+      </span>
+      {#if pageCount > 1}
+        <span class="inline-flex items-center gap-2 text-secondary">
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            disabled={page === 0}
+            onclick={() => (page = Math.max(0, page - 1))}>← Prev</button
+          >
+          <span class="text-muted">Page {page + 1} of {pageCount}</span>
+          <button
+            type="button"
+            class="btn-secondary btn-xs"
+            disabled={page >= pageCount - 1}
+            onclick={() => (page = Math.min(pageCount - 1, page + 1))}>Next →</button
+          >
+        </span>
+      {/if}
     </div>
   {/if}
 

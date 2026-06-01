@@ -149,4 +149,36 @@ describe('InstalledModsView selection', () => {
     const highlighted = container.querySelectorAll('[data-mod-key="modrinth:Alpha"].bg-highlight');
     expect(highlighted.length).toBeGreaterThanOrEqual(2);
   });
+
+  // Kept last: it overrides modsListInstalled to return many mods, which would
+  // otherwise leak into the Alpha/Beta-based tests above.
+  it('paginates the installed list (page size + Next)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      filename: `Mod${i}.jar`,
+      sha1: `s${i}`,
+      source: 'modrinth',
+      project_id: `Mod${i}`,
+      version_id: 'v',
+      name: `Mod${i}`,
+      version_number: '1.0',
+      installed_at: '2026-01-01T00:00:00Z',
+      enabled: true,
+      enrich_attempted: false,
+      requires: [],
+    }));
+    (commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: many,
+    });
+    render(InstalledModsView, { props });
+    await screen.findByText('Mod0');
+    // Switch to 20 per page → first page shows 20, with a "Page 1 of 2" pager.
+    await fireEvent.click(screen.getByRole('button', { name: '20' }));
+    expect(screen.getAllByRole('checkbox', { name: /select mod/i }).length).toBe(20);
+    expect(screen.getByText(/page 1 of 2/i)).toBeTruthy();
+    // Next → second page shows the remaining 5.
+    await fireEvent.click(screen.getByRole('button', { name: /next/i }));
+    expect(screen.getAllByRole('checkbox', { name: /select mod/i }).length).toBe(5);
+  });
 });
