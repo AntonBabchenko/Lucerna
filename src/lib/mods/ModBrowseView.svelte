@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     commands,
+    events,
     type InstalledMod,
     type LoaderKind,
     type ModSort,
@@ -8,7 +9,7 @@
     type ModSummary,
     type ModVersion,
   } from '$lib/ipc/bindings';
-  import { untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { browserPrefs } from './browser-prefs.svelte';
@@ -151,16 +152,20 @@
   let installedMods = $state<InstalledRow[]>([]);
 
   async function refreshInstalled() {
-    if (!instanceId) {
+    // Capture the instance; drop the result if the user switches mid-flight
+    // (the per-mod project lookups below are slow) so a stale list can't
+    // overwrite the current instance's installed-badge state.
+    const reqId = instanceId;
+    if (!reqId) {
       installedMods = [];
       return;
     }
-    const r = await commands.modsListInstalled(instanceId);
-    if (r.status !== 'ok') return;
+    const r = await commands.modsListInstalled(reqId);
+    if (instanceId !== reqId || r.status !== 'ok') return;
     // Look up project names in parallel. Manual mods (source: null)
     // skip the call and keep projectName: null — they only ever match
     // via the exact-id path anyway.
-    installedMods = await Promise.all(
+    const next = await Promise.all(
       r.data.map(async (m): Promise<InstalledRow> => {
         if (m.source === null || m.project_id === null) {
           return { installed: m, projectName: null };
@@ -172,12 +177,32 @@
         };
       }),
     );
+    if (instanceId !== reqId) return;
+    installedMods = next;
   }
 
   $effect(() => {
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _id = instanceId;
     void refreshInstalled();
+  });
+
+  // Mods can be enabled/disabled/uninstalled from the Installed tab (a sibling
+  // view kept mounted alongside this one). Listen for those events so the
+  // Browse pane's "Installed / Disable / Uninstall" badges stay in sync
+  // instead of going stale until a remount.
+  let installedUnlisteners: Array<() => void> = [];
+  onMount(async () => {
+    const handlers = [
+      events.modInstalled.listen(() => void refreshInstalled()),
+      events.modUninstalled.listen(() => void refreshInstalled()),
+      events.modToggle.listen(() => void refreshInstalled()),
+    ];
+    for (const p of handlers) installedUnlisteners.push(await p);
+  });
+  onDestroy(() => {
+    for (const u of installedUnlisteners) u();
+    installedUnlisteners = [];
   });
 
   // Reduce a mod's display name to a comparison key. Platforms often
