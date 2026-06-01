@@ -707,15 +707,6 @@
           <option value="source">Source</option>
         </select>
       </label>
-      <label class="text-xs text-secondary inline-flex items-center gap-1">
-        <input
-          type="checkbox"
-          aria-label="Select all"
-          checked={allSelected}
-          onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
-        />
-        Select all
-      </label>
       <button
         type="button"
         class="btn-secondary btn-xs"
@@ -810,47 +801,62 @@
       No mods installed in this instance yet.
     </div>
   {:else}
-    {#if selected.size > 0}
-      <div
-        data-testid="bulk-bar"
-        class="sticky top-0 z-10 flex items-center gap-2 bg-accent-soft border border-accent rounded px-3 py-2 mb-2 text-sm"
-      >
-        <span class="font-medium text-accent">{selected.size} selected</span>
-        <div class="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            class="btn-secondary btn-xs"
-            disabled={busy}
-            onclick={() => bulkSetEnabled(true)}>Enable</button
-          >
-          <button
-            type="button"
-            class="btn-secondary btn-xs"
-            disabled={busy}
-            onclick={() => bulkSetEnabled(false)}>Disable</button
-          >
-          <button
-            type="button"
-            class="btn-secondary btn-xs"
-            disabled={busy || selectedUpdatable.length === 0}
-            title={selectedUpdatable.length === 0
-              ? 'Run "Check for updates" first; only mods with a pending update can be updated'
-              : ''}
-            onclick={bulkUpdate}>Update</button
-          >
-          <button
-            type="button"
-            class="btn-ghost-danger btn-xs"
-            disabled={busy}
-            onclick={requestBulkUninstall}>Uninstall</button
-          >
-          <button type="button" class="btn-ghost btn-xs" onclick={() => (selected = new Set())}
-            >Clear</button
-          >
-        </div>
-      </div>
-    {/if}
     <div class="border border-border-subtle rounded overflow-hidden">
+      <!-- Persistent selection header. The select-all checkbox sits in the
+           same left column as the per-row checkboxes (conventional placement);
+           bulk actions appear inline here when ≥1 mod is selected, so toggling
+           selection never shifts the rows below. -->
+      <div
+        class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-subtle/40 text-sm"
+      >
+        <input
+          type="checkbox"
+          class="flex-shrink-0"
+          aria-label="Select all"
+          checked={allSelected}
+          indeterminate={selected.size > 0 && !allSelected}
+          onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
+        />
+        {#if selected.size > 0}
+          <span class="font-medium text-accent">{selected.size} selected</span>
+          <div data-testid="bulk-bar" class="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              class="btn-secondary btn-xs"
+              disabled={busy}
+              onclick={() => bulkSetEnabled(true)}>Enable</button
+            >
+            <button
+              type="button"
+              class="btn-secondary btn-xs"
+              disabled={busy}
+              onclick={() => bulkSetEnabled(false)}>Disable</button
+            >
+            <button
+              type="button"
+              class="btn-secondary btn-xs"
+              disabled={busy || selectedUpdatable.length === 0}
+              title={selectedUpdatable.length === 0
+                ? 'Run "Check for updates" first; only mods with a pending update can be updated'
+                : ''}
+              onclick={bulkUpdate}>Update</button
+            >
+            <button
+              type="button"
+              class="btn-ghost-danger btn-xs"
+              disabled={busy}
+              onclick={requestBulkUninstall}>Uninstall</button
+            >
+            <button type="button" class="btn-ghost btn-xs" onclick={() => (selected = new Set())}
+              >Clear</button
+            >
+          </div>
+        {:else}
+          <span class="text-muted text-xs"
+            >Select mods to enable, disable, update or uninstall in bulk</span
+          >
+        {/if}
+      </div>
       {#each filtered as row (row.installed.sha1)}
         {#if row.summary}
           {@const rowKey = modKey(
