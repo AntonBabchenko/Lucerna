@@ -18,6 +18,7 @@
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
+  import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
@@ -61,6 +62,7 @@
 
   let manageOpen = $state(false);
   let msSigningIn = $state(false);
+  let exportDialogOpen = $state(false);
 
   // Lightweight installed-mods stats for the Overview pane. Re-fetched
   // on instance change and whenever the launcher emits an install /
@@ -576,6 +578,17 @@
                     tab.
                   </p>
                 {/if}
+                {#if activeInstance && installedStats.enabled >= 1}
+                  <div class="mt-2">
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      onclick={() => (exportDialogOpen = true)}
+                    >
+                      Export modpack…
+                    </button>
+                  </div>
+                {/if}
               </div>
 
               <div class="flex flex-col gap-1" data-testid="overview-playtime">
@@ -691,6 +704,13 @@
 
   <SettingsModal />
   <TourOverlay />
+  {#if exportDialogOpen && activeInstance}
+    <ExportPackDialog
+      instanceId={activeInstance.id}
+      instanceName={activeInstance.name}
+      onClose={() => (exportDialogOpen = false)}
+    />
+  {/if}
 </main>
 <ToastHost />
 <MicrosoftSigningInModal

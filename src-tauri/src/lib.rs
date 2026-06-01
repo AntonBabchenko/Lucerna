@@ -115,6 +115,9 @@ pub fn run() {
             commands::modpack_compute_update,
             commands::modpack_apply_update,
             commands::modpack_reimport_overrides,
+            // Modpack export (v0.6.0):
+            commands::export_preview,
+            commands::export_modpack,
             // Onboarding (v0.5.0 sub-feature 5):
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,
