@@ -99,8 +99,9 @@ test.describe('Imported modpack drawer footer', () => {
     await page.goto('/');
     await setTheme(page, 'light');
 
-    // Step 1: open the Modpacks view via the sidebar "Browse modpacks" button.
+    // Step 1: open the Modpacks modal via the sidebar "Browse modpacks" button.
     await page.locator('button:has-text("Browse modpacks")').click();
+    await page.waitForSelector('[data-testid="modpacks-modal"]');
 
     // Step 2: click the "Imported" sub-tab inside ModpacksTab.
     await page.locator('[role="tab"]:has-text("Imported")').click();

@@ -18,7 +18,6 @@
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
-    modpacksActive,
     running,
     installing,
     onPlay,
@@ -39,12 +38,10 @@
     onOpenManage: () => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
-    // Switch the right pane between the per-instance MainTabs view and
-    // the global Modpacks browser. Modpacks aren't tied to the selected
-    // instance — installing a pack creates a new one — so they live at
-    // the sidebar level rather than as a 4th instance tab.
+    // Open the global Modpacks browser (a full-screen modal). Modpacks aren't
+    // tied to the selected instance — installing a pack creates a new one — so
+    // the entry point lives at the sidebar level, not as a per-instance tab.
     onOpenModpacks: () => void;
-    modpacksActive: boolean;
     // Launch-state inputs (moved here from the Overview pane in
     // +page.svelte). running !== null = MC is up; installing = an
     // install pipeline is in flight; otherwise the button morphs
@@ -229,20 +226,11 @@
     <button
       type="button"
       class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-accent-soft hover:border-accent"
-      class:bg-accent-soft={modpacksActive}
-      class:border-accent={modpacksActive}
-      class:text-accent={modpacksActive}
-      class:font-medium={modpacksActive}
       data-tour="open-modpacks"
       data-testid="sidebar-open-modpacks"
-      title={modpacksActive ? 'Click to return to the instance view' : undefined}
       onclick={onOpenModpacks}
     >
-      {#if modpacksActive}
-        ← Back to instance
-      {:else}
-        📦 Browse modpacks
-      {/if}
+      📦 Browse modpacks
     </button>
     <div class="flex gap-1">
       <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenLogs}>
