@@ -17,11 +17,20 @@
   // owning view enriches the dep list with the project name via
   // mods_project before opening the dialog so the user sees what they
   // expect.
+  //
+  // OptionalItem extends DepItem with `requires: DepItem[]` — the
+  // optional's own transitive required sub-deps, enriched to names.
+  // When the user checks an optional its sub-deps are revealed indented
+  // beneath it so they can see what gets pulled in automatically.
 
   export type DepItem = {
     version: ModVersion;
     projectName: string;
     projectSource: ModSource;
+  };
+
+  export type OptionalItem = DepItem & {
+    requires: DepItem[];
   };
 
   let {
@@ -39,7 +48,7 @@
     primary: ModVersion;
     primaryProjectName: string;
     required: DepItem[];
-    optional: DepItem[];
+    optional: OptionalItem[];
     incompatible: string[];
     unresolvable: string[];
     // Mod loaders the mod declared as dependencies (NeoForge, Fabric, …).
@@ -55,7 +64,41 @@
 
   // svelte-ignore state_referenced_locally
   let optionalChosen = $state<boolean[]>(optional.map(() => false));
-  const total = $derived(1 + required.length + optionalChosen.filter(Boolean).length);
+
+  // Deduped count of everything that will be installed:
+  //   1 (primary) + required + each checked optional (the optional itself
+  //   + its requires), deduped by source:project_id so a shared sub-dep
+  //   that appears in multiple optionals (or in required) is counted once.
+  const total = $derived((): number => {
+    const seen = new Set<string>();
+    // The primary is always 1; we don't track it in the set because it
+    // won't appear in the dep lists.
+    let count = 1;
+    for (const r of required) {
+      const key = `${r.version.source}:${r.version.project_id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        count += 1;
+      }
+    }
+    for (let i = 0; i < optional.length; i++) {
+      if (!optionalChosen[i]) continue;
+      const o = optional[i]!;
+      const topKey = `${o.version.source}:${o.version.project_id}`;
+      if (!seen.has(topKey)) {
+        seen.add(topKey);
+        count += 1;
+      }
+      for (const sub of o.requires) {
+        const subKey = `${sub.version.source}:${sub.version.project_id}`;
+        if (!seen.has(subKey)) {
+          seen.add(subKey);
+          count += 1;
+        }
+      }
+    }
+    return count;
+  });
 
   function confirm() {
     const chosen = optional.filter((_, i) => optionalChosen[i]).map((d) => d.version);
@@ -97,10 +140,23 @@
           {#each optional as o, i (o.version.version_id)}
             <li>
               <label class="inline-flex items-center gap-2">
-                <input type="checkbox" bind:checked={optionalChosen[i]} />
+                <input
+                  type="checkbox"
+                  checked={optionalChosen[i]}
+                  onchange={(e) => {
+                    optionalChosen[i] = (e.currentTarget as HTMLInputElement).checked;
+                  }}
+                />
                 {o.projectName}
                 <span class="text-muted">· {o.version.version_number} · {o.projectSource}</span>
               </label>
+              {#if optionalChosen[i] && o.requires.length > 0}
+                <ul class="pl-6 mt-0.5 space-y-0.5 text-xs text-muted">
+                  {#each o.requires as sub (sub.version.version_id)}
+                    <li>requires: {sub.projectName}</li>
+                  {/each}
+                </ul>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -142,7 +198,7 @@
     <div class="flex justify-end gap-2 mt-4">
       <button type="button" class="btn-secondary btn-sm" onclick={onCancel}> Cancel </button>
       <button type="button" class="btn-primary btn-sm" onclick={confirm}>
-        Install ({total} mod{total === 1 ? '' : 's'})
+        Install ({total()} mod{total() === 1 ? '' : 's'})
       </button>
     </div>
   </div>

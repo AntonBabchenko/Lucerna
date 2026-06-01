@@ -117,11 +117,15 @@
   // title, not the mod name — distinct on Modrinth and confusing in the
   // dialog).
   type DepItem = { version: ModVersion; projectName: string; projectSource: ModSource };
+  // OptionalItem extends DepItem with the optional's own transitive required
+  // sub-deps (enriched to DepItem). The dialog renders these indented under
+  // the checkbox so the user can see what gets pulled in when they opt-in.
+  type OptionalItem = DepItem & { requires: DepItem[] };
   let depPrompt = $state<{
     primary: ModVersion;
     primaryProjectName: string;
     required: DepItem[];
-    optional: DepItem[];
+    optional: OptionalItem[];
     incompatible: string[];
     unresolvable: string[];
     // Loader projects (NeoForge, Fabric, etc.) that the mod declared as
@@ -135,22 +139,6 @@
     // load. Surfaced as a red warning row in the dialog.
     loaderMismatch: { instanceLoader: string; modLoaders: LoaderKind[] } | null;
   } | null>(null);
-
-  // Modrinth + CurseForge both list mod loaders themselves as searchable
-  // projects (e.g. modrinth.com/mod/neoforge). Some mods declare the
-  // loader as a "required dependency" in their version manifest. Installing
-  // the loader as a jar into {instance}/.minecraft/mods/ is wrong — loaders
-  // are managed at the instance level, not as user mods. Filter dep entries
-  // whose project slug matches one of these by name.
-  const LOADER_SLUGS = new Set([
-    'neoforge',
-    'forge',
-    'fabric',
-    'fabric-loader',
-    'quilt',
-    'quilt-loader',
-    'minecraft',
-  ]);
 
   let needsCfKey = $state(false);
   // Track which Modrinth / CurseForge projects are already installed
@@ -469,69 +457,56 @@
         return;
       }
     }
-    const deps = await commands.modsResolveDeps(primary, mcVersion, loader);
-    if (deps.status === 'error') {
-      error = formatError(deps.error);
+    const plan = await commands.modsResolveInstallPlan(instanceId, primary, mcVersion, loader);
+    if (plan.status === 'error') {
+      error = formatError(plan.error);
       return;
     }
-    const d = deps.data;
+    const p = plan.data;
 
-    // Enrich each dep with its project's display name and separate out
-    // dependencies that point to a known loader project (NeoForge,
-    // Fabric, etc.). Loaders are managed at the instance level —
-    // installing them as mod jars would produce a broken instance — but
-    // we still surface them in the dialog so the user knows the mod's
-    // loader target.
-    type EnrichResult =
-      | { kind: 'normal'; version: ModVersion; projectName: string; projectSource: ModSource }
-      | { kind: 'loader'; projectName: string };
-
-    const enrichDep = async (v: ModVersion): Promise<EnrichResult> => {
-      const p = await commands.modsProject(v.source, v.project_id);
-      if (p.status === 'error') {
-        return { kind: 'normal', version: v, projectName: v.name, projectSource: v.source };
-      }
-      const slug = p.data.summary.slug ?? '';
-      if (LOADER_SLUGS.has(slug.toLowerCase())) {
-        return { kind: 'loader', projectName: p.data.summary.name };
-      }
+    // Enrich a ModVersion to a DepItem: look up the project's display name
+    // via modsProject, falling back to the version's own `name` field when
+    // the platform lookup fails (network, deleted project, etc.).
+    const enrichDep = async (v: ModVersion): Promise<DepItem> => {
+      const proj = await commands.modsProject(v.source, v.project_id);
       return {
-        kind: 'normal',
         version: v,
-        projectName: p.data.summary.name,
-        projectSource: p.data.summary.source,
+        projectName: proj.status === 'ok' ? proj.data.summary.name : v.name,
+        projectSource: v.source,
       };
     };
 
-    const allRequired = await Promise.all(d.required.map((r) => enrichDep(r.version)));
-    const allOptional = await Promise.all(d.optional.map((o) => enrichDep(o.version)));
-
-    // Look up a human-readable name for a DepProjectRef. Falls back
-    // to the raw project_id / mod_id when the project lookup fails
-    // (network, deleted project, etc.) — so the dialog never shows a
-    // bare slug like "9s6osm5g" when the API call succeeded.
-    type DepRef = (typeof d.incompatible)[number];
+    // Look up a human-readable name for a DepProjectRef. Falls back to the
+    // raw project_id / mod_id string when the platform lookup fails.
+    type DepRef = (typeof p.incompatible)[number];
     const enrichRefName = async (r: DepRef): Promise<string> => {
-      const source: ModSource = 'project_id' in r ? 'modrinth' : 'curseforge';
+      const refSource: ModSource = 'project_id' in r ? 'modrinth' : 'curseforge';
       const id = 'project_id' in r ? r.project_id : String(r.mod_id);
-      const p = await commands.modsProject(source, id);
-      return p.status === 'ok' ? p.data.summary.name : id;
+      const proj = await commands.modsProject(refSource, id);
+      return proj.status === 'ok' ? proj.data.summary.name : id;
     };
-    const incompatibleNames = await Promise.all(d.incompatible.map(enrichRefName));
-    const unresolvableNames = await Promise.all(d.unresolvable.map(enrichRefName));
-    const requiredEnriched = allRequired.filter(
-      (x): x is Extract<EnrichResult, { kind: 'normal' }> => x.kind === 'normal',
+
+    // Enrich required deps (plain DepItem list — backend already pruned loaders
+    // and already-installed entries).
+    const requiredEnriched = await Promise.all(p.required.map(enrichDep));
+
+    // Enrich optional deps: each OptionalDep carries a `requires` sub-list
+    // (the optional's own transitive requireds). Enrich both the top-level
+    // version and its requires list so the dialog can reveal sub-deps live.
+    const optionalEnriched: OptionalItem[] = await Promise.all(
+      p.optional.map(async (o): Promise<OptionalItem> => {
+        const top = await enrichDep(o.version);
+        const subReqs = await Promise.all(o.requires.map(enrichDep));
+        return { ...top, requires: subReqs };
+      }),
     );
-    const optionalEnriched = allOptional.filter(
-      (x): x is Extract<EnrichResult, { kind: 'normal' }> => x.kind === 'normal',
-    );
-    const loaderRequirements = Array.from(
-      new Set(
-        [...allRequired, ...allOptional]
-          .filter((x): x is Extract<EnrichResult, { kind: 'loader' }> => x.kind === 'loader')
-          .map((x) => x.projectName),
-      ),
-    );
+
+    // Enrich incompatible / unresolvable DepProjectRefs to display names.
+    const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
+    const unresolvableNames = await Promise.all(p.unresolvable.map(enrichRefName));
+
+    // Enrich loader_requirements refs to display names (informational).
+    const loaderRequirements = await Promise.all(p.loader_requirements.map(enrichRefName));
 
     const primaryProject = await commands.modsProject(primary.source, primary.project_id);
     const primaryProjectName =
@@ -547,15 +522,12 @@
         ? { instanceLoader: loader, modLoaders: primary.loaders }
         : null;
 
-    // Open the dialog whenever we have anything to show — including a
-    // pure "this mod targets NeoForge" loader-only requirement or a
-    // loader mismatch, both of which are informational but worth
-    // surfacing.
+    // Fast path: nothing to show → install directly.
     if (
       requiredEnriched.length === 0 &&
       optionalEnriched.length === 0 &&
-      d.incompatible.length === 0 &&
-      d.unresolvable.length === 0 &&
+      p.incompatible.length === 0 &&
+      p.unresolvable.length === 0 &&
       loaderRequirements.length === 0 &&
       loaderMismatch === null
     ) {
@@ -567,7 +539,10 @@
       if (installed.status === 'error') {
         pushWarning('Mod install failed', [formatError(installed.error)]);
       } else {
-        pushSuccess(`Installed ${primaryProjectName}`);
+        pushSuccess(
+          `Installed ${installed.data.primary_name}`,
+          installed.data.installed_dependencies,
+        );
         await refreshInstalled();
       }
     } else {
@@ -762,11 +737,9 @@
         if (installed.status === 'error') {
           pushWarning('Mod install failed', [formatError(installed.error)]);
         } else {
-          const depCount = prompt.required.length + chosenOptional.length;
           pushSuccess(
-            depCount > 0
-              ? `Installed ${prompt.primaryProjectName} + ${depCount} ${depCount === 1 ? 'dependency' : 'dependencies'}`
-              : `Installed ${prompt.primaryProjectName}`,
+            `Installed ${installed.data.primary_name}`,
+            installed.data.installed_dependencies,
           );
           await refreshInstalled();
         }

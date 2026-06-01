@@ -25,7 +25,7 @@ function v(projectId: string, vid: string): ModVersion {
 }
 
 function dep(projectName: string, version: ModVersion) {
-  return { version, projectName, projectSource: 'modrinth' as const };
+  return { version, projectName, projectSource: 'modrinth' as const, requires: [] };
 }
 
 describe('DependencyDialog', () => {
