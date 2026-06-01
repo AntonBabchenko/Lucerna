@@ -1070,20 +1070,16 @@ pub async fn mods_resolve_install_plan(
     };
 
     // 2. Primary's transitive required closure; prune already-installed.
+    //    The closure walker enqueues the root's required deps, so
+    //    `primary_closure.required` already contains everything that a
+    //    separate `direct_required` collect would have added — a second
+    //    independent fetch would also open a theoretical version-skew
+    //    window between two network calls to the same endpoint.
     let primary_closure =
         resolve_closure(std::slice::from_ref(&primary), &installed, make_fetch()).await?;
-    let direct_required: Vec<ModVersion> = top
-        .required
-        .iter()
-        .filter(|n| !n.is_loader)
-        .map(|n| n.version.clone())
-        .collect();
-    let required = dedup_versions(
-        direct_required
-            .into_iter()
-            .chain(primary_closure.required)
-            .filter(|v| !installed.contains(&ProjectKey::of_version(v))),
-    );
+    // The transitive closure already includes the primary's direct requireds,
+    // is deduplicated, and has installed mods pruned by `resolve_closure`.
+    let required = primary_closure.required;
 
     // 3. Each direct optional + its transitive required sub-closure,
     //    excluding primary's requireds + installed.
