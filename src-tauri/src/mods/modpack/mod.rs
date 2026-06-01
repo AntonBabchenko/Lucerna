@@ -15,7 +15,7 @@ pub mod search;
 
 pub use detect::detect_format;
 pub use export::{
-    ExportMetadata, ExportMode, ExportModInfo, ExportOptions, ExportPreview, ModpackExportProgress,
+    ExportMetadata, ExportModInfo, ExportMode, ExportOptions, ExportPreview, ModpackExportProgress,
 };
 pub use schema::{
     EnvSupport, ModpackFile, ModpackFormat, ModpackHit, ModpackProgress, ModpackSearchPage,
