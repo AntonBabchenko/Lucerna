@@ -893,6 +893,7 @@ mod tests {
             installed_at: chrono::Utc::now().to_rfc3339(),
             enabled: true,
             enrich_attempted: false,
+            requires: Vec::new(),
         }
     }
 
@@ -1287,6 +1288,7 @@ mod tests {
             installed_at: chrono::Utc::now().to_rfc3339(),
             enabled,
             enrich_attempted: false,
+            requires: Vec::new(),
         }
     }
 

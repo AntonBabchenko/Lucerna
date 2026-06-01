@@ -367,6 +367,21 @@ export const commands = {
 	 *  see the spec ("Dependencies on update").
 	 */
 	modsUpdateOne: (instanceId: string, oldSha1: string, target: ModVersion) => typedError<null, Error>(__TAURI_INVOKE("mods_update_one", { instanceId, oldSha1, target })),
+	modsFindOrphans: (instanceId: string, removing: string[]) => typedError<OrphanRef[], Error>(__TAURI_INVOKE("mods_find_orphans", { instanceId, removing })),
+	/**
+	 *  Build a full nested dependency graph for all platform-identified mods in
+	 *  `instance_id`. Each installed mod is a root; its required and optional
+	 *  subtrees are walked recursively (cycle-guarded, memoized). Each node is
+	 *  classified as `satisfied / missing_required / optional_present /
+	 *  optional_absent` against the installed set.
+	 * 
+	 *  The graph is informational — no files are written. Intended to power the
+	 *  "Dependency Tree" view in the Mods tab.
+	 * 
+	 *  `depgraph::build_graph` produces a `Send` future (boxed recursive walk with
+	 *  `+ Send` on the alias), so it can be awaited directly on the Tauri executor.
+	 */
+	modsDependencyGraph: (instanceId: string) => typedError<DependencyGraph, Error>(__TAURI_INVOKE("mods_dependency_graph", { instanceId })),
 	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
 	 *  compatibility against the target instance. No filesystem writes.
@@ -702,7 +717,35 @@ export type CrashReport = {
 
 export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
+export type DepNodeStatus = "satisfied" | "missing_required" | "optional_present" | "optional_absent";
+
 export type DepProjectRef = { source: "modrinth"; project_id: string; version_id: string | null } | { source: "curseforge"; mod_id: number; file_id: number | null };
+
+export type DepRoot = {
+	sha1: string,
+	source: ModSource,
+	project_id: string,
+	name: string,
+	required: DepTreeNode[],
+	optional: DepTreeNode[],
+};
+
+export type DepTreeNode = {
+	source: ModSource,
+	project_id: string,
+	name: string,
+	status: DepNodeStatus,
+	/**
+	 *  True when this project was already expanded higher on the path; its
+	 *  children are omitted to break cycles.
+	 */
+	cycle: boolean,
+	children: DepTreeNode[],
+};
+
+export type DependencyGraph = {
+	roots: DepRoot[],
+};
 
 /**
  *  A single diagnoser hit. Returned by `diagnose` and consumed
@@ -884,6 +927,14 @@ export type InstalledMod = {
 	 *  so registry files written before this feature load as `false`.
 	 */
 	enrich_attempted?: boolean,
+	/**
+	 *  Project IDs of the *required* dependencies this mod pulled in at
+	 *  install time (transitive required closure of the primary). Powers
+	 *  offline orphan detection on bulk uninstall. `#[serde(default)]` so
+	 *  registry files written before schema v4 load with an empty vec.
+	 *  Optional deps the user opted into are NOT recorded here.
+	 */
+	requires?: string[],
 };
 
 /**  What the UI sees per row in the instance dropdown. */
@@ -1386,6 +1437,13 @@ export type OnboardingState_Serialize = {
 export type OptionalDep = {
 	version: ModVersion,
 	requires: ModVersion[],
+};
+
+/**  A mod that would no longer be required by anything after a removal. */
+export type OrphanRef = {
+	sha1: string,
+	name: string,
+	project_id: string,
 };
 
 /**

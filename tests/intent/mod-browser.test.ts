@@ -102,6 +102,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsUpdateOne: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
     // ModBrowserTab drag-drop related
     modpackSearch: vi.fn().mockResolvedValue({
       status: 'ok',

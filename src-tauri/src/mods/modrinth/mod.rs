@@ -233,13 +233,7 @@ impl ModPlatform for ModrinthClient {
         let mut incompatible = Vec::new();
         let mut unresolvable = Vec::new();
         for dep in &version.deps {
-            let pid = match &dep.project_ref {
-                DepProjectRef::Modrinth { project_id, .. } => project_id.clone(),
-                DepProjectRef::Curseforge { .. } => {
-                    unresolvable.push(dep.project_ref.clone());
-                    continue;
-                }
-            };
+            // Incompatible / embedded deps don't need a version lookup.
             match dep.kind {
                 DepKind::Incompatible => {
                     incompatible.push(dep.project_ref.clone());
@@ -248,6 +242,17 @@ impl ModPlatform for ModrinthClient {
                 DepKind::Embedded => continue,
                 _ => {}
             }
+            let pid = match &dep.project_ref {
+                DepProjectRef::Modrinth { project_id, .. } => project_id.clone(),
+                DepProjectRef::Curseforge { .. } => {
+                    // Cross-source dep we can't resolve on this platform — only
+                    // worth flagging when it's required.
+                    if dep.kind == DepKind::Required {
+                        unresolvable.push(dep.project_ref.clone());
+                    }
+                    continue;
+                }
+            };
             let versions = self.versions(&pid, Some(mc), Some(loader)).await?;
             if let Some(v) = versions.into_iter().next() {
                 let resolved = ResolvedDep {
@@ -259,7 +264,11 @@ impl ModPlatform for ModrinthClient {
                     DepKind::Optional => optional.push(resolved),
                     _ => {}
                 }
-            } else {
+            } else if dep.kind == DepKind::Required {
+                // A *required* dep with no compatible build is a real problem
+                // worth surfacing ("install anyway?"). An *optional* one simply
+                // isn't available for this MC/loader — skip it silently rather
+                // than alarm the user.
                 unresolvable.push(dep.project_ref.clone());
             }
         }
@@ -504,5 +513,70 @@ mod tests {
         assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("abc"));
         assert_eq!(vs[0].deps.len(), 1);
         assert_eq!(vs[0].deps[0].kind, DepKind::Required);
+    }
+
+    #[tokio::test]
+    async fn resolve_deps_flags_only_required_when_no_compatible_version() {
+        let _g = test_lock();
+        let s = server().await;
+        // Neither dep has a compatible build (both endpoints return []).
+        for pid in ["optdep", "reqdep"] {
+            Mock::given(method("GET"))
+                .and(path(format!("/v2/project/{pid}/version")))
+                .respond_with(ResponseTemplate::new(200).set_body_string("[]"))
+                .mount(&s)
+                .await;
+        }
+        let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+
+        let v = ModVersion {
+            source: ModSource::Modrinth,
+            project_id: "primary".into(),
+            version_id: "vp".into(),
+            name: "Primary".into(),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.20.4".into()],
+            loaders: vec![LoaderKind::Forge],
+            primary_file: ModFile {
+                filename: "p.jar".into(),
+                url: "https://cdn/p.jar".into(),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![
+                ModDepLink {
+                    kind: DepKind::Optional,
+                    project_ref: DepProjectRef::Modrinth {
+                        project_id: "optdep".into(),
+                        version_id: None,
+                    },
+                },
+                ModDepLink {
+                    kind: DepKind::Required,
+                    project_ref: DepProjectRef::Modrinth {
+                        project_id: "reqdep".into(),
+                        version_id: None,
+                    },
+                },
+            ],
+            published_at: None,
+        };
+        let rd = c
+            .resolve_deps(&v, "1.20.4", LoaderKind::Forge)
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        // The optional dep with no compatible build is skipped silently; only
+        // the missing *required* dep is surfaced as unresolvable.
+        assert!(rd.optional.is_empty(), "optional dep should not resolve");
+        assert!(rd.required.is_empty(), "required dep has no build");
+        assert_eq!(rd.unresolvable.len(), 1, "only the required dep is flagged");
+        match &rd.unresolvable[0] {
+            DepProjectRef::Modrinth { project_id, .. } => assert_eq!(project_id, "reqdep"),
+            other => panic!("expected modrinth reqdep ref, got {other:?}"),
+        }
     }
 }

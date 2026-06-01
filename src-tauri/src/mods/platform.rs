@@ -180,6 +180,14 @@ pub struct InstallPlan {
     pub loader_requirements: Vec<DepProjectRef>,
 }
 
+/// A mod that would no longer be required by anything after a removal.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct OrphanRef {
+    pub sha1: String,
+    pub name: String,
+    pub project_id: String,
+}
+
 /// Returned by `mods_install_with_deps` so the UI can show a per-mod toast.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstallSummary {
@@ -213,6 +221,13 @@ pub struct InstalledMod {
     /// so registry files written before this feature load as `false`.
     #[serde(default)]
     pub enrich_attempted: bool,
+    /// Project IDs of the *required* dependencies this mod pulled in at
+    /// install time (transitive required closure of the primary). Powers
+    /// offline orphan detection on bulk uninstall. `#[serde(default)]` so
+    /// registry files written before schema v4 load with an empty vec.
+    /// Optional deps the user opted into are NOT recorded here.
+    #[serde(default)]
+    pub requires: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]

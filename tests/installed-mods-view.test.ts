@@ -53,6 +53,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
+    modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
     // The view now fetches ModProject for each platform-installed mod
     // so it can render the project's display name via the shared
     // ModCard component.

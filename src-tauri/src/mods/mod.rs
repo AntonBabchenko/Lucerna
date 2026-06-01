@@ -7,6 +7,7 @@
 pub mod cache;
 pub mod compat;
 pub mod curseforge;
+pub mod depgraph;
 pub mod deps;
 pub mod enrich;
 pub mod install;

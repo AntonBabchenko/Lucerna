@@ -26,6 +26,9 @@
     checking = false,
     packChip = null,
     layout = 'grid',
+    selectable = false,
+    selected = false,
+    onSelectChange = (_checked: boolean) => {},
   }: {
     summary: ModSummary;
     installed: InstalledMod | null;
@@ -42,6 +45,9 @@
     checking?: boolean;
     packChip?: string | null;
     layout?: 'grid' | 'list';
+    selectable?: boolean;
+    selected?: boolean;
+    onSelectChange?: (checked: boolean) => void;
   } = $props();
 
   // True when the installed record came from a different platform than
@@ -154,6 +160,16 @@
     class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
     data-testid="card-list-row"
   >
+    {#if selectable}
+      <input
+        type="checkbox"
+        class="flex-shrink-0"
+        checked={selected}
+        aria-label={`Select mod ${summary.name}`}
+        onclick={(e) => e.stopPropagation()}
+        onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
+      />
+    {/if}
     {#if summary.icon_url}
       <img src={summary.icon_url} alt="" class="w-8 h-8 rounded flex-shrink-0" />
     {:else}

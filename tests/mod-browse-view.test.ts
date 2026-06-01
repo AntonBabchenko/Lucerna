@@ -34,6 +34,13 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
   },
+  // ModBrowseView subscribes to these on mount to keep installed-badges in
+  // sync with the Installed tab; stub them so the listeners no-op in tests.
+  events: {
+    modInstalled: { listen: vi.fn().mockResolvedValue(() => {}) },
+    modUninstalled: { listen: vi.fn().mockResolvedValue(() => {}) },
+    modToggle: { listen: vi.fn().mockResolvedValue(() => {}) },
+  },
 }));
 
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';

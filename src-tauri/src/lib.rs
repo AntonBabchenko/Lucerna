@@ -96,6 +96,8 @@ pub fn run() {
             commands::mods_pack_origin_summary,
             commands::mods_enrich_pack_mods,
             commands::mods_update_one,
+            commands::mods_find_orphans,
+            commands::mods_dependency_graph,
             commands::mods_inspect_local,
             commands::mods_install_local,
             commands::mods_get_curseforge_key_status,

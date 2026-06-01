@@ -9,8 +9,19 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
+
+/// Monotonic counter giving every `write()` a unique temp-file name.
+/// Several `list()` calls can run concurrently for the same instance (the
+/// Installed view fires `modsListInstalled` + `modsPackOriginSummary` +
+/// `mods_dependency_graph` together, and a first-open schema migration makes
+/// each of them write). A shared fixed `*.json.tmp` name made those writes
+/// race on the same path — the first rename won, the rest failed with
+/// "cannot find the file" (os error 2). A per-write unique name removes the
+/// collision; the final atomic rename still serializes the visible result.
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -21,7 +32,7 @@ use crate::error::Error;
 use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable};
 use crate::mods::platform::{InstalledMod, ModSource};
 
-const FILE_VERSION: u32 = 3;
+const FILE_VERSION: u32 = 4;
 
 /// Process-lifetime SHA-1 cache for files in `mods/`, keyed by path.
 /// `reconcile()` re-uses the stored digest when a file's (mtime, size)
@@ -162,7 +173,10 @@ async fn write(instance_root: &Path, state: &OnDisk) -> Result<(), Error> {
         .await
         .map_err(|e| io_err(&dir, e))?;
     let final_path = registry_path(instance_root);
-    let tmp = final_path.with_extension("json.tmp");
+    // Unique per-write temp name so concurrent writers don't collide on the
+    // same tmp path and fail the rename (see WRITE_SEQ).
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = final_path.with_extension(format!("json.tmp.{}.{seq}", std::process::id()));
     let bytes = serde_json::to_vec_pretty(state).map_err(|e| Error::ModsDecode {
         platform: "installed-mods.json".into(),
         details: e.to_string(),
@@ -261,6 +275,7 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: *enabled,
                 enrich_attempted: false,
+                requires: Vec::new(),
             });
             changed = true;
         }
@@ -281,6 +296,24 @@ pub async fn add(instance_root: &Path, m: InstalledMod) -> Result<(), Error> {
 pub async fn remove(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     let mut state = read_or_empty(instance_root).await?;
     state.mods.retain(|x| !x.sha1.eq_ignore_ascii_case(sha1));
+    write(instance_root, &state).await
+}
+
+/// Overwrite the `requires` edge list for the entry with the given SHA-1.
+/// No-op if the SHA-1 is unknown. Read-modify-write.
+pub async fn set_requires(
+    instance_root: &Path,
+    sha1: &str,
+    requires: Vec<String>,
+) -> Result<(), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    if let Some(m) = state
+        .mods
+        .iter_mut()
+        .find(|x| x.sha1.eq_ignore_ascii_case(sha1))
+    {
+        m.requires = requires;
+    }
     write(instance_root, &state).await
 }
 
@@ -385,6 +418,11 @@ fn migrate(state: &mut OnDisk) -> bool {
             }
         }
     }
+    if state.version < 4 {
+        // v3 → v4: `requires` is added with `#[serde(default)]`; no field
+        // backfill is possible (we never recorded edges before v4), so the
+        // empty default is correct. Bumping the version stamps the upgrade.
+    }
     state.version = FILE_VERSION;
     true
 }
@@ -461,6 +499,7 @@ mod tests {
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
             enrich_attempted: false,
+            requires: Vec::new(),
         };
         add(td.path(), stale).await.unwrap();
         let mods = list(td.path()).await.unwrap();
@@ -484,6 +523,7 @@ mod tests {
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: true,
                 enrich_attempted: false,
+                requires: Vec::new(),
             },
         )
         .await
@@ -567,6 +607,7 @@ mod tests {
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: true,
                 enrich_attempted: false,
+                requires: Vec::new(),
             },
         )
         .await
@@ -636,8 +677,8 @@ mod tests {
         let raw =
             String::from_utf8(tokio::fs::read(registry_path(td.path())).await.unwrap()).unwrap();
         // Migration bumps a v1 file straight to the current
-        // FILE_VERSION (3) in one pass.
-        assert!(raw.contains("\"version\": 3"), "got {raw}");
+        // FILE_VERSION (4) in one pass.
+        assert!(raw.contains("\"version\": 4"), "got {raw}");
     }
 
     #[tokio::test]
@@ -663,6 +704,7 @@ mod tests {
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: true,
                 enrich_attempted: true,
+                requires: Vec::new(),
             }],
             pack_origin: None,
         };
@@ -700,6 +742,7 @@ mod tests {
                     installed_at: Utc::now().to_rfc3339(),
                     enabled: true,
                     enrich_attempted: true, // stuck under the buggy build
+                    requires: Vec::new(),
                 },
                 InstalledMod {
                     filename: "resolved.jar".into(),
@@ -712,6 +755,7 @@ mod tests {
                     installed_at: Utc::now().to_rfc3339(),
                     enabled: true,
                     enrich_attempted: false,
+                    requires: Vec::new(),
                 },
             ],
             pack_origin: Some(sample_origin()),
@@ -734,7 +778,7 @@ mod tests {
         assert!(!res.enrich_attempted);
         let raw =
             String::from_utf8(tokio::fs::read(registry_path(td.path())).await.unwrap()).unwrap();
-        assert!(raw.contains("\"version\": 3"), "got {raw}");
+        assert!(raw.contains("\"version\": 4"), "got {raw}");
     }
 
     #[tokio::test]
@@ -805,6 +849,48 @@ mod tests {
         let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
         assert_eq!(origin.missing_mods.len(), 1);
         assert_eq!(origin.missing_mods[0].project_id, None);
+    }
+
+    #[tokio::test]
+    async fn migrate_v3_to_v4_adds_empty_requires_and_bumps_version() {
+        // A v3 file with one mod and no `requires` field.
+        let legacy = br#"{"version":3,"mods":[{"filename":"a.jar","sha1":"aa","source":"modrinth","project_id":"p1","version_id":"v1","name":"A","version_number":"1.0","installed_at":"2026-01-01T00:00:00Z","enabled":true,"enrich_attempted":false}]}"#;
+        let mut state: OnDisk = serde_json::from_slice(legacy).unwrap();
+        assert_eq!(state.version, 3);
+        let changed = migrate(&mut state);
+        assert!(changed, "v3 file must be migrated");
+        assert_eq!(state.version, FILE_VERSION);
+        assert_eq!(state.version, 4);
+        assert!(state.mods[0].requires.is_empty(), "requires defaults empty");
+    }
+
+    #[tokio::test]
+    async fn concurrent_list_migration_does_not_race_on_temp_file() {
+        // The Installed view fires several commands that each call list()
+        // (modsListInstalled + modsPackOriginSummary + mods_dependency_graph),
+        // and a first-open v3→v4 migration makes every one of them write. With
+        // a shared `*.json.tmp` name those writes raced on the same path — the
+        // first rename won, the rest failed with os error 2 ("cannot find the
+        // file"). A unique per-write temp name fixes it; this guards the fix.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = registry_dir(root);
+        fs::create_dir_all(&dir).await.unwrap();
+        // Seed a pre-migration v3 registry so every list() migrates + writes.
+        fs::write(registry_path(root), br#"{"version":3,"mods":[]}"#)
+            .await
+            .unwrap();
+
+        let results = futures_util::future::join_all((0..16).map(|_| list(root))).await;
+        for r in &results {
+            assert!(
+                r.is_ok(),
+                "concurrent list() must not fail: {:?}",
+                r.as_ref().err()
+            );
+        }
+        let raw = String::from_utf8(fs::read(registry_path(root)).await.unwrap()).unwrap();
+        assert!(raw.contains("\"version\": 4"), "migrated to v4: {raw}");
     }
 
     #[tokio::test]
@@ -1006,6 +1092,40 @@ mod tests {
         // its identity.
         assert!(m.enrich_attempted);
         assert_eq!(m.source, Some(ModSource::Modrinth));
+    }
+
+    #[tokio::test]
+    async fn set_requires_overwrites_only_the_target_mod() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Place a real jar so reconcile() doesn't prune the entry on list().
+        let sha = place_jar(&mods_dir(root), "primary.jar", b"primary-bytes").await;
+        add(
+            root,
+            InstalledMod {
+                filename: "primary.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("prim".into()),
+                version_id: Some("v".into()),
+                name: "Primary".into(),
+                version_number: Some("1.0".into()),
+                installed_at: "2026-01-01T00:00:00Z".into(),
+                enabled: true,
+                enrich_attempted: false,
+                requires: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        set_requires(root, &sha, vec!["dep1".into(), "dep2".into()])
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+        let prim = mods.iter().find(|m| m.sha1 == sha).unwrap();
+        assert_eq!(prim.requires, vec!["dep1".to_string(), "dep2".to_string()]);
     }
 
     #[tokio::test]
