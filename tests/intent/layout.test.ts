@@ -3,7 +3,7 @@
 // buttons. Complements the cluster-D tests which cover Sidebar launch-state
 // buttons, section-action buttons, and tabs-not-buttons negative assertions.
 
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
 import MainTabs from '$lib/layout/MainTabs.svelte';
@@ -108,7 +108,6 @@ const baseProps = {
   activeAccount: offlineAccount(),
   instances: [instance()],
   activeInstance: instance(),
-  modpacksActive: false,
   running: null,
   installing: false,
 };
@@ -155,30 +154,19 @@ describe('Sidebar — section headers', () => {
 });
 
 describe('Sidebar — footer section buttons (not covered by cluster D)', () => {
-  it('"Browse modpacks" is btn-secondary btn-sm when modpacksActive=false', () => {
-    render(Sidebar, { props: { ...baseProps, modpacksActive: false } });
+  it('"Browse modpacks" is a static btn-secondary btn-sm entry point', () => {
+    render(Sidebar, { props: baseProps });
     const btn = screen.getByTestId('sidebar-open-modpacks');
     expect(btn).toHaveBtnVariant('secondary');
     expect(btn).toHaveBtnSize('sm');
     expect(btn.textContent).toContain('Browse modpacks');
   });
 
-  it('"Back to instance" button is btn-secondary btn-sm when modpacksActive=true', () => {
-    render(Sidebar, { props: { ...baseProps, modpacksActive: true } });
-    const btn = screen.getByTestId('sidebar-open-modpacks');
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('sm');
-    expect(btn.textContent).toContain('Back to instance');
-  });
-
-  it('"Back to instance" button has accent active classes when modpacksActive=true', () => {
-    render(Sidebar, { props: { ...baseProps, modpacksActive: true } });
-    const btn = screen.getByTestId('sidebar-open-modpacks');
-    const cls = btn.className;
-    expect(cls).toContain('bg-accent-soft');
-    expect(cls).toContain('border-accent');
-    expect(cls).toContain('text-accent');
-    expect(cls).toContain('font-medium');
+  it('"Browse modpacks" calls onOpenModpacks on click', async () => {
+    const onOpenModpacks = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onOpenModpacks } });
+    await fireEvent.click(screen.getByTestId('sidebar-open-modpacks'));
+    expect(onOpenModpacks).toHaveBeenCalledTimes(1);
   });
 
   it('"Logs" is btn-secondary btn-xs', () => {

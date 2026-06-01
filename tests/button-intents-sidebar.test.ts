@@ -55,7 +55,6 @@ const baseProps = {
   activeAccount: offlineAccount(),
   instances: [instance()],
   activeInstance: instance(),
-  modpacksActive: false,
   running: null,
   installing: false,
 };
