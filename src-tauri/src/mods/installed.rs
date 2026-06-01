@@ -21,7 +21,7 @@ use crate::error::Error;
 use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable};
 use crate::mods::platform::{InstalledMod, ModSource};
 
-const FILE_VERSION: u32 = 3;
+const FILE_VERSION: u32 = 4;
 
 /// Process-lifetime SHA-1 cache for files in `mods/`, keyed by path.
 /// `reconcile()` re-uses the stored digest when a file's (mtime, size)
@@ -261,6 +261,7 @@ async fn reconcile(instance_root: &Path, state: &mut OnDisk) -> Result<bool, Err
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: *enabled,
                 enrich_attempted: false,
+                requires: Vec::new(),
             });
             changed = true;
         }
@@ -385,6 +386,11 @@ fn migrate(state: &mut OnDisk) -> bool {
             }
         }
     }
+    if state.version < 4 {
+        // v3 → v4: `requires` is added with `#[serde(default)]`; no field
+        // backfill is possible (we never recorded edges before v4), so the
+        // empty default is correct. Bumping the version stamps the upgrade.
+    }
     state.version = FILE_VERSION;
     true
 }
@@ -461,6 +467,7 @@ mod tests {
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
             enrich_attempted: false,
+            requires: Vec::new(),
         };
         add(td.path(), stale).await.unwrap();
         let mods = list(td.path()).await.unwrap();
@@ -484,6 +491,7 @@ mod tests {
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: true,
                 enrich_attempted: false,
+                requires: Vec::new(),
             },
         )
         .await
@@ -567,6 +575,7 @@ mod tests {
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: true,
                 enrich_attempted: false,
+                requires: Vec::new(),
             },
         )
         .await
@@ -636,8 +645,8 @@ mod tests {
         let raw =
             String::from_utf8(tokio::fs::read(registry_path(td.path())).await.unwrap()).unwrap();
         // Migration bumps a v1 file straight to the current
-        // FILE_VERSION (3) in one pass.
-        assert!(raw.contains("\"version\": 3"), "got {raw}");
+        // FILE_VERSION (4) in one pass.
+        assert!(raw.contains("\"version\": 4"), "got {raw}");
     }
 
     #[tokio::test]
@@ -663,6 +672,7 @@ mod tests {
                 installed_at: Utc::now().to_rfc3339(),
                 enabled: true,
                 enrich_attempted: true,
+                requires: Vec::new(),
             }],
             pack_origin: None,
         };
@@ -700,6 +710,7 @@ mod tests {
                     installed_at: Utc::now().to_rfc3339(),
                     enabled: true,
                     enrich_attempted: true, // stuck under the buggy build
+                    requires: Vec::new(),
                 },
                 InstalledMod {
                     filename: "resolved.jar".into(),
@@ -712,6 +723,7 @@ mod tests {
                     installed_at: Utc::now().to_rfc3339(),
                     enabled: true,
                     enrich_attempted: false,
+                    requires: Vec::new(),
                 },
             ],
             pack_origin: Some(sample_origin()),
@@ -734,7 +746,7 @@ mod tests {
         assert!(!res.enrich_attempted);
         let raw =
             String::from_utf8(tokio::fs::read(registry_path(td.path())).await.unwrap()).unwrap();
-        assert!(raw.contains("\"version\": 3"), "got {raw}");
+        assert!(raw.contains("\"version\": 4"), "got {raw}");
     }
 
     #[tokio::test]
@@ -805,6 +817,19 @@ mod tests {
         let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
         assert_eq!(origin.missing_mods.len(), 1);
         assert_eq!(origin.missing_mods[0].project_id, None);
+    }
+
+    #[tokio::test]
+    async fn migrate_v3_to_v4_adds_empty_requires_and_bumps_version() {
+        // A v3 file with one mod and no `requires` field.
+        let legacy = br#"{"version":3,"mods":[{"filename":"a.jar","sha1":"aa","source":"modrinth","project_id":"p1","version_id":"v1","name":"A","version_number":"1.0","installed_at":"2026-01-01T00:00:00Z","enabled":true,"enrich_attempted":false}]}"#;
+        let mut state: OnDisk = serde_json::from_slice(legacy).unwrap();
+        assert_eq!(state.version, 3);
+        let changed = migrate(&mut state);
+        assert!(changed, "v3 file must be migrated");
+        assert_eq!(state.version, FILE_VERSION);
+        assert_eq!(state.version, 4);
+        assert!(state.mods[0].requires.is_empty(), "requires defaults empty");
     }
 
     #[tokio::test]

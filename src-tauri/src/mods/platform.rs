@@ -213,6 +213,13 @@ pub struct InstalledMod {
     /// so registry files written before this feature load as `false`.
     #[serde(default)]
     pub enrich_attempted: bool,
+    /// Project IDs of the *required* dependencies this mod pulled in at
+    /// install time (transitive required closure of the primary). Powers
+    /// offline orphan detection on bulk uninstall. `#[serde(default)]` so
+    /// registry files written before schema v4 load with an empty vec.
+    /// Optional deps the user opted into are NOT recorded here.
+    #[serde(default)]
+    pub requires: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]

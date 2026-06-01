@@ -58,6 +58,7 @@ mod tests {
             installed_at: Utc::now().to_rfc3339(),
             enabled: true,
             enrich_attempted: false,
+            requires: Vec::new(),
         }
     }
 
