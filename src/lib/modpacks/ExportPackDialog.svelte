@@ -151,6 +151,9 @@
           <label><input type="checkbox" checked disabled /> Mods ({preview.mods.length})</label>
           {#if preview.has_config}
             <label><input type="checkbox" bind:checked={includeConfig} /> Configs</label>
+            <p class="text-xs text-muted">
+              Some mods keep API keys or tokens in config/ — review before sharing.
+            </p>
           {/if}
           {#if preview.has_resourcepacks}
             <label

@@ -578,7 +578,7 @@
                     tab.
                   </p>
                 {/if}
-                {#if activeInstance && installedStats.total >= 1}
+                {#if activeInstance && installedStats.enabled >= 1}
                   <div class="mt-2">
                     <button
                       type="button"
