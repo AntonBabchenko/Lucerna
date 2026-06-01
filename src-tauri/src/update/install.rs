@@ -59,16 +59,142 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     let name = info.installer.name.clone();
     let ver = info.latest.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let bytes = std::fs::read(&ip).map_err(|e| Error::io(ip.display().to_string(), e))?;
-        verify::verify_sha256(&bytes, &name, &sums)?;
-        verify::verify_cosign(&bytes, &bp, &ver)
+        verify_and_launch(
+            &ip,
+            |bytes| {
+                verify::verify_sha256(bytes, &name, &sums)?;
+                verify::verify_cosign(bytes, &bp, &ver)
+            },
+            crate::process::spawn_installer,
+        )
     })
     .await
-    .map_err(|e| Error::UpdateVerificationFailed {
-        details: format!("verify task: {e}"),
+    .map_err(|e| Error::UpdateInstallFailed {
+        details: format!("install task: {e}"),
     })??;
 
-    crate::process::spawn_installer(&installer_path)?;
     app.exit(0);
     Ok(())
+}
+
+/// Read the installer at `installer_path`, verify it, and only then launch it.
+///
+/// The security guarantee lives here: `launch` is reached **iff** `verify`
+/// returns `Ok`. A read error or a verification failure short-circuits via `?`
+/// before `launch` is ever called, so an unverified binary is never run. Both
+/// steps are taken as closures so the ordering can be tested without real
+/// network I/O, a cosign bundle, or an actual installer process.
+fn verify_and_launch(
+    installer_path: &std::path::Path,
+    verify: impl FnOnce(&[u8]) -> Result<()>,
+    launch: impl FnOnce(&std::path::Path) -> Result<()>,
+) -> Result<()> {
+    let bytes = std::fs::read(installer_path)
+        .map_err(|e| Error::io(installer_path.display().to_string(), e))?;
+    verify(&bytes)?;
+    launch(installer_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::io::Write;
+    use std::path::Path;
+
+    fn write_temp_installer() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("installer.exe");
+        let mut f = std::fs::File::create(&path).expect("create installer");
+        f.write_all(b"installer-bytes").expect("write installer");
+        (dir, path)
+    }
+
+    #[test]
+    fn verify_failure_does_not_launch() {
+        let (_dir, path) = write_temp_installer();
+        let launched = Cell::new(false);
+
+        let result = verify_and_launch(
+            &path,
+            |_bytes| {
+                Err(Error::UpdateVerificationFailed {
+                    details: "forced failure".into(),
+                })
+            },
+            |_p| {
+                launched.set(true);
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err(), "verify failure must propagate as Err");
+        assert!(
+            !launched.get(),
+            "launch must NOT run when verification fails — unverified binary never launched",
+        );
+    }
+
+    #[test]
+    fn verify_success_launches_with_installer_path() {
+        let (_dir, path) = write_temp_installer();
+        let launched_with: Cell<Option<std::path::PathBuf>> = Cell::new(None);
+
+        let result = verify_and_launch(
+            &path,
+            |bytes| {
+                assert_eq!(bytes, b"installer-bytes", "verify sees the installer bytes");
+                Ok(())
+            },
+            |p| {
+                launched_with.set(Some(p.to_path_buf()));
+                Ok(())
+            },
+        );
+
+        assert!(result.is_ok(), "successful verify+launch returns Ok");
+        assert_eq!(
+            launched_with.into_inner().as_deref(),
+            Some(path.as_path()),
+            "launch runs exactly once with the installer path",
+        );
+    }
+
+    #[test]
+    fn launch_failure_propagates_as_err() {
+        let (_dir, path) = write_temp_installer();
+
+        let result = verify_and_launch(
+            &path,
+            |_bytes| Ok(()),
+            |_p| {
+                Err(Error::UpdateInstallFailed {
+                    details: "forced launch failure".into(),
+                })
+            },
+        );
+
+        assert!(result.is_err(), "a launch failure must propagate as Err");
+    }
+
+    #[test]
+    fn unreadable_installer_does_not_launch() {
+        let launched = Cell::new(false);
+        let missing = Path::new("definitely-not-a-real-installer-xyz.exe");
+
+        let result = verify_and_launch(
+            missing,
+            |_bytes| Ok(()),
+            |_p| {
+                launched.set(true);
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err(), "unreadable installer must error");
+        assert!(
+            !launched.get(),
+            "launch must NOT run when the installer cannot be read",
+        );
+    }
 }
