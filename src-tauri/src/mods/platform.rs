@@ -180,6 +180,14 @@ pub struct InstallPlan {
     pub loader_requirements: Vec<DepProjectRef>,
 }
 
+/// A mod that would no longer be required by anything after a removal.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct OrphanRef {
+    pub sha1: String,
+    pub name: String,
+    pub project_id: String,
+}
+
 /// Returned by `mods_install_with_deps` so the UI can show a per-mod toast.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstallSummary {
