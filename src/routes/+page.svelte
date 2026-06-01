@@ -234,27 +234,34 @@
       initTheme(settingsResult.data.general.theme ?? 'system');
     }
 
+    // Fire-and-forget: this is a best-effort, error-swallowing check, so it
+    // must NOT gate core init. Awaiting it here would stall accounts +
+    // versions behind the network call (up to the client's 15s connect
+    // timeout) on a GitHub outage. Let it resolve on its own; the toast
+    // appears whenever it completes.
     if (settingsResult.status === 'ok' && settingsResult.data.general.check_updates_on_startup) {
-      const upd = await commands.updateCheck();
       const dismissed = settingsResult.data.update_dismissed_version ?? null;
-      if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
-        updateState.value = upd.data;
-        const latest = upd.data.latest;
-        const current = upd.data.current;
-        const toastId = pushActionToast(
-          'info',
-          `Lucerna ${latest} is available`,
-          { label: 'Update', run: () => void runUpdate() },
-          [`You're on ${current}.`],
-          () => void dismissUpdate(latest),
-        );
-        // Auto-hide the startup notification after a few seconds. This
-        // only HIDES it (so it reappears next launch) — it does NOT mark
-        // the version dismissed (that's the × button via dismissUpdate).
-        // The durable path is the Settings → Updates "Check for updates"
-        // button. No-op if the user already acted on the toast.
-        setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
-      }
+      void (async () => {
+        const upd = await commands.updateCheck();
+        if (upd.status === 'ok' && upd.data.available && upd.data.latest !== dismissed) {
+          updateState.value = upd.data;
+          const latest = upd.data.latest;
+          const current = upd.data.current;
+          const toastId = pushActionToast(
+            'info',
+            `Lucerna ${latest} is available`,
+            { label: 'Update', run: () => void runUpdate() },
+            [`You're on ${current}.`],
+            () => void dismissUpdate(latest),
+          );
+          // Auto-hide the startup notification after a few seconds. This
+          // only HIDES it (so it reappears next launch) — it does NOT mark
+          // the version dismissed (that's the × button via dismissUpdate).
+          // The durable path is the Settings → Updates "Check for updates"
+          // button. No-op if the user already acted on the toast.
+          setTimeout(() => dismiss(toastId), UPDATE_TOAST_TTL_MS);
+        }
+      })();
     }
 
     await refreshAccounts();

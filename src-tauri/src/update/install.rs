@@ -12,6 +12,14 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     let dir = crate::paths::update_dir(app).map_err(|e| Error::UpdateInstallFailed {
         details: format!("update dir: {e}"),
     })?;
+    // Start each attempt from an empty dir so installers/bundles from
+    // previous versions don't accumulate (the dir holds only the binary
+    // currently being verified + launched). Ignore "not found".
+    if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(Error::io(dir.display().to_string(), e));
+        }
+    }
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
@@ -42,18 +50,18 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
 
     let sums = crate::network::get_text(&info.sha256sums.url, "update").await?;
 
-    // Both verification steps read the whole installer (tens of MB) and do
-    // crypto work — run them together off the async runtime thread. The
-    // version pins the exact cosign signing-identity SAN. Neither step runs
-    // before the other: SHA-256 first (cheap reject on a corrupt download),
-    // then cosign. `spawn_installer` is reached only if BOTH return Ok.
+    // Verify off the async runtime thread: read the (tens-of-MB) installer
+    // ONCE and run both layers over the same bytes — no double read, and no
+    // TOCTOU between them. SHA-256 first (cheap reject on a corrupt
+    // download), then cosign. `spawn_installer` is reached only if BOTH pass.
     let ip = installer_path.clone();
     let bp = bundle_path.clone();
     let name = info.installer.name.clone();
     let ver = info.latest.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        verify::verify_sha256(&ip, &name, &sums)?;
-        verify::verify_cosign(&ip, &bp, &ver)
+        let bytes = std::fs::read(&ip).map_err(|e| Error::io(ip.display().to_string(), e))?;
+        verify::verify_sha256(&bytes, &name, &sums)?;
+        verify::verify_cosign(&bytes, &bp, &ver)
     })
     .await
     .map_err(|e| Error::UpdateVerificationFailed {

@@ -6,14 +6,24 @@ import { dismiss, pushActionToast, pushInfo } from '$lib/toasts/toasts.svelte';
 
 export const updateState = $state<{ value: UpdateInfo | null }>({ value: null });
 
+/** True while an install is in flight. Read by the UI to disable Update
+ *  controls; guards `runUpdate` against re-entry (double-click → two
+ *  download→verify→spawn chains). */
+export const updateInstalling = $state<{ value: boolean }>({ value: false });
+
 /** Start the install: re-check + download + verify + launch happen in the
  *  backend, which exits the app on success. On failure, surface a sticky
- *  warning toast with a "download manually" action. */
+ *  warning toast with a "download manually" action. Re-entrant calls while
+ *  an install is already running are ignored. */
 export async function runUpdate(): Promise<void> {
+  if (updateInstalling.value) return;
+  updateInstalling.value = true;
   const progress = pushInfo('Downloading update…');
   const r = await commands.updateInstall();
   dismiss(progress);
   if (r.status !== 'ok') {
+    // Allow another attempt after a failure (on success the app exits).
+    updateInstalling.value = false;
     const url = updateState.value?.release_url;
     pushActionToast(
       'warning',

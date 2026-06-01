@@ -20,21 +20,23 @@ pub fn sha256_for(sums: &str, filename: &str) -> Option<String> {
     })
 }
 
-/// Compute the lowercase hex SHA-256 of a file.
-pub fn sha256_file(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path).map_err(|e| Error::io(path.display().to_string(), e))?;
+/// Compute the lowercase hex SHA-256 of `bytes`.
+pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = Sha256::new();
-    h.update(&bytes);
-    Ok(hex::encode(h.finalize()))
+    h.update(bytes);
+    hex::encode(h.finalize())
 }
 
-/// Verify the installer's SHA-256 matches its `SHA256SUMS` entry.
-pub fn verify_sha256(installer: &Path, installer_name: &str, sums: &str) -> Result<()> {
+/// Verify the installer bytes' SHA-256 matches its `SHA256SUMS` entry.
+/// Takes the already-read bytes so the caller reads the (tens-of-MB)
+/// installer once and both verification layers see the SAME bytes — no
+/// double read, and no TOCTOU window between the two checks.
+pub fn verify_sha256(installer_bytes: &[u8], installer_name: &str, sums: &str) -> Result<()> {
     let expected =
         sha256_for(sums, installer_name).ok_or_else(|| Error::UpdateVerificationFailed {
             details: format!("no SHA256SUMS entry for {installer_name}"),
         })?;
-    let got = sha256_file(installer)?;
+    let got = sha256_hex(installer_bytes);
     if got != expected {
         return Err(Error::UpdateVerificationFailed {
             details: format!(
@@ -53,7 +55,7 @@ const COSIGN_ISSUER: &str = "https://token.actions.githubusercontent.com";
 /// Sigstore production root (no network). The signing identity is pinned
 /// to the exact release-tag SAN (sigstore-verify 0.8 has no regex
 /// matcher), so a binary signed by any other workflow/tag is rejected.
-pub fn verify_cosign(installer: &Path, bundle_path: &Path, version: &str) -> Result<()> {
+pub fn verify_cosign(installer_bytes: &[u8], bundle_path: &Path, version: &str) -> Result<()> {
     let trusted_root = TrustedRoot::from_json(SIGSTORE_PRODUCTION_TRUSTED_ROOT).map_err(|e| {
         Error::UpdateVerificationFailed {
             details: format!("trust root: {e}"),
@@ -66,9 +68,6 @@ pub fn verify_cosign(installer: &Path, bundle_path: &Path, version: &str) -> Res
         details: format!("parse bundle: {e}"),
     })?;
 
-    let artifact =
-        std::fs::read(installer).map_err(|e| Error::io(installer.display().to_string(), e))?;
-
     let identity = format!(
         "https://github.com/AntonBabchenko/Lucerna/.github/workflows/release.yml@refs/tags/v{version}"
     );
@@ -76,7 +75,7 @@ pub fn verify_cosign(installer: &Path, bundle_path: &Path, version: &str) -> Res
         .require_identity(identity)
         .require_issuer(COSIGN_ISSUER);
 
-    let result = verify(&artifact, &bundle, &policy, &trusted_root).map_err(|e| {
+    let result = verify(installer_bytes, &bundle, &policy, &trusted_root).map_err(|e| {
         Error::UpdateVerificationFailed {
             details: format!("cosign verify: {e}"),
         }
@@ -93,10 +92,18 @@ pub fn verify_cosign(installer: &Path, bundle_path: &Path, version: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
+    // Fixtures: `good-blob` is the real `SHA256SUMS` asset from the public
+    // v0.9.0 GitHub release, and `good.cosign.bundle` is its sibling
+    // `SHA256SUMS.cosign.bundle` (cosign keyless, signed by the release.yml
+    // workflow OIDC identity for tag v0.9.0). A small real signed blob —
+    // re-fetch with `gh release download v0.9.0` if ever regenerated.
     const SUMS: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  EMPTY\n\
                         aaaa  other.bin\n";
+
+    fn fixture_dir() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cosign")
+    }
 
     #[test]
     fn sha256_for_finds_entry() {
@@ -105,19 +112,14 @@ mod tests {
     }
 
     #[test]
-    fn verify_sha256_ok_for_matching_file() {
-        let dir = tempdir().unwrap();
-        let f = dir.path().join("EMPTY");
-        std::fs::write(&f, b"").unwrap(); // sha256 of empty = e3b0c4...
-        assert!(verify_sha256(&f, "EMPTY", SUMS).is_ok());
+    fn verify_sha256_ok_for_matching_bytes() {
+        // sha256 of empty input = e3b0c4...
+        assert!(verify_sha256(b"", "EMPTY", SUMS).is_ok());
     }
 
     #[test]
     fn verify_sha256_rejects_mismatch() {
-        let dir = tempdir().unwrap();
-        let f = dir.path().join("EMPTY");
-        std::fs::write(&f, b"tampered").unwrap();
-        let r = verify_sha256(&f, "EMPTY", SUMS);
+        let r = verify_sha256(b"tampered", "EMPTY", SUMS);
         assert!(matches!(
             r,
             Err(crate::error::Error::UpdateVerificationFailed { .. })
@@ -126,10 +128,7 @@ mod tests {
 
     #[test]
     fn verify_sha256_rejects_missing_entry() {
-        let dir = tempdir().unwrap();
-        let f = dir.path().join("nope.bin");
-        std::fs::write(&f, b"x").unwrap();
-        let r = verify_sha256(&f, "nope.bin", SUMS);
+        let r = verify_sha256(b"x", "nope.bin", SUMS);
         assert!(matches!(
             r,
             Err(crate::error::Error::UpdateVerificationFailed { .. })
@@ -138,24 +137,18 @@ mod tests {
 
     #[test]
     fn verify_cosign_accepts_good_bundle() {
-        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cosign");
-        let r = verify_cosign(
-            &base.join("good-blob"),
-            &base.join("good.cosign.bundle"),
-            "0.9.0",
-        );
+        let base = fixture_dir();
+        let bytes = std::fs::read(base.join("good-blob")).unwrap();
+        let r = verify_cosign(&bytes, &base.join("good.cosign.bundle"), "0.9.0");
         assert!(r.is_ok(), "good bundle should verify: {r:?}");
     }
 
     #[test]
     fn verify_cosign_rejects_tampered_blob() {
-        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cosign");
-        let dir = tempdir().unwrap();
-        let tampered = dir.path().join("tampered");
+        let base = fixture_dir();
         let mut bytes = std::fs::read(base.join("good-blob")).unwrap();
         bytes[0] ^= 0xff;
-        std::fs::write(&tampered, &bytes).unwrap();
-        let r = verify_cosign(&tampered, &base.join("good.cosign.bundle"), "0.9.0");
+        let r = verify_cosign(&bytes, &base.join("good.cosign.bundle"), "0.9.0");
         assert!(matches!(
             r,
             Err(crate::error::Error::UpdateVerificationFailed { .. })
@@ -165,12 +158,9 @@ mod tests {
     #[test]
     fn verify_cosign_rejects_wrong_version_identity() {
         // A different version pins a different SAN -> identity mismatch.
-        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cosign");
-        let r = verify_cosign(
-            &base.join("good-blob"),
-            &base.join("good.cosign.bundle"),
-            "0.9.999",
-        );
+        let base = fixture_dir();
+        let bytes = std::fs::read(base.join("good-blob")).unwrap();
+        let r = verify_cosign(&bytes, &base.join("good.cosign.bundle"), "0.9.999");
         assert!(matches!(
             r,
             Err(crate::error::Error::UpdateVerificationFailed { .. })

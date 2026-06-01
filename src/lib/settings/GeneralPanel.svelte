@@ -7,7 +7,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { replayTour } from '$lib/onboarding/state.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
-  import { runUpdate, updateState } from '$lib/update/state.svelte';
+  import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
   import { settingsOpen } from './state.svelte';
 
   let general = $state<GeneralSettings>({
@@ -158,9 +158,10 @@
           type="button"
           class="btn-primary btn-sm"
           onclick={() => void runUpdate()}
+          disabled={updateInstalling.value}
           data-testid="update-now-btn"
         >
-          Update now
+          {updateInstalling.value ? 'Installing…' : 'Update now'}
         </button>
       {/if}
     </div>
