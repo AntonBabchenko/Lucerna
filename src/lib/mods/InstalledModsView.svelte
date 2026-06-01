@@ -151,6 +151,36 @@
       ),
   );
 
+  // Selection state for bulk actions. `selected` holds the sha1s of the
+  // currently checked rows. Reassign the whole Set (never mutate in place)
+  // to trigger Svelte 5 reactivity.
+  let selected = $state<Set<string>>(new Set());
+
+  // Drop selections for rows no longer visible (filter/search change) so a
+  // hidden row can't be bulk-acted on.
+  $effect(() => {
+    const visible = new Set(filtered.map((r) => r.installed.sha1));
+    let changed = false;
+    const next = new Set(selected);
+    for (const sha of next) if (!visible.has(sha)) { next.delete(sha); changed = true; }
+    if (changed) selected = next;
+  });
+  $effect(() => {
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read on instanceId
+    const _id = instanceId;
+    selected = new Set();
+  });
+
+  const allSelected = $derived(filtered.length > 0 && filtered.every((r) => selected.has(r.installed.sha1)));
+  function toggleSelect(sha1: string, checked: boolean) {
+    const next = new Set(selected);
+    if (checked) next.add(sha1); else next.delete(sha1);
+    selected = next;
+  }
+  function toggleSelectAll(checked: boolean) {
+    selected = checked ? new Set(filtered.map((r) => r.installed.sha1)) : new Set();
+  }
+
   // Counters reflect the full installed list (pre-filter) so the user
   // sees the inventory total even when narrowing by name.
   const totalCount = $derived(rows.length);
@@ -417,6 +447,10 @@
           <option value="source">Source</option>
         </select>
       </label>
+      <label class="text-xs text-secondary inline-flex items-center gap-1">
+        <input type="checkbox" aria-label="Select all" checked={allSelected} onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)} />
+        Select all
+      </label>
       <button
         type="button"
         class="btn-secondary btn-xs"
@@ -503,6 +537,12 @@
       No mods installed in this instance yet.
     </div>
   {:else}
+  {#if selected.size > 0}
+    <div data-testid="bulk-bar" class="sticky top-0 z-10 flex items-center gap-2 bg-accent-soft border border-accent rounded px-3 py-2 mb-2 text-sm">
+      <span class="font-medium text-accent">{selected.size} selected</span>
+      <button type="button" class="btn-ghost btn-xs ml-auto" onclick={() => (selected = new Set())}>Clear</button>
+    </div>
+  {/if}
     <div class="border border-border-subtle rounded overflow-hidden">
       {#each filtered as row (row.installed.sha1)}
         {#if row.summary}
@@ -520,6 +560,9 @@
             packChip={packSummary && packSummary.mod_shas.includes(row.installed.sha1)
               ? packSummary.project_name
               : null}
+            selectable={true}
+            selected={selected.has(row.installed.sha1)}
+            onSelectChange={(c) => toggleSelect(row.installed.sha1, c)}
           />
         {:else}
           <!-- No platform metadata. Either a hand-dropped "manual mod"
@@ -530,6 +573,7 @@
             class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface"
             data-testid="manual-mod-row"
           >
+            <input type="checkbox" class="flex-shrink-0" checked={selected.has(row.installed.sha1)} aria-label={`Select mod ${row.installed.filename}`} onchange={(e) => toggleSelect(row.installed.sha1, (e.currentTarget as HTMLInputElement).checked)} />
             <div class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0" aria-hidden="true">◆</div>
             <div class="flex-1 min-w-0">
               <div class="font-medium text-primary truncate">{row.installed.filename}</div>
