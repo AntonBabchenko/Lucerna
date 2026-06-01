@@ -2784,6 +2784,134 @@ pub async fn mods_find_orphans(
 }
 
 // =========================================================================
+// Dependency graph (feat/mods-bulk-actions Task 5)
+// =========================================================================
+
+/// Build a full nested dependency graph for all platform-identified mods in
+/// `instance_id`. Each installed mod is a root; its required and optional
+/// subtrees are walked recursively (cycle-guarded, memoized). Each node is
+/// classified as `satisfied / missing_required / optional_present /
+/// optional_absent` against the installed set.
+///
+/// The graph is informational — no files are written. Intended to power the
+/// "Dependency Tree" view in the Mods tab.
+///
+/// `depgraph::build_graph` produces a `Send` future (boxed recursive walk with
+/// `+ Send` on the alias), so it can be awaited directly on the Tauri executor.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_dependency_graph(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::mods::depgraph::DependencyGraph> {
+    use crate::mods::depgraph::{build_graph, DepChild, InstalledNode, NodeDeps};
+    use std::sync::Arc;
+
+    let root = instance_root(&app, &instance_id)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    let installed_mods = crate::mods::installed::list(&root).await?;
+
+    // Roots: platform-identified installed mods only (anonymous local jars have
+    // no source metadata and cannot be queried for deps).
+    let roots: Vec<InstalledNode> = installed_mods
+        .iter()
+        .filter_map(|m| match (m.source, m.project_id.as_ref()) {
+            (Some(source), Some(pid)) => Some(InstalledNode {
+                sha1: m.sha1.clone(),
+                source,
+                project_id: pid.clone(),
+                name: m.name.clone(),
+            }),
+            _ => None,
+        })
+        .collect();
+
+    // Per-source platform handles + shared loader-slug cache cloned into each call.
+    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
+    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(ModSource::Curseforge).into();
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        ProjectKey,
+        bool,
+    >::new()));
+    let mc = mc_version.clone();
+
+    // Build the fetch closure. Each invocation clones the lightweight Arcs and
+    // drives one project's deps: platform.versions() → latest version →
+    // platform.resolve_deps() → filter loaders → enrich display names.
+    let make_fetch = move || {
+        let mr = mr.clone();
+        let cf = cf.clone();
+        let loader_cache = loader_cache.clone();
+        let mc = mc.clone();
+        move |source: ModSource, project_id: String| {
+            let platform: Arc<dyn crate::mods::platform::ModPlatform> = match source {
+                ModSource::Modrinth => mr.clone(),
+                ModSource::Curseforge => cf.clone(),
+            };
+            let loader_cache = loader_cache.clone();
+            let mc = mc.clone();
+            async move {
+                let mut versions = platform
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await
+                    .unwrap_or_default();
+                // Pick the newest compatible version explicitly: Modrinth
+                // returns newest-first but CurseForge's order is undocumented,
+                // so sort by `published_at` (RFC 3339, lexicographically
+                // sortable) descending rather than trusting API order. None
+                // sorts last.
+                versions.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+                let Some(v) = versions.into_iter().next() else {
+                    // Couldn't resolve (e.g. CF without a key) — treat as leaf.
+                    return Ok(NodeDeps::default());
+                };
+                let rd = match platform.resolve_deps(&v, &mc, loader).await {
+                    Ok(rd) => rd,
+                    Err(_) => return Ok(NodeDeps::default()),
+                };
+                // Filter out loader projects; enrich child display names via project summary.
+                let mut required = Vec::new();
+                for r in rd.required {
+                    if is_loader_project(platform.as_ref(), &loader_cache, &r.version).await {
+                        continue;
+                    }
+                    let name = platform
+                        .project(&r.version.project_id)
+                        .await
+                        .map(|p| p.summary.name)
+                        .unwrap_or_else(|_| r.version.name.clone());
+                    required.push(DepChild {
+                        source: r.version.source,
+                        project_id: r.version.project_id,
+                        name,
+                    });
+                }
+                let mut optional = Vec::new();
+                for o in rd.optional {
+                    if is_loader_project(platform.as_ref(), &loader_cache, &o.version).await {
+                        continue;
+                    }
+                    let name = platform
+                        .project(&o.version.project_id)
+                        .await
+                        .map(|p| p.summary.name)
+                        .unwrap_or_else(|_| o.version.name.clone());
+                    optional.push(DepChild {
+                        source: o.version.source,
+                        project_id: o.version.project_id,
+                        name,
+                    });
+                }
+                Ok::<NodeDeps, crate::error::Error>(NodeDeps { required, optional })
+            }
+        }
+    };
+
+    build_graph(&roots, make_fetch()).await
+}
+
+// =========================================================================
 // Microsoft authentication (task 12)
 // =========================================================================
 

@@ -16,7 +16,7 @@ use crate::mods::platform::ModSource;
 /// `async fn` cannot recurse without boxing the future, so the recursion is
 /// expressed as a plain fn returning this pinned box.
 type WalkFuture<'a, T> =
-    std::pin::Pin<Box<dyn Future<Output = Result<T, crate::error::Error>> + 'a>>;
+    std::pin::Pin<Box<dyn Future<Output = Result<T, crate::error::Error>> + Send + 'a>>;
 
 /// Stable identity used for the installed set, dedup, and cycle detection.
 fn key(source: ModSource, project_id: &str) -> String {
@@ -94,8 +94,8 @@ pub async fn build_graph<F, Fut>(
     mut fetch: F,
 ) -> Result<DependencyGraph, crate::error::Error>
 where
-    F: FnMut(ModSource, String) -> Fut,
-    Fut: Future<Output = Result<NodeDeps, crate::error::Error>>,
+    F: FnMut(ModSource, String) -> Fut + Send,
+    Fut: Future<Output = Result<NodeDeps, crate::error::Error>> + Send,
 {
     let installed_keys: HashSet<String> = installed
         .iter()
@@ -148,8 +148,8 @@ fn build_children<'a, F, Fut>(
     path: &'a mut HashSet<String>,
 ) -> WalkFuture<'a, Vec<DepTreeNode>>
 where
-    F: FnMut(ModSource, String) -> Fut,
-    Fut: Future<Output = Result<NodeDeps, crate::error::Error>>,
+    F: FnMut(ModSource, String) -> Fut + Send,
+    Fut: Future<Output = Result<NodeDeps, crate::error::Error>> + Send,
 {
     Box::pin(async move {
         let mut out = Vec::with_capacity(children.len());
@@ -221,8 +221,8 @@ async fn fetch_memo<F, Fut>(
     project_id: &str,
 ) -> Result<NodeDeps, crate::error::Error>
 where
-    F: FnMut(ModSource, String) -> Fut,
-    Fut: Future<Output = Result<NodeDeps, crate::error::Error>>,
+    F: FnMut(ModSource, String) -> Fut + Send,
+    Fut: Future<Output = Result<NodeDeps, crate::error::Error>> + Send,
 {
     let k = key(source, project_id);
     if let Some(hit) = cache.get(&k) {
