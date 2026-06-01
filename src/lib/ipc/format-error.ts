@@ -136,6 +136,8 @@ export function formatError(e: IpcError): string {
       return `'${e.mod_name}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.`;
     case 'modpack_cf_distribution_disabled':
       return `"${e.pack_name}" cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge to download the pack manually.`;
+    case 'modpack_export_failed':
+      return `Couldn't export the modpack: ${e.details}`;
     case 'world_not_found':
       return `World "${e.folder_name}" not found in this instance`;
     case 'world_in_use':
