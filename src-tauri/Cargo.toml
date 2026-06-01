@@ -67,6 +67,8 @@ urlencoding = "2.1"
 # externally-authored HTML reaching the webview. Both MIT-licensed.
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 ammonia = "4"
+# SPIKE (feat/auto-update): in-app cosign keyless verification of release blobs.
+sigstore-verify = "0.8.0"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process
 # has created its window (and so is visible on screen) before we hide
