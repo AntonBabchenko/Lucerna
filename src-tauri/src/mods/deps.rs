@@ -332,4 +332,53 @@ mod tests {
             .loader_keys
             .contains(&ProjectKey::Modrinth("neoforge".into())));
     }
+
+    #[tokio::test]
+    async fn unresolvable_dep_bubbles_up_from_depth() {
+        // a -> b (required); b declares an unresolvable dep referencing a
+        // CurseForge mod (e.g. a Modrinth pack that can't resolve a CF ref).
+        // The walk must surface that ref in closure.unresolvable even though
+        // it originates two hops from the root.
+        use std::future::ready;
+        let fetch = move |v: ModVersion| {
+            let deps = match v.project_id.as_str() {
+                "a" => FetchedDeps {
+                    required: vec![ResolvedNode {
+                        version: mv("b", vec![]),
+                        is_loader: false,
+                    }],
+                    ..Default::default()
+                },
+                "b" => FetchedDeps {
+                    unresolvable: vec![DepProjectRef::Curseforge {
+                        mod_id: 999,
+                        file_id: None,
+                    }],
+                    ..Default::default()
+                },
+                _ => FetchedDeps::default(),
+            };
+            ready(Ok::<_, crate::error::Error>(deps))
+        };
+        let roots = vec![mv("a", vec![("b", DepKind::Required)])];
+        let c = resolve_closure(&roots, &HashSet::new(), fetch)
+            .await
+            .unwrap();
+        assert!(
+            keys(&c).contains(&"b".to_string()),
+            "b must be in the required closure"
+        );
+        assert_eq!(
+            c.unresolvable.len(),
+            1,
+            "exactly one unresolvable ref expected"
+        );
+        assert!(
+            matches!(
+                c.unresolvable[0],
+                DepProjectRef::Curseforge { mod_id: 999, .. }
+            ),
+            "unresolvable ref must be the CF mod_id=999 declared by b"
+        );
+    }
 }
