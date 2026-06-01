@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
 
@@ -48,5 +48,25 @@ describe('InstalledModsView selection', () => {
     await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
     const update = screen.getByRole('button', { name: /^Update$/i });
     expect((update as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('offers orphaned deps and uninstalls them when confirmed', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    (commands.modsFindOrphans as any) = vi.fn(async () => ({ status: 'ok', data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }] }));
+    const uninstall = ((commands.modsUninstall as any) = vi.fn(async () => ({ status: 'ok', data: null })));
+    render(InstalledModsView, { props });
+    await screen.findByText('Alpha');
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // select Alpha (sha 'a')
+    const bulkBar = screen.getByTestId('bulk-bar');
+    await fireEvent.click(within(bulkBar).getByRole('button', { name: /uninstall/i }));
+    // Dialog appears, lists the orphan and the "no longer be needed" copy
+    expect(await screen.findByText(/no longer be needed/i)).toBeTruthy();
+    // Confirm — click the dialog's Uninstall button (there are now 2 'Uninstall' buttons:
+    // the bulk-bar one and the dialog one). The dialog's is inside role="dialog".
+    const dialog = screen.getByRole('dialog');
+    const { getByRole } = within(dialog);
+    await fireEvent.click(getByRole('button', { name: /uninstall/i }));
+    expect(uninstall).toHaveBeenCalledWith('inst1', 'a');
+    expect(uninstall).toHaveBeenCalledWith('inst1', 'b');
   });
 });

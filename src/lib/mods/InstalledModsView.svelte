@@ -17,7 +17,9 @@
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
+  import OrphanUninstallDialog from './OrphanUninstallDialog.svelte';
   import { updateCheckCache } from './update-check-cache';
+  import type { OrphanRef } from '$lib/ipc/bindings';
 
   // The Installed pane of ModBrowserTab. Renders the same ModCard
   // component the Browse pane uses, so the UI is consistent — same
@@ -430,8 +432,31 @@
     else pushWarning(`Updated ${ok}, ${failed} failed`, []);
   }
 
-  // Bulk uninstall is implemented in Task 9; stub so the bar compiles.
-  async function requestBulkUninstall() { /* implemented in Task 9 */ }
+  let uninstallPrompt = $state<{ removing: string[]; names: string[]; orphans: OrphanRef[] } | null>(null);
+
+  async function requestBulkUninstall() {
+    if (!instanceId || selected.size === 0) return;
+    const removing = selectedRows.map((r) => r.installed.sha1);
+    const names = selectedRows.map((r) => rowDisplayName(r));
+    const r = await commands.modsFindOrphans(instanceId, removing);
+    const orphans = r.status === 'ok' ? r.data : [];
+    uninstallPrompt = { removing, names, orphans };
+  }
+
+  async function confirmBulkUninstall(alsoRemove: string[]) {
+    if (!instanceId || !uninstallPrompt) return;
+    const all = [...uninstallPrompt.removing, ...alsoRemove];
+    uninstallPrompt = null;
+    busy = true; error = null;
+    let ok = 0, failed = 0;
+    for (const sha1 of all) {
+      const res = await commands.modsUninstall(instanceId, sha1);
+      if (res.status === 'error') failed++; else ok++;
+    }
+    busy = false; selected = new Set(); await refresh();
+    if (failed === 0) pushSuccess(`Uninstalled ${ok} mod${ok === 1 ? '' : 's'}`);
+    else pushWarning(`Uninstalled ${ok}, ${failed} failed`, []);
+  }
 
   async function updateAll() {
     if (!instanceId) return;
@@ -653,6 +678,15 @@
       onInstall={(v) => {
         if (drawerRow) void switchVersion(drawerRow, v);
       }}
+    />
+  {/if}
+
+  {#if uninstallPrompt}
+    <OrphanUninstallDialog
+      removingNames={uninstallPrompt.names}
+      orphans={uninstallPrompt.orphans}
+      onCancel={() => (uninstallPrompt = null)}
+      onConfirm={confirmBulkUninstall}
     />
   {/if}
 </div>
