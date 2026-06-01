@@ -34,6 +34,19 @@
           {/each}
         </ul>
       {/if}
+      {#if t.action}
+        <button
+          type="button"
+          class="btn-primary btn-sm mt-2"
+          data-testid="toast-action"
+          onclick={() => {
+            t.action?.run();
+            dismiss(t.id);
+          }}
+        >
+          {t.action.label}
+        </button>
+      {/if}
     </div>
   {/each}
 </div>
