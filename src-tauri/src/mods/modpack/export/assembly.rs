@@ -1,11 +1,16 @@
 //! Zip assembly + overrides.
 
+use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
 use sha1::Sha1;
 use sha2::{Digest as Sha2Digest, Sha512};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 use crate::error::Error;
+use crate::mods::modpack::path_safety::is_safe_relative_path;
+use crate::mods::platform::ModSource;
 
 /// Lowercase hex sha1 + sha512 and byte size of the file at `path`.
 /// Reads the whole file once. Used to build `.mrpack` file hashes from the
@@ -21,8 +26,6 @@ pub fn hash_file(path: &Path) -> Result<(String, String, u64), Error> {
     let sha512 = hex::encode(Sha512::digest(&bytes));
     Ok((sha1, sha512, bytes.len() as u64))
 }
-
-use crate::mods::platform::ModSource;
 
 /// Resolve the canonical download URL for a referenced mod. Modrinth: the
 /// primary file URL from the version endpoint. CurseForge: the forgecdn
@@ -89,6 +92,168 @@ pub async fn resolve_download_url(
                 Err(e) => Err(e),
             }
         }
+    }
+}
+
+/// A file to place inside the archive. `archive_path` is the full path
+/// within the zip using forward slashes (e.g. `overrides/mods/x.jar` or
+/// `modrinth.index.json`).
+pub struct ZipEntry {
+    pub archive_path: String,
+    pub source: ZipSource,
+}
+
+pub enum ZipSource {
+    /// Copy this on-disk file into the entry.
+    File(std::path::PathBuf),
+    /// Write these in-memory bytes (the manifest JSON).
+    Bytes(Vec<u8>),
+}
+
+/// Write `entries` into a new zip at `dest`. Overwrites any existing file.
+/// Every `archive_path` under `overrides/` must be a safe relative path
+/// after the prefix; rejects traversal.
+pub fn write_archive(dest: &Path, entries: &[ZipEntry]) -> Result<(), Error> {
+    let file = std::fs::File::create(dest).map_err(|e| Error::io(dest.display().to_string(), e))?;
+    let mut zw = ZipWriter::new(BufWriter::new(file));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for entry in entries {
+        // Guard: anything under overrides/ must be a safe relative path.
+        if let Some(rel) = entry.archive_path.strip_prefix("overrides/") {
+            if !is_safe_relative_path(rel) {
+                return Err(Error::ModpackExportFailed {
+                    details: format!("unsafe override path: {}", entry.archive_path),
+                });
+            }
+        }
+        zw.start_file(&entry.archive_path, options)
+            .map_err(|e| Error::ModpackExportFailed {
+                details: format!("zip start {}: {e}", entry.archive_path),
+            })?;
+        match &entry.source {
+            ZipSource::Bytes(b) => {
+                zw.write_all(b)
+                    .map_err(|e| Error::io(entry.archive_path.clone(), e))?;
+            }
+            ZipSource::File(p) => {
+                let mut f = BufReader::new(
+                    std::fs::File::open(p).map_err(|e| Error::io(p.display().to_string(), e))?,
+                );
+                std::io::copy(&mut f, &mut zw)
+                    .map_err(|e| Error::io(p.display().to_string(), e))?;
+            }
+        }
+    }
+    zw.finish().map_err(|e| Error::ModpackExportFailed {
+        details: format!("zip finish: {e}"),
+    })?;
+    Ok(())
+}
+
+/// Recursively collect files under `dir` into `ZipEntry`s rooted at
+/// `archive_prefix` (e.g. `overrides/config`). Returns empty when `dir`
+/// does not exist. Skips symlinks/special files.
+pub fn collect_dir_entries(dir: &Path, archive_prefix: &str) -> Result<Vec<ZipEntry>, Error> {
+    let mut out = Vec::new();
+    if !dir.exists() {
+        return Ok(out);
+    }
+    collect_recursive(dir, archive_prefix, &mut out)?;
+    Ok(out)
+}
+
+fn collect_recursive(dir: &Path, prefix: &str, out: &mut Vec<ZipEntry>) -> Result<(), Error> {
+    for entry in std::fs::read_dir(dir).map_err(|e| Error::io(dir.display().to_string(), e))? {
+        let entry = entry.map_err(|e| Error::io(dir.display().to_string(), e))?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let child_prefix = format!("{prefix}/{name}");
+        let meta = entry
+            .metadata()
+            .map_err(|e| Error::io(path.display().to_string(), e))?;
+        if meta.is_dir() {
+            collect_recursive(&path, &child_prefix, out)?;
+        } else if meta.is_file() {
+            out.push(ZipEntry {
+                archive_path: child_prefix,
+                source: ZipSource::File(path),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+    use std::io::Read;
+    use tempfile::tempdir;
+    use zip::ZipArchive;
+
+    #[test]
+    fn writes_manifest_and_override_file() {
+        let td = tempdir().unwrap();
+        let jar = td.path().join("a.jar");
+        std::fs::write(&jar, b"jarbytes").unwrap();
+        let dest = td.path().join("out.mrpack");
+        let entries = vec![
+            ZipEntry {
+                archive_path: "modrinth.index.json".into(),
+                source: ZipSource::Bytes(b"{}".to_vec()),
+            },
+            ZipEntry {
+                archive_path: "overrides/mods/a.jar".into(),
+                source: ZipSource::File(jar),
+            },
+        ];
+        write_archive(&dest, &entries).unwrap();
+
+        let mut zip = ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+        let mut idx = String::new();
+        zip.by_name("modrinth.index.json")
+            .unwrap()
+            .read_to_string(&mut idx)
+            .unwrap();
+        assert_eq!(idx, "{}");
+        let mut body = Vec::new();
+        zip.by_name("overrides/mods/a.jar")
+            .unwrap()
+            .read_to_end(&mut body)
+            .unwrap();
+        assert_eq!(body, b"jarbytes");
+    }
+
+    #[test]
+    fn rejects_unsafe_override_path() {
+        let td = tempdir().unwrap();
+        let dest = td.path().join("out.mrpack");
+        let entries = vec![ZipEntry {
+            archive_path: "overrides/../escape.txt".into(),
+            source: ZipSource::Bytes(b"x".to_vec()),
+        }];
+        let r = write_archive(&dest, &entries);
+        assert!(matches!(r, Err(Error::ModpackExportFailed { .. })));
+    }
+
+    #[test]
+    fn collect_dir_entries_walks_recursively() {
+        let td = tempdir().unwrap();
+        let cfg = td.path().join("config").join("sodium");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join("options.json"), b"{}").unwrap();
+        let entries = collect_dir_entries(&td.path().join("config"), "overrides/config").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].archive_path,
+            "overrides/config/sodium/options.json"
+        );
+    }
+
+    #[test]
+    fn collect_dir_entries_empty_for_missing_dir() {
+        let td = tempdir().unwrap();
+        let entries = collect_dir_entries(&td.path().join("nope"), "overrides/nope").unwrap();
+        assert!(entries.is_empty());
     }
 }
 
