@@ -285,6 +285,24 @@ pub async fn remove(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     write(instance_root, &state).await
 }
 
+/// Overwrite the `requires` edge list for the entry with the given SHA-1.
+/// No-op if the SHA-1 is unknown. Read-modify-write.
+pub async fn set_requires(
+    instance_root: &Path,
+    sha1: &str,
+    requires: Vec<String>,
+) -> Result<(), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    if let Some(m) = state
+        .mods
+        .iter_mut()
+        .find(|x| x.sha1.eq_ignore_ascii_case(sha1))
+    {
+        m.requires = requires;
+    }
+    write(instance_root, &state).await
+}
+
 /// Toggle `enabled` for the entry with the given SHA-1.
 pub async fn set_enabled(instance_root: &Path, sha1: &str, enabled: bool) -> Result<(), Error> {
     let mut state = read_or_empty(instance_root).await?;
@@ -1031,6 +1049,40 @@ mod tests {
         // its identity.
         assert!(m.enrich_attempted);
         assert_eq!(m.source, Some(ModSource::Modrinth));
+    }
+
+    #[tokio::test]
+    async fn set_requires_overwrites_only_the_target_mod() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Place a real jar so reconcile() doesn't prune the entry on list().
+        let sha = place_jar(&mods_dir(root), "primary.jar", b"primary-bytes").await;
+        add(
+            root,
+            InstalledMod {
+                filename: "primary.jar".into(),
+                sha1: sha.clone(),
+                source: Some(ModSource::Modrinth),
+                project_id: Some("prim".into()),
+                version_id: Some("v".into()),
+                name: "Primary".into(),
+                version_number: Some("1.0".into()),
+                installed_at: "2026-01-01T00:00:00Z".into(),
+                enabled: true,
+                enrich_attempted: false,
+                requires: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        set_requires(root, &sha, vec!["dep1".into(), "dep2".into()])
+            .await
+            .unwrap();
+
+        let mods = list(root).await.unwrap();
+        let prim = mods.iter().find(|m| m.sha1 == sha).unwrap();
+        assert_eq!(prim.requires, vec!["dep1".to_string(), "dep2".to_string()]);
     }
 
     #[tokio::test]

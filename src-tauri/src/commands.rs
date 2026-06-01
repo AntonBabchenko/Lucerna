@@ -1048,6 +1048,18 @@ pub async fn mods_install_with_deps(
             .await?
             .required;
 
+    // Project IDs of the primary's transitive required closure — persisted
+    // onto the primary's registry entry for offline orphan detection.
+    let primary_required_ids: Vec<String> = {
+        let mut ids: Vec<String> = primary_required
+            .iter()
+            .map(|v| v.project_id.clone())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    };
+
     // For each chosen optional: resolve it to a full version, then compute its
     // transitive sub-closure (excluding installed + already-collected deps).
     let mut dep_versions: Vec<ModVersion> = primary_required;
@@ -1075,12 +1087,15 @@ pub async fn mods_install_with_deps(
     install_seq.extend(chosen_optionals.iter().cloned());
 
     let mut installed_dependencies: Vec<String> = Vec::new();
+    let mut primary_sha1: Option<String> = None;
     for v in install_seq {
         let is_primary = version_matches(&v, &primary);
         let v_project_id = v.project_id.clone();
         match crate::mods::install::install_one(&dd, &inst_root, v.clone(), &prog).await {
             Ok(inst) => {
-                if !is_primary {
+                if is_primary {
+                    primary_sha1 = Some(inst.sha1.clone());
+                } else {
                     installed_dependencies.push(inst.name.clone());
                 }
                 let _ = ModInstalled {
@@ -1101,6 +1116,9 @@ pub async fn mods_install_with_deps(
                 return Err(e);
             }
         }
+    }
+    if let Some(sha1) = primary_sha1 {
+        crate::mods::installed::set_requires(&inst_root, &sha1, primary_required_ids).await?;
     }
     Ok(crate::mods::platform::InstallSummary {
         primary_name: primary_v.name.clone(),
