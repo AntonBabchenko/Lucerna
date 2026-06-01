@@ -7,6 +7,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { replayTour } from '$lib/onboarding/state.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
+  import { runUpdate, updateState } from '$lib/update/state.svelte';
   import { settingsOpen } from './state.svelte';
 
   let general = $state<GeneralSettings>({
@@ -31,6 +32,33 @@
     const r = await commands.appSettingsSetGeneral(general);
     if (r.status !== 'ok') {
       saveError = formatError(r.error);
+    }
+  }
+
+  // Manual update check, triggered from the button below. Mirrors the
+  // startup check but reports inline rather than via the passive toast.
+  type CheckResult =
+    | { kind: 'idle' }
+    | { kind: 'uptodate'; current: string }
+    | { kind: 'available'; version: string }
+    | { kind: 'error'; message: string };
+  let checking = $state(false);
+  let checkResult = $state<CheckResult>({ kind: 'idle' });
+
+  async function checkForUpdates() {
+    checking = true;
+    checkResult = { kind: 'idle' };
+    const r = await commands.updateCheck();
+    checking = false;
+    if (r.status !== 'ok') {
+      checkResult = { kind: 'error', message: formatError(r.error) };
+      return;
+    }
+    if (r.data.available) {
+      updateState.value = r.data;
+      checkResult = { kind: 'available', version: r.data.latest };
+    } else {
+      checkResult = { kind: 'uptodate', current: r.data.current };
     }
   }
 
@@ -104,6 +132,38 @@
         </span>
       </span>
     </label>
+    <div class="flex items-center gap-3 flex-wrap">
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        onclick={() => void checkForUpdates()}
+        disabled={checking}
+        data-testid="check-updates-btn"
+      >
+        {checking ? 'Checking…' : 'Check for updates'}
+      </button>
+      {#if checkResult.kind === 'uptodate'}
+        <p class="text-xs text-muted" data-testid="update-status">
+          You're on the latest version ({checkResult.current}).
+        </p>
+      {:else if checkResult.kind === 'error'}
+        <p class="text-xs text-danger" data-testid="update-status">
+          Couldn't check: {checkResult.message}
+        </p>
+      {:else if checkResult.kind === 'available'}
+        <p class="text-xs text-primary" data-testid="update-status">
+          Version {checkResult.version} is available.
+        </p>
+        <button
+          type="button"
+          class="btn-primary btn-sm"
+          onclick={() => void runUpdate()}
+          data-testid="update-now-btn"
+        >
+          Update now
+        </button>
+      {/if}
+    </div>
   </div>
 
   <div class="flex flex-col gap-3">
