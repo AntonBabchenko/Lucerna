@@ -39,9 +39,9 @@ export function toastList(): Toast[] {
 }
 
 /** Show a green success toast; it auto-dismisses after `SUCCESS_TTL_MS`. */
-export function pushSuccess(title: string): number {
+export function pushSuccess(title: string, lines: string[] = []): number {
   const id = nextId++;
-  store.toasts = [...store.toasts, { id, kind: 'success', title, lines: [] }];
+  store.toasts = [...store.toasts, { id, kind: 'success', title, lines }];
   setTimeout(() => dismiss(id), SUCCESS_TTL_MS);
   return id;
 }
