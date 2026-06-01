@@ -119,6 +119,10 @@ pub fn run() {
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,
             commands::app_settings_set_general,
+            // Self-update:
+            commands::update_check,
+            commands::update_install,
+            commands::update_dismiss,
         ])
         .events(collect_events![
             network::DownloadProgress,
