@@ -232,13 +232,7 @@ impl ModPlatform for CurseForgeClient {
         let mut incompatible = Vec::new();
         let mut unresolvable = Vec::new();
         for dep in &version.deps {
-            let pid = match &dep.project_ref {
-                DepProjectRef::Curseforge { mod_id, .. } => mod_id.to_string(),
-                DepProjectRef::Modrinth { .. } => {
-                    unresolvable.push(dep.project_ref.clone());
-                    continue;
-                }
-            };
+            // Incompatible / embedded deps don't need a version lookup.
             match dep.kind {
                 DepKind::Incompatible => {
                     incompatible.push(dep.project_ref.clone());
@@ -247,6 +241,16 @@ impl ModPlatform for CurseForgeClient {
                 DepKind::Embedded => continue,
                 _ => {}
             }
+            let pid = match &dep.project_ref {
+                DepProjectRef::Curseforge { mod_id, .. } => mod_id.to_string(),
+                DepProjectRef::Modrinth { .. } => {
+                    // Cross-source dep we can't resolve here — only flag if required.
+                    if dep.kind == DepKind::Required {
+                        unresolvable.push(dep.project_ref.clone());
+                    }
+                    continue;
+                }
+            };
             let vs = self.versions(&pid, Some(mc), Some(loader)).await?;
             if let Some(v) = vs.into_iter().next() {
                 let resolved = ResolvedDep {
@@ -258,7 +262,9 @@ impl ModPlatform for CurseForgeClient {
                     DepKind::Optional => optional.push(resolved),
                     _ => {}
                 }
-            } else {
+            } else if dep.kind == DepKind::Required {
+                // Only a missing *required* dep is worth surfacing; an optional
+                // one that has no compatible build is skipped silently.
                 unresolvable.push(dep.project_ref.clone());
             }
         }
