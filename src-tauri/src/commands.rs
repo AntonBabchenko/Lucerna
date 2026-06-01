@@ -2221,6 +2221,42 @@ pub async fn export_preview(
     })
 }
 
+/// Run a full modpack export for `instance_id`, writing a `.mrpack` or
+/// CurseForge `.zip` to `dest_path`. Progress events (Resolving, Bundling,
+/// Writing, Done) are delivered over `on_progress`. Returns `Ok(())` on
+/// success; the `Done` event carries the resolved output path.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_modpack(
+    app: tauri::AppHandle,
+    instance_id: String,
+    options: crate::mods::modpack::export::ExportOptions,
+    dest_path: String,
+    on_progress: tauri::ipc::Channel<crate::mods::modpack::export::ModpackExportProgress>,
+) -> Result<(), crate::error::Error> {
+    let root = instance_root(&app, &instance_id)?;
+    let inst = crate::instances::read_instance(&app, &instance_id)?;
+    let mods = crate::mods::installed::list(&root).await?;
+    let enabled: Vec<crate::mods::platform::InstalledMod> =
+        mods.into_iter().filter(|m| m.enabled).collect();
+
+    let sink = move |p: crate::mods::modpack::export::ModpackExportProgress| {
+        let _ = on_progress.send(p);
+    };
+
+    crate::mods::modpack::export::run_export(
+        &root,
+        &inst.mc_version,
+        inst.loader,
+        inst.loader_version.as_deref(),
+        &enabled,
+        &options,
+        std::path::Path::new(&dest_path),
+        &sink,
+    )
+    .await
+}
+
 /// Best-effort recursive byte total; returns 0 on any error or missing dir.
 fn dir_size_bytes(dir: &std::path::Path) -> u64 {
     let mut total = 0u64;
