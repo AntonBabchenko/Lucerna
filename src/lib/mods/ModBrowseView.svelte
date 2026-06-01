@@ -10,6 +10,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { browserPrefs } from './browser-prefs.svelte';
@@ -162,21 +163,19 @@
     }
     const r = await commands.modsListInstalled(reqId);
     if (instanceId !== reqId || r.status !== 'ok') return;
-    // Look up project names in parallel. Manual mods (source: null)
-    // skip the call and keep projectName: null — they only ever match
-    // via the exact-id path anyway.
-    const next = await Promise.all(
-      r.data.map(async (m): Promise<InstalledRow> => {
-        if (m.source === null || m.project_id === null) {
-          return { installed: m, projectName: null };
-        }
-        const p = await commands.modsProject(m.source as ModSource, m.project_id);
-        return {
-          installed: m,
-          projectName: p.status === 'ok' ? p.data.summary.name : null,
-        };
-      }),
-    );
+    // Look up project names with bounded concurrency (not all at once).
+    // Manual mods (source: null) skip the call and keep projectName: null —
+    // they only ever match via the exact-id path anyway.
+    const next = await mapLimit(r.data, 6, async (m): Promise<InstalledRow> => {
+      if (m.source === null || m.project_id === null) {
+        return { installed: m, projectName: null };
+      }
+      const p = await commands.modsProject(m.source as ModSource, m.project_id);
+      return {
+        installed: m,
+        projectName: p.status === 'ok' ? p.data.summary.name : null,
+      };
+    });
     if (instanceId !== reqId) return;
     installedMods = next;
   }

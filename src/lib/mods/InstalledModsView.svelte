@@ -23,6 +23,7 @@
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import OrphanUninstallDialog from './OrphanUninstallDialog.svelte';
+  import { mapLimit } from './concurrency';
   import { depGraphCache } from './dep-graph-cache';
   import { updateCheckCache } from './update-check-cache';
   import type { OrphanRef } from '$lib/ipc/bindings';
@@ -442,31 +443,27 @@
       if (r2.status === 'ok') r = r2;
     }
 
-    // Fetch ModSummary for every platform-installed mod in parallel.
-    // Manual / unidentifiable mods (source: null) skip the fetch and
-    // stay as a degraded row. If a project lookup fails (network blip,
-    // mod taken down upstream), the row still renders with the
-    // locally-cached name.
-    const enriched = await Promise.all(
-      r.data.map(async (m): Promise<Row> => {
-        if (m.source === null || m.project_id === null) {
-          return { summary: null, installed: m };
-        }
-        const p = await commands.modsProject(m.source as ModSource, m.project_id);
-        if (p.status === 'ok') {
-          return { summary: p.data.summary, installed: m };
-        }
-        // The per-mod summary lookup can hiccup transiently (parallel burst,
-        // a brief rate-limit). One retry — the backend caches a concurrent
-        // success — usually recovers it so the mod renders normally instead
-        // of falling back to the degraded row.
-        const retry = await commands.modsProject(m.source as ModSource, m.project_id);
-        if (retry.status === 'ok') {
-          return { summary: retry.data.summary, installed: m };
-        }
+    // Fetch ModSummary for every platform-installed mod. Manual / unidentifiable
+    // mods (source: null) skip the fetch and stay as a degraded row. Bounded
+    // concurrency (not Promise.all over the whole list) keeps a big instance
+    // from firing dozens of parallel lookups at once — that burst intermittently
+    // tripped rate-limits and made rows flicker into "details unavailable".
+    const enriched = await mapLimit(r.data, 6, async (m): Promise<Row> => {
+      if (m.source === null || m.project_id === null) {
         return { summary: null, installed: m };
-      }),
-    );
+      }
+      const p = await commands.modsProject(m.source as ModSource, m.project_id);
+      if (p.status === 'ok') {
+        return { summary: p.data.summary, installed: m };
+      }
+      // One retry — a transient hiccup usually clears (the backend caches a
+      // concurrent success) so the mod renders normally rather than degraded.
+      const retry = await commands.modsProject(m.source as ModSource, m.project_id);
+      if (retry.status === 'ok') {
+        return { summary: retry.data.summary, installed: m };
+      }
+      return { summary: null, installed: m };
+    });
     // Drop the result if the user switched instances while the per-mod
     // project lookups were in flight — committing here would render the
     // previous instance's mods under the current one.
