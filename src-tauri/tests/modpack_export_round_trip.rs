@@ -19,6 +19,7 @@ fn local_jar(filename: &str) -> InstalledMod {
         installed_at: "2026-01-01T00:00:00Z".into(),
         enabled: true,
         enrich_attempted: false,
+        requires: Vec::new(),
     }
 }
 
