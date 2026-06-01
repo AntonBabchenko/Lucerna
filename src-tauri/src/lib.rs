@@ -85,6 +85,7 @@ pub fn run() {
             commands::mods_project,
             commands::mods_versions,
             commands::mods_resolve_deps,
+            commands::mods_resolve_install_plan,
             commands::mods_install_with_deps,
             commands::mods_list_installed,
             commands::mods_disable,
