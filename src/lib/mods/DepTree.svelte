@@ -8,15 +8,20 @@
     onHover,
     onInstall,
     onAdd,
+    onJump = () => {},
   }: {
     nodes: DepTreeNode[];
     hoveredKey: string | null;
     onHover: (key: string | null) => void;
     onInstall: (node: DepTreeNode) => void;
     onAdd: (node: DepTreeNode) => void;
+    // Jump to an installed dependency's own row in the list.
+    onJump?: (node: DepTreeNode) => void;
   } = $props();
 
   const keyOf = (n: DepTreeNode) => `${n.source}:${n.project_id}`;
+  const isInstalled = (n: DepTreeNode) =>
+    n.status === 'satisfied' || n.status === 'optional_present';
 </script>
 
 <ul class="text-xs">
@@ -35,7 +40,17 @@
         onfocus={() => onHover(k)}
         onblur={() => onHover(null)}
       >
-        <span class="text-primary">{n.name}</span>
+        {#if isInstalled(n)}
+          <!-- Installed dep → click the name to jump to its row in the list. -->
+          <button
+            type="button"
+            class="text-accent hover:underline text-left"
+            title="Show {n.name} in the list"
+            onclick={() => onJump(n)}>{n.name} ↗</button
+          >
+        {:else}
+          <span class="text-primary">{n.name}</span>
+        {/if}
         {#if n.status === 'satisfied' || n.status === 'optional_present'}
           <span class="text-success">✓ installed</span>
         {:else if n.status === 'missing_required'}
@@ -59,7 +74,7 @@
       </div>
       {#if n.children.length > 0 && !n.cycle}
         <div class="ml-4 border-l border-border-subtle pl-3">
-          <Self nodes={n.children} {hoveredKey} {onHover} {onInstall} {onAdd} />
+          <Self nodes={n.children} {hoveredKey} {onHover} {onInstall} {onAdd} {onJump} />
         </div>
       {/if}
     </li>

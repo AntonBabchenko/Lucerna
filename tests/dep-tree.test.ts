@@ -46,4 +46,21 @@ describe('DepTree', () => {
     });
     expect(screen.queryByRole('button', { name: /install night/i })).toBeNull();
   });
+
+  it('jumps to an installed dep when its name is clicked', async () => {
+    const onJump = vi.fn();
+    render(DepTree, {
+      props: {
+        nodes: tree,
+        hoveredKey: null,
+        onHover: () => {},
+        onInstall: () => {},
+        onAdd: () => {},
+        onJump,
+      },
+    });
+    // 'Night' is satisfied (installed) → its name is a jump button.
+    await fireEvent.click(screen.getByRole('button', { name: /night/i }));
+    expect(onJump).toHaveBeenCalledWith(expect.objectContaining({ project_id: 'night' }));
+  });
 });

@@ -149,10 +149,39 @@
     }
   }
 
+  // Force a fresh dependency-graph resolve. Call after anything that changes
+  // the installed SET (install / uninstall) so the tree's satisfied/missing
+  // state doesn't go stale. Enable/disable doesn't change the set, so those
+  // paths don't need it. Debounced: a bulk uninstall emits one event per mod,
+  // and in-view handlers also call this directly — without debouncing that
+  // would trigger many (expensive, fan-out) resolves; here they collapse into
+  // one after the burst settles.
+  let graphReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  function reloadGraph() {
+    if (!instanceId) return;
+    if (graphReloadTimer) clearTimeout(graphReloadTimer);
+    graphReloadTimer = setTimeout(() => {
+      graphReloadTimer = null;
+      if (instanceId) {
+        depGraphCache.delete(instanceId);
+        void loadGraph(instanceId);
+      }
+    }, 150);
+  }
+
   function recheckDeps() {
-    if (instanceId) {
-      depGraphCache.delete(instanceId);
-      void loadGraph(instanceId);
+    reloadGraph();
+  }
+
+  // Scroll the list row for a dependency node into view and highlight it, so
+  // clicking a dep in an expanded tree jumps to that mod's own row.
+  function jumpToMod(node: DepTreeNode) {
+    const key = `${node.source}:${node.project_id}`;
+    hoveredKey = key;
+    if (typeof document !== 'undefined') {
+      const el = document.querySelector(`[data-mod-row="${key}"]`);
+      // scrollIntoView is absent in some test DOMs — call it optionally.
+      (el as HTMLElement | null)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }
   }
 
@@ -427,8 +456,17 @@
 
   onMount(async () => {
     const handlers = [
-      events.modInstalled.listen(() => void refresh()),
-      events.modUninstalled.listen(() => void refresh()),
+      // Install / uninstall change the installed set, so the dep graph must
+      // re-resolve too (covers installs/uninstalls from anywhere, incl. the
+      // Browse tab). Toggle only flips enabled, which the graph ignores.
+      events.modInstalled.listen(() => {
+        void refresh();
+        reloadGraph();
+      }),
+      events.modUninstalled.listen(() => {
+        void refresh();
+        reloadGraph();
+      }),
       events.modToggle.listen(() => void refresh()),
     ];
     for (const p of handlers) {
@@ -439,6 +477,7 @@
   onDestroy(() => {
     for (const u of unlisteners) u();
     unlisteners = [];
+    if (graphReloadTimer) clearTimeout(graphReloadTimer);
   });
 
   async function toggle(m: InstalledMod) {
@@ -465,6 +504,9 @@
       error = formatError(result.error);
     } else {
       await refresh();
+      // The removed mod may have been a dependency of another — re-resolve so
+      // the tree stops showing it as satisfied.
+      reloadGraph();
     }
     busy = false;
   }
@@ -877,6 +919,7 @@
           {@const reqBy = requiredBy.get(row.installed.project_id ?? '') ?? []}
           <div
             data-mod-key={rowKey}
+            data-mod-row={rowKey}
             class:bg-highlight={hoveredKey === rowKey}
             onmouseenter={() => (hoveredKey = rowKey)}
             onmouseleave={() => (hoveredKey = null)}
@@ -936,6 +979,7 @@
                     onHover={(k) => (hoveredKey = k)}
                     onInstall={installDepNode}
                     onAdd={installDepNode}
+                    onJump={jumpToMod}
                   />
                 {/if}
                 {#if root.optional.length > 0}
@@ -948,6 +992,7 @@
                     onHover={(k) => (hoveredKey = k)}
                     onInstall={installDepNode}
                     onAdd={installDepNode}
+                    onJump={jumpToMod}
                   />
                 {/if}
                 {#if reqBy.length > 0}
@@ -971,6 +1016,7 @@
             class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface"
             data-testid="manual-mod-row"
             data-mod-key={mKey}
+            data-mod-row={mKey}
             class:bg-highlight={hoveredKey === mKey}
             onmouseenter={() => (hoveredKey = mKey)}
             onmouseleave={() => (hoveredKey = null)}
