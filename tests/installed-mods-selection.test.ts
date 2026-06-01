@@ -69,4 +69,33 @@ describe('InstalledModsView selection', () => {
     expect(uninstall).toHaveBeenCalledWith('inst1', 'a');
     expect(uninstall).toHaveBeenCalledWith('inst1', 'b');
   });
+
+  it('hovering a row highlights every occurrence of that mod', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    (commands.modsDependencyGraph as any) = vi.fn(async () => ({
+      status: 'ok',
+      data: {
+        roots: [
+          { sha1: 'a', source: 'modrinth', project_id: 'Alpha', name: 'Alpha', required: [], optional: [] },
+          {
+            sha1: 'b', source: 'modrinth', project_id: 'Beta', name: 'Beta',
+            required: [{ source: 'modrinth', project_id: 'Alpha', name: 'Alpha', status: 'satisfied', cycle: false, children: [] }],
+            optional: [],
+          },
+        ],
+      },
+    }));
+    const { container } = render(InstalledModsView, { props });
+    await screen.findByText('Alpha');
+    // Beta has a dep chip ("required by"/"1 dep") — expand Beta so the Alpha tree node is on screen.
+    // Find Beta's expand chip and click it.
+    const betaExpand = await screen.findByRole('button', { name: /1 dep/i });
+    await fireEvent.click(betaExpand);
+    // Now hover Alpha's own ROW (the container wrapping its ModCard), keyed modrinth:Alpha.
+    const alphaOccurrences = container.querySelectorAll('[data-mod-key="modrinth:Alpha"]');
+    expect(alphaOccurrences.length).toBeGreaterThanOrEqual(2); // row + tree node
+    await fireEvent.mouseEnter(alphaOccurrences[0] as Element);
+    const highlighted = container.querySelectorAll('[data-mod-key="modrinth:Alpha"].bg-highlight');
+    expect(highlighted.length).toBeGreaterThanOrEqual(2);
+  });
 });

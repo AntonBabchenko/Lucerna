@@ -115,9 +115,16 @@
   // Set of installed-mod sha1s whose dep subtree is currently expanded.
   // Reassign the whole Set (never mutate in place) to trigger reactivity.
   let expanded = $state<Set<string>>(new Set());
-  // Hovered dep-key (`source:project_id`) for cross-highlight. Task 11
-  // adds the full wiring; declared here so DepTree's onHover prop compiles.
+  // Hovered dep-key (`source:project_id`) for cross-highlight. Shared
+  // between row wrappers and DepTree nodes so every on-screen occurrence
+  // of the same mod lights up together.
   let hoveredKey = $state<string | null>(null);
+
+  // Returns the canonical highlight key for a mod. Platform mods use
+  // `source:project_id`; manual mods (source or project_id absent) fall
+  // back to `sha1:<sha1>` so they only highlight themselves.
+  const modKey = (source: string | null, projectId: string | null, sha1: string) =>
+    source && projectId ? `${source}:${projectId}` : `sha1:${sha1}`;
 
   // Strategy C: render the mod list immediately; resolve the graph in the
   // background. Seed from the session cache on instance change so switching
@@ -739,6 +746,17 @@
     <div class="border border-border-subtle rounded overflow-hidden">
       {#each filtered as row (row.installed.sha1)}
         {#if row.summary}
+          {@const rowKey = modKey(row.installed.source, row.installed.project_id, row.installed.sha1)}
+          {@const root = rootBySha.get(row.installed.sha1)}
+          {@const counts = depCounts(root)}
+          {@const reqBy = requiredBy.get(row.installed.project_id ?? '') ?? []}
+          <div
+            data-mod-key={rowKey}
+            class:bg-highlight={hoveredKey === rowKey}
+            onmouseenter={() => (hoveredKey = rowKey)}
+            onmouseleave={() => (hoveredKey = null)}
+            role="group"
+          >
           <ModCard
             layout="list"
             summary={row.summary}
@@ -757,9 +775,6 @@
             selected={selected.has(row.installed.sha1)}
             onSelectChange={(c) => toggleSelect(row.installed.sha1, c)}
           />
-          {@const root = rootBySha.get(row.installed.sha1)}
-          {@const counts = depCounts(root)}
-          {@const reqBy = requiredBy.get(row.installed.project_id ?? '') ?? []}
           <div class="flex items-center gap-2 px-3 pb-1 text-xs">
             {#if graphLoading && !root}
               <span class="text-placeholder">resolving…</span>
@@ -790,14 +805,21 @@
               {/if}
             </div>
           {/if}
+          </div>
         {:else}
           <!-- No platform metadata. Either a hand-dropped "manual mod"
                or a modpack override-bundled jar that hash-enrichment
                could not identify ("from modpack" + 📦 chip). -->
           {@const fromPack = !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
+          {@const mKey = modKey(row.installed.source, row.installed.project_id, row.installed.sha1)}
           <div
             class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface"
             data-testid="manual-mod-row"
+            data-mod-key={mKey}
+            class:bg-highlight={hoveredKey === mKey}
+            onmouseenter={() => (hoveredKey = mKey)}
+            onmouseleave={() => (hoveredKey = null)}
+            role="group"
           >
             <input type="checkbox" class="flex-shrink-0" checked={selected.has(row.installed.sha1)} aria-label={`Select mod ${row.installed.filename}`} onchange={(e) => toggleSelect(row.installed.sha1, (e.currentTarget as HTMLInputElement).checked)} />
             <div class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0" aria-hidden="true">◆</div>
