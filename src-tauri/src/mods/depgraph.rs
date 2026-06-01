@@ -18,6 +18,14 @@ use crate::mods::platform::ModSource;
 type WalkFuture<'a, T> =
     std::pin::Pin<Box<dyn Future<Output = Result<T, crate::error::Error>> + Send + 'a>>;
 
+/// Safety bounds so a pathological dependency graph can't blow up memory / the
+/// IPC payload / frontend render. Real mod graphs are tiny (2–3 deep, a handful
+/// of nodes), so these never bite in practice — they only cap a reconvergent or
+/// adversarial graph. Beyond the depth a node is emitted but not expanded;
+/// beyond the node budget, further siblings are dropped.
+const MAX_DEPTH: usize = 10;
+const MAX_NODES: usize = 2000;
+
 /// Stable identity used for the installed set, dedup, and cycle detection.
 fn key(source: ModSource, project_id: &str) -> String {
     let s = match source {
@@ -102,6 +110,7 @@ where
         .map(|n| key(n.source, &n.project_id))
         .collect();
     let mut cache: HashMap<String, NodeDeps> = HashMap::new();
+    let mut budget: usize = MAX_NODES;
     let mut roots = Vec::with_capacity(installed.len());
 
     for node in installed {
@@ -115,6 +124,8 @@ where
             &mut cache,
             &mut fetch,
             &mut path,
+            1,
+            &mut budget,
         )
         .await?;
         let optional = build_children(
@@ -124,6 +135,8 @@ where
             &mut cache,
             &mut fetch,
             &mut path,
+            1,
+            &mut budget,
         )
         .await?;
         roots.push(DepRoot {
@@ -139,6 +152,7 @@ where
 }
 
 // Boxed recursion: async fns can't recurse without boxing the future.
+#[allow(clippy::too_many_arguments)]
 fn build_children<'a, F, Fut>(
     children: &'a [DepChild],
     required: bool,
@@ -146,6 +160,8 @@ fn build_children<'a, F, Fut>(
     cache: &'a mut HashMap<String, NodeDeps>,
     fetch: &'a mut F,
     path: &'a mut HashSet<String>,
+    depth: usize,
+    budget: &'a mut usize,
 ) -> WalkFuture<'a, Vec<DepTreeNode>>
 where
     F: FnMut(ModSource, String) -> Fut + Send,
@@ -154,6 +170,10 @@ where
     Box::pin(async move {
         let mut out = Vec::with_capacity(children.len());
         for c in children {
+            // Node budget exhausted — stop emitting further siblings.
+            if *budget == 0 {
+                break;
+            }
             let k = key(c.source, &c.project_id);
             let installed = installed_keys.contains(&k);
             let status = match (required, installed) {
@@ -162,6 +182,7 @@ where
                 (false, true) => DepNodeStatus::OptionalPresent,
                 (false, false) => DepNodeStatus::OptionalAbsent,
             };
+            *budget -= 1;
             if path.contains(&k) {
                 out.push(DepTreeNode {
                     source: c.source,
@@ -169,6 +190,18 @@ where
                     name: c.name.clone(),
                     status,
                     cycle: true,
+                    children: vec![],
+                });
+                continue;
+            }
+            // Depth cap: emit the node but don't expand its subtree.
+            if depth >= MAX_DEPTH {
+                out.push(DepTreeNode {
+                    source: c.source,
+                    project_id: c.project_id.clone(),
+                    name: c.name.clone(),
+                    status,
+                    cycle: false,
                     children: vec![],
                 });
                 continue;
@@ -182,6 +215,8 @@ where
                 &mut *cache,
                 &mut *fetch,
                 &mut *path,
+                depth + 1,
+                &mut *budget,
             )
             .await?;
             let opt = build_children(
@@ -191,6 +226,8 @@ where
                 &mut *cache,
                 &mut *fetch,
                 &mut *path,
+                depth + 1,
+                &mut *budget,
             )
             .await?;
             path.remove(&k);
@@ -402,5 +439,37 @@ mod tests {
                 "D's subtree must expand under both parents"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn caps_recursion_depth_on_a_long_chain() {
+        // a0 → a1 → … → a13, a chain longer than MAX_DEPTH. The walk must stop
+        // expanding at the cap rather than recurse the whole chain.
+        let fetch = |_src: ModSource, pid: String| {
+            let deps = pid
+                .strip_prefix('a')
+                .and_then(|n| n.parse::<u32>().ok())
+                .filter(|n| *n < 13)
+                .map(|n| NodeDeps {
+                    required: vec![child(&format!("a{}", n + 1), &format!("A{}", n + 1))],
+                    optional: vec![],
+                })
+                .unwrap_or_default();
+            std::future::ready(Ok(deps))
+        };
+        let g = build_graph(&[node("r", "a0")], fetch).await.unwrap();
+
+        fn depth(nodes: &[DepTreeNode]) -> usize {
+            nodes
+                .iter()
+                .map(|n| 1 + depth(&n.children))
+                .max()
+                .unwrap_or(0)
+        }
+        let d = depth(&g.roots[0].required);
+        assert_eq!(
+            d, MAX_DEPTH,
+            "a chain longer than the cap must be capped at MAX_DEPTH"
+        );
     }
 }

@@ -91,15 +91,39 @@ describe('InstalledModsView selection', () => {
     await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // select Alpha (sha 'a')
     const bulkBar = screen.getByTestId('bulk-bar');
     await fireEvent.click(within(bulkBar).getByRole('button', { name: /uninstall/i }));
-    // Dialog appears, lists the orphan and the "no longer be needed" copy
-    expect(await screen.findByText(/no longer be needed/i)).toBeTruthy();
-    // Confirm — click the dialog's Uninstall button (there are now 2 'Uninstall' buttons:
-    // the bulk-bar one and the dialog one). The dialog's is inside role="dialog".
+    // Dialog appears and offers the orphan (opt-in, default unchecked).
+    expect(await screen.findByText(/also remove/i)).toBeTruthy();
     const dialog = screen.getByRole('dialog');
     const { getByRole } = within(dialog);
+    const orphanBox = getByRole('checkbox') as HTMLInputElement;
+    expect(orphanBox.checked).toBe(false); // destructive secondary removal is opt-in
+    // Opt in to removing the orphan, then confirm → both the selected mod and
+    // the now-ticked orphan are uninstalled.
+    await fireEvent.click(orphanBox);
     await fireEvent.click(getByRole('button', { name: /uninstall/i }));
     expect(uninstall).toHaveBeenCalledWith('inst1', 'a');
     expect(uninstall).toHaveBeenCalledWith('inst1', 'b');
+  });
+
+  it('leaves orphaned deps installed when not opted in', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    (commands.modsFindOrphans as any) = vi.fn(async () => ({
+      status: 'ok',
+      data: [{ sha1: 'b', name: 'Beta', project_id: 'Beta' }],
+    }));
+    (commands.modsUninstall as any) = vi.fn(async () => ({ status: 'ok', data: null }));
+    const uninstall = vi.mocked(commands.modsUninstall);
+    render(InstalledModsView, { props });
+    await screen.findByText('Alpha');
+    await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
+    await fireEvent.click(
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /uninstall/i }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    // Confirm without ticking the orphan → only the selected mod is removed.
+    await fireEvent.click(within(dialog).getByRole('button', { name: /uninstall/i }));
+    expect(uninstall).toHaveBeenCalledWith('inst1', 'a');
+    expect(uninstall).not.toHaveBeenCalledWith('inst1', 'b');
   });
 
   it('hovering a row highlights every occurrence of that mod', async () => {

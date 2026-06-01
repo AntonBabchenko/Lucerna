@@ -339,7 +339,7 @@
   });
   // Keep the page in range if the list shrinks (e.g. after uninstall).
   $effect(() => {
-    if (page > pageCount - 1) page = pageCount - 1;
+    if (page > pageCount - 1) page = Math.max(0, pageCount - 1);
   });
   const paged = $derived(filtered.slice(page * pageSize, page * pageSize + pageSize));
 
