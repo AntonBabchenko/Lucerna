@@ -176,7 +176,9 @@
     phaseChannel.onmessage = (m) => {
       importPhase = m;
       if (m.phase === 'done') {
-        modpackImporting = false;
+        // Close the modal (if still open) and land on the new instance. The
+        // `modpackImporting` guard is released below, after the command settles,
+        // so a second import can't start in the gap between `done` and `Ok`.
         modpacksModalOpen = false;
         void onSelectInstance(m.instance_id);
       }
@@ -201,18 +203,17 @@
     // (Rust guarantees `done` is emitted before Ok returns).
     if (r.status === 'ok') {
       pushSuccess(`Imported ${r.data.name}`);
+    } else if (r.error.kind === 'modpack_partial_failure') {
+      pushWarning(
+        `Modpack imported — ${r.error.failed.length} mod(s) failed`,
+        r.error.failed.map(([p]) => p.split('/').pop() ?? p),
+      );
     } else {
-      modpackImporting = false;
-      if (r.error.kind === 'modpack_partial_failure') {
-        pushWarning(
-          `Modpack imported — ${r.error.failed.length} mod(s) failed`,
-          r.error.failed.map(([p]) => p.split('/').pop() ?? p),
-        );
-      } else {
-        pushWarning('Modpack import failed', [formatError(r.error)]);
-      }
+      pushWarning('Modpack import failed', [formatError(r.error)]);
     }
-    // Clear the toast once the run settles (done or error).
+    // Reset in a single place once the run settles: holds the re-entrancy guard
+    // for the whole import and clears the corner toast (on done or error).
+    modpackImporting = false;
     importPhase = null;
     importBytes = null;
   }
