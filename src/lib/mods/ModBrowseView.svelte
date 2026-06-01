@@ -539,10 +539,9 @@
       if (installed.status === 'error') {
         pushWarning('Mod install failed', [formatError(installed.error)]);
       } else {
-        pushSuccess(
-          `Installed ${installed.data.primary_name}`,
-          installed.data.installed_dependencies,
-        );
+        // Fast path has no dependencies; use the resolved project name (not
+        // the backend's release-title `primary_name`) for the toast title.
+        pushSuccess(`Installed ${primaryProjectName}`, []);
         await refreshInstalled();
       }
     } else {
@@ -737,10 +736,37 @@
         if (installed.status === 'error') {
           pushWarning('Mod install failed', [formatError(installed.error)]);
         } else {
-          pushSuccess(
-            `Installed ${installed.data.primary_name}`,
-            installed.data.installed_dependencies,
-          );
+          // Build the per-mod toast from the dialog's already-resolved project
+          // names (the backend's InstallSummary carries release titles, not mod
+          // names). Lines = every newly-installed dependency: the primary's
+          // requireds + each chosen optional and its transitive requireds,
+          // deduped by project. Matches exactly what the dialog showed.
+          const seen = new Set<string>();
+          const depLines: string[] = [];
+          const pushDep = (name: string, source: string, projectId: string) => {
+            const key = `${source}:${projectId}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              depLines.push(name);
+            }
+          };
+          for (const d of prompt.required) {
+            pushDep(d.projectName, d.version.source, d.version.project_id);
+          }
+          for (const v of chosenOptional) {
+            const o = prompt.optional.find(
+              (x) =>
+                x.version.source === v.source &&
+                x.version.project_id === v.project_id &&
+                x.version.version_id === v.version_id,
+            );
+            if (!o) continue;
+            pushDep(o.projectName, o.version.source, o.version.project_id);
+            for (const r of o.requires) {
+              pushDep(r.projectName, r.version.source, r.version.project_id);
+            }
+          }
+          pushSuccess(`Installed ${prompt.primaryProjectName}`, depLines);
           await refreshInstalled();
         }
       }}

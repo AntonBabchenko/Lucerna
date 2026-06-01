@@ -290,7 +290,9 @@
     if (installed.status === 'error') {
       pushWarning('Mod install failed', [formatError(installed.error)]);
     } else {
-      pushSuccess(`Installed ${rowDisplayName(row)}`, installed.data.installed_dependencies);
+      // `installed_dependencies` carries release titles, not mod names — omit
+      // them here; the clean reinstall title is the meaningful signal.
+      pushSuccess(`Installed ${rowDisplayName(row)}`);
     }
     busy = false;
     await refresh();
