@@ -10,6 +10,17 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Added
+- **Self-update.** On startup the launcher checks GitHub Releases and, when a newer
+  version is available, shows a sticky notification with a one-click **Update** button.
+  Clicking it downloads the official installer, verifies it (SHA-256 against
+  `SHA256SUMS` **and** cosign keyless against the release's `.cosign.bundle`, pinned to
+  the release workflow's signing identity), launches it, and exits. An unverified binary
+  is never launched. The install is always an explicit click — there is no silent
+  background update. A Settings → General toggle ("Check for updates on startup",
+  on by default) controls the check, and dismissing the notification suppresses it for
+  that version until a newer release appears.
+
 ## [0.9.0] — 2026-05-31
 
 ### Changed
