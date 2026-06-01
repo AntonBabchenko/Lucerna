@@ -2208,15 +2208,27 @@ pub async fn export_preview(
         })
         .collect();
 
-    let has_dir = |name: &str| mc.join(name).is_dir();
-    let saves_size = dir_size_bytes(&mc.join("saves"));
+    let mc2 = mc.clone();
+    let (has_config, has_resourcepacks, has_shaderpacks, has_saves, saves_size) =
+        tokio::task::spawn_blocking(move || {
+            let has = |n: &str| mc2.join(n).is_dir();
+            (
+                has("config"),
+                has("resourcepacks"),
+                has("shaderpacks"),
+                has("saves"),
+                dir_size_bytes(&mc2.join("saves")),
+            )
+        })
+        .await
+        .map_err(|e| crate::error::Error::io("<export_preview scan>", e))?;
 
     Ok(ExportPreview {
         mods: mod_infos,
-        has_config: has_dir("config"),
-        has_resourcepacks: has_dir("resourcepacks"),
-        has_shaderpacks: has_dir("shaderpacks"),
-        has_saves: has_dir("saves"),
+        has_config,
+        has_resourcepacks,
+        has_shaderpacks,
+        has_saves,
         saves_size_bytes: saves_size as f64,
     })
 }

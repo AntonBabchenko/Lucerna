@@ -96,11 +96,16 @@ pub async fn run_export(
                 }
             }
             ModpackFormat::Modrinth => {
-                let url = resolve_download_url(source, project_id, version_id).await?;
-                match url {
-                    Some(url) => {
+                match resolve_download_url(source, project_id, version_id).await {
+                    Ok(Some(url)) => {
                         let jar = mods_dir.join(&m.filename);
-                        let (sha1, sha512, size) = hash_file(&jar)?;
+                        let jar2 = jar.clone();
+                        let (sha1, sha512, size) =
+                            tokio::task::spawn_blocking(move || hash_file(&jar2))
+                                .await
+                                .map_err(|e| Error::ModpackExportFailed {
+                                    details: format!("hash task panicked: {e}"),
+                                })??;
                         mrpack_refs.push(MrpackRef {
                             path: format!("mods/{}", m.filename),
                             sha1,
@@ -109,7 +114,9 @@ pub async fn run_export(
                             size,
                         });
                     }
-                    None => fallback_bundle.push(m), // distribution disabled
+                    // Distribution disabled (Ok(None)) OR a resolve error (network, delisted)
+                    // -> bundle the local jar instead of aborting.
+                    Ok(None) | Err(_) => fallback_bundle.push(m),
                 }
             }
         }
@@ -195,7 +202,12 @@ pub async fn run_export(
         source: ZipSource::Bytes(manifest_json.into_bytes()),
     });
 
-    write_archive(dest, &entries)?;
+    let dest_owned = dest.to_path_buf();
+    tokio::task::spawn_blocking(move || write_archive(&dest_owned, &entries))
+        .await
+        .map_err(|e| Error::ModpackExportFailed {
+            details: format!("write task panicked: {e}"),
+        })??;
     progress(ModpackExportProgress::Done {
         path: dest.display().to_string(),
     });

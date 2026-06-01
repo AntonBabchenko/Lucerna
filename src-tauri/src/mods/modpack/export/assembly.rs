@@ -152,9 +152,10 @@ pub fn write_archive(dest: &Path, entries: &[ZipEntry]) -> Result<(), Error> {
 
 /// Recursively collect files under `dir` into `ZipEntry`s rooted at
 /// `archive_prefix` (e.g. `overrides/config`). Returns empty when `dir`
-/// does not exist. Files are added; directories are recursed. Symlinks are
-/// followed (instance dirs are launcher-managed and not expected to contain
-/// them).
+/// does not exist. Files are added; directories are recursed.
+/// **Symlinks are never followed** — any symlink entry is silently skipped
+/// to prevent infinite cycles and to avoid leaking external files into the
+/// shared archive.
 pub fn collect_dir_entries(dir: &Path, archive_prefix: &str) -> Result<Vec<ZipEntry>, Error> {
     let mut out = Vec::new();
     if !dir.exists() {
@@ -170,12 +171,18 @@ fn collect_recursive(dir: &Path, prefix: &str, out: &mut Vec<ZipEntry>) -> Resul
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         let child_prefix = format!("{prefix}/{name}");
-        let meta = entry
-            .metadata()
+        // Use file_type() (does NOT follow symlinks — lstat semantics) to
+        // detect and skip symlinks. This prevents: (a) infinite recursion from
+        // symlink cycles, (b) external files leaking into the shared archive.
+        let ft = entry
+            .file_type()
             .map_err(|e| Error::io(path.display().to_string(), e))?;
-        if meta.is_dir() {
+        if ft.is_symlink() {
+            continue; // never follow symlinks: avoids cycles + prevents leaking external files
+        }
+        if ft.is_dir() {
             collect_recursive(&path, &child_prefix, out)?;
-        } else if meta.is_file() {
+        } else if ft.is_file() {
             out.push(ZipEntry {
                 archive_path: child_prefix,
                 source: ZipSource::File(path),
@@ -256,6 +263,41 @@ mod archive_tests {
         let td = tempdir().unwrap();
         let entries = collect_dir_entries(&td.path().join("nope"), "overrides/nope").unwrap();
         assert!(entries.is_empty());
+    }
+
+    /// Verify that a nested directory tree (real files only, no symlinks) is
+    /// walked correctly — cross-platform safe.
+    #[test]
+    fn collect_dir_entries_walks_nested_dirs() {
+        let td = tempdir().unwrap();
+        let deep = td.path().join("a").join("b").join("c");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("leaf.txt"), b"data").unwrap();
+        let entries = collect_dir_entries(&td.path().join("a"), "overrides/a").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].archive_path, "overrides/a/b/c/leaf.txt");
+    }
+
+    /// On Unix, a symlink inside a scanned directory must be silently skipped.
+    /// The test is Unix-only because creating symlinks on Windows requires
+    /// elevated privileges that may not be available in CI.
+    #[test]
+    #[cfg(unix)]
+    fn collect_dir_entries_skips_symlinks() {
+        use std::os::unix::fs::symlink;
+        let td = tempdir().unwrap();
+        let dir = td.path().join("content");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A real file that must be included.
+        std::fs::write(dir.join("real.txt"), b"hi").unwrap();
+        // A symlink that must be skipped (target doesn't even need to exist).
+        symlink("/etc/hosts", dir.join("sym.txt")).unwrap();
+        // A symlink to a directory — also must be skipped (not recursed).
+        symlink("/tmp", dir.join("symdir")).unwrap();
+        let entries = collect_dir_entries(&dir, "overrides/content").unwrap();
+        // Only the real file should appear.
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].archive_path, "overrides/content/real.txt");
     }
 }
 
