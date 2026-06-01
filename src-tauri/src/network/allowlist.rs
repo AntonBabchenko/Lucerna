@@ -41,6 +41,13 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "piston-meta.mojang.com",
     "piston-data.mojang.com",
     "api.github.com",
+    // Release-asset browser_download_url host. Redirects to the asset
+    // CDN (host varies / changes over time), which reqwest follows
+    // internally — the chokepoint only checks the initial URL. That is
+    // acceptable here because update integrity rests on cosign + SHA-256
+    // verification of the bytes, NOT on the transport host. Kept as a
+    // single concrete host (not a wildcard) per the narrow-allowlist rule.
+    "github.com",
     "api.modrinth.com",
     "api.curseforge.com",
     // v0.2.0 — Fabric + Quilt loader meta and library mirrors.
@@ -209,8 +216,18 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"cdn.modrinth.com"));
         assert!(ALLOWED_PATTERNS.contains(&"edge.forgecdn.net"));
         assert!(ALLOWED_PATTERNS.contains(&"mediafilez.forgecdn.net"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C.
-        assert_eq!(ALLOWED_PATTERNS.len(), 24);
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update).
+        assert_eq!(ALLOWED_PATTERNS.len(), 25);
+    }
+
+    #[test]
+    fn github_com_allowed_for_release_assets() {
+        // Release asset browser_download_url hosts are github.com (which
+        // redirects to the asset CDN; integrity rests on cosign + SHA-256,
+        // not the transport host).
+        assert!(is_host_allowed("github.com"));
+        assert!(!is_host_allowed("notgithub.com"));
+        assert!(!is_host_allowed("github.com.evil"));
     }
 
     #[test]
