@@ -157,6 +157,38 @@ pub struct ResolvedDep {
     pub version: ModVersion,
 }
 
+/// A direct optional dependency of the primary, plus ITS own transitive
+/// required closure (`requires`) — so the dialog can reveal sub-deps live
+/// when the user opts in. `requires` already excludes the primary's own
+/// requireds, already-installed projects, and loaders.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct OptionalDep {
+    pub version: ModVersion,
+    pub requires: Vec<ModVersion>,
+}
+
+/// The full plan the dependency dialog renders. `required` is the primary's
+/// transitive required closure (always installed). `loader_requirements` are
+/// loader project refs (informational). `incompatible`/`unresolvable` carry
+/// refs for display.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct InstallPlan {
+    pub required: Vec<ModVersion>,
+    pub optional: Vec<OptionalDep>,
+    pub incompatible: Vec<DepProjectRef>,
+    pub unresolvable: Vec<DepProjectRef>,
+    pub loader_requirements: Vec<DepProjectRef>,
+}
+
+/// Returned by `mods_install_with_deps` so the UI can show a per-mod toast.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct InstallSummary {
+    pub primary_name: String,
+    /// Display names of dependencies that were newly installed (primary
+    /// excluded). Empty when the primary had no missing deps.
+    pub installed_dependencies: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct VersionRef {
     pub source: ModSource,

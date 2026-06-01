@@ -720,6 +720,72 @@ pub async fn mods_resolve_deps(
 }
 
 // =========================================================================
+// Transitive-dependency resolver adapter helpers
+// =========================================================================
+
+use crate::mods::deps::{FetchedDeps, ProjectKey, ResolvedNode};
+
+/// Backend loader-project slugs (mirrors the frontend LOADER_SLUGS in
+/// ModBrowseView.svelte). A dep whose project slug is one of these is a
+/// loader — managed at the instance level, never installed as a mod jar.
+const LOADER_SLUGS: &[&str] = &[
+    "neoforge", "forge", "fabric", "fabric-loader", "quilt", "quilt-loader", "minecraft",
+];
+
+/// Is `version`'s project a loader? Looks up the project slug, memoized in
+/// `loader_cache`. One `project()` call per distinct project, amortized.
+/// Fails open: an un-classifiable project is treated as a normal mod.
+async fn is_loader_project(
+    platform: &dyn ModPlatform,
+    loader_cache: &mut std::collections::HashMap<ProjectKey, bool>,
+    v: &ModVersion,
+) -> bool {
+    let key = ProjectKey::of_version(v);
+    if let Some(hit) = loader_cache.get(&key) {
+        return *hit;
+    }
+    let is_loader = match platform.project(&v.project_id).await {
+        Ok(p) => p
+            .summary
+            .slug
+            .as_deref()
+            .map(|s| LOADER_SLUGS.contains(&s.to_ascii_lowercase().as_str()))
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    loader_cache.insert(key, is_loader);
+    is_loader
+}
+
+/// Build `FetchedDeps` for one version: call the platform's one-level
+/// `resolve_deps` and classify each resolved dep as loader / normal.
+async fn fetch_one_level(
+    platform: &dyn ModPlatform,
+    loader_cache: &mut std::collections::HashMap<ProjectKey, bool>,
+    v: &ModVersion,
+    mc: &str,
+    loader: LoaderKind,
+) -> Result<FetchedDeps, crate::error::Error> {
+    let rd = platform.resolve_deps(v, mc, loader).await?;
+    let mut required = Vec::new();
+    for r in rd.required {
+        let is_loader = is_loader_project(platform, loader_cache, &r.version).await;
+        required.push(ResolvedNode { version: r.version, is_loader });
+    }
+    let mut optional = Vec::new();
+    for o in rd.optional {
+        let is_loader = is_loader_project(platform, loader_cache, &o.version).await;
+        optional.push(ResolvedNode { version: o.version, is_loader });
+    }
+    Ok(FetchedDeps {
+        required,
+        optional,
+        incompatible: rd.incompatible,
+        unresolvable: rd.unresolvable,
+    })
+}
+
+// =========================================================================
 // Mod install / list / disable / enable / uninstall (v0.5.0 sub-feature 3)
 // =========================================================================
 
