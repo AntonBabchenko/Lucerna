@@ -459,7 +459,10 @@ mod tests {
     #[test]
     fn general_settings_defaults_check_updates_on() {
         let g = GeneralSettings::default();
-        assert!(g.check_updates_on_startup, "updates check should default on (opt-out)");
+        assert!(
+            g.check_updates_on_startup,
+            "updates check should default on (opt-out)"
+        );
     }
 
     #[test]
