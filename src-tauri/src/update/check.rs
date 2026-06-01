@@ -55,6 +55,19 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
+/// True only for a bare filename. Asset names come from the GitHub API
+/// and are later joined onto the updates dir, so a name with a path
+/// separator, `..`, a drive letter, or other path syntax could escape it
+/// (Windows `Path::join` with an absolute path discards the base).
+/// Defense-in-depth: a crafted name cannot pass cosign anyway, but we
+/// never let an attacker-influenced name steer a filesystem path.
+fn is_bare_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name != ".."
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|'])
+}
+
 fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
     let latest = rel
         .tag_name
@@ -69,6 +82,14 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
         .ok_or_else(|| Error::UpdateCheckFailed {
             details: "release has no *-setup.exe asset".into(),
         })?;
+    // The installer name steers the download path (and the bundle name is
+    // derived from it); SHA256SUMS is a constant. Reject anything that is
+    // not a bare filename before it reaches `dir.join`.
+    if !is_bare_filename(&installer.name) {
+        return Err(Error::UpdateCheckFailed {
+            details: format!("unsafe installer asset name: {}", installer.name),
+        });
+    }
     let sha256sums = rel
         .assets
         .iter()
@@ -173,6 +194,28 @@ mod tests {
     fn build_update_info_same_version_not_available() {
         let info = build_update_info(sample_release(), "0.9.1").unwrap();
         assert!(!info.available);
+    }
+
+    #[test]
+    fn build_update_info_rejects_path_traversal_installer_name() {
+        let mut rel = sample_release();
+        rel.assets[0].name = "..\\..\\evil-setup.exe".into();
+        rel.assets[1].name = "..\\..\\evil-setup.exe.cosign.bundle".into();
+        let r = build_update_info(rel, "0.9.0");
+        assert!(matches!(
+            r,
+            Err(crate::error::Error::UpdateCheckFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn is_bare_filename_accepts_real_installer_rejects_paths() {
+        assert!(is_bare_filename("Lucerna_0.9.1_x64-setup.exe"));
+        assert!(!is_bare_filename("../evil.exe"));
+        assert!(!is_bare_filename("..\\evil.exe"));
+        assert!(!is_bare_filename("C:\\evil.exe"));
+        assert!(!is_bare_filename(".."));
+        assert!(!is_bare_filename(""));
     }
 
     #[test]

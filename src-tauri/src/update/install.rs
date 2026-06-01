@@ -12,7 +12,9 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     let dir = crate::paths::update_dir(app).map_err(|e| Error::UpdateInstallFailed {
         details: format!("update dir: {e}"),
     })?;
-    std::fs::create_dir_all(&dir).map_err(|e| Error::io(&dir.display().to_string(), e))?;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::io(dir.display().to_string(), e))?;
 
     let installer_path = dir.join(&info.installer.name);
     let bundle_path = dir.join(&info.cosign_bundle.name);
@@ -40,19 +42,23 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
 
     let sums = crate::network::get_text(&info.sha256sums.url, "update").await?;
 
-    verify::verify_sha256(&installer_path, &info.installer.name, &sums)?;
-
-    // cosign verify is synchronous + CPU/IO-heavy (reads the whole
-    // installer + crypto) — run it off the async runtime thread. The
-    // version pins the exact signing-identity SAN.
+    // Both verification steps read the whole installer (tens of MB) and do
+    // crypto work — run them together off the async runtime thread. The
+    // version pins the exact cosign signing-identity SAN. Neither step runs
+    // before the other: SHA-256 first (cheap reject on a corrupt download),
+    // then cosign. `spawn_installer` is reached only if BOTH return Ok.
     let ip = installer_path.clone();
     let bp = bundle_path.clone();
+    let name = info.installer.name.clone();
     let ver = info.latest.clone();
-    tokio::task::spawn_blocking(move || verify::verify_cosign(&ip, &bp, &ver))
-        .await
-        .map_err(|e| Error::UpdateVerificationFailed {
-            details: format!("verify task: {e}"),
-        })??;
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        verify::verify_sha256(&ip, &name, &sums)?;
+        verify::verify_cosign(&ip, &bp, &ver)
+    })
+    .await
+    .map_err(|e| Error::UpdateVerificationFailed {
+        details: format!("verify task: {e}"),
+    })??;
 
     crate::process::spawn_installer(&installer_path)?;
     app.exit(0);

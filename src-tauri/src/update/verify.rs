@@ -22,7 +22,7 @@ pub fn sha256_for(sums: &str, filename: &str) -> Option<String> {
 
 /// Compute the lowercase hex SHA-256 of a file.
 pub fn sha256_file(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path).map_err(|e| Error::io(&path.display().to_string(), e))?;
+    let bytes = std::fs::read(path).map_err(|e| Error::io(path.display().to_string(), e))?;
     let mut h = Sha256::new();
     h.update(&bytes);
     Ok(hex::encode(h.finalize()))
@@ -61,13 +61,13 @@ pub fn verify_cosign(installer: &Path, bundle_path: &Path, version: &str) -> Res
     })?;
 
     let bundle_json = std::fs::read_to_string(bundle_path)
-        .map_err(|e| Error::io(&bundle_path.display().to_string(), e))?;
+        .map_err(|e| Error::io(bundle_path.display().to_string(), e))?;
     let bundle = Bundle::from_json(&bundle_json).map_err(|e| Error::UpdateVerificationFailed {
         details: format!("parse bundle: {e}"),
     })?;
 
     let artifact =
-        std::fs::read(installer).map_err(|e| Error::io(&installer.display().to_string(), e))?;
+        std::fs::read(installer).map_err(|e| Error::io(installer.display().to_string(), e))?;
 
     let identity = format!(
         "https://github.com/AntonBabchenko/Lucerna/.github/workflows/release.yml@refs/tags/v{version}"
