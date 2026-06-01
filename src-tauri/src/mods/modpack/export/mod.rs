@@ -46,8 +46,11 @@ pub async fn run_export(
 
     // Decide which unresolvable mods get bundled. Full mode -> all; otherwise
     // only the user-chosen `bundle_shas`.
-    let bundle_set: std::collections::HashSet<String> =
-        opts.bundle_shas.iter().map(|s| s.to_ascii_lowercase()).collect();
+    let bundle_set: std::collections::HashSet<String> = opts
+        .bundle_shas
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
     let to_bundle: Vec<&InstalledMod> = unresolvable
         .iter()
         .copied()
@@ -85,7 +88,10 @@ pub async fn run_export(
             ModpackFormat::Curseforge => {
                 // CF zip references CF mods by numeric ids only.
                 match (project_id.parse::<u64>(), version_id.parse::<u64>()) {
-                    (Ok(pid), Ok(fid)) => cf_refs.push(CfRef { project_id: pid, file_id: fid }),
+                    (Ok(pid), Ok(fid)) => cf_refs.push(CfRef {
+                        project_id: pid,
+                        file_id: fid,
+                    }),
                     _ => fallback_bundle.push(m),
                 }
             }
@@ -113,8 +119,10 @@ pub async fn run_export(
     let mut entries: Vec<ZipEntry> = Vec::new();
 
     // Bundled mod jars (unresolvable-chosen + runtime fallbacks).
-    let bundled_jars: Vec<&InstalledMod> =
-        to_bundle.into_iter().chain(fallback_bundle.into_iter()).collect();
+    let bundled_jars: Vec<&InstalledMod> = to_bundle
+        .into_iter()
+        .chain(fallback_bundle.into_iter())
+        .collect();
     let total_bundle = bundled_jars.len() as u32;
     for (i, m) in bundled_jars.iter().enumerate() {
         progress(ModpackExportProgress::Bundling {
@@ -134,7 +142,10 @@ pub async fn run_export(
     // / shaderpacks / configs / saves have no provenance registry, so they
     // always travel as overrides regardless of mode.
     if opts.include_config {
-        entries.extend(collect_dir_entries(&mc_dir.join("config"), "overrides/config")?);
+        entries.extend(collect_dir_entries(
+            &mc_dir.join("config"),
+            "overrides/config",
+        )?);
     }
     if opts.include_resourcepacks {
         entries.extend(collect_dir_entries(
@@ -149,7 +160,10 @@ pub async fn run_export(
         )?);
     }
     if opts.include_worlds {
-        entries.extend(collect_dir_entries(&mc_dir.join("saves"), "overrides/saves")?);
+        entries.extend(collect_dir_entries(
+            &mc_dir.join("saves"),
+            "overrides/saves",
+        )?);
     }
 
     // --- Manifest (Writing phase) ---
@@ -157,13 +171,23 @@ pub async fn run_export(
     let (manifest_name, manifest_json) = match opts.format {
         ModpackFormat::Modrinth => (
             "modrinth.index.json".to_string(),
-            build_mrpack_index(&opts.metadata, mc_version, loader, loader_version, &mrpack_refs)
-                .map_err(|e| Error::ModpackExportFailed { details: e.to_string() })?,
+            build_mrpack_index(
+                &opts.metadata,
+                mc_version,
+                loader,
+                loader_version,
+                &mrpack_refs,
+            )
+            .map_err(|e| Error::ModpackExportFailed {
+                details: e.to_string(),
+            })?,
         ),
         ModpackFormat::Curseforge => (
             "manifest.json".to_string(),
             build_cf_manifest(&opts.metadata, mc_version, loader, loader_version, &cf_refs)
-                .map_err(|e| Error::ModpackExportFailed { details: e.to_string() })?,
+                .map_err(|e| Error::ModpackExportFailed {
+                    details: e.to_string(),
+                })?,
         ),
     };
     entries.push(ZipEntry {
