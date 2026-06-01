@@ -5,7 +5,7 @@
 use lucerna_lib::instances::schema::LoaderKind;
 use lucerna_lib::mods::modpack::export::{run_export, ExportMetadata, ExportMode, ExportOptions};
 use lucerna_lib::mods::modpack::schema::ModpackFormat;
-use lucerna_lib::mods::platform::InstalledMod;
+use lucerna_lib::mods::platform::{InstalledMod, ModSource};
 
 fn local_jar(filename: &str) -> InstalledMod {
     InstalledMod {
@@ -19,6 +19,31 @@ fn local_jar(filename: &str) -> InstalledMod {
         installed_at: "2026-01-01T00:00:00Z".into(),
         enabled: true,
         enrich_attempted: false,
+    }
+}
+
+fn archive_names(path: &std::path::Path) -> Vec<String> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().to_string())
+        .collect()
+}
+
+fn opts(format: ModpackFormat, mode: ExportMode, bundle_shas: Vec<String>) -> ExportOptions {
+    ExportOptions {
+        format,
+        mode,
+        include_config: false,
+        include_resourcepacks: false,
+        include_shaderpacks: false,
+        include_worlds: false,
+        bundle_shas,
+        metadata: ExportMetadata {
+            name: "T".into(),
+            version: "1.0.0".into(),
+            author: String::new(),
+            summary: String::new(),
+        },
     }
 }
 
@@ -79,4 +104,116 @@ async fn full_mode_export_round_trips_through_import_parser() {
     let v: serde_json::Value = serde_json::from_str(&idx).unwrap();
     assert_eq!(v["files"].as_array().unwrap().len(), 0);
     assert_eq!(v["dependencies"]["fabric-loader"], "0.16.0");
+}
+
+#[tokio::test]
+async fn lightweight_bundles_unresolvable_only_when_chosen() {
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    let mods_dir = root.join(".minecraft").join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(mods_dir.join("local.jar"), b"x").unwrap();
+    let m = local_jar("local.jar");
+    let sha = m.sha1.clone();
+    let mods = vec![m];
+
+    // Skip: bundle_shas empty -> jar NOT in archive.
+    let dest_skip = root.join("skip.mrpack");
+    run_export(
+        root,
+        "1.21.1",
+        LoaderKind::Fabric,
+        Some("0.16.0"),
+        &mods,
+        &opts(ModpackFormat::Modrinth, ExportMode::Lightweight, vec![]),
+        &dest_skip,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+    assert!(!archive_names(&dest_skip)
+        .iter()
+        .any(|n| n == "overrides/mods/local.jar"));
+
+    // Bundle: sha in bundle_shas -> jar IS in archive.
+    let dest_keep = root.join("keep.mrpack");
+    run_export(
+        root,
+        "1.21.1",
+        LoaderKind::Fabric,
+        Some("0.16.0"),
+        &mods,
+        &opts(ModpackFormat::Modrinth, ExportMode::Lightweight, vec![sha]),
+        &dest_keep,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+    assert!(archive_names(&dest_keep)
+        .iter()
+        .any(|n| n == "overrides/mods/local.jar"));
+}
+
+#[tokio::test]
+async fn cf_format_non_numeric_ids_fall_back_to_bundle() {
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    let mods_dir = root.join(".minecraft").join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(mods_dir.join("cf.jar"), b"y").unwrap();
+    let mut m = local_jar("cf.jar");
+    m.source = Some(ModSource::Curseforge);
+    m.project_id = Some("not-a-number".into());
+    m.version_id = Some("also-bad".into());
+    let mods = vec![m];
+
+    let dest = root.join("cf.zip");
+    run_export(
+        root,
+        "1.20.1",
+        LoaderKind::Forge,
+        Some("47.2.0"),
+        &mods,
+        &opts(ModpackFormat::Curseforge, ExportMode::Lightweight, vec![]),
+        &dest,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+    let names = archive_names(&dest);
+    assert!(names.iter().any(|n| n == "manifest.json"));
+    // Non-numeric CF ids cannot be referenced -> jar bundled under overrides.
+    assert!(names.iter().any(|n| n == "overrides/mods/cf.jar"));
+}
+
+#[tokio::test]
+async fn includes_selected_content_dirs_as_overrides() {
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    let mc = root.join(".minecraft");
+    std::fs::create_dir_all(mc.join("mods")).unwrap();
+    std::fs::write(mc.join("mods").join("local.jar"), b"z").unwrap();
+    std::fs::create_dir_all(mc.join("config").join("sodium")).unwrap();
+    std::fs::write(mc.join("config").join("sodium").join("options.json"), b"{}").unwrap();
+    let mods = vec![local_jar("local.jar")];
+
+    let mut o = opts(ModpackFormat::Modrinth, ExportMode::Full, vec![]);
+    o.include_config = true;
+    let dest = root.join("full.mrpack");
+    run_export(
+        root,
+        "1.21.1",
+        LoaderKind::Fabric,
+        Some("0.16.0"),
+        &mods,
+        &o,
+        &dest,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+    let names = archive_names(&dest);
+    assert!(names
+        .iter()
+        .any(|n| n == "overrides/config/sodium/options.json"));
 }

@@ -152,7 +152,9 @@ pub fn write_archive(dest: &Path, entries: &[ZipEntry]) -> Result<(), Error> {
 
 /// Recursively collect files under `dir` into `ZipEntry`s rooted at
 /// `archive_prefix` (e.g. `overrides/config`). Returns empty when `dir`
-/// does not exist. Skips symlinks/special files.
+/// does not exist. Files are added; directories are recursed. Symlinks are
+/// followed (instance dirs are launcher-managed and not expected to contain
+/// them).
 pub fn collect_dir_entries(dir: &Path, archive_prefix: &str) -> Result<Vec<ZipEntry>, Error> {
     let mut out = Vec::new();
     if !dir.exists() {
