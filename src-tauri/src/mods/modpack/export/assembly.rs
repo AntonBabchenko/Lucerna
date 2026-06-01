@@ -22,6 +22,76 @@ pub fn hash_file(path: &Path) -> Result<(String, String, u64), Error> {
     Ok((sha1, sha512, bytes.len() as u64))
 }
 
+use crate::mods::platform::ModSource;
+
+/// Resolve the canonical download URL for a referenced mod. Modrinth: the
+/// primary file URL from the version endpoint. CurseForge: the forgecdn
+/// download URL (also an allowed mrpack download host). Returns
+/// `Ok(None)` when the platform refuses distribution (CF disabled) — the
+/// caller falls back to bundling the local jar.
+pub async fn resolve_download_url(
+    source: ModSource,
+    project_id: &str,
+    version_id: &str,
+) -> Result<Option<String>, Error> {
+    match source {
+        ModSource::Modrinth => {
+            let url =
+                format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
+            let resp = crate::network::request::get(
+                &url,
+                &[("user-agent", "AntonBabchenko/Lucerna")],
+                "modpacks",
+            )
+            .await
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            #[derive(serde::Deserialize)]
+            struct V {
+                files: Vec<F>,
+            }
+            #[derive(serde::Deserialize)]
+            struct F {
+                url: String,
+                primary: bool,
+            }
+            let v: V = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "modrinth".into(),
+                details: e.to_string(),
+            })?;
+            Ok(v.files
+                .iter()
+                .find(|f| f.primary)
+                .or_else(|| v.files.first())
+                .map(|f| f.url.clone()))
+        }
+        ModSource::Curseforge => {
+            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            match crate::mods::modpack::cf_api::resolve_file_download(
+                "https://api.curseforge.com",
+                key.as_deref(),
+                project_id,
+                version_id,
+            )
+            .await
+            {
+                Ok(url) => Ok(Some(url)),
+                // Distribution disabled → caller bundles the local jar instead.
+                Err(Error::ModpackCfDistributionDisabled { .. }) => Ok(None),
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod hash_tests {
     use super::*;
