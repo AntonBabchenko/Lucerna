@@ -1211,7 +1211,15 @@ pub async fn mods_resolve_install_plan(
         exclude.insert(ProjectKey::of_version(v));
     }
     let mut optional = Vec::new();
-    for opt in top.optional.iter().filter(|n| !n.is_loader) {
+    // Skip loaders AND optionals already installed in this instance — offering
+    // to "install" a mod the user already has is confusing. (The required list
+    // is already installed-pruned by resolve_closure; this does the same for
+    // the top-level optionals.)
+    for opt in top
+        .optional
+        .iter()
+        .filter(|n| !n.is_loader && !installed.contains(&ProjectKey::of_version(&n.version)))
+    {
         let sub =
             resolve_closure(std::slice::from_ref(&opt.version), &exclude, make_fetch()).await?;
         optional.push(OptionalDep {
