@@ -398,6 +398,14 @@
         if (p.status === 'ok') {
           return { summary: p.data.summary, installed: m };
         }
+        // The per-mod summary lookup can hiccup transiently (parallel burst,
+        // a brief rate-limit). One retry — the backend caches a concurrent
+        // success — usually recovers it so the mod renders normally instead
+        // of falling back to the degraded row.
+        const retry = await commands.modsProject(m.source as ModSource, m.project_id);
+        if (retry.status === 'ok') {
+          return { summary: retry.data.summary, installed: m };
+        }
         return { summary: null, installed: m };
       }),
     );
@@ -950,10 +958,14 @@
             {/if}
           </div>
         {:else}
-          <!-- No platform metadata. Either a hand-dropped "manual mod"
-               or a modpack override-bundled jar that hash-enrichment
-               could not identify ("from modpack" + 📦 chip). -->
+          <!-- No ModSummary for this row. Three cases: a hand-dropped
+               "manual mod" (source null); a modpack override-bundled jar
+               hash-enrichment couldn't identify ("from modpack" + 📦); or a
+               real platform mod whose summary lookup failed transiently —
+               that one keeps its platform identity, so don't call it manual. -->
           {@const fromPack = !!packSummary && packSummary.mod_shas.includes(row.installed.sha1)}
+          {@const isPlatform = row.installed.source !== null}
+          {@const sourceLabel = row.installed.source === 'curseforge' ? 'CurseForge' : 'Modrinth'}
           {@const mKey = modKey(row.installed.source, row.installed.project_id, row.installed.sha1)}
           <div
             class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface"
@@ -979,11 +991,15 @@
               ◆
             </div>
             <div class="flex-1 min-w-0">
-              <div class="font-medium text-primary truncate">{row.installed.filename}</div>
+              <div class="font-medium text-primary truncate">
+                {isPlatform && !fromPack ? row.installed.name : row.installed.filename}
+              </div>
               <div class="text-xs text-muted truncate">
-                {fromPack ? 'from modpack' : 'manual mod'} · {row.installed.enabled
-                  ? 'Enabled'
-                  : 'Disabled'}
+                {fromPack
+                  ? 'from modpack'
+                  : isPlatform
+                    ? `${sourceLabel} · details unavailable`
+                    : 'manual mod'} · {row.installed.enabled ? 'Enabled' : 'Disabled'}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
