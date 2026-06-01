@@ -290,7 +290,7 @@
     if (installed.status === 'error') {
       pushWarning('Mod install failed', [formatError(installed.error)]);
     } else {
-      pushSuccess(`Installed ${rowDisplayName(row)}`);
+      pushSuccess(`Installed ${rowDisplayName(row)}`, installed.data.installed_dependencies);
     }
     busy = false;
     await refresh();
