@@ -906,12 +906,16 @@ fn version_matches(v: &ModVersion, vr: &VersionRef) -> bool {
     v.source == vr.source && v.project_id == vr.project_id && v.version_id == vr.version_id
 }
 
-/// Install `primary` plus all server-resolved required dependencies, plus
-/// any user-checked `optional_deps`. Emits:
+/// Install `primary` plus the TRANSITIVE required closure of the primary and
+/// each chosen optional, deduped, installed deps-first, then primary, then
+/// chosen optionals. Emits:
 ///   - `mod-install-progress` repeatedly during downloads,
 ///   - `mod-installed` once per mod that lands successfully,
 ///   - `mod-install-failed` if any single install errors (the run halts
 ///     after the first failure; previously-installed mods are kept).
+///
+/// Returns an `InstallSummary` so the UI can show which dependencies were
+/// pulled in automatically.
 ///
 /// `primary` is a `VersionRef` (not a full `ModVersion`) so the caller
 /// doesn't need to keep a heavy struct around — we re-fetch from the
@@ -923,16 +927,54 @@ pub async fn mods_install_with_deps(
     instance_id: String,
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<crate::mods::platform::InstallSummary> {
+    use std::sync::Arc;
+    use crate::mods::deps::{resolve_closure, ProjectKey};
+
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    let mut platform = platform_for(primary.source);
-    let primary_v = find_version(&mut platform, &primary, &mc_version, loader).await?;
-    let resolved = platform
-        .resolve_deps(&primary_v, &mc_version, loader)
-        .await?;
+    // Two handles: Box for find_version calls, Arc for make_fetch closure.
+    let mut platform_box = platform_for(primary.source);
+    let primary_v = find_version(&mut platform_box, &primary, &mc_version, loader).await?;
+
+    // Build the set of already-installed mods so resolve_closure can prune them.
+    let installed: std::collections::HashSet<ProjectKey> =
+        crate::mods::installed::list(&inst_root)
+            .await?
+            .into_iter()
+            .filter_map(|m| match (m.source, m.project_id) {
+                (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+                (Some(ModSource::Curseforge), Some(pid)) => {
+                    pid.parse().ok().map(ProjectKey::Curseforge)
+                }
+                _ => None,
+            })
+            .collect();
+
+    // Shared Arc platform + loader-slug cache for the make_fetch factory.
+    let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(primary.source).into();
+    let loader_cache = Arc::new(tokio::sync::Mutex::new(
+        std::collections::HashMap::<ProjectKey, bool>::new(),
+    ));
+
+    // Factory: produce a fresh fetch closure that shares the Arc'd platform + cache.
+    let make_fetch = || {
+        let platform = platform_arc.clone();
+        let loader_cache = loader_cache.clone();
+        let mc = mc_version.clone();
+        move |v: ModVersion| {
+            let platform = platform.clone();
+            let loader_cache = loader_cache.clone();
+            let mc = mc.clone();
+            async move {
+                let mut cache = loader_cache.lock().await;
+                fetch_one_level(platform.as_ref(), &mut cache, &v, &mc, loader).await
+            }
+        }
+    };
 
     // Progress callback closes over a clone of the AppHandle and the
     // primary's project_id (used to tag every progress event so the UI
@@ -962,25 +1004,46 @@ pub async fn mods_install_with_deps(
         let _ = payload.emit(&app_for_progress);
     });
 
-    // Install required deps first, then primary, then user-checked optional deps.
-    let mut install_seq: Vec<ModVersion> =
-        resolved.required.into_iter().map(|r| r.version).collect();
-    install_seq.push(primary_v.clone());
-    for opt in optional_deps {
-        if let Some(v) = resolved
-            .optional
-            .iter()
-            .find(|r| version_matches(&r.version, &opt))
-            .cloned()
-        {
-            install_seq.push(v.version);
-        }
-    }
+    // Compute the primary's transitive required closure.
+    let primary_required =
+        resolve_closure(std::slice::from_ref(&primary_v), &installed, make_fetch())
+            .await?
+            .required;
 
+    // For each chosen optional: resolve it to a full version, then compute its
+    // transitive sub-closure (excluding installed + already-collected deps).
+    let mut dep_versions: Vec<ModVersion> = primary_required;
+    let mut chosen_optionals: Vec<ModVersion> = Vec::new();
+    for opt in &optional_deps {
+        let ov = find_version(&mut platform_box, opt, &mc_version, loader).await?;
+        let mut excl = installed.clone();
+        for v in &dep_versions {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for v in &chosen_optionals {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        excl.insert(ProjectKey::of_version(&ov));
+        let sub = resolve_closure(std::slice::from_ref(&ov), &excl, make_fetch()).await?;
+        dep_versions.extend(sub.required);
+        chosen_optionals.push(ov);
+    }
+    let dep_versions = dedup_versions(dep_versions.into_iter());
+
+    // Install sequence: required deps first, then primary, then chosen optionals.
+    let mut install_seq = dep_versions.clone();
+    install_seq.push(primary_v.clone());
+    install_seq.extend(chosen_optionals.iter().cloned());
+
+    let mut installed_dependencies: Vec<String> = Vec::new();
     for v in install_seq {
+        let is_primary = version_matches(&v, &primary);
         let v_project_id = v.project_id.clone();
         match crate::mods::install::install_one(&dd, &inst_root, v.clone(), &prog).await {
             Ok(inst) => {
+                if !is_primary {
+                    installed_dependencies.push(inst.name.clone());
+                }
                 let _ = ModInstalled {
                     instance_id: instance_id.clone(),
                     sha1: inst.sha1,
@@ -1000,7 +1063,10 @@ pub async fn mods_install_with_deps(
             }
         }
     }
-    Ok(())
+    Ok(crate::mods::platform::InstallSummary {
+        primary_name: primary_v.name.clone(),
+        installed_dependencies,
+    })
 }
 
 // =========================================================================
