@@ -39,8 +39,14 @@ pub fn set_executable(_path: &Path) -> std::io::Result<()> {
 /// off Unix this returns `Unsupported` to fail loudly if one ever appears.
 #[cfg(unix)]
 pub fn symlink(target: &str, link: &Path) -> std::io::Result<()> {
-    // Best-effort remove of a stale entry; ignore "not found".
-    let _ = std::fs::remove_file(link);
+    // Remove a stale entry so re-install is idempotent. Only "not found" is
+    // benign — surface anything else (e.g. a directory in the way) so the
+    // failure is diagnosable rather than masked by a later EEXIST.
+    if let Err(e) = std::fs::remove_file(link) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e);
+        }
+    }
     std::os::unix::fs::symlink(target, link)
 }
 
