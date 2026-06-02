@@ -44,6 +44,10 @@ describe('LoaderPicker', () => {
     const { queryByLabelText } = render(LoaderPicker, {
       props: { mc: '1.20.1', loader: 'vanilla', loaderVersion: null },
     });
+    // The Select trigger carries id="loader-version-select"; the
+    // <label for="loader-version-select"> associates the label text with
+    // it. When the loader is vanilla the whole block is gone, so
+    // queryByLabelText finds nothing.
     expect(queryByLabelText(/loader version/i)).toBeFalsy();
   });
 
@@ -53,9 +57,9 @@ describe('LoaderPicker', () => {
     });
     await fireEvent.click(getByText('Fabric'));
     // The $effect re-fetches; the await findByLabelText polls until the
-    // dropdown materialises.
-    const select = await findByLabelText(/loader version/i);
-    expect(select).toBeTruthy();
+    // dropdown (the Select trigger <button>) materialises.
+    const trigger = await findByLabelText(/loader version/i);
+    expect(trigger).toBeTruthy();
   });
 
   it('preserves a non-stable loaderVersion passed by the parent on mount', async () => {
@@ -68,13 +72,15 @@ describe('LoaderPicker', () => {
     //
     // The mock returns [0.16.0 (stable), 0.17.0-beta.1 (non-stable)].
     // Mount with loaderVersion='0.17.0-beta.1' (in the list, non-stable);
-    // after load() resolves, the dropdown must still show that value,
-    // not auto-flip to 0.16.0.
+    // after load() resolves, the Select trigger must still show that
+    // value, not auto-flip to 0.16.0. The trigger renders the selected
+    // option's label as its text content (non-stable label is the bare
+    // version number).
     const { findByLabelText } = render(LoaderPicker, {
       props: { mc: '1.20.1', loader: 'fabric', loaderVersion: '0.17.0-beta.1' },
     });
-    const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
-    expect(select.value).toBe('0.17.0-beta.1');
+    const trigger = (await findByLabelText(/loader version/i)) as HTMLElement;
+    expect(trigger.textContent).toContain('0.17.0-beta.1');
   });
 
   it('auto-picks the stable entry when the parent passes a value not in the fetched list', async () => {
@@ -85,8 +91,9 @@ describe('LoaderPicker', () => {
       // 'nonexistent' is not in the mock list — must fall through to stable.
       props: { mc: '1.20.1', loader: 'fabric', loaderVersion: 'nonexistent-0.99' },
     });
-    const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
-    expect(select.value).toBe('0.16.0');
+    // Stable label renders as "{version} (recommended)" — contains 0.16.0.
+    const trigger = (await findByLabelText(/loader version/i)) as HTMLElement;
+    expect(trigger.textContent).toContain('0.16.0');
   });
 
   it('resets to the new loader stable on switch, even when versions overlap', async () => {
@@ -103,10 +110,13 @@ describe('LoaderPicker', () => {
     });
 
     await fireEvent.click(getByText('Fabric'));
-    const select = (await findByLabelText(/loader version/i)) as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('0.16.0'));
+    let trigger = (await findByLabelText(/loader version/i)) as HTMLElement;
+    await waitFor(() => expect(trigger.textContent).toContain('0.16.0'));
 
     await fireEvent.click(getByText('Quilt'));
-    await waitFor(() => expect(select.value).toBe('0.20.0'));
+    // The {#if} re-creates the Select on loader switch, so the old
+    // trigger ref can go stale — re-query before the second assertion.
+    trigger = (await findByLabelText(/loader version/i)) as HTMLElement;
+    await waitFor(() => expect(trigger.textContent).toContain('0.20.0'));
   });
 });
