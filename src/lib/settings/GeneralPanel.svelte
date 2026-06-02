@@ -118,6 +118,7 @@
       <Select
         class="text-sm"
         dataTestid="language-select"
+        ariaLabel={$t('settings.general.appearance.language')}
         value={langPref.value}
         options={languageOptions}
         onChange={(v) => void setLocalePref(String(v))}
