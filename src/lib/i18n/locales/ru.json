@@ -480,6 +480,61 @@
       "deleteBtn": "Удалить"
     }
   },
+  "logs": {
+    "toolbar": {
+      "title": "Логи",
+      "readCap": "Лимит чтения:",
+      "reload": "Обновить",
+      "openFolder": "Открыть папку ↗",
+      "wrapLines": "Переносить строки",
+      "collapseStacks": "Сворачивать трассировки",
+      "showLevels": "Показать:",
+      "rawView": "Исходный вид"
+    },
+    "severity": {
+      "game": "Логи игры",
+      "crash": "Отчёты об ошибках",
+      "launcher": "Логи лаунчера"
+    },
+    "search": {
+      "placeholder": "Поиск в файле (без учёта регистра)…",
+      "matchCounter": "{current} / {total}",
+      "noMatches": "Ничего не найдено",
+      "prevAriaLabel": "Предыдущее совпадение",
+      "prevTitle": "Предыдущее совпадение (Shift+Enter)",
+      "nextAriaLabel": "Следующее совпадение",
+      "nextTitle": "Следующее совпадение (Enter)"
+    },
+    "share": {
+      "shareBtn": "Поделиться",
+      "uploading": "Загрузка…",
+      "dialogTitle": "Отправить лог на mclo.gs?",
+      "dialogBody": "Перед загрузкой пути и токены будут удалены. Проверьте содержимое на наличие конфиденциальных данных.",
+      "uploadBtn": "Загрузить и поделиться",
+      "sharedLabel": "Ссылка:",
+      "copyBtn": "Копировать",
+      "dismissAriaLabel": "Закрыть ссылку",
+      "uploadFailed": "Не удалось загрузить лог"
+    },
+    "diagnosis": {
+      "whatToTry": "Что попробовать:"
+    },
+    "empty": {
+      "noFile": "Выберите файл слева для просмотра.",
+      "noLogs": "Файлов логов пока нет. Запустите Minecraft хотя бы раз.",
+      "listError": "Не удалось получить список логов: {error}",
+      "reading": "Чтение лога…",
+      "truncated": "Усечено — показаны последние {cap}. Увеличьте лимит для просмотра большего.",
+      "foldMore": "и ещё {count}"
+    },
+    "close": {
+      "scrimAriaLabel": "Закрыть логи",
+      "popoverAriaLabel": "Закрыть просмотр логов"
+    },
+    "openFolder": {
+      "errorToast": "Не удалось открыть папку с логами"
+    }
+  },
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",

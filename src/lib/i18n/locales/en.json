@@ -480,6 +480,61 @@
       "deleteBtn": "Delete"
     }
   },
+  "logs": {
+    "toolbar": {
+      "title": "Logs",
+      "readCap": "Read cap:",
+      "reload": "Reload",
+      "openFolder": "Open folder ↗",
+      "wrapLines": "Wrap lines",
+      "collapseStacks": "Collapse stacks",
+      "showLevels": "Show:",
+      "rawView": "Raw view"
+    },
+    "severity": {
+      "game": "Game logs",
+      "crash": "Crash reports",
+      "launcher": "Launcher logs"
+    },
+    "search": {
+      "placeholder": "Find in file (case-insensitive)…",
+      "matchCounter": "{current} / {total}",
+      "noMatches": "No matches",
+      "prevAriaLabel": "Previous match",
+      "prevTitle": "Previous match (Shift+Enter)",
+      "nextAriaLabel": "Next match",
+      "nextTitle": "Next match (Enter)"
+    },
+    "share": {
+      "shareBtn": "Share",
+      "uploading": "Uploading…",
+      "dialogTitle": "Share log to mclo.gs?",
+      "dialogBody": "Removes paths and tokens before upload. Double-check sensitive contents before sharing.",
+      "uploadBtn": "Upload & share",
+      "sharedLabel": "Shared:",
+      "copyBtn": "Copy",
+      "dismissAriaLabel": "Dismiss share URL",
+      "uploadFailed": "Log upload failed"
+    },
+    "diagnosis": {
+      "whatToTry": "What to try:"
+    },
+    "empty": {
+      "noFile": "Select a file on the left to read it.",
+      "noLogs": "No log files yet. Launch Minecraft once.",
+      "listError": "Could not list logs: {error}",
+      "reading": "Reading log…",
+      "truncated": "Truncated — showing last {cap}. Raise cap to see more.",
+      "foldMore": "and {count} more"
+    },
+    "close": {
+      "scrimAriaLabel": "Close logs",
+      "popoverAriaLabel": "Close logs popover"
+    },
+    "openFolder": {
+      "errorToast": "Could not open logs folder"
+    }
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",
