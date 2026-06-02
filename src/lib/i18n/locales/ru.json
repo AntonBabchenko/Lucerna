@@ -3,8 +3,51 @@
     "cancel": "Отмена",
     "save": "Сохранить",
     "close": "Закрыть",
+    "loading": "Загрузка…",
+    "dismissNotification": "Закрыть уведомление",
     "previousImage": "Предыдущее изображение",
     "nextImage": "Следующее изображение"
+  },
+  "accounts": {
+    "signInLabel": "Войти через Microsoft",
+    "signingIn": {
+      "heading": "Завершите вход в браузере",
+      "body": "Должна была открыться вкладка для входа через Microsoft. Завершите вход там, затем вернитесь сюда. Ожидание до 5 минут."
+    }
+  },
+  "browse": {
+    "filter": {
+      "sortLabel": "Сортировка:",
+      "removeFilter": "Убрать фильтр",
+      "clearAll": "Сбросить все",
+      "closeOverlay": "Закрыть панель фильтров",
+      "title": "Фильтры",
+      "close": "Закрыть фильтры",
+      "sourceLabel": "Источник",
+      "sourceAriaLabel": "Источник модов",
+      "loaderLabel": "Загрузчик модов",
+      "loaderAriaLabel": "Фильтр загрузчика",
+      "mcVersionLabel": "Версия Minecraft",
+      "any": "Любой",
+      "showInstalled": "Показывать установленные"
+    }
+  },
+  "install": {
+    "phase": {
+      "manifest": "Загрузка метаданных версии",
+      "forge_install": "Установка Forge",
+      "jre": "Установка среды выполнения Java",
+      "libraries": "Загрузка библиотек",
+      "assets": "Загрузка ресурсов",
+      "client": "Загрузка client.jar",
+      "complete": "Установка завершена"
+    },
+    "modPhase": {
+      "downloading": "Загрузка мода",
+      "verifying": "Проверка мода",
+      "copying": "Копирование мода"
+    },
+    "clickToLaunch": "— нажмите «Играть» для запуска"
   },
   "nav": {
     "overview": "Обзор",

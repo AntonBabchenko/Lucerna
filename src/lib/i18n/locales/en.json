@@ -3,8 +3,51 @@
     "cancel": "Cancel",
     "save": "Save",
     "close": "Close",
+    "loading": "Loading…",
+    "dismissNotification": "Dismiss notification",
     "previousImage": "Previous image",
     "nextImage": "Next image"
+  },
+  "accounts": {
+    "signInLabel": "Sign in with Microsoft",
+    "signingIn": {
+      "heading": "Complete sign-in in your browser",
+      "body": "A Microsoft sign-in tab should have opened. Finish there, then return to this window. Waiting up to 5 minutes."
+    }
+  },
+  "browse": {
+    "filter": {
+      "sortLabel": "Sort:",
+      "removeFilter": "Remove filter",
+      "clearAll": "Clear all",
+      "closeOverlay": "Close filters overlay",
+      "title": "Filters",
+      "close": "Close filters",
+      "sourceLabel": "Source",
+      "sourceAriaLabel": "Mod source",
+      "loaderLabel": "Mod loader",
+      "loaderAriaLabel": "Loader filter",
+      "mcVersionLabel": "Minecraft version",
+      "any": "Any",
+      "showInstalled": "Show installed"
+    }
+  },
+  "install": {
+    "phase": {
+      "manifest": "Fetching version metadata",
+      "forge_install": "Installing Forge",
+      "jre": "Installing Java runtime",
+      "libraries": "Downloading libraries",
+      "assets": "Downloading assets",
+      "client": "Downloading client.jar",
+      "complete": "Install complete"
+    },
+    "modPhase": {
+      "downloading": "Downloading mod",
+      "verifying": "Verifying mod",
+      "copying": "Copying mod"
+    },
+    "clickToLaunch": "— click Play to launch"
   },
   "nav": {
     "overview": "Overview",

@@ -7,13 +7,17 @@
   // responses never flash a spinner. Callers just render `{#if loading}` —
   // when the load finishes before the delay, the component unmounts and the
   // pending timeout is cleared, so nothing ever appears.
+  import { t } from '$lib/i18n';
+
   interface Props {
     size?: 'sm' | 'md' | 'lg';
     delayMs?: number;
     label?: string;
     class?: string;
   }
-  let { size = 'md', delayMs = 0, label = 'Loading…', class: klass = '' }: Props = $props();
+  let { size = 'md', delayMs = 0, label, class: klass = '' }: Props = $props();
+
+  const resolvedLabel = $derived(label ?? $t('common.loading'));
 
   const SIZES: Record<NonNullable<Props['size']>, string> = {
     sm: 'h-4 w-4 border-2',
@@ -35,13 +39,17 @@
 </script>
 
 {#if visible}
-  <span role="status" aria-label={label} class="inline-flex items-center justify-center {klass}">
+  <span
+    role="status"
+    aria-label={resolvedLabel}
+    class="inline-flex items-center justify-center {klass}"
+  >
     <span
       class="inline-block animate-spin rounded-full border-current border-r-transparent {SIZES[
         size
       ]}"
       aria-hidden="true"
     ></span>
-    <span class="sr-only">{label}</span>
+    <span class="sr-only">{resolvedLabel}</span>
   </span>
 {/if}

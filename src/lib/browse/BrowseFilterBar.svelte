@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
 
   // The compact, never-wrapping toolbar: search (flex-1), a Sort select,
@@ -45,7 +46,7 @@
   />
 
   <label class="inline-flex items-center gap-1 text-sm text-secondary">
-    Sort:
+    {$t('browse.filter.sortLabel')}
     <select
       class="filter-control filter-control-select"
       value={sort}
@@ -67,7 +68,7 @@
     onclick={onOpenDrawer}
   >
     <span aria-hidden="true">⚙</span>
-    Filters
+    {$t('browse.filter.title')}
     {#if activeCount > 0}
       <span
         class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-accent/15 text-accent text-xs font-medium"
