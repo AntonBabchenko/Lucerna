@@ -274,6 +274,63 @@
       "installBtn": "{count, plural, one {Установить (# мод)} few {Установить (# мода)} many {Установить (# модов)} other {Установить (# мода)}}"
     }
   },
+  "modpacks": {
+    "modal": {
+      "title": "Сборки",
+      "closeScrimAriaLabel": "Закрыть",
+      "closeAriaLabel": "Закрыть браузер сборок"
+    },
+    "tab": {
+      "browse": "Поиск",
+      "imported": "Установленные",
+      "dropzoneLabel": "Перетащите .mrpack или .zip сюда для импорта — или нажмите для выбора файла"
+    },
+    "browse": {
+      "searchAriaLabel": "Поиск сборок",
+      "searchPlaceholderCurseForge": "Поиск сборок на CurseForge...",
+      "searchPlaceholderModrinth": "Поиск сборок на Modrinth...",
+      "sortRelevance": "Релевантность",
+      "sortDownloads": "Скачивания",
+      "sortNewest": "Новые",
+      "sortUpdated": "Обновлённые",
+      "searching": "Поиск…",
+      "noResults": "Сборки не найдены.",
+      "prev": "← Назад",
+      "next": "Вперёд →",
+      "pageOf": "Страница {page} из {total}"
+    },
+    "card": {
+      "downloads": "{count} скачиваний",
+      "downloadsShort": "{count} скач.",
+      "distributionDisabled": "Загрузка через CurseForge отключена",
+      "distributionDisabledShort": "CF отключён"
+    },
+    "detail": {
+      "dialogAriaLabel": "Сведения о сборке",
+      "closeScrimAriaLabel": "Закрыть",
+      "closeAriaLabel": "Закрыть сведения о сборке",
+      "viewOn": "Открыть на {platform} ↗",
+      "blockedBody": "Автор этой сборки CurseForge запретил загрузку через сторонние лаунчеры, поэтому автоматическая установка невозможна. Откройте страницу сборки на CurseForge, скачайте .zip и импортируйте его через поле перетаскивания выше.",
+      "openOnCurseForge": "Открыть на CurseForge ↗",
+      "tabOverview": "Обзор",
+      "tabVersions": "Версии",
+      "contentDisclaimer": "Содержимое с {source} — реклама и ссылки в нём принадлежат автору, а не Lucerna.",
+      "loadingVersions": "Загрузка версий…",
+      "noVersionsForMc": "Нет версий для MC {mc}. Снимите фильтр MC в поиске, чтобы увидеть все.",
+      "noVersions": "Нет доступных версий.",
+      "install": "Установить",
+      "installVersion": "Установить {version}"
+    },
+    "update": {
+      "dialogAriaLabel": "Подтверждение обновления сборки",
+      "title": "Обновить до {version}",
+      "changeSummary": "+{added} добавлено · −{removed} удалено · ⟳{updated} обновлено",
+      "versionBump": "Minecraft {oldVersion} → {newVersion}. После обновления нажмите «Установить», чтобы скачать новую версию Minecraft.",
+      "noChanges": "Изменений файлов в этой версии нет.",
+      "cancelBtn": "Отмена",
+      "updateBtn": "Обновить"
+    }
+  },
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",

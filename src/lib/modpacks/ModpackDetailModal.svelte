@@ -12,6 +12,7 @@
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { t } from '$lib/i18n';
 
   // Centered detail modal for a modpack. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list + the
@@ -100,13 +101,17 @@
 </script>
 
 <div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
+  <button
+    type="button"
+    class="absolute inset-0 bg-black/30"
+    aria-label={$t('modpacks.detail.closeScrimAriaLabel')}
+    onclick={onClose}
   ></button>
   <div
     class="relative bg-surface rounded shadow-lg w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col m-4"
     role="dialog"
     aria-modal="true"
-    aria-label="Modpack details"
+    aria-label={$t('modpacks.detail.dialogAriaLabel')}
   >
     <header class="p-4 border-b flex items-start shrink-0">
       <div class="flex-1 min-w-0">
@@ -116,29 +121,27 @@
           class="btn-tertiary text-xs mt-0.5"
           onclick={() => openExternal(sourceUrl)}
         >
-          View on {platformName} ↗
+          {$t('modpacks.detail.viewOn', { platform: platformName })}
         </button>
       </div>
-      <CloseButton onClick={onClose} ariaLabel="Close modpack details" />
+      <CloseButton onClick={onClose} ariaLabel={$t('modpacks.detail.closeAriaLabel')} />
     </header>
 
     {#if blocked}
       <div class="p-4 text-sm text-secondary">
         <p class="mb-3">
-          The author of this CurseForge modpack disabled third-party launcher downloads, so it
-          cannot be installed automatically. Open it on CurseForge to download the
-          <code>.zip</code>, then import it with the drag-and-drop box above.
+          {$t('modpacks.detail.blockedBody')}
         </p>
         <button type="button" class="btn-secondary btn-sm" onclick={() => openExternal(sourceUrl)}>
-          Open on CurseForge ↗
+          {$t('modpacks.detail.openOnCurseForge')}
         </button>
       </div>
     {:else}
       <div class="px-4 pt-3 shrink-0">
         <TabBar
           tabs={[
-            { id: 'overview', label: 'Overview' },
-            { id: 'versions', label: 'Versions' },
+            { id: 'overview', label: $t('modpacks.detail.tabOverview') },
+            { id: 'versions', label: $t('modpacks.detail.tabVersions') },
           ]}
           active={tab}
           onChange={(id) => (tab = id as TabId)}
@@ -154,8 +157,9 @@
           <div class="space-y-3">
             {#if project && project.body_html}
               <p class="text-xs text-placeholder italic">
-                Content from {hit.source === 'modrinth' ? 'Modrinth' : 'CurseForge'} — any ads or links
-                in it are the author's, not Lucerna's.
+                {$t('modpacks.detail.contentDisclaimer', {
+                  source: hit.source === 'modrinth' ? 'Modrinth' : 'CurseForge',
+                })}
               </p>
             {/if}
             <ImageGallery images={gallery} />
@@ -167,14 +171,14 @@
           </div>
         {:else if loading}
           <div class="flex justify-center py-8 text-secondary">
-            <Spinner label="Loading versions…" />
+            <Spinner label={$t('modpacks.detail.loadingVersions')} />
           </div>
         {:else if visibleVersions.length === 0}
           <div class="text-sm text-muted">
             {#if mcFilter}
-              No versions for MC {mcFilter}. Clear the MC filter in the search to see all.
+              {$t('modpacks.detail.noVersionsForMc', { mc: mcFilter })}
             {:else}
-              No versions available.
+              {$t('modpacks.detail.noVersions')}
             {/if}
           </div>
         {:else}
@@ -194,7 +198,7 @@
                     disabled={downloading}
                     onclick={() => install(v.id)}
                   >
-                    Install
+                    {$t('modpacks.detail.install')}
                   </button>
                 </div>
               </li>
@@ -215,14 +219,14 @@
               disabled={downloading}
               onclick={() => install(recommended.id)}
             >
-              Install {recommended.version_number}
+              {$t('modpacks.detail.installVersion', { version: recommended.version_number })}
             </button>
           {:else}
             <div class="text-xs text-placeholder text-center">
               {#if mcFilter}
-                No versions for MC {mcFilter}. Clear the MC filter in the search to see all.
+                {$t('modpacks.detail.noVersionsForMc', { mc: mcFilter })}
               {:else}
-                No versions available.
+                {$t('modpacks.detail.noVersions')}
               {/if}
             </div>
           {/if}

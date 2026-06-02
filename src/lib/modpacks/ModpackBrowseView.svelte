@@ -19,6 +19,7 @@
   import BrowseFilterDrawer from '$lib/browse/BrowseFilterDrawer.svelte';
   import { activeChips, activeCount, type FilterChipKey } from '$lib/browse/filter-model';
   import ModpackCard from './ModpackCard.svelte';
+  import { t } from '$lib/i18n';
 
   // Search + paginated grid of modpack hits backed by `modpack_search`
   // on the Rust side. Mirrors the v0.5.0 sub-3 mod browser structure:
@@ -164,17 +165,17 @@
 
 <div data-tour-ctx="modpacks-filters" class="pt-2">
   <BrowseFilterBar
-    searchAriaLabel="Search modpacks"
+    searchAriaLabel={$t('modpacks.browse.searchAriaLabel')}
     searchPlaceholder={source === 'curseforge'
-      ? 'Search modpacks on CurseForge...'
-      : 'Search modpacks on Modrinth...'}
+      ? $t('modpacks.browse.searchPlaceholderCurseForge')
+      : $t('modpacks.browse.searchPlaceholderModrinth')}
     searchTestid="modpack-search-input"
     sort={sortChoice}
     sortOptions={[
-      { value: 'relevance', label: 'Relevance' },
-      { value: 'downloads', label: 'Downloads' },
-      { value: 'newest', label: 'Newest' },
-      { value: 'updated', label: 'Updated' },
+      { value: 'relevance', label: $t('modpacks.browse.sortRelevance') },
+      { value: 'downloads', label: $t('modpacks.browse.sortDownloads') },
+      { value: 'newest', label: $t('modpacks.browse.sortNewest') },
+      { value: 'updated', label: $t('modpacks.browse.sortUpdated') },
     ]}
     sortTestid="modpack-sort-select"
     activeCount={activeCount(filterFacets)}
@@ -204,12 +205,12 @@
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
   {:else if loading}
     <div class="flex justify-center py-8 text-secondary">
-      <Spinner size="lg" label="Searching…" />
+      <Spinner size="lg" label={$t('modpacks.browse.searching')} />
     </div>
   {:else if error}
     <div class="mt-4 text-sm text-danger">{error}</div>
   {:else if page && page.hits.length === 0}
-    <div class="mt-8 text-sm text-placeholder text-center">No modpacks found.</div>
+    <div class="mt-8 text-sm text-placeholder text-center">{$t('modpacks.browse.noResults')}</div>
   {:else if page}
     {#if browserPrefs.layout === 'grid'}
       <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -241,10 +242,13 @@
         disabled={pageNum === 0}
         onclick={() => (pageNum -= 1)}
       >
-        ← Previous
+        {$t('modpacks.browse.prev')}
       </button>
       <span>
-        Page {pageNum + 1} of {Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
+        {$t('modpacks.browse.pageOf', {
+          page: pageNum + 1,
+          total: Math.max(1, Math.ceil(page.total / browserPrefs.pageSize)),
+        })}
       </span>
       <button
         type="button"
@@ -252,7 +256,7 @@
         disabled={(pageNum + 1) * browserPrefs.pageSize >= page.total}
         onclick={() => (pageNum += 1)}
       >
-        Next →
+        {$t('modpacks.browse.next')}
       </button>
       <span class="flex-1 flex justify-end">
         <PageSizePicker />

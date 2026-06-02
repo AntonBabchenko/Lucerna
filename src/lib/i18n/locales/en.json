@@ -274,6 +274,63 @@
       "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
     }
   },
+  "modpacks": {
+    "modal": {
+      "title": "Modpacks",
+      "closeScrimAriaLabel": "Close",
+      "closeAriaLabel": "Close modpacks"
+    },
+    "tab": {
+      "browse": "Browse",
+      "imported": "Imported",
+      "dropzoneLabel": "Drop a .mrpack or .zip here to import — or click to browse"
+    },
+    "browse": {
+      "searchAriaLabel": "Search modpacks",
+      "searchPlaceholderCurseForge": "Search modpacks on CurseForge...",
+      "searchPlaceholderModrinth": "Search modpacks on Modrinth...",
+      "sortRelevance": "Relevance",
+      "sortDownloads": "Downloads",
+      "sortNewest": "Newest",
+      "sortUpdated": "Updated",
+      "searching": "Searching…",
+      "noResults": "No modpacks found.",
+      "prev": "← Previous",
+      "next": "Next →",
+      "pageOf": "Page {page} of {total}"
+    },
+    "card": {
+      "downloads": "{count} downloads",
+      "downloadsShort": "{count} dl",
+      "distributionDisabled": "CurseForge download disabled",
+      "distributionDisabledShort": "CF disabled"
+    },
+    "detail": {
+      "dialogAriaLabel": "Modpack details",
+      "closeScrimAriaLabel": "Close",
+      "closeAriaLabel": "Close modpack details",
+      "viewOn": "View on {platform} ↗",
+      "blockedBody": "The author of this CurseForge modpack disabled third-party launcher downloads, so it cannot be installed automatically. Open it on CurseForge to download the .zip, then import it with the drag-and-drop box above.",
+      "openOnCurseForge": "Open on CurseForge ↗",
+      "tabOverview": "Overview",
+      "tabVersions": "Versions",
+      "contentDisclaimer": "Content from {source} — any ads or links in it are the author's, not Lucerna's.",
+      "loadingVersions": "Loading versions…",
+      "noVersionsForMc": "No versions for MC {mc}. Clear the MC filter in the search to see all.",
+      "noVersions": "No versions available.",
+      "install": "Install",
+      "installVersion": "Install {version}"
+    },
+    "update": {
+      "dialogAriaLabel": "Modpack update confirmation",
+      "title": "Update to {version}",
+      "changeSummary": "+{added} added · −{removed} removed · ⟳{updated} updated",
+      "versionBump": "Minecraft {oldVersion} → {newVersion}. After updating, click Install to download the new Minecraft version.",
+      "noChanges": "No file changes in this version.",
+      "cancelBtn": "Cancel",
+      "updateBtn": "Update"
+    }
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",

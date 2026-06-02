@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { t } from '$lib/i18n';
 
   // Full-viewport modal shell for the modpacks browser. Purely presentational:
   // it owns the scrim, the large centered panel, and the header (title + ×),
@@ -32,17 +33,21 @@
 
 {#if open}
   <div class="fixed inset-0 z-40 flex items-center justify-center" data-testid="modpacks-modal">
-    <button type="button" class="absolute inset-0 bg-black/40" aria-label="Close" onclick={onClose}
+    <button
+      type="button"
+      class="absolute inset-0 bg-black/40"
+      aria-label={$t('modpacks.modal.closeScrimAriaLabel')}
+      onclick={onClose}
     ></button>
     <div
       class="relative bg-surface rounded shadow-lg w-[92vw] max-w-5xl h-[92vh] flex flex-col m-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Modpacks"
+      aria-label={$t('modpacks.modal.title')}
     >
       <header class="p-4 border-b border-border-subtle flex items-center shrink-0">
-        <h2 class="flex-1 font-semibold text-primary">Modpacks</h2>
-        <CloseButton onClick={onClose} ariaLabel="Close modpacks" />
+        <h2 class="flex-1 font-semibold text-primary">{$t('modpacks.modal.title')}</h2>
+        <CloseButton onClick={onClose} ariaLabel={$t('modpacks.modal.closeAriaLabel')} />
       </header>
       <div class="flex-1 overflow-hidden flex flex-col min-h-0">
         {@render children?.()}
