@@ -304,14 +304,17 @@ describe('formatError', () => {
       expect(msg.length).toBeGreaterThan(0);
       // Not the JSON.stringify exhaustiveness fallback (variant has a case).
       expect(msg).not.toBe(JSON.stringify(sample));
-      // i18n resolved — a missing key would echo the raw `errors.<key>` path.
-      expect(msg).not.toMatch(/errors\.[a-zA-Z]/);
+      // i18n resolved — a missing key echoes the raw `errors.<key>` path, and
+      // every key passed in formatError starts with `errors.`.
+      expect(msg.startsWith('errors.')).toBe(false);
     });
 
-    it('has a sample for every Error variant (Record completeness)', () => {
-      // The Record type already enforces this at compile time; this asserts
-      // the count is plausible so an accidental duplicate key can't hide a gap.
-      expect(Object.keys(samples).length).toBeGreaterThanOrEqual(60);
+    it('has a distinct sample for every Error variant (Record completeness)', () => {
+      // The Record type fails the build if a `kind` is missing. This exact
+      // count is the runtime complement: a duplicate key in the literal would
+      // collapse two entries into one and drop the length below the total,
+      // which the type system does NOT catch. Bump this when variants change.
+      expect(Object.keys(samples)).toHaveLength(65);
     });
   });
 
