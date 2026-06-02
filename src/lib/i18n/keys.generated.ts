@@ -44,6 +44,7 @@ export type TranslationKey =
   | 'errors.instanceNameTooLong'
   | 'errors.instanceNotFound'
   | 'errors.io'
+  | 'errors.ioTruncatedHint'
   | 'errors.javaSpawn'
   | 'errors.lastInstance'
   | 'errors.loaderUnavailable'

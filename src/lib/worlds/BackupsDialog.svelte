@@ -2,7 +2,7 @@
   import { commands, type Backup, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import { get } from 'svelte/store';
 
   let {
@@ -96,7 +96,7 @@
 
   function formatBackupTimestamp(b: Backup): string {
     if (!b.created_unix_ms) return b.filename;
-    return new Date(b.created_unix_ms).toLocaleString('en-GB', {
+    return new Date(b.created_unix_ms).toLocaleString($locale ?? undefined, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',

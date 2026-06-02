@@ -2,7 +2,7 @@
   import { commands, type Backup, type RestoreMode } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
 
   let {
     instanceId,
@@ -42,7 +42,7 @@
 
   function formatTs(): string {
     if (!backup.created_unix_ms) return backup.filename;
-    return new Date(backup.created_unix_ms).toLocaleString('en-GB');
+    return new Date(backup.created_unix_ms).toLocaleString($locale ?? undefined);
   }
 </script>
 

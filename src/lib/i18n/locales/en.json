@@ -705,6 +705,7 @@
     "noVersionSelected": "Pick a Minecraft version first",
     "instanceNotFound": "Instance {id} not found",
     "io": "IO error at {path}: {details}",
+    "ioTruncatedHint": "open Logs for full text",
     "forgePromotionsUnavailable": "Forge promotions feed for {flavor} is unavailable — versions will not be marked recommended",
     "forgeMavenMetadataParseFailed": "Failed to parse Forge maven-metadata.xml: {details}",
     "forgeNoBuildFor": "No Forge build exists for Minecraft {mc} — pick a different Minecraft version or loader.",

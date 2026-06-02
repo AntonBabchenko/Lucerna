@@ -64,7 +64,7 @@ export function formatError(e: IpcError): string {
       const codePoints = [...e.details];
       const details =
         codePoints.length > 120
-          ? `${codePoints.slice(0, 120).join('')}… (open Logs for full text)`
+          ? `${codePoints.slice(0, 120).join('')}… (${translate('errors.ioTruncatedHint')})`
           : e.details;
       return translate('errors.io', { path: e.path, details });
     }

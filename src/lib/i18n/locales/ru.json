@@ -705,6 +705,7 @@
     "noVersionSelected": "Сначала выберите версию Minecraft",
     "instanceNotFound": "Экземпляр {id} не найден",
     "io": "Ошибка ввода-вывода в {path}: {details}",
+    "ioTruncatedHint": "откройте «Логи» для полного текста",
     "forgePromotionsUnavailable": "Лента релизов Forge для {flavor} недоступна — версии не будут помечены как рекомендуемые",
     "forgeMavenMetadataParseFailed": "Не удалось разобрать maven-metadata.xml Forge: {details}",
     "forgeNoBuildFor": "Нет сборки Forge для Minecraft {mc} — выберите другую версию Minecraft или загрузчик.",
