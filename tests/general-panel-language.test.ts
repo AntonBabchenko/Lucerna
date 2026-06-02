@@ -18,7 +18,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     appSettingsGet: (...a: unknown[]) => appSettingsGet(...a),
     appSettingsSetGeneral: (...a: unknown[]) => appSettingsSetGeneral(...a),
     appSettingsMarkTourCompleted: vi.fn(),
-    updateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
+    updateCheck: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
   },
 }));
 

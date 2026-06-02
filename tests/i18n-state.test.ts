@@ -12,7 +12,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import { locale } from '../src/lib/i18n';
-import { langPref, initLocale, setLocalePref } from '../src/lib/i18n/state.svelte';
+import { initLocale, langPref, setLocalePref } from '../src/lib/i18n/state.svelte';
 
 beforeEach(() => {
   appSettingsGet.mockReset().mockResolvedValue({

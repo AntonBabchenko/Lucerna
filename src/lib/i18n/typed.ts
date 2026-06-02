@@ -6,10 +6,7 @@ import { _ } from 'svelte-i18n';
 import type { TranslationKey } from './keys.generated';
 
 // Mirrors svelte-i18n's InterpolationValues (not publicly exported by the package).
-type InterpolationValues = Record<
-  string,
-  string | number | boolean | Date | null | undefined
->;
+type InterpolationValues = Record<string, string | number | boolean | Date | null | undefined>;
 
 export const t = derived(
   _,

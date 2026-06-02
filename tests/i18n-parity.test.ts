@@ -30,8 +30,12 @@ describe('i18n locale parity (en vs ru)', () => {
   });
 
   it('no value is empty in either locale', () => {
-    const emptyEn = Object.entries(flatEn).filter(([, v]) => !v || !v.trim()).map(([k]) => k);
-    const emptyRu = Object.entries(flatRu).filter(([, v]) => !v || !v.trim()).map(([k]) => k);
+    const emptyEn = Object.entries(flatEn)
+      .filter(([, v]) => !v || !v.trim())
+      .map(([k]) => k);
+    const emptyRu = Object.entries(flatRu)
+      .filter(([, v]) => !v || !v.trim())
+      .map(([k]) => k);
     expect({ emptyEn, emptyRu }).toEqual({ emptyEn: [], emptyRu: [] });
   });
 });

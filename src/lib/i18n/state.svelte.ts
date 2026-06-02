@@ -5,7 +5,7 @@
 //   resolved locale     — what svelte-i18n is actually displaying.
 import { commands } from '$lib/ipc/bindings';
 import { AVAILABLE_LOCALES, locale } from './index';
-import { LOCALE_STORAGE_KEY, getOsLang, resolveLocale } from './resolve';
+import { getOsLang, LOCALE_STORAGE_KEY, resolveLocale } from './resolve';
 
 export const langPref = $state<{ value: string }>({ value: 'system' });
 

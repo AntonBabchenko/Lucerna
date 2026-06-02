@@ -18,11 +18,7 @@ export const FALLBACK_LOCALE = 'en';
  * - 'system'                             → OS language if 'ru*', else 'en'
  *   (only if that locale is actually available; otherwise 'en')
  */
-export function resolveLocale(
-  pref: string,
-  available: readonly string[],
-  osLang: string,
-): string {
+export function resolveLocale(pref: string, available: readonly string[], osLang: string): string {
   if (pref !== 'system' && available.includes(pref)) {
     return pref;
   }

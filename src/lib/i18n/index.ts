@@ -31,5 +31,5 @@ init({
   initialLocale: resolveLocale(readStoredPref(), AVAILABLE_LOCALES, getOsLang()),
 });
 
-export { locale };
 export { t } from './typed';
+export { locale };
