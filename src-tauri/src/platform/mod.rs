@@ -157,11 +157,14 @@ mod tests {
 
     #[test]
     fn kill_process_tree_unknown_pid_does_not_panic() {
-        // Regression sentinel: u32::MAX must NOT reach a POSIX broadcast.
-        // On Unix it is rejected by `positive_pid` (does not fit i32 > 0);
-        // on Windows taskkill is a harmless no-op for an unknown PID.
+        // Regression sentinel for the POSIX broadcast footgun. u32::MAX must
+        // not reach a signal (rejected by positive_pid). pid 0 and pid 1 must
+        // not broadcast: on unix killpg_target excludes them (kill(-1,…) would
+        // hit every process the user can kill); on Windows taskkill harmlessly
+        // fails on these. Each must be a safe no-op, never a panic.
         kill_process_tree(u32::MAX);
         kill_process_tree(0);
+        kill_process_tree(1);
     }
 
     #[cfg(unix)]
