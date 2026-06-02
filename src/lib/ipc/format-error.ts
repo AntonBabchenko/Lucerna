@@ -1,3 +1,5 @@
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { displayLoader } from '$lib/instances/loader-display';
 import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
 
@@ -16,39 +18,43 @@ import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
  * at the `_exhaustive: never` line, not as a runtime JSON leak.
  */
 export function formatError(e: IpcError): string {
+  const translate = get(t);
   switch (e.kind) {
     case 'network':
-      return `Network error fetching ${e.url}: ${e.details}`;
+      return translate('errors.network', { url: e.url, details: e.details });
     case 'host_not_allowed':
-      return `Network request to ${e.url} is not on the allowed-host list`;
+      return translate('errors.hostNotAllowed', { url: e.url });
     case 'hash_mismatch':
-      return `Hash mismatch for ${e.path}`;
+      return translate('errors.hashMismatch', { path: e.path });
     case 'java_spawn':
-      return `Java spawn failed: ${e.details}`;
+      return translate('errors.javaSpawn', { details: e.details });
     case 'already_running':
-      return 'Minecraft is already running';
+      return translate('errors.alreadyRunning');
     case 'account_not_set':
-      return 'Account not set — enter your name first';
+      return translate('errors.accountNotSet');
     case 'auth_cancelled':
-      return 'Microsoft sign-in cancelled.';
+      return translate('errors.authCancelled');
     case 'auth_failed':
-      return `Microsoft sign-in failed at ${e.stage}: ${e.details}`;
+      return translate('errors.authFailed', { stage: e.stage, details: e.details });
     case 'no_minecraft_profile':
-      return "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.";
+      return translate('errors.noMinecraftProfile');
     case 'auth_pending_approval':
-      return "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.";
+      return translate('errors.authPendingApproval');
     case 'unknown_version':
-      return `Version ${e.id} not found in manifest`;
+      return translate('errors.unknownVersion', { id: e.id });
     case 'unsupported_platform':
-      return `Unsupported platform: ${e.os}/${e.arch}`;
+      return translate('errors.unsupportedPlatform', { os: e.os, arch: e.arch });
     case 'loader_unavailable':
-      return `${displayLoader(e.loader as LoaderKind)} does not support Minecraft ${e.mc_version}`;
+      return translate('errors.loaderUnavailable', {
+        loader: displayLoader(e.loader as LoaderKind),
+        mcVersion: e.mc_version,
+      });
     case 'last_instance':
-      return 'Cannot delete the last instance — at least one must remain';
+      return translate('errors.lastInstance');
     case 'no_version_selected':
-      return 'Pick a Minecraft version first';
+      return translate('errors.noVersionSelected');
     case 'instance_not_found':
-      return `Instance ${e.id} not found`;
+      return translate('errors.instanceNotFound', { id: e.id });
     case 'io': {
       // `details` can be a long parse-error dump (e.g. account.json contents
       // on a schema-mismatch). Toasts can't wrap 1000+ chars usefully —
@@ -60,106 +66,126 @@ export function formatError(e: IpcError): string {
         codePoints.length > 120
           ? `${codePoints.slice(0, 120).join('')}… (open Logs for full text)`
           : e.details;
-      return `IO error at ${e.path}: ${details}`;
+      return translate('errors.io', { path: e.path, details });
     }
     case 'forge_promotions_unavailable':
-      return `Forge promotions feed for ${e.flavor} is unavailable — versions will not be marked recommended`;
+      return translate('errors.forgePromotionsUnavailable', { flavor: e.flavor });
     case 'forge_maven_metadata_parse_failed':
-      return `Failed to parse Forge maven-metadata.xml: ${e.details}`;
+      return translate('errors.forgeMavenMetadataParseFailed', { details: e.details });
     case 'forge_no_build_for':
-      return `No Forge build exists for Minecraft ${e.mc} — pick a different Minecraft version or loader.`;
+      return translate('errors.forgeNoBuildFor', { mc: e.mc });
     case 'forge_installer_corrupted':
-      return `Forge installer for ${e.mc}-${e.fv} is corrupted: ${e.details}`;
+      return translate('errors.forgeInstallerCorrupted', {
+        mc: e.mc,
+        fv: e.fv,
+        details: e.details,
+      });
     case 'forge_unsupported_processor':
-      return `This Forge version uses an unsupported processor: ${e.coord}`;
+      return translate('errors.forgeUnsupportedProcessor', { coord: e.coord });
     case 'forge_patcher_failed':
-      return `Forge patcher "${e.processor}" failed: ${e.details}`;
+      return translate('errors.forgePatcherFailed', { processor: e.processor, details: e.details });
     case 'forge_mappings_missing':
-      return `Forge mappings for ${e.mc} are not available`;
+      return translate('errors.forgeMappingsMissing', { mc: e.mc });
     case 'instance_name_empty':
-      return 'Instance name cannot be empty';
+      return translate('errors.instanceNameEmpty');
     case 'instance_name_too_long':
-      return `Instance name is too long: ${e.actual}/${e.max} characters`;
+      return translate('errors.instanceNameTooLong', { actual: e.actual, max: e.max });
     case 'mc_logs_upload':
-      return `Couldn't upload log to mclo.gs: ${e.details}`;
+      return translate('errors.mcLogsUpload', { details: e.details });
     case 'mods_network':
-      return `Network error talking to ${e.url}: ${e.details}`;
+      return translate('errors.modsNetwork', { url: e.url, details: e.details });
     case 'mods_platform_auth':
       return e.kind_detail === 'invalid'
-        ? 'CurseForge API key is invalid — please enter a new one in Settings'
-        : 'CurseForge requires an API key — set it in Settings';
+        ? translate('errors.modsPlatformAuthInvalid')
+        : translate('errors.modsPlatformAuthMissing');
     case 'mods_distribution_disabled':
-      return `This mod's author has disabled third-party launcher downloads on ${e.source}.`;
+      return translate('errors.modsDistributionDisabled', { source: e.source });
     case 'mods_not_found':
-      return `This mod is no longer available on ${e.source}.`;
+      return translate('errors.modsNotFound', { source: e.source });
     case 'mods_decode':
-      return `Unexpected response from ${e.source}: ${e.details}`;
+      return translate('errors.modsDecode', { source: e.source, details: e.details });
     case 'mods_sha1_unavailable':
-      return "This mod's hash is missing; refusing to install.";
+      return translate('errors.modsSha1Unavailable');
     case 'mods_sha1_mismatch':
-      return `Verification failed: expected ${e.expected}, got ${e.got}`;
+      return translate('errors.modsSha1Mismatch', { expected: e.expected, got: e.got });
     case 'mods_dependency_unresolvable':
-      return `Required dependency ${e.project_ref} is not available for this MC + loader`;
+      return translate('errors.modsDependencyUnresolvable', { projectRef: e.project_ref });
     case 'mods_filename_conflict':
-      return `A different file named "${e.filename}" already exists in this instance — uninstall it first`;
+      return translate('errors.modsFilenameConflict', { filename: e.filename });
     case 'mods_cache_io':
-      return `Couldn't write to mod cache: ${e.details}`;
+      return translate('errors.modsCacheIo', { details: e.details });
     case 'mods_instance_path':
-      return `Couldn't write to instance at ${e.path}: ${e.details}`;
+      return translate('errors.modsInstancePath', { path: e.path, details: e.details });
     case 'modpack_invalid_archive':
-      return `Modpack archive is invalid: ${e.details}`;
+      return translate('errors.modpackInvalidArchive', { details: e.details });
     case 'modpack_format_unknown':
-      return 'This file is not a recognised modpack (.mrpack or CurseForge .zip).';
+      return translate('errors.modpackFormatUnknown');
     case 'modpack_manifest_invalid':
-      return `${e.format} modpack manifest is invalid: ${e.details}`;
+      return translate('errors.modpackManifestInvalid', { format: e.format, details: e.details });
     case 'modpack_unsupported_manifest_version':
-      return `${e.format} modpack uses unsupported manifest version ${e.version}.`;
+      return translate('errors.modpackUnsupportedManifestVersion', {
+        format: e.format,
+        version: e.version,
+      });
     case 'modpack_unsupported_loader':
-      return `${e.format} modpack declares unsupported loader: ${e.loader_id}`;
+      return translate('errors.modpackUnsupportedLoader', {
+        format: e.format,
+        loaderId: e.loader_id,
+      });
     case 'modpack_download_host_not_allowed':
-      return `Modpack file ${e.file_path} references ${e.host} which is not on the network allowlist.`;
+      return translate('errors.modpackDownloadHostNotAllowed', {
+        filePath: e.file_path,
+        host: e.host,
+      });
     case 'modpack_sha1_unavailable':
-      return `Modpack file ${e.mod_name} has no SHA-1 in the manifest — cannot verify integrity.`;
+      return translate('errors.modpackSha1Unavailable', { modName: e.mod_name });
     case 'modpack_mod_distribution_disabled':
-      return `${e.mod_name} cannot be auto-installed by third-party launchers. Download manually from ${e.project_url}.`;
+      return translate('errors.modpackModDistributionDisabled', {
+        modName: e.mod_name,
+        projectUrl: e.project_url,
+      });
     case 'modpack_overrides_path_escape':
-      return `Modpack overrides entry tried to escape the instance directory: ${e.entry}`;
+      return translate('errors.modpackOverridesPathEscape', { entry: e.entry });
     case 'modpack_overrides_too_large':
-      return `Modpack overrides entry ${e.entry} exceeds the safety cap (${e.size} bytes; cap is ${e.cap}).`;
+      return translate('errors.modpackOverridesTooLarge', {
+        entry: e.entry,
+        size: e.size,
+        cap: e.cap,
+      });
     case 'modpack_no_files_selected':
-      return 'Select at least one mod before importing.';
+      return translate('errors.modpackNoFilesSelected');
     case 'modpack_instance_creation_failed':
-      return `Could not create instance for modpack: ${e.details}`;
+      return translate('errors.modpackInstanceCreationFailed', { details: e.details });
     case 'modpack_partial_failure':
-      return `Modpack imported with ${e.failed.length} mod(s) skipped — see the warning notification for details.`;
+      return translate('errors.modpackPartialFailure', { count: e.failed.length });
     case 'modpack_bundled_no_url':
-      return `'${e.mod_name}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.`;
+      return translate('errors.modpackBundledNoUrl', { modName: e.mod_name });
     case 'modpack_cf_distribution_disabled':
-      return `"${e.pack_name}" cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge to download the pack manually.`;
+      return translate('errors.modpackCfDistributionDisabled', { packName: e.pack_name });
     case 'modpack_export_failed':
-      return `Couldn't export the modpack: ${e.details}`;
+      return translate('errors.modpackExportFailed', { details: e.details });
     case 'world_not_found':
-      return `World "${e.folder_name}" not found in this instance`;
+      return translate('errors.worldNotFound', { folderName: e.folder_name });
     case 'world_in_use':
-      return `World "${e.folder_name}" is currently in use — quit Minecraft and try again`;
+      return translate('errors.worldInUse', { folderName: e.folder_name });
     case 'world_path_invalid':
-      return `Invalid name "${e.name}": ${e.reason}`;
+      return translate('errors.worldPathInvalid', { name: e.name, reason: e.reason });
     case 'world_name_unresolvable':
-      return `Couldn't find a free name for "${e.folder_name}" — too many similarly-named copies exist`;
+      return translate('errors.worldNameUnresolvable', { folderName: e.folder_name });
     case 'backup_not_found':
-      return `Backup "${e.filename}" not found`;
+      return translate('errors.backupNotFound', { filename: e.filename });
     case 'backup_corrupt':
-      return `Backup "${e.filename}" is unreadable or corrupted: ${e.details}`;
+      return translate('errors.backupCorrupt', { filename: e.filename, details: e.details });
     case 'playtime_io':
-      return `Couldn't read or write playtime stats: ${e.details}`;
+      return translate('errors.playtimeIo', { details: e.details });
     case 'tray_io':
-      return `Couldn't show or hide the tray icon: ${e.details}`;
+      return translate('errors.trayIo', { details: e.details });
     case 'update_check_failed':
-      return `Couldn't check for updates: ${e.details}`;
+      return translate('errors.updateCheckFailed', { details: e.details });
     case 'update_verification_failed':
-      return `Update verification failed — the download may be corrupt or tampered with. ${e.details}`;
+      return translate('errors.updateVerificationFailed', { details: e.details });
     case 'update_install_failed':
-      return `Couldn't install the update: ${e.details}`;
+      return translate('errors.updateInstallFailed', { details: e.details });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of
