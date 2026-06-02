@@ -14,8 +14,10 @@
     type PackOriginSummary,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { get } from 'svelte/store';
   import { onDestroy, onMount, tick } from 'svelte';
   import { PAGE_SIZES } from './browser-prefs.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
@@ -250,7 +252,9 @@
     const vr = await commands.modsVersions(node.source, node.project_id, mcVersion, loader);
     if (vr.status === 'error' || vr.data.length === 0) {
       error =
-        vr.status === 'error' ? formatError(vr.error) : `No compatible version of ${node.name}`;
+        vr.status === 'error'
+          ? formatError(vr.error)
+          : get(t)('mods.installed.installDepFailed', { name: node.name });
       busy = false;
       return;
     }
@@ -261,9 +265,9 @@
       [],
     );
     if (res.status === 'error') {
-      pushWarning('Install failed', [formatError(res.error)]);
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
     } else {
-      pushSuccess(`Installed ${node.name}`);
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: node.name }));
     }
     busy = false;
     if (instanceId) {
@@ -557,11 +561,11 @@
       [],
     );
     if (installed.status === 'error') {
-      pushWarning('Mod install failed', [formatError(installed.error)]);
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
     } else {
       // `installed_dependencies` carries release titles, not mod names — omit
       // them here; the clean reinstall title is the meaningful signal.
-      pushSuccess(`Installed ${rowDisplayName(row)}`);
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: rowDisplayName(row) }));
     }
     busy = false;
     await refresh();
@@ -659,9 +663,21 @@
     busy = false;
     selected = new Set();
     await refresh();
-    if (failed === 0)
-      pushSuccess(`${enable ? 'Enabled' : 'Disabled'} ${ok} mod${ok === 1 ? '' : 's'}`);
-    else pushWarning(`${enable ? 'Enabled' : 'Disabled'} ${ok}, ${failed} failed`, []);
+    if (failed === 0) {
+      pushSuccess(
+        get(t)(enable ? 'mods.installed.toastEnabled' : 'mods.installed.toastDisabled', {
+          count: ok,
+        }),
+      );
+    } else {
+      pushWarning(
+        get(t)(
+          enable ? 'mods.installed.toastEnabledFailed' : 'mods.installed.toastDisabledFailed',
+          { count: ok, failed },
+        ),
+        [],
+      );
+    }
   }
 
   async function bulkUpdate() {
@@ -684,8 +700,11 @@
     busy = false;
     selected = new Set();
     await refresh();
-    if (failed === 0) pushSuccess(`Updated ${ok} mod${ok === 1 ? '' : 's'}`);
-    else pushWarning(`Updated ${ok}, ${failed} failed`, []);
+    if (failed === 0) {
+      pushSuccess(get(t)('mods.installed.toastUpdated', { count: ok }));
+    } else {
+      pushWarning(get(t)('mods.installed.toastUpdatedFailed', { count: ok, failed }), []);
+    }
   }
 
   let uninstallPrompt = $state<{
@@ -725,8 +744,11 @@
       void loadGraph(instanceId);
     }
     await refresh();
-    if (failed === 0) pushSuccess(`Uninstalled ${ok} mod${ok === 1 ? '' : 's'}`);
-    else pushWarning(`Uninstalled ${ok}, ${failed} failed`, []);
+    if (failed === 0) {
+      pushSuccess(get(t)('mods.installed.toastUninstalled', { count: ok }));
+    } else {
+      pushWarning(get(t)('mods.installed.toastUninstalledFailed', { count: ok, failed }), []);
+    }
   }
 
   async function updateAll() {
@@ -750,9 +772,9 @@
     busy = false;
     await refresh();
     if (failed === 0) {
-      pushSuccess(`Updated ${ok} mod${ok === 1 ? '' : 's'}`);
+      pushSuccess(get(t)('mods.installed.toastUpdated', { count: ok }));
     } else {
-      pushWarning(`Updated ${ok}, ${failed} failed`, []);
+      pushWarning(get(t)('mods.installed.toastUpdatedFailed', { count: ok, failed }), []);
     }
   }
 </script>
@@ -761,26 +783,35 @@
   <div class="mb-2 space-y-2">
     {#if totalCount > 0}
       <div class="text-xs text-muted flex gap-3">
-        <span>Total: <span class="font-medium text-secondary">{totalCount}</span></span>
-        <span>Enabled: <span class="font-medium text-success">{enabledCount}</span></span>
-        <span>Disabled: <span class="font-medium text-secondary">{disabledCount}</span></span>
+        <span
+          >{$t('mods.installed.statsTotal')}
+          <span class="font-medium text-secondary">{totalCount}</span></span
+        >
+        <span
+          >{$t('mods.installed.statsEnabled')}
+          <span class="font-medium text-success">{enabledCount}</span></span
+        >
+        <span
+          >{$t('mods.installed.statsDisabled')}
+          <span class="font-medium text-secondary">{disabledCount}</span></span
+        >
       </div>
     {/if}
     <div class="flex flex-wrap gap-2 items-center">
       <input
         type="search"
-        placeholder="Filter installed…"
-        aria-label="Filter installed mods"
+        placeholder={$t('mods.installed.filterPlaceholder')}
+        aria-label={$t('mods.installed.filterAriaLabel')}
         class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
         bind:value={filter}
       />
       <label class="text-xs text-secondary inline-flex items-center gap-1">
-        Sort:
+        {$t('mods.installed.sortLabel')}
         <select bind:value={sortBy} class="border rounded px-2 py-1 text-xs bg-surface">
-          <option value="name-asc">Name (A → Z)</option>
-          <option value="name-desc">Name (Z → A)</option>
-          <option value="recent">Recently installed</option>
-          <option value="source">Source</option>
+          <option value="name-asc">{$t('mods.installed.sortNameAsc')}</option>
+          <option value="name-desc">{$t('mods.installed.sortNameDesc')}</option>
+          <option value="recent">{$t('mods.installed.sortRecent')}</option>
+          <option value="source">{$t('mods.installed.sortSource')}</option>
         </select>
       </label>
       <button
@@ -789,7 +820,7 @@
         disabled={busy || checking || rows.length === 0}
         onclick={checkUpdates}
       >
-        {checking ? 'Checking…' : 'Check for updates'}
+        {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
       </button>
       <button
         type="button"
@@ -797,18 +828,18 @@
         disabled={graphLoading}
         onclick={recheckDeps}
       >
-        {graphLoading ? 'Resolving…' : '↻ Re-check deps'}
+        {graphLoading ? $t('mods.installed.resolvingDeps') : $t('mods.installed.recheckDeps')}
       </button>
       {#if updateCount > 0}
         <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={updateAll}>
-          Update all ({updateCount})
+          {$t('mods.installed.updateAll', { count: updateCount })}
         </button>
       {/if}
     </div>
     {#if totalCount > 0}
       <div
         role="radiogroup"
-        aria-label="Mod filter"
+        aria-label={$t('mods.installed.filterGroupAriaLabel')}
         tabindex={-1}
         class="flex gap-1 text-xs"
         onkeydown={handleFilterKey}
@@ -825,7 +856,7 @@
           class:font-medium={enabledFilter === 'all'}
           onclick={() => (enabledFilter = 'all')}
         >
-          All ({totalCount})
+          {$t('mods.installed.filterAll', { count: totalCount })}
         </button>
         <button
           type="button"
@@ -839,7 +870,7 @@
           class:font-medium={enabledFilter === 'enabled'}
           onclick={() => (enabledFilter = 'enabled')}
         >
-          Enabled ({enabledCount})
+          {$t('mods.installed.filterEnabled', { count: enabledCount })}
         </button>
         <button
           type="button"
@@ -853,7 +884,7 @@
           class:font-medium={enabledFilter === 'disabled'}
           onclick={() => (enabledFilter = 'disabled')}
         >
-          Disabled ({disabledCount})
+          {$t('mods.installed.filterDisabled', { count: disabledCount })}
         </button>
       </div>
     {/if}
@@ -869,12 +900,14 @@
   {/if}
 
   {#if !instanceId}
-    <div class="text-placeholder text-sm py-8 text-center">Pick an instance first.</div>
+    <div class="text-placeholder text-sm py-8 text-center">
+      {$t('mods.installed.pickInstanceFirst')}
+    </div>
   {:else if loading && rows.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">Loading installed mods…</div>
+    <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.loading')}</div>
   {:else if rows.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">
-      No mods installed in this instance yet.
+      {$t('mods.installed.empty')}
     </div>
   {:else}
     <div class="border border-border-subtle rounded overflow-hidden">
@@ -888,49 +921,47 @@
         <input
           type="checkbox"
           class="flex-shrink-0"
-          aria-label="Select all"
+          aria-label={$t('mods.installed.selectAll')}
           checked={allSelected}
           indeterminate={selected.size > 0 && !allSelected}
           onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
         />
         {#if selected.size > 0}
-          <span class="font-medium text-accent">{selected.size} selected</span>
+          <span class="font-medium text-accent"
+            >{$t('mods.installed.selectedCount', { count: selected.size })}</span
+          >
           <div data-testid="bulk-bar" class="ml-auto flex items-center gap-1">
             <button
               type="button"
               class="btn-secondary btn-xs"
               disabled={busy}
-              onclick={() => bulkSetEnabled(true)}>Enable</button
+              onclick={() => bulkSetEnabled(true)}>{$t('mods.card.enable')}</button
             >
             <button
               type="button"
               class="btn-secondary btn-xs"
               disabled={busy}
-              onclick={() => bulkSetEnabled(false)}>Disable</button
+              onclick={() => bulkSetEnabled(false)}>{$t('mods.card.disable')}</button
             >
             <button
               type="button"
               class="btn-secondary btn-xs"
               disabled={busy || selectedUpdatable.length === 0}
-              title={selectedUpdatable.length === 0
-                ? 'Run "Check for updates" first; only mods with a pending update can be updated'
-                : ''}
-              onclick={bulkUpdate}>Update</button
+              title={selectedUpdatable.length === 0 ? $t('mods.installed.bulkUpdateTitle') : ''}
+              onclick={bulkUpdate}>{$t('mods.card.update')}</button
             >
             <button
               type="button"
               class="btn-ghost-danger btn-xs"
               disabled={busy}
-              onclick={requestBulkUninstall}>Uninstall</button
+              onclick={requestBulkUninstall}>{$t('mods.card.uninstall')}</button
             >
             <button type="button" class="btn-ghost btn-xs" onclick={() => (selected = new Set())}
-              >Clear</button
+              >{$t('mods.installed.bulkClear')}</button
             >
           </div>
         {:else}
-          <span class="text-muted text-xs"
-            >Select mods to enable, disable, update or uninstall in bulk</span
-          >
+          <span class="text-muted text-xs">{$t('mods.installed.bulkHint')}</span>
         {/if}
       </div>
       {#each paged as row (row.installed.sha1)}
@@ -971,7 +1002,7 @@
             />
             <div class="flex items-center gap-2 px-3 pb-1 text-xs">
               {#if graphLoading && !root}
-                <span class="text-placeholder">resolving…</span>
+                <span class="text-placeholder">{$t('mods.installed.resolvingShort')}</span>
               {:else}
                 {#if counts.total > 0}
                   <button
@@ -980,8 +1011,8 @@
                     onclick={() => toggleExpand(row.installed.sha1)}
                   >
                     {expanded.has(row.installed.sha1) ? '▾' : '▸'}
-                    {counts.total} dep{counts.total === 1 ? '' : 's'}{counts.missing > 0
-                      ? ` · ${counts.missing} missing`
+                    {$t('mods.installed.depCount', { count: counts.total })}{counts.missing > 0
+                      ? ` · ${$t('mods.installed.depMissing', { count: counts.missing })}`
                       : ''}
                   </button>
                 {/if}
@@ -990,7 +1021,7 @@
                     type="button"
                     class="px-2 py-0.5 rounded bg-subtle text-secondary"
                     onclick={() => toggleExpand(row.installed.sha1)}
-                    >required by {reqBy.length}</button
+                    >{$t('mods.installed.requiredByCount', { count: reqBy.length })}</button
                   >
                 {/if}
               {/if}
@@ -998,7 +1029,9 @@
             {#if expanded.has(row.installed.sha1) && root}
               <div class="px-4 pb-3 bg-subtle/40">
                 {#if root.required.length > 0}
-                  <div class="text-[10px] uppercase tracking-wide text-muted mt-1">Requires</div>
+                  <div class="text-[10px] uppercase tracking-wide text-muted mt-1">
+                    {$t('mods.installed.sectionRequires')}
+                  </div>
                   <DepTree
                     nodes={root.required}
                     {hoveredKey}
@@ -1010,7 +1043,7 @@
                 {/if}
                 {#if root.optional.length > 0}
                   <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
-                    Recommended · optional
+                    {$t('mods.installed.sectionRecommended')}
                   </div>
                   <DepTree
                     nodes={root.optional}
@@ -1022,7 +1055,9 @@
                   />
                 {/if}
                 {#if reqBy.length > 0}
-                  <div class="text-[10px] uppercase tracking-wide text-muted mt-2">Required by</div>
+                  <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
+                    {$t('mods.installed.sectionRequiredBy')}
+                  </div>
                   <div class="text-xs text-secondary">{reqBy.join(', ')}</div>
                 {/if}
               </div>
@@ -1052,7 +1087,9 @@
               type="checkbox"
               class="flex-shrink-0"
               checked={selected.has(row.installed.sha1)}
-              aria-label={`Select mod ${row.installed.filename}`}
+              aria-label={$t('mods.installed.selectModAriaLabel', {
+                filename: row.installed.filename,
+              })}
               onchange={(e) =>
                 toggleSelect(row.installed.sha1, (e.currentTarget as HTMLInputElement).checked)}
             />
@@ -1068,17 +1105,19 @@
               </div>
               <div class="text-xs text-muted truncate">
                 {fromPack
-                  ? 'from modpack'
+                  ? $t('mods.installed.fromModpack')
                   : isPlatform
-                    ? `${sourceLabel} · details unavailable`
-                    : 'manual mod'} · {row.installed.enabled ? 'Enabled' : 'Disabled'}
+                    ? `${sourceLabel} · ${$t('mods.installed.detailsUnavailable')}`
+                    : $t('mods.installed.manualMod')} · {row.installed.enabled
+                  ? $t('mods.installed.enabledStatus')
+                  : $t('mods.installed.disabledStatus')}
               </div>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
               {#if fromPack && packSummary}
                 <span
                   class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
-                  title="From modpack: {packSummary.project_name}"
+                  title={$t('mods.card.fromModpackTitle', { name: packSummary.project_name })}
                   >📦 {packSummary.project_name}</span
                 >
               {/if}
@@ -1087,13 +1126,13 @@
                 class="btn-secondary btn-xs"
                 disabled={busy}
                 onclick={() => toggle(row.installed)}
-                >{row.installed.enabled ? 'Disable' : 'Enable'}</button
+                >{row.installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}</button
               >
               <button
                 type="button"
                 class="btn-ghost-danger btn-xs"
                 disabled={busy}
-                onclick={() => uninstall(row.installed)}>Uninstall</button
+                onclick={() => uninstall(row.installed)}>{$t('mods.card.uninstall')}</button
               >
             </div>
           </div>
@@ -1105,7 +1144,7 @@
          set; only the rendered rows are paged. -->
     <div class="flex items-center justify-between gap-3 mt-2 text-sm flex-wrap">
       <span class="inline-flex items-center gap-2">
-        <span class="text-muted">Per page:</span>
+        <span class="text-muted">{$t('mods.pageSize.perPage')}</span>
         {#each PAGE_SIZES as n (n)}
           <button
             type="button"
@@ -1125,14 +1164,17 @@
             type="button"
             class="btn-secondary btn-xs"
             disabled={page === 0}
-            onclick={() => (page = Math.max(0, page - 1))}>← Prev</button
+            onclick={() => (page = Math.max(0, page - 1))}>{$t('mods.installed.prevPage')}</button
           >
-          <span class="text-muted">Page {page + 1} of {pageCount}</span>
+          <span class="text-muted"
+            >{$t('mods.browse.pageOf', { page: page + 1, total: pageCount })}</span
+          >
           <button
             type="button"
             class="btn-secondary btn-xs"
             disabled={page >= pageCount - 1}
-            onclick={() => (page = Math.min(pageCount - 1, page + 1))}>Next →</button
+            onclick={() => (page = Math.min(pageCount - 1, page + 1))}
+            >{$t('mods.installed.nextPage')}</button
           >
         </span>
       {/if}

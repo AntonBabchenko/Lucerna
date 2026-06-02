@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ModSource, ModVersion } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   // Modal that runs after ModBrowseView's startInstall surfaces deps the
   // user should look at — required mods auto-install (read-only list),
@@ -113,14 +114,13 @@
     class="bg-surface rounded shadow-xl w-[480px] max-w-[90vw] p-5"
   >
     <h2 class="text-base font-semibold text-primary mb-3">
-      Install {primaryProjectName}
-      {primary.version_number}
+      {$t('mods.depDialog.heading', { name: primaryProjectName, version: primary.version_number })}
     </h2>
 
     {#if required.length > 0}
       <div class="mb-3">
         <div class="text-xs uppercase tracking-wide text-muted mb-1">
-          Required (will be installed)
+          {$t('mods.depDialog.requiredLabel')}
         </div>
         <ul class="text-sm text-primary list-disc pl-5">
           {#each required as r (r.version.version_id)}
@@ -135,7 +135,9 @@
 
     {#if optional.length > 0}
       <div class="mb-3">
-        <div class="text-xs uppercase tracking-wide text-muted mb-1">Optional</div>
+        <div class="text-xs uppercase tracking-wide text-muted mb-1">
+          {$t('mods.depDialog.optionalLabel')}
+        </div>
         <ul class="text-sm text-primary space-y-1">
           {#each optional as o, i (o.version.version_id)}
             <li>
@@ -153,7 +155,7 @@
               {#if optionalChosen[i] && o.requires.length > 0}
                 <ul class="pl-6 mt-0.5 space-y-0.5 text-xs text-muted">
                   {#each o.requires as sub (sub.version.version_id)}
-                    <li>requires: {sub.projectName}</li>
+                    <li>{$t('mods.depDialog.subRequires', { name: sub.projectName })}</li>
                   {/each}
                 </ul>
               {/if}
@@ -165,17 +167,17 @@
 
     {#if loaderMismatch}
       <div class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger">
-        ⚠ <span class="font-medium">Loader mismatch.</span> This version targets
-        {loaderMismatch.modLoaders.join(' / ')} but your instance uses
-        {loaderMismatch.instanceLoader}. Installing will leave a jar in the mods folder that
-        Minecraft cannot load. Pick another version or switch your instance's loader.
+        ⚠ <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
+        {$t('mods.depDialog.loaderMismatchBody', {
+          modLoaders: loaderMismatch.modLoaders.join(' / '),
+          instanceLoader: loaderMismatch.instanceLoader,
+        })}
       </div>
     {/if}
 
     {#if loaderRequirements.length > 0}
       <div class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent">
-        ⓘ This mod targets {loaderRequirements.join(' / ')}. Make sure your instance uses a
-        compatible loader.
+        ⓘ {$t('mods.depDialog.loaderRequirementsInfo', { loaders: loaderRequirements.join(' / ') })}
       </div>
     {/if}
 
@@ -183,7 +185,7 @@
       <div
         class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
       >
-        ⚠ Incompatible with: {incompatible.join(', ')}
+        {$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}
       </div>
     {/if}
 
@@ -191,14 +193,16 @@
       <div
         class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
       >
-        ⚠ Could not find compatible versions of: {unresolvable.join(', ')} — install anyway?
+        {$t('mods.depDialog.unresolvableWarning', { names: unresolvable.join(', ') })}
       </div>
     {/if}
 
     <div class="flex justify-end gap-2 mt-4">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}> Cancel </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+        >{$t('common.cancel')}</button
+      >
       <button type="button" class="btn-primary btn-sm" onclick={confirm}>
-        Install ({total} mod{total === 1 ? '' : 's'})
+        {$t('mods.depDialog.installBtn', { count: total })}
       </button>
     </div>
   </div>
