@@ -96,6 +96,101 @@
       "installAnywayBtn": "Install anyway"
     }
   },
+  "mods": {
+    "browse": {
+      "tabBrowse": "Browse",
+      "tabInstalled": "Installed",
+      "searchAriaLabel": "Search mods",
+      "searchPlaceholder": "Search mods...",
+      "sortDownloads": "Downloads",
+      "sortRelevance": "Relevance",
+      "sortUpdated": "Updated",
+      "searching": "Searching…",
+      "noResults": "No results.",
+      "prev": "‹ Prev",
+      "next": "Next ›",
+      "pageOf": "Page {page} of {total}",
+      "page": "Page {page}",
+      "vanillaHeading": "This instance is vanilla Minecraft",
+      "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
+      "errorNoInstance": "No active instance",
+      "errorNoCompatibleVersion": "No compatible version found",
+      "errorVanillaLoader": "This instance is vanilla Minecraft (no mod loader). Switch to a Fabric / Quilt / Forge / NeoForge instance to install mods.",
+      "dropzoneLabel": "Drop a mod .jar here to install — or click to browse",
+      "dropzoneDisabled": "Select a non-vanilla instance to install mods",
+      "toastInstallFailed": "Mod install failed",
+      "toastInstalledMod": "Installed {name}",
+      "mismatchLoader": "looks like a {detected} mod, instance is {instance}",
+      "mismatchMc": "targets MC {detected}, instance is {instance}",
+      "mismatchDefault": "may not be compatible",
+      "toastCouldNotRead": "Could not read {filename}",
+      "toastInstalled": "{count, plural, one {Installed # mod} other {Installed # mods}}",
+      "toastFailedToInstall": "{count, plural, one {# mod failed to install} other {# mods failed to install}}",
+      "toastSkipped": "{count, plural, one {Skipped # incompatible mod} other {Skipped # incompatible mods}}"
+    },
+    "card": {
+      "checking": "Checking…",
+      "updateAvailableTitle": "Update available",
+      "checkFailed": "couldn't check",
+      "installed": "Installed",
+      "disabled": "Disabled",
+      "disable": "Disable",
+      "enable": "Enable",
+      "uninstall": "Uninstall",
+      "install": "Install",
+      "update": "Update",
+      "selectAriaLabel": "Select mod {name}",
+      "fromModpackTitle": "From modpack: {name}",
+      "byAuthorDownloads": "by {author} · {downloads} dl"
+    },
+    "detail": {
+      "loading": "Loading…",
+      "byAuthorSourceDownloads": "by {author} · {source} · {downloads} downloads",
+      "viewOnModrinth": "View on Modrinth ↗",
+      "viewOnCurseForge": "View on CurseForge ↗",
+      "closeAriaLabel": "Close mod details",
+      "closeBackdropAriaLabel": "Close",
+      "tabOverview": "Overview",
+      "tabVersions": "Versions",
+      "contentDisclaimer": "Content from {source} — any ads or links in it are the author's, not Lucerna's.",
+      "loadingDescription": "Loading description…",
+      "loadingVersions": "Loading versions…",
+      "showAllVersions": "Show all versions",
+      "noVersionsPlatform": "No versions returned by the platform.",
+      "noVersionsCompat": "No compatible versions for this MC + loader.",
+      "versionInstalled": " · installed",
+      "switchVersionTitle": "Switch from v{installedId} to this version",
+      "btnInstalled": "✓ Installed",
+      "btnRestricted": "Restricted",
+      "btnSwitch": "Switch",
+      "btnInstall": "Install",
+      "footerInstalled": "✓ Installed {version}",
+      "footerRestricted": "Restricted — open on platform",
+      "footerInstall": "Install {version}",
+      "selectInstanceHint": "Select a Fabric / Quilt / Forge / NeoForge instance to install mods.",
+      "noCompatVersion": "No compatible version for {mc} / {loader}."
+    },
+    "source": {
+      "label": "Source:"
+    },
+    "mcVersion": {
+      "anyVersion": "Any version",
+      "noMatch": "No match"
+    },
+    "pageSize": {
+      "perPage": "Per page:"
+    },
+    "layout": {
+      "groupAriaLabel": "Result layout",
+      "grid": "Grid",
+      "list": "List"
+    },
+    "curseforgeBanner": {
+      "heading": "CurseForge requires an API key",
+      "body": "Modrinth works anonymously, but CurseForge needs a free API key. It takes about 5 minutes to obtain one — get a free account at console.curseforge.com, generate a key, and paste it into Settings.",
+      "openSettings": "Open Settings → CurseForge"
+    }
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",

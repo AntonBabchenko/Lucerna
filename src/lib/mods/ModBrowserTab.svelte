@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CompatVerdict, ModSource } from '$lib/ipc/bindings';
   import { modBrowserNav } from '$lib/settings/state.svelte';
+  import { t } from '$lib/i18n';
   import InstalledModsView from './InstalledModsView.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
@@ -10,6 +11,7 @@
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { droppedMods } from '$lib/settings/state.svelte';
   import { canInstallMods } from './install-eligibility';
+  import { get } from 'svelte/store';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import FileDropzone from './FileDropzone.svelte';
 
@@ -91,14 +93,22 @@
   }
 
   function mismatchReason(v: CompatVerdict): string {
+    const translate = get(t);
     const parts: string[] = [];
     if (v.loader_mismatch && v.detected_loader) {
-      parts.push(`looks like a ${v.detected_loader} mod, instance is ${loader}`);
+      parts.push(
+        translate('mods.browse.mismatchLoader', {
+          detected: v.detected_loader,
+          instance: loader ?? '',
+        }),
+      );
     }
     if (v.mc_mismatch && v.detected_mc) {
-      parts.push(`targets MC ${v.detected_mc}, instance is ${mcVersion}`);
+      parts.push(
+        translate('mods.browse.mismatchMc', { detected: v.detected_mc, instance: mcVersion ?? '' }),
+      );
     }
-    return parts.join('; ') || 'may not be compatible';
+    return parts.join('; ') || translate('mods.browse.mismatchDefault');
   }
 
   async function onJarsPicked(paths: string[]) {
@@ -110,7 +120,7 @@
       const filename = filenameOf(path);
       const r = await commands.modsInspectLocal(instanceId, path);
       if (r.status !== 'ok') {
-        pushWarning(`Could not read ${filename}`, [formatError(r.error)]);
+        pushWarning(get(t)('mods.browse.toastCouldNotRead', { filename }), [formatError(r.error)]);
         continue;
       }
       const v = r.data;
@@ -139,8 +149,9 @@
       if (r.status === 'ok') ok += 1;
       else failed.push(`${j.filename}: ${formatError(r.error)}`);
     }
-    if (ok > 0) pushSuccess(`Installed ${ok} mod${ok === 1 ? '' : 's'}`);
-    if (failed.length > 0) pushWarning(`${failed.length} mod(s) failed to install`, failed);
+    if (ok > 0) pushSuccess(get(t)('mods.browse.toastInstalled', { count: ok }));
+    if (failed.length > 0)
+      pushWarning(get(t)('mods.browse.toastFailedToInstall', { count: failed.length }), failed);
   }
 
   async function confirmInstallAll() {
@@ -158,7 +169,8 @@
     pendingCompatible = [];
     pendingMismatched = [];
     await installJars(compatible);
-    if (skipped.length > 0) pushWarning(`Skipped ${skipped.length} incompatible mod(s)`, skipped);
+    if (skipped.length > 0)
+      pushWarning(get(t)('mods.browse.toastSkipped', { count: skipped.length }), skipped);
   }
 </script>
 
@@ -179,7 +191,7 @@
         class:text-placeholder={view !== 'browse'}
         onclick={() => (view = 'browse')}
       >
-        Browse
+        {$t('mods.browse.tabBrowse')}
       </button>
       <button
         type="button"
@@ -193,7 +205,7 @@
         class:text-placeholder={view !== 'installed'}
         onclick={() => (view = 'installed')}
       >
-        Installed
+        {$t('mods.browse.tabInstalled')}
       </button>
     </div>
     <SourcePicker bind:value={source} />
@@ -201,9 +213,9 @@
 
   <div class="px-3 pt-3">
     <FileDropzone
-      label="Drop a mod .jar here to install — or click to browse"
+      label={$t('mods.browse.dropzoneLabel')}
       disabled={installDisabled}
-      disabledLabel="Select a non-vanilla instance to install mods"
+      disabledLabel={$t('mods.browse.dropzoneDisabled')}
       onClick={installFromFile}
     />
   </div>

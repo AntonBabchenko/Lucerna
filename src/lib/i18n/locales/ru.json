@@ -96,6 +96,101 @@
       "installAnywayBtn": "Установить всё равно"
     }
   },
+  "mods": {
+    "browse": {
+      "tabBrowse": "Поиск",
+      "tabInstalled": "Установленные",
+      "searchAriaLabel": "Поиск модов",
+      "searchPlaceholder": "Поиск модов...",
+      "sortDownloads": "Скачивания",
+      "sortRelevance": "Релевантность",
+      "sortUpdated": "Обновление",
+      "searching": "Поиск…",
+      "noResults": "Ничего не найдено.",
+      "prev": "‹ Назад",
+      "next": "Вперёд ›",
+      "pageOf": "Страница {page} из {total}",
+      "page": "Страница {page}",
+      "vanillaHeading": "Этот экземпляр — vanilla Minecraft",
+      "vanillaBody": "В vanilla Minecraft нет загрузчика модов, поэтому jar-файлы с Modrinth / CurseForge не могут быть загружены во время выполнения. Чтобы устанавливать моды, создайте или переключитесь на экземпляр с Fabric, Quilt, Forge или NeoForge через панель «Управление» на боковой панели.",
+      "errorNoInstance": "Экземпляр не выбран",
+      "errorNoCompatibleVersion": "Совместимая версия не найдена",
+      "errorVanillaLoader": "Этот экземпляр — vanilla Minecraft (без загрузчика модов). Переключитесь на экземпляр с Fabric / Quilt / Forge / NeoForge, чтобы устанавливать моды.",
+      "dropzoneLabel": "Перетащите .jar мода сюда или нажмите для выбора файла",
+      "dropzoneDisabled": "Выберите экземпляр с загрузчиком для установки модов",
+      "toastInstallFailed": "Не удалось установить мод",
+      "toastInstalledMod": "Установлен {name}",
+      "mismatchLoader": "похоже на мод для {detected}, экземпляр использует {instance}",
+      "mismatchMc": "предназначен для MC {detected}, экземпляр использует {instance}",
+      "mismatchDefault": "может быть несовместим",
+      "toastCouldNotRead": "Не удалось прочитать {filename}",
+      "toastInstalled": "{count, plural, one {Установлен # мод} few {Установлено # мода} many {Установлено # модов} other {Установлено # мода}}",
+      "toastFailedToInstall": "{count, plural, one {# мод не удалось установить} few {# мода не удалось установить} many {# модов не удалось установить} other {# мода не удалось установить}}",
+      "toastSkipped": "{count, plural, one {Пропущен # несовместимый мод} few {Пропущено # несовместимых мода} many {Пропущено # несовместимых модов} other {Пропущено # несовместимых мода}}"
+    },
+    "card": {
+      "checking": "Проверка…",
+      "updateAvailableTitle": "Доступно обновление",
+      "checkFailed": "не удалось проверить",
+      "installed": "Установлен",
+      "disabled": "Отключён",
+      "disable": "Отключить",
+      "enable": "Включить",
+      "uninstall": "Удалить",
+      "install": "Установить",
+      "update": "Обновить",
+      "selectAriaLabel": "Выбрать мод {name}",
+      "fromModpackTitle": "Из сборки: {name}",
+      "byAuthorDownloads": "{author} · {downloads} скач."
+    },
+    "detail": {
+      "loading": "Загрузка…",
+      "byAuthorSourceDownloads": "{author} · {source} · {downloads} скачиваний",
+      "viewOnModrinth": "Открыть на Modrinth ↗",
+      "viewOnCurseForge": "Открыть на CurseForge ↗",
+      "closeAriaLabel": "Закрыть сведения о моде",
+      "closeBackdropAriaLabel": "Закрыть",
+      "tabOverview": "Обзор",
+      "tabVersions": "Версии",
+      "contentDisclaimer": "Содержимое с {source} — реклама и ссылки в нём принадлежат автору, а не Lucerna.",
+      "loadingDescription": "Загрузка описания…",
+      "loadingVersions": "Загрузка версий…",
+      "showAllVersions": "Показать все версии",
+      "noVersionsPlatform": "Платформа не вернула ни одной версии.",
+      "noVersionsCompat": "Нет совместимых версий для этой версии MC и загрузчика.",
+      "versionInstalled": " · установлена",
+      "switchVersionTitle": "Заменить v{installedId} на эту версию",
+      "btnInstalled": "✓ Установлен",
+      "btnRestricted": "Ограничено",
+      "btnSwitch": "Заменить",
+      "btnInstall": "Установить",
+      "footerInstalled": "✓ Установлен {version}",
+      "footerRestricted": "Ограничено — откройте на платформе",
+      "footerInstall": "Установить {version}",
+      "selectInstanceHint": "Выберите экземпляр с Fabric / Quilt / Forge / NeoForge для установки модов.",
+      "noCompatVersion": "Нет совместимой версии для {mc} / {loader}."
+    },
+    "source": {
+      "label": "Источник:"
+    },
+    "mcVersion": {
+      "anyVersion": "Любая версия",
+      "noMatch": "Нет совпадений"
+    },
+    "pageSize": {
+      "perPage": "На странице:"
+    },
+    "layout": {
+      "groupAriaLabel": "Вид результатов",
+      "grid": "Сетка",
+      "list": "Список"
+    },
+    "curseforgeBanner": {
+      "heading": "CurseForge требует API-ключ",
+      "body": "Modrinth работает анонимно, но для CurseForge нужен бесплатный API-ключ. Его получение занимает около 5 минут — создайте бесплатный аккаунт на console.curseforge.com, сгенерируйте ключ и вставьте его в настройки.",
+      "openSettings": "Открыть настройки → CurseForge"
+    }
+  },
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",
