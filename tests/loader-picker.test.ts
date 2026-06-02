@@ -117,6 +117,9 @@ describe('LoaderPicker', () => {
     // The {#if} re-creates the Select on loader switch, so the old
     // trigger ref can go stale — re-query before the second assertion.
     trigger = (await findByLabelText(/loader version/i)) as HTMLElement;
-    await waitFor(() => expect(trigger.textContent).toContain('0.20.0'));
+    await waitFor(() => {
+      expect(trigger.textContent).toContain('0.20.0');
+      expect(trigger.textContent).not.toContain('0.16.0');
+    });
   });
 });
