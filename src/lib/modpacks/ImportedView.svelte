@@ -5,6 +5,7 @@
   import { t } from '$lib/i18n';
   import ImportedCard from './ImportedCard.svelte';
   import ImportedDetailDrawer from './ImportedDetailDrawer.svelte';
+  import Select from '$lib/ui/Select.svelte';
 
   // Filtered grid of instances that originated from a modpack import
   // (i.e. `mrpack_name` is set on the metadata). The toolbar above the
@@ -124,6 +125,25 @@
       .sort()
       .reverse(),
   );
+
+  // Option lists for the custom <Select> filters. Keep the empty "Any…"
+  // row in each so the filter stays clearable/re-selectable.
+  const mcSelectOptions = $derived([
+    { value: '', label: $t('modpacks.imported.view.allMcVersions') },
+    ...mcOptions.map((v) => ({ value: v, label: v })),
+  ]);
+  const loaderSelectOptions = $derived([
+    { value: '', label: $t('modpacks.imported.view.allLoaders') },
+    { value: 'fabric', label: 'Fabric' },
+    { value: 'quilt', label: 'Quilt' },
+    { value: 'forge', label: 'Forge' },
+    { value: 'neoforge', label: 'NeoForge' },
+  ]);
+  const sortSelectOptions = $derived([
+    { value: 'newest', label: $t('modpacks.imported.view.sortNewest') },
+    { value: 'oldest', label: $t('modpacks.imported.view.sortOldest') },
+    { value: 'name', label: $t('modpacks.imported.view.sortName') },
+  ]);
 </script>
 
 {#if allPacks.length === 0}
@@ -141,36 +161,26 @@
       class="flex-1 min-w-[150px] px-3 py-1.5 border rounded text-sm"
       data-testid="imported-search-input"
     />
-    <select
-      bind:value={mcFilter}
-      class="px-2 py-1.5 border rounded text-sm bg-surface"
-      data-testid="imported-mc-filter"
-    >
-      <option value="">{$t('modpacks.imported.view.allMcVersions')}</option>
-      {#each mcOptions as v (v)}
-        <option value={v}>{v}</option>
-      {/each}
-    </select>
-    <select
-      bind:value={loaderFilter}
-      class="px-2 py-1.5 border rounded text-sm bg-surface"
-      data-testid="imported-loader-filter"
-    >
-      <option value="">{$t('modpacks.imported.view.allLoaders')}</option>
-      <option value="fabric">Fabric</option>
-      <option value="quilt">Quilt</option>
-      <option value="forge">Forge</option>
-      <option value="neoforge">NeoForge</option>
-    </select>
-    <select
-      bind:value={sort}
-      class="px-2 py-1.5 border rounded text-sm bg-surface"
-      data-testid="imported-sort"
-    >
-      <option value="newest">{$t('modpacks.imported.view.sortNewest')}</option>
-      <option value="oldest">{$t('modpacks.imported.view.sortOldest')}</option>
-      <option value="name">{$t('modpacks.imported.view.sortName')}</option>
-    </select>
+    <Select
+      value={mcFilter}
+      options={mcSelectOptions}
+      onChange={(v) => (mcFilter = String(v))}
+      dataTestid="imported-mc-filter"
+      ariaLabel={$t('modpacks.imported.view.allMcVersions')}
+    />
+    <Select
+      value={loaderFilter}
+      options={loaderSelectOptions}
+      onChange={(v) => (loaderFilter = String(v) as typeof loaderFilter)}
+      dataTestid="imported-loader-filter"
+      ariaLabel={$t('modpacks.imported.view.allLoaders')}
+    />
+    <Select
+      value={sort}
+      options={sortSelectOptions}
+      onChange={(v) => (sort = String(v) as typeof sort)}
+      dataTestid="imported-sort"
+    />
   </div>
 
   <div class="p-4 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
