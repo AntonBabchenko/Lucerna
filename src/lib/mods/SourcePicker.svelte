@@ -7,7 +7,7 @@
 
 <label class="text-sm text-secondary inline-flex items-center gap-1">
   {$t('mods.source.label')}
-  <select aria-label="Mod source" class="filter-control" bind:value>
+  <select aria-label={$t('mods.source.ariaLabel')} class="filter-control" bind:value>
     <option value="modrinth">Modrinth</option>
     <option value="curseforge">CurseForge</option>
   </select>

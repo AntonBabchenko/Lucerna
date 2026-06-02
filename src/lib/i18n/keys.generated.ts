@@ -3,6 +3,8 @@
 export type TranslationKey =
   | 'common.cancel'
   | 'common.close'
+  | 'common.nextImage'
+  | 'common.previousImage'
   | 'common.save'
   | 'instance.compat.dialogLabel'
   | 'instance.compat.heading'
@@ -200,6 +202,7 @@ export type TranslationKey =
   | 'mods.orphan.confirmUninstallAriaLabel'
   | 'mods.orphan.heading'
   | 'mods.pageSize.perPage'
+  | 'mods.source.ariaLabel'
   | 'mods.source.label'
   | 'nav.modBrowser'
   | 'nav.overview'

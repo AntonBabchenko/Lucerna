@@ -2,7 +2,9 @@
   "common": {
     "cancel": "Cancel",
     "save": "Save",
-    "close": "Close"
+    "close": "Close",
+    "previousImage": "Previous image",
+    "nextImage": "Next image"
   },
   "nav": {
     "overview": "Overview",
@@ -171,7 +173,8 @@
       "noCompatVersion": "No compatible version for {mc} / {loader}."
     },
     "source": {
-      "label": "Source:"
+      "label": "Source:",
+      "ariaLabel": "Mod source"
     },
     "mcVersion": {
       "anyVersion": "Any version",

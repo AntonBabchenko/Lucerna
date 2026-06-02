@@ -2,7 +2,9 @@
   "common": {
     "cancel": "Отмена",
     "save": "Сохранить",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "previousImage": "Предыдущее изображение",
+    "nextImage": "Следующее изображение"
   },
   "nav": {
     "overview": "Обзор",
@@ -171,7 +173,8 @@
       "noCompatVersion": "Нет совместимой версии для {mc} / {loader}."
     },
     "source": {
-      "label": "Источник:"
+      "label": "Источник:",
+      "ariaLabel": "Источник модов"
     },
     "mcVersion": {
       "anyVersion": "Любая версия",
