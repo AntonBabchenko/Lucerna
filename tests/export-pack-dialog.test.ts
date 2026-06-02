@@ -204,5 +204,38 @@ describe('ExportPackDialog', () => {
 
     await waitFor(() => expect(pushWarning).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();
+    // The dialog must re-enable Export after a failure so the user can retry —
+    // i.e. `busy` is cleared on the error branch, not only on success.
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveProperty('disabled', false);
+  });
+
+  it('disables Export when the version is blank', async () => {
+    exportPreview.mockResolvedValue(ok(preview()));
+    renderDialog();
+    expect(await screen.findByText('Format')).toBeTruthy();
+    await fireEvent.input(screen.getByPlaceholderText('Version'), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Export' })).toHaveProperty('disabled', true);
+  });
+
+  it('hides the unresolvable list and sends bundle_shas=[] in full mode', async () => {
+    // A local jar (no IDs) is unresolvable in lightweight mode and listed; full
+    // mode bundles everything via overrides, so the checklist is gone and the
+    // command receives an empty bundle_shas regardless of unresolvable mods.
+    exportPreview.mockResolvedValue(
+      ok(preview({ mods: [mod({ name: 'LocalOnly', has_ids: false })] })),
+    );
+    exportModpack.mockResolvedValue(ok(null));
+    save.mockResolvedValue('/out/my-pack-1.0.0.mrpack');
+    renderDialog();
+
+    expect(await screen.findByText('Mods without a download link')).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText('Full (bundle everything)'));
+    expect(screen.queryByText('Mods without a download link')).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(exportModpack).toHaveBeenCalledTimes(1));
+    const options = exportModpack.mock.calls[0][1];
+    expect(options.mode).toBe('full');
+    expect(options.bundle_shas).toEqual([]);
   });
 });
