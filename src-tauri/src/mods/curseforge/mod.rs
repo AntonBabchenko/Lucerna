@@ -330,6 +330,8 @@ fn convert_version(f: types::File, project_id: &str) -> Option<ModVersion> {
         match types::loader_from_tag(&gv) {
             Some(l) if !loaders.contains(&l) => loaders.push(l),
             Some(_) => {} // duplicate loader tag
+            // Drop "Client"/"Server" markers; keep everything else as an MC version.
+            None if types::is_environment_marker(&gv) => {}
             None => mc_versions.push(gv),
         }
     }
@@ -588,10 +590,9 @@ mod tests {
         };
         let v = convert_version(f, "12345").unwrap();
         assert_eq!(v.loaders, vec![LoaderKind::NeoForge]);
-        // Loader tags are stripped from mc_versions; non-version markers like
-        // "Client" remain (they are not loaders and not our concern here).
-        assert!(v.mc_versions.contains(&"1.20.1".to_string()));
-        assert!(!v.mc_versions.contains(&"NeoForge".to_string()));
+        // Loader tags and environment markers ("Client"/"Server") are stripped;
+        // only real MC versions remain in mc_versions.
+        assert_eq!(v.mc_versions, vec!["1.20.1".to_string()]);
     }
 
     #[tokio::test]

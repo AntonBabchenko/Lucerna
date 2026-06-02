@@ -38,17 +38,25 @@ pub enum ModSort {
 /// Returns `None` when the filename names no loader — callers MUST treat that
 /// as "trust the platform tag", never as a mismatch.
 ///
-/// `neoforge` is checked before `forge` because "forge" is a substring of
-/// "neoforge".
+/// The loader name must appear as a delimited token (split on any
+/// non-alphanumeric character), NOT as a bare substring: a mod whose *name*
+/// embeds a loader word — e.g. `forgero-1.0.jar` (project "Forgero") — must not
+/// be mistaken for a Forge build and silently dropped. `neoforge` is matched
+/// before `forge` so a literal `neoforge` token never resolves to Forge.
 pub fn loader_in_filename(filename: &str) -> Option<LoaderKind> {
-    let f = filename.to_ascii_lowercase();
-    if f.contains("neoforge") {
+    let lower = filename.to_ascii_lowercase();
+    let has_token = |name: &str| {
+        lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|t| t == name)
+    };
+    if has_token("neoforge") {
         Some(LoaderKind::NeoForge)
-    } else if f.contains("fabric") {
+    } else if has_token("fabric") {
         Some(LoaderKind::Fabric)
-    } else if f.contains("quilt") {
+    } else if has_token("quilt") {
         Some(LoaderKind::Quilt)
-    } else if f.contains("forge") {
+    } else if has_token("forge") {
         Some(LoaderKind::Forge)
     } else {
         None
@@ -362,6 +370,21 @@ mod tests {
         // No loader token → ambiguous → None (trust the platform tag).
         assert_eq!(loader_in_filename("jei-1.20.1.jar"), None);
         assert_eq!(loader_in_filename(""), None);
+    }
+
+    #[test]
+    fn loader_in_filename_requires_a_delimited_token_not_a_substring() {
+        // A mod whose NAME embeds a loader word must not be classified by it —
+        // otherwise it gets silently dropped on a mismatching instance. Only a
+        // delimited token counts.
+        assert_eq!(loader_in_filename("forgero-1.0.jar"), None);
+        assert_eq!(loader_in_filename("fabricated-1.0.jar"), None);
+        assert_eq!(loader_in_filename("quiltessential-2.jar"), None);
+        // An explicit loader token alongside such a name still classifies.
+        assert_eq!(
+            loader_in_filename("Forgero-1.20.1-fabric.jar"),
+            Some(LoaderKind::Fabric)
+        );
     }
 
     fn version_with_filename(filename: &str) -> ModVersion {

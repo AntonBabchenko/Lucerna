@@ -35,6 +35,16 @@ pub fn loader_from_tag(tag: &str) -> Option<crate::mods::platform::LoaderKind> {
     }
 }
 
+/// CF `gameVersions` also carries environment markers (`Client` / `Server`)
+/// that are neither Minecraft versions nor loaders. Recognize them so they
+/// don't leak into a version's `mc_versions` list.
+pub fn is_environment_marker(tag: &str) -> bool {
+    matches!(
+        tag.trim().to_ascii_lowercase().as_str(),
+        "client" | "server"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::loader_from_tag;
@@ -62,6 +72,15 @@ mod tests {
         assert_eq!(loader_from_tag("Client"), None);
         assert_eq!(loader_from_tag("Server"), None);
         assert_eq!(loader_from_tag(""), None);
+    }
+
+    #[test]
+    fn recognizes_environment_markers() {
+        use super::is_environment_marker;
+        assert!(is_environment_marker("Client"));
+        assert!(is_environment_marker("server"));
+        assert!(!is_environment_marker("1.20.1"));
+        assert!(!is_environment_marker("Forge"));
     }
 }
 
