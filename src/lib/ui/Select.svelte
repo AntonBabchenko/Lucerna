@@ -148,31 +148,43 @@
       }
       return;
     }
+    // Keys consumed while open are stopped from propagating, so an enclosing
+    // modal's `<svelte:window onkeydown>` (Escape-to-close, etc.) doesn't also
+    // fire — pressing Escape should dismiss only the dropdown, matching native
+    // <select>. Tab is the exception: it commits but must keep bubbling/default
+    // so focus moves on to the next control.
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      e.stopPropagation();
       const next = firstEnabledFrom(activeIndex + 1, 1);
       if (next >= 0) activeIndex = next;
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      e.stopPropagation();
       const prev = firstEnabledFrom(activeIndex - 1, -1);
       if (prev >= 0) activeIndex = prev;
     } else if (e.key === 'Home') {
       e.preventDefault();
+      e.stopPropagation();
       activeIndex = firstEnabledFrom(0, 1);
     } else if (e.key === 'End') {
       e.preventDefault();
+      e.stopPropagation();
       activeIndex = firstEnabledFrom(options.length - 1, -1);
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      e.stopPropagation();
       commit(activeIndex);
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       closeList();
     } else if (e.key === 'Tab') {
       // Commit the active option, then let focus move on naturally.
       commit(activeIndex);
     } else if (isTypeaheadKey(e)) {
       e.preventDefault();
+      e.stopPropagation();
       typeahead(e.key);
     }
   }
@@ -192,18 +204,27 @@
   });
 
   // A fixed popover does not follow the trigger on layout shift — close on
-  // scroll/resize. scroll captured (3rd arg true) to catch ancestor scroll.
+  // ancestor scroll / resize. The scroll listener is capture-phase (3rd arg
+  // true) so it catches non-bubbling scroll from ancestor containers (sidebar,
+  // modal body). Capture also delivers scroll from DESCENDANTS, so we must
+  // ignore scrolls originating inside the popover's own list — otherwise
+  // wheeling a long list, or the arrow-key scrollIntoView below, would fire
+  // this and dismiss the dropdown mid-interaction.
   $effect(() => {
     if (!open) return;
-    const close = () => {
+    const collapse = () => {
       open = false;
       activeIndex = -1;
     };
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    const onScroll = (e: Event) => {
+      if (listEl?.contains(e.target as Node)) return;
+      collapse();
+    };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', collapse);
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', collapse);
     };
   });
 
@@ -248,6 +269,8 @@
     class="fixed z-50 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
     style={popoverStyle}
   >
+    <!-- Keyed by `opt.value`: option values must be unique within a Select
+         (a native <select> tolerates duplicate values; this control does not). -->
     {#each options as opt, i (opt.value)}
       <li
         id={optionId(i)}

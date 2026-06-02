@@ -123,4 +123,33 @@ describe('Select', () => {
     await fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('listbox')).toBeNull();
   });
+
+  it('stays open when its own option list scrolls, closes on ancestor scroll', async () => {
+    // Regression (H1): the capture-phase scroll listener that closes the fixed
+    // popover on ancestor scroll also receives scroll from the popover's own
+    // <ul> (and the arrow-key scrollIntoView), which used to dismiss long lists.
+    const { trigger } = setup();
+    await fireEvent.click(trigger);
+    const list = screen.getByRole('listbox');
+    await fireEvent.scroll(list);
+    expect(screen.queryByRole('listbox')).not.toBeNull();
+    await fireEvent.scroll(window);
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('stops consumed keydowns from reaching window (so an enclosing modal does not also act)', async () => {
+    // Regression (M1): Escape inside a Select must dismiss only the dropdown,
+    // not bubble to a modal's <svelte:window onkeydown> and close the modal too.
+    const onWindowKeydown = vi.fn();
+    window.addEventListener('keydown', onWindowKeydown);
+    try {
+      const { trigger } = setup();
+      await fireEvent.click(trigger);
+      await fireEvent.keyDown(trigger, { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(onWindowKeydown).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', onWindowKeydown);
+    }
+  });
 });
