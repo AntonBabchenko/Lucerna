@@ -535,6 +535,115 @@
       "errorToast": "Could not open logs folder"
     }
   },
+  "onboarding": {
+    "controls": {
+      "back": "← Back",
+      "next": "Next →",
+      "skip": "Skip tour",
+      "finish": "Finish ✓",
+      "gotIt": "Got it ✓",
+      "skipContextual": "Skip",
+      "stepOf": "Step {current} of {total}"
+    },
+    "tour": {
+      "welcome": {
+        "title": "Welcome to Lucerna",
+        "body": "Lucerna organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others."
+      },
+      "signIn": {
+        "title": "Sign in (optional)",
+        "body": "Click 'Sign in with Microsoft' to play online with your Microsoft account, or skip this step and use an offline account for LAN and single-player."
+      },
+      "pickInstance": {
+        "title": "Pick an instance",
+        "body": "An instance is a self-contained Minecraft install. Lucerna starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected."
+      },
+      "manageInstances": {
+        "title": "Manage your instances",
+        "body": "⚙ Manage is where you set an instance's Minecraft version and loader, tweak memory, and create, rename or delete instances. A new instance starts with no version — pick one here before you can play."
+      },
+      "installPlay": {
+        "title": "Install, then Play",
+        "body": "First click downloads Minecraft and your chosen loader (one-time per version). The button then switches to Play. While Minecraft is running it becomes Stop."
+      },
+      "browseMods": {
+        "title": "Browse mods",
+        "body": "Search Modrinth or CurseForge and install mods directly into the active instance's mods folder. SHA-verified, listed in the Installed sub-tab."
+      },
+      "importModpacks": {
+        "title": "Import modpacks",
+        "body": "Drop a .mrpack or CurseForge .zip here, or browse Modrinth modpacks. Each import becomes a new instance — your existing instances stay untouched."
+      }
+    },
+    "contextual": {
+      "manage": {
+        "yourInstances": {
+          "title": "Your instances",
+          "body": "Each row is one instance — click to edit it, or hit \"+ New instance\" below to add one."
+        },
+        "editAndSave": {
+          "title": "Edit and save",
+          "body": "Name, MC version, loader, memory, and JVM args live here. Done saves and closes."
+        },
+        "openFolderDelete": {
+          "title": "Open folder, delete",
+          "body": "Open folder jumps to the instance's directory on disk. Delete wipes the instance and all its files — confirmation required."
+        }
+      },
+      "logs": {
+        "threeLogSources": {
+          "title": "Three log sources",
+          "body": "Game logs are Minecraft's output. Crash reports only appear when the game crashes. Launcher logs are Lucerna's own."
+        },
+        "displayOptions": {
+          "title": "Display options",
+          "body": "Wrap lines breaks long classpath / stack traces. Collapse stack hides repetitive Java frames behind a clickable row. The Show checkboxes hide entire severity levels — handy when chasing a single WARN through thousands of INFO lines."
+        },
+        "searchNavigation": {
+          "title": "Search with navigation",
+          "body": "Type to search the open file. Counter shows N of M matches; Enter / Shift+Enter step through them, Esc clears. Active match is highlighted in blue."
+        },
+        "shareMcloGs": {
+          "title": "Share to mclo.gs",
+          "body": "Uploads the visible log to mclo.gs — the Minecraft community's de-facto paste service — and gives you a sharable link. Strips user paths, session tokens, and LAN IPs before upload so you can drop the link in Discord without leaking personal info."
+        },
+        "crashStructuredView": {
+          "title": "Crash reports get a structured view",
+          "body": "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text."
+        }
+      },
+      "modpacks": {
+        "browseVsImported": {
+          "title": "Browse vs Imported",
+          "body": "Browse searches Modrinth + CurseForge. Imported lists packs you've already installed — each is its own instance."
+        },
+        "dragAndDrop": {
+          "title": "Drag and drop",
+          "body": "Drop a .mrpack or CurseForge .zip anywhere on this view to import. Each import becomes a new instance — your existing ones stay untouched."
+        },
+        "searchSortFilter": {
+          "title": "Search, sort, and filter",
+          "body": "Search and sort are always here. Click \"Filters\" to pick a Minecraft version, mod loader, or source — your choices show as removable chips, and \"Clear all\" resets them."
+        }
+      },
+      "worlds": {
+        "worldsWithBackups": {
+          "title": "Your worlds, with backups",
+          "body": "Each row is one singleplayer save. The 📦 N badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world."
+        },
+        "openSavesFolder": {
+          "title": "Open saves folder",
+          "body": "Jumps to the saves/ folder in your file manager for manual operations — moving a world to another instance, copying out for a server upload, etc."
+        }
+      }
+    },
+    "instanceConcept": {
+      "triggerAriaLabel": "What is an instance?",
+      "triggerTitle": "What is an instance?",
+      "closeAriaLabel": "Close tooltip",
+      "body": "Each instance is a self-contained world — its own Minecraft version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others."
+    }
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",

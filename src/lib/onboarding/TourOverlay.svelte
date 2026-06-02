@@ -9,6 +9,7 @@
   import { onMount, untrack, tick } from 'svelte';
   import { tourState, TOTAL_STEPS, next, back, finishOrSkip } from './state.svelte';
   import { STEPS } from './steps';
+  import { t } from '$lib/i18n';
 
   const PADDING = 6;
 
@@ -182,12 +183,15 @@
       style={popoverStyle(rect, step.anchor)}
     >
       <div class="text-xs text-muted mb-1">
-        Step {tourState.currentStep + 1} of {TOTAL_STEPS}
+        {$t('onboarding.controls.stepOf', {
+          current: tourState.currentStep + 1,
+          total: TOTAL_STEPS,
+        })}
       </div>
       <h3 id="tour-popover-title" class="font-semibold text-sm text-primary mb-2">
-        {step.title}
+        {$t(step.titleKey)}
       </h3>
-      <p class="text-sm text-secondary mb-4">{step.body}</p>
+      <p class="text-sm text-secondary mb-4">{$t(step.bodyKey)}</p>
       {#if step.disclaimer}
         <p class="text-xs text-muted mt-3">{step.disclaimer}</p>
       {/if}
@@ -198,12 +202,12 @@
           disabled={isFirst}
           onclick={() => back()}
         >
-          ← Back
+          {$t('onboarding.controls.back')}
         </button>
         <div class="flex gap-2">
           {#if !isLast}
             <button type="button" class="btn-tertiary" onclick={() => void finishOrSkip()}>
-              Skip tour
+              {$t('onboarding.controls.skip')}
             </button>
           {/if}
           <button
@@ -212,7 +216,7 @@
             class="btn-primary btn-sm"
             onclick={() => (isLast ? void finishOrSkip() : next())}
           >
-            {isLast ? 'Finish ✓' : 'Next →'}
+            {isLast ? $t('onboarding.controls.finish') : $t('onboarding.controls.next')}
           </button>
         </div>
       </div>

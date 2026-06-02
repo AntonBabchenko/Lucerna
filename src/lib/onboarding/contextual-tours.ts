@@ -4,6 +4,10 @@
 // Each runs once on first open of its host surface, then sets a
 // localStorage key so it never reappears. Independent of the main
 // onboarding tour in state.svelte.ts.
+//
+// titleKey / bodyKey are TranslationKey references resolved at render
+// time via $t(step.titleKey). The actual text lives in
+// src/lib/i18n/locales/{en,ru}.json under onboarding.contextual.*.
 
 import type { TourStep } from './steps';
 
@@ -45,20 +49,20 @@ export function markSeen(id: ContextualTourId): void {
 
 export const MANAGE_STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Your instances',
-    body: 'Each row is one instance — click to edit it, or hit "+ New instance" below to add one.',
+    titleKey: 'onboarding.contextual.manage.yourInstances.title',
+    bodyKey: 'onboarding.contextual.manage.yourInstances.body',
     targetSelector: '[data-tour-ctx="manage-list"]',
     anchor: 'right',
   },
   {
-    title: 'Edit and save',
-    body: 'Name, MC version, loader, memory, and JVM args live here. Done saves and closes.',
+    titleKey: 'onboarding.contextual.manage.editAndSave.title',
+    bodyKey: 'onboarding.contextual.manage.editAndSave.body',
     targetSelector: '[data-tour-ctx="manage-form"]',
     anchor: 'right',
   },
   {
-    title: 'Open folder, delete',
-    body: "Open folder jumps to the instance's directory on disk. Delete wipes the instance and all its files — confirmation required.",
+    titleKey: 'onboarding.contextual.manage.openFolderDelete.title',
+    bodyKey: 'onboarding.contextual.manage.openFolderDelete.body',
     targetSelector: '[data-tour-ctx="manage-actions"]',
     anchor: 'below',
   },
@@ -66,32 +70,32 @@ export const MANAGE_STEPS: ReadonlyArray<TourStep> = [
 
 export const LOGS_STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Three log sources',
-    body: "Game logs are Minecraft's output. Crash reports only appear when the game crashes. Launcher logs are Lucerna's own.",
+    titleKey: 'onboarding.contextual.logs.threeLogSources.title',
+    bodyKey: 'onboarding.contextual.logs.threeLogSources.body',
     targetSelector: '[data-tour-ctx="logs-sidebar"]',
     anchor: 'right',
   },
   {
-    title: 'Display options',
-    body: 'Wrap lines breaks long classpath / stack traces. Collapse stack hides repetitive Java frames behind a clickable row. The Show checkboxes hide entire severity levels — handy when chasing a single WARN through thousands of INFO lines.',
+    titleKey: 'onboarding.contextual.logs.displayOptions.title',
+    bodyKey: 'onboarding.contextual.logs.displayOptions.body',
     targetSelector: '[data-tour-ctx="logs-toolbar"]',
     anchor: 'below',
   },
   {
-    title: 'Search with navigation',
-    body: 'Type to search the open file. Counter shows N of M matches; Enter / Shift+Enter step through them, Esc clears. Active match is highlighted in blue.',
+    titleKey: 'onboarding.contextual.logs.searchNavigation.title',
+    bodyKey: 'onboarding.contextual.logs.searchNavigation.body',
     targetSelector: '[data-tour-ctx="logs-search"]',
     anchor: 'below',
   },
   {
-    title: 'Share to mclo.gs',
-    body: "Uploads the visible log to mclo.gs — the Minecraft community's de-facto paste service — and gives you a sharable link. Strips user paths, session tokens, and LAN IPs before upload so you can drop the link in Discord without leaking personal info.",
+    titleKey: 'onboarding.contextual.logs.shareMcloGs.title',
+    bodyKey: 'onboarding.contextual.logs.shareMcloGs.body',
     targetSelector: '[data-tour-ctx="logs-share"]',
     anchor: 'below',
   },
   {
-    title: 'Crash reports get a structured view',
-    body: "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text.",
+    titleKey: 'onboarding.contextual.logs.crashStructuredView.title',
+    bodyKey: 'onboarding.contextual.logs.crashStructuredView.body',
     targetSelector: '[data-tour-ctx="logs-sidebar"]',
     anchor: 'right',
   },
@@ -99,20 +103,20 @@ export const LOGS_STEPS: ReadonlyArray<TourStep> = [
 
 export const MODPACKS_STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Browse vs Imported',
-    body: "Browse searches Modrinth + CurseForge. Imported lists packs you've already installed — each is its own instance.",
+    titleKey: 'onboarding.contextual.modpacks.browseVsImported.title',
+    bodyKey: 'onboarding.contextual.modpacks.browseVsImported.body',
     targetSelector: '[data-tour-ctx="modpacks-tabs"]',
     anchor: 'below',
   },
   {
-    title: 'Drag and drop',
-    body: 'Drop a .mrpack or CurseForge .zip anywhere on this view to import. Each import becomes a new instance — your existing ones stay untouched.',
+    titleKey: 'onboarding.contextual.modpacks.dragAndDrop.title',
+    bodyKey: 'onboarding.contextual.modpacks.dragAndDrop.body',
     targetSelector: '[data-tour-ctx="modpacks-dropzone"]',
     anchor: 'below',
   },
   {
-    title: 'Search, sort, and filter',
-    body: 'Search and sort are always here. Click "Filters" to pick a Minecraft version, mod loader, or source — your choices show as removable chips, and "Clear all" resets them.',
+    titleKey: 'onboarding.contextual.modpacks.searchSortFilter.title',
+    bodyKey: 'onboarding.contextual.modpacks.searchSortFilter.body',
     targetSelector: '[data-tour-ctx="modpacks-filters"]',
     anchor: 'below',
   },
@@ -120,14 +124,14 @@ export const MODPACKS_STEPS: ReadonlyArray<TourStep> = [
 
 export const WORLDS_STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Your worlds, with backups',
-    body: 'Each row is one singleplayer save. The 📦 N badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world.',
+    titleKey: 'onboarding.contextual.worlds.worldsWithBackups.title',
+    bodyKey: 'onboarding.contextual.worlds.worldsWithBackups.body',
     targetSelector: '[data-tour-ctx="worlds-list"]',
     anchor: 'below',
   },
   {
-    title: 'Open saves folder',
-    body: 'Jumps to the saves/ folder in your file manager for manual operations — moving a world to another instance, copying out for a server upload, etc.',
+    titleKey: 'onboarding.contextual.worlds.openSavesFolder.title',
+    bodyKey: 'onboarding.contextual.worlds.openSavesFolder.body',
     targetSelector: '[data-tour-ctx="worlds-open-folder"]',
     anchor: 'right',
   },

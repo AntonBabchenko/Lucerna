@@ -7,6 +7,7 @@
   import { onMount, tick } from 'svelte';
   import type { TourStep } from './steps';
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
+  import { t } from '$lib/i18n';
 
   let { id, steps }: { id: ContextualTourId; steps: ReadonlyArray<TourStep> } = $props();
 
@@ -158,22 +159,24 @@
     data-testid="contextual-tour-popover"
   >
     <div class="text-xs text-muted mb-1">
-      Step {currentStep + 1} of {steps.length}
+      {$t('onboarding.controls.stepOf', { current: currentStep + 1, total: steps.length })}
     </div>
     <h3 id="ctx-tour-title-{id}" class="font-semibold text-sm text-primary mb-2">
-      {step.title}
+      {$t(step.titleKey)}
     </h3>
-    <p class="text-sm text-secondary mb-4">{step.body}</p>
+    <p class="text-sm text-secondary mb-4">{$t(step.bodyKey)}</p>
     <div class="flex justify-between gap-2">
       <button type="button" class="btn-secondary btn-sm" disabled={isFirst} onclick={back}>
-        ← Back
+        {$t('onboarding.controls.back')}
       </button>
       <div class="flex gap-2">
         {#if !isLast}
-          <button type="button" class="btn-tertiary" onclick={finish}> Skip </button>
+          <button type="button" class="btn-tertiary" onclick={finish}>
+            {$t('onboarding.controls.skipContextual')}
+          </button>
         {/if}
         <button type="button" data-tour-primary class="btn-primary btn-sm" onclick={next}>
-          {isLast ? 'Got it ✓' : 'Next →'}
+          {isLast ? $t('onboarding.controls.gotIt') : $t('onboarding.controls.next')}
         </button>
       </div>
     </div>
