@@ -833,5 +833,72 @@
       "clearKey": "Clear key",
       "keyringNote": "Stored in OS keyring (Windows Credential Manager)."
     }
+  },
+  "page": {
+    "update": {
+      "available": "Lucerna {version} is available",
+      "actionLabel": "Update",
+      "currentVersion": "You're on {version}."
+    },
+    "crash": {
+      "banner": "Minecraft crashed.",
+      "viewReport": "View crash report",
+      "dismissAriaLabel": "Dismiss crash report banner"
+    },
+    "modpackImport": {
+      "alreadyInProgress": "A modpack import is already in progress",
+      "alreadyInProgressDetail": "Wait for it to finish before starting another.",
+      "imported": "Imported {name}",
+      "partialFailure": "Modpack imported — {count} mod(s) failed",
+      "failed": "Modpack import failed"
+    },
+    "accounts": {
+      "signedInMicrosoft": "Signed in with Microsoft",
+      "pendingApproval": "Microsoft sign-in pending approval",
+      "signInFailed": "Microsoft sign-in failed"
+    },
+    "overview": {
+      "sectionConfiguration": "Configuration",
+      "labelMinecraft": "Minecraft",
+      "notSet": "(not set)",
+      "labelLoader": "Loader",
+      "labelMemory": "Memory",
+      "editVia": "Edit via",
+      "manageBtn": "Manage",
+      "editViaSuffix": ".",
+      "sectionInstalledMods": "Installed mods",
+      "noModsHint": "No mods installed yet. Open",
+      "noModsHintSuffix": "to add some.",
+      "statsTotal": "Total:",
+      "statsEnabled": "Enabled:",
+      "statsDisabled": "Disabled:",
+      "manageInTab": "Manage in",
+      "installedTab": "Installed",
+      "manageInTabSuffix": "tab.",
+      "exportModpack": "Export modpack…",
+      "sectionPlaytime": "Playtime",
+      "notYetPlayed": "Not yet played",
+      "playtimeTotal": "Total:",
+      "playtimeSession": "{count, plural, one {# session} other {# sessions}}",
+      "playtimeLastSession": "Last session: {duration}, {when}",
+      "missingModsBtn": "{count, plural, one {# pack mod needs} other {# pack mods need}} attention",
+      "missingModsView": "View",
+      "statusRunning": "Running {versionId} (PID {pid})",
+      "statusPickVersion": "Pick a Minecraft version in",
+      "statusPickVersionSuffix": "before installing.",
+      "statusWorking": "Working…",
+      "statusInstallHint": "Click",
+      "statusInstallLabel": "Install",
+      "statusInstallHintSuffix": "in the sidebar to download Minecraft + selected loader.",
+      "statusReady": "Ready to play — click",
+      "statusReadyPlayLabel": "Play",
+      "statusReadySuffix": "in the sidebar.",
+      "statusExited": "Exited (code {code})",
+      "dismissError": "Dismiss error",
+      "noInstanceSelected": "No instance selected. Create one via the sidebar."
+    },
+    "offlineName": {
+      "cannotBeEmpty": "Name cannot be empty"
+    }
   }
 }

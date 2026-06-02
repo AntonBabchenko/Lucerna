@@ -833,5 +833,72 @@
       "clearKey": "Удалить ключ",
       "keyringNote": "Хранится в системном хранилище ключей (Windows Credential Manager)."
     }
+  },
+  "page": {
+    "update": {
+      "available": "Доступна Lucerna {version}",
+      "actionLabel": "Обновить",
+      "currentVersion": "У вас установлена {version}."
+    },
+    "crash": {
+      "banner": "Minecraft аварийно завершился.",
+      "viewReport": "Просмотр отчёта о сбое",
+      "dismissAriaLabel": "Закрыть баннер отчёта о сбое"
+    },
+    "modpackImport": {
+      "alreadyInProgress": "Импорт сборки уже выполняется",
+      "alreadyInProgressDetail": "Дождитесь завершения перед запуском нового.",
+      "imported": "Импортировано: {name}",
+      "partialFailure": "Сборка импортирована — {count} мод(ов) не удалось",
+      "failed": "Не удалось импортировать сборку"
+    },
+    "accounts": {
+      "signedInMicrosoft": "Выполнен вход через Microsoft",
+      "pendingApproval": "Вход через Microsoft ожидает одобрения",
+      "signInFailed": "Не удалось войти через Microsoft"
+    },
+    "overview": {
+      "sectionConfiguration": "Конфигурация",
+      "labelMinecraft": "Minecraft",
+      "notSet": "(не выбрана)",
+      "labelLoader": "Загрузчик",
+      "labelMemory": "Память",
+      "editVia": "Редактировать в",
+      "manageBtn": "Управление",
+      "editViaSuffix": ".",
+      "sectionInstalledMods": "Установленные моды",
+      "noModsHint": "Модов пока нет. Откройте",
+      "noModsHintSuffix": "чтобы добавить.",
+      "statsTotal": "Всего:",
+      "statsEnabled": "Включено:",
+      "statsDisabled": "Отключено:",
+      "manageInTab": "Управляйте во вкладке",
+      "installedTab": "Установленные",
+      "manageInTabSuffix": ".",
+      "exportModpack": "Экспорт сборки…",
+      "sectionPlaytime": "Игровое время",
+      "notYetPlayed": "Ещё не играли",
+      "playtimeTotal": "Итого:",
+      "playtimeSession": "{count, plural, one {# сессия} few {# сессии} many {# сессий} other {# сессии}}",
+      "playtimeLastSession": "Последняя сессия: {duration}, {when}",
+      "missingModsBtn": "{count, plural, one {# мод сборки требует} few {# мода сборки требуют} many {# модов сборки требуют} other {# мода сборки требуют}} внимания",
+      "missingModsView": "Посмотреть",
+      "statusRunning": "Запущено {versionId} (PID {pid})",
+      "statusPickVersion": "Выберите версию Minecraft в",
+      "statusPickVersionSuffix": "перед установкой.",
+      "statusWorking": "Работаю…",
+      "statusInstallHint": "Нажмите",
+      "statusInstallLabel": "Установить",
+      "statusInstallHintSuffix": "на боковой панели для загрузки Minecraft и выбранного загрузчика.",
+      "statusReady": "Готово к игре — нажмите",
+      "statusReadyPlayLabel": "Играть",
+      "statusReadySuffix": "на боковой панели.",
+      "statusExited": "Завершено (код {code})",
+      "dismissError": "Закрыть ошибку",
+      "noInstanceSelected": "Экземпляр не выбран. Создайте его через боковую панель."
+    },
+    "offlineName": {
+      "cannotBeEmpty": "Имя не может быть пустым"
+    }
   }
 }
