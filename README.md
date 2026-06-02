@@ -71,12 +71,18 @@ process is a deliberate code change, not an emergent capability.
 
 ## Known limitations
 
-- **Windows-only.** macOS / Linux ports are tracked but not started.
+- **Windows is the primary target.** Linux (`.AppImage` / `.deb` / `.rpm`)
+  and macOS (Universal2 `.dmg`) are **beta** — built, signed, and published
+  by CI, but not yet verified end-to-end on those desktops.
 - **One running Minecraft instance at a time.** Multi-instance launch is
   not planned for v1.
 - **Microsoft (Xbox Live) account support** is wired up in the launcher. The full PKCE OAuth → Xbox Live → XSTS → Minecraft Services chain executes when you click "Sign in with Microsoft". Until Microsoft approves Lucerna's Azure app registration, the final step returns a typed pending-approval response and the launcher shows a friendly info toast; offline accounts remain fully usable for LAN and single-player. Once Microsoft approves, sign-in starts working with no launcher update required.
-- **Not code-signed.** Windows SmartScreen warns on first run; click
-  "More info" → "Run anyway". Code signing is a v1.0 concern.
+- **Not code-signed / notarized.** Windows SmartScreen warns on first run;
+  click "More info" → "Run anyway". The macOS `.dmg` is only ad-hoc signed,
+  so Gatekeeper quarantines a downloaded copy — clear it with
+  `xattr -dr com.apple.quarantine /Applications/Lucerna.app`, or
+  right-click → Open on first launch. OS-level signing/notarization is a
+  v1.0 concern.
 
 ## System requirements
 
@@ -85,7 +91,8 @@ come from Minecraft, which the launcher downloads and runs.
 
 To run the launcher:
 
-- Windows 10 (64-bit) or Windows 11. No macOS / Linux builds yet.
+- Windows 10 (64-bit) or Windows 11 (primary). Beta builds also exist for
+  Linux (x86_64) and macOS (Apple Silicon + Intel, via Universal2).
 - WebView2 runtime. Preinstalled on Windows 11; on Windows 10 the installer
   downloads and installs it automatically if it is missing.
 - An internet connection for the first download of each Minecraft version.
