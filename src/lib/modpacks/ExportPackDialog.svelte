@@ -10,6 +10,7 @@
     ModpackFormat,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { defaultExportFilename, unresolvableMods, type ExportModeUi } from '$lib/modpacks/export';
 
@@ -113,67 +114,86 @@
   class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
   role="dialog"
   aria-modal="true"
-  aria-label="Export modpack"
+  aria-label={$t('modpacks.export.dialogAriaLabel')}
 >
   <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
     <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold text-primary">Export modpack</h2>
+      <h2 class="text-lg font-semibold text-primary">{$t('modpacks.export.title')}</h2>
     </header>
 
     <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
       {#if loadError}
         <p class="text-sm text-danger">{loadError}</p>
       {:else if !preview}
-        <p class="text-sm text-muted">Loading…</p>
+        <p class="text-sm text-muted">{$t('modpacks.export.loading')}</p>
       {:else}
         <fieldset class="flex flex-col gap-1">
-          <legend class="text-xs uppercase tracking-wide text-muted">Format</legend>
-          <label
-            ><input type="radio" bind:group={format} value="modrinth" /> .mrpack (Modrinth)</label
+          <legend class="text-xs uppercase tracking-wide text-muted"
+            >{$t('modpacks.export.formatLabel')}</legend
           >
           <label
-            ><input type="radio" bind:group={format} value="curseforge" /> CurseForge .zip</label
-          >
-        </fieldset>
-
-        <fieldset class="flex flex-col gap-1">
-          <legend class="text-xs uppercase tracking-wide text-muted">Mode</legend>
-          <label
-            ><input type="radio" bind:group={mode} value="lightweight" /> Lightweight (download links)</label
+            ><input type="radio" bind:group={format} value="modrinth" />
+            {$t('modpacks.export.formatModrinth')}</label
           >
           <label
-            ><input type="radio" bind:group={mode} value="full" /> Full (bundle everything)</label
+            ><input type="radio" bind:group={format} value="curseforge" />
+            {$t('modpacks.export.formatCurseForge')}</label
           >
         </fieldset>
 
         <fieldset class="flex flex-col gap-1">
-          <legend class="text-xs uppercase tracking-wide text-muted">Content</legend>
-          <label><input type="checkbox" checked disabled /> Mods ({preview.mods.length})</label>
+          <legend class="text-xs uppercase tracking-wide text-muted"
+            >{$t('modpacks.export.modeLabel')}</legend
+          >
+          <label
+            ><input type="radio" bind:group={mode} value="lightweight" />
+            {$t('modpacks.export.modeLightweight')}</label
+          >
+          <label
+            ><input type="radio" bind:group={mode} value="full" />
+            {$t('modpacks.export.modeFull')}</label
+          >
+        </fieldset>
+
+        <fieldset class="flex flex-col gap-1">
+          <legend class="text-xs uppercase tracking-wide text-muted"
+            >{$t('modpacks.export.contentLabel')}</legend
+          >
+          <label
+            ><input type="checkbox" checked disabled />
+            {$t('modpacks.export.modsCount', { count: preview.mods.length })}</label
+          >
           {#if preview.has_config}
-            <label><input type="checkbox" bind:checked={includeConfig} /> Configs</label>
+            <label
+              ><input type="checkbox" bind:checked={includeConfig} />
+              {$t('modpacks.export.configs')}</label
+            >
             <p class="text-xs text-muted">
-              Some mods keep API keys or tokens in config/ — review before sharing.
+              {$t('modpacks.export.configsWarning')}
             </p>
           {/if}
           {#if preview.has_resourcepacks}
             <label
-              ><input type="checkbox" bind:checked={includeResourcepacks} /> Resource packs</label
+              ><input type="checkbox" bind:checked={includeResourcepacks} />
+              {$t('modpacks.export.resourcePacks')}</label
             >
           {/if}
           {#if preview.has_shaderpacks}
-            <label><input type="checkbox" bind:checked={includeShaderpacks} /> Shader packs</label>
+            <label
+              ><input type="checkbox" bind:checked={includeShaderpacks} />
+              {$t('modpacks.export.shaderPacks')}</label
+            >
           {/if}
           {#if preview.has_saves}
             <label>
               <input type="checkbox" bind:checked={includeWorlds} />
-              Worlds{preview.saves_size_bytes != null
+              {$t('modpacks.export.worlds')}{preview.saves_size_bytes != null
                 ? ` (${fmtSize(preview.saves_size_bytes)})`
                 : ''}
             </label>
             {#if includeWorlds}
               <p class="text-xs text-danger">
-                Worlds may contain personal builds and large region files. Only include them if you
-                intend to share your saves.
+                {$t('modpacks.export.worldsWarning')}
               </p>
             {/if}
           {/if}
@@ -182,10 +202,10 @@
         {#if mode === 'lightweight' && unresolvable.length > 0}
           <fieldset class="flex flex-col gap-1">
             <legend class="text-xs uppercase tracking-wide text-muted"
-              >Mods without a download link</legend
+              >{$t('modpacks.export.unresolvableLabel')}</legend
             >
             <p class="text-xs text-muted">
-              These can't be referenced in this format. Bundle them inside the file or skip them.
+              {$t('modpacks.export.unresolvableBody')}
             </p>
             {#each unresolvable as m (m.sha1)}
               <label>
@@ -201,18 +221,28 @@
         {/if}
 
         <fieldset class="flex flex-col gap-2">
-          <legend class="text-xs uppercase tracking-wide text-muted">Details</legend>
-          <input class="border rounded px-2 py-1" bind:value={name} placeholder="Pack name" />
-          <input class="border rounded px-2 py-1" bind:value={version} placeholder="Version" />
+          <legend class="text-xs uppercase tracking-wide text-muted"
+            >{$t('modpacks.export.detailsLabel')}</legend
+          >
+          <input
+            class="border rounded px-2 py-1"
+            bind:value={name}
+            placeholder={$t('modpacks.export.namePlaceholder')}
+          />
+          <input
+            class="border rounded px-2 py-1"
+            bind:value={version}
+            placeholder={$t('modpacks.export.versionPlaceholder')}
+          />
           <input
             class="border rounded px-2 py-1"
             bind:value={author}
-            placeholder="Author (optional)"
+            placeholder={$t('modpacks.export.authorPlaceholder')}
           />
           <input
             class="border rounded px-2 py-1"
             bind:value={summary}
-            placeholder="Summary (optional)"
+            placeholder={$t('modpacks.export.summaryPlaceholder')}
           />
         </fieldset>
 
@@ -224,7 +254,7 @@
 
     <footer class="p-4 border-t flex justify-end gap-2">
       <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}
-        >Cancel</button
+        >{$t('common.cancel')}</button
       >
       <button
         type="button"
@@ -232,7 +262,7 @@
         disabled={busy || !preview || preview.mods.length === 0 || !name.trim() || !version.trim()}
         onclick={() => void runExport()}
       >
-        Export
+        {$t('modpacks.export.exportBtn')}
       </button>
     </footer>
   </div>

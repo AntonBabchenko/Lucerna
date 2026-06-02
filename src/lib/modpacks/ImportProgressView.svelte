@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   // Renders the current modpack import phase + a bytes-progress bar for the
   // per-mod download.
@@ -25,19 +27,27 @@
   } = $props();
 
   function label(p: ModpackProgress): string {
+    const tr = get(t);
     switch (p.phase) {
       case 'inspecting':
-        return 'Inspecting pack…';
+        return tr('modpacks.import.progress.phaseInspecting');
       case 'creating_instance':
-        return `Creating instance ${p.name}…`;
+        return tr('modpacks.import.progress.phaseCreatingInstance', { name: p.name });
       case 'installing_file':
-        return `Installing file ${p.current}/${p.total}: ${p.file_name}`;
+        return tr('modpacks.import.progress.phaseInstallingFile', {
+          current: p.current,
+          total: p.total,
+          fileName: p.file_name,
+        });
       case 'extracting_overrides':
-        return `Extracting overrides ${p.current}/${p.total}…`;
+        return tr('modpacks.import.progress.phaseExtractingOverrides', {
+          current: p.current,
+          total: p.total,
+        });
       case 'enriching':
-        return 'Identifying bundled mods…';
+        return tr('modpacks.import.progress.phaseEnriching');
       case 'done':
-        return 'Done.';
+        return tr('modpacks.import.progress.phaseDone');
     }
   }
 
@@ -51,10 +61,12 @@
   <div
     class="fixed top-4 right-4 z-40 w-72 bg-surface rounded-lg shadow-xl border p-4"
     role="status"
-    aria-label="Modpack import progress"
+    aria-label={$t('modpacks.import.progress.ariaLabel')}
     data-testid="import-progress-view"
   >
-    <h3 class="font-semibold text-sm text-primary mb-1">Importing modpack…</h3>
+    <h3 class="font-semibold text-sm text-primary mb-1">
+      {$t('modpacks.import.progress.heading')}
+    </h3>
     <div class="text-sm text-secondary truncate">{label(phase)}</div>
     {#if modBytes && modBytes.total && modBytes.total > 0 && modBytes.current != null}
       <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">

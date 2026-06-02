@@ -14,6 +14,7 @@
     ProgressTick,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
   import { drawerCache } from './drawer-cache';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -334,13 +335,17 @@
 </script>
 
 <div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
+  <button
+    type="button"
+    class="absolute inset-0 bg-black/30"
+    aria-label={$t('modpacks.imported.detail.closeBackdropAriaLabel')}
+    onclick={onClose}
   ></button>
   <div
     class="relative bg-surface rounded shadow-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto flex flex-col m-4"
     role="dialog"
     aria-modal="true"
-    aria-label="Imported pack details"
+    aria-label={$t('modpacks.imported.detail.ariaLabel')}
     data-testid="imported-detail-drawer"
   >
     <header class="p-4 border-b flex items-start gap-3">
@@ -353,7 +358,7 @@
       </div>
       <CloseButton
         onClick={onClose}
-        ariaLabel="Close imported pack details"
+        ariaLabel={$t('modpacks.imported.detail.closeAriaLabel')}
         class="flex-shrink-0"
       />
     </header>
@@ -376,7 +381,7 @@
           class="text-accent hover:underline text-sm"
           data-testid="imported-detail-source-link"
         >
-          Open on {sourceLabel(inst.mrpack_source)} ↗
+          {$t('modpacks.imported.detail.openOn', { platform: sourceLabel(inst.mrpack_source) })}
         </button>
       </div>
     {/if}
@@ -388,14 +393,17 @@
     {/if}
     {#if updating}
       <div class="px-4 pb-3 text-sm text-accent" data-testid="imported-detail-updating">
-        Updating…
+        {$t('modpacks.imported.detail.updating')}
       </div>
     {:else if updateAvailable}
       <div class="px-4 pb-3">
         <div
           class="flex items-center gap-2 bg-accent-soft border border-accent rounded p-2 text-sm"
         >
-          <span class="flex-1 text-accent">Update available → {updateAvailable.version_number}</span
+          <span class="flex-1 text-accent"
+            >{$t('modpacks.imported.detail.updateAvailable', {
+              version: updateAvailable.version_number,
+            })}</span
           >
           <button
             type="button"
@@ -403,19 +411,23 @@
             onclick={() => void openUpdateDialog()}
             data-testid="imported-detail-update-button"
           >
-            Update
+            {$t('modpacks.imported.detail.updateBtn')}
           </button>
         </div>
       </div>
     {/if}
 
     <div class="flex-1 overflow-y-auto px-4 pb-4">
-      <h4 class="font-medium text-sm text-primary mt-2 mb-2">Mods</h4>
+      <h4 class="font-medium text-sm text-primary mt-2 mb-2">
+        {$t('modpacks.imported.detail.modsHeading')}
+      </h4>
       {#if mods === null}
-        <div class="text-sm text-muted" data-testid="imported-detail-mods-loading">Loading…</div>
+        <div class="text-sm text-muted" data-testid="imported-detail-mods-loading">
+          {$t('modpacks.imported.detail.loading')}
+        </div>
       {:else if mods.length === 0}
         <div class="text-sm text-muted" data-testid="imported-detail-mods-empty">
-          No mods installed.
+          {$t('modpacks.imported.detail.modsEmpty')}
         </div>
       {:else}
         <ul class="space-y-1" data-testid="imported-detail-mods-list">
@@ -431,26 +443,26 @@
               {#if prov === 'pack'}
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
-                  title="from pack"
+                  title={$t('modpacks.imported.detail.badgeFromPackTitle')}
                   data-testid="mod-badge-pack-{m.sha1}"
                 >
-                  📦 pack
+                  {$t('modpacks.imported.detail.badgeFromPack')}
                 </span>
               {:else if prov === 'user'}
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
-                  title="added via Mod browser"
+                  title={$t('modpacks.imported.detail.badgeUserAddedTitle')}
                   data-testid="mod-badge-user-{m.sha1}"
                 >
-                  + added
+                  {$t('modpacks.imported.detail.badgeUserAdded')}
                 </span>
               {:else}
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
-                  title="manually placed"
+                  title={$t('modpacks.imported.detail.badgeManualTitle')}
                   data-testid="mod-badge-manual-{m.sha1}"
                 >
-                  ? manual
+                  {$t('modpacks.imported.detail.badgeManual')}
                 </span>
               {/if}
               <span class="truncate flex-1">{displayName(m)}</span>
@@ -458,7 +470,7 @@
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
                 >
-                  disabled
+                  {$t('modpacks.imported.detail.disabled')}
                 </span>
               {/if}
             </li>
@@ -473,7 +485,7 @@
 
         {#if resourcepacks.length > 0}
           <h4 class="font-medium text-sm text-primary mt-5 mb-2">
-            Resource packs ({resourcepacks.length})
+            {$t('modpacks.imported.detail.resourcePacksHeading', { count: resourcepacks.length })}
           </h4>
           <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
             {#each resourcepacks as f (f.install_path)}
@@ -486,7 +498,7 @@
 
         {#if shaderpacks.length > 0}
           <h4 class="font-medium text-sm text-primary mt-5 mb-2">
-            Shader packs ({shaderpacks.length})
+            {$t('modpacks.imported.detail.shaderPacksHeading', { count: shaderpacks.length })}
           </h4>
           <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
             {#each shaderpacks as f (f.install_path)}
@@ -505,7 +517,7 @@
             data-testid="imported-detail-configs-toggle"
           >
             <span>{configsExpanded ? '▾' : '▸'}</span>
-            Configs ({configs.length})
+            {$t('modpacks.imported.detail.configsHeading', { count: configs.length })}
           </button>
           {#if configsExpanded}
             <ul class="space-y-1" data-testid="imported-detail-configs">
@@ -522,7 +534,7 @@
       {#if status && status.removed_files.length > 0}
         <div class="mt-5" data-testid="imported-detail-removed-section">
           <h4 class="font-medium text-sm text-primary mb-2">
-            Removed from pack ({status.removed_files.length})
+            {$t('modpacks.imported.detail.removedHeading', { count: status.removed_files.length })}
           </h4>
           {#if restoreError}
             <p class="text-xs text-danger mb-2" data-testid="imported-detail-restore-error">
@@ -544,10 +556,10 @@
                     type="button"
                     class="btn-secondary btn-xs flex-shrink-0"
                     disabled
-                    title="Bundled inside the .mrpack — cannot restore automatically. Re-import the pack to recover."
+                    title={$t('modpacks.imported.detail.restoreDisabledTitle')}
                     data-testid="imported-detail-restore-{f.sha1}"
                   >
-                    Restore
+                    {$t('modpacks.imported.detail.restoreBtn')}
                   </button>
                 {:else}
                   <button
@@ -556,7 +568,7 @@
                     onclick={() => void restore(f)}
                     data-testid="imported-detail-restore-{f.sha1}"
                   >
-                    Restore
+                    {$t('modpacks.imported.detail.restoreBtn')}
                   </button>
                 {/if}
               </li>
@@ -570,7 +582,9 @@
               disabled={reimporting}
               data-testid="imported-detail-reimport"
             >
-              {reimporting ? 'Re-importing…' : 'Re-import pack files'}
+              {reimporting
+                ? $t('modpacks.imported.detail.reimporting')
+                : $t('modpacks.imported.detail.reimportBtn')}
             </button>
           {/if}
         </div>
@@ -579,12 +593,12 @@
       {#if status && status.missing_mods.length > 0}
         <div class="mt-5" data-testid="imported-detail-missing-section">
           <h4 class="font-medium text-sm text-primary mb-2">
-            Pack mods needing attention ({status.missing_mods.filter((m) => m.state !== 'installed')
-              .length})
+            {$t('modpacks.imported.detail.missingHeading', {
+              count: status.missing_mods.filter((m) => m.state !== 'installed').length,
+            })}
           </h4>
           <p class="text-xs text-muted mb-2">
-            The pack author disabled automatic downloads for these. Download each from its source
-            and drop the jar onto the Mods tab.
+            {$t('modpacks.imported.detail.missingBody')}
           </p>
           <ul class="space-y-1">
             {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
@@ -605,7 +619,7 @@
                   {m.entry.mod_name}
                   {#if isDifferentVersion}
                     <span class="text-muted text-xs">
-                      — different version than the pack — may be incompatible</span
+                      {$t('modpacks.imported.detail.differentVersion')}</span
                     >
                   {/if}
                 </span>
@@ -614,8 +628,8 @@
                     class="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
                   >
                     {m.entry.reason === 'distribution_disabled'
-                      ? 'Distribution disabled'
-                      : 'Host not allowed'}
+                      ? $t('modpacks.imported.detail.distributionDisabled')
+                      : $t('modpacks.imported.detail.hostNotAllowed')}
                   </span>
                 {/if}
                 {#if !isInstalled && m.entry.manual_action_url}
@@ -627,7 +641,7 @@
                       )}
                     class="text-accent hover:underline text-xs flex-shrink-0"
                   >
-                    Open ↗
+                    {$t('modpacks.imported.detail.openLink')}
                   </button>
                 {/if}
               </li>
@@ -646,7 +660,7 @@
         onclick={() => (deleting = true)}
         data-testid="imported-detail-delete"
       >
-        Delete pack
+        {$t('modpacks.imported.detail.deleteBtn')}
       </button>
       <button
         type="button"
@@ -654,7 +668,7 @@
         onclick={() => onOpenInstance(inst.id)}
         data-testid="imported-detail-open"
       >
-        Open instance
+        {$t('modpacks.imported.detail.openInstanceBtn')}
       </button>
     </footer>
   </div>
@@ -676,13 +690,12 @@
     class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]"
     role="dialog"
     aria-modal="true"
-    aria-label="Delete pack confirmation"
+    aria-label={$t('modpacks.imported.detail.deleteConfirmAriaLabel')}
   >
     <div class="bg-surface rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
-      <h3 class="font-semibold text-base">Delete pack and its instance?</h3>
+      <h3 class="font-semibold text-base">{$t('modpacks.imported.detail.deleteConfirmTitle')}</h3>
       <p class="text-sm text-secondary">
-        Worlds, mods, configs, screenshots for this instance will be permanently lost. This cannot
-        be undone.
+        {$t('modpacks.imported.detail.deleteConfirmBody')}
       </p>
       {#if deleteError}
         <p class="text-xs text-danger" data-testid="imported-detail-delete-error">
@@ -699,7 +712,7 @@
           }}
           data-testid="imported-detail-delete-cancel"
         >
-          Cancel
+          {$t('common.cancel')}
         </button>
         <button
           type="button"
@@ -707,7 +720,7 @@
           onclick={confirmDelete}
           data-testid="imported-detail-delete-confirm"
         >
-          Delete
+          {$t('modpacks.imported.detail.deleteConfirmBtn')}
         </button>
       </div>
     </div>

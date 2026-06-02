@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   // Modal that shows the parsed `ModpackSummary` to the user and lets them
   // choose which optional mods to install. Required mods are listed but
@@ -58,7 +59,7 @@
   class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
   role="dialog"
   aria-modal="true"
-  aria-label="Modpack import picker"
+  aria-label={$t('modpacks.import.picker.dialogAriaLabel')}
 >
   <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
     <header class="p-4 border-b">
@@ -76,13 +77,14 @@
       <div
         class="m-4 p-3 bg-warning-bg border border-warning-text/30 rounded text-sm text-warning-text"
       >
-        ⚠ This pack includes saved worlds in its overrides. They will be copied into the new
-        instance.
+        {$t('modpacks.import.picker.savesWarning')}
       </div>
     {/if}
 
     <div class="flex-1 overflow-y-auto p-4">
-      <h3 class="font-medium text-sm text-primary mb-2">Required ({required.length})</h3>
+      <h3 class="font-medium text-sm text-primary mb-2">
+        {$t('modpacks.import.picker.requiredSection', { count: required.length })}
+      </h3>
       <ul class="space-y-1 mb-4">
         {#each required as f (f.sha1)}
           <li class="text-sm py-1 flex items-center">
@@ -91,7 +93,7 @@
               checked
               disabled
               class="mr-2"
-              aria-label={`Required: ${f.name}`}
+              aria-label={$t('modpacks.import.picker.requiredModAriaLabel', { name: f.name })}
             />
             <span>{f.name}</span>
             <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
@@ -100,7 +102,9 @@
       </ul>
 
       {#if optional.length > 0}
-        <h3 class="font-medium text-sm text-primary mb-2">Optional ({optional.length})</h3>
+        <h3 class="font-medium text-sm text-primary mb-2">
+          {$t('modpacks.import.picker.optionalSection', { count: optional.length })}
+        </h3>
         <ul class="space-y-1 mb-4">
           {#each optional as f (f.sha1)}
             <li class="text-sm py-1 flex items-center">
@@ -109,7 +113,7 @@
                 checked={optionalSelected.has(f.sha1)}
                 onchange={() => toggle(f.sha1)}
                 class="mr-2"
-                aria-label={`Install ${f.name}`}
+                aria-label={$t('modpacks.import.picker.installModAriaLabel', { name: f.name })}
               />
               <span>{f.name}</span>
               <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
@@ -120,7 +124,7 @@
 
       {#if unresolvable.length > 0}
         <h3 class="font-medium text-sm text-primary mb-2">
-          Cannot auto-install ({unresolvable.length})
+          {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
         </h3>
         <ul class="space-y-1">
           {#each unresolvable as u (u.manual_action_url)}
@@ -132,7 +136,8 @@
                   void import('@tauri-apps/plugin-opener').then((m) =>
                     m.openUrl(u.manual_action_url),
                   )}
-                class="text-accent hover:underline text-xs">Open ↗</button
+                class="text-accent hover:underline text-xs"
+                >{$t('modpacks.import.picker.openLink')}</button
               >
             </li>
           {/each}
@@ -141,14 +146,16 @@
     </div>
 
     <footer class="p-4 border-t flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>Cancel</button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+        >{$t('common.cancel')}</button
+      >
       <button
         type="button"
         class="btn-primary btn-sm"
         disabled={selectedShas.length === 0}
         onclick={() => onConfirm(selectedShas)}
       >
-        Install {selectedShas.length} selected
+        {$t('modpacks.import.picker.installBtn', { count: selectedShas.length })}
       </button>
     </footer>
   </div>
