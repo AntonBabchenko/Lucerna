@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { locale } from '$lib/i18n';
+import type { Error as IpcError } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 
 describe('formatError', () => {
@@ -157,6 +158,161 @@ describe('formatError', () => {
     const msg = formatError({ kind: 'already_running' });
     expect(msg).toBe('Minecraft уже запущен');
     locale.set('en');
+  });
+
+  // Exhaustive table: one sample per Error variant. Typing it as a
+  // Record keyed by `IpcError['kind']` makes TypeScript fail the build if a
+  // new variant lands in bindings.ts without a sample here — complementing
+  // the `_exhaustive: never` guard inside formatError itself. The runtime
+  // assertions then prove every variant resolves to real translated copy
+  // (not the raw i18n key, not the JSON.stringify exhaustiveness fallback).
+  describe('every Error variant resolves to real copy', () => {
+    beforeAll(() => locale.set('en'));
+
+    const samples: Record<IpcError['kind'], IpcError> = {
+      network: { kind: 'network', url: 'https://x/y', details: 'refused' },
+      host_not_allowed: { kind: 'host_not_allowed', url: 'https://x/y' },
+      update_check_failed: { kind: 'update_check_failed', details: 'd' },
+      update_verification_failed: { kind: 'update_verification_failed', details: 'd' },
+      update_install_failed: { kind: 'update_install_failed', details: 'd' },
+      hash_mismatch: { kind: 'hash_mismatch', path: 'p.jar', expected: 'a', got: 'b' },
+      java_spawn: { kind: 'java_spawn', details: 'no java' },
+      already_running: { kind: 'already_running' },
+      account_not_set: { kind: 'account_not_set' },
+      auth_cancelled: { kind: 'auth_cancelled' },
+      auth_failed: { kind: 'auth_failed', stage: 'xsts', details: 'd' },
+      no_minecraft_profile: { kind: 'no_minecraft_profile' },
+      auth_pending_approval: { kind: 'auth_pending_approval' },
+      unknown_version: { kind: 'unknown_version', id: '1.21' },
+      loader_unavailable: { kind: 'loader_unavailable', loader: 'fabric', mc_version: '1.21' },
+      unsupported_platform: { kind: 'unsupported_platform', os: 'plan9', arch: 'sparc' },
+      io: { kind: 'io', path: 'p', details: 'd' },
+      last_instance: { kind: 'last_instance' },
+      no_version_selected: { kind: 'no_version_selected' },
+      instance_not_found: { kind: 'instance_not_found', id: 'i1' },
+      forge_promotions_unavailable: { kind: 'forge_promotions_unavailable', flavor: 'forge' },
+      forge_maven_metadata_parse_failed: {
+        kind: 'forge_maven_metadata_parse_failed',
+        details: 'd',
+      },
+      forge_no_build_for: { kind: 'forge_no_build_for', mc: '1.20.1', fv: '47.0.0' },
+      forge_installer_corrupted: {
+        kind: 'forge_installer_corrupted',
+        mc: '1.20.1',
+        fv: '47.0.0',
+        details: 'd',
+      },
+      forge_unsupported_processor: { kind: 'forge_unsupported_processor', coord: 'a:b:c' },
+      forge_patcher_failed: { kind: 'forge_patcher_failed', processor: 'ss', details: 'd' },
+      forge_mappings_missing: { kind: 'forge_mappings_missing', mc: '1.20.1' },
+      instance_name_empty: { kind: 'instance_name_empty' },
+      instance_name_too_long: { kind: 'instance_name_too_long', max: 32, actual: 50 },
+      mods_network: { kind: 'mods_network', url: 'https://x', details: 'd' },
+      mods_platform_auth: { kind: 'mods_platform_auth', kind_detail: 'missing' },
+      mods_distribution_disabled: {
+        kind: 'mods_distribution_disabled',
+        source: 'curseforge',
+        project_id: '1',
+      },
+      mods_not_found: { kind: 'mods_not_found', source: 'modrinth' },
+      mods_decode: { kind: 'mods_decode', source: 'modrinth', details: 'd' },
+      mods_sha1_unavailable: { kind: 'mods_sha1_unavailable' },
+      mods_sha1_mismatch: { kind: 'mods_sha1_mismatch', expected: 'a', got: 'b' },
+      mods_dependency_unresolvable: {
+        kind: 'mods_dependency_unresolvable',
+        project_ref: 'jei',
+      },
+      mods_filename_conflict: {
+        kind: 'mods_filename_conflict',
+        filename: 'jei.jar',
+        existing_sha: '1',
+        incoming_sha: '2',
+      },
+      mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
+      mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
+      modpack_invalid_archive: { kind: 'modpack_invalid_archive', details: 'd' },
+      modpack_format_unknown: { kind: 'modpack_format_unknown' },
+      modpack_manifest_invalid: {
+        kind: 'modpack_manifest_invalid',
+        format: 'mrpack',
+        details: 'd',
+      },
+      modpack_unsupported_manifest_version: {
+        kind: 'modpack_unsupported_manifest_version',
+        format: 'mrpack',
+        version: 2,
+      },
+      modpack_unsupported_loader: {
+        kind: 'modpack_unsupported_loader',
+        format: 'mrpack',
+        loader_id: 'liteloader',
+      },
+      modpack_download_host_not_allowed: {
+        kind: 'modpack_download_host_not_allowed',
+        host: 'evil.test',
+        file_path: 'mods/x.jar',
+      },
+      modpack_sha1_unavailable: { kind: 'modpack_sha1_unavailable', mod_name: 'JEI' },
+      modpack_mod_distribution_disabled: {
+        kind: 'modpack_mod_distribution_disabled',
+        mod_name: 'JEI',
+        project_url: 'https://x',
+      },
+      modpack_overrides_path_escape: { kind: 'modpack_overrides_path_escape', entry: '../x' },
+      modpack_overrides_too_large: {
+        kind: 'modpack_overrides_too_large',
+        entry: 'x',
+        size: 999,
+        cap: 100,
+      },
+      modpack_no_files_selected: { kind: 'modpack_no_files_selected' },
+      modpack_instance_creation_failed: {
+        kind: 'modpack_instance_creation_failed',
+        details: 'd',
+      },
+      modpack_partial_failure: {
+        kind: 'modpack_partial_failure',
+        instance_id: 'i1',
+        failed: [['m', 'r']],
+      },
+      modpack_bundled_no_url: { kind: 'modpack_bundled_no_url', mod_name: 'JEI' },
+      modpack_cf_distribution_disabled: {
+        kind: 'modpack_cf_distribution_disabled',
+        pack_name: 'ATM9',
+      },
+      modpack_export_failed: { kind: 'modpack_export_failed', details: 'd' },
+      world_not_found: { kind: 'world_not_found', instance_id: 'i1', folder_name: 'world' },
+      world_in_use: { kind: 'world_in_use', folder_name: 'world' },
+      world_path_invalid: { kind: 'world_path_invalid', name: 'world', reason: 'bad' },
+      world_name_unresolvable: { kind: 'world_name_unresolvable', folder_name: 'world' },
+      backup_not_found: {
+        kind: 'backup_not_found',
+        instance_id: 'i1',
+        world_folder: 'world',
+        filename: 'b.zip',
+      },
+      backup_corrupt: { kind: 'backup_corrupt', filename: 'b.zip', details: 'd' },
+      playtime_io: { kind: 'playtime_io', details: 'd' },
+      tray_io: { kind: 'tray_io', details: 'd' },
+      mc_logs_upload: { kind: 'mc_logs_upload', details: 'd' },
+    };
+
+    it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
+      const msg = formatError(sample);
+      // Non-empty string.
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+      // Not the JSON.stringify exhaustiveness fallback (variant has a case).
+      expect(msg).not.toBe(JSON.stringify(sample));
+      // i18n resolved — a missing key would echo the raw `errors.<key>` path.
+      expect(msg).not.toMatch(/errors\.[a-zA-Z]/);
+    });
+
+    it('has a sample for every Error variant (Record completeness)', () => {
+      // The Record type already enforces this at compile time; this asserts
+      // the count is plausible so an accidental duplicate key can't hide a gap.
+      expect(Object.keys(samples).length).toBeGreaterThanOrEqual(60);
+    });
   });
 
   describe('io error truncation', () => {
