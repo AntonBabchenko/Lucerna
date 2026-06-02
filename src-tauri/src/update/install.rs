@@ -9,6 +9,25 @@ use crate::update::{verify, UpdateInfo};
 /// On any download/verify failure returns `Err` WITHOUT launching —
 /// an unverified binary is never run.
 pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> Result<()> {
+    let installer = info
+        .installer
+        .as_ref()
+        .ok_or_else(|| Error::UpdateInstallFailed {
+            details: "in-app install is not supported on this platform".into(),
+        })?;
+    let cosign_bundle = info
+        .cosign_bundle
+        .as_ref()
+        .ok_or_else(|| Error::UpdateInstallFailed {
+            details: "release has no cosign bundle for in-app install".into(),
+        })?;
+    let sha256sums = info
+        .sha256sums
+        .as_ref()
+        .ok_or_else(|| Error::UpdateInstallFailed {
+            details: "release has no SHA256SUMS for in-app install".into(),
+        })?;
+
     let dir = crate::paths::update_dir(app).map_err(|e| Error::UpdateInstallFailed {
         details: format!("update dir: {e}"),
     })?;
@@ -24,31 +43,25 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
         .await
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
 
-    let installer_path = dir.join(&info.installer.name);
-    let bundle_path = dir.join(&info.cosign_bundle.name);
+    let installer_path = dir.join(&installer.name);
+    let bundle_path = dir.join(&cosign_bundle.name);
 
     // Download installer + bundle. Pass "" to skip the streaming SHA-1
     // check (that primitive verifies SHA-1; our SHA-256 + cosign run
     // afterwards). browser_download_url host is github.com (allowlisted);
     // the CDN redirect is followed by the shared client.
+    crate::network::download::download_with_sha(app, &installer.url, &installer_path, "", "update")
+        .await?;
     crate::network::download::download_with_sha(
         app,
-        &info.installer.url,
-        &installer_path,
-        "",
-        "update",
-    )
-    .await?;
-    crate::network::download::download_with_sha(
-        app,
-        &info.cosign_bundle.url,
+        &cosign_bundle.url,
         &bundle_path,
         "",
         "update",
     )
     .await?;
 
-    let sums = crate::network::get_text(&info.sha256sums.url, "update").await?;
+    let sums = crate::network::get_text(&sha256sums.url, "update").await?;
 
     // Verify off the async runtime thread: read the (tens-of-MB) installer
     // ONCE and run both layers over the same bytes — no double read, and no
@@ -56,7 +69,7 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     // download), then cosign. `spawn_installer` is reached only if BOTH pass.
     let ip = installer_path.clone();
     let bp = bundle_path.clone();
-    let name = info.installer.name.clone();
+    let name = installer.name.clone();
     let ver = info.latest.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         verify_and_launch(

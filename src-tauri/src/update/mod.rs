@@ -21,13 +21,17 @@ pub struct ReleaseAsset {
 }
 
 /// The result of an update check. `available` is false when up-to-date.
+///
+/// `installer` / `sha256sums` / `cosign_bundle` are `Some` only on platforms
+/// that perform in-app install (Windows). On check-and-notify platforms
+/// (Linux) they are `None` and the UI links to `release_url` instead.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct UpdateInfo {
     pub current: String,
     pub latest: String,
     pub available: bool,
     pub release_url: String,
-    pub installer: ReleaseAsset,
-    pub sha256sums: ReleaseAsset,
-    pub cosign_bundle: ReleaseAsset,
+    pub installer: Option<ReleaseAsset>,
+    pub sha256sums: Option<ReleaseAsset>,
+    pub cosign_bundle: Option<ReleaseAsset>,
 }
