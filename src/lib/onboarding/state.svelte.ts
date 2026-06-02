@@ -8,6 +8,7 @@
 // "Replay" path and intentionally does NOT touch persistence.
 
 import { commands } from '$lib/ipc/bindings';
+import { resetAllContextualTours } from './contextual-tours';
 import { STEPS } from './steps';
 
 export const TOUR_VERSION = '0.5.0';
@@ -43,6 +44,10 @@ export async function finishOrSkip(): Promise<void> {
 }
 
 export function replayTour(): void {
+  // Replay restarts the main tour AND re-arms the per-surface contextual
+  // tours — otherwise the Logs/Manage/Modpacks/Worlds tours stay suppressed
+  // by their localStorage flags and never reappear.
+  resetAllContextualTours();
   tourState.currentStep = 0;
   tourState.active = true;
 }

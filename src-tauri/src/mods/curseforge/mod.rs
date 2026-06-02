@@ -214,11 +214,26 @@ impl ModPlatform for CurseForgeClient {
                 details: e.to_string(),
             })?;
         let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
-        Ok(env
+        let versions: Vec<ModVersion> = env
             .data
             .into_iter()
             .filter_map(|f| convert_version(f, project_id))
-            .collect())
+            // CF's `modLoaderType` query filter is unreliable and leaks files
+            // for other loaders (e.g. a NeoForge build returned for a Forge
+            // query). Post-filter on the loader tags we parsed from
+            // `gameVersions`: drop any version that names loaders but not the
+            // requested one. A version with no detectable loader tag is
+            // ambiguous and kept. Forge and NeoForge are distinct here.
+            .filter(|v| match loader {
+                Some(want) if !v.loaders.is_empty() => v.loaders.contains(&want),
+                _ => true,
+            })
+            .collect();
+        // Second, filename-based guard against loader mis-tagging (shared with
+        // the Modrinth client).
+        Ok(crate::mods::platform::drop_filename_loader_mismatches(
+            versions, loader,
+        ))
     }
 
     async fn resolve_deps(
@@ -304,14 +319,30 @@ fn convert_version(f: types::File, project_id: &str) -> Option<ModVersion> {
         .map(|h| h.value.clone());
     let url = f.download_url.unwrap_or_default();
     let distribution_allowed = !url.is_empty() && f.is_available;
+    // CF mixes Minecraft versions and loader names in `gameVersions`
+    // (e.g. ["1.20.1", "NeoForge"]). Split them: recognized loader tags
+    // populate `loaders`; everything else stays in `mc_versions`. This is
+    // what lets `versions()` post-filter by loader, since CF's own
+    // `modLoaderType` query filter is unreliable.
+    let mut loaders = Vec::new();
+    let mut mc_versions = Vec::new();
+    for gv in f.game_versions {
+        match types::loader_from_tag(&gv) {
+            Some(l) if !loaders.contains(&l) => loaders.push(l),
+            Some(_) => {} // duplicate loader tag
+            // Drop "Client"/"Server" markers; keep everything else as an MC version.
+            None if types::is_environment_marker(&gv) => {}
+            None => mc_versions.push(gv),
+        }
+    }
     Some(ModVersion {
         source: ModSource::Curseforge,
         project_id: project_id.to_string(),
         version_id: f.id.to_string(),
         name: f.display_name,
         version_number: f.file_name.clone(),
-        mc_versions: f.game_versions,
-        loaders: Vec::new(), // CF doesn't tag loaders on files; UI filters by query param
+        mc_versions,
+        loaders,
         primary_file: ModFile {
             filename: f.file_name,
             url,
@@ -536,5 +567,66 @@ mod tests {
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 1);
         assert!(!v[0].primary_file.distribution_allowed);
+    }
+
+    #[test]
+    fn convert_version_splits_loaders_from_mc_versions() {
+        let f = types::File {
+            id: 99,
+            mod_id: 12345,
+            display_name: "Xaero 1.20.1 NeoForge".into(),
+            file_name: "xaerominimap.jar".into(),
+            file_length: 100,
+            hashes: vec![types::Hash {
+                value: "abc".into(),
+                algo: 1,
+            }],
+            game_versions: vec!["1.20.1".into(), "NeoForge".into(), "Client".into()],
+            download_url: Some("https://example/x.jar".into()),
+            file_date: None,
+            is_available: true,
+            release_type: 1,
+            dependencies: vec![],
+        };
+        let v = convert_version(f, "12345").unwrap();
+        assert_eq!(v.loaders, vec![LoaderKind::NeoForge]);
+        // Loader tags and environment markers ("Client"/"Server") are stripped;
+        // only real MC versions remain in mc_versions.
+        assert_eq!(v.mc_versions, vec!["1.20.1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn versions_filters_out_mismatched_loader() {
+        // CF leaks a NeoForge file even when modLoaderType=Forge is requested.
+        // The post-filter must drop it and keep only the Forge file.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/12345/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                "data":[
+                  {"id":1,"modId":12345,"displayName":"neo","fileName":"x-neoforge.jar",
+                   "fileLength":100,"hashes":[{"value":"a","algo":1}],
+                   "gameVersions":["1.20.1","NeoForge"],"downloadUrl":"https://e/n.jar",
+                   "fileDate":null,"isAvailable":true,"releaseType":1,"dependencies":[]},
+                  {"id":2,"modId":12345,"displayName":"forge","fileName":"x-forge.jar",
+                   "fileLength":100,"hashes":[{"value":"b","algo":1}],
+                   "gameVersions":["1.20.1","Forge"],"downloadUrl":"https://e/f.jar",
+                   "fileDate":null,"isAvailable":true,"releaseType":1,"dependencies":[]}
+                ],
+                "pagination":null}"#,
+            ))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let v = client(s.uri())
+            .versions("12345", Some("1.20.1"), Some(LoaderKind::Forge))
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(v.len(), 1, "only the Forge file should survive");
+        assert_eq!(v[0].loaders, vec![LoaderKind::Forge]);
+        assert_eq!(v[0].version_number, "x-forge.jar");
     }
 }

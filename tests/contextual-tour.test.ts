@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { hasSeen, markSeen, storageKey } from '../src/lib/onboarding/contextual-tours';
+import {
+  ALL_CONTEXTUAL_TOUR_IDS,
+  hasSeen,
+  markSeen,
+  resetAllContextualTours,
+  storageKey,
+} from '../src/lib/onboarding/contextual-tours';
 
 describe('contextual-tours storage helpers', () => {
   beforeEach(() => {
@@ -35,5 +41,20 @@ describe('contextual-tours storage helpers', () => {
     expect(hasSeen('logs')).toBe(false);
     localStorage.setItem(storageKey('logs'), 'true');
     expect(hasSeen('logs')).toBe(false);
+  });
+
+  it('ALL_CONTEXTUAL_TOUR_IDS covers every tour', () => {
+    expect([...ALL_CONTEXTUAL_TOUR_IDS].sort()).toEqual(
+      ['logs', 'manage', 'modpacks', 'worlds'].sort(),
+    );
+  });
+
+  it('resetAllContextualTours clears every seen flag', () => {
+    for (const id of ALL_CONTEXTUAL_TOUR_IDS) markSeen(id);
+    for (const id of ALL_CONTEXTUAL_TOUR_IDS) expect(hasSeen(id)).toBe(true);
+
+    resetAllContextualTours();
+
+    for (const id of ALL_CONTEXTUAL_TOUR_IDS) expect(hasSeen(id)).toBe(false);
   });
 });

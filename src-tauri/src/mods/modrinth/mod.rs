@@ -219,7 +219,14 @@ impl ModPlatform for ModrinthClient {
                 platform: "modrinth".into(),
                 details: e.to_string(),
             })?;
-        Ok(raws.into_iter().map(convert_version).collect())
+        let versions: Vec<ModVersion> = raws.into_iter().map(convert_version).collect();
+        // Defend against upstream loader mis-tagging (e.g. Xaero's Minimap
+        // tags its NeoForge 1.20.4 builds with the `forge` loader). The
+        // server-side `loaders` facet trusts that wrong tag; the filename
+        // does not.
+        Ok(crate::mods::platform::drop_filename_loader_mismatches(
+            versions, loader,
+        ))
     }
 
     async fn resolve_deps(
@@ -513,6 +520,48 @@ mod tests {
         assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("abc"));
         assert_eq!(vs[0].deps.len(), 1);
         assert_eq!(vs[0].deps[0].kind, DepKind::Required);
+    }
+
+    #[tokio::test]
+    async fn versions_drops_neoforge_jar_mistagged_as_forge() {
+        // Real Xaero's Minimap 1.20.4 data: the author tags BOTH the Forge and
+        // the NeoForge build with the `forge` loader, and the NeoForge build is
+        // newest (so it sorts first). A Forge request must not install it.
+        let _g = test_lock();
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/project/xaeros-minimap/version"))
+            .and(query_param("loaders", r#"["forge"]"#))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                {"id":"v1","project_id":"xaeros-minimap","name":"neoforge-1.20.4-25.3.13",
+                 "version_number":"neoforge-1.20.4-25.3.13","game_versions":["1.20.4"],
+                 "loaders":["forge"],"date_published":"2026-03-13T00:00:00Z",
+                 "files":[{"url":"https://cdn/n.jar","filename":"xaerominimap-neoforge-1.20.4-25.3.13.jar",
+                           "hashes":{"sha1":"n1"},"size":100,"primary":true}],
+                 "dependencies":[]},
+                {"id":"v2","project_id":"xaeros-minimap","name":"forge-1.20.4-25.3.13",
+                 "version_number":"forge-1.20.4-25.3.13","game_versions":["1.20.4"],
+                 "loaders":["forge"],"date_published":"2026-03-13T00:00:00Z",
+                 "files":[{"url":"https://cdn/f.jar","filename":"xaerominimap-forge-1.20.4-25.3.13.jar",
+                           "hashes":{"sha1":"f1"},"size":100,"primary":true}],
+                 "dependencies":[]}
+            ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let vs = c
+            .versions("xaeros-minimap", Some("1.20.4"), Some(LoaderKind::Forge))
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(vs.len(), 1, "the mis-tagged NeoForge jar must be dropped");
+        assert_eq!(
+            vs[0].primary_file.filename,
+            "xaerominimap-forge-1.20.4-25.3.13.jar"
+        );
     }
 
     #[tokio::test]

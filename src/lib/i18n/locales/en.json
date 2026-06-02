@@ -795,7 +795,7 @@
       "onboarding": {
         "title": "Onboarding",
         "replayBtn": "Replay onboarding tour",
-        "replayDescription": "Show the 6-step tutorial again."
+        "replayDescription": "Show the welcome tour again and re-enable the guided tips on each screen."
       }
     },
     "storage": {
