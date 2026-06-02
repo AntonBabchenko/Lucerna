@@ -1,0 +1,16 @@
+{
+  "common": {
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "close": "Закрыть"
+  },
+  "settings": {
+    "general": {
+      "appearance": {
+        "title": "Внешний вид",
+        "language": "Язык",
+        "languageSystem": "Системный"
+      }
+    }
+  }
+}

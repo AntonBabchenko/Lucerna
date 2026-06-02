@@ -1,0 +1,16 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close"
+  },
+  "settings": {
+    "general": {
+      "appearance": {
+        "title": "Appearance",
+        "language": "Language",
+        "languageSystem": "System"
+      }
+    }
+  }
+}
