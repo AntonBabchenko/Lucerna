@@ -7,6 +7,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import { replayTour } from '$lib/onboarding/state.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
@@ -15,6 +16,11 @@
   // Display label per locale code. New community languages fall back to
   // their raw code until a label is added here.
   const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
+
+  const languageOptions = $derived([
+    { value: 'system', label: $t('settings.general.appearance.languageSystem') },
+    ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
+  ]);
 
   let general = $state<GeneralSettings>({
     hide_to_tray_during_game: false,
@@ -107,20 +113,16 @@
         </label>
       {/each}
     </fieldset>
-    <label class="flex flex-col gap-1">
+    <div class="flex flex-col gap-1">
       <span class="text-sm text-primary">{$t('settings.general.appearance.language')}</span>
-      <select
-        class="border rounded px-2 py-1 text-sm"
-        data-testid="language-select"
+      <Select
+        class="text-sm"
+        dataTestid="language-select"
         value={langPref.value}
-        onchange={(e) => void setLocalePref((e.currentTarget as HTMLSelectElement).value)}
-      >
-        <option value="system">{$t('settings.general.appearance.languageSystem')}</option>
-        {#each AVAILABLE_LOCALES as code (code)}
-          <option value={code}>{LOCALE_LABELS[code] ?? code}</option>
-        {/each}
-      </select>
-    </label>
+        options={languageOptions}
+        onChange={(v) => void setLocalePref(String(v))}
+      />
+    </div>
   </div>
 
   <div class="flex flex-col gap-3">
