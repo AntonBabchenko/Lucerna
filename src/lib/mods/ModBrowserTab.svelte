@@ -208,7 +208,7 @@
         {$t('mods.browse.tabInstalled')}
       </button>
     </div>
-    <SourcePicker bind:value={source} />
+    <SourcePicker value={source} onChange={(v) => (source = v)} />
   </div>
 
   <div class="px-3 pt-3">
