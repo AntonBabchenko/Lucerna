@@ -806,6 +806,7 @@
     },
     "about": {
       "title": "About",
+      "disclaimer": "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
       "viewOnGitHub": "View on GitHub",
       "openRepoLabel": "Open Lucerna repository on GitHub ({url})",
       "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",

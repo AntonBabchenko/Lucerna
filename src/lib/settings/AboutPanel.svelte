@@ -4,7 +4,7 @@
   // The disclaimer text lives in `./disclaimer.ts` so the test file and
   // the panel never disagree on the exact string.
   import pkg from '../../../package.json' with { type: 'json' };
-  import { DISCLAIMER_TEXT, REPO_URL } from './disclaimer';
+  import { REPO_URL } from './disclaimer';
   import { t } from '$lib/i18n';
 
   const version = pkg.version;
@@ -19,7 +19,7 @@
 <section class="space-y-3 text-sm selectable">
   <h3 class="text-base font-semibold text-primary">{$t('settings.about.title')}</h3>
   <p class="font-medium text-primary">Lucerna v{version}</p>
-  <p class="text-secondary">{DISCLAIMER_TEXT}</p>
+  <p class="text-secondary">{$t('settings.about.disclaimer')}</p>
   <p>
     <button
       type="button"

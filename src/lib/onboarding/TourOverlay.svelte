@@ -192,8 +192,8 @@
         {$t(step.titleKey)}
       </h3>
       <p class="text-sm text-secondary mb-4">{$t(step.bodyKey)}</p>
-      {#if step.disclaimer}
-        <p class="text-xs text-muted mt-3">{step.disclaimer}</p>
+      {#if step.disclaimerKey}
+        <p class="text-xs text-muted mt-3">{$t(step.disclaimerKey)}</p>
       {/if}
       <div class="flex justify-between gap-2">
         <button

@@ -578,6 +578,7 @@ export type TranslationKey =
   | 'page.update.actionLabel'
   | 'page.update.available'
   | 'page.update.currentVersion'
+  | 'settings.about.disclaimer'
   | 'settings.about.keyring'
   | 'settings.about.license'
   | 'settings.about.openRepoLabel'

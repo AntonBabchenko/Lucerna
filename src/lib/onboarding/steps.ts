@@ -13,7 +13,6 @@
 // src/lib/i18n/locales/{en,ru}.json under onboarding.tour.*.
 
 import type { TranslationKey } from '../i18n/keys.generated';
-import { DISCLAIMER_TEXT } from '../settings/disclaimer';
 
 export type TourAnchor = 'right' | 'below' | 'center';
 
@@ -24,8 +23,8 @@ export interface TourStep {
   anchor: TourAnchor;
   /** Optional small-print footer rendered under the body. Currently used
    *  on the welcome step to surface the Mojang Usage Guidelines
-   *  disclaimer on first launch. */
-  disclaimer?: string;
+   *  disclaimer on first launch. Resolved via $t at render time. */
+  disclaimerKey?: TranslationKey;
 }
 
 export const STEPS: ReadonlyArray<TourStep> = [
@@ -34,7 +33,7 @@ export const STEPS: ReadonlyArray<TourStep> = [
     bodyKey: 'onboarding.tour.welcome.body',
     targetSelector: null,
     anchor: 'center',
-    disclaimer: DISCLAIMER_TEXT,
+    disclaimerKey: 'settings.about.disclaimer',
   },
   {
     titleKey: 'onboarding.tour.signIn.title',

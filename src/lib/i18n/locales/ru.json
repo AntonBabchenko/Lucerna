@@ -806,6 +806,7 @@
     },
     "about": {
       "title": "О программе",
+      "disclaimer": "НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО MOJANG ИЛИ MICROSOFT И НЕ СВЯЗАНО С НИМИ.",
       "viewOnGitHub": "Открыть на GitHub",
       "openRepoLabel": "Открыть репозиторий Lucerna на GitHub ({url})",
       "license": "Распространяется под лицензией GPL-3.0-or-later. Java-среда и файлы Minecraft загружаются с серверов Mojang во время выполнения и никогда не изменяются.",
