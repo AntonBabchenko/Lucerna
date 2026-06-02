@@ -176,11 +176,12 @@ async fn download_files(
 
     let app = app.clone();
     let comp_root_owned = comp_root.to_path_buf();
-    // `executable` is discarded here: on Windows there is no chmod and
-    // `.exe`/`.dll` extensions do the job. When macOS/Linux support lands
-    // post-v0.1.0 this must be honored via `std::os::unix::fs::PermissionsExt`.
+    // Honour the per-file `executable` flag from the Mojang JRE manifest.
+    // On Windows `set_executable` is a no-op (extensions decide); on Unix it
+    // chmods 0o755 so `bin/java` is runnable. Applied on both the freshly
+    // downloaded and the SHA-matched-skip paths (idempotent).
     let results: Vec<Result<()>> = stream::iter(file_entries.into_iter())
-        .map(|(rel, _executable, raw)| {
+        .map(|(rel, executable, raw)| {
             let app = app.clone();
             let comp_root = comp_root_owned.clone();
             let progress = Arc::clone(&progress);
@@ -195,6 +196,10 @@ async fn download_files(
                     download_with_sha(&app, &raw.url, &dest, &raw.sha1, "jre").await?;
                     raw.size
                 };
+                if executable {
+                    crate::platform::set_executable(&dest)
+                        .map_err(|e| Error::io(dest.display().to_string(), e))?;
+                }
                 let d = done.fetch_add(1, Ordering::Relaxed) + 1;
                 let b = bytes.fetch_add(transferred, Ordering::Relaxed) + transferred;
                 progress(d, total, b);
