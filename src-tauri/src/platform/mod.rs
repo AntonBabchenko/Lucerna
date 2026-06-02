@@ -58,9 +58,63 @@ pub fn symlink(_target: &str, _link: &Path) -> std::io::Result<()> {
     ))
 }
 
+/// Convert an OS pid (`u32`) to a positive POSIX `pid_t`, or `None` if it
+/// does not fit. This is the footgun guard: a zero or too-large pid would
+/// otherwise wrap to `<= 0`, and POSIX `kill` treats those as group/broadcast
+/// targets (`kill -1` = every process the caller can kill).
+#[cfg(unix)]
+fn positive_pid(pid: u32) -> Option<i32> {
+    let p = i32::try_from(pid).ok()?;
+    (p > 0).then_some(p)
+}
+
+/// Terminate the Minecraft process. Best-effort — failures are ignored
+/// because the launch exit-watcher fires `ProcessExited` regardless of how
+/// the process died.
+///
+/// Windows kills the whole tree via the `process::` taskkill chokepoint (the
+/// MC launcher spawns helper processes there). Unix sends `SIGTERM` to the
+/// single JVM pid (the Linux/macOS client is one process); the pid is
+/// validated first so a wrapped pid can never broadcast.
+pub fn kill_process_tree(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        crate::process::taskkill_tree(pid);
+    }
+    #[cfg(unix)]
+    {
+        if let Some(p) = positive_pid(pid) {
+            // SAFETY: FFI to POSIX kill(2). `p` is a validated positive
+            // pid_t and `SIGTERM` is a libc constant; no memory is shared.
+            // An error (e.g. ESRCH — pid already gone) is intentionally
+            // ignored: teardown is best-effort.
+            unsafe {
+                libc::kill(p, libc::SIGTERM);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kill_process_tree_unknown_pid_does_not_panic() {
+        // Regression sentinel: u32::MAX must NOT reach a POSIX broadcast.
+        // On Unix it is rejected by `positive_pid` (does not fit i32 > 0);
+        // on Windows taskkill is a harmless no-op for an unknown PID.
+        kill_process_tree(u32::MAX);
+        kill_process_tree(0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn positive_pid_guards_the_footgun() {
+        assert_eq!(positive_pid(1234), Some(1234));
+        assert_eq!(positive_pid(0), None, "0 would target the caller's group");
+        assert_eq!(positive_pid(u32::MAX), None, "wraps past i32::MAX → reject");
+    }
 
     #[cfg(unix)]
     #[test]

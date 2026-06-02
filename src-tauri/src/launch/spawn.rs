@@ -3,7 +3,7 @@
 //! State design: the running `Child` is owned by the exit-watcher
 //! task that calls `.wait().await` on it. `stop()` cannot share that
 //! `&mut Child` with the watcher, so it kills by PID instead, via
-//! `crate::process::kill_process_tree`.
+//! `crate::platform::kill_process_tree`.
 
 use crate::accounts::Account;
 use crate::error::{Error, Result};
@@ -382,7 +382,7 @@ pub fn stop() -> Result<()> {
     let Some(pid) = pid_opt else {
         return Ok(());
     };
-    crate::process::kill_process_tree(pid);
+    crate::platform::kill_process_tree(pid);
     Ok(())
 }
 
