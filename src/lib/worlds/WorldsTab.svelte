@@ -8,6 +8,7 @@
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { t } from '$lib/i18n';
 
   let {
     instanceId,
@@ -105,7 +106,12 @@
     openMenuFor = null;
     const r = await commands.backupWorld(instanceId, w.folder_name);
     if (r.status === 'ok') {
-      pushSuccess(`Backed up ${w.folder_name} (${formatBytes(r.data.size_bytes)})`);
+      pushSuccess(
+        $t('worlds.tab.toastBackedUp', {
+          name: w.folder_name,
+          size: formatBytes(r.data.size_bytes),
+        }),
+      );
       await reload();
     } else {
       pushWarning(formatError(r.error));
@@ -129,15 +135,15 @@
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
   {#if !instanceId}
-    <p class="text-sm text-muted">Select an instance to view its worlds.</p>
+    <p class="text-sm text-muted">{$t('worlds.tab.noInstance')}</p>
   {:else if loading}
     <div class="flex justify-center py-8 text-secondary">
-      <Spinner delayMs={150} label="Loading worlds…" />
+      <Spinner delayMs={150} label={$t('worlds.tab.loading')} />
     </div>
   {:else if listError}
     <p class="text-sm text-danger">{listError}</p>
   {:else if worlds.length === 0}
-    <p class="text-sm text-muted">No worlds yet. Play Minecraft to create one.</p>
+    <p class="text-sm text-muted">{$t('worlds.tab.empty')}</p>
   {:else}
     <ul
       class="border border-border-subtle rounded divide-y divide-border-subtle"
@@ -148,7 +154,7 @@
           <button
             type="button"
             class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
-            aria-label="Actions for {w.folder_name}"
+            aria-label={$t('worlds.tab.worldActionsAriaLabel', { name: w.folder_name })}
             aria-expanded={openMenuFor === w.folder_name}
             onclick={(e) => toggleMenu(w.folder_name, e)}
           >
@@ -158,7 +164,7 @@
                 {#if w.backup_count > 0}
                   <span
                     class="text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
-                    aria-label="{w.backup_count} backups"
+                    aria-label={$t('worlds.tab.backupCountAriaLabel', { count: w.backup_count })}
                   >
                     📦 {w.backup_count}
                   </span>
@@ -180,7 +186,7 @@
     data-tour-ctx="worlds-open-folder"
     onclick={() => void onOpenSavesFolder()}
   >
-    Open saves folder ↗
+    {$t('worlds.tab.openSavesFolder')}
   </button>
 
   <!-- Tour fires only once worlds exist — most steps point at the
@@ -197,7 +203,7 @@
     <button
       type="button"
       class="fixed inset-0 z-40"
-      aria-label="Close menu"
+      aria-label={$t('worlds.tab.closeMenuAriaLabel')}
       onclick={() => (openMenuFor = null)}
     ></button>
     <div
@@ -211,7 +217,7 @@
         class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
         onclick={() => void onBackupNow(activeWorld)}
       >
-        Back up now
+        {$t('worlds.tab.backupNow')}
       </button>
       <button
         type="button"
@@ -222,7 +228,7 @@
           openMenuFor = null;
         }}
       >
-        View backups…
+        {$t('worlds.tab.viewBackups')}
       </button>
       <button
         type="button"
@@ -233,7 +239,7 @@
           openMenuFor = null;
         }}
       >
-        Delete world…
+        {$t('worlds.tab.deleteWorld')}
       </button>
     </div>
   {/if}

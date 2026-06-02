@@ -1,3 +1,5 @@
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { displayLoader } from '$lib/instances/loader-display';
 import type { LoaderKind, LoaderOutcome, ModCompat } from '$lib/ipc/bindings';
 
@@ -22,7 +24,11 @@ export function loaderOutcomeToast(outcome: LoaderOutcome, mc: string): OutcomeT
     };
     return {
       kind: 'success',
-      text: `${displayLoader(loader)} updated to ${version} for Minecraft ${mc}`,
+      text: get(t)('instance.integrity.loaderUpdated', {
+        loader: displayLoader(loader),
+        version,
+        mc,
+      }),
     };
   }
 
@@ -33,7 +39,10 @@ export function loaderOutcomeToast(outcome: LoaderOutcome, mc: string): OutcomeT
   };
   return {
     kind: 'warning',
-    text: `No ${displayLoader(previous_loader)} build for Minecraft ${mc} — loader reset to Vanilla`,
+    text: get(t)('instance.integrity.loaderResetToVanilla', {
+      loader: displayLoader(previous_loader),
+      mc,
+    }),
   };
 }
 
@@ -54,7 +63,13 @@ export function compatSummary(rows: ModCompat[]): string | null {
 
   if (incompatible === 0 && unknown === 0) return null;
 
-  const unknownSuffix = unknown > 0 ? ` · ${unknown} couldn't be checked` : '';
+  if (unknown > 0) {
+    return get(t)('instance.integrity.compatWarningWithUnknown', {
+      incompatible,
+      total,
+      unknown,
+    });
+  }
 
-  return `${incompatible} of ${total} installed mods have no version for this configuration${unknownSuffix}. Review in the Mods tab.`;
+  return get(t)('instance.integrity.compatWarning', { incompatible, total });
 }

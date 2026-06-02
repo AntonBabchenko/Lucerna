@@ -13,6 +13,7 @@
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { t } from '$lib/i18n';
 
   // Centered detail modal for a mod. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list with the
@@ -104,7 +105,11 @@
 </script>
 
 <div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button type="button" class="absolute inset-0 bg-black/30" aria-label="Close" onclick={onClose}
+  <button
+    type="button"
+    class="absolute inset-0 bg-black/30"
+    aria-label={$t('mods.detail.closeBackdropAriaLabel')}
+    onclick={onClose}
   ></button>
   <div
     role="dialog"
@@ -115,30 +120,34 @@
     <div class="p-4 pb-0 shrink-0">
       <div class="flex items-start justify-between">
         <h2 class="text-base font-semibold text-primary flex-1">
-          {project?.summary.name ?? 'Loading…'}
+          {project?.summary.name ?? $t('mods.detail.loading')}
         </h2>
-        <CloseButton onClick={onClose} ariaLabel="Close mod details" />
+        <CloseButton onClick={onClose} ariaLabel={$t('mods.detail.closeAriaLabel')} />
       </div>
       {#if project}
         <div class="text-xs text-muted mt-1">
-          by {project.summary.author} · {project.summary.source} · {(
-            project.summary.downloads ?? 0
-          ).toLocaleString()} downloads
+          {$t('mods.detail.byAuthorSourceDownloads', {
+            author: project.summary.author,
+            source: project.summary.source,
+            downloads: (project.summary.downloads ?? 0).toLocaleString(),
+          })}
         </div>
         <button
           type="button"
           class="btn-tertiary text-xs mt-0.5"
           onclick={() => openExternal(externalUrl)}
         >
-          View on {source === 'modrinth' ? 'Modrinth' : 'CurseForge'} ↗
+          {source === 'modrinth'
+            ? $t('mods.detail.viewOnModrinth')
+            : $t('mods.detail.viewOnCurseForge')}
         </button>
       {/if}
 
       <div class="mt-3">
         <TabBar
           tabs={[
-            { id: 'overview', label: 'Overview' },
-            { id: 'versions', label: 'Versions' },
+            { id: 'overview', label: $t('mods.detail.tabOverview') },
+            { id: 'versions', label: $t('mods.detail.tabVersions') },
           ]}
           active={tab}
           onChange={(id) => (tab = id as TabId)}
@@ -158,8 +167,9 @@
         <div class="space-y-3">
           {#if project && project.body_html}
             <p class="text-xs text-placeholder italic">
-              Content from {source === 'modrinth' ? 'Modrinth' : 'CurseForge'} — any ads or links in it
-              are the author's, not Lucerna's.
+              {$t('mods.detail.contentDisclaimer', {
+                source: source === 'modrinth' ? 'Modrinth' : 'CurseForge',
+              })}
             </p>
           {/if}
           <ImageGallery images={gallery} />
@@ -171,7 +181,7 @@
             </p>
           {:else}
             <div class="flex justify-center py-8 text-secondary">
-              <Spinner size="lg" label="Loading description…" />
+              <Spinner size="lg" label={$t('mods.detail.loadingDescription')} />
             </div>
           {/if}
         </div>
@@ -180,19 +190,19 @@
           <div class="flex items-center justify-end mb-2">
             <label class="inline-flex items-center gap-1 text-xs text-secondary">
               <input type="checkbox" bind:checked={showAll} data-testid="mod-detail-show-all" />
-              Show all versions
+              {$t('mods.detail.showAllVersions')}
             </label>
           </div>
           {#if versionList === null}
             <div class="flex justify-center py-8 text-secondary">
-              <Spinner label="Loading versions…" />
+              <Spinner label={$t('mods.detail.loadingVersions')} />
             </div>
           {:else if versionList.length === 0}
             <div class="text-sm text-placeholder">
               {#if showAll}
-                No versions returned by the platform.
+                {$t('mods.detail.noVersionsPlatform')}
               {:else}
-                No compatible versions for this MC + loader.
+                {$t('mods.detail.noVersionsCompat')}
               {/if}
             </div>
           {:else}
@@ -207,7 +217,7 @@
               >
                 <div class="flex-1 min-w-0">
                   <div class="truncate font-medium">
-                    {v.version_number}{isInstalled ? ' · installed' : ''}
+                    {v.version_number}{isInstalled ? $t('mods.detail.versionInstalled') : ''}
                   </div>
                   <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
                 </div>
@@ -221,17 +231,19 @@
                   disabled={!v.primary_file.distribution_allowed || isInstalled}
                   onclick={() => onInstall(v)}
                   title={hasOtherInstalled
-                    ? `Switch from v${installedVersionId} to this version`
+                    ? $t('mods.detail.switchVersionTitle', {
+                        installedId: installedVersionId ?? '',
+                      })
                     : undefined}
                 >
                   {#if isInstalled}
-                    ✓ Installed
+                    {$t('mods.detail.btnInstalled')}
                   {:else if !v.primary_file.distribution_allowed}
-                    Restricted
+                    {$t('mods.detail.btnRestricted')}
                   {:else if hasOtherInstalled}
-                    Switch
+                    {$t('mods.detail.btnSwitch')}
                   {:else}
-                    Install
+                    {$t('mods.detail.btnInstall')}
                   {/if}
                 </button>
               </div>
@@ -255,19 +267,19 @@
             onclick={() => onInstall(recommended)}
           >
             {#if isInstalled}
-              ✓ Installed {recommended.version_number}
+              {$t('mods.detail.footerInstalled', { version: recommended.version_number })}
             {:else if !recommended.primary_file.distribution_allowed}
-              Restricted — open on platform
+              {$t('mods.detail.footerRestricted')}
             {:else}
-              Install {recommended.version_number}
+              {$t('mods.detail.footerInstall', { version: recommended.version_number })}
             {/if}
           </button>
         {:else}
           <div class="text-xs text-placeholder text-center">
             {#if !canInstall}
-              Select a Fabric / Quilt / Forge / NeoForge instance to install mods.
+              {$t('mods.detail.selectInstanceHint')}
             {:else}
-              No compatible version for {mcVersion} / {loader}.
+              {$t('mods.detail.noCompatVersion', { mc: mcVersion ?? '', loader: loader ?? '' })}
             {/if}
           </div>
         {/if}

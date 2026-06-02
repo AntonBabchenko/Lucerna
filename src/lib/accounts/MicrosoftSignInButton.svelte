@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import { commands } from '$lib/ipc/bindings';
   import MicrosoftLogo from './microsoft-logo.svelte';
 
@@ -28,13 +29,13 @@
 <button
   type="button"
   data-tour="ms-signin-btn"
-  aria-label="Sign in with Microsoft"
+  aria-label={$t('accounts.signInLabel')}
   class="ms-signin-btn"
   disabled={signingIn}
   onclick={handleClick}
 >
   <MicrosoftLogo />
-  <span>Sign in with Microsoft</span>
+  <span>{$t('accounts.signInLabel')}</span>
 </button>
 
 <style>

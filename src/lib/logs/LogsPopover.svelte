@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands, type Diagnosis, type LogFileMeta, type LogSource } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
@@ -106,7 +107,7 @@
     if (result.status === 'ok') {
       shareUrl = result.data;
     } else {
-      pushWarning('Log upload failed', [formatError(result.error)]);
+      pushWarning($t('logs.share.uploadFailed'), [formatError(result.error)]);
     }
   }
 
@@ -114,7 +115,7 @@
     if (!selectedPath) return;
     const r = await commands.openLogFolder(selectedPath);
     if (r.status !== 'ok') {
-      pushWarning('Could not open logs folder', [formatError(r.error)]);
+      pushWarning($t('logs.openFolder.errorToast'), [formatError(r.error)]);
     }
   }
 
@@ -239,11 +240,11 @@
   function sourceLabel(s: LogSource): string {
     switch (s) {
       case 'game':
-        return 'Game logs';
+        return $t('logs.severity.game');
       case 'crash':
-        return 'Crash reports';
+        return $t('logs.severity.crash');
       case 'launcher':
-        return 'Launcher logs';
+        return $t('logs.severity.launcher');
     }
   }
 
@@ -500,7 +501,7 @@
     <button
       type="button"
       class="absolute inset-0"
-      aria-label="Close logs"
+      aria-label={$t('logs.close.scrimAriaLabel')}
       onclick={() => (open = false)}
       onkeydown={(e) => {
         if (e.key === 'Escape') open = false;
@@ -512,10 +513,10 @@
       <!-- Header row 1: Read cap / Share / Reload / Close -->
       <header class="flex flex-col border-b">
         <div class="flex items-center justify-between px-4 py-2">
-          <h2 class="text-sm font-semibold text-primary">Logs</h2>
+          <h2 class="text-sm font-semibold text-primary">{$t('logs.toolbar.title')}</h2>
           <div class="flex items-center gap-3 flex-wrap">
             <label class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
-              Read cap:
+              {$t('logs.toolbar.readCap')}
               <select
                 class="border rounded px-1 py-0.5 text-xs"
                 value={capBytes}
@@ -526,7 +527,9 @@
                 {/each}
               </select>
             </label>
-            <button class="btn-secondary btn-xs" onclick={() => void reloadList()}> Reload </button>
+            <button class="btn-secondary btn-xs" onclick={() => void reloadList()}>
+              {$t('logs.toolbar.reload')}
+            </button>
 
             <!-- Open the directory containing the currently-selected log file
                  in the OS file manager. Disabled when no file is selected. -->
@@ -536,7 +539,7 @@
               disabled={!selectedPath}
               onclick={() => void openLogFolder()}
             >
-              Open folder ↗
+              {$t('logs.toolbar.openFolder')}
             </button>
 
             <!-- Share button -->
@@ -546,10 +549,13 @@
               disabled={!selectedContent || shareUploading}
               onclick={() => (shareConfirm = true)}
             >
-              {shareUploading ? 'Uploading…' : 'Share'}
+              {shareUploading ? $t('logs.share.uploading') : $t('logs.share.shareBtn')}
             </button>
 
-            <CloseButton onClick={() => (open = false)} ariaLabel="Close logs popover" />
+            <CloseButton
+              onClick={() => (open = false)}
+              ariaLabel={$t('logs.close.popoverAriaLabel')}
+            />
           </div>
         </div>
 
@@ -560,14 +566,14 @@
         >
           <label class="flex items-center gap-1 cursor-pointer select-none">
             <input type="checkbox" bind:checked={wrap} class="accent-primary" />
-            Wrap lines
+            {$t('logs.toolbar.wrapLines')}
           </label>
           <label class="flex items-center gap-1 cursor-pointer select-none">
             <input type="checkbox" bind:checked={fold} class="accent-primary" />
-            Collapse stacks
+            {$t('logs.toolbar.collapseStacks')}
           </label>
           {#if activeLevels.length > 0}
-            <span class="text-muted">Show:</span>
+            <span class="text-muted">{$t('logs.toolbar.showLevels')}</span>
             {#each activeLevels as lv}
               <label class="flex items-center gap-1 cursor-pointer select-none">
                 <input
@@ -584,7 +590,7 @@
           {#if crashSections !== null}
             <label class="flex items-center gap-1 cursor-pointer select-none ml-auto">
               <input type="checkbox" bind:checked={rawView} class="accent-primary" />
-              Raw view
+              {$t('logs.toolbar.rawView')}
             </label>
           {/if}
         </div>
@@ -594,17 +600,16 @@
       {#if shareConfirm}
         <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
           <div class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4">
-            <h3 class="font-semibold text-sm mb-2">Share log to mclo.gs?</h3>
+            <h3 class="font-semibold text-sm mb-2">{$t('logs.share.dialogTitle')}</h3>
             <p class="text-xs text-muted mb-4">
-              Removes paths and tokens before upload. Double-check sensitive contents before
-              sharing.
+              {$t('logs.share.dialogBody')}
             </p>
             <div class="flex gap-2 justify-end">
               <button class="btn-secondary btn-xs" onclick={() => (shareConfirm = false)}>
-                Cancel
+                {$t('common.cancel')}
               </button>
               <button class="btn-warning btn-xs" onclick={() => void doShare()}>
-                Upload &amp; share
+                {$t('logs.share.uploadBtn')}
               </button>
             </div>
           </div>
@@ -616,16 +621,16 @@
         <div
           class="flex items-center gap-2 px-4 py-1.5 bg-warning-bg border-b text-xs text-warning-text"
         >
-          <span class="font-semibold">Shared:</span>
+          <span class="font-semibold">{$t('logs.share.sharedLabel')}</span>
           <a href={shareUrl} target="_blank" rel="noopener noreferrer" class="underline truncate"
             >{shareUrl}</a
           >
           <button class="btn-secondary btn-xs" onclick={() => copyToClipboard(shareUrl!)}>
-            Copy
+            {$t('logs.share.copyBtn')}
           </button>
           <CloseButton
             onClick={() => (shareUrl = null)}
-            ariaLabel="Dismiss share URL"
+            ariaLabel={$t('logs.share.dismissAriaLabel')}
             class="ml-auto"
           />
         </div>
@@ -635,9 +640,11 @@
         <!-- Sidebar: grouped file list -->
         <nav class="w-72 border-r overflow-y-auto text-sm" data-tour-ctx="logs-sidebar">
           {#if listError}
-            <p class="p-3 text-danger text-xs">Could not list logs: {listError}</p>
+            <p class="p-3 text-danger text-xs">
+              {$t('logs.empty.listError', { error: listError })}
+            </p>
           {:else if files.length === 0}
-            <p class="p-3 text-muted text-xs">No log files yet. Launch Minecraft once.</p>
+            <p class="p-3 text-muted text-xs">{$t('logs.empty.noLogs')}</p>
           {:else}
             {#each groupedFiles as group}
               {#if group.items.length > 0}
@@ -672,23 +679,27 @@
           <div class="px-3 py-2 border-b flex items-center gap-2" data-tour-ctx="logs-search">
             <input
               class="flex-1 border rounded px-2 py-1 text-xs"
-              placeholder="Find in file (case-insensitive)…"
+              placeholder={$t('logs.search.placeholder')}
               bind:value={search}
               disabled={!selectedPath}
               onkeydown={onSearchKeydown}
             />
             {#if search && totalMatches > 0}
               <span class="text-xs text-muted whitespace-nowrap">
-                {currentMatchIndex + 1} / {totalMatches}
+                {$t('logs.search.matchCounter', {
+                  current: currentMatchIndex + 1,
+                  total: totalMatches,
+                })}
               </span>
             {:else if search && totalMatches === 0}
-              <span class="text-xs text-muted whitespace-nowrap">No matches</span>
+              <span class="text-xs text-muted whitespace-nowrap">{$t('logs.search.noMatches')}</span
+              >
             {/if}
             <button
               class="btn-icon"
               disabled={totalMatches === 0}
-              aria-label="Previous match"
-              title="Previous match (Shift+Enter)"
+              aria-label={$t('logs.search.prevAriaLabel')}
+              title={$t('logs.search.prevTitle')}
               onclick={prevMatch}
             >
               ↑
@@ -696,8 +707,8 @@
             <button
               class="btn-icon"
               disabled={totalMatches === 0}
-              aria-label="Next match"
-              title="Next match (Enter)"
+              aria-label={$t('logs.search.nextAriaLabel')}
+              title={$t('logs.search.nextTitle')}
               onclick={nextMatch}
             >
               ↓
@@ -706,16 +717,16 @@
 
           {#if loadingContent}
             <div class="flex justify-center p-4 text-secondary">
-              <Spinner delayMs={150} label="Reading log…" />
+              <Spinner delayMs={150} label={$t('logs.empty.reading')} />
             </div>
           {:else if contentError}
             <p class="p-4 text-sm text-danger">{contentError}</p>
           {:else if !selectedPath}
-            <p class="p-4 text-sm text-muted">Select a file on the left to read it.</p>
+            <p class="p-4 text-sm text-muted">{$t('logs.empty.noFile')}</p>
           {:else}
             {#if isTruncated}
               <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
-                Truncated — showing last {formatBytes(capBytes)}. Raise cap to see more.
+                {$t('logs.empty.truncated', { cap: formatBytes(capBytes) })}
               </div>
             {/if}
 
@@ -730,7 +741,7 @@
                 </summary>
                 <p class="mt-2 text-sm text-warning-text selectable">{diagnosis.explanation}</p>
                 <p class="mt-2 text-sm text-warning-text selectable">
-                  <span class="font-semibold">What to try:</span>
+                  <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
                   {diagnosis.recommendation}
                 </p>
                 {#if diagnosis.matched_excerpt}
@@ -799,7 +810,9 @@
                                   >
                                   {#if !isExpanded}
                                     <span class="text-muted italic"
-                                      >(and {unit.hiddenFrames.length} more)</span
+                                      >({$t('logs.empty.foldMore', {
+                                        count: unit.hiddenFrames.length,
+                                      })})</span
                                     >
                                   {/if}
                                 </button>
@@ -855,7 +868,9 @@
                           >
                           {#if !isExpanded}
                             <span class="text-muted italic"
-                              >(and {unit.hiddenFrames.length} more)</span
+                              >({$t('logs.empty.foldMore', {
+                                count: unit.hiddenFrames.length,
+                              })})</span
                             >
                           {/if}
                         </button>

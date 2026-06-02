@@ -14,6 +14,7 @@
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
+  import { t } from '$lib/i18n';
 
   // Top-level pane rendered inside the Modpacks modal. Owns the Browse |
   // Imported sub-tab shell (lazy-mount + CSS-hide so search / pagination /
@@ -185,7 +186,7 @@
       class:text-placeholder={activeSub !== 'browse'}
       onclick={() => (activeSub = 'browse')}
     >
-      Browse
+      {$t('modpacks.tab.browse')}
     </button>
     <button
       type="button"
@@ -199,15 +200,12 @@
       class:text-placeholder={activeSub !== 'imported'}
       onclick={() => (activeSub = 'imported')}
     >
-      Imported
+      {$t('modpacks.tab.imported')}
     </button>
   </div>
 
   <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">
-    <FileDropzone
-      label="Drop a .mrpack or .zip here to import — or click to browse"
-      onClick={importFromFile}
-    />
+    <FileDropzone label={$t('modpacks.tab.dropzoneLabel')} onClick={importFromFile} />
   </div>
 
   <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />

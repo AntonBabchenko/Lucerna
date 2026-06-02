@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import {
     events,
     type InstallPhase,
     type InstallProgress,
     type ModInstallProgress,
   } from '$lib/ipc/bindings';
+  import { get } from 'svelte/store';
   import { onMount } from 'svelte';
 
   let progress = $state<InstallProgress | null>(null);
@@ -71,32 +73,34 @@
   });
 
   function phaseLabel(p: InstallPhase): string {
+    const tr = get(t);
     switch (p) {
       case 'manifest':
-        return 'Fetching version metadata';
+        return tr('install.phase.manifest');
       case 'forge_install':
-        return 'Installing Forge';
+        return tr('install.phase.forge_install');
       case 'jre':
-        return 'Installing Java runtime';
+        return tr('install.phase.jre');
       case 'libraries':
-        return 'Downloading libraries';
+        return tr('install.phase.libraries');
       case 'assets':
-        return 'Downloading assets';
+        return tr('install.phase.assets');
       case 'client':
-        return 'Downloading client.jar';
+        return tr('install.phase.client');
       case 'complete':
-        return 'Install complete';
+        return tr('install.phase.complete');
     }
   }
 
   function modPhaseLabel(p: ModInstallProgress['phase']): string {
+    const tr = get(t);
     switch (p) {
       case 'downloading':
-        return 'Downloading mod';
+        return tr('install.modPhase.downloading');
       case 'verifying':
-        return 'Verifying mod';
+        return tr('install.modPhase.verifying');
       case 'copying':
-        return 'Copying mod';
+        return tr('install.modPhase.copying');
     }
   }
 
@@ -145,7 +149,7 @@
         ></div>
       </div>
     {:else}
-      <span class="text-success">— click Play to launch</span>
+      <span class="text-success">{$t('install.clickToLaunch')}</span>
     {/if}
   </div>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import type { LoaderKind, ModSource } from '$lib/ipc/bindings';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import SegmentedControl from './SegmentedControl.svelte';
@@ -29,13 +30,13 @@
     onShowInstalledChange?: (value: boolean) => void;
   } = $props();
 
-  const LOADER_OPTIONS = [
-    { value: '', label: 'Any' },
+  const LOADER_OPTIONS = $derived([
+    { value: '', label: $t('browse.filter.any') },
     { value: 'fabric', label: 'Fabric' },
     { value: 'quilt', label: 'Quilt' },
     { value: 'forge', label: 'Forge' },
     { value: 'neoforge', label: 'NeoForge' },
-  ];
+  ]);
   const SOURCE_OPTIONS = [
     { value: 'modrinth', label: 'Modrinth' },
     { value: 'curseforge', label: 'CurseForge' },
@@ -67,7 +68,7 @@
     <button
       type="button"
       class="absolute inset-0 bg-black/30"
-      aria-label="Close filters overlay"
+      aria-label={$t('browse.filter.closeOverlay')}
       onclick={() => (open = false)}
     ></button>
     <div
@@ -75,16 +76,16 @@
       tabindex="-1"
       role="dialog"
       aria-modal="true"
-      aria-label="Filters"
+      aria-label={$t('browse.filter.title')}
       data-testid="browse-filter-drawer"
       class="absolute right-0 top-0 bottom-0 w-72 bg-surface border-l border-border-subtle shadow-xl p-4 overflow-y-auto flex flex-col gap-4"
     >
       <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-primary">Filters</h2>
+        <h2 class="text-sm font-semibold text-primary">{$t('browse.filter.title')}</h2>
         <button
           type="button"
           class="btn-icon"
-          aria-label="Close filters"
+          aria-label={$t('browse.filter.close')}
           data-testid="browse-filter-drawer-close"
           onclick={() => (open = false)}>✕</button
         >
@@ -92,11 +93,13 @@
 
       {#if source !== undefined}
         <div class="flex flex-col gap-1">
-          <span class="text-xs uppercase tracking-wide text-placeholder">Source</span>
+          <span class="text-xs uppercase tracking-wide text-placeholder"
+            >{$t('browse.filter.sourceLabel')}</span
+          >
           <SegmentedControl
             value={source}
             options={SOURCE_OPTIONS}
-            ariaLabel="Mod source"
+            ariaLabel={$t('browse.filter.sourceAriaLabel')}
             testid="browse-source-segment"
             onChange={(v) => (source = v as ModSource)}
           />
@@ -104,19 +107,27 @@
       {/if}
 
       <div class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-wide text-placeholder">Mod loader</span>
+        <span class="text-xs uppercase tracking-wide text-placeholder"
+          >{$t('browse.filter.loaderLabel')}</span
+        >
         <SegmentedControl
           value={loader}
           options={LOADER_OPTIONS}
-          ariaLabel="Loader filter"
+          ariaLabel={$t('browse.filter.loaderAriaLabel')}
           testid="browse-loader-segment"
           onChange={(v) => (loader = v as LoaderKind | '')}
         />
       </div>
 
       <div class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-wide text-placeholder">Minecraft version</span>
-        <McVersionCombobox bind:value={mc} dataTestid={mcTestid} placeholder="Any" />
+        <span class="text-xs uppercase tracking-wide text-placeholder"
+          >{$t('browse.filter.mcVersionLabel')}</span
+        >
+        <McVersionCombobox
+          bind:value={mc}
+          dataTestid={mcTestid}
+          placeholder={$t('browse.filter.any')}
+        />
       </div>
 
       {#if showInstalled !== undefined && onShowInstalledChange}
@@ -126,7 +137,7 @@
             checked={showInstalled}
             onchange={(e) => onShowInstalledChange(e.currentTarget.checked)}
           />
-          Show installed
+          {$t('browse.filter.showInstalled')}
         </label>
       {/if}
     </div>

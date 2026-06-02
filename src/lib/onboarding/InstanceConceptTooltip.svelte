@@ -16,6 +16,7 @@
   // overflow box. Its position is measured from the trigger each time
   // it opens and clamped into the viewport.
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { t } from '$lib/i18n';
 
   // Keep POPOVER_WIDTH in sync with the `w-[260px]` class on the popover.
   const POPOVER_WIDTH = 260;
@@ -65,8 +66,8 @@
     bind:this={trigger}
     type="button"
     class="relative z-50 text-xs text-placeholder hover:text-secondary leading-none px-1"
-    aria-label="What is an instance?"
-    title="What is an instance?"
+    aria-label={$t('onboarding.instanceConcept.triggerAriaLabel')}
+    title={$t('onboarding.instanceConcept.triggerTitle')}
     aria-expanded={open}
     aria-controls="instance-concept-popover"
     onclick={toggle}
@@ -83,11 +84,13 @@
       style="top: {popoverTop}px; left: {popoverLeft}px;"
     >
       <div class="absolute top-1 right-1">
-        <CloseButton onClick={() => (open = false)} ariaLabel="Close tooltip" />
+        <CloseButton
+          onClick={() => (open = false)}
+          ariaLabel={$t('onboarding.instanceConcept.closeAriaLabel')}
+        />
       </div>
       <p class="text-xs text-secondary leading-snug pr-6">
-        Each instance is a self-contained world — its own Minecraft version, loader, mods, configs
-        and saves. Switching instance = switching Minecraft install, without touching the others.
+        {$t('onboarding.instanceConcept.body')}
       </p>
     </div>
   {/if}

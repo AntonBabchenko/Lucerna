@@ -2,6 +2,8 @@
   import { commands, type Backup, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
+  import { t, locale } from '$lib/i18n';
+  import { get } from 'svelte/store';
 
   let {
     instanceId,
@@ -69,7 +71,8 @@
 
   async function onDelete(b: Backup) {
     openMenuFor = null;
-    if (!confirm(`Delete backup ${formatBackupTimestamp(b)}?`)) return;
+    if (!confirm(get(t)('worlds.backups.confirmDelete', { timestamp: formatBackupTimestamp(b) })))
+      return;
     const r = await commands.deleteBackup(instanceId, world.folder_name, b.filename);
     if (r.status === 'ok') {
       onChanged();
@@ -93,7 +96,7 @@
 
   function formatBackupTimestamp(b: Backup): string {
     if (!b.created_unix_ms) return b.filename;
-    return new Date(b.created_unix_ms).toLocaleString('en-GB', {
+    return new Date(b.created_unix_ms).toLocaleString($locale ?? undefined, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -114,15 +117,15 @@
 >
   <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-lg w-full p-4">
     <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary mb-3">
-      Backups for "{world.folder_name}"
+      {$t('worlds.backups.title', { world: world.folder_name })}
     </h3>
     {#if loading}
-      <p class="text-sm text-muted">Loading backups…</p>
+      <p class="text-sm text-muted">{$t('worlds.backups.loading')}</p>
     {:else if error}
       <p class="text-sm text-danger mb-2">{error}</p>
     {:else if backups.length === 0}
       <p class="text-sm text-muted">
-        No backups yet. Click "Back up now" on the world to create one.
+        {$t('worlds.backups.empty')}
       </p>
     {:else}
       <ul
@@ -133,7 +136,7 @@
             <button
               type="button"
               class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
-              aria-label="Actions for backup {b.filename}"
+              aria-label={$t('worlds.backups.backupActionsAriaLabel', { filename: b.filename })}
               aria-expanded={openMenuFor === b.filename}
               onclick={(e) => toggleMenu(b.filename, e)}
             >
@@ -147,14 +150,16 @@
         {/each}
       </ul>
       <div class="text-xs text-muted mb-3 flex justify-between">
-        <span>Total: {formatBytes(totalSize)}</span>
+        <span>{$t('worlds.backups.total', { size: formatBytes(totalSize) })}</span>
         <button type="button" class="btn-tertiary" onclick={() => void onOpenBackupsFolder()}>
-          Open backups folder ↗
+          {$t('worlds.backups.openBackupsFolder')}
         </button>
       </div>
     {/if}
     <div class="flex justify-end">
-      <button type="button" class="btn-secondary btn-sm" onclick={onClose}> Close </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onClose}
+        >{$t('common.close')}</button
+      >
     </div>
   </div>
 </div>
@@ -166,7 +171,7 @@
     <button
       type="button"
       class="fixed inset-0 z-[60]"
-      aria-label="Close menu"
+      aria-label={$t('worlds.backups.closeMenuAriaLabel')}
       onclick={() => (openMenuFor = null)}
     ></button>
     <div
@@ -183,7 +188,7 @@
           openMenuFor = null;
         }}
       >
-        Restore…
+        {$t('worlds.backups.restore')}
       </button>
       <button
         type="button"
@@ -191,7 +196,7 @@
         class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle text-danger"
         onclick={() => void onDelete(activeBackup)}
       >
-        Delete backup
+        {$t('worlds.backups.deleteBackup')}
       </button>
     </div>
   {/if}

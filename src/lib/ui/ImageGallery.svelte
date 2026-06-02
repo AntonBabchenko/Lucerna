@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { GalleryImage } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   // Compact screenshot carousel for the detail modals. Single image in
   // view; ‹/› step through. Renders nothing when there are no images.
@@ -31,13 +32,13 @@
     {#if images.length > 1}
       <button
         type="button"
-        aria-label="Previous image"
+        aria-label={$t('common.previousImage')}
         class="absolute left-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 text-sm"
         onclick={prev}>‹</button
       >
       <button
         type="button"
-        aria-label="Next image"
+        aria-label={$t('common.nextImage')}
         class="absolute right-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 text-sm"
         onclick={next}>›</button
       >

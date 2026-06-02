@@ -4,6 +4,7 @@
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
+  import { t } from '$lib/i18n';
 
   let {
     accounts,
@@ -64,9 +65,9 @@
   <div class="font-bold text-lg text-primary">Lucerna</div>
 
   <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
-    <div class="text-xs uppercase tracking-wide text-muted">Account</div>
+    <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>
     {#if accounts.length === 0}
-      <p class="text-xs text-muted">No accounts yet — add one below.</p>
+      <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
     {:else}
       <select
         class="border rounded px-2 py-1 text-sm"
@@ -74,7 +75,10 @@
         onchange={(e) => onSelectAccount((e.currentTarget as HTMLSelectElement).value)}
       >
         {#each accounts as a}
-          <option value={a.id}>{a.name} ({a.kind === 'microsoft' ? 'Microsoft' : 'offline'})</option
+          <option value={a.id}
+            >{a.name} ({a.kind === 'microsoft'
+              ? $t('sidebar.accountKindMicrosoft')
+              : $t('sidebar.accountKindOffline')})</option
           >
         {/each}
       </select>
@@ -85,7 +89,7 @@
         class="btn-secondary btn-xs flex-1"
         onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
       >
-        + Add offline
+        {$t('sidebar.addOffline')}
       </button>
       <button
         type="button"
@@ -93,14 +97,14 @@
         disabled={!activeAccount}
         onclick={onRemoveAccount}
       >
-        Remove
+        {$t('sidebar.removeAccount')}
       </button>
     </div>
     {#if showAddOfflineInput}
       <div class="flex flex-col gap-1 mt-1">
         <input
           class="border rounded px-2 py-1 text-sm"
-          placeholder="Player name"
+          placeholder={$t('sidebar.playerNamePlaceholder')}
           maxlength="16"
           bind:value={offlineNameDraft}
         />
@@ -114,7 +118,7 @@
               offlineNameDraft = '';
             }}
           >
-            Add
+            {$t('sidebar.addAccountConfirm')}
           </button>
           <button
             type="button"
@@ -124,7 +128,7 @@
               offlineNameDraft = '';
             }}
           >
-            Cancel
+            {$t('common.cancel')}
           </button>
         </div>
       </div>
@@ -140,12 +144,14 @@
 
   <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle">
     <div class="text-xs uppercase tracking-wide text-muted flex items-center gap-1">
-      <span>Instance</span>
+      <span>{$t('sidebar.instance')}</span>
       <InstanceConceptTooltip />
     </div>
     {#if instances.length === 0}
-      <p class="text-xs text-muted">No instances yet.</p>
-      <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}> + Create </button>
+      <p class="text-xs text-muted">{$t('sidebar.noInstances')}</p>
+      <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}>
+        {$t('sidebar.createInstance')}
+      </button>
     {:else}
       <select
         data-tour="instance-picker"
@@ -157,7 +163,7 @@
           <option value={i.id}>
             {i.ready ? '✓' : '↓'}
             {i.name} · {displayLoader(i.loader)}
-            {i.mc_version || '(pick MC)'}
+            {i.mc_version || $t('sidebar.pickMcVersion')}
           </option>
         {/each}
       </select>
@@ -168,17 +174,17 @@
           class="btn-secondary btn-xs flex-1"
           onclick={onOpenManage}
         >
-          ⚙ Manage
+          {$t('sidebar.manage')}
         </button>
         <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenMods}>
-          📂 Mods
+          {$t('sidebar.mods')}
         </button>
       </div>
 
       {#if activeInstance}
         {#if running}
           <button type="button" data-tour="play-btn" class="btn-danger btn-lg" onclick={onStop}>
-            Stop
+            {$t('sidebar.stop')}
           </button>
         {:else if activeInstance.mc_version === ''}
           <button
@@ -186,13 +192,13 @@
             data-tour="play-btn"
             class="btn-success btn-lg"
             disabled
-            title="Pick a Minecraft version first"
+            title={$t('sidebar.pickVersionTitle')}
           >
-            Play
+            {$t('sidebar.play')}
           </button>
         {:else if installing}
           <button type="button" data-tour="play-btn" class="btn-primary btn-lg" disabled>
-            Working…
+            {$t('sidebar.working')}
           </button>
         {:else if !activeInstance.ready}
           <!--
@@ -201,11 +207,11 @@
             Install never appear at the same time, so they don't compete.
           -->
           <button type="button" data-tour="play-btn" class="btn-primary btn-lg" onclick={onInstall}>
-            ↓ Install
+            {$t('sidebar.install')}
           </button>
         {:else}
           <button type="button" data-tour="play-btn" class="btn-success btn-lg" onclick={onPlay}>
-            Play
+            {$t('sidebar.play')}
           </button>
         {/if}
       {/if}
@@ -230,20 +236,20 @@
       data-testid="sidebar-open-modpacks"
       onclick={onOpenModpacks}
     >
-      📦 Browse modpacks
+      {$t('sidebar.browseModpacks')}
     </button>
     <div class="flex gap-1">
       <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenLogs}>
-        📜 Logs
+        {$t('sidebar.logs')}
       </button>
       <button
         type="button"
         class="btn-secondary btn-xs flex-1"
-        aria-label="Settings"
-        title="Settings"
+        aria-label={$t('settings.title')}
+        title={$t('settings.title')}
         onclick={() => (settingsOpen.value = { tab: 'general' })}
       >
-        Settings
+        {$t('settings.title')}
       </button>
     </div>
   </div>

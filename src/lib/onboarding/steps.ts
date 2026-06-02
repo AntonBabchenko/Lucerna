@@ -7,63 +7,67 @@
 //
 // anchor = 'right' | 'below' | 'center' is the popover side relative
 // to the spotlight rect. Centered modal ignores anchor.
+//
+// titleKey / bodyKey are TranslationKey references resolved at render
+// time via $t(step.titleKey). The actual text lives in
+// src/lib/i18n/locales/{en,ru}.json under onboarding.tour.*.
 
-import { DISCLAIMER_TEXT } from '../settings/disclaimer';
+import type { TranslationKey } from '../i18n/keys.generated';
 
 export type TourAnchor = 'right' | 'below' | 'center';
 
 export interface TourStep {
-  title: string;
-  body: string;
+  titleKey: TranslationKey;
+  bodyKey: TranslationKey;
   targetSelector: string | null;
   anchor: TourAnchor;
-  /** Optional small-print footer rendered under `body`. Currently used
+  /** Optional small-print footer rendered under the body. Currently used
    *  on the welcome step to surface the Mojang Usage Guidelines
-   *  disclaimer on first launch. */
-  disclaimer?: string;
+   *  disclaimer on first launch. Resolved via $t at render time. */
+  disclaimerKey?: TranslationKey;
 }
 
 export const STEPS: ReadonlyArray<TourStep> = [
   {
-    title: 'Welcome to Lucerna',
-    body: 'Lucerna organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others.',
+    titleKey: 'onboarding.tour.welcome.title',
+    bodyKey: 'onboarding.tour.welcome.body',
     targetSelector: null,
     anchor: 'center',
-    disclaimer: DISCLAIMER_TEXT,
+    disclaimerKey: 'settings.about.disclaimer',
   },
   {
-    title: 'Sign in (optional)',
-    body: "Click 'Sign in with Microsoft' to play online with your Microsoft account, or skip this step and use an offline account for LAN and single-player.",
+    titleKey: 'onboarding.tour.signIn.title',
+    bodyKey: 'onboarding.tour.signIn.body',
     targetSelector: '[data-tour="ms-signin-btn"]',
     anchor: 'right',
   },
   {
-    title: 'Pick an instance',
-    body: 'An instance is a self-contained Minecraft install. Lucerna starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected.',
+    titleKey: 'onboarding.tour.pickInstance.title',
+    bodyKey: 'onboarding.tour.pickInstance.body',
     targetSelector: '[data-tour="instance-picker"]',
     anchor: 'right',
   },
   {
-    title: 'Manage your instances',
-    body: "⚙ Manage is where you set an instance's Minecraft version and loader, tweak memory, and create, rename or delete instances. A new instance starts with no version — pick one here before you can play.",
+    titleKey: 'onboarding.tour.manageInstances.title',
+    bodyKey: 'onboarding.tour.manageInstances.body',
     targetSelector: '[data-tour="manage-btn"]',
     anchor: 'right',
   },
   {
-    title: 'Install, then Play',
-    body: 'First click downloads Minecraft and your chosen loader (one-time per version). The button then switches to Play. While Minecraft is running it becomes Stop.',
+    titleKey: 'onboarding.tour.installPlay.title',
+    bodyKey: 'onboarding.tour.installPlay.body',
     targetSelector: '[data-tour="play-btn"]',
     anchor: 'right',
   },
   {
-    title: 'Browse mods',
-    body: "Search Modrinth or CurseForge and install mods directly into the active instance's mods folder. SHA-verified, listed in the Installed sub-tab.",
+    titleKey: 'onboarding.tour.browseMods.title',
+    bodyKey: 'onboarding.tour.browseMods.body',
     targetSelector: '[data-tour="tab-mods"]',
     anchor: 'below',
   },
   {
-    title: 'Import modpacks',
-    body: 'Drop a .mrpack or CurseForge .zip here, or browse Modrinth modpacks. Each import becomes a new instance — your existing instances stay untouched.',
+    titleKey: 'onboarding.tour.importModpacks.title',
+    bodyKey: 'onboarding.tour.importModpacks.body',
     targetSelector: '[data-tour="open-modpacks"]',
     anchor: 'right',
   },

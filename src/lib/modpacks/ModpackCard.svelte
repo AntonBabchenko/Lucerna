@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ModpackHit } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   // One card in the modpack search grid (ModpackBrowseView). The card is
   // a button so the whole tile is clickable and the focus ring is
@@ -38,13 +39,13 @@
         <div class="font-semibold text-sm truncate">{hit.title}</div>
         <div class="text-xs text-muted line-clamp-2">{hit.description}</div>
         <div class="text-xs text-placeholder mt-1">
-          {(hit.downloads ?? 0).toLocaleString()} downloads
+          {$t('modpacks.card.downloads', { count: (hit.downloads ?? 0).toLocaleString() })}
         </div>
         {#if hit.distribution_allowed === false}
           <div
             class="mt-1 inline-block text-xs px-1.5 py-0.5 rounded bg-warning-bg text-warning-text"
           >
-            CurseForge download disabled
+            {$t('modpacks.card.distributionDisabled')}
           </div>
         {/if}
       </div>
@@ -68,11 +69,11 @@
     {/if}
     <span class="font-medium text-sm truncate flex-1">{hit.title}</span>
     <span class="text-xs text-placeholder flex-shrink-0"
-      >{(hit.downloads ?? 0).toLocaleString()} dl</span
+      >{$t('modpacks.card.downloadsShort', { count: (hit.downloads ?? 0).toLocaleString() })}</span
     >
     {#if hit.distribution_allowed === false}
       <span class="text-xs px-1.5 py-0.5 rounded bg-warning-bg text-warning-text flex-shrink-0">
-        CF disabled
+        {$t('modpacks.card.distributionDisabledShort')}
       </span>
     {/if}
   </button>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { mcVersions } from '$lib/settings/state.svelte';
+  import { t } from '$lib/i18n';
 
   // A combobox over the Minecraft version list: text input that opens a
   // filtered dropdown below it. Lives in $lib/mods because the only two
@@ -130,7 +131,7 @@
         class="block w-full text-left px-3 py-1 btn-tertiary text-sm italic"
         onclick={clear}
       >
-        Any version
+        {$t('mods.mcVersion.anyVersion')}
       </button>
       {#each filtered as id, i (id)}
         <button
@@ -145,7 +146,7 @@
         </button>
       {/each}
       {#if filtered.length === 0}
-        <div class="px-3 py-2 text-xs text-muted">No match</div>
+        <div class="px-3 py-2 text-xs text-muted">{$t('mods.mcVersion.noMatch')}</div>
       {/if}
     </div>
   {/if}

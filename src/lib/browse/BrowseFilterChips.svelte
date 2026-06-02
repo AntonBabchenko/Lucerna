@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import type { FilterChip, FilterChipKey } from './filter-model';
 
   // Applied-filter chip row, shown above the result grid. Each chip is a
@@ -30,7 +31,7 @@
       >
         <span>{chip.label}</span>
         <span aria-hidden="true">✕</span>
-        <span class="sr-only">Remove filter</span>
+        <span class="sr-only">{$t('browse.filter.removeFilter')}</span>
       </button>
     {/each}
     <button
@@ -39,7 +40,7 @@
       data-testid={clearAllTestid}
       onclick={onClearAll}
     >
-      Clear all
+      {$t('browse.filter.clearAll')}
     </button>
   </div>
 {/if}

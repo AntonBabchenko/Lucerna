@@ -33,6 +33,8 @@
   import { initOnboarding } from '$lib/onboarding/state.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { initLocale } from '$lib/i18n/state.svelte';
+  import { t } from '$lib/i18n';
+  import { get } from 'svelte/store';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
@@ -164,8 +166,9 @@
   // the user on the freshly created instance.
   async function runModpackImport(req: ModpackImportRequest) {
     if (modpackImporting) {
-      pushWarning('A modpack import is already in progress', [
-        'Wait for it to finish before starting another.',
+      const tr = get(t);
+      pushWarning(tr('page.modpackImport.alreadyInProgress'), [
+        tr('page.modpackImport.alreadyInProgressDetail'),
       ]);
       return;
     }
@@ -202,15 +205,16 @@
     // The phase channel emits `{ phase: 'done', instance_id }` and fires the
     // close + select above; the return value is only read for the error branch
     // (Rust guarantees `done` is emitted before Ok returns).
+    const tr = get(t);
     if (r.status === 'ok') {
-      pushSuccess(`Imported ${r.data.name}`);
+      pushSuccess(tr('page.modpackImport.imported', { name: r.data.name }));
     } else if (r.error.kind === 'modpack_partial_failure') {
       pushWarning(
-        `Modpack imported — ${r.error.failed.length} mod(s) failed`,
+        tr('page.modpackImport.partialFailure', { count: r.error.failed.length }),
         r.error.failed.map(([p]) => p.split('/').pop() ?? p),
       );
     } else {
-      pushWarning('Modpack import failed', [formatError(r.error)]);
+      pushWarning(tr('page.modpackImport.failed'), [formatError(r.error)]);
     }
     // Reset in a single place once the run settles: holds the re-entrancy guard
     // for the whole import and clears the corner toast (on done or error).
@@ -325,11 +329,12 @@
           updateState.value = upd.data;
           const latest = upd.data.latest;
           const current = upd.data.current;
+          const tr = get(t);
           const toastId = pushActionToast(
             'info',
-            `Lucerna ${latest} is available`,
-            { label: 'Update', run: () => void runUpdate() },
-            [`You're on ${current}.`],
+            tr('page.update.available', { version: latest }),
+            { label: tr('page.update.actionLabel'), run: () => void runUpdate() },
+            [tr('page.update.currentVersion', { version: current })],
             () => void dismissUpdate(latest),
           );
           // Auto-hide the startup notification after a few seconds. This
@@ -472,7 +477,7 @@
       onRemoveAccount={onRemoveActive}
       onAddOffline={async (name) => {
         if (!name) {
-          offlineNameError = 'Name cannot be empty';
+          offlineNameError = get(t)('page.offlineName.cannotBeEmpty');
           return;
         }
         offlineNameError = null;
@@ -496,15 +501,16 @@
       bind:msSigningIn
       onMicrosoftSignedIn={async () => {
         await refreshAccounts();
-        pushSuccess('Signed in with Microsoft');
+        pushSuccess(get(t)('page.accounts.signedInMicrosoft'));
       }}
       onMicrosoftError={(err) => {
         const kind = (err as { kind?: string })?.kind;
         const msg = formatError(err as never);
+        const tr = get(t);
         if (kind === 'auth_pending_approval') {
-          pushInfo('Microsoft sign-in pending approval', [msg]);
+          pushInfo(tr('page.accounts.pendingApproval'), [msg]);
         } else {
-          pushWarning('Microsoft sign-in failed', [msg]);
+          pushWarning(tr('page.accounts.signInFailed'), [msg]);
         }
       }}
     />
@@ -516,16 +522,16 @@
         class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
       >
         <span class="text-sm">
-          Minecraft crashed.
+          {$t('page.crash.banner')}
           <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
         </span>
         <div class="flex items-center gap-2">
           <button class="btn-secondary btn-sm" onclick={openCrashInLogs}>
-            View crash report
+            {$t('page.crash.viewReport')}
           </button>
           <CloseButton
             onClick={() => (crashReport = null)}
-            ariaLabel="Dismiss crash report banner"
+            ariaLabel={$t('page.crash.dismissAriaLabel')}
           />
         </div>
       </div>
@@ -544,19 +550,28 @@
           {#if offlineNameError}
             <p class="text-xs text-danger flex items-center gap-1">
               {offlineNameError}
-              <CloseButton onClick={() => (offlineNameError = null)} ariaLabel="Dismiss error" />
+              <CloseButton
+                onClick={() => (offlineNameError = null)}
+                ariaLabel={$t('page.overview.dismissError')}
+              />
             </p>
           {/if}
           {#if listAccountsError}
             <p class="text-xs text-danger flex items-center gap-1">
               {listAccountsError}
-              <CloseButton onClick={() => (listAccountsError = null)} ariaLabel="Dismiss error" />
+              <CloseButton
+                onClick={() => (listAccountsError = null)}
+                ariaLabel={$t('page.overview.dismissError')}
+              />
             </p>
           {/if}
           {#if removeError}
             <p class="text-xs text-danger flex items-center gap-1">
               {removeError}
-              <CloseButton onClick={() => (removeError = null)} ariaLabel="Dismiss error" />
+              <CloseButton
+                onClick={() => (removeError = null)}
+                ariaLabel={$t('page.overview.dismissError')}
+              />
             </p>
           {/if}
           {#if instancesError}
@@ -567,67 +582,72 @@
           {/if}
           {#if activeInstance}
             <div class="flex flex-col gap-1">
-              <div class="text-xs uppercase tracking-wide text-muted">Configuration</div>
+              <div class="text-xs uppercase tracking-wide text-muted">
+                {$t('page.overview.sectionConfiguration')}
+              </div>
               <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-                <span class="text-muted">Minecraft</span>
-                <span class="font-mono">{activeInstance.mc_version || '(not set)'}</span>
-                <span class="text-muted">Loader</span>
+                <span class="text-muted">{$t('page.overview.labelMinecraft')}</span>
+                <span class="font-mono"
+                  >{activeInstance.mc_version || $t('page.overview.notSet')}</span
+                >
+                <span class="text-muted">{$t('page.overview.labelLoader')}</span>
                 <span class="font-mono">
                   {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
                     · {activeInstance.loader_version}
                   {/if}
                 </span>
-                <span class="text-muted">Memory</span>
+                <span class="text-muted">{$t('page.overview.labelMemory')}</span>
                 <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
               </div>
               <p class="text-xs text-muted">
-                Edit via
+                {$t('page.overview.editVia')}
                 <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
-                  >Manage</button
-                >.
+                  >{$t('page.overview.manageBtn')}</button
+                >{$t('page.overview.editViaSuffix')}
               </p>
             </div>
 
             <div class="flex flex-col gap-1">
-              <div class="text-xs uppercase tracking-wide text-muted">Installed mods</div>
+              <div class="text-xs uppercase tracking-wide text-muted">
+                {$t('page.overview.sectionInstalledMods')}
+              </div>
               {#if installedStats.total === 0}
                 <p class="text-sm text-muted">
-                  No mods installed yet. Open
+                  {$t('page.overview.noModsHint')}
                   <button
                     type="button"
                     class="btn-tertiary"
                     onclick={() => (modBrowserNav.value = { view: 'browse' })}
                   >
-                    Mod browser
+                    {$t('nav.modBrowser')}
                   </button>
-                  to add some.
+                  {$t('page.overview.noModsHintSuffix')}
                 </p>
               {:else}
                 <div class="text-sm flex gap-3">
                   <span
-                    >Total: <span class="font-medium text-secondary">{installedStats.total}</span
-                    ></span
+                    >{$t('page.overview.statsTotal')}
+                    <span class="font-medium text-secondary">{installedStats.total}</span></span
                   >
                   <span
-                    >Enabled: <span class="font-medium text-success">{installedStats.enabled}</span
-                    ></span
+                    >{$t('page.overview.statsEnabled')}
+                    <span class="font-medium text-success">{installedStats.enabled}</span></span
                   >
                   <span
-                    >Disabled: <span class="font-medium text-secondary"
-                      >{installedStats.disabled}</span
-                    ></span
+                    >{$t('page.overview.statsDisabled')}
+                    <span class="font-medium text-secondary">{installedStats.disabled}</span></span
                   >
                 </div>
                 <p class="text-xs text-muted">
-                  Manage in
+                  {$t('page.overview.manageInTab')}
                   <button
                     type="button"
                     class="btn-tertiary"
                     onclick={() => (modBrowserNav.value = { view: 'installed' })}
                   >
-                    Installed
+                    {$t('page.overview.installedTab')}
                   </button>
-                  tab.
+                  {$t('page.overview.manageInTabSuffix')}
                 </p>
               {/if}
               {#if activeInstance && installedStats.enabled >= 1}
@@ -637,31 +657,34 @@
                     class="btn-secondary btn-sm"
                     onclick={() => (exportDialogOpen = true)}
                   >
-                    Export modpack…
+                    {$t('page.overview.exportModpack')}
                   </button>
                 </div>
               {/if}
             </div>
 
             <div class="flex flex-col gap-1" data-testid="overview-playtime">
-              <div class="text-xs uppercase tracking-wide text-muted">Playtime</div>
+              <div class="text-xs uppercase tracking-wide text-muted">
+                {$t('page.overview.sectionPlaytime')}
+              </div>
               {#if playtime.last_session_unix_ms == null}
-                <p class="text-sm text-muted">Not yet played</p>
+                <p class="text-sm text-muted">{$t('page.overview.notYetPlayed')}</p>
               {:else}
                 <div class="text-sm">
-                  Total:
+                  {$t('page.overview.playtimeTotal')}
                   <span class="font-medium text-primary"
                     >{formatDuration(playtime.total_seconds)}</span
                   >
                   ·
                   <span
-                    >{playtime.session_count}
-                    {playtime.session_count === 1 ? 'session' : 'sessions'}</span
+                    >{$t('page.overview.playtimeSession', { count: playtime.session_count })}</span
                   >
                 </div>
                 <p class="text-xs text-muted">
-                  Last session: {formatDuration(playtime.last_session_seconds)},
-                  {relativeTime(playtime.last_session_unix_ms)}
+                  {$t('page.overview.playtimeLastSession', {
+                    duration: formatDuration(playtime.last_session_seconds),
+                    when: relativeTime(playtime.last_session_unix_ms),
+                  })}
                 </p>
               {/if}
             </div>
@@ -679,56 +702,73 @@
               >
                 <span aria-hidden="true">⚠</span>
                 <span class="flex-1">
-                  {unresolvedMissing.length}
-                  {unresolvedMissing.length === 1 ? 'pack mod needs' : 'pack mods need'} attention
+                  {$t('page.overview.missingModsBtn', { count: unresolvedMissing.length })}
                 </span>
-                <span class="text-xs text-warning-text underline">View</span>
+                <span class="text-xs text-warning-text underline"
+                  >{$t('page.overview.missingModsView')}</span
+                >
               </button>
             {/if}
 
             <div class="flex items-center gap-4 mt-2">
               {#if running}
                 <span class="text-sm font-mono"
-                  >Running {running.version_id} (PID {running.pid})</span
+                  >{$t('page.overview.statusRunning', {
+                    versionId: running.version_id,
+                    pid: running.pid,
+                  })}</span
                 >
               {:else if activeInstance.mc_version === ''}
                 <span class="text-sm text-muted"
-                  >Pick a Minecraft version in <button
-                    type="button"
-                    class="btn-tertiary"
-                    onclick={() => (manageOpen = true)}>Manage</button
-                  > before installing.</span
+                  >{$t('page.overview.statusPickVersion')}
+                  <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
+                    >{$t('page.overview.manageBtn')}</button
+                  >
+                  {$t('page.overview.statusPickVersionSuffix')}</span
                 >
               {:else if installing}
-                <span class="text-sm text-accent">Working…</span>
+                <span class="text-sm text-accent">{$t('page.overview.statusWorking')}</span>
               {:else if !activeInstance.ready}
                 <span class="text-sm text-muted"
-                  >Click <span class="font-semibold text-secondary">Install</span> in the sidebar to download
-                  Minecraft + selected loader.</span
+                  >{$t('page.overview.statusInstallHint')}
+                  <span class="font-semibold text-secondary"
+                    >{$t('page.overview.statusInstallLabel')}</span
+                  >
+                  {$t('page.overview.statusInstallHintSuffix')}</span
                 >
               {:else}
                 <span class="text-sm text-success"
-                  >Ready to play — click <span class="font-semibold">Play</span> in the sidebar.</span
+                  >{$t('page.overview.statusReady')}
+                  <span class="font-semibold">{$t('page.overview.statusReadyPlayLabel')}</span>
+                  {$t('page.overview.statusReadySuffix')}</span
                 >
               {/if}
               {#if installError}
                 <span class="text-xs text-danger flex items-center gap-1">
                   {installError}
-                  <CloseButton onClick={() => (installError = null)} ariaLabel="Dismiss error" />
+                  <CloseButton
+                    onClick={() => (installError = null)}
+                    ariaLabel={$t('page.overview.dismissError')}
+                  />
                 </span>
               {/if}
               {#if exited && !running}
-                <span class="text-xs text-secondary">Exited (code {exited.code})</span>
+                <span class="text-xs text-secondary"
+                  >{$t('page.overview.statusExited', { code: exited.code })}</span
+                >
               {/if}
               {#if modsError}
                 <span class="text-xs text-danger flex items-center gap-1">
                   {modsError}
-                  <CloseButton onClick={() => (modsError = null)} ariaLabel="Dismiss error" />
+                  <CloseButton
+                    onClick={() => (modsError = null)}
+                    ariaLabel={$t('page.overview.dismissError')}
+                  />
                 </span>
               {/if}
             </div>
           {:else}
-            <p class="text-sm text-muted">No instance selected. Create one via the sidebar.</p>
+            <p class="text-sm text-muted">{$t('page.overview.noInstanceSelected')}</p>
           {/if}
         </div>
       {/snippet}

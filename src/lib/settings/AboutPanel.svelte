@@ -4,7 +4,8 @@
   // The disclaimer text lives in `./disclaimer.ts` so the test file and
   // the panel never disagree on the exact string.
   import pkg from '../../../package.json' with { type: 'json' };
-  import { DISCLAIMER_TEXT, REPO_URL } from './disclaimer';
+  import { REPO_URL } from './disclaimer';
+  import { t } from '$lib/i18n';
 
   const version = pkg.version;
 
@@ -16,30 +17,27 @@
 </script>
 
 <section class="space-y-3 text-sm selectable">
-  <h3 class="text-base font-semibold text-primary">About</h3>
+  <h3 class="text-base font-semibold text-primary">{$t('settings.about.title')}</h3>
   <p class="font-medium text-primary">Lucerna v{version}</p>
-  <p class="text-secondary">{DISCLAIMER_TEXT}</p>
+  <p class="text-secondary">{$t('settings.about.disclaimer')}</p>
   <p>
     <button
       type="button"
       class="btn-tertiary"
       title={REPO_URL}
-      aria-label={`Open Lucerna repository on GitHub (${REPO_URL})`}
+      aria-label={$t('settings.about.openRepoLabel', { url: REPO_URL })}
       onclick={openRepo}
     >
-      View on GitHub
+      {$t('settings.about.viewOnGitHub')}
     </button>
   </p>
   <p class="text-xs text-muted">
-    Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang
-    at runtime and are never modified.
+    {$t('settings.about.license')}
   </p>
   <p class="text-xs text-muted">
-    Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This
-    launcher is not affiliated with either.
+    {$t('settings.about.trademark')}
   </p>
   <p class="text-xs text-muted">
-    Microsoft refresh tokens are stored in the OS keyring (Windows Credential Manager) and removed
-    when you sign out.
+    {$t('settings.about.keyring')}
   </p>
 </section>

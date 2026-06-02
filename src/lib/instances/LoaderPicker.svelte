@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import {
     commands,
     type LoaderKind,
@@ -8,16 +9,21 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
 
   function formatLoaderError(e: IpcError): string {
     // Picker keeps shorter wording for the 3 variants it surfaces most
     // often; everything else delegates so no raw JSON if e.g. a loader
     // cache IO error reaches the picker.
     if (e.kind === 'loader_unavailable')
-      return `${displayLoader(e.loader as LoaderKind)} does not support Minecraft ${e.mc_version}`;
-    if (e.kind === 'network') return `Network error fetching ${e.url}: ${e.details}`;
+      return get(t)('instance.loader.errorUnavailable', {
+        loader: displayLoader(e.loader as LoaderKind),
+        mc: e.mc_version,
+      });
+    if (e.kind === 'network')
+      return get(t)('instance.loader.errorNetwork', { url: e.url, details: e.details });
     if (e.kind === 'forge_promotions_unavailable')
-      return `Forge promotions feed for ${e.flavor} is unavailable`;
+      return get(t)('instance.loader.errorForgePromotions', { flavor: e.flavor });
     return formatError(e);
   }
 
@@ -123,7 +129,7 @@
   }
 </script>
 
-<p class="block text-xs uppercase text-secondary mb-1">Loader</p>
+<p class="block text-xs uppercase text-secondary mb-1">{$t('instance.loader.label')}</p>
 <div class="flex gap-1 mb-3">
   {#each LOADER_KINDS as lk}
     <button
@@ -141,7 +147,7 @@
 
 {#if loader !== 'vanilla' && versions.length > 0}
   <label class="block text-xs uppercase text-secondary mb-1" for="loader-version-select">
-    Loader version
+    {$t('instance.loader.versionLabel')}
   </label>
   <select
     id="loader-version-select"
@@ -152,7 +158,7 @@
   >
     {#each versions as lv}
       <option value={lv.version}>
-        {lv.version}{lv.stable ? ' (recommended)' : ''}
+        {lv.stable ? $t('instance.loader.recommended', { version: lv.version }) : lv.version}
       </option>
     {/each}
   </select>

@@ -14,6 +14,7 @@
   // try/catch around them.
   import { commands, type KeyStatus } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
   import { cfKeyVersion } from './state.svelte';
 
   let status = $state<KeyStatus | 'loading'>('loading');
@@ -84,42 +85,43 @@
 
 <div>
   <div class="text-sm mb-3">
-    <span class="text-muted">Status: </span>
+    <span class="text-muted">{$t('settings.curseforge.statusLabel')} </span>
     {#if status === 'set'}
-      <span class="text-success font-medium">OK — key is set</span>
+      <span class="text-success font-medium">{$t('settings.curseforge.statusOk')}</span>
     {:else if status === 'invalid'}
-      <span class="text-danger font-medium">Invalid — please enter a new key</span>
+      <span class="text-danger font-medium">{$t('settings.curseforge.statusInvalid')}</span>
     {:else if status === 'missing'}
-      <span class="text-secondary">Not configured</span>
+      <span class="text-secondary">{$t('settings.curseforge.statusMissing')}</span>
     {:else}
-      <span class="text-placeholder">Checking…</span>
+      <span class="text-placeholder">{$t('settings.curseforge.statusChecking')}</span>
     {/if}
   </div>
 
   {#if status === 'missing'}
     <ol class="text-sm text-secondary list-decimal pl-5 space-y-1 mb-3">
       <li>
-        Open
+        {$t('settings.curseforge.step1Before')}
         <button type="button" class="btn-tertiary font-mono" onclick={openConsoleHome}>
           console.curseforge.com ↗
         </button>
-        and sign in with a free account
+        {$t('settings.curseforge.step1After')}
       </li>
       <li>
-        Once logged in, go to the
+        {$t('settings.curseforge.step2Before')}
         <button type="button" class="btn-tertiary font-mono" onclick={openApiKeysPage}>
           API Keys ↗
         </button>
-        tab
+        {$t('settings.curseforge.step2After')}
       </li>
-      <li>Generate a key for Lucerna</li>
-      <li>Paste it below</li>
+      <li>{$t('settings.curseforge.step3')}</li>
+      <li>{$t('settings.curseforge.step4')}</li>
     </ol>
   {:else}
     <p class="text-xs text-secondary mb-3">
-      To replace the stored key, paste a new one below and click <span class="font-medium"
-        >Update key</span
-      >. Get one at
+      {$t('settings.curseforge.replaceHintBefore')}
+      <span class="font-medium">{$t('settings.curseforge.replaceAction')}</span>{$t(
+        'settings.curseforge.replaceHintAfter',
+      )}
       <button type="button" class="btn-tertiary font-mono" onclick={openApiKeysPage}>
         console.curseforge.com → API Keys ↗
       </button>.
@@ -128,7 +130,9 @@
 
   <label class="block">
     <span class="text-xs text-muted"
-      >{status === 'missing' ? 'Key' : 'New key (overwrites stored)'}</span
+      >{status === 'missing'
+        ? $t('settings.curseforge.inputLabelNew')
+        : $t('settings.curseforge.inputLabelReplace')}</span
     >
     <input
       type="password"
@@ -152,12 +156,16 @@
       disabled={saving || pendingKey.trim() === ''}
       onclick={save}
     >
-      {status === 'missing' ? 'Save key' : 'Update key'}
+      {status === 'missing'
+        ? $t('settings.curseforge.saveKey')
+        : $t('settings.curseforge.updateKey')}
     </button>
     {#if status === 'set' || status === 'invalid'}
-      <button type="button" class="btn-secondary btn-sm" onclick={clear}> Clear key </button>
+      <button type="button" class="btn-secondary btn-sm" onclick={clear}>
+        {$t('settings.curseforge.clearKey')}
+      </button>
     {/if}
   </div>
 
-  <p class="text-xs text-muted mt-3">Stored in OS keyring (Windows Credential Manager).</p>
+  <p class="text-xs text-muted mt-3">{$t('settings.curseforge.keyringNote')}</p>
 </div>

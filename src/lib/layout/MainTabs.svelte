@@ -6,6 +6,7 @@
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
   import { modBrowserNav, droppedMods, dragActive } from '$lib/settings/state.svelte';
+  import { t } from '$lib/i18n';
 
   type Tab = 'overview' | 'mod_browser' | 'worlds';
 
@@ -84,7 +85,7 @@
       class:text-placeholder={active !== 'overview'}
       onclick={() => (active = 'overview')}
     >
-      Overview
+      {$t('nav.overview')}
     </button>
     <button
       type="button"
@@ -99,7 +100,7 @@
       class:text-placeholder={active !== 'mod_browser'}
       onclick={() => (active = 'mod_browser')}
     >
-      Mod browser
+      {$t('nav.modBrowser')}
     </button>
     <button
       type="button"
@@ -113,7 +114,7 @@
       class:text-placeholder={active !== 'worlds'}
       onclick={() => (active = 'worlds')}
     >
-      Worlds
+      {$t('nav.worlds')}
     </button>
   </div>
 

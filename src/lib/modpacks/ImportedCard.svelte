@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { t } from '$lib/i18n';
 
   // One card in the Imported tab grid. Mirrors ModpackCard's shape so
   // the user sees a consistent grid across Browse and Imported. We
@@ -57,19 +58,22 @@
         {#if isModified}
           <span
             class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-bg text-warning-text align-middle"
-            title="installed mods differ from the imported pack"
+            title={$t('modpacks.imported.card.modifiedTitle')}
             data-testid="imported-card-modified-tag"
           >
-            modified
+            {$t('modpacks.imported.card.modifiedTag')}
           </span>
         {/if}
       </div>
-      <div class="text-xs text-muted truncate">Instance: {inst.name}</div>
+      <div class="text-xs text-muted truncate">
+        {$t('modpacks.imported.card.instanceLabel', { name: inst.name })}
+      </div>
       <div class="text-xs text-placeholder mt-1 truncate">
         MC {inst.mc_version} · {displayLoader(inst.loader)}{inst.loader_version
           ? ' ' + inst.loader_version
           : ''}{inst.created_unix_ms != null
-          ? ' · imported ' + relativeTime(inst.created_unix_ms)
+          ? ' · ' +
+            $t('modpacks.imported.card.importedAt', { when: relativeTime(inst.created_unix_ms) })
           : ''}
       </div>
     </div>

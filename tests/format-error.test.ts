@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { locale } from '$lib/i18n';
 import { formatError } from '$lib/ipc/format-error';
 
 describe('formatError', () => {
+  beforeAll(() => locale.set('en'));
+
   it('formats network errors with URL and details', () => {
     const msg = formatError({
       kind: 'network',
@@ -147,6 +150,13 @@ describe('formatError', () => {
     expect(formatError({ kind: 'auth_pending_approval' })).toBe(
       "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
     );
+  });
+
+  it('formats a known error in Russian', () => {
+    locale.set('ru');
+    const msg = formatError({ kind: 'already_running' });
+    expect(msg).toBe('Minecraft уже запущен');
+    locale.set('en');
   });
 
   describe('io error truncation', () => {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { OrphanRef } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   let {
     removingNames,
@@ -29,18 +30,18 @@
   <div
     role="dialog"
     aria-modal="true"
-    aria-label="Confirm uninstall"
+    aria-label={$t('mods.orphan.confirmUninstallAriaLabel')}
     class="bg-surface rounded shadow-xl w-[440px] max-w-[90vw] p-5"
   >
     <h2 class="text-base font-semibold text-primary mb-3">
-      Uninstall {removingNames.length} mod{removingNames.length === 1 ? '' : 's'}?
+      {$t('mods.orphan.heading', { count: removingNames.length })}
     </h2>
     <ul class="text-sm text-secondary list-disc pl-5 mb-3 max-h-32 overflow-auto">
       {#each removingNames as n}<li>{n}</li>{/each}
     </ul>
     {#if orphans.length > 0}
       <div class="text-xs uppercase tracking-wide text-muted mb-1">
-        Installed as a dependency — also remove? (optional)
+        {$t('mods.orphan.alsoRemoveLabel')}
       </div>
       <ul class="text-sm text-primary space-y-1 mb-3">
         {#each orphans as o, i (o.sha1)}
@@ -58,11 +59,15 @@
       </ul>
     {/if}
     <div class="flex justify-end gap-2 mt-4">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>Cancel</button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+        >{$t('common.cancel')}</button
+      >
       <button type="button" class="btn-danger btn-sm" onclick={confirm}>
-        {anyChecked
-          ? `Uninstall ${removingNames.length + checked.filter(Boolean).length} mods`
-          : `Uninstall ${removingNames.length} mod${removingNames.length === 1 ? '' : 's'}`}
+        {$t('mods.orphan.confirmBtn', {
+          count: anyChecked
+            ? removingNames.length + checked.filter(Boolean).length
+            : removingNames.length,
+        })}
       </button>
     </div>
   </div>

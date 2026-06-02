@@ -2,15 +2,905 @@
   "common": {
     "cancel": "Cancel",
     "save": "Save",
-    "close": "Close"
+    "close": "Close",
+    "loading": "Loading…",
+    "dismissNotification": "Dismiss notification",
+    "previousImage": "Previous image",
+    "nextImage": "Next image"
+  },
+  "accounts": {
+    "signInLabel": "Sign in with Microsoft",
+    "signingIn": {
+      "heading": "Complete sign-in in your browser",
+      "body": "A Microsoft sign-in tab should have opened. Finish there, then return to this window. Waiting up to 5 minutes."
+    }
+  },
+  "browse": {
+    "filter": {
+      "sortLabel": "Sort:",
+      "removeFilter": "Remove filter",
+      "clearAll": "Clear all",
+      "closeOverlay": "Close filters overlay",
+      "title": "Filters",
+      "close": "Close filters",
+      "sourceLabel": "Source",
+      "sourceAriaLabel": "Mod source",
+      "loaderLabel": "Mod loader",
+      "loaderAriaLabel": "Loader filter",
+      "mcVersionLabel": "Minecraft version",
+      "any": "Any",
+      "showInstalled": "Show installed"
+    }
+  },
+  "install": {
+    "phase": {
+      "manifest": "Fetching version metadata",
+      "forge_install": "Installing Forge",
+      "jre": "Installing Java runtime",
+      "libraries": "Downloading libraries",
+      "assets": "Downloading assets",
+      "client": "Downloading client.jar",
+      "complete": "Install complete"
+    },
+    "modPhase": {
+      "downloading": "Downloading mod",
+      "verifying": "Verifying mod",
+      "copying": "Copying mod"
+    },
+    "clickToLaunch": "— click Play to launch"
+  },
+  "nav": {
+    "overview": "Overview",
+    "modBrowser": "Mod browser",
+    "worlds": "Worlds"
+  },
+  "sidebar": {
+    "account": "Account",
+    "noAccounts": "No accounts yet — add one below.",
+    "accountKindMicrosoft": "Microsoft",
+    "accountKindOffline": "offline",
+    "addOffline": "+ Add offline",
+    "removeAccount": "Remove",
+    "playerNamePlaceholder": "Player name",
+    "addAccountConfirm": "Add",
+    "instance": "Instance",
+    "noInstances": "No instances yet.",
+    "createInstance": "+ Create",
+    "pickMcVersion": "(pick MC)",
+    "manage": "⚙ Manage",
+    "mods": "📂 Mods",
+    "stop": "Stop",
+    "play": "Play",
+    "pickVersionTitle": "Pick a Minecraft version first",
+    "working": "Working…",
+    "install": "↓ Install",
+    "browseModpacks": "📦 Browse modpacks",
+    "logs": "📜 Logs"
+  },
+  "instance": {
+    "manage": {
+      "title": "Manage Instances",
+      "closeLabel": "Close manage instances",
+      "activeLabel": "(active)",
+      "pickMc": "(pick MC)",
+      "newInstanceBtn": "+ New instance",
+      "createHeading": "New instance",
+      "nameLabel": "Name",
+      "mcVersionLabel": "Minecraft version",
+      "chooseMcOption": "-- Choose MC version --",
+      "showSnapshots": "Show snapshots",
+      "cancelBtn": "Cancel",
+      "createBtn": "Create",
+      "doneBtn": "Done",
+      "openFolderBtn": "📁 Open folder",
+      "deleteBtn": "🗑 Delete instance",
+      "emptyState": "Pick an instance on the left, or click + New instance.",
+      "memoryLabel": "Memory (max heap): {mb} MB",
+      "jvmArgsLabel": "Extra JVM args",
+      "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
+      "cannotDeleteLast": "Cannot delete the last instance"
+    },
+    "error": {
+      "nameRequired": "Name is required",
+      "nameEmpty": "Name cannot be empty",
+      "nameTooLong": "Name is too long: {actual}/{max} characters",
+      "pickMcFirst": "Pick a Minecraft version first",
+      "loaderNoSupport": "{loader} does not support Minecraft {mc} — try another version or loader"
+    },
+    "delete": {
+      "title": "Delete instance?",
+      "question": "Delete {name}?",
+      "description": "This permanently removes the instance directory including its .minecraft/ folder — saved worlds, installed mods, configs, resource packs, screenshots. This cannot be undone.",
+      "confirmBtn": "Delete"
+    },
+    "packDetach": {
+      "title": "Modpack instance",
+      "descriptionMc": "This instance was imported from {pack}. Changing its Minecraft version detaches it from the pack.",
+      "descriptionLoader": "This instance was imported from {pack}. Changing its loader detaches it from the pack.",
+      "keepBtn": "Keep & continue",
+      "detachBtn": "Detach & continue"
+    },
+    "loader": {
+      "label": "Loader",
+      "versionLabel": "Loader version",
+      "recommended": "{version} (recommended)",
+      "errorUnavailable": "{loader} does not support Minecraft {mc}",
+      "errorNetwork": "Network error fetching {url}: {details}",
+      "errorForgePromotions": "Forge promotions feed for {flavor} is unavailable"
+    },
+    "integrity": {
+      "loaderUpdated": "{loader} updated to {version} for Minecraft {mc}",
+      "loaderResetToVanilla": "No {loader} build for Minecraft {mc} — loader reset to Vanilla",
+      "compatWarning": "{incompatible} of {total} installed mods have no version for this configuration. Review in the Mods tab.",
+      "compatWarningWithUnknown": "{incompatible} of {total} installed mods have no version for this configuration · {unknown} couldn't be checked. Review in the Mods tab."
+    },
+    "compat": {
+      "dialogLabel": "Mod compatibility warning",
+      "heading": "{count, plural, one {# mod may not be compatible} other {# mods may not be compatible}}",
+      "skipBtn": "Skip these",
+      "installAnywayBtn": "Install anyway"
+    }
+  },
+  "mods": {
+    "browse": {
+      "tabBrowse": "Browse",
+      "tabInstalled": "Installed",
+      "searchAriaLabel": "Search mods",
+      "searchPlaceholder": "Search mods...",
+      "sortDownloads": "Downloads",
+      "sortRelevance": "Relevance",
+      "sortUpdated": "Updated",
+      "searching": "Searching…",
+      "noResults": "No results.",
+      "prev": "‹ Prev",
+      "next": "Next ›",
+      "pageOf": "Page {page} of {total}",
+      "page": "Page {page}",
+      "vanillaHeading": "This instance is vanilla Minecraft",
+      "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
+      "errorNoInstance": "No active instance",
+      "errorNoCompatibleVersion": "No compatible version found",
+      "errorVanillaLoader": "This instance is vanilla Minecraft (no mod loader). Switch to a Fabric / Quilt / Forge / NeoForge instance to install mods.",
+      "dropzoneLabel": "Drop a mod .jar here to install — or click to browse",
+      "dropzoneDisabled": "Select a non-vanilla instance to install mods",
+      "toastInstallFailed": "Mod install failed",
+      "toastInstalledMod": "Installed {name}",
+      "mismatchLoader": "looks like a {detected} mod, instance is {instance}",
+      "mismatchMc": "targets MC {detected}, instance is {instance}",
+      "mismatchDefault": "may not be compatible",
+      "toastCouldNotRead": "Could not read {filename}",
+      "toastInstalled": "{count, plural, one {Installed # mod} other {Installed # mods}}",
+      "toastFailedToInstall": "{count, plural, one {# mod failed to install} other {# mods failed to install}}",
+      "toastSkipped": "{count, plural, one {Skipped # incompatible mod} other {Skipped # incompatible mods}}"
+    },
+    "card": {
+      "checking": "Checking…",
+      "updateAvailableTitle": "Update available",
+      "checkFailed": "couldn't check",
+      "installed": "Installed",
+      "disabled": "Disabled",
+      "disable": "Disable",
+      "enable": "Enable",
+      "uninstall": "Uninstall",
+      "install": "Install",
+      "update": "Update",
+      "selectAriaLabel": "Select mod {name}",
+      "fromModpackTitle": "From modpack: {name}",
+      "byAuthorDownloads": "by {author} · {downloads} dl"
+    },
+    "detail": {
+      "loading": "Loading…",
+      "byAuthorSourceDownloads": "by {author} · {source} · {downloads} downloads",
+      "viewOnModrinth": "View on Modrinth ↗",
+      "viewOnCurseForge": "View on CurseForge ↗",
+      "closeAriaLabel": "Close mod details",
+      "closeBackdropAriaLabel": "Close",
+      "tabOverview": "Overview",
+      "tabVersions": "Versions",
+      "contentDisclaimer": "Content from {source} — any ads or links in it are the author's, not Lucerna's.",
+      "loadingDescription": "Loading description…",
+      "loadingVersions": "Loading versions…",
+      "showAllVersions": "Show all versions",
+      "noVersionsPlatform": "No versions returned by the platform.",
+      "noVersionsCompat": "No compatible versions for this MC + loader.",
+      "versionInstalled": " · installed",
+      "switchVersionTitle": "Switch from v{installedId} to this version",
+      "btnInstalled": "✓ Installed",
+      "btnRestricted": "Restricted",
+      "btnSwitch": "Switch",
+      "btnInstall": "Install",
+      "footerInstalled": "✓ Installed {version}",
+      "footerRestricted": "Restricted — open on platform",
+      "footerInstall": "Install {version}",
+      "selectInstanceHint": "Select a Fabric / Quilt / Forge / NeoForge instance to install mods.",
+      "noCompatVersion": "No compatible version for {mc} / {loader}."
+    },
+    "source": {
+      "label": "Source:",
+      "ariaLabel": "Mod source"
+    },
+    "mcVersion": {
+      "anyVersion": "Any version",
+      "noMatch": "No match"
+    },
+    "pageSize": {
+      "perPage": "Per page:"
+    },
+    "layout": {
+      "groupAriaLabel": "Result layout",
+      "grid": "Grid",
+      "list": "List"
+    },
+    "curseforgeBanner": {
+      "heading": "CurseForge requires an API key",
+      "body": "Modrinth works anonymously, but CurseForge needs a free API key. It takes about 5 minutes to obtain one — get a free account at console.curseforge.com, generate a key, and paste it into Settings.",
+      "openSettings": "Open Settings → CurseForge"
+    },
+    "installed": {
+      "statsTotal": "Total:",
+      "statsEnabled": "Enabled:",
+      "statsDisabled": "Disabled:",
+      "filterPlaceholder": "Filter installed…",
+      "filterAriaLabel": "Filter installed mods",
+      "sortLabel": "Sort:",
+      "sortNameAsc": "Name (A → Z)",
+      "sortNameDesc": "Name (Z → A)",
+      "sortRecent": "Recently installed",
+      "sortSource": "Source",
+      "checkUpdates": "Check for updates",
+      "recheckDeps": "↻ Re-check deps",
+      "resolvingDeps": "Resolving…",
+      "updateAll": "Update all ({count})",
+      "filterGroupAriaLabel": "Mod filter",
+      "filterAll": "All ({count})",
+      "filterEnabled": "Enabled ({count})",
+      "filterDisabled": "Disabled ({count})",
+      "pickInstanceFirst": "Pick an instance first.",
+      "loading": "Loading installed mods…",
+      "empty": "No mods installed in this instance yet.",
+      "selectAll": "Select all",
+      "selectedCount": "{count} selected",
+      "bulkClear": "Clear",
+      "bulkUpdateTitle": "Run \"Check for updates\" first; only mods with a pending update can be updated",
+      "bulkHint": "Select mods to enable, disable, update or uninstall in bulk",
+      "resolvingShort": "resolving…",
+      "depCount": "{count, plural, one {# dep} other {# deps}}",
+      "depMissing": "{count, plural, one {# missing} other {# missing}}",
+      "requiredByCount": "required by {count}",
+      "sectionRequires": "Requires",
+      "sectionRecommended": "Recommended · optional",
+      "sectionRequiredBy": "Required by",
+      "fromModpack": "from modpack",
+      "detailsUnavailable": "details unavailable",
+      "manualMod": "manual mod",
+      "enabledStatus": "Enabled",
+      "disabledStatus": "Disabled",
+      "selectModAriaLabel": "Select mod {filename}",
+      "prevPage": "← Prev",
+      "nextPage": "Next →",
+      "toastEnabled": "{count, plural, one {Enabled # mod} other {Enabled # mods}}",
+      "toastDisabled": "{count, plural, one {Disabled # mod} other {Disabled # mods}}",
+      "toastEnabledFailed": "{count, plural, one {Enabled # mod} other {Enabled # mods}}, {failed} failed",
+      "toastDisabledFailed": "{count, plural, one {Disabled # mod} other {Disabled # mods}}, {failed} failed",
+      "toastUpdated": "{count, plural, one {Updated # mod} other {Updated # mods}}",
+      "toastUpdatedFailed": "{count, plural, one {Updated # mod} other {Updated # mods}}, {failed} failed",
+      "toastUninstalled": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}",
+      "toastUninstalledFailed": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}, {failed} failed",
+      "installDepFailed": "No compatible version of {name}"
+    },
+    "deps": {
+      "installedStatus": "✓ installed",
+      "missingStatus": "✕ missing",
+      "optionalStatus": "optional",
+      "cycleStatus": "↻ cycle",
+      "jumpToTitle": "Show {name} in the list",
+      "installAriaLabel": "Install {name}",
+      "addAriaLabel": "Add {name}",
+      "addBtn": "+ Add"
+    },
+    "orphan": {
+      "confirmUninstallAriaLabel": "Confirm uninstall",
+      "heading": "{count, plural, one {Uninstall # mod?} other {Uninstall # mods?}}",
+      "alsoRemoveLabel": "Installed as a dependency — also remove? (optional)",
+      "confirmBtn": "{count, plural, one {Uninstall # mod} other {Uninstall # mods}}"
+    },
+    "depDialog": {
+      "heading": "Install {name} {version}",
+      "requiredLabel": "Required (will be installed)",
+      "optionalLabel": "Optional",
+      "loaderMismatchHeading": "Loader mismatch.",
+      "loaderMismatchBody": "This version targets {modLoaders} but your instance uses {instanceLoader}. Installing will leave a jar in the mods folder that Minecraft cannot load. Pick another version or switch your instance's loader.",
+      "loaderRequirementsInfo": "This mod targets {loaders}. Make sure your instance uses a compatible loader.",
+      "incompatibleWarning": "⚠ Incompatible with: {names}",
+      "unresolvableWarning": "⚠ Could not find compatible versions of: {names} — install anyway?",
+      "subRequires": "requires: {name}",
+      "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
+    }
+  },
+  "modpacks": {
+    "modal": {
+      "title": "Modpacks",
+      "closeScrimAriaLabel": "Close",
+      "closeAriaLabel": "Close modpacks"
+    },
+    "tab": {
+      "browse": "Browse",
+      "imported": "Imported",
+      "dropzoneLabel": "Drop a .mrpack or .zip here to import — or click to browse"
+    },
+    "import": {
+      "picker": {
+        "dialogAriaLabel": "Modpack import picker",
+        "savesWarning": "⚠ This pack includes saved worlds in its overrides. They will be copied into the new instance.",
+        "requiredSection": "Required ({count})",
+        "requiredModAriaLabel": "Required: {name}",
+        "optionalSection": "Optional ({count})",
+        "installModAriaLabel": "Install {name}",
+        "cannotAutoInstall": "Cannot auto-install ({count})",
+        "openLink": "Open ↗",
+        "installBtn": "Install {count} selected"
+      },
+      "progress": {
+        "ariaLabel": "Modpack import progress",
+        "heading": "Importing modpack…",
+        "phaseInspecting": "Inspecting pack…",
+        "phaseCreatingInstance": "Creating instance {name}…",
+        "phaseInstallingFile": "Installing file {current}/{total}: {fileName}",
+        "phaseExtractingOverrides": "Extracting overrides {current}/{total}…",
+        "phaseEnriching": "Identifying bundled mods…",
+        "phaseDone": "Done."
+      }
+    },
+    "imported": {
+      "view": {
+        "emptyState": "No packs imported yet. Drop a .mrpack on the Browse tab or pick one from search.",
+        "filterPlaceholder": "Filter packs...",
+        "allMcVersions": "All MC versions",
+        "allLoaders": "All loaders",
+        "sortNewest": "Newest first",
+        "sortOldest": "Oldest first",
+        "sortName": "Name (A–Z)",
+        "noResults": "No packs match the filter."
+      },
+      "card": {
+        "modifiedTitle": "installed mods differ from the imported pack",
+        "modifiedTag": "modified",
+        "instanceLabel": "Instance: {name}",
+        "importedAt": "imported {when}"
+      },
+      "detail": {
+        "ariaLabel": "Imported pack details",
+        "closeAriaLabel": "Close imported pack details",
+        "closeBackdropAriaLabel": "Close",
+        "openOn": "Open on {platform} ↗",
+        "updating": "Updating…",
+        "updateAvailable": "Update available → {version}",
+        "updateBtn": "Update",
+        "modsHeading": "Mods",
+        "loading": "Loading…",
+        "modsEmpty": "No mods installed.",
+        "badgeFromPackTitle": "from pack",
+        "badgeFromPack": "📦 pack",
+        "badgeUserAddedTitle": "added via Mod browser",
+        "badgeUserAdded": "+ added",
+        "badgeManualTitle": "manually placed",
+        "badgeManual": "? manual",
+        "disabled": "disabled",
+        "resourcePacksHeading": "Resource packs ({count})",
+        "shaderPacksHeading": "Shader packs ({count})",
+        "configsHeading": "Configs ({count})",
+        "removedHeading": "Removed from pack ({count})",
+        "restoreDisabledTitle": "Bundled inside the .mrpack — cannot restore automatically. Re-import the pack to recover.",
+        "restoreBtn": "Restore",
+        "reimporting": "Re-importing…",
+        "reimportBtn": "Re-import pack files",
+        "missingHeading": "Pack mods needing attention ({count})",
+        "missingBody": "The pack author disabled automatic downloads for these. Download each from its source and drop the jar onto the Mods tab.",
+        "differentVersion": "— different version than the pack — may be incompatible",
+        "distributionDisabled": "Distribution disabled",
+        "hostNotAllowed": "Host not allowed",
+        "openLink": "Open ↗",
+        "deleteBtn": "Delete pack",
+        "openInstanceBtn": "Open instance",
+        "deleteConfirmAriaLabel": "Delete pack confirmation",
+        "deleteConfirmTitle": "Delete pack and its instance?",
+        "deleteConfirmBody": "Worlds, mods, configs, screenshots for this instance will be permanently lost. This cannot be undone.",
+        "deleteConfirmBtn": "Delete"
+      }
+    },
+    "export": {
+      "dialogAriaLabel": "Export modpack",
+      "title": "Export modpack",
+      "loading": "Loading…",
+      "formatLabel": "Format",
+      "formatModrinth": ".mrpack (Modrinth)",
+      "formatCurseForge": "CurseForge .zip",
+      "modeLabel": "Mode",
+      "modeLightweight": "Lightweight (download links)",
+      "modeFull": "Full (bundle everything)",
+      "contentLabel": "Content",
+      "modsCount": "Mods ({count})",
+      "configs": "Configs",
+      "configsWarning": "Some mods keep API keys or tokens in config/ — review before sharing.",
+      "resourcePacks": "Resource packs",
+      "shaderPacks": "Shader packs",
+      "worlds": "Worlds",
+      "worldsWarning": "Worlds may contain personal builds and large region files. Only include them if you intend to share your saves.",
+      "unresolvableLabel": "Mods without a download link",
+      "unresolvableBody": "These can't be referenced in this format. Bundle them inside the file or skip them.",
+      "detailsLabel": "Details",
+      "namePlaceholder": "Pack name",
+      "versionPlaceholder": "Version",
+      "authorPlaceholder": "Author (optional)",
+      "summaryPlaceholder": "Summary (optional)",
+      "exportBtn": "Export"
+    },
+    "browse": {
+      "searchAriaLabel": "Search modpacks",
+      "searchPlaceholderCurseForge": "Search modpacks on CurseForge...",
+      "searchPlaceholderModrinth": "Search modpacks on Modrinth...",
+      "sortRelevance": "Relevance",
+      "sortDownloads": "Downloads",
+      "sortNewest": "Newest",
+      "sortUpdated": "Updated",
+      "searching": "Searching…",
+      "noResults": "No modpacks found.",
+      "prev": "← Previous",
+      "next": "Next →",
+      "pageOf": "Page {page} of {total}"
+    },
+    "card": {
+      "downloads": "{count} downloads",
+      "downloadsShort": "{count} dl",
+      "distributionDisabled": "CurseForge download disabled",
+      "distributionDisabledShort": "CF disabled"
+    },
+    "detail": {
+      "dialogAriaLabel": "Modpack details",
+      "closeScrimAriaLabel": "Close",
+      "closeAriaLabel": "Close modpack details",
+      "viewOn": "View on {platform} ↗",
+      "blockedBody": "The author of this CurseForge modpack disabled third-party launcher downloads, so it cannot be installed automatically. Open it on CurseForge to download the .zip, then import it with the drag-and-drop box above.",
+      "openOnCurseForge": "Open on CurseForge ↗",
+      "tabOverview": "Overview",
+      "tabVersions": "Versions",
+      "contentDisclaimer": "Content from {source} — any ads or links in it are the author's, not Lucerna's.",
+      "loadingVersions": "Loading versions…",
+      "noVersionsForMc": "No versions for MC {mc}. Clear the MC filter in the search to see all.",
+      "noVersions": "No versions available.",
+      "install": "Install",
+      "installVersion": "Install {version}"
+    },
+    "update": {
+      "dialogAriaLabel": "Modpack update confirmation",
+      "title": "Update to {version}",
+      "changeSummary": "+{added} added · −{removed} removed · ⟳{updated} updated",
+      "versionBump": "Minecraft {oldVersion} → {newVersion}. After updating, click Install to download the new Minecraft version.",
+      "noChanges": "No file changes in this version.",
+      "cancelBtn": "Cancel",
+      "updateBtn": "Update"
+    }
+  },
+  "worlds": {
+    "tab": {
+      "noInstance": "Select an instance to view its worlds.",
+      "loading": "Loading worlds…",
+      "empty": "No worlds yet. Play Minecraft to create one.",
+      "worldActionsAriaLabel": "Actions for {name}",
+      "backupCountAriaLabel": "{count, plural, one {# backup} other {# backups}}",
+      "openSavesFolder": "Open saves folder ↗",
+      "closeMenuAriaLabel": "Close menu",
+      "backupNow": "Back up now",
+      "viewBackups": "View backups…",
+      "deleteWorld": "Delete world…",
+      "toastBackedUp": "Backed up {name} ({size})"
+    },
+    "backups": {
+      "title": "Backups for \"{world}\"",
+      "loading": "Loading backups…",
+      "empty": "No backups yet. Click \"Back up now\" on the world to create one.",
+      "backupActionsAriaLabel": "Actions for backup {filename}",
+      "total": "Total: {size}",
+      "openBackupsFolder": "Open backups folder ↗",
+      "closeMenuAriaLabel": "Close menu",
+      "restore": "Restore…",
+      "deleteBackup": "Delete backup",
+      "confirmDelete": "Delete backup {timestamp}?"
+    },
+    "restore": {
+      "title": "Restore \"{world}\" from {timestamp}",
+      "replaceLabel": "Replace current world",
+      "replaceDescription": "Current state will be auto-saved as a backup first (labeled \"pre-restore-…\") so you can roll back if needed.",
+      "asCopyLabel": "Restore as a copy",
+      "asCopyDescription": "Original world stays untouched. The backup is unzipped as \"{world} (restored)\".",
+      "restoreBtn": "Restore",
+      "toastRestored": "Restored {world} → {result}"
+    },
+    "delete": {
+      "title": "Delete \"{world}\"?",
+      "description": "This will permanently delete the world folder and all its contents. The backups for this world will also be removed. This cannot be undone.",
+      "typeToConfirm": "Type {word} to confirm:",
+      "deleteBtn": "Delete"
+    }
+  },
+  "logs": {
+    "toolbar": {
+      "title": "Logs",
+      "readCap": "Read cap:",
+      "reload": "Reload",
+      "openFolder": "Open folder ↗",
+      "wrapLines": "Wrap lines",
+      "collapseStacks": "Collapse stacks",
+      "showLevels": "Show:",
+      "rawView": "Raw view"
+    },
+    "severity": {
+      "game": "Game logs",
+      "crash": "Crash reports",
+      "launcher": "Launcher logs"
+    },
+    "search": {
+      "placeholder": "Find in file (case-insensitive)…",
+      "matchCounter": "{current} / {total}",
+      "noMatches": "No matches",
+      "prevAriaLabel": "Previous match",
+      "prevTitle": "Previous match (Shift+Enter)",
+      "nextAriaLabel": "Next match",
+      "nextTitle": "Next match (Enter)"
+    },
+    "share": {
+      "shareBtn": "Share",
+      "uploading": "Uploading…",
+      "dialogTitle": "Share log to mclo.gs?",
+      "dialogBody": "Removes paths and tokens before upload. Double-check sensitive contents before sharing.",
+      "uploadBtn": "Upload & share",
+      "sharedLabel": "Shared:",
+      "copyBtn": "Copy",
+      "dismissAriaLabel": "Dismiss share URL",
+      "uploadFailed": "Log upload failed"
+    },
+    "diagnosis": {
+      "whatToTry": "What to try:"
+    },
+    "empty": {
+      "noFile": "Select a file on the left to read it.",
+      "noLogs": "No log files yet. Launch Minecraft once.",
+      "listError": "Could not list logs: {error}",
+      "reading": "Reading log…",
+      "truncated": "Truncated — showing last {cap}. Raise cap to see more.",
+      "foldMore": "and {count} more"
+    },
+    "close": {
+      "scrimAriaLabel": "Close logs",
+      "popoverAriaLabel": "Close logs popover"
+    },
+    "openFolder": {
+      "errorToast": "Could not open logs folder"
+    }
+  },
+  "onboarding": {
+    "controls": {
+      "back": "← Back",
+      "next": "Next →",
+      "skip": "Skip tour",
+      "finish": "Finish ✓",
+      "gotIt": "Got it ✓",
+      "skipContextual": "Skip",
+      "stepOf": "Step {current} of {total}"
+    },
+    "tour": {
+      "welcome": {
+        "title": "Welcome to Lucerna",
+        "body": "Lucerna organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others."
+      },
+      "signIn": {
+        "title": "Sign in (optional)",
+        "body": "Click 'Sign in with Microsoft' to play online with your Microsoft account, or skip this step and use an offline account for LAN and single-player."
+      },
+      "pickInstance": {
+        "title": "Pick an instance",
+        "body": "An instance is a self-contained Minecraft install. Lucerna starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected."
+      },
+      "manageInstances": {
+        "title": "Manage your instances",
+        "body": "⚙ Manage is where you set an instance's Minecraft version and loader, tweak memory, and create, rename or delete instances. A new instance starts with no version — pick one here before you can play."
+      },
+      "installPlay": {
+        "title": "Install, then Play",
+        "body": "First click downloads Minecraft and your chosen loader (one-time per version). The button then switches to Play. While Minecraft is running it becomes Stop."
+      },
+      "browseMods": {
+        "title": "Browse mods",
+        "body": "Search Modrinth or CurseForge and install mods directly into the active instance's mods folder. SHA-verified, listed in the Installed sub-tab."
+      },
+      "importModpacks": {
+        "title": "Import modpacks",
+        "body": "Drop a .mrpack or CurseForge .zip here, or browse Modrinth modpacks. Each import becomes a new instance — your existing instances stay untouched."
+      }
+    },
+    "contextual": {
+      "manage": {
+        "yourInstances": {
+          "title": "Your instances",
+          "body": "Each row is one instance — click to edit it, or hit \"+ New instance\" below to add one."
+        },
+        "editAndSave": {
+          "title": "Edit and save",
+          "body": "Name, MC version, loader, memory, and JVM args live here. Done saves and closes."
+        },
+        "openFolderDelete": {
+          "title": "Open folder, delete",
+          "body": "Open folder jumps to the instance's directory on disk. Delete wipes the instance and all its files — confirmation required."
+        }
+      },
+      "logs": {
+        "threeLogSources": {
+          "title": "Three log sources",
+          "body": "Game logs are Minecraft's output. Crash reports only appear when the game crashes. Launcher logs are Lucerna's own."
+        },
+        "displayOptions": {
+          "title": "Display options",
+          "body": "Wrap lines breaks long classpath / stack traces. Collapse stack hides repetitive Java frames behind a clickable row. The Show checkboxes hide entire severity levels — handy when chasing a single WARN through thousands of INFO lines."
+        },
+        "searchNavigation": {
+          "title": "Search with navigation",
+          "body": "Type to search the open file. Counter shows N of M matches; Enter / Shift+Enter step through them, Esc clears. Active match is highlighted in blue."
+        },
+        "shareMcloGs": {
+          "title": "Share to mclo.gs",
+          "body": "Uploads the visible log to mclo.gs — the Minecraft community's de-facto paste service — and gives you a sharable link. Strips user paths, session tokens, and LAN IPs before upload so you can drop the link in Discord without leaking personal info."
+        },
+        "crashStructuredView": {
+          "title": "Crash reports get a structured view",
+          "body": "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text."
+        }
+      },
+      "modpacks": {
+        "browseVsImported": {
+          "title": "Browse vs Imported",
+          "body": "Browse searches Modrinth + CurseForge. Imported lists packs you've already installed — each is its own instance."
+        },
+        "dragAndDrop": {
+          "title": "Drag and drop",
+          "body": "Drop a .mrpack or CurseForge .zip anywhere on this view to import. Each import becomes a new instance — your existing ones stay untouched."
+        },
+        "searchSortFilter": {
+          "title": "Search, sort, and filter",
+          "body": "Search and sort are always here. Click \"Filters\" to pick a Minecraft version, mod loader, or source — your choices show as removable chips, and \"Clear all\" resets them."
+        }
+      },
+      "worlds": {
+        "worldsWithBackups": {
+          "title": "Your worlds, with backups",
+          "body": "Each row is one singleplayer save. The 📦 N badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world."
+        },
+        "openSavesFolder": {
+          "title": "Open saves folder",
+          "body": "Jumps to the saves/ folder in your file manager for manual operations — moving a world to another instance, copying out for a server upload, etc."
+        }
+      }
+    },
+    "instanceConcept": {
+      "triggerAriaLabel": "What is an instance?",
+      "triggerTitle": "What is an instance?",
+      "closeAriaLabel": "Close tooltip",
+      "body": "Each instance is a self-contained world — its own Minecraft version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others."
+    }
+  },
+  "errors": {
+    "network": "Network error fetching {url}: {details}",
+    "hostNotAllowed": "Network request to {url} is not on the allowed-host list",
+    "hashMismatch": "Hash mismatch for {path}",
+    "javaSpawn": "Java spawn failed: {details}",
+    "alreadyRunning": "Minecraft is already running",
+    "accountNotSet": "Account not set — enter your name first",
+    "authCancelled": "Microsoft sign-in cancelled.",
+    "authFailed": "Microsoft sign-in failed at {stage}: {details}",
+    "noMinecraftProfile": "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.",
+    "authPendingApproval": "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
+    "unknownVersion": "Version {id} not found in manifest",
+    "unsupportedPlatform": "Unsupported platform: {os}/{arch}",
+    "loaderUnavailable": "{loader} does not support Minecraft {mcVersion}",
+    "lastInstance": "Cannot delete the last instance — at least one must remain",
+    "noVersionSelected": "Pick a Minecraft version first",
+    "instanceNotFound": "Instance {id} not found",
+    "io": "IO error at {path}: {details}",
+    "ioTruncatedHint": "open Logs for full text",
+    "forgePromotionsUnavailable": "Forge promotions feed for {flavor} is unavailable — versions will not be marked recommended",
+    "forgeMavenMetadataParseFailed": "Failed to parse Forge maven-metadata.xml: {details}",
+    "forgeNoBuildFor": "No Forge build exists for Minecraft {mc} — pick a different Minecraft version or loader.",
+    "forgeInstallerCorrupted": "Forge installer for {mc}-{fv} is corrupted: {details}",
+    "forgeUnsupportedProcessor": "This Forge version uses an unsupported processor: {coord}",
+    "forgePatcherFailed": "Forge patcher \"{processor}\" failed: {details}",
+    "forgeMappingsMissing": "Forge mappings for {mc} are not available",
+    "instanceNameEmpty": "Instance name cannot be empty",
+    "instanceNameTooLong": "Instance name is too long: {actual}/{max} characters",
+    "mcLogsUpload": "Couldn't upload log to mclo.gs: {details}",
+    "modsNetwork": "Network error talking to {url}: {details}",
+    "modsPlatformAuthInvalid": "CurseForge API key is invalid — please enter a new one in Settings",
+    "modsPlatformAuthMissing": "CurseForge requires an API key — set it in Settings",
+    "modsDistributionDisabled": "This mod's author has disabled third-party launcher downloads on {source}.",
+    "modsNotFound": "This mod is no longer available on {source}.",
+    "modsDecode": "Unexpected response from {source}: {details}",
+    "modsSha1Unavailable": "This mod's hash is missing; refusing to install.",
+    "modsSha1Mismatch": "Verification failed: expected {expected}, got {got}",
+    "modsDependencyUnresolvable": "Required dependency {projectRef} is not available for this MC + loader",
+    "modsFilenameConflict": "A different file named \"{filename}\" already exists in this instance — uninstall it first",
+    "modsCacheIo": "Couldn't write to mod cache: {details}",
+    "modsInstancePath": "Couldn't write to instance at {path}: {details}",
+    "modpackInvalidArchive": "Modpack archive is invalid: {details}",
+    "modpackFormatUnknown": "This file is not a recognised modpack (.mrpack or CurseForge .zip).",
+    "modpackManifestInvalid": "{format} modpack manifest is invalid: {details}",
+    "modpackUnsupportedManifestVersion": "{format} modpack uses unsupported manifest version {version}.",
+    "modpackUnsupportedLoader": "{format} modpack declares unsupported loader: {loaderId}",
+    "modpackDownloadHostNotAllowed": "Modpack file {filePath} references {host} which is not on the network allowlist.",
+    "modpackSha1Unavailable": "Modpack file {modName} has no SHA-1 in the manifest — cannot verify integrity.",
+    "modpackModDistributionDisabled": "{modName} cannot be auto-installed by third-party launchers. Download manually from {projectUrl}.",
+    "modpackOverridesPathEscape": "Modpack overrides entry tried to escape the instance directory: {entry}",
+    "modpackOverridesTooLarge": "Modpack overrides entry {entry} exceeds the safety cap ({size} bytes; cap is {cap}).",
+    "modpackNoFilesSelected": "Select at least one mod before importing.",
+    "modpackInstanceCreationFailed": "Could not create instance for modpack: {details}",
+    "modpackPartialFailure": "Modpack imported with {count} mod(s) skipped — see the warning notification for details.",
+    "modpackBundledNoUrl": "'{modName}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.",
+    "modpackCfDistributionDisabled": "\"{packName}\" cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge to download the pack manually.",
+    "modpackExportFailed": "Couldn't export the modpack: {details}",
+    "worldNotFound": "World \"{folderName}\" not found in this instance",
+    "worldInUse": "World \"{folderName}\" is currently in use — quit Minecraft and try again",
+    "worldPathInvalid": "Invalid name \"{name}\": {reason}",
+    "worldNameUnresolvable": "Couldn't find a free name for \"{folderName}\" — too many similarly-named copies exist",
+    "backupNotFound": "Backup \"{filename}\" not found",
+    "backupCorrupt": "Backup \"{filename}\" is unreadable or corrupted: {details}",
+    "playtimeIo": "Couldn't read or write playtime stats: {details}",
+    "trayIo": "Couldn't show or hide the tray icon: {details}",
+    "updateCheckFailed": "Couldn't check for updates: {details}",
+    "updateVerificationFailed": "Update verification failed — the download may be corrupt or tampered with. {details}",
+    "updateInstallFailed": "Couldn't install the update: {details}"
   },
   "settings": {
+    "title": "Settings",
+    "closeLabel": "Close settings",
+    "closeBackdropLabel": "Close Settings",
+    "tabs": {
+      "general": "General",
+      "storage": "Storage",
+      "curseforge": "CurseForge",
+      "about": "About"
+    },
     "general": {
       "appearance": {
         "title": "Appearance",
         "language": "Language",
-        "languageSystem": "System"
+        "languageSystem": "System",
+        "themeSystem": "System",
+        "themeLight": "Light",
+        "themeDark": "Dark"
+      },
+      "playing": {
+        "title": "Playing",
+        "trayLabel": "Hide launcher to tray when Minecraft starts",
+        "trayDescription": "A small icon appears in the system tray. The launcher returns when Minecraft closes; click the tray icon to bring it back sooner."
+      },
+      "updates": {
+        "title": "Updates",
+        "startupLabel": "Check for updates on startup",
+        "startupDescription": "Shows a notification when a newer version is available. Installing is always an explicit click — Lucerna never updates itself silently.",
+        "checkBtn": "Check for updates",
+        "checking": "Checking…",
+        "uptodate": "You're on the latest version ({version}).",
+        "error": "Couldn't check: {message}",
+        "available": "Version {version} is available.",
+        "updateNow": "Update now",
+        "installing": "Installing…"
+      },
+      "onboarding": {
+        "title": "Onboarding",
+        "replayBtn": "Replay onboarding tour",
+        "replayDescription": "Show the 6-step tutorial again."
       }
+    },
+    "storage": {
+      "cacheLabel": "Mod download cache:",
+      "cacheDescription": "Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs will re-download.",
+      "clearBtn": "Clear cache",
+      "cleared": "Cache cleared ({freed} freed)"
+    },
+    "about": {
+      "title": "About",
+      "disclaimer": "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
+      "viewOnGitHub": "View on GitHub",
+      "openRepoLabel": "Open Lucerna repository on GitHub ({url})",
+      "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
+      "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
+      "keyring": "Microsoft refresh tokens are stored in the OS keyring (Windows Credential Manager) and removed when you sign out."
+    },
+    "curseforge": {
+      "statusLabel": "Status:",
+      "statusOk": "OK — key is set",
+      "statusInvalid": "Invalid — please enter a new key",
+      "statusMissing": "Not configured",
+      "statusChecking": "Checking…",
+      "step1Before": "Open",
+      "step1After": "and sign in with a free account",
+      "step2Before": "Once logged in, open the",
+      "step2After": "tab",
+      "step3": "Generate a key for Lucerna",
+      "step4": "Paste it below",
+      "replaceHintBefore": "To replace the stored key, paste a new one below and click",
+      "replaceHintAfter": "Get one at",
+      "replaceAction": "Update key",
+      "inputLabelNew": "Key",
+      "inputLabelReplace": "New key (overwrites stored)",
+      "saveKey": "Save key",
+      "updateKey": "Update key",
+      "clearKey": "Clear key",
+      "keyringNote": "Stored in OS keyring (Windows Credential Manager)."
+    }
+  },
+  "page": {
+    "update": {
+      "available": "Lucerna {version} is available",
+      "actionLabel": "Update",
+      "currentVersion": "You're on {version}."
+    },
+    "crash": {
+      "banner": "Minecraft crashed.",
+      "viewReport": "View crash report",
+      "dismissAriaLabel": "Dismiss crash report banner"
+    },
+    "modpackImport": {
+      "alreadyInProgress": "A modpack import is already in progress",
+      "alreadyInProgressDetail": "Wait for it to finish before starting another.",
+      "imported": "Imported {name}",
+      "partialFailure": "Modpack imported — {count} mod(s) failed",
+      "failed": "Modpack import failed"
+    },
+    "accounts": {
+      "signedInMicrosoft": "Signed in with Microsoft",
+      "pendingApproval": "Microsoft sign-in pending approval",
+      "signInFailed": "Microsoft sign-in failed"
+    },
+    "overview": {
+      "sectionConfiguration": "Configuration",
+      "labelMinecraft": "Minecraft",
+      "notSet": "(not set)",
+      "labelLoader": "Loader",
+      "labelMemory": "Memory",
+      "editVia": "Edit via",
+      "manageBtn": "Manage",
+      "editViaSuffix": ".",
+      "sectionInstalledMods": "Installed mods",
+      "noModsHint": "No mods installed yet. Open",
+      "noModsHintSuffix": "to add some.",
+      "statsTotal": "Total:",
+      "statsEnabled": "Enabled:",
+      "statsDisabled": "Disabled:",
+      "manageInTab": "Manage in",
+      "installedTab": "Installed",
+      "manageInTabSuffix": "tab.",
+      "exportModpack": "Export modpack…",
+      "sectionPlaytime": "Playtime",
+      "notYetPlayed": "Not yet played",
+      "playtimeTotal": "Total:",
+      "playtimeSession": "{count, plural, one {# session} other {# sessions}}",
+      "playtimeLastSession": "Last session: {duration}, {when}",
+      "missingModsBtn": "{count, plural, one {# pack mod needs} other {# pack mods need}} attention",
+      "missingModsView": "View",
+      "statusRunning": "Running {versionId} (PID {pid})",
+      "statusPickVersion": "Pick a Minecraft version in",
+      "statusPickVersionSuffix": "before installing.",
+      "statusWorking": "Working…",
+      "statusInstallHint": "Click",
+      "statusInstallLabel": "Install",
+      "statusInstallHintSuffix": "in the sidebar to download Minecraft + selected loader.",
+      "statusReady": "Ready to play — click",
+      "statusReadyPlayLabel": "Play",
+      "statusReadySuffix": "in the sidebar.",
+      "statusExited": "Exited (code {code})",
+      "dismissError": "Dismiss error",
+      "noInstanceSelected": "No instance selected. Create one via the sidebar."
+    },
+    "offlineName": {
+      "cannotBeEmpty": "Name cannot be empty"
     }
   }
 }

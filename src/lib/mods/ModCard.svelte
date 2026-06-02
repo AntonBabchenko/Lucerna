@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   // One result card in ModBrowseView. Shows mod metadata plus
   // install-state-aware controls:
@@ -78,23 +79,25 @@
     {#if packChip}
       <span
         class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
-        title="From modpack: {packChip}"
+        title={$t('mods.card.fromModpackTitle', { name: packChip })}
       >
         📦 {packChip}
       </span>
     {:else if checking}
-      <span class="text-xs px-2 py-0.5 text-placeholder">Checking…</span>
+      <span class="text-xs px-2 py-0.5 text-placeholder">{$t('mods.card.checking')}</span>
     {:else if updateState && updateState.kind === 'update_available'}
       <span
         class="text-xs px-2 py-0.5 rounded bg-warning-bg text-warning-text"
-        title="Update available"
+        title={$t('mods.card.updateAvailableTitle')}
       >
         v{installed.version_number ?? '?'} → v{updateState.target.version_number}
       </span>
-      <button type="button" class="btn-warning btn-xs" onclick={onUpdate}> Update </button>
+      <button type="button" class="btn-warning btn-xs" onclick={onUpdate}
+        >{$t('mods.card.update')}</button
+      >
     {:else if updateState && updateState.kind === 'check_failed'}
       <span class="text-xs px-2 py-0.5 text-placeholder" title={updateState.reason}>
-        couldn't check
+        {$t('mods.card.checkFailed')}
       </span>
     {/if}
     <span
@@ -105,21 +108,24 @@
         ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`
         : installed.version_number
           ? `Version ${installed.version_number} on disk`
-          : 'Installed'}
+          : $t('mods.card.installed')}
     >
-      {installed.enabled ? 'Installed' : 'Disabled'}{crossPlatform && otherPlatformLabel
+      {installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled')}{crossPlatform &&
+      otherPlatformLabel
         ? ` (${otherPlatformLabel})`
         : installed.version_number
           ? ` · v${installed.version_number}`
           : ''}
     </span>
     <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
-      {installed.enabled ? 'Disable' : 'Enable'}
+      {installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
     </button>
-    <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}> Uninstall </button>
+    <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}
+      >{$t('mods.card.uninstall')}</button
+    >
   {:else}
     <button type="button" class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
-      Install
+      {$t('mods.card.install')}
     </button>
   {/if}
 {/snippet}
@@ -144,7 +150,10 @@
       <span class="min-w-0">
         <span class="block font-medium text-primary truncate">{summary.name}</span>
         <span class="block text-xs text-muted truncate">
-          by {summary.author} · {(summary.downloads ?? 0).toLocaleString()} dl
+          {$t('mods.card.byAuthorDownloads', {
+            author: summary.author,
+            downloads: (summary.downloads ?? 0).toLocaleString(),
+          })}
         </span>
       </span>
     </button>
@@ -165,7 +174,7 @@
         type="checkbox"
         class="flex-shrink-0"
         checked={selected}
-        aria-label={`Select mod ${summary.name}`}
+        aria-label={$t('mods.card.selectAriaLabel', { name: summary.name })}
         onclick={(e) => e.stopPropagation()}
         onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
       />
@@ -182,9 +191,11 @@
 
     <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
       <span class="font-medium text-primary truncate">{summary.name}</span>
-      <span class="text-xs text-muted ml-2">by {summary.author}</span>
-      <span class="text-xs text-placeholder ml-2"
-        >{(summary.downloads ?? 0).toLocaleString()} dl</span
+      <span class="text-xs text-muted ml-2"
+        >{$t('mods.card.byAuthorDownloads', {
+          author: summary.author,
+          downloads: (summary.downloads ?? 0).toLocaleString(),
+        })}</span
       >
     </button>
 

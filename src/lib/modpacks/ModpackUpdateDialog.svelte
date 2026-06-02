@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ModpackUpdateDiff } from '$lib/ipc/bindings';
+  import { t } from '$lib/i18n';
 
   let {
     diff,
@@ -16,21 +17,29 @@
   class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]"
   role="dialog"
   aria-modal="true"
-  aria-label="Modpack update confirmation"
+  aria-label={$t('modpacks.update.dialogAriaLabel')}
 >
   <div class="bg-surface rounded-lg shadow-xl w-[480px] max-h-[80vh] p-5 flex flex-col gap-3">
-    <h3 class="font-semibold text-base text-primary">Update to {diff.new_version_number}</h3>
+    <h3 class="font-semibold text-base text-primary">
+      {$t('modpacks.update.title', { version: diff.new_version_number })}
+    </h3>
 
     <div class="text-sm text-secondary">
-      +{diff.added.length} added · −{diff.removed.length} removed · ⟳{diff.updated.length} updated
+      {$t('modpacks.update.changeSummary', {
+        added: diff.added.length,
+        removed: diff.removed.length,
+        updated: diff.updated.length,
+      })}
     </div>
 
     {#if diff.version_bump}
       <div
         class="text-sm bg-warning-bg border border-warning-text/30 rounded p-2 text-warning-text"
       >
-        Minecraft {diff.version_bump.old_game_version} → {diff.version_bump.new_game_version}. After
-        updating, click <span class="font-semibold">Install</span> to download the new Minecraft version.
+        {$t('modpacks.update.versionBump', {
+          oldVersion: diff.version_bump.old_game_version,
+          newVersion: diff.version_bump.new_game_version,
+        })}
       </div>
     {/if}
 
@@ -48,19 +57,21 @@
         <div class="px-2 py-1 text-danger line-through">− {f.name}</div>
       {/each}
       {#if diff.added.length + diff.updated.length + diff.removed.length === 0}
-        <div class="px-2 py-3 text-muted text-center">No file changes in this version.</div>
+        <div class="px-2 py-3 text-muted text-center">{$t('modpacks.update.noChanges')}</div>
       {/if}
     </div>
 
     <div class="flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>Cancel</button>
+      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+        >{$t('modpacks.update.cancelBtn')}</button
+      >
       <button
         type="button"
         class="btn-primary btn-sm"
         onclick={onConfirm}
         data-testid="update-confirm"
       >
-        Update
+        {$t('modpacks.update.updateBtn')}
       </button>
     </div>
   </div>

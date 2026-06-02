@@ -2,6 +2,7 @@
   import { commands } from '$lib/ipc/bindings';
   import type { InstanceWithStatus, LoaderKind, ModpackStatus } from '$lib/ipc/bindings';
   import { modpacksNav } from '$lib/settings/state.svelte';
+  import { t } from '$lib/i18n';
   import ImportedCard from './ImportedCard.svelte';
   import ImportedDetailDrawer from './ImportedDetailDrawer.svelte';
 
@@ -128,7 +129,7 @@
 {#if allPacks.length === 0}
   <div class="p-4">
     <div class="text-sm text-placeholder text-center mt-12">
-      No packs imported yet. Drop a .mrpack on the Browse tab or pick one from search.
+      {$t('modpacks.imported.view.emptyState')}
     </div>
   </div>
 {:else}
@@ -136,7 +137,7 @@
     <input
       type="search"
       bind:value={query}
-      placeholder="Filter packs..."
+      placeholder={$t('modpacks.imported.view.filterPlaceholder')}
       class="flex-1 min-w-[150px] px-3 py-1.5 border rounded text-sm"
       data-testid="imported-search-input"
     />
@@ -145,7 +146,7 @@
       class="px-2 py-1.5 border rounded text-sm bg-surface"
       data-testid="imported-mc-filter"
     >
-      <option value="">All MC versions</option>
+      <option value="">{$t('modpacks.imported.view.allMcVersions')}</option>
       {#each mcOptions as v (v)}
         <option value={v}>{v}</option>
       {/each}
@@ -155,7 +156,7 @@
       class="px-2 py-1.5 border rounded text-sm bg-surface"
       data-testid="imported-loader-filter"
     >
-      <option value="">All loaders</option>
+      <option value="">{$t('modpacks.imported.view.allLoaders')}</option>
       <option value="fabric">Fabric</option>
       <option value="quilt">Quilt</option>
       <option value="forge">Forge</option>
@@ -166,16 +167,16 @@
       class="px-2 py-1.5 border rounded text-sm bg-surface"
       data-testid="imported-sort"
     >
-      <option value="newest">Newest first</option>
-      <option value="oldest">Oldest first</option>
-      <option value="name">Name (A–Z)</option>
+      <option value="newest">{$t('modpacks.imported.view.sortNewest')}</option>
+      <option value="oldest">{$t('modpacks.imported.view.sortOldest')}</option>
+      <option value="name">{$t('modpacks.imported.view.sortName')}</option>
     </select>
   </div>
 
   <div class="p-4 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
     {#if packs.length === 0}
       <div class="col-span-full text-sm text-placeholder text-center mt-8">
-        No packs match the filter.
+        {$t('modpacks.imported.view.noResults')}
       </div>
     {:else}
       {#each packs as inst (inst.id)}

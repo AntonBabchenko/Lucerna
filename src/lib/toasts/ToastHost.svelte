@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
   import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
 
@@ -8,6 +9,7 @@
   // (z-100/101), drag-drop dropzone highlights. Toasts are the only
   // chrome that announces transient state; they must never be obscured.
   const toasts = $derived(toastList());
+  const dismissLabel = $derived($t('common.dismissNotification'));
 </script>
 
 <div class="fixed top-4 right-4 z-[200] flex flex-col gap-2" data-testid="toast-host">
@@ -30,7 +32,7 @@
             t.onDismiss?.();
             dismiss(t.id);
           }}
-          ariaLabel="Dismiss notification"
+          ariaLabel={dismissLabel}
         />
       </div>
       {#if t.lines.length > 0}

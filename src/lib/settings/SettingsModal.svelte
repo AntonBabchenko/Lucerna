@@ -16,6 +16,7 @@
   import StoragePanel from './StoragePanel.svelte';
   import { settingsOpen, type SettingsTab } from './state.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { t } from '$lib/i18n';
 
   let active = $state<SettingsTab>('general');
 
@@ -44,17 +45,21 @@
 {#if settingsOpen.value}
   <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
     <!-- Backdrop button. Clicking outside the dialog dismisses it. -->
-    <button type="button" class="absolute inset-0" aria-label="Close Settings" onclick={close}
+    <button
+      type="button"
+      class="absolute inset-0"
+      aria-label={$t('settings.closeBackdropLabel')}
+      onclick={close}
     ></button>
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Settings"
+      aria-label={$t('settings.title')}
       class="relative bg-surface rounded shadow-xl w-[640px] max-w-[95vw] h-[min(80vh,600px)] flex flex-col"
     >
       <header class="flex items-center justify-between px-4 py-3 border-b shrink-0">
-        <h2 class="text-base font-semibold text-primary">Settings</h2>
-        <CloseButton onClick={close} ariaLabel="Close settings" />
+        <h2 class="text-base font-semibold text-primary">{$t('settings.title')}</h2>
+        <CloseButton onClick={close} ariaLabel={$t('settings.closeLabel')} />
       </header>
       <div role="tablist" class="px-4 pt-2 border-b flex gap-1 shrink-0">
         <button
@@ -69,7 +74,7 @@
           class:text-placeholder={active !== 'general'}
           onclick={() => (active = 'general')}
         >
-          General
+          {$t('settings.tabs.general')}
         </button>
         <button
           type="button"
@@ -83,7 +88,7 @@
           class:text-placeholder={active !== 'storage'}
           onclick={() => (active = 'storage')}
         >
-          Storage
+          {$t('settings.tabs.storage')}
         </button>
         <button
           type="button"
@@ -97,7 +102,7 @@
           class:text-placeholder={active !== 'curseforge'}
           onclick={() => (active = 'curseforge')}
         >
-          CurseForge
+          {$t('settings.tabs.curseforge')}
         </button>
         <button
           type="button"
@@ -111,7 +116,7 @@
           class:text-placeholder={active !== 'about'}
           onclick={() => (active = 'about')}
         >
-          About
+          {$t('settings.tabs.about')}
         </button>
       </div>
       <div class="p-4 overflow-y-auto flex-1">

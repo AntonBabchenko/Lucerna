@@ -13,6 +13,8 @@
   import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
+  import { t } from '$lib/i18n';
+  import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
@@ -446,12 +448,11 @@
 
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
     if (!instanceId || !mcVersion || !loader) {
-      error = 'No active instance';
+      error = get(t)('mods.browse.errorNoInstance');
       return;
     }
     if (loader === 'vanilla') {
-      error =
-        'This instance is vanilla Minecraft (no mod loader). Switch to a Fabric / Quilt / Forge / NeoForge instance to install mods.';
+      error = get(t)('mods.browse.errorVanillaLoader');
       return;
     }
     let primary: ModVersion;
@@ -465,7 +466,7 @@
         return;
       }
       if (versions.data.length === 0) {
-        error = 'No compatible version found';
+        error = get(t)('mods.browse.errorNoCompatibleVersion');
         return;
       }
       primary = versions.data[0]!;
@@ -561,11 +562,11 @@
         [],
       );
       if (installed.status === 'error') {
-        pushWarning('Mod install failed', [formatError(installed.error)]);
+        pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
       } else {
         // Fast path has no dependencies; use the resolved project name (not
         // the backend's release-title `primary_name`) for the toast title.
-        pushSuccess(`Installed ${primaryProjectName}`, []);
+        pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: primaryProjectName }), []);
         await refreshInstalled();
       }
     } else {
@@ -587,11 +588,9 @@
   <div
     class="p-6 bg-warning-bg border border-warning-text/30 rounded mx-3 my-4 text-sm text-warning-text"
   >
-    <div class="font-medium mb-1">This instance is vanilla Minecraft</div>
+    <div class="font-medium mb-1">{$t('mods.browse.vanillaHeading')}</div>
     <p class="text-warning-text">
-      Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded
-      at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance
-      via the Manage panel in the sidebar.
+      {$t('mods.browse.vanillaBody')}
     </p>
   </div>
 {:else if needsCfKey}
@@ -599,13 +598,13 @@
 {:else}
   <div class="sticky top-0 z-10 bg-base border-b border-border-subtle">
     <BrowseFilterBar
-      searchAriaLabel="Search mods"
-      searchPlaceholder="Search mods..."
+      searchAriaLabel={$t('mods.browse.searchAriaLabel')}
+      searchPlaceholder={$t('mods.browse.searchPlaceholder')}
       {sort}
       sortOptions={[
-        { value: 'downloads', label: 'Downloads' },
-        { value: 'relevance', label: 'Relevance' },
-        { value: 'updated', label: 'Updated' },
+        { value: 'downloads', label: $t('mods.browse.sortDownloads') },
+        { value: 'relevance', label: $t('mods.browse.sortRelevance') },
+        { value: 'updated', label: $t('mods.browse.sortUpdated') },
       ]}
       activeCount={activeCount(filterFacets)}
       expanded={drawerOpen}
@@ -635,7 +634,7 @@
     {/if}
     {#if loading}
       <div class="flex justify-center py-8 text-secondary">
-        <Spinner size="lg" label="Searching…" />
+        <Spinner size="lg" label={$t('mods.browse.searching')} />
       </div>
     {:else if pageHits.length > 0}
       {#if browserPrefs.layout === 'grid'}
@@ -676,20 +675,25 @@
           disabled={displayPage <= 1}
           onclick={prev}
         >
-          ‹ Prev
+          {$t('mods.browse.prev')}
         </button>
         <span>
-          Page {displayPage}{showInstalled ? ` of ${Math.max(1, Math.ceil(total / pageSize))}` : ''}
+          {showInstalled
+            ? $t('mods.browse.pageOf', {
+                page: displayPage,
+                total: Math.max(1, Math.ceil(total / pageSize)),
+              })
+            : $t('mods.browse.page', { page: displayPage })}
         </span>
         <button type="button" class="btn-secondary btn-sm" disabled={!hasNext} onclick={next}>
-          Next ›
+          {$t('mods.browse.next')}
         </button>
         <span class="flex-1 flex justify-end">
           <PageSizePicker />
         </span>
       </div>
     {:else}
-      <div class="text-placeholder text-sm py-8 text-center">No results.</div>
+      <div class="text-placeholder text-sm py-8 text-center">{$t('mods.browse.noResults')}</div>
     {/if}
   </div>
 
@@ -758,7 +762,7 @@
           })),
         );
         if (installed.status === 'error') {
-          pushWarning('Mod install failed', [formatError(installed.error)]);
+          pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
         } else {
           // Build the per-mod toast from the dialog's already-resolved project
           // names (the backend's InstallSummary carries release titles, not mod
@@ -790,7 +794,10 @@
               pushDep(r.projectName, r.version.source, r.version.project_id);
             }
           }
-          pushSuccess(`Installed ${prompt.primaryProjectName}`, depLines);
+          pushSuccess(
+            get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
+            depLines,
+          );
           await refreshInstalled();
         }
       }}

@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { locale } from '$lib/i18n';
 import { compatSummary, loaderOutcomeToast } from '$lib/instances/integrity-messages';
 import type { LoaderOutcome, ModCompat } from '$lib/ipc/bindings';
+
+// The functions under test call get(t) at invocation time. Pin to 'en'
+// so assertions on English text hold regardless of the runner's OS locale.
+beforeEach(() => {
+  locale.set('en');
+});
 
 // ---------------------------------------------------------------------------
 // loaderOutcomeToast
