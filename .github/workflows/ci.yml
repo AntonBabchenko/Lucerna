@@ -86,7 +86,8 @@ jobs:
             libsoup-3.0-dev \
             build-essential \
             libxdo-dev \
-            file
+            file \
+            rpm
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable @ 2026-05-23
         with:
