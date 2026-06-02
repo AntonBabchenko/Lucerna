@@ -109,6 +109,11 @@ fn select_install_assets(rel: &GhRelease) -> Result<(ReleaseAsset, ReleaseAsset,
         .ok_or_else(|| Error::UpdateCheckFailed {
             details: "release has no *-setup.exe asset".into(),
         })?;
+    // The installer name steers the download path (and the bundle name is
+    // derived from it); SHA256SUMS is a constant. Reject anything that is
+    // not a bare filename before it reaches `dir.join` — a crafted name
+    // (path separator, `..`, drive letter) could otherwise escape the
+    // updates dir. Defense-in-depth: a bad name can't pass cosign anyway.
     if !is_bare_filename(&installer.name) {
         return Err(Error::UpdateCheckFailed {
             details: format!("unsafe installer asset name: {}", installer.name),
