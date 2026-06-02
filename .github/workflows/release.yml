@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       TAG: ${{ github.ref_name }}
@@ -61,6 +61,10 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Add macOS universal targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab  # v2.7.5
         with:
@@ -73,6 +77,16 @@ jobs:
         shell: bash
         env:
           LUCERNA_MS_CLIENT_ID_SECRET: ${{ secrets.LUCERNA_MS_CLIENT_ID }}
+          # Ad-hoc code signing on macOS. With this set, Tauri runs
+          # `codesign -s -` on the .app DURING bundling, so the .dmg it
+          # produces already contains a signed app. That is required for an
+          # otherwise-unsigned arm64 binary to launch at all (Gatekeeper kills
+          # a fully-unsigned arm64 app as "damaged"). Signing the .app AFTER
+          # the build would not help — the .dmg would still hold the unsigned
+          # copy. This is NOT notarization (no APPLE_ID/APPLE_PASSWORD set), so
+          # a downloaded .dmg is still quarantined; see the release notes /
+          # docs for the `xattr` workaround. Ignored on Windows/Linux.
+          APPLE_SIGNING_IDENTITY: "-"
         run: |
           if [ -n "$LUCERNA_MS_CLIENT_ID_SECRET" ]; then
             export LUCERNA_MS_CLIENT_ID="$LUCERNA_MS_CLIENT_ID_SECRET"
@@ -80,7 +94,13 @@ jobs:
           else
             echo "MS client_id: secret unset/empty; using built-in public default"
           fi
-          pnpm tauri build
+          # Universal2 (arm64 + x86_64, lipo'd by Tauri) on macOS; host-default
+          # bundles elsewhere.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            pnpm tauri build --target universal-apple-darwin
+          else
+            pnpm tauri build
+          fi
 
       - name: Stage installers (Windows)
         if: runner.os == 'Windows'
@@ -99,6 +119,15 @@ jobs:
           cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
           cp src-tauri/target/release/bundle/deb/*.deb dist/
           cp src-tauri/target/release/bundle/rpm/*.rpm dist/
+
+      - name: Stage installers (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          # Universal target → bundles live under the target triple dir.
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg dist/
 
       - name: Upload installers artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -196,8 +225,8 @@ jobs:
           Lucerna ${APP_VERSION}.
 
           See CHANGELOG.md for the full feature list. This release ships
-          Windows (NSIS `-setup.exe`) and Linux (`.AppImage`, `.deb`,
-          `.rpm`) artifacts.
+          Windows (NSIS `-setup.exe`), Linux (`.AppImage`, `.deb`, `.rpm`),
+          and macOS (Universal2 `.dmg`, unsigned) artifacts.
 
           ## Verifying this release
 
@@ -217,10 +246,14 @@ jobs:
 
           ## Note on unsigned binaries
 
-          Artifacts are **not** OS-level code-signed (no Authenticode / no
-          Apple notarization — macOS is not yet shipped). Windows SmartScreen
-          may warn on first run; verify with cosign and SHA256SUMS above. See
-          docs/SECURITY.md.
+          Artifacts are **not** OS-level notarized/code-signed (no
+          Authenticode, no Apple Developer ID + notarization). Windows
+          SmartScreen may warn on first run; click "More info" → "Run
+          anyway". The macOS `.dmg` is Universal2 and only **ad-hoc**-signed,
+          so Gatekeeper quarantines a freshly downloaded copy — clear it with
+          `xattr -dr com.apple.quarantine /Applications/Lucerna.app`, or
+          right-click → Open on first launch. Verify any artifact with cosign
+          and SHA256SUMS above. See docs/SECURITY.md.
           NOTES
           # Replace the literal ${APP_VERSION} placeholders now that the
           # heredoc is closed and APP_VERSION is in scope.
