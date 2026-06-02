@@ -27,30 +27,15 @@ import type { LoaderKind } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import ImportedView from '$lib/modpacks/ImportedView.svelte';
 
-// Driving a Svelte 5 `bind:value` <select> through happy-dom is non-
-// trivial: Svelte's change handler reads the selected option via
-// `select.querySelector(':checked')`, but happy-dom's `:checked`
-// pseudo-class only matches `<input>` elements (see happy-dom's
-// SelectorItem.js: `tagName === 'INPUT' && element.checked`). So we
-// patch `querySelector` on the select to fall back to the option with
-// `selectedness` set when the engine asks for `:checked`, then fire
-// the change event.
-async function changeSelect(select: HTMLSelectElement, value: string) {
-  for (const opt of Array.from(select.options)) {
-    opt.selected = opt.value === value;
-  }
-  select.value = value;
-  const originalQuery = select.querySelector.bind(select);
-  select.querySelector = ((sel: string) => {
-    if (sel === ':checked') {
-      for (const opt of Array.from(select.options)) {
-        if (opt.selected) return opt;
-      }
-      return null;
-    }
-    return originalQuery(sel);
-  }) as typeof select.querySelector;
-  await fireEvent.change(select);
+// The filters are now custom <Select> listboxes (a themeable
+// button[role=combobox] → ul[role=listbox] of li[role=option]) rather
+// than native <select>s. Driving one means opening it (click the
+// trigger, found by its data-testid) then committing an option — the
+// Select commits on `mousedown`, so we fire mouseDown on the option
+// matched by its visible label.
+async function pickOption(testid: string, name: RegExp | string) {
+  await fireEvent.click(screen.getByTestId(testid));
+  await fireEvent.mouseDown(screen.getByRole('option', { name }));
   await tick();
 }
 
@@ -154,7 +139,7 @@ describe('ImportedView', () => {
   });
 
   it('MC dropdown filters by mc_version', async () => {
-    const { getByTestId, queryAllByTestId } = render(ImportedView, {
+    const { queryAllByTestId } = render(ImportedView, {
       props: {
         instances: [
           inst('a', 'A', 1, { mc_version: '1.20.1' }),
@@ -164,8 +149,7 @@ describe('ImportedView', () => {
         onPick: () => {},
       },
     });
-    const select = getByTestId('imported-mc-filter') as HTMLSelectElement;
-    await changeSelect(select, '1.21.1');
+    await pickOption('imported-mc-filter', '1.21.1');
     const cards = queryAllByTestId('imported-card');
     expect(cards.length).toBe(2);
     for (const card of cards) {
@@ -174,7 +158,7 @@ describe('ImportedView', () => {
   });
 
   it('loader dropdown filters by loader', async () => {
-    const { getByTestId, queryAllByTestId } = render(ImportedView, {
+    const { queryAllByTestId } = render(ImportedView, {
       props: {
         instances: [
           inst('a', 'A', 1, { loader: 'fabric' }),
@@ -184,22 +168,20 @@ describe('ImportedView', () => {
         onPick: () => {},
       },
     });
-    const select = getByTestId('imported-loader-filter') as HTMLSelectElement;
-    await changeSelect(select, 'neoforge');
+    await pickOption('imported-loader-filter', 'NeoForge');
     const cards = queryAllByTestId('imported-card');
     expect(cards.length).toBe(1);
     expect(cards[0].textContent).toContain('NeoForge');
   });
 
   it('sort = name produces alphabetical order by mrpack_name', async () => {
-    const { getByTestId, getAllByTestId } = render(ImportedView, {
+    const { getAllByTestId } = render(ImportedView, {
       props: {
         instances: [inst('a', 'Charlie', 3000), inst('b', 'Alpha', 1000), inst('c', 'Bravo', 2000)],
         onPick: () => {},
       },
     });
-    const select = getByTestId('imported-sort') as HTMLSelectElement;
-    await changeSelect(select, 'name');
+    await pickOption('imported-sort', 'Name (A–Z)');
     const cards = getAllByTestId('imported-card');
     expect(cards[0].textContent).toContain('Alpha');
     expect(cards[1].textContent).toContain('Bravo');
@@ -207,14 +189,13 @@ describe('ImportedView', () => {
   });
 
   it('sort = oldest reverses newest-first ordering', async () => {
-    const { getByTestId, getAllByTestId } = render(ImportedView, {
+    const { getAllByTestId } = render(ImportedView, {
       props: {
         instances: [inst('a', 'A', 1000), inst('b', 'B', 2000), inst('c', 'C', 1500)],
         onPick: () => {},
       },
     });
-    const select = getByTestId('imported-sort') as HTMLSelectElement;
-    await changeSelect(select, 'oldest');
+    await pickOption('imported-sort', 'Oldest first');
     const cards = getAllByTestId('imported-card');
     expect(cards[0].textContent).toContain('A');
     expect(cards[1].textContent).toContain('C');

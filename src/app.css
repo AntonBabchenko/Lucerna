@@ -108,8 +108,7 @@ body {
     color: inherit;
   }
   input,
-  textarea,
-  select {
+  textarea {
     background-color: rgb(var(--bg-surface));
     color: rgb(var(--text-primary));
     border-color: rgb(var(--border-emphasis));
@@ -339,52 +338,19 @@ body[data-tour-active] .tour-overlay {
   height: 2rem;
 }
 
-/* Native <select> options inherit their text colour from the <select>,
-   so toggling the closed control between black and grey drags every
-   dropdown row with it. The mods/modpacks loader filter wants:
-   closed-when-empty → grey "Any" (placeholder-like); open dropdown
-   → loader names in normal black, "Any" greyed to mark it as the
-   no-selection choice. The explicit option rules below escape the
-   inheritance so each row keeps its own colour regardless of the
-   select's. */
-.filter-select.is-empty {
-  color: rgb(163 163 163); /* neutral-400 */
-}
-.filter-select option {
-  color: rgb(23 23 23); /* neutral-900 */
-}
-.filter-select option[value=''] {
-  color: rgb(163 163 163);
-}
-/* Dark-theme overrides for native <select> option colours. CSS variables
-   cannot be used here because browser option styling is browser-native and
-   ignores custom property inheritance in most engines. Explicit RGB literals
-   mirror the .dark variable block above. */
-.dark .filter-select.is-empty {
-  color: rgb(115 115 115); /* dark --text-placeholder */
-}
-.dark .filter-select option {
-  color: rgb(245 245 245); /* dark --text-primary */
-}
-.dark .filter-select option[value=''] {
-  color: rgb(115 115 115); /* dark --text-placeholder */
-}
-
 /*
   Filter-control sizing system. Shared across ModBrowseView and
   ModpackBrowseView so all filter-row controls align to a consistent
   h-8 (2rem) baseline.
 
     .filter-control         Base: h-8, px-3, text-sm, border, rounded, surface bg.
-                            Apply to every input / select in a filter row.
-    .filter-control-select  Auto width — a <select> sizes to its widest option
+                            Apply to every input / Select trigger in a filter row.
+    .filter-control-select  Auto width — a Select trigger sizes to its content
                             (no fixed width, so short option lists like Sort /
                             Loader don't leave a big empty gap).
     .filter-control-narrow  Width ~7rem (w-28) for the MC-version combobox input.
 
-  These classes handle sizing only. Pair .filter-select alongside
-  .filter-control-select on <select> elements that need the is-empty
-  greying behaviour — .filter-select is intentionally sizing-free.
+  These classes handle sizing only — the custom <Select> trigger wears them.
 */
 .filter-control {
   @apply h-8 px-3 text-sm border border-border-emphasis rounded bg-surface;

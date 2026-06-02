@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
+  import Select from '$lib/ui/Select.svelte';
 
   // The compact, never-wrapping toolbar: search (flex-1), a Sort select,
   // the "Filters (n)" button that opens the drawer, and the layout
@@ -47,16 +48,13 @@
 
   <label class="inline-flex items-center gap-1 text-sm text-secondary">
     {$t('browse.filter.sortLabel')}
-    <select
+    <Select
       class="filter-control filter-control-select"
       value={sort}
-      data-testid={sortTestid}
-      onchange={(e) => onSortChange(e.currentTarget.value)}
-    >
-      {#each sortOptions as opt (opt.value)}
-        <option value={opt.value}>{opt.label}</option>
-      {/each}
-    </select>
+      options={sortOptions}
+      onChange={(v) => onSortChange(String(v))}
+      dataTestid={sortTestid}
+    />
   </label>
 
   <button

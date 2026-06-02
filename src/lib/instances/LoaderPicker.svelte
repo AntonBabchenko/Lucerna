@@ -10,6 +10,7 @@
   import { resolveLoaderVersion } from '$lib/instances/loader-version';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import Select from '$lib/ui/Select.svelte';
 
   function formatLoaderError(e: IpcError): string {
     // Picker keeps shorter wording for the 3 variants it surfaces most
@@ -127,6 +128,16 @@
     loaderVersion = v;
     onchange?.(loader, v);
   }
+
+  // Mirror the previous <option> markup: stable entries carry the
+  // "(recommended)" suffix, non-stable show the bare version. Recomputed
+  // whenever the fetched `versions` list changes.
+  const versionOptions = $derived(
+    versions.map((lv) => ({
+      value: lv.version,
+      label: lv.stable ? $t('instance.loader.recommended', { version: lv.version }) : lv.version,
+    })),
+  );
 </script>
 
 <p class="block text-xs uppercase text-secondary mb-1">{$t('instance.loader.label')}</p>
@@ -149,19 +160,14 @@
   <label class="block text-xs uppercase text-secondary mb-1" for="loader-version-select">
     {$t('instance.loader.versionLabel')}
   </label>
-  <select
+  <Select
     id="loader-version-select"
-    class="border rounded px-2 py-1 w-full mb-3"
+    class="w-full mb-3"
     value={loaderVersion ?? ''}
+    options={versionOptions}
     {disabled}
-    onchange={(e) => pickVersion((e.currentTarget as HTMLSelectElement).value)}
-  >
-    {#each versions as lv}
-      <option value={lv.version}>
-        {lv.stable ? $t('instance.loader.recommended', { version: lv.version }) : lv.version}
-      </option>
-    {/each}
-  </select>
+    onChange={(v) => pickVersion(String(v))}
+  />
 {/if}
 
 {#if error}

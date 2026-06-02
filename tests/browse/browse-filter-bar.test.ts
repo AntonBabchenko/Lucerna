@@ -52,9 +52,9 @@ describe('BrowseFilterBar', () => {
     await fireEvent.input(input);
     expect(onSearchInput).toHaveBeenCalledWith('sodium');
 
-    const sort = screen.getByTestId('mod-sort') as HTMLSelectElement;
-    sort.value = 'relevance';
-    await fireEvent.change(sort);
+    const sort = screen.getByTestId('mod-sort');
+    await fireEvent.click(sort);
+    await fireEvent.mouseDown(screen.getByRole('option', { name: /relevance/i }));
     expect(onSortChange).toHaveBeenCalledWith('relevance');
   });
 

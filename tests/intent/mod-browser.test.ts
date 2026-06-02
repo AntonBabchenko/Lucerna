@@ -1,6 +1,7 @@
 // Mod-browser group intent coverage: ModBrowserTab (positive sub-tab pattern),
 // ModBrowseView, InstalledModsView, ModCard, ModDetailModal.
-// SourcePicker is a plain <select>; no btn-* elements to cover per inventory.
+// SourcePicker uses the custom Select listbox; its own behavior is covered in
+// tests/source-picker.test.ts (no btn-* inventory rows to cover here).
 //
 // Inventory rows covered:
 //   ModBrowserTab:      Browse/Installed sub-tabs — underline pattern positive

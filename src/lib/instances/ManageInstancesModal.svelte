@@ -16,6 +16,7 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import { t } from '$lib/i18n';
 
   let {
@@ -72,6 +73,13 @@
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
   );
+
+  // Options for the MC-version <Select>s. Keep the empty "Choose…" row so it is
+  // re-selectable and so Select greys the trigger when no version is picked.
+  const mcVersionOptions = $derived([
+    { value: '', label: $t('instance.manage.chooseMcOption') },
+    ...visibleVersions.map((v) => ({ value: v.id, label: v.id })),
+  ]);
 
   // Create form state.
   let draftName = $state('');
@@ -392,17 +400,13 @@
             <label for="create-mc-version" class="block text-xs uppercase text-secondary mb-1"
               >{$t('instance.manage.mcVersionLabel')}</label
             >
-            <select
+            <Select
               id="create-mc-version"
-              class="border rounded px-2 py-1 w-full mb-1"
+              class="w-full mb-1"
               value={draftMc}
-              onchange={(e) => (draftMc = (e.currentTarget as HTMLSelectElement).value)}
-            >
-              <option value="">{$t('instance.manage.chooseMcOption')}</option>
-              {#each visibleVersions as v}
-                <option value={v.id}>{v.id}</option>
-              {/each}
-            </select>
+              options={mcVersionOptions}
+              onChange={(v) => (draftMc = String(v))}
+            />
             <label class="text-xs flex items-center gap-1 mb-3">
               <input type="checkbox" bind:checked={showSnapshots} />
               {$t('instance.manage.showSnapshots')}
@@ -458,17 +462,13 @@
             <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
               >{$t('instance.manage.mcVersionLabel')}</label
             >
-            <select
+            <Select
               id="detail-mc-version"
-              class="border rounded px-2 py-1 w-full mb-1"
+              class="w-full mb-1"
               value={selected.mc_version}
-              onchange={(e) => setMc((e.currentTarget as HTMLSelectElement).value)}
-            >
-              <option value="">{$t('instance.manage.chooseMcOption')}</option>
-              {#each visibleVersions as v}
-                <option value={v.id}>{v.id}</option>
-              {/each}
-            </select>
+              options={mcVersionOptions}
+              onChange={(v) => setMc(String(v))}
+            />
             <label class="text-xs flex items-center gap-1 mb-3">
               <input type="checkbox" bind:checked={showSnapshots} />
               {$t('instance.manage.showSnapshots')}

@@ -4,6 +4,7 @@
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import { t } from '$lib/i18n';
 
   let {
@@ -59,6 +60,25 @@
 
   let showAddOfflineInput = $state(false);
   let offlineNameDraft = $state('');
+
+  const accountOptions = $derived(
+    accounts.map((a) => ({
+      value: a.id,
+      label: `${a.name} (${
+        a.kind === 'microsoft'
+          ? $t('sidebar.accountKindMicrosoft')
+          : $t('sidebar.accountKindOffline')
+      })`,
+    })),
+  );
+  const instanceOptions = $derived(
+    instances.map((i) => ({
+      value: i.id,
+      label: `${i.ready ? '✓' : '↓'} ${i.name} · ${displayLoader(i.loader)} ${
+        i.mc_version || $t('sidebar.pickMcVersion')
+      }`,
+    })),
+  );
 </script>
 
 <aside class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto">
@@ -69,19 +89,13 @@
     {#if accounts.length === 0}
       <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
     {:else}
-      <select
-        class="border rounded px-2 py-1 text-sm"
+      <Select
+        class="w-full text-sm"
         value={activeAccount?.id ?? ''}
-        onchange={(e) => onSelectAccount((e.currentTarget as HTMLSelectElement).value)}
-      >
-        {#each accounts as a}
-          <option value={a.id}
-            >{a.name} ({a.kind === 'microsoft'
-              ? $t('sidebar.accountKindMicrosoft')
-              : $t('sidebar.accountKindOffline')})</option
-          >
-        {/each}
-      </select>
+        options={accountOptions}
+        onChange={(v) => onSelectAccount(String(v))}
+        ariaLabel={$t('sidebar.account')}
+      />
     {/if}
     <div class="flex gap-1">
       <button
@@ -153,20 +167,15 @@
         {$t('sidebar.createInstance')}
       </button>
     {:else}
-      <select
-        data-tour="instance-picker"
-        class="border rounded px-2 py-1 text-sm"
-        value={activeInstance?.id ?? ''}
-        onchange={(e) => onSelectInstance((e.currentTarget as HTMLSelectElement).value)}
-      >
-        {#each instances as i}
-          <option value={i.id}>
-            {i.ready ? '✓' : '↓'}
-            {i.name} · {displayLoader(i.loader)}
-            {i.mc_version || $t('sidebar.pickMcVersion')}
-          </option>
-        {/each}
-      </select>
+      <div data-tour="instance-picker">
+        <Select
+          class="w-full text-sm"
+          value={activeInstance?.id ?? ''}
+          options={instanceOptions}
+          onChange={(v) => onSelectInstance(String(v))}
+          ariaLabel={$t('sidebar.instance')}
+        />
+      </div>
       <div class="flex gap-1">
         <button
           type="button"

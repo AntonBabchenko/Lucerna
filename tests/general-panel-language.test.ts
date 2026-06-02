@@ -42,7 +42,8 @@ describe('GeneralPanel language picker', () => {
 
   test('choosing Russian switches the live locale and persists language', async () => {
     render(GeneralPanel);
-    await fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'ru' } });
+    await fireEvent.click(screen.getByTestId('language-select'));
+    await fireEvent.mouseDown(screen.getByRole('option', { name: 'Русский' }));
     expect(get(locale)).toBe('ru');
     expect(appSettingsSetGeneral).toHaveBeenCalled();
     expect(appSettingsSetGeneral.mock.calls.at(-1)?.[0]).toMatchObject({ language: 'ru' });

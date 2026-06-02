@@ -6,6 +6,7 @@
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import {
     groupStackFolds,
@@ -515,18 +516,16 @@
         <div class="flex items-center justify-between px-4 py-2">
           <h2 class="text-sm font-semibold text-primary">{$t('logs.toolbar.title')}</h2>
           <div class="flex items-center gap-3 flex-wrap">
-            <label class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
+            <div class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
               {$t('logs.toolbar.readCap')}
-              <select
-                class="border rounded px-1 py-0.5 text-xs"
+              <Select
+                class="text-xs"
+                ariaLabel={$t('logs.toolbar.readCap')}
                 value={capBytes}
-                onchange={(e) => onCapChange(Number((e.currentTarget as HTMLSelectElement).value))}
-              >
-                {#each CAP_OPTIONS as opt}
-                  <option value={opt.value}>{opt.label}</option>
-                {/each}
-              </select>
-            </label>
+                options={CAP_OPTIONS}
+                onChange={(v) => onCapChange(Number(v))}
+              />
+            </div>
             <button class="btn-secondary btn-xs" onclick={() => void reloadList()}>
               {$t('logs.toolbar.reload')}
             </button>

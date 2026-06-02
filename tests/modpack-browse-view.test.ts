@@ -26,20 +26,12 @@ vi.mock('$lib/settings/state.svelte', () => ({
 
 import ModpackBrowseView from '$lib/modpacks/ModpackBrowseView.svelte';
 
-// Svelte 5 `bind:value` on <select> reads `select.querySelector(':checked')`,
-// but happy-dom's `:checked` only matches INPUT elements. Patch the
-// querySelector to fall back to the actually-selected option.
-// Same workaround as `tests/imported-view.test.ts`.
-function changeSelect(el: HTMLSelectElement, value: string) {
-  const orig = el.querySelector.bind(el);
-  el.querySelector = (sel: string) => {
-    if (sel === ':checked') {
-      return Array.from(el.options).find((o) => o.selected) ?? null;
-    }
-    return orig(sel);
-  };
-  el.value = value;
-  return fireEvent.change(el);
+// The sort control is now the custom <Select> listbox: open the trigger by
+// testid, then commit an option by its accessible name. The Select commits on
+// `mousedown` (not click), so the option must be driven with mouseDown.
+async function pickOption(triggerTestid: string, name: RegExp | string) {
+  await fireEvent.click(screen.getByTestId(triggerTestid));
+  await fireEvent.mouseDown(screen.getByRole('option', { name }));
 }
 
 describe('ModpackBrowseView', () => {
@@ -97,14 +89,13 @@ describe('ModpackBrowseView', () => {
   });
 
   it('changing sort triggers search with sort param', async () => {
-    const { getByTestId } = render(ModpackBrowseView, {
+    render(ModpackBrowseView, {
       props: { onPickHit: () => {} },
     });
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     mockSearch.mockClear();
 
-    const sortSelect = getByTestId('modpack-sort-select') as HTMLSelectElement;
-    await changeSelect(sortSelect, 'downloads');
+    await pickOption('modpack-sort-select', /downloads/i);
 
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     const args = mockSearch.mock.calls.at(-1) ?? [];
