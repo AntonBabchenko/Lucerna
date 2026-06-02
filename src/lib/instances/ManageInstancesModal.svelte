@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import {
     commands,
     type InstanceWithStatus,
@@ -15,6 +16,7 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { t } from '$lib/i18n';
 
   let {
     open = $bindable(),
@@ -93,10 +95,13 @@
   // previous attempt would linger on top of an unrelated screen.
   let createDisabledReason = $derived.by(() => {
     if (!createMode) return '';
-    if (!draftName.trim()) return 'Enter a name';
-    if (!draftMc) return 'Pick a Minecraft version first';
+    if (!draftName.trim()) return get(t)('instance.error.nameRequired');
+    if (!draftMc) return get(t)('instance.error.pickMcFirst');
     if (draftLoader !== 'vanilla' && !draftLoaderVersion)
-      return `${displayLoader(draftLoader)} does not support Minecraft ${draftMc} — try another version or loader`;
+      return get(t)('instance.error.loaderNoSupport', {
+        loader: displayLoader(draftLoader),
+        mc: draftMc,
+      });
     return '';
   });
   $effect(() => {
@@ -113,9 +118,9 @@
     // modal context makes "Instance" redundant). Everything else
     // delegates to the shared formatError so no IPC variant leaks raw
     // JSON if e.g. openInstanceFolder returns Error::Io.
-    if (e.kind === 'instance_name_empty') return 'Name cannot be empty';
+    if (e.kind === 'instance_name_empty') return get(t)('instance.error.nameEmpty');
     if (e.kind === 'instance_name_too_long')
-      return `Name is too long: ${e.actual}/${e.max} characters`;
+      return get(t)('instance.error.nameTooLong', { actual: e.actual, max: e.max });
     return formatError(e);
   }
 
@@ -130,18 +135,21 @@
 
   async function submitCreate() {
     if (!draftName.trim()) {
-      modalError = 'Name is required';
+      modalError = get(t)('instance.error.nameRequired');
       return;
     }
     if (draftLoader !== 'vanilla' && !draftMc) {
-      modalError = 'Pick a Minecraft version first';
+      modalError = get(t)('instance.error.pickMcFirst');
       return;
     }
     if (draftLoader !== 'vanilla' && !draftLoaderVersion) {
       // Belt-and-braces: the Create button is also disabled in this
       // state via createDisabledReason. This branch catches the
       // in-flight race where load() hasn't resolved yet.
-      modalError = `${displayLoader(draftLoader)} does not support Minecraft ${draftMc} — try another version or loader`;
+      modalError = get(t)('instance.error.loaderNoSupport', {
+        loader: displayLoader(draftLoader),
+        mc: draftMc,
+      });
       return;
     }
     const result = await commands.createInstance(
@@ -213,7 +221,7 @@
   async function applyLoaderChange(kind: LoaderKind, version: string | null) {
     if (!selected) return;
     if (kind !== 'vanilla' && !selected.mc_version) {
-      modalError = 'Pick a Minecraft version first';
+      modalError = get(t)('instance.error.pickMcFirst');
       return;
     }
     const result = await commands.setInstanceLoader(selected.id, kind, version);
@@ -331,8 +339,8 @@
       class="bg-surface rounded-lg shadow-xl w-[760px] max-h-[80vh] overflow-hidden flex flex-col"
     >
       <header class="flex items-center justify-between px-4 py-2 border-b">
-        <h2 class="font-semibold text-primary">Manage Instances</h2>
-        <CloseButton onClick={close} ariaLabel="Close manage instances" />
+        <h2 class="font-semibold text-primary">{$t('instance.manage.title')}</h2>
+        <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
       </header>
       <div class="flex flex-1 overflow-hidden">
         <aside
@@ -352,26 +360,26 @@
                 {i.ready ? '✓' : '↓'}
                 {i.name}
                 {#if i.id === activeInstance?.id}
-                  <span class="text-xs text-muted">(active)</span>
+                  <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
                 {/if}
               </div>
               <div class="text-xs text-muted">
-                {displayLoader(i.loader)} · {i.mc_version || '(pick MC)'}
+                {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
               </div>
             </button>
           {/each}
           <button type="button" class="mt-2 btn-primary btn-sm w-full" onclick={openCreate}>
-            + New instance
+            {$t('instance.manage.newInstanceBtn')}
           </button>
         </aside>
         <section class="flex-1 overflow-y-auto p-4" data-tour-ctx="manage-form">
           {#if createMode}
-            <h3 class="font-semibold text-primary mb-3">New instance</h3>
+            <h3 class="font-semibold text-primary mb-3">{$t('instance.manage.createHeading')}</h3>
             <label
               for="create-name"
               class="block text-xs uppercase text-secondary mb-1 flex justify-between"
             >
-              <span>Name</span>
+              <span>{$t('instance.manage.nameLabel')}</span>
               <span class="text-placeholder normal-case font-normal">{draftName.length}/32</span>
             </label>
             <input
@@ -382,7 +390,7 @@
             />
 
             <label for="create-mc-version" class="block text-xs uppercase text-secondary mb-1"
-              >Minecraft version</label
+              >{$t('instance.manage.mcVersionLabel')}</label
             >
             <select
               id="create-mc-version"
@@ -390,14 +398,14 @@
               value={draftMc}
               onchange={(e) => (draftMc = (e.currentTarget as HTMLSelectElement).value)}
             >
-              <option value="">-- Choose MC version --</option>
+              <option value="">{$t('instance.manage.chooseMcOption')}</option>
               {#each visibleVersions as v}
                 <option value={v.id}>{v.id}</option>
               {/each}
             </select>
             <label class="text-xs flex items-center gap-1 mb-3">
               <input type="checkbox" bind:checked={showSnapshots} />
-              Show snapshots
+              {$t('instance.manage.showSnapshots')}
             </label>
 
             <LoaderPicker
@@ -412,7 +420,7 @@
                 class="btn-secondary btn-sm"
                 onclick={() => (createMode = false)}
               >
-                Cancel
+                {$t('instance.manage.cancelBtn')}
               </button>
               <button
                 type="button"
@@ -421,14 +429,14 @@
                 title={createDisabledReason}
                 onclick={submitCreate}
               >
-                Create
+                {$t('instance.manage.createBtn')}
               </button>
             </div>
           {:else if selected}
             <h3 class="font-semibold text-primary mb-3">
               {selected.name}
               {#if selected.id === activeInstance?.id}<span class="text-xs text-muted"
-                  >(active)</span
+                  >{$t('instance.manage.activeLabel')}</span
                 >{/if}
             </h3>
 
@@ -436,7 +444,7 @@
               for="detail-name"
               class="block text-xs uppercase text-secondary mb-1 flex justify-between"
             >
-              <span>Name</span>
+              <span>{$t('instance.manage.nameLabel')}</span>
               <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
             </label>
             <input
@@ -448,7 +456,7 @@
             />
 
             <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
-              >Minecraft version</label
+              >{$t('instance.manage.mcVersionLabel')}</label
             >
             <select
               id="detail-mc-version"
@@ -456,14 +464,14 @@
               value={selected.mc_version}
               onchange={(e) => setMc((e.currentTarget as HTMLSelectElement).value)}
             >
-              <option value="">-- Choose MC version --</option>
+              <option value="">{$t('instance.manage.chooseMcOption')}</option>
               {#each visibleVersions as v}
                 <option value={v.id}>{v.id}</option>
               {/each}
             </select>
             <label class="text-xs flex items-center gap-1 mb-3">
               <input type="checkbox" bind:checked={showSnapshots} />
-              Show snapshots
+              {$t('instance.manage.showSnapshots')}
             </label>
 
             <LoaderPicker
@@ -486,7 +494,7 @@
             {/if}
 
             <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
-              Memory (max heap): {selected.max_heap_mb} MB
+              {$t('instance.manage.memoryLabel', { mb: selected.max_heap_mb })}
             </label>
             <input
               id="detail-memory"
@@ -500,12 +508,12 @@
             />
 
             <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
-              >Extra JVM args</label
+              >{$t('instance.manage.jvmArgsLabel')}</label
             >
             <input
               id="detail-jvm-args"
               class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
-              placeholder="-XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+              placeholder={$t('instance.manage.jvmArgsPlaceholder')}
               value={selected.extra_jvm_args}
               onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
             />
@@ -518,20 +526,22 @@
                 type="button"
                 class="btn-ghost-danger"
                 disabled={instances.length <= 1}
-                title={instances.length <= 1 ? 'Cannot delete the last instance' : ''}
+                title={instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : ''}
                 onclick={() => (deleteConfirmOpen = true)}
               >
-                🗑 Delete instance
+                {$t('instance.manage.deleteBtn')}
               </button>
               <div class="flex gap-2">
                 <button type="button" class="btn-secondary btn-sm" onclick={openFolder}>
-                  📁 Open folder
+                  {$t('instance.manage.openFolderBtn')}
                 </button>
-                <button type="button" class="btn-primary btn-sm" onclick={close}> Done </button>
+                <button type="button" class="btn-primary btn-sm" onclick={close}>
+                  {$t('instance.manage.doneBtn')}
+                </button>
               </div>
             </div>
           {:else}
-            <p class="text-muted text-sm">Pick an instance on the left, or click + New instance.</p>
+            <p class="text-muted text-sm">{$t('instance.manage.emptyState')}</p>
           {/if}
 
           {#if modalError}
@@ -546,14 +556,12 @@
   {#if deleteConfirmOpen && selected}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
       <div class="bg-surface rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-primary text-base">Delete instance?</h3>
+        <h3 class="font-semibold text-primary text-base">{$t('instance.delete.title')}</h3>
         <p class="text-sm text-secondary">
-          Delete <span class="font-mono font-semibold">{selected.name}</span>?
+          {$t('instance.delete.question', { name: selected.name })}
         </p>
         <p class="text-sm text-secondary">
-          This permanently removes the instance directory including its
-          <span class="font-mono">.minecraft/</span> folder — saved worlds, installed mods, configs, resource
-          packs, screenshots. This cannot be undone.
+          {$t('instance.delete.description')}
         </p>
         <div class="flex justify-end gap-2 mt-2">
           <button
@@ -561,7 +569,7 @@
             class="btn-secondary btn-sm"
             onclick={() => (deleteConfirmOpen = false)}
           >
-            Cancel
+            {$t('instance.manage.cancelBtn')}
           </button>
           <button
             type="button"
@@ -571,7 +579,7 @@
               await deleteSelected();
             }}
           >
-            Delete
+            {$t('instance.delete.confirmBtn')}
           </button>
         </div>
       </div>
@@ -581,21 +589,21 @@
   {#if pendingChange !== null && selected}
     <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
       <div class="bg-surface rounded-lg shadow-xl w-[460px] p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-primary text-base">Modpack instance</h3>
+        <h3 class="font-semibold text-primary text-base">{$t('instance.packDetach.title')}</h3>
         <p class="text-sm text-secondary">
-          This instance was imported from
-          <span class="font-semibold">{selected.mrpack_name}</span>. Changing its
-          {pendingChange.kind === 'mc' ? 'Minecraft version' : 'loader'} detaches it from the pack.
+          {pendingChange.kind === 'mc'
+            ? $t('instance.packDetach.descriptionMc', { pack: selected.mrpack_name ?? '' })
+            : $t('instance.packDetach.descriptionLoader', { pack: selected.mrpack_name ?? '' })}
         </p>
         <div class="flex justify-end gap-2 mt-2">
           <button type="button" class="btn-secondary btn-sm" onclick={cancelPending}>
-            Cancel
+            {$t('instance.manage.cancelBtn')}
           </button>
           <button type="button" class="btn-secondary btn-sm" onclick={keepAndContinue}>
-            Keep &amp; continue
+            {$t('instance.packDetach.keepBtn')}
           </button>
           <button type="button" class="btn-primary btn-sm" onclick={confirmDetachAndContinue}>
-            Detach &amp; continue
+            {$t('instance.packDetach.detachBtn')}
           </button>
         </div>
       </div>

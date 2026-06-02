@@ -32,6 +32,70 @@
     "browseModpacks": "📦 Browse modpacks",
     "logs": "📜 Logs"
   },
+  "instance": {
+    "manage": {
+      "title": "Manage Instances",
+      "closeLabel": "Close manage instances",
+      "activeLabel": "(active)",
+      "pickMc": "(pick MC)",
+      "newInstanceBtn": "+ New instance",
+      "createHeading": "New instance",
+      "nameLabel": "Name",
+      "mcVersionLabel": "Minecraft version",
+      "chooseMcOption": "-- Choose MC version --",
+      "showSnapshots": "Show snapshots",
+      "cancelBtn": "Cancel",
+      "createBtn": "Create",
+      "doneBtn": "Done",
+      "openFolderBtn": "📁 Open folder",
+      "deleteBtn": "🗑 Delete instance",
+      "emptyState": "Pick an instance on the left, or click + New instance.",
+      "memoryLabel": "Memory (max heap): {mb} MB",
+      "jvmArgsLabel": "Extra JVM args",
+      "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
+      "cannotDeleteLast": "Cannot delete the last instance"
+    },
+    "error": {
+      "nameRequired": "Name is required",
+      "nameEmpty": "Name cannot be empty",
+      "nameTooLong": "Name is too long: {actual}/{max} characters",
+      "pickMcFirst": "Pick a Minecraft version first",
+      "loaderNoSupport": "{loader} does not support Minecraft {mc} — try another version or loader"
+    },
+    "delete": {
+      "title": "Delete instance?",
+      "question": "Delete {name}?",
+      "description": "This permanently removes the instance directory including its .minecraft/ folder — saved worlds, installed mods, configs, resource packs, screenshots. This cannot be undone.",
+      "confirmBtn": "Delete"
+    },
+    "packDetach": {
+      "title": "Modpack instance",
+      "descriptionMc": "This instance was imported from {pack}. Changing its Minecraft version detaches it from the pack.",
+      "descriptionLoader": "This instance was imported from {pack}. Changing its loader detaches it from the pack.",
+      "keepBtn": "Keep & continue",
+      "detachBtn": "Detach & continue"
+    },
+    "loader": {
+      "label": "Loader",
+      "versionLabel": "Loader version",
+      "recommended": "{version} (recommended)",
+      "errorUnavailable": "{loader} does not support Minecraft {mc}",
+      "errorNetwork": "Network error fetching {url}: {details}",
+      "errorForgePromotions": "Forge promotions feed for {flavor} is unavailable"
+    },
+    "integrity": {
+      "loaderUpdated": "{loader} updated to {version} for Minecraft {mc}",
+      "loaderResetToVanilla": "No {loader} build for Minecraft {mc} — loader reset to Vanilla",
+      "compatWarning": "{incompatible} of {total} installed mods have no version for this configuration. Review in the Mods tab.",
+      "compatWarningWithUnknown": "{incompatible} of {total} installed mods have no version for this configuration · {unknown} couldn't be checked. Review in the Mods tab."
+    },
+    "compat": {
+      "dialogLabel": "Mod compatibility warning",
+      "heading": "{count, plural, one {# mod may not be compatible} other {# mods may not be compatible}}",
+      "skipBtn": "Skip these",
+      "installAnywayBtn": "Install anyway"
+    }
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",

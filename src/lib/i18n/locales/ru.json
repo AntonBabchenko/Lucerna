@@ -32,6 +32,70 @@
     "browseModpacks": "📦 Браузер сборок",
     "logs": "📜 Логи"
   },
+  "instance": {
+    "manage": {
+      "title": "Управление экземплярами",
+      "closeLabel": "Закрыть управление экземплярами",
+      "activeLabel": "(активный)",
+      "pickMc": "(выбрать MC)",
+      "newInstanceBtn": "+ Новый экземпляр",
+      "createHeading": "Новый экземпляр",
+      "nameLabel": "Имя",
+      "mcVersionLabel": "Версия Minecraft",
+      "chooseMcOption": "-- Выберите версию MC --",
+      "showSnapshots": "Показать снапшоты",
+      "cancelBtn": "Отмена",
+      "createBtn": "Создать",
+      "doneBtn": "Готово",
+      "openFolderBtn": "📁 Открыть папку",
+      "deleteBtn": "🗑 Удалить экземпляр",
+      "emptyState": "Выберите экземпляр слева или нажмите + Новый экземпляр.",
+      "memoryLabel": "Память (макс. heap): {mb} МБ",
+      "jvmArgsLabel": "Дополнительные аргументы JVM",
+      "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
+      "cannotDeleteLast": "Нельзя удалить последний экземпляр"
+    },
+    "error": {
+      "nameRequired": "Имя обязательно",
+      "nameEmpty": "Имя не может быть пустым",
+      "nameTooLong": "Имя слишком длинное: {actual}/{max} символов",
+      "pickMcFirst": "Сначала выберите версию Minecraft",
+      "loaderNoSupport": "{loader} не поддерживает Minecraft {mc} — попробуйте другую версию или загрузчик"
+    },
+    "delete": {
+      "title": "Удалить экземпляр?",
+      "question": "Удалить {name}?",
+      "description": "Это безвозвратно удалит директорию экземпляра вместе с папкой .minecraft/ — сохранения миров, установленные моды, конфиги, ресурспаки, скриншоты. Отменить это невозможно.",
+      "confirmBtn": "Удалить"
+    },
+    "packDetach": {
+      "title": "Экземпляр сборки",
+      "descriptionMc": "Этот экземпляр был импортирован из {pack}. Смена версии Minecraft отвяжет его от сборки.",
+      "descriptionLoader": "Этот экземпляр был импортирован из {pack}. Смена загрузчика отвяжет его от сборки.",
+      "keepBtn": "Сохранить и продолжить",
+      "detachBtn": "Отвязать и продолжить"
+    },
+    "loader": {
+      "label": "Загрузчик",
+      "versionLabel": "Версия загрузчика",
+      "recommended": "{version} (рекомендуется)",
+      "errorUnavailable": "{loader} не поддерживает Minecraft {mc}",
+      "errorNetwork": "Ошибка сети при запросе {url}: {details}",
+      "errorForgePromotions": "Лента релизов Forge для {flavor} недоступна"
+    },
+    "integrity": {
+      "loaderUpdated": "{loader} обновлён до {version} для Minecraft {mc}",
+      "loaderResetToVanilla": "Нет сборки {loader} для Minecraft {mc} — загрузчик сброшен до Vanilla",
+      "compatWarning": "{incompatible} из {total} установленных модов не имеют версии для этой конфигурации. Проверьте во вкладке «Моды».",
+      "compatWarningWithUnknown": "{incompatible} из {total} установленных модов не имеют версии для этой конфигурации · у {unknown} статус не удалось проверить. Проверьте во вкладке «Моды»."
+    },
+    "compat": {
+      "dialogLabel": "Предупреждение о совместимости модов",
+      "heading": "{count, plural, one {# мод может быть несовместим} few {# мода могут быть несовместимы} many {# модов могут быть несовместимы} other {# мода могут быть несовместимы}}",
+      "skipBtn": "Пропустить",
+      "installAnywayBtn": "Установить всё равно"
+    }
+  },
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",
