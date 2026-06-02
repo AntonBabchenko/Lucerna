@@ -142,19 +142,12 @@ async fn download_files(
     // we move on_progress (an FnOnce-friendly value) into the stream.
     let mut file_entries: Vec<(String, bool, super::manifest::FileDownload)> = Vec::new();
     let mut dir_paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut link_entries: Vec<(String, String)> = Vec::new();
     for (rel, entry) in &manifest.files {
         let dest = comp_root.join(rel);
         match entry {
             FileEntry::Directory {} => dir_paths.push(dest),
-            FileEntry::Link { .. } => {
-                // Mojang's Windows component manifests don't emit `link`
-                // entries; if one shows up, we don't know how to express
-                // it on NTFS and refuse rather than guess.
-                return Err(Error::UnsupportedPlatform {
-                    os: "windows".into(),
-                    arch: "link-in-manifest".into(),
-                });
-            }
+            FileEntry::Link { target } => link_entries.push((rel.clone(), target.clone())),
             FileEntry::File {
                 executable,
                 downloads,
@@ -167,6 +160,21 @@ async fn download_files(
         tokio::fs::create_dir_all(&d)
             .await
             .map_err(|e| Error::io(d.display().to_string(), e))?;
+    }
+
+    // Symlinks (Unix JRE manifests only). Created after directories so the
+    // parent exists; the target may not exist yet (dangling links are fine
+    // until the target file lands). On Windows `platform::symlink` errors —
+    // but Windows manifests never carry link entries, so this stays empty.
+    for (rel, target) in link_entries {
+        let dest = comp_root.join(&rel);
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::io(parent.display().to_string(), e))?;
+        }
+        crate::platform::symlink(&target, &dest)
+            .map_err(|e| Error::io(dest.display().to_string(), e))?;
     }
 
     let total = file_entries.len() as u32;

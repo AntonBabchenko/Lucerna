@@ -32,6 +32,26 @@ pub fn set_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Create a symlink at `link` pointing to `target` (a path relative to the
+/// link's directory, as written in Mojang JRE manifests). Idempotent:
+/// removes any existing entry first so re-install over an installed JRE
+/// works. Unix-only — Windows JRE manifests never carry `link` entries, so
+/// off Unix this returns `Unsupported` to fail loudly if one ever appears.
+#[cfg(unix)]
+pub fn symlink(target: &str, link: &Path) -> std::io::Result<()> {
+    // Best-effort remove of a stale entry; ignore "not found".
+    let _ = std::fs::remove_file(link);
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+pub fn symlink(_target: &str, _link: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "symlink entries in a JRE manifest are not supported on this platform",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,5 +79,32 @@ mod tests {
         let f = dir.path().join("javaw.exe");
         std::fs::write(&f, b"x").unwrap();
         set_executable(&f).expect("no-op returns Ok on non-unix");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_creates_link_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.txt");
+        std::fs::write(&target, b"hi").unwrap();
+        let link = dir.path().join("alias.txt");
+
+        symlink("real.txt", &link).expect("first symlink ok");
+        assert_eq!(
+            std::fs::read_link(&link).unwrap(),
+            std::path::PathBuf::from("real.txt")
+        );
+
+        // Re-creating over an existing link must succeed (re-install case).
+        symlink("real.txt", &link).expect("second symlink idempotent");
+        assert_eq!(std::fs::read(&link).unwrap(), b"hi");
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn symlink_is_unsupported_off_unix() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = symlink("target", &dir.path().join("alias")).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
     }
 }
