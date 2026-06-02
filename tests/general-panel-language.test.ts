@@ -47,4 +47,51 @@ describe('GeneralPanel language picker', () => {
     expect(appSettingsSetGeneral).toHaveBeenCalled();
     expect(appSettingsSetGeneral.mock.calls.at(-1)?.[0]).toMatchObject({ language: 'ru' });
   });
+
+  test('M1: toggling a checkbox after language is changed does not clobber the persisted language', async () => {
+    // Simulate: onMount reads language:'system', then the language picker persists
+    // language:'ru' via its own RMW — subsequent reads return 'ru'. save() must
+    // do a fresh read-modify-write and preserve 'ru', not revert to 'system'.
+    appSettingsGet.mockReset();
+    appSettingsGet
+      .mockResolvedValueOnce({
+        status: 'ok',
+        data: {
+          version: 1,
+          active_instance: null,
+          onboarding: { tour_completed_version: null },
+          general: {
+            hide_to_tray_during_game: false,
+            theme: 'system',
+            language: 'system',
+            check_updates_on_startup: true,
+          },
+        },
+      })
+      .mockResolvedValue({
+        status: 'ok',
+        data: {
+          version: 1,
+          active_instance: null,
+          onboarding: { tour_completed_version: null },
+          general: {
+            hide_to_tray_during_game: false,
+            theme: 'system',
+            language: 'ru',
+            check_updates_on_startup: true,
+          },
+        },
+      });
+
+    render(GeneralPanel);
+    // Wait for onMount to complete (first appSettingsGet call).
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Fire the tray checkbox change to trigger save().
+    await fireEvent.change(screen.getByTestId('tray-toggle'));
+
+    // save() must not clobber the 'ru' that the language picker already persisted.
+    expect(appSettingsSetGeneral).toHaveBeenCalled();
+    expect(appSettingsSetGeneral.mock.calls.at(-1)?.[0]).toMatchObject({ language: 'ru' });
+  });
 });

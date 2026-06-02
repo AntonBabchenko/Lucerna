@@ -35,7 +35,22 @@
 
   async function save() {
     saveError = null;
-    const r = await commands.appSettingsSetGeneral(general);
+    // Fresh read-modify-write. The theme + language pickers persist via
+    // their own RMW (setThemePref / setLocalePref) and do NOT update this
+    // panel's `general` rune, so writing the whole (stale) `general` here
+    // would clobber a just-changed theme/language. Re-read and merge only
+    // the fields this panel's toggles own.
+    const cur = await commands.appSettingsGet();
+    if (cur.status !== 'ok') {
+      saveError = formatError(cur.error);
+      return;
+    }
+    const next = {
+      ...cur.data.general,
+      hide_to_tray_during_game: general.hide_to_tray_during_game,
+      check_updates_on_startup: general.check_updates_on_startup,
+    };
+    const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') {
       saveError = formatError(r.error);
     }

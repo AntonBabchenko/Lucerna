@@ -12,5 +12,8 @@ export const t = derived(
   _,
   (format) =>
     (key: TranslationKey, values?: InterpolationValues): string =>
+      // `format()`'s type includes `undefined`, but svelte-i18n returns the
+      // key itself for a missing message at runtime; `?? key` just satisfies
+      // the `: string` return type.
       format(key, values ? { values } : undefined) ?? key,
 );
