@@ -74,7 +74,34 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
         .strip_prefix('v')
         .unwrap_or(&rel.tag_name)
         .to_string();
+    let available = is_newer(&latest, current);
+    let release_url = rel.html_url.clone();
 
+    // Install assets are only needed where we do in-app install (Windows).
+    // On notify-only platforms (Linux) we never download, so we don't require
+    // a `-setup.exe`/bundle/SHA256SUMS to exist — the UI links to the release.
+    let (installer, sha256sums, cosign_bundle) = if crate::platform::supports_in_app_install() {
+        let (i, s, b) = select_install_assets(&rel)?;
+        (Some(i), Some(s), Some(b))
+    } else {
+        (None, None, None)
+    };
+
+    Ok(UpdateInfo {
+        available,
+        current: current.to_string(),
+        latest,
+        release_url,
+        installer,
+        sha256sums,
+        cosign_bundle,
+    })
+}
+
+/// Find and validate the Windows in-app-install assets: the NSIS installer,
+/// its cosign bundle, and SHA256SUMS. Returns `Err(UpdateCheckFailed)` if any
+/// is missing or the installer name is not a bare filename.
+fn select_install_assets(rel: &GhRelease) -> Result<(ReleaseAsset, ReleaseAsset, ReleaseAsset)> {
     let installer = rel
         .assets
         .iter()
@@ -84,7 +111,9 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
         })?;
     // The installer name steers the download path (and the bundle name is
     // derived from it); SHA256SUMS is a constant. Reject anything that is
-    // not a bare filename before it reaches `dir.join`.
+    // not a bare filename before it reaches `dir.join` — a crafted name
+    // (path separator, `..`, drive letter) could otherwise escape the
+    // updates dir. Defense-in-depth: a bad name can't pass cosign anyway.
     if !is_bare_filename(&installer.name) {
         return Err(Error::UpdateCheckFailed {
             details: format!("unsafe installer asset name: {}", installer.name),
@@ -105,16 +134,7 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
         .ok_or_else(|| Error::UpdateCheckFailed {
             details: format!("release has no {bundle_name} asset"),
         })?;
-
-    Ok(UpdateInfo {
-        available: is_newer(&latest, current),
-        current: current.to_string(),
-        latest,
-        release_url: rel.html_url,
-        installer: installer.into(),
-        sha256sums: sha256sums.into(),
-        cosign_bundle: cosign_bundle.into(),
-    })
+    Ok((installer.into(), sha256sums.into(), cosign_bundle.into()))
 }
 
 /// Fetch the latest release and build an `UpdateInfo` relative to
@@ -177,17 +197,38 @@ mod tests {
     }
 
     #[test]
-    fn build_update_info_selects_assets_and_strips_v() {
+    fn build_update_info_reports_version_and_url_on_all_platforms() {
         let info = build_update_info(sample_release(), "0.9.0").unwrap();
         assert_eq!(info.latest, "0.9.1");
         assert!(info.available);
-        assert_eq!(info.installer.name, "Lucerna_0.9.1_x64-setup.exe");
         assert_eq!(
-            info.cosign_bundle.name,
+            info.release_url,
+            "https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.1"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn build_update_info_selects_install_assets_on_windows() {
+        let info = build_update_info(sample_release(), "0.9.0").unwrap();
+        let installer = info.installer.expect("windows populates installer");
+        assert_eq!(installer.name, "Lucerna_0.9.1_x64-setup.exe");
+        assert_eq!(installer.url, "https://github.com/dl/setup");
+        assert_eq!(
+            info.cosign_bundle.unwrap().name,
             "Lucerna_0.9.1_x64-setup.exe.cosign.bundle"
         );
-        assert_eq!(info.sha256sums.name, "SHA256SUMS");
-        assert_eq!(info.installer.url, "https://github.com/dl/setup");
+        assert_eq!(info.sha256sums.unwrap().name, "SHA256SUMS");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn build_update_info_notify_only_leaves_assets_none() {
+        let info = build_update_info(sample_release(), "0.9.0").unwrap();
+        assert!(info.available, "notify-only still flags an update");
+        assert!(info.installer.is_none());
+        assert!(info.sha256sums.is_none());
+        assert!(info.cosign_bundle.is_none());
     }
 
     #[test]
@@ -196,6 +237,7 @@ mod tests {
         assert!(!info.available);
     }
 
+    #[cfg(windows)]
     #[test]
     fn build_update_info_rejects_path_traversal_installer_name() {
         let mut rel = sample_release();
@@ -218,6 +260,7 @@ mod tests {
         assert!(!is_bare_filename(""));
     }
 
+    #[cfg(windows)]
     #[test]
     fn build_update_info_missing_installer_errors() {
         let mut rel = sample_release();

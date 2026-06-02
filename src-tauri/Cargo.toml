@@ -74,12 +74,21 @@ ammonia = "4"
 # largely overlapping the existing reqwest-rustls tree; no new license class.
 sigstore-verify = "0.8.0"
 
-# Windows-only: WaitForInputIdle to detect when the spawned MC process
-# has created its window (and so is visible on screen) before we hide
-# the launcher to the system tray. cfg(windows) at the use-site so the
-# crate compiles on Linux/macOS too when those targets eventually land.
+# Windows-only: WaitForInputIdle to detect when the spawned MC process has
+# created its window before we hide the launcher to the tray. Used from
+# `platform::wait_for_window_ready` (cfg(windows)); the crate is absent on
+# the Linux/macOS builds so the lib compiles there too.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation"] }
+
+# Unix-only: POSIX kill(2) to terminate the Minecraft JVM on Linux/macOS.
+# (Windows terminates the process tree via the `process::` taskkill
+# chokepoint; the Unix signal path lives in `platform::`.) cargo-deny
+# justification: `libc` is a foundational, ubiquitous crate already present
+# transitively via tokio/reqwest — promoting it to a direct unix-only dep
+# adds zero new compiled bytes and no new license class (MIT OR Apache-2.0).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.27.0"

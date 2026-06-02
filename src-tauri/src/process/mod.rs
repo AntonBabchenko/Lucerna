@@ -75,6 +75,12 @@ pub fn spawn_minecraft(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log_stdout))
         .stderr(std::process::Stdio::from(log_stderr));
+    // Put Minecraft in its own process group (pgid == child pid) so the
+    // exit/stop path can signal the whole group and reap helper children,
+    // not just the JVM. Unix-only; `process_group` is a no-op concept on
+    // Windows (taskkill /T handles the tree there).
+    #[cfg(unix)]
+    cmd.process_group(0);
     cmd.spawn().map_err(|e| Error::JavaSpawn {
         details: format!("spawn {}: {e}", java_path.display()),
     })
@@ -103,26 +109,17 @@ pub fn spawn_installer(installer: &Path) -> Result<()> {
     })
 }
 
-/// Terminate `pid` and its child processes. Best-effort: if the kill
-/// command fails (e.g. the PID is already gone) the error is ignored —
-/// the launch exit-watcher fires `ProcessExited` regardless of cause.
+/// Terminate `pid` and its child processes via `taskkill`. Best-effort: a
+/// failure (e.g. the PID is already gone) is ignored. Windows-only — this is
+/// the subprocess used by `platform::kill_process_tree` on Windows; the Unix
+/// signal path lives in `platform::` (no subprocess).
 #[cfg(target_os = "windows")]
-pub fn kill_process_tree(pid: u32) {
+pub fn taskkill_tree(pid: u32) {
     // /F = force, /T = kill child processes too (MC spawns helpers).
     let _ = std::process::Command::new("taskkill")
         .args(["/F", "/T", "/PID", &pid.to_string()])
         .status();
 }
-
-/// POSIX path — the launcher targets Windows; this is included only so
-/// non-Windows builds compile (e.g. `cargo test` on Linux CI runners).
-/// Deliberately a no-op: shelling out to `kill <pid>` on POSIX is
-/// unsafe when `pid` is large enough to wrap to a negative pid_t
-/// (POSIX `kill -1` targets every process the user can kill — caught
-/// by the Ubuntu CI runner taking SIGTERM from a unit test). The real
-/// launcher never reaches this path; non-Windows callers are stubs.
-#[cfg(not(target_os = "windows"))]
-pub fn kill_process_tree(_pid: u32) {}
 
 #[cfg(test)]
 mod tests {
@@ -171,17 +168,5 @@ mod tests {
             matches!(r, Err(Error::UpdateInstallFailed { .. })),
             "got {r:?}"
         );
-    }
-
-    #[test]
-    fn kill_process_tree_unknown_pid_does_not_panic() {
-        // The Windows taskkill path is no-op for unknown PIDs; the
-        // POSIX path is intentionally a no-op for ALL pids (see the
-        // `#[cfg(not(target_os = "windows"))]` body). u32::MAX was the
-        // value that, before this stub, made the CI runner take
-        // SIGTERM — POSIX `kill 4294967295` wraps to `kill -1`
-        // ("kill all processes the user can kill"). Test pinned at
-        // u32::MAX as a regression sentinel.
-        kill_process_tree(u32::MAX);
     }
 }

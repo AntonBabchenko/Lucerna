@@ -142,19 +142,12 @@ async fn download_files(
     // we move on_progress (an FnOnce-friendly value) into the stream.
     let mut file_entries: Vec<(String, bool, super::manifest::FileDownload)> = Vec::new();
     let mut dir_paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut link_entries: Vec<(String, String)> = Vec::new();
     for (rel, entry) in &manifest.files {
         let dest = comp_root.join(rel);
         match entry {
             FileEntry::Directory {} => dir_paths.push(dest),
-            FileEntry::Link { .. } => {
-                // Mojang's Windows component manifests don't emit `link`
-                // entries; if one shows up, we don't know how to express
-                // it on NTFS and refuse rather than guess.
-                return Err(Error::UnsupportedPlatform {
-                    os: "windows".into(),
-                    arch: "link-in-manifest".into(),
-                });
-            }
+            FileEntry::Link { target } => link_entries.push((rel.clone(), target.clone())),
             FileEntry::File {
                 executable,
                 downloads,
@@ -169,6 +162,21 @@ async fn download_files(
             .map_err(|e| Error::io(d.display().to_string(), e))?;
     }
 
+    // Symlinks (Unix JRE manifests only). Created after directories so the
+    // parent exists; the target may not exist yet (dangling links are fine
+    // until the target file lands). On Windows `platform::symlink` errors —
+    // but Windows manifests never carry link entries, so this stays empty.
+    for (rel, target) in link_entries {
+        let dest = comp_root.join(&rel);
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::io(parent.display().to_string(), e))?;
+        }
+        crate::platform::symlink(&target, &dest)
+            .map_err(|e| Error::io(dest.display().to_string(), e))?;
+    }
+
     let total = file_entries.len() as u32;
     let progress = Arc::new(on_progress);
     let done = Arc::new(AtomicU32::new(0));
@@ -176,11 +184,12 @@ async fn download_files(
 
     let app = app.clone();
     let comp_root_owned = comp_root.to_path_buf();
-    // `executable` is discarded here: on Windows there is no chmod and
-    // `.exe`/`.dll` extensions do the job. When macOS/Linux support lands
-    // post-v0.1.0 this must be honored via `std::os::unix::fs::PermissionsExt`.
+    // Honour the per-file `executable` flag from the Mojang JRE manifest.
+    // On Windows `set_executable` is a no-op (extensions decide); on Unix it
+    // chmods 0o755 so `bin/java` is runnable. Applied on both the freshly
+    // downloaded and the SHA-matched-skip paths (idempotent).
     let results: Vec<Result<()>> = stream::iter(file_entries.into_iter())
-        .map(|(rel, _executable, raw)| {
+        .map(|(rel, executable, raw)| {
             let app = app.clone();
             let comp_root = comp_root_owned.clone();
             let progress = Arc::clone(&progress);
@@ -195,6 +204,10 @@ async fn download_files(
                     download_with_sha(&app, &raw.url, &dest, &raw.sha1, "jre").await?;
                     raw.size
                 };
+                if executable {
+                    crate::platform::set_executable(&dest)
+                        .map_err(|e| Error::io(dest.display().to_string(), e))?;
+                }
                 let d = done.fetch_add(1, Ordering::Relaxed) + 1;
                 let b = bytes.fetch_add(transferred, Ordering::Relaxed) + transferred;
                 progress(d, total, b);

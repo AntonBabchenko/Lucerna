@@ -1,11 +1,15 @@
 name: Release
 
-# Builds and publishes a GitHub Release for every pushed v* tag.
-# Tags containing "-rc" (e.g. v0.9.0-rc.1) publish as a prerelease — used to
-# validate this workflow before the real tag. GitHub-hosted runner minutes are
-# free on public repositories. Third-party actions are SHA-pinned (SECURITY.md
-# A.7); cosign and cargo-cyclonedx are installed via plain package managers to
-# avoid adding new pinned actions (same rationale as cargo-llvm-cov in ci.yml).
+# Builds and publishes a GitHub Release for every pushed v* tag, across
+# Windows and Linux. Tags containing "-rc" publish as a prerelease. Runner
+# minutes are free on public repos. Third-party actions are SHA-pinned
+# (SECURITY.md A.7); cosign and cargo-cyclonedx come from plain installers.
+#
+# Shape: a matrix `build` job produces the unsigned installers per OS and
+# uploads them as workflow artifacts; a single `publish` job (Ubuntu) gathers
+# them, generates the SBOM + SHA256SUMS, cosign-signs every artifact, and
+# creates one Release. Centralizing signing keeps one identity and one
+# SHA256SUMS for all platforms.
 on:
   push:
     tags: ["v*"]
@@ -15,12 +19,13 @@ permissions:
   id-token: write   # cosign keyless signing via sigstore OIDC
 
 jobs:
-  release:
-    name: build + sign + publish
-    runs-on: windows-latest
-    # The tag is passed via env (not interpolated into run blocks) so a crafted
-    # ref cannot break out of the pwsh scripts — GitHub Actions script-injection
-    # hardening. Reference it as $env:TAG inside steps.
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     env:
       TAG: ${{ github.ref_name }}
     steps:
@@ -36,6 +41,21 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Install Tauri Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            build-essential \
+            libxdo-dev \
+            file \
+            rpm
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable @ 2026-05-23
         with:
@@ -46,128 +66,173 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Verify tag matches manifest version
-        shell: pwsh
-        run: |
-          $tag = $env:TAG                            # e.g. v0.9.0 or v0.9.0-rc.1
-          $base = $tag -replace '^v', '' -replace '-rc\.\d+$', ''
-          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          if ($conf.version -ne $base) {
-            Write-Error "Tag base '$base' (from '$tag') != tauri.conf.json version '$($conf.version)'"
-            exit 1
-          }
-          Write-Host "Version match OK: $base"
-          "APP_VERSION=$($conf.version)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build NSIS installer
-        shell: pwsh
+      - name: Build bundles
+        shell: bash
         env:
           LUCERNA_MS_CLIENT_ID_SECRET: ${{ secrets.LUCERNA_MS_CLIENT_ID }}
         run: |
-          if ($env:LUCERNA_MS_CLIENT_ID_SECRET) {
-            $env:LUCERNA_MS_CLIENT_ID = $env:LUCERNA_MS_CLIENT_ID_SECRET
-            Write-Host "MS client_id: using value from repo secret"
-          } else {
-            Write-Host "MS client_id: secret unset/empty; using built-in public default"
-          }
+          if [ -n "$LUCERNA_MS_CLIENT_ID_SECRET" ]; then
+            export LUCERNA_MS_CLIENT_ID="$LUCERNA_MS_CLIENT_ID_SECRET"
+            echo "MS client_id: using value from repo secret"
+          else
+            echo "MS client_id: secret unset/empty; using built-in public default"
+          fi
           pnpm tauri build
 
-      - name: Install cargo-cyclonedx
-        run: cargo install cargo-cyclonedx --version 0.5.7 --locked
+      - name: Stage installers (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe dist/
+
+      - name: Stage installers (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
+          cp src-tauri/target/release/bundle/deb/*.deb dist/
+          cp src-tauri/target/release/bundle/rpm/*.rpm dist/
+
+      - name: Upload installers artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: installers-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: sign + publish
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable @ 2026-05-23
+        with:
+          toolchain: stable
+
+      - name: Verify tag matches manifest version
+        shell: bash
+        run: |
+          set -e
+          base="${TAG#v}"            # strip leading v
+          base="${base%%-rc.*}"      # strip -rc.N suffix
+          conf_version=$(grep -m1 '"version"' src-tauri/tauri.conf.json | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
+          if [ "$conf_version" != "$base" ]; then
+            echo "Tag base '$base' (from '$TAG') != tauri.conf.json version '$conf_version'" >&2
+            exit 1
+          fi
+          echo "Version match OK: $base"
+          echo "APP_VERSION=$conf_version" >> "$GITHUB_ENV"
+
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: artifacts
+      - name: Collect installers into dist/
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+          find artifacts -type f -exec cp {} dist/ \;
+          echo "Staged:"; ls -1 dist
+
+      - name: Generate SBOM
+        shell: bash
+        run: |
+          set -e
+          cargo install cargo-cyclonedx --version 0.5.7 --locked
+          cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json
+          sbom=$(ls src-tauri/*.cdx.json | head -n1)
+          [ -n "$sbom" ] || { echo "SBOM not generated" >&2; exit 1; }
+          cp "$sbom" "dist/lucerna-${APP_VERSION}.cdx.json"
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        working-directory: dist
+        run: |
+          set -e
+          : > SHA256SUMS
+          for f in *; do
+            [ "$f" = SHA256SUMS ] && continue
+            [ -f "$f" ] || continue
+            sha256sum "$f" >> SHA256SUMS
+          done
+          cat SHA256SUMS
 
       - name: Install cosign
-        # Official sigstore installer, SHA-pinned (policy A.7). The chocolatey
-        # package ships an ancient cosign v1.3.1 with no `--bundle` and a stale
-        # keyless flow; pin a modern cosign for sigstore keyless signing.
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
         with:
           cosign-release: v3.0.6
 
-      - name: Stage release artifacts
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $installer = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          if (-not $installer) { Write-Error "NSIS installer not found"; exit 1 }
-          Copy-Item $installer.FullName "dist/$($installer.Name)"
-          cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json
-          $sbom = Get-ChildItem src-tauri/*.cdx.json | Select-Object -First 1
-          if (-not $sbom) { Write-Error "SBOM not generated"; exit 1 }
-          Copy-Item $sbom.FullName "dist/lucerna-$env:APP_VERSION.cdx.json"
-
-      - name: Generate SHA256SUMS
-        shell: pwsh
-        working-directory: dist
-        run: |
-          # Materialize the file list and compute every hash BEFORE opening the
-          # output handle — globbing into the same dir while Out-File streams to
-          # SHA256SUMS would deadlock on the file being written.
-          $files = Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS' }
-          $lines = foreach ($f in $files) {
-            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $f.FullName).Hash.ToLower()
-            "$hash  $($f.Name)"
-          }
-          # Write LF-only (no BOM): Set-Content emits CRLF on Windows, and GNU
-          # `sha256sum -c` then reads the trailing \r as part of the filename and
-          # fails. WriteAllText keeps the checksum file verifiable on Unix.
-          $content = ($lines -join "`n") + "`n"
-          [System.IO.File]::WriteAllText((Join-Path $PWD 'SHA256SUMS'), $content)
-
       - name: Sign artifacts (cosign keyless)
-        shell: pwsh
+        shell: bash
         working-directory: dist
         env:
           COSIGN_YES: "true"
         run: |
-          # Materialize the list first so the .cosign.bundle files created in the
-          # loop are never re-enumerated mid-stream.
-          $files = Get-ChildItem -File | Where-Object { $_.Name -notlike '*.cosign.bundle' }
-          foreach ($f in $files) {
-            cosign sign-blob $f.Name --bundle "$($f.Name).cosign.bundle"
-            if ($LASTEXITCODE -ne 0) { Write-Error "cosign failed on $($f.Name)"; exit 1 }
-          }
+          set -e
+          for f in *; do
+            [ -f "$f" ] || continue
+            case "$f" in *.cosign.bundle) continue;; esac
+            cosign sign-blob "$f" --bundle "${f}.cosign.bundle"
+          done
 
       - name: Compose release notes
-        shell: pwsh
+        shell: bash
         run: |
-          $notes = @"
-          Lucerna $env:APP_VERSION — first public release.
+          cat > notes.md <<'NOTES'
+          Lucerna ${APP_VERSION}.
 
-          See CHANGELOG.md for the full feature list.
+          See CHANGELOG.md for the full feature list. This release ships
+          Windows (NSIS `-setup.exe`) and Linux (`.AppImage`, `.deb`,
+          `.rpm`) artifacts.
 
           ## Verifying this release
 
-          Artifacts are signed with cosign (keyless, sigstore) by this repo's GitHub Actions OIDC identity. To verify the installer:
+          Every artifact is signed with cosign (keyless, sigstore) by this
+          repo's GitHub Actions OIDC identity. To verify any artifact:
 
-          ``````
+          ```
           cosign verify-blob \
-            --bundle Lucerna_${env:APP_VERSION}_x64-setup.exe.cosign.bundle \
+            --bundle <artifact>.cosign.bundle \
             --certificate-identity-regexp 'https://github.com/AntonBabchenko/Lucerna/.github/workflows/release.yml@.*' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            Lucerna_${env:APP_VERSION}_x64-setup.exe
-          ``````
+            <artifact>
+          ```
 
-          Checksums are in ``SHA256SUMS``. A CycloneDX SBOM is attached as ``lucerna-$env:APP_VERSION.cdx.json``.
+          Checksums are in `SHA256SUMS`. A CycloneDX SBOM is attached as
+          `lucerna-${APP_VERSION}.cdx.json`.
 
-          ## Note on the unsigned binary
+          ## Note on unsigned binaries
 
-          The installer is **not** OS-level (Authenticode) code-signed — no code-signing certificate has been acquired yet, so Windows SmartScreen may warn on first run. Verify authenticity with cosign and SHA256SUMS above. See docs/SECURITY.md.
-          "@
-          $notes | Out-File -FilePath notes.md -Encoding utf8
+          Artifacts are **not** OS-level code-signed (no Authenticode / no
+          Apple notarization — macOS is not yet shipped). Windows SmartScreen
+          may warn on first run; verify with cosign and SHA256SUMS above. See
+          docs/SECURITY.md.
+          NOTES
+          # Replace the literal ${APP_VERSION} placeholders now that the
+          # heredoc is closed and APP_VERSION is in scope.
+          sed -i "s/\${APP_VERSION}/${APP_VERSION}/g" notes.md
 
       - name: Create GitHub Release
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ghArgs = @(
-            $env:TAG,
-            "--title", "Lucerna $env:TAG",
-            "--notes-file", "notes.md"
-          )
-          if ($env:TAG -match '-rc\.') { $ghArgs += "--prerelease" }
-          $ghArgs += (Get-ChildItem dist -File | ForEach-Object { $_.FullName })
-          gh release create @ghArgs
+          set -e
+          args=("$TAG" --title "Lucerna $TAG" --notes-file notes.md)
+          case "$TAG" in *-rc.*) args+=(--prerelease);; esac
+          for f in dist/*; do args+=("$f"); done
+          gh release create "${args[@]}"

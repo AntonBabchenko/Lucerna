@@ -11,12 +11,28 @@ export const updateState = $state<{ value: UpdateInfo | null }>({ value: null })
  *  download→verify→spawn chains). */
 export const updateInstalling = $state<{ value: boolean }>({ value: false });
 
-/** Start the install: re-check + download + verify + launch happen in the
- *  backend, which exits the app on success. On failure, surface a sticky
- *  warning toast with a "download manually" action. Re-entrant calls while
- *  an install is already running are ignored. */
+/** Start the update action.
+ *
+ *  On platforms with in-app install (Windows) `installer` is present:
+ *  re-check + download + verify + launch happen in the backend, which exits
+ *  the app on success; on failure we surface a sticky warning with a
+ *  "download manually" action.
+ *
+ *  On notify-only platforms (Linux) `installer` is null — there is no in-app
+ *  install, so we open the GitHub release page and let the user update via
+ *  their package manager or a fresh AppImage. Re-entrant calls while an
+ *  install is already running are ignored. */
 export async function runUpdate(): Promise<void> {
   if (updateInstalling.value) return;
+
+  const info = updateState.value;
+  if (info && info.installer === null) {
+    if (info.release_url) {
+      void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(info.release_url));
+    }
+    return;
+  }
+
   updateInstalling.value = true;
   const progress = pushInfo('Downloading update…');
   const r = await commands.updateInstall();
