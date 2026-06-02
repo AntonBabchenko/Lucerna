@@ -67,7 +67,7 @@ describe('Sidebar', () => {
 
   it('lists accounts and emits select on change', async () => {
     const onSelectAccount = vi.fn();
-    const { getByDisplayValue } = render(Sidebar, {
+    const { getByRole } = render(Sidebar, {
       props: {
         accounts: [sampleAccount],
         activeAccount: sampleAccount,
@@ -88,8 +88,8 @@ describe('Sidebar', () => {
         onInstall: vi.fn(),
       },
     });
-    const select = getByDisplayValue(/Tester/) as HTMLSelectElement;
-    expect(select).toBeTruthy();
+    const trigger = getByRole('combobox', { name: 'Account' });
+    expect(trigger.textContent).toMatch(/Tester/);
   });
 
   it('renders the Browse modpacks button at the sidebar level', () => {
