@@ -214,6 +214,9 @@
     const el = listEl.children[activeIndex] as HTMLElement | undefined;
     el?.scrollIntoView?.({ block: 'nearest' });
   });
+
+  // Clear any pending typeahead debounce when the component is destroyed.
+  $effect(() => () => clearTimeout(typeTimer));
 </script>
 
 <button
