@@ -25,6 +25,7 @@
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import OrphanUninstallDialog from './OrphanUninstallDialog.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import { mapLimit } from './concurrency';
   import { depGraphCache } from './dep-graph-cache';
   import { updateCheckCache } from './update-check-cache';
@@ -93,6 +94,12 @@
     }
   }
   let sortBy = $state<'name-asc' | 'name-desc' | 'recent' | 'source'>('name-asc');
+  const sortOptions = $derived([
+    { value: 'name-asc', label: $t('mods.installed.sortNameAsc') },
+    { value: 'name-desc', label: $t('mods.installed.sortNameDesc') },
+    { value: 'recent', label: $t('mods.installed.sortRecent') },
+    { value: 'source', label: $t('mods.installed.sortSource') },
+  ]);
   let error = $state<string | null>(null);
   let loading = $state(false);
   let busy = $state(false);
@@ -805,15 +812,16 @@
         class="flex-1 border border-border-emphasis rounded px-3 py-1.5 text-sm"
         bind:value={filter}
       />
-      <label class="text-xs text-secondary inline-flex items-center gap-1">
+      <div class="text-xs text-secondary inline-flex items-center gap-1">
         {$t('mods.installed.sortLabel')}
-        <select bind:value={sortBy} class="border rounded px-2 py-1 text-xs bg-surface">
-          <option value="name-asc">{$t('mods.installed.sortNameAsc')}</option>
-          <option value="name-desc">{$t('mods.installed.sortNameDesc')}</option>
-          <option value="recent">{$t('mods.installed.sortRecent')}</option>
-          <option value="source">{$t('mods.installed.sortSource')}</option>
-        </select>
-      </label>
+        <Select
+          class="text-xs"
+          ariaLabel={$t('mods.installed.sortLabel')}
+          value={sortBy}
+          options={sortOptions}
+          onChange={(v) => (sortBy = String(v) as typeof sortBy)}
+        />
+      </div>
       <button
         type="button"
         class="btn-secondary btn-xs"
