@@ -438,6 +438,48 @@
       "updateBtn": "Update"
     }
   },
+  "worlds": {
+    "tab": {
+      "noInstance": "Select an instance to view its worlds.",
+      "loading": "Loading worlds…",
+      "empty": "No worlds yet. Play Minecraft to create one.",
+      "worldActionsAriaLabel": "Actions for {name}",
+      "backupCountAriaLabel": "{count, plural, one {# backup} other {# backups}}",
+      "openSavesFolder": "Open saves folder ↗",
+      "closeMenuAriaLabel": "Close menu",
+      "backupNow": "Back up now",
+      "viewBackups": "View backups…",
+      "deleteWorld": "Delete world…",
+      "toastBackedUp": "Backed up {name} ({size})"
+    },
+    "backups": {
+      "title": "Backups for \"{world}\"",
+      "loading": "Loading backups…",
+      "empty": "No backups yet. Click \"Back up now\" on the world to create one.",
+      "backupActionsAriaLabel": "Actions for backup {filename}",
+      "total": "Total: {size}",
+      "openBackupsFolder": "Open backups folder ↗",
+      "closeMenuAriaLabel": "Close menu",
+      "restore": "Restore…",
+      "deleteBackup": "Delete backup",
+      "confirmDelete": "Delete backup {timestamp}?"
+    },
+    "restore": {
+      "title": "Restore \"{world}\" from {timestamp}",
+      "replaceLabel": "Replace current world",
+      "replaceDescription": "Current state will be auto-saved as a backup first (labeled \"pre-restore-…\") so you can roll back if needed.",
+      "asCopyLabel": "Restore as a copy",
+      "asCopyDescription": "Original world stays untouched. The backup is unzipped as \"{world} (restored)\".",
+      "restoreBtn": "Restore",
+      "toastRestored": "Restored {world} → {result}"
+    },
+    "delete": {
+      "title": "Delete \"{world}\"?",
+      "description": "This will permanently delete the world folder and all its contents. The backups for this world will also be removed. This cannot be undone.",
+      "typeToConfirm": "Type {word} to confirm:",
+      "deleteBtn": "Delete"
+    }
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",

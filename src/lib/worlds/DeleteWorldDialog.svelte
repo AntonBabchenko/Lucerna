@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
 
   let {
     instanceId,
@@ -46,14 +47,13 @@
 >
   <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
     <h3 id="delete-world-title" class="font-semibold text-lg text-primary mb-2">
-      Delete "{world.folder_name}"?
+      {$t('worlds.delete.title', { world: world.folder_name })}
     </h3>
     <p class="text-sm text-secondary mb-3">
-      This will permanently delete the world folder and all its contents. The backups for this world
-      will also be removed. This cannot be undone.
+      {$t('worlds.delete.description')}
     </p>
     <label class="block text-xs text-secondary mb-1" for="del-world-confirm">
-      Type <span class="font-mono font-semibold">{CONFIRM_WORD}</span> to confirm:
+      {$t('worlds.delete.typeToConfirm', { word: CONFIRM_WORD })}
     </label>
     <input
       id="del-world-confirm"
@@ -68,7 +68,7 @@
     {/if}
     <div class="flex justify-end gap-2">
       <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
-        Cancel
+        {$t('common.cancel')}
       </button>
       <button
         type="button"
@@ -76,7 +76,7 @@
         disabled={!canDelete}
         onclick={() => void onConfirm()}
       >
-        Delete
+        {$t('worlds.delete.deleteBtn')}
       </button>
     </div>
   </div>

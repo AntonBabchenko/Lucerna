@@ -2,6 +2,7 @@
   import { commands, type Backup, type RestoreMode } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { t } from '$lib/i18n';
 
   let {
     instanceId,
@@ -27,7 +28,12 @@
     const r = await commands.restoreBackup(instanceId, worldFolder, backup.filename, mode);
     busy = false;
     if (r.status === 'ok') {
-      pushSuccess(`Restored ${worldFolder} → ${r.data.final_folder_name}`);
+      pushSuccess(
+        $t('worlds.restore.toastRestored', {
+          world: worldFolder,
+          result: r.data.final_folder_name,
+        }),
+      );
       onRestored();
     } else {
       error = formatError(r.error);
@@ -48,26 +54,25 @@
 >
   <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
     <h3 id="restore-dialog-title" class="font-semibold text-lg text-primary mb-3">
-      Restore "{worldFolder}" from {formatTs()}
+      {$t('worlds.restore.title', { world: worldFolder, timestamp: formatTs() })}
     </h3>
     <label class="flex items-start gap-2 mb-3">
       <input type="radio" name="restore-mode" value="replace" bind:group={mode} disabled={busy} />
       <span class="text-sm">
-        <span class="font-medium">Replace current world</span>
+        <span class="font-medium">{$t('worlds.restore.replaceLabel')}</span>
         <br />
         <span class="text-secondary">
-          Current state will be auto-saved as a backup first (labeled "pre-restore-…") so you can
-          roll back if needed.
+          {$t('worlds.restore.replaceDescription')}
         </span>
       </span>
     </label>
     <label class="flex items-start gap-2 mb-4">
       <input type="radio" name="restore-mode" value="as_copy" bind:group={mode} disabled={busy} />
       <span class="text-sm">
-        <span class="font-medium">Restore as a copy</span>
+        <span class="font-medium">{$t('worlds.restore.asCopyLabel')}</span>
         <br />
         <span class="text-secondary">
-          Original world stays untouched. The backup is unzipped as "{worldFolder} (restored)".
+          {$t('worlds.restore.asCopyDescription', { world: worldFolder })}
         </span>
       </span>
     </label>
@@ -76,7 +81,7 @@
     {/if}
     <div class="flex justify-end gap-2">
       <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
-        Cancel
+        {$t('common.cancel')}
       </button>
       <button
         type="button"
@@ -84,7 +89,7 @@
         onclick={() => void onConfirm()}
         disabled={busy}
       >
-        Restore
+        {$t('worlds.restore.restoreBtn')}
       </button>
     </div>
   </div>

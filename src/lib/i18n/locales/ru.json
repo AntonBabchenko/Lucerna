@@ -438,6 +438,48 @@
       "updateBtn": "Обновить"
     }
   },
+  "worlds": {
+    "tab": {
+      "noInstance": "Выберите экземпляр, чтобы увидеть его миры.",
+      "loading": "Загрузка миров…",
+      "empty": "Миров пока нет. Запустите Minecraft, чтобы создать один.",
+      "worldActionsAriaLabel": "Действия для {name}",
+      "backupCountAriaLabel": "{count, plural, one {# резервная копия} few {# резервные копии} many {# резервных копий} other {# резервные копии}}",
+      "openSavesFolder": "Открыть папку сохранений ↗",
+      "closeMenuAriaLabel": "Закрыть меню",
+      "backupNow": "Создать резервную копию",
+      "viewBackups": "Резервные копии…",
+      "deleteWorld": "Удалить мир…",
+      "toastBackedUp": "Создана резервная копия {name} ({size})"
+    },
+    "backups": {
+      "title": "Резервные копии «{world}»",
+      "loading": "Загрузка резервных копий…",
+      "empty": "Резервных копий пока нет. Нажмите «Создать резервную копию» для нужного мира.",
+      "backupActionsAriaLabel": "Действия для резервной копии {filename}",
+      "total": "Итого: {size}",
+      "openBackupsFolder": "Открыть папку резервных копий ↗",
+      "closeMenuAriaLabel": "Закрыть меню",
+      "restore": "Восстановить…",
+      "deleteBackup": "Удалить резервную копию",
+      "confirmDelete": "Удалить резервную копию {timestamp}?"
+    },
+    "restore": {
+      "title": "Восстановить «{world}» из {timestamp}",
+      "replaceLabel": "Заменить текущий мир",
+      "replaceDescription": "Текущее состояние будет автоматически сохранено как резервная копия (с меткой «pre-restore-…»), чтобы можно было откатиться при необходимости.",
+      "asCopyLabel": "Восстановить как копию",
+      "asCopyDescription": "Исходный мир останется нетронутым. Резервная копия будет разархивирована как «{world} (restored)».",
+      "restoreBtn": "Восстановить",
+      "toastRestored": "Восстановлен {world} → {result}"
+    },
+    "delete": {
+      "title": "Удалить «{world}»?",
+      "description": "Папка мира и всё её содержимое будут удалены без возможности восстановления. Резервные копии этого мира также будут удалены. Это действие необратимо.",
+      "typeToConfirm": "Введите {word} для подтверждения:",
+      "deleteBtn": "Удалить"
+    }
+  },
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",
