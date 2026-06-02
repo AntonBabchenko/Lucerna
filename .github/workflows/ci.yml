@@ -79,6 +79,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: pnpm typecheck
         run: pnpm typecheck
+      - name: i18n keys up to date
+        run: pnpm i18n:keys:check
       - name: pnpm test
         run: pnpm test
 

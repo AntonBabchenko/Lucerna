@@ -151,6 +151,12 @@ If you fork this project you must license your fork under GPL-3.0 or a later
 version. This is intentional: it prevents the kind of re-skinned-with-telemetry
 fork that motivated Lucerna in the first place.
 
+## Translations
+
+Lucerna is available in English and Russian, and is open for community
+translation via [Weblate](https://weblate.org/). See
+[`docs/TRANSLATING.md`](docs/TRANSLATING.md) to add or improve a language.
+
 ## Contributing
 
 Contributions are welcome. The codebase is built in vertical slices with a
