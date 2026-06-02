@@ -102,6 +102,22 @@ jobs:
             pnpm tauri build
           fi
 
+      - name: Assert app is ad-hoc signed (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -e
+          # Guard: APPLE_SIGNING_IDENTITY="-" must have made Tauri ad-hoc sign
+          # the .app during bundling. If a future tauri-cli stops honouring it,
+          # the build would otherwise ship a .dmg containing an unsigned app
+          # that Gatekeeper kills on Apple Silicon — fail here instead.
+          app=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app | head -n1)
+          codesign -dv "$app" 2>&1 | grep -q "Signature=adhoc" || {
+            echo "ERROR: $app is not ad-hoc signed — APPLE_SIGNING_IDENTITY was not honoured by tauri-bundler"
+            exit 1
+          }
+          echo "macOS .app is ad-hoc signed: $app"
+
       - name: Stage installers (Windows)
         if: runner.os == 'Windows'
         shell: bash
