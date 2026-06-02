@@ -95,6 +95,48 @@ pub fn kill_process_tree(pid: u32) {
     }
 }
 
+/// Block until the spawned process has created its top-level window (input
+/// message queue ready), or a 30-second cap elapses. Used to delay
+/// hide-to-tray until Minecraft is actually on screen.
+///
+/// Windows uses Win32 `WaitForInputIdle`. Other platforms are a deliberate
+/// immediate-return no-op for now — Linux/macOS window detection (X11
+/// `_NET_CLIENT_LIST`, NSWorkspace, and the Wayland gap) is a later spec; the
+/// launcher hides immediately on spawn there, as it did pre-2026-05-26.
+#[cfg(windows)]
+pub async fn wait_for_window_ready(pid: u32) {
+    let _ = tokio::task::spawn_blocking(move || {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, WaitForInputIdle, PROCESS_QUERY_INFORMATION,
+        };
+        // SYNCHRONIZE access right (0x00100000) — required by
+        // WaitForInputIdle per MSDN. Not re-exported from
+        // Win32::System::Threading in windows-sys, so spelled out as
+        // a literal to avoid pulling the Win32_Security feature for
+        // a single constant.
+        const SYNCHRONIZE: u32 = 0x0010_0000;
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, 0, pid);
+            if handle.is_null() {
+                eprintln!("tray: OpenProcess failed for pid {pid} — hiding immediately");
+                return;
+            }
+            // 0 = input idle reached, 0x102 = WAIT_TIMEOUT — both
+            // fall through to hide. 0xFFFFFFFF = WAIT_FAILED.
+            let result = WaitForInputIdle(handle, 30_000);
+            if result == 0xFFFFFFFF {
+                eprintln!("tray: WaitForInputIdle failed for pid {pid}");
+            }
+            CloseHandle(handle);
+        }
+    })
+    .await;
+}
+
+#[cfg(not(windows))]
+pub async fn wait_for_window_ready(_pid: u32) {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +208,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = symlink("target", &dir.path().join("alias")).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn wait_for_window_ready_is_immediate_noop_off_windows() {
+        // Off Windows there is no window-detect yet (deliberate fallback);
+        // it must return promptly rather than block the hide-to-tray task.
+        wait_for_window_ready(123_456).await;
     }
 }

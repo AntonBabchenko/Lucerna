@@ -102,7 +102,7 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
 
     let app_clone = app.clone();
     tokio::spawn(async move {
-        wait_for_window_ready(pid).await;
+        crate::platform::wait_for_window_ready(pid).await;
         // If MC exited during the wait (crash, fast-quit, manual
         // kill), there's nothing to hide *for* — skip popping a tray
         // icon that would immediately get removed by the exit-watcher
@@ -121,49 +121,6 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
         }
     });
 }
-
-/// Block until the spawned process has set up its input message queue
-/// (= top-level window created), or a 30-second cap elapses. Long
-/// enough for heavy Forge modpacks; short enough that a never-opening
-/// MC doesn't leave the launcher waiting forever.
-#[cfg(windows)]
-async fn wait_for_window_ready(pid: u32) {
-    let _ = tokio::task::spawn_blocking(move || {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, WaitForInputIdle, PROCESS_QUERY_INFORMATION,
-        };
-        // SYNCHRONIZE access right (0x00100000) — required by
-        // WaitForInputIdle per MSDN. Not re-exported from
-        // Win32::System::Threading in windows-sys, so spelled out as
-        // a literal to avoid pulling the Win32_Security feature for
-        // a single constant.
-        const SYNCHRONIZE: u32 = 0x0010_0000;
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, 0, pid);
-            if handle.is_null() {
-                eprintln!("tray: OpenProcess failed for pid {pid} — hiding immediately");
-                return;
-            }
-            // 0 = input idle reached, 0x102 = WAIT_TIMEOUT — both
-            // fall through to hide. 0xFFFFFFFF = WAIT_FAILED.
-            let result = WaitForInputIdle(handle, 30_000);
-            if result == 0xFFFFFFFF {
-                eprintln!("tray: WaitForInputIdle failed for pid {pid}");
-            }
-            CloseHandle(handle);
-        }
-    })
-    .await;
-}
-
-/// Non-Windows fallback. The launcher is currently Windows-only; when
-/// Linux/macOS land (post-v0.5.0 backlog #13) this needs platform-
-/// specific window-detection (X11 `_NET_CLIENT_LIST`, NSWorkspace,
-/// etc.). Until then, hide-to-tray takes effect immediately on game
-/// spawn — same as the pre-2026-05-26 behaviour.
-#[cfg(not(windows))]
-async fn wait_for_window_ready(_pid: u32) {}
 
 fn note_session_end() {
     let Some(start) = session()
