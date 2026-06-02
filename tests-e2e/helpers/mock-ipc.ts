@@ -105,10 +105,17 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         m.instances.find((i: { id: string }) => i.id === m.active_instance_id) ?? null,
 
       // App settings — returns a minimal AppFile_Serialize shape.
+      // tour_completed_version MUST equal the app's TOUR_VERSION constant
+      // (src/lib/onboarding/state.svelte.ts) so the first-run onboarding
+      // tour is treated as already completed and never auto-fires. The
+      // tour overlay disables pointer-events on the whole UI beneath it,
+      // which breaks any click-driven interaction in tests. A non-matching
+      // sentinel (e.g. 'skip') leaves the tour ACTIVE — keep this in sync if
+      // TOUR_VERSION is bumped.
       app_settings_get: () => ({
         version: 1,
         active_instance: m.active_instance_id,
-        onboarding: { tour_completed_version: 'skip' },
+        onboarding: { tour_completed_version: '0.5.0' },
         general: {
           hide_to_tray_during_game: false,
           theme: m.theme,

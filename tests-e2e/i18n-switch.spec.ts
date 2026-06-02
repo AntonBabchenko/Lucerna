@@ -55,10 +55,22 @@ test('language picker switches labels live without a page reload', async ({ page
 
   // Scope the appearance heading to the dialog to avoid ambiguity with any
   // sidebar or other text that might also say "Appearance".
-  const dialog = page.locator(SETTINGS_DIALOG);
+  //
+  // Locate the dialog by ROLE, not by its English aria-label: switching the
+  // language re-localises the dialog's accessible name (aria-label={$t(
+  // 'settings.title')} → "Настройки"), so an aria-label="Settings" selector
+  // would go stale the moment the test switches to Russian. There is only one
+  // open dialog, so the role match is unambiguous.
+  const dialog = page.getByRole('dialog');
+
+  // The language picker is the custom <Select> (button[role=combobox] opening a
+  // listbox of role=option), not a native <select>. Drive it by opening the
+  // trigger and clicking the option by its visible i18n label. Clicking the
+  // option fires mousedown, which is where the Select commits the value.
 
   // --- English baseline ---
-  await languageSelect.selectOption('en');
+  await languageSelect.click();
+  await page.getByRole('option', { name: 'English', exact: true }).click();
   await expect(dialog.getByText('Appearance', { exact: true })).toBeVisible();
 
   // Plant a sentinel on window to detect whether a reload occurs.
@@ -66,8 +78,9 @@ test('language picker switches labels live without a page reload', async ({ page
     (window as Window & { __noReload?: boolean }).__noReload = true;
   });
 
-  // --- Switch to Russian ---
-  await languageSelect.selectOption('ru');
+  // --- Switch to Russian (LOCALE_LABELS['ru'] === 'Русский') ---
+  await languageSelect.click();
+  await page.getByRole('option', { name: 'Русский', exact: true }).click();
 
   // The heading must have switched in place without a reload.
   await expect(dialog.getByText('Внешний вид', { exact: true })).toBeVisible();
