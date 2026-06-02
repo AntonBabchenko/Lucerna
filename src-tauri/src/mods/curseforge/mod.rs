@@ -214,7 +214,7 @@ impl ModPlatform for CurseForgeClient {
                 details: e.to_string(),
             })?;
         let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
-        Ok(env
+        let versions: Vec<ModVersion> = env
             .data
             .into_iter()
             .filter_map(|f| convert_version(f, project_id))
@@ -228,7 +228,12 @@ impl ModPlatform for CurseForgeClient {
                 Some(want) if !v.loaders.is_empty() => v.loaders.contains(&want),
                 _ => true,
             })
-            .collect())
+            .collect();
+        // Second, filename-based guard against loader mis-tagging (shared with
+        // the Modrinth client).
+        Ok(crate::mods::platform::drop_filename_loader_mismatches(
+            versions, loader,
+        ))
     }
 
     async fn resolve_deps(

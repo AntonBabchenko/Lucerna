@@ -26,6 +26,55 @@ pub enum ModSort {
     Updated,
 }
 
+/// Best-effort loader detection from a release filename.
+///
+/// Defends against upstream loader mis-tagging: some authors publish a
+/// NeoForge jar but tag it with the `forge` loader on Modrinth (Xaero's
+/// Minimap for 1.20.4 does this), which would otherwise install a NeoForge
+/// jar onto a Forge instance and crash at launch. When the platform's loader
+/// tag is unreliable, the filename (`...-neoforge-...` vs `...-forge-...`) is
+/// the trustworthy signal.
+///
+/// Returns `None` when the filename names no loader — callers MUST treat that
+/// as "trust the platform tag", never as a mismatch.
+///
+/// `neoforge` is checked before `forge` because "forge" is a substring of
+/// "neoforge".
+pub fn loader_in_filename(filename: &str) -> Option<LoaderKind> {
+    let f = filename.to_ascii_lowercase();
+    if f.contains("neoforge") {
+        Some(LoaderKind::NeoForge)
+    } else if f.contains("fabric") {
+        Some(LoaderKind::Fabric)
+    } else if f.contains("quilt") {
+        Some(LoaderKind::Quilt)
+    } else if f.contains("forge") {
+        Some(LoaderKind::Forge)
+    } else {
+        None
+    }
+}
+
+/// Drop versions whose primary-file filename names a loader different from the
+/// requested one. Versions whose filename names no loader are kept (trust the
+/// platform tag). No-op when no loader was requested (e.g. the "show all
+/// versions" path). Forge and NeoForge are distinct here.
+pub fn drop_filename_loader_mismatches(
+    versions: Vec<ModVersion>,
+    want: Option<LoaderKind>,
+) -> Vec<ModVersion> {
+    match want {
+        Some(want) => versions
+            .into_iter()
+            .filter(|v| match loader_in_filename(&v.primary_file.filename) {
+                Some(found) => found == want,
+                None => true,
+            })
+            .collect(),
+        None => versions,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModSearchQuery {
     pub source: ModSource,
@@ -281,5 +330,91 @@ mod tests {
         let j = serde_json::to_string(&m).unwrap();
         assert!(j.contains(r#""source":"modrinth""#));
         assert!(j.contains(r#""project_id":"abc""#));
+    }
+
+    #[test]
+    fn loader_in_filename_detects_neoforge_before_forge() {
+        // "forge" is a substring of "neoforge" — must not misfire.
+        assert_eq!(
+            loader_in_filename("xaerominimap-neoforge-1.20.4-25.3.13.jar"),
+            Some(LoaderKind::NeoForge)
+        );
+        assert_eq!(
+            loader_in_filename("xaerominimap-forge-1.20.4-25.3.13.jar"),
+            Some(LoaderKind::Forge)
+        );
+        assert_eq!(
+            loader_in_filename("Xaeros_Minimap_24.4.0_NeoForge_1.20.4.jar"),
+            Some(LoaderKind::NeoForge)
+        );
+    }
+
+    #[test]
+    fn loader_in_filename_detects_fabric_quilt_and_none() {
+        assert_eq!(
+            loader_in_filename("sodium-fabric-0.5.jar"),
+            Some(LoaderKind::Fabric)
+        );
+        assert_eq!(
+            loader_in_filename("mod-quilt-1.0.jar"),
+            Some(LoaderKind::Quilt)
+        );
+        // No loader token → ambiguous → None (trust the platform tag).
+        assert_eq!(loader_in_filename("jei-1.20.1.jar"), None);
+        assert_eq!(loader_in_filename(""), None);
+    }
+
+    fn version_with_filename(filename: &str) -> ModVersion {
+        ModVersion {
+            source: ModSource::Modrinth,
+            project_id: "p".into(),
+            version_id: filename.into(),
+            name: filename.into(),
+            version_number: filename.into(),
+            mc_versions: vec!["1.20.4".into()],
+            loaders: vec![LoaderKind::Forge], // mis-tagged as forge on purpose
+            primary_file: ModFile {
+                filename: filename.into(),
+                url: "https://example/x.jar".into(),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn drop_filename_loader_mismatches_removes_neoforge_for_forge_request() {
+        // Mirrors the live Xaero's Minimap 1.20.4 data: both jars carry the
+        // `forge` loader tag, but the neoforge build must be dropped when the
+        // user asked for Forge.
+        let versions = vec![
+            version_with_filename("xaerominimap-neoforge-1.20.4-25.3.13.jar"),
+            version_with_filename("xaerominimap-forge-1.20.4-25.3.13.jar"),
+        ];
+        let kept = drop_filename_loader_mismatches(versions, Some(LoaderKind::Forge));
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            kept[0].primary_file.filename,
+            "xaerominimap-forge-1.20.4-25.3.13.jar"
+        );
+    }
+
+    #[test]
+    fn drop_filename_loader_mismatches_keeps_untagged_and_is_noop_without_loader() {
+        let versions = vec![version_with_filename("jei-1.20.1.jar")];
+        // Untagged filename is kept even when a loader is requested.
+        assert_eq!(
+            drop_filename_loader_mismatches(versions.clone(), Some(LoaderKind::Forge)).len(),
+            1
+        );
+        // No loader requested → no filtering at all.
+        let mixed = vec![
+            version_with_filename("x-neoforge-1.jar"),
+            version_with_filename("x-forge-1.jar"),
+        ];
+        assert_eq!(drop_filename_loader_mismatches(mixed, None).len(), 2);
     }
 }
