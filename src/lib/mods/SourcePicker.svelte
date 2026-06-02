@@ -3,10 +3,7 @@
   import Select from '$lib/ui/Select.svelte';
   import { t } from '$lib/i18n';
 
-  let {
-    value,
-    onChange,
-  }: { value: ModSource; onChange: (value: ModSource) => void } = $props();
+  let { value, onChange }: { value: ModSource; onChange: (value: ModSource) => void } = $props();
 
   const options = [
     { value: 'modrinth', label: 'Modrinth' },
