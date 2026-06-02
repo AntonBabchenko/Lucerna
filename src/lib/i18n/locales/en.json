@@ -5,12 +5,82 @@
     "close": "Close"
   },
   "settings": {
+    "title": "Settings",
+    "closeLabel": "Close settings",
+    "closeBackdropLabel": "Close Settings",
+    "tabs": {
+      "general": "General",
+      "storage": "Storage",
+      "curseforge": "CurseForge",
+      "about": "About"
+    },
     "general": {
       "appearance": {
         "title": "Appearance",
         "language": "Language",
-        "languageSystem": "System"
+        "languageSystem": "System",
+        "themeSystem": "System",
+        "themeLight": "Light",
+        "themeDark": "Dark"
+      },
+      "playing": {
+        "title": "Playing",
+        "trayLabel": "Hide launcher to tray when Minecraft starts",
+        "trayDescription": "A small icon appears in the system tray. The launcher returns when Minecraft closes; click the tray icon to bring it back sooner."
+      },
+      "updates": {
+        "title": "Updates",
+        "startupLabel": "Check for updates on startup",
+        "startupDescription": "Shows a notification when a newer version is available. Installing is always an explicit click — Lucerna never updates itself silently.",
+        "checkBtn": "Check for updates",
+        "checking": "Checking…",
+        "uptodate": "You're on the latest version ({version}).",
+        "error": "Couldn't check: {message}",
+        "available": "Version {version} is available.",
+        "updateNow": "Update now",
+        "installing": "Installing…"
+      },
+      "onboarding": {
+        "title": "Onboarding",
+        "replayBtn": "Replay onboarding tour",
+        "replayDescription": "Show the 6-step tutorial again."
       }
+    },
+    "storage": {
+      "cacheLabel": "Mod download cache:",
+      "cacheDescription": "Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs will re-download.",
+      "clearBtn": "Clear cache",
+      "cleared": "Cache cleared ({freed} freed)"
+    },
+    "about": {
+      "title": "About",
+      "viewOnGitHub": "View on GitHub",
+      "openRepoLabel": "Open Lucerna repository on GitHub ({url})",
+      "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
+      "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
+      "keyring": "Microsoft refresh tokens are stored in the OS keyring (Windows Credential Manager) and removed when you sign out."
+    },
+    "curseforge": {
+      "statusLabel": "Status:",
+      "statusOk": "OK — key is set",
+      "statusInvalid": "Invalid — please enter a new key",
+      "statusMissing": "Not configured",
+      "statusChecking": "Checking…",
+      "step1Before": "Open",
+      "step1After": "and sign in with a free account",
+      "step2Before": "Once logged in, open the",
+      "step2After": "tab",
+      "step3": "Generate a key for Lucerna",
+      "step4": "Paste it below",
+      "replaceHintBefore": "To replace the stored key, paste a new one below and click",
+      "replaceHintAfter": "Get one at",
+      "replaceAction": "Update key",
+      "inputLabelNew": "Key",
+      "inputLabelReplace": "New key (overwrites stored)",
+      "saveKey": "Save key",
+      "updateKey": "Update key",
+      "clearKey": "Clear key",
+      "keyringNote": "Stored in OS keyring (Windows Credential Manager)."
     }
   }
 }

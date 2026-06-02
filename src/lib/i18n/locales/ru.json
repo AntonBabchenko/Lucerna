@@ -5,12 +5,82 @@
     "close": "Закрыть"
   },
   "settings": {
+    "title": "Настройки",
+    "closeLabel": "Закрыть настройки",
+    "closeBackdropLabel": "Закрыть настройки",
+    "tabs": {
+      "general": "Основные",
+      "storage": "Хранилище",
+      "curseforge": "CurseForge",
+      "about": "О программе"
+    },
     "general": {
       "appearance": {
         "title": "Внешний вид",
         "language": "Язык",
-        "languageSystem": "Системный"
+        "languageSystem": "Системный",
+        "themeSystem": "Системная",
+        "themeLight": "Светлая",
+        "themeDark": "Тёмная"
+      },
+      "playing": {
+        "title": "Игра",
+        "trayLabel": "Сворачивать лаунчер в трей при запуске Minecraft",
+        "trayDescription": "В трее появится небольшой значок. Лаунчер вернётся автоматически после закрытия Minecraft; щёлкните по значку в трее, чтобы восстановить его раньше."
+      },
+      "updates": {
+        "title": "Обновления",
+        "startupLabel": "Проверять обновления при запуске",
+        "startupDescription": "При наличии новой версии появится уведомление. Установка всегда требует явного подтверждения — Lucerna никогда не обновляется автоматически.",
+        "checkBtn": "Проверить обновления",
+        "checking": "Проверка…",
+        "uptodate": "У вас последняя версия ({version}).",
+        "error": "Не удалось проверить: {message}",
+        "available": "Доступна версия {version}.",
+        "updateNow": "Обновить",
+        "installing": "Установка…"
+      },
+      "onboarding": {
+        "title": "Знакомство",
+        "replayBtn": "Повторить обучение",
+        "replayDescription": "Показать 6-шаговое руководство ещё раз."
       }
+    },
+    "storage": {
+      "cacheLabel": "Кэш загруженных модов:",
+      "cacheDescription": "Очистка удаляет только кэшированные jar-файлы. Установленные в экземплярах моды не затрагиваются. При переустановке они будут скачаны заново.",
+      "clearBtn": "Очистить кэш",
+      "cleared": "Кэш очищен (освобождено {freed})"
+    },
+    "about": {
+      "title": "О программе",
+      "viewOnGitHub": "Открыть на GitHub",
+      "openRepoLabel": "Открыть репозиторий Lucerna на GitHub ({url})",
+      "license": "Распространяется под лицензией GPL-3.0-or-later. Java-среда и файлы Minecraft загружаются с серверов Mojang во время выполнения и никогда не изменяются.",
+      "trademark": "Minecraft и Mojang являются торговыми марками Mojang Synergies AB и Microsoft Corporation. Данный лаунчер не аффилирован ни с одной из этих компаний.",
+      "keyring": "Токены обновления Microsoft хранятся в системном хранилище ключей (Windows Credential Manager) и удаляются при выходе из аккаунта."
+    },
+    "curseforge": {
+      "statusLabel": "Статус:",
+      "statusOk": "OK — ключ установлен",
+      "statusInvalid": "Недействителен — введите новый ключ",
+      "statusMissing": "Не настроен",
+      "statusChecking": "Проверка…",
+      "step1Before": "Откройте",
+      "step1After": "и войдите с бесплатным аккаунтом",
+      "step2Before": "После входа откройте вкладку",
+      "step2After": "в личном кабинете",
+      "step3": "Создайте ключ для Lucerna",
+      "step4": "Вставьте его ниже",
+      "replaceHintBefore": "Чтобы заменить сохранённый ключ, вставьте новый ниже и нажмите",
+      "replaceHintAfter": "Получить ключ можно на",
+      "replaceAction": "Обновить ключ",
+      "inputLabelNew": "Ключ",
+      "inputLabelReplace": "Новый ключ (заменит сохранённый)",
+      "saveKey": "Сохранить ключ",
+      "updateKey": "Обновить ключ",
+      "clearKey": "Удалить ключ",
+      "keyringNote": "Хранится в системном хранилище ключей (Windows Credential Manager)."
     }
   }
 }

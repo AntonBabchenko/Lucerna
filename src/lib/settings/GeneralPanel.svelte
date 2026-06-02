@@ -93,7 +93,7 @@
   <div class="flex flex-col gap-3">
     <h3 class="font-medium text-sm text-primary">{$t('settings.general.appearance.title')}</h3>
     <fieldset class="flex flex-col gap-2">
-      {#each [{ v: 'system' as ThemePreference, label: 'System' }, { v: 'light' as ThemePreference, label: 'Light' }, { v: 'dark' as ThemePreference, label: 'Dark' }] as opt (opt.v)}
+      {#each [{ v: 'system' as ThemePreference, labelKey: 'settings.general.appearance.themeSystem' as const }, { v: 'light' as ThemePreference, labelKey: 'settings.general.appearance.themeLight' as const }, { v: 'dark' as ThemePreference, labelKey: 'settings.general.appearance.themeDark' as const }] as opt (opt.v)}
         <label class="flex items-center gap-2 cursor-pointer">
           <input
             type="radio"
@@ -103,7 +103,7 @@
             onchange={() => void setThemePref(opt.v)}
             data-testid="theme-{opt.v}"
           />
-          <span class="text-sm">{opt.label}</span>
+          <span class="text-sm">{$t(opt.labelKey)}</span>
         </label>
       {/each}
     </fieldset>
@@ -124,7 +124,7 @@
   </div>
 
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm text-primary">Playing</h3>
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.playing.title')}</h3>
     {#if loadError}
       <p class="text-xs text-danger">{loadError}</p>
     {/if}
@@ -137,10 +137,9 @@
         data-testid="tray-toggle"
       />
       <span class="flex-1">
-        <span class="text-sm text-primary">Hide launcher to tray when Minecraft starts</span>
+        <span class="text-sm text-primary">{$t('settings.general.playing.trayLabel')}</span>
         <span class="block text-xs text-muted">
-          A small icon appears in the system tray. The launcher returns when Minecraft closes; click
-          the tray icon to bring it back sooner.
+          {$t('settings.general.playing.trayDescription')}
         </span>
       </span>
     </label>
@@ -150,7 +149,7 @@
   </div>
 
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm text-primary">Updates</h3>
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.updates.title')}</h3>
     <label class="flex items-start gap-2 cursor-pointer">
       <input
         type="checkbox"
@@ -160,10 +159,9 @@
         data-testid="updates-toggle"
       />
       <span class="flex-1">
-        <span class="text-sm text-primary">Check for updates on startup</span>
+        <span class="text-sm text-primary">{$t('settings.general.updates.startupLabel')}</span>
         <span class="block text-xs text-muted">
-          Shows a notification when a newer version is available. Installing is always an explicit
-          click — Lucerna never updates itself silently.
+          {$t('settings.general.updates.startupDescription')}
         </span>
       </span>
     </label>
@@ -175,19 +173,21 @@
         disabled={checking}
         data-testid="check-updates-btn"
       >
-        {checking ? 'Checking…' : 'Check for updates'}
+        {checking
+          ? $t('settings.general.updates.checking')
+          : $t('settings.general.updates.checkBtn')}
       </button>
       {#if checkResult.kind === 'uptodate'}
         <p class="text-xs text-muted" data-testid="update-status">
-          You're on the latest version ({checkResult.current}).
+          {$t('settings.general.updates.uptodate', { version: checkResult.current })}
         </p>
       {:else if checkResult.kind === 'error'}
         <p class="text-xs text-danger" data-testid="update-status">
-          Couldn't check: {checkResult.message}
+          {$t('settings.general.updates.error', { message: checkResult.message })}
         </p>
       {:else if checkResult.kind === 'available'}
         <p class="text-xs text-primary" data-testid="update-status">
-          Version {checkResult.version} is available.
+          {$t('settings.general.updates.available', { version: checkResult.version })}
         </p>
         <button
           type="button"
@@ -196,19 +196,21 @@
           disabled={updateInstalling.value}
           data-testid="update-now-btn"
         >
-          {updateInstalling.value ? 'Installing…' : 'Update now'}
+          {updateInstalling.value
+            ? $t('settings.general.updates.installing')
+            : $t('settings.general.updates.updateNow')}
         </button>
       {/if}
     </div>
   </div>
 
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm text-primary">Onboarding</h3>
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.onboarding.title')}</h3>
     <div class="flex items-center gap-3">
       <button type="button" class="btn-secondary btn-sm" onclick={onReplay}>
-        Replay onboarding tour
+        {$t('settings.general.onboarding.replayBtn')}
       </button>
-      <p class="text-xs text-muted">Show the 6-step tutorial again.</p>
+      <p class="text-xs text-muted">{$t('settings.general.onboarding.replayDescription')}</p>
     </div>
   </div>
 </section>

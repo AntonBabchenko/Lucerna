@@ -11,6 +11,7 @@
   // result-status pattern (typedError) — no try/catch around them.
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { t } from '$lib/i18n';
 
   let bytes = $state<number | null>(null);
   let clearing = $state(false);
@@ -47,7 +48,7 @@
     const result = await commands.modsClearCache();
     if (result.status === 'ok') {
       const freed = result.data ?? 0;
-      toast = `Cache cleared (${fmt(freed)} freed)`;
+      toast = $t('settings.storage.cleared', { freed: fmt(freed) });
       await refresh();
     } else {
       error = formatError(result.error);
@@ -58,11 +59,11 @@
 
 <div>
   <div class="text-sm mb-2">
-    Mod download cache: <span class="font-medium">{bytes === null ? '…' : fmt(bytes)}</span>
+    {$t('settings.storage.cacheLabel')}
+    <span class="font-medium">{bytes === null ? '…' : fmt(bytes)}</span>
   </div>
   <p class="text-xs text-muted mb-3">
-    Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs
-    will re-download.
+    {$t('settings.storage.cacheDescription')}
   </p>
 
   {#if error}
@@ -82,6 +83,6 @@
     disabled={clearing || bytes === 0 || bytes === null}
     onclick={clear}
   >
-    Clear cache
+    {$t('settings.storage.clearBtn')}
   </button>
 </div>
