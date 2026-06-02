@@ -4,6 +4,34 @@
     "save": "Save",
     "close": "Close"
   },
+  "nav": {
+    "overview": "Overview",
+    "modBrowser": "Mod browser",
+    "worlds": "Worlds"
+  },
+  "sidebar": {
+    "account": "Account",
+    "noAccounts": "No accounts yet — add one below.",
+    "accountKindMicrosoft": "Microsoft",
+    "accountKindOffline": "offline",
+    "addOffline": "+ Add offline",
+    "removeAccount": "Remove",
+    "playerNamePlaceholder": "Player name",
+    "addAccountConfirm": "Add",
+    "instance": "Instance",
+    "noInstances": "No instances yet.",
+    "createInstance": "+ Create",
+    "pickMcVersion": "(pick MC)",
+    "manage": "⚙ Manage",
+    "mods": "📂 Mods",
+    "stop": "Stop",
+    "play": "Play",
+    "pickVersionTitle": "Pick a Minecraft version first",
+    "working": "Working…",
+    "install": "↓ Install",
+    "browseModpacks": "📦 Browse modpacks",
+    "logs": "📜 Logs"
+  },
   "settings": {
     "title": "Settings",
     "closeLabel": "Close settings",

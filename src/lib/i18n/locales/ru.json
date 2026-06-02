@@ -4,6 +4,34 @@
     "save": "Сохранить",
     "close": "Закрыть"
   },
+  "nav": {
+    "overview": "Обзор",
+    "modBrowser": "Браузер модов",
+    "worlds": "Миры"
+  },
+  "sidebar": {
+    "account": "Аккаунт",
+    "noAccounts": "Нет аккаунтов — добавьте один ниже.",
+    "accountKindMicrosoft": "Microsoft",
+    "accountKindOffline": "офлайн",
+    "addOffline": "+ Добавить офлайн",
+    "removeAccount": "Удалить",
+    "playerNamePlaceholder": "Имя игрока",
+    "addAccountConfirm": "Добавить",
+    "instance": "Экземпляр",
+    "noInstances": "Нет экземпляров.",
+    "createInstance": "+ Создать",
+    "pickMcVersion": "(выбрать версию MC)",
+    "manage": "⚙ Управление",
+    "mods": "📂 Моды",
+    "stop": "Стоп",
+    "play": "Играть",
+    "pickVersionTitle": "Сначала выберите версию Minecraft",
+    "working": "Работаю…",
+    "install": "↓ Установить",
+    "browseModpacks": "📦 Браузер сборок",
+    "logs": "📜 Логи"
+  },
   "settings": {
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",
