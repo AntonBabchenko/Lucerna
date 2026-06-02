@@ -164,7 +164,9 @@ jobs:
         run: |
           set -e
           : > SHA256SUMS
-          for f in $(ls -1 | grep -v '^SHA256SUMS$'); do
+          for f in *; do
+            [ "$f" = SHA256SUMS ] && continue
+            [ -f "$f" ] || continue
             sha256sum "$f" >> SHA256SUMS
           done
           cat SHA256SUMS
@@ -181,8 +183,9 @@ jobs:
           COSIGN_YES: "true"
         run: |
           set -e
-          files=$(ls -1 | grep -v '\.cosign\.bundle$')
-          for f in $files; do
+          for f in *; do
+            [ -f "$f" ] || continue
+            case "$f" in *.cosign.bundle) continue;; esac
             cosign sign-blob "$f" --bundle "${f}.cosign.bundle"
           done
 
