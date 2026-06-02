@@ -5,10 +5,16 @@
   import { onMount } from 'svelte';
   import { commands, type GeneralSettings, type ThemePreference } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { AVAILABLE_LOCALES, t } from '$lib/i18n';
+  import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import { replayTour } from '$lib/onboarding/state.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
   import { settingsOpen } from './state.svelte';
+
+  // Display label per locale code. New community languages fall back to
+  // their raw code until a label is added here.
+  const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
 
   let general = $state<GeneralSettings>({
     hide_to_tray_during_game: false,
@@ -29,7 +35,22 @@
 
   async function save() {
     saveError = null;
-    const r = await commands.appSettingsSetGeneral(general);
+    // Fresh read-modify-write. The theme + language pickers persist via
+    // their own RMW (setThemePref / setLocalePref) and do NOT update this
+    // panel's `general` rune, so writing the whole (stale) `general` here
+    // would clobber a just-changed theme/language. Re-read and merge only
+    // the fields this panel's toggles own.
+    const cur = await commands.appSettingsGet();
+    if (cur.status !== 'ok') {
+      saveError = formatError(cur.error);
+      return;
+    }
+    const next = {
+      ...cur.data.general,
+      hide_to_tray_during_game: general.hide_to_tray_during_game,
+      check_updates_on_startup: general.check_updates_on_startup,
+    };
+    const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') {
       saveError = formatError(r.error);
     }
@@ -70,7 +91,7 @@
 
 <section class="flex flex-col gap-6">
   <div class="flex flex-col gap-3">
-    <h3 class="font-medium text-sm text-primary">Appearance</h3>
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.appearance.title')}</h3>
     <fieldset class="flex flex-col gap-2">
       {#each [{ v: 'system' as ThemePreference, label: 'System' }, { v: 'light' as ThemePreference, label: 'Light' }, { v: 'dark' as ThemePreference, label: 'Dark' }] as opt (opt.v)}
         <label class="flex items-center gap-2 cursor-pointer">
@@ -86,6 +107,20 @@
         </label>
       {/each}
     </fieldset>
+    <label class="flex flex-col gap-1">
+      <span class="text-sm text-primary">{$t('settings.general.appearance.language')}</span>
+      <select
+        class="border rounded px-2 py-1 text-sm"
+        data-testid="language-select"
+        value={langPref.value}
+        onchange={(e) => void setLocalePref((e.currentTarget as HTMLSelectElement).value)}
+      >
+        <option value="system">{$t('settings.general.appearance.languageSystem')}</option>
+        {#each AVAILABLE_LOCALES as code (code)}
+          <option value={code}>{LOCALE_LABELS[code] ?? code}</option>
+        {/each}
+      </select>
+    </label>
   </div>
 
   <div class="flex flex-col gap-3">

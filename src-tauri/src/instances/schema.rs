@@ -114,6 +114,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_language() -> String {
+    "system".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
@@ -131,6 +135,12 @@ pub struct GeneralSettings {
     /// and the notification. Opt-out via Settings → General.
     #[serde(default = "default_true")]
     pub check_updates_on_startup: bool,
+    /// UI language preference. `"system"` (follow OS) or a BCP-47 code
+    /// such as `"en"` / `"ru"`. Stored as an opaque string so community
+    /// translations need no Rust change — the frontend validates and
+    /// falls back. Default `"system"`.
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 impl Default for GeneralSettings {
@@ -139,6 +149,7 @@ impl Default for GeneralSettings {
             hide_to_tray_during_game: false,
             theme: ThemePreference::default(),
             check_updates_on_startup: true,
+            language: default_language(),
         }
     }
 }

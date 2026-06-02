@@ -32,6 +32,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding } from '$lib/onboarding/state.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
+  import { initLocale } from '$lib/i18n/state.svelte';
   import { onMount, untrack } from 'svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
@@ -308,6 +309,7 @@
     const settingsResult = await commands.appSettingsGet();
     if (settingsResult.status === 'ok') {
       initTheme(settingsResult.data.general.theme ?? 'system');
+      initLocale(settingsResult.data.general.language ?? 'system');
     }
 
     // Fire-and-forget: this is a best-effort, error-swallowing check, so it
