@@ -112,8 +112,17 @@ jobs:
           # the build would otherwise ship a .dmg containing an unsigned app
           # that Gatekeeper kills on Apple Silicon — fail here instead.
           app=$(ls -d src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app | head -n1)
-          codesign -dv "$app" 2>&1 | grep -q "Signature=adhoc" || {
-            echo "ERROR: $app is not ad-hoc signed — APPLE_SIGNING_IDENTITY was not honoured by tauri-bundler"
+          # `codesign --verify` is the parse-free gate: it exits non-zero if the
+          # app is not validly signed at all (an ad-hoc signature counts as
+          # valid; a fully unsigned app does not).
+          codesign --verify --verbose "$app" || {
+            echo "ERROR: $app is not validly signed — APPLE_SIGNING_IDENTITY was not honoured by tauri-bundler"
+            exit 1
+          }
+          # And confirm it is ad-hoc (the identity we asked for), not a real
+          # Developer ID. Case-insensitive to tolerate codesign output variance.
+          codesign -dvv "$app" 2>&1 | grep -qiE "adhoc|ad hoc" || {
+            echo "ERROR: $app is signed but not ad-hoc"
             exit 1
           }
           echo "macOS .app is ad-hoc signed: $app"

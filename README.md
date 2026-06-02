@@ -123,6 +123,14 @@ Both install to `%LOCALAPPDATA%\Programs\Lucerna\` by default. Launcher
 data (downloads, accounts, logs) lives at
 `%APPDATA%\com.lucerna.app\`.
 
+Beta builds for other platforms are published to the same Release:
+
+- **Linux** (beta) — `.AppImage` (portable), `.deb`, or `.rpm`.
+- **macOS** (beta) — `Lucerna_<version>_universal.dmg` (Universal2, Apple
+  Silicon + Intel). The app is ad-hoc signed, not notarized, so clear the
+  Gatekeeper quarantine after dragging **Lucerna** to `/Applications`:
+  `xattr -dr com.apple.quarantine /Applications/Lucerna.app`.
+
 ## Build from source
 
 Prerequisites:

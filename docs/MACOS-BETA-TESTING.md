@@ -1,4 +1,4 @@
-# macOS beta testing checklist
+# macOS Beta Testing Checklist
 
 Lucerna's macOS build is **beta**: CI compiles it, runs the Rust suite on a
 real Mac, and publishes a Universal2 (Apple Silicon + Intel) `.dmg`. What CI
