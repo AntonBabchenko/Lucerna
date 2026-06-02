@@ -68,14 +68,27 @@ fn positive_pid(pid: u32) -> Option<i32> {
     (p > 0).then_some(p)
 }
 
-/// Terminate the Minecraft process. Best-effort — failures are ignored
-/// because the launch exit-watcher fires `ProcessExited` regardless of how
-/// the process died.
+/// The POSIX `kill` target for terminating Minecraft's process group. MC is
+/// spawned with `process_group(0)`, so its pgid equals its pid; signalling
+/// `-pid` reaps the JVM and any helper children it spawned. Returns `None`
+/// for pids that don't fit a positive pid_t, and crucially excludes pid 1 —
+/// `kill(-1, …)` is the POSIX "every process the caller can kill" broadcast,
+/// never a real MC group.
+#[cfg(unix)]
+fn killpg_target(pid: u32) -> Option<i32> {
+    positive_pid(pid).filter(|&p| p > 1).map(|p| -p)
+}
+
+/// Terminate the Minecraft process and its helper children. Best-effort —
+/// failures are ignored because the launch exit-watcher fires `ProcessExited`
+/// regardless of how the process died.
 ///
 /// Windows kills the whole tree via the `process::` taskkill chokepoint (the
-/// MC launcher spawns helper processes there). Unix sends `SIGTERM` to the
-/// single JVM pid (the Linux/macOS client is one process); the pid is
-/// validated first so a wrapped pid can never broadcast.
+/// MC launcher spawns helper processes there). Unix signals Minecraft's
+/// process group with `SIGTERM` — MC is spawned with `process_group(0)` so
+/// its pgid equals its pid, and `-pgid` reaps the JVM together with any
+/// helper children it spawned; the pgid is validated so a wrapped value can
+/// never broadcast.
 pub fn kill_process_tree(pid: u32) {
     #[cfg(target_os = "windows")]
     {
@@ -83,13 +96,14 @@ pub fn kill_process_tree(pid: u32) {
     }
     #[cfg(unix)]
     {
-        if let Some(p) = positive_pid(pid) {
-            // SAFETY: FFI to POSIX kill(2). `p` is a validated positive
-            // pid_t and `SIGTERM` is a libc constant; no memory is shared.
-            // An error (e.g. ESRCH — pid already gone) is intentionally
-            // ignored: teardown is best-effort.
+        if let Some(target) = killpg_target(pid) {
+            // SAFETY: FFI to POSIX kill(2). `target` is a negative pgid derived
+            // from a validated pid (> 1), so it addresses MC's process group,
+            // not the -1 broadcast. SIGTERM is a libc constant; no memory is
+            // shared. An error (ESRCH — group already gone) is ignored:
+            // teardown is best-effort.
             unsafe {
-                libc::kill(p, libc::SIGTERM);
+                libc::kill(target, libc::SIGTERM);
             }
         }
     }
@@ -148,6 +162,15 @@ mod tests {
         // on Windows taskkill is a harmless no-op for an unknown PID.
         kill_process_tree(u32::MAX);
         kill_process_tree(0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn killpg_target_addresses_group_and_excludes_broadcast() {
+        assert_eq!(killpg_target(1234), Some(-1234));
+        assert_eq!(killpg_target(0), None);
+        assert_eq!(killpg_target(1), None, "pid 1 → -1 would broadcast");
+        assert_eq!(killpg_target(u32::MAX), None);
     }
 
     #[cfg(unix)]

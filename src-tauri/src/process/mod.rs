@@ -75,6 +75,12 @@ pub fn spawn_minecraft(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log_stdout))
         .stderr(std::process::Stdio::from(log_stderr));
+    // Put Minecraft in its own process group (pgid == child pid) so the
+    // exit/stop path can signal the whole group and reap helper children,
+    // not just the JVM. Unix-only; `process_group` is a no-op concept on
+    // Windows (taskkill /T handles the tree there).
+    #[cfg(unix)]
+    cmd.process_group(0);
     cmd.spawn().map_err(|e| Error::JavaSpawn {
         details: format!("spawn {}: {e}", java_path.display()),
     })
