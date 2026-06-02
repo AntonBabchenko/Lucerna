@@ -2713,6 +2713,13 @@ pub async fn update_check() -> crate::error::Result<crate::update::UpdateInfo> {
 #[tauri::command]
 #[specta::specta]
 pub async fn update_install(app: tauri::AppHandle) -> crate::error::Result<()> {
+    // In-app install is Windows-only; Linux is check-and-notify (the UI opens
+    // the release page instead). Refuse rather than attempt a no-asset install.
+    if !crate::platform::supports_in_app_install() {
+        return Err(crate::error::Error::UpdateInstallFailed {
+            details: "in-app install is not supported on this platform".into(),
+        });
+    }
     let info = crate::update::check::check_for_update(env!("CARGO_PKG_VERSION")).await?;
     if !info.available {
         return Ok(());
