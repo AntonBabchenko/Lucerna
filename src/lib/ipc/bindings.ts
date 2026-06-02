@@ -1584,15 +1584,21 @@ export type ThemePreference = "system" | "light" | "dark";
 
 export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path";
 
-/**  The result of an update check. `available` is false when up-to-date. */
+/**
+ *  The result of an update check. `available` is false when up-to-date.
+ * 
+ *  `installer` / `sha256sums` / `cosign_bundle` are `Some` only on platforms
+ *  that perform in-app install (Windows). On check-and-notify platforms
+ *  (Linux) they are `None` and the UI links to `release_url` instead.
+ */
 export type UpdateInfo = {
 	current: string,
 	latest: string,
 	available: boolean,
 	release_url: string,
-	installer: ReleaseAsset,
-	sha256sums: ReleaseAsset,
-	cosign_bundle: ReleaseAsset,
+	installer: ReleaseAsset | null,
+	sha256sums: ReleaseAsset | null,
+	cosign_bundle: ReleaseAsset | null,
 };
 
 /**
