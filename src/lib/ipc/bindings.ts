@@ -863,6 +863,13 @@ export type GeneralSettings = {
 	 *  and the notification. Opt-out via Settings → General.
 	 */
 	check_updates_on_startup?: boolean,
+	/**
+	 *  UI language preference. `"system"` (follow OS) or a BCP-47 code
+	 *  such as `"en"` / `"ru"`. Stored as an opaque string so community
+	 *  translations need no Rust change — the frontend validates and
+	 *  falls back. Default `"system"`.
+	 */
+	language?: string,
 };
 
 export type Greeting = {
