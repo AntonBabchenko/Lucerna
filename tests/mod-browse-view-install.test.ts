@@ -135,7 +135,11 @@ const full = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Baseline defaults — individual tests override the relevant ones.
+  // Baseline defaults — individual tests override the relevant ones. A default
+  // empty page for modsSearch is the safety net: a test that forgets
+  // searchReturns() still renders (no card) instead of an undefined result
+  // crashing the fill loop.
+  modsSearch.mockResolvedValue(ok({ hits: [], total: 0, offset: 0, page_size: 20 }));
   modsGetCurseforgeKeyStatus.mockResolvedValue(ok('set'));
   modsListInstalled.mockResolvedValue(ok([]));
   modsProject.mockResolvedValue(project('Sodium'));
@@ -161,9 +165,11 @@ describe('ModBrowseView install flow', () => {
     expect(extras).toEqual([]);
     await waitFor(() => expect(pushSuccess).toHaveBeenCalled());
     expect(pushWarning).not.toHaveBeenCalled();
+    // Fast path, not the dialog branch — no "Install (N mods)" confirm appears.
+    expect(screen.queryByRole('button', { name: /Install \(/ })).toBeNull();
   });
 
-  it('warns when the direct install fails', async () => {
+  it('warns with the failure detail when the direct install fails', async () => {
     searchReturns([hit()]);
     modsVersions.mockResolvedValue(ok([version()]));
     modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
@@ -176,6 +182,11 @@ describe('ModBrowseView install flow', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
     await waitFor(() => expect(pushWarning).toHaveBeenCalled());
+    // Title + the formatted error detail line both reach the toast.
+    expect(pushWarning).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([expect.stringContaining('disk full')]),
+    );
     expect(pushSuccess).not.toHaveBeenCalled();
   });
 
@@ -186,6 +197,7 @@ describe('ModBrowseView install flow', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
+    await waitFor(() => expect(modsVersions).toHaveBeenCalled());
     expect(await screen.findByText('No compatible version found')).toBeTruthy();
     expect(modsInstallWithDeps).not.toHaveBeenCalled();
   });
@@ -200,6 +212,7 @@ describe('ModBrowseView install flow', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
+    await waitFor(() => expect(modsVersions).toHaveBeenCalled());
     expect(await screen.findByText(/timeout/)).toBeTruthy();
     expect(modsInstallWithDeps).not.toHaveBeenCalled();
   });
