@@ -10,6 +10,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { hasSeen, markSeen } from '../src/lib/onboarding/contextual-tours';
 import {
   back,
   finishOrSkip,
@@ -116,6 +117,20 @@ describe('replayTour', () => {
     expect(tourState.active).toBe(true);
     expect(tourState.currentStep).toBe(0);
     expect(appSettingsMarkTourCompleted).not.toHaveBeenCalled();
+  });
+
+  test('also re-arms the per-surface contextual tours', () => {
+    // Regression: replay used to restart only the main tour, leaving the
+    // Logs/Manage/Modpacks/Worlds tours suppressed by their localStorage flags.
+    localStorage.clear();
+    markSeen('logs');
+    markSeen('worlds');
+    expect(hasSeen('logs')).toBe(true);
+
+    replayTour();
+
+    expect(hasSeen('logs')).toBe(false);
+    expect(hasSeen('worlds')).toBe(false);
   });
 });
 

@@ -143,3 +143,22 @@ export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   modpacks: MODPACKS_STEPS,
   worlds: WORLDS_STEPS,
 };
+
+// Single source for iterating every contextual tour — derived from
+// STEPS_BY_ID so a newly added tour can never be silently skipped by a
+// reset/audit that forgot to list it.
+export const ALL_CONTEXTUAL_TOUR_IDS = Object.keys(STEPS_BY_ID) as ContextualTourId[];
+
+// Clear the "seen" flag for every contextual tour so each re-fires on the
+// next visit to its surface. The Settings "Replay onboarding" action calls
+// this; without it, replay restarts only the main tour and leaves the
+// per-surface tours (Manage / Logs / Modpacks / Worlds) suppressed forever.
+export function resetAllContextualTours(): void {
+  for (const id of ALL_CONTEXTUAL_TOUR_IDS) {
+    try {
+      localStorage.removeItem(storageKey(id));
+    } catch {
+      /* private-mode etc.; best-effort, the tour simply won't reset */
+    }
+  }
+}
