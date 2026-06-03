@@ -32,9 +32,12 @@ pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
 
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let builder = Builder::<tauri::Wry>::new()
+/// Construct the tauri-specta builder (command + event registry). Extracted
+/// from `run()` so the command/event registration lives in one reusable place
+/// and bindings export can be driven from a single source of truth (the
+/// `#[cfg(debug_assertions)]` export in `run()` calls this).
+pub fn specta_builder() -> Builder<tauri::Wry> {
+    Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::greet,
             commands::list_accounts,
@@ -81,6 +84,8 @@ pub fn run() {
             commands::set_instance_jvm_args,
             commands::detach_instance_pack,
             commands::open_instance_folder,
+            commands::verify_instance,
+            commands::repair_instance,
             commands::get_playtime,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
@@ -135,6 +140,7 @@ pub fn run() {
         .events(collect_events![
             network::DownloadProgress,
             versions::InstallProgress,
+            verify::VerifyProgress,
             launch::ProcessSpawned,
             launch::ProcessExited,
             commands::ModInstallProgress,
@@ -142,7 +148,12 @@ pub fn run() {
             commands::ModUninstalled,
             commands::ModToggle,
             commands::ModInstallFailed,
-        ]);
+        ])
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let builder = specta_builder();
 
     #[cfg(debug_assertions)]
     builder

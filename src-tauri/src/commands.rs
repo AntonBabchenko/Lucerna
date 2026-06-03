@@ -157,6 +157,36 @@ fn resolve_instance_effective_id(
         .ok_or(crate::error::Error::NoVersionSelected)
 }
 
+/// Read-only integrity verification of an instance's installed files.
+/// Blocked while a game is running (can't hash a live game's files).
+#[tauri::command]
+#[specta::specta]
+pub async fn verify_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::verify::VerifyReport, crate::error::Error> {
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+    crate::verify::verify_instance_report(&instance_id, &effective_id, &app).await
+}
+
+/// Repair the instance's broken/missing files, then return the post-repair
+/// report. Blocked while a game is running.
+#[tauri::command]
+#[specta::specta]
+pub async fn repair_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::verify::VerifyReport, crate::error::Error> {
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+    crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await
+}
+
 /// Kill the running Minecraft process if any. Idempotent.
 #[tauri::command]
 #[specta::specta]
@@ -3198,5 +3228,15 @@ mod tests {
     #[test]
     fn latest_newer_none_for_empty_list() {
         assert!(crate::commands::latest_newer(vec![], "id-1.0").is_none());
+    }
+}
+
+#[cfg(test)]
+mod verify_cmd_tests {
+    #[test]
+    fn busy_error_has_stable_shape() {
+        let e = crate::error::Error::InstanceBusy;
+        let msg = format!("{e}");
+        assert!(!msg.is_empty());
     }
 }
