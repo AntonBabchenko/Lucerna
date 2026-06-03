@@ -799,6 +799,7 @@
     bind:activeInstance
     {versions}
     onChanged={refreshInstances}
+    isRunning={running !== null}
   />
 
   <SettingsModal />

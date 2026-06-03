@@ -8,6 +8,7 @@
     type Error as IpcError,
     type ModCompat,
   } from '$lib/ipc/bindings';
+  import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
@@ -25,12 +26,14 @@
     activeInstance = $bindable<InstanceWithStatus | null>(),
     versions,
     onChanged,
+    isRunning = false,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
     activeInstance: InstanceWithStatus | null;
     versions: VersionEntry[];
     onChanged: () => void;
+    isRunning?: boolean;
   } = $props();
 
   let selectedId = $state<string | null>(null);
@@ -527,6 +530,8 @@
               value={selected.extra_jvm_args}
               onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
             />
+
+            <IntegritySection instanceId={selected.id} {isRunning} />
 
             <div
               class="flex items-center justify-between pt-3 border-t"
