@@ -93,12 +93,12 @@ export function createInstalledData(getInstanceId: () => string | null) {
 
   // Blank the previous instance's data immediately on switch so stale content
   // never lingers while the new list loads, then trigger the load. Wrapped in
-  // `$effect.root` (the project's `.svelte.ts` convention — see
-  // browser-prefs.svelte.ts) so the auto-load runs when the factory is invoked
-  // from a component `<script>`, while staying inert under unit tests that call
-  // `createInstalledData` outside any reactive context.
+  // $effect.root so the factory can be unit-tested (no parent reactive context)
+  // and the root is explicitly torn down via dispose() on component unmount —
+  // never leaked, since ModBrowserTab unmounts on main-tab switch.
+  let stopEffects: (() => void) | null = null;
   try {
-    $effect.root(() => {
+    stopEffects = $effect.root(() => {
       $effect(() => {
         const id = getInstanceId();
         if (id) {
@@ -109,7 +109,7 @@ export function createInstalledData(getInstanceId: () => string | null) {
       });
     });
   } catch {
-    /* no reactive context (e.g. unit test) — auto-load is best-effort */
+    /* no Svelte runtime (vitest) — the effect is inert, which is what unit tests want */
   }
 
   return {
@@ -129,5 +129,8 @@ export function createInstalledData(getInstanceId: () => string | null) {
       error = v;
     },
     refresh,
+    dispose() {
+      stopEffects?.();
+    },
   };
 }
