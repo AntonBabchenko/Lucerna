@@ -30,6 +30,16 @@ release is **0.9.0**.
   the previously pending-approval state simply stopped occurring once Microsoft
   began returning a successful response. Offline accounts remain an equal
   first-class option.
+- **Installed-mods tab overhaul.** Denser rows, a pinned "needs attention" bar,
+  Updates / Issues quick-filter chips, a single priority status badge per row,
+  and unified pagination.
+- **Mod-browser filtering.** "Show installed" now defaults to hidden for a
+  discovery-first view — the page tops up once the installed set is known, so an
+  all-installed first page no longer dead-ends on an empty view — plus a "Match
+  this instance" button that restores the loader and Minecraft version to the
+  active instance's defaults.
+- Clicking **Play** with no account now spotlights the account section instead
+  of showing a terse banner.
 - The modpack browser now opens as a full-screen modal.
 - All native `<select>` dropdowns were replaced with a themeable Select
   component — consistent rendering across platforms and a fix for the dark-mode
@@ -41,6 +51,14 @@ release is **0.9.0**.
 - Installing a mod built for the wrong loader is now prevented, and replaying
   onboarding re-arms the contextual tours.
 - Native form controls now match the active theme (`color-scheme` set per theme).
+- Mod-install failures now explain the cause: "no version for this Minecraft
+  version" versus "built for a different loader" (with the latest supported
+  version listed per loader), author-disabled distribution names the mod with an
+  "Open on &lt;platform&gt;" action, filename conflicts name the already-installed
+  file, and SHA-1 checksum failures read in plainer language.
+- Long toast messages now wrap instead of being truncated to a single line.
+- Lowered the minimum window height so the sidebar's Logs / Settings controls
+  sit flush at the bottom instead of leaving empty space below them.
 
 ## [0.9.1] — 2026-06-01
 
