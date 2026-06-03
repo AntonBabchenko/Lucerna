@@ -164,4 +164,55 @@ describe('hover cross-highlight across dep-tree nodes and rows', () => {
     );
     expect(bInnerRow?.className).toContain('bg-highlight');
   });
+
+  it('hovering a mod row highlights only that row, not its expanded dep node', async () => {
+    // Regression guard for the cross-highlight conflict: when A's dep tree is
+    // expanded, the mod-row hover region and the dep-tree node's hover used to
+    // share the same outer element and fight over hoveredKey. The fix moves the
+    // DepSection OUT of the hover region (sibling), so hovering A's row sets
+    // hoveredKey = A's rowKey and the B dep-node (key PB ≠ PA) stays un-highlighted.
+    render(InstalledModsView, {
+      props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+
+    const expandBtn = await waitFor(() => {
+      const aRow = document.querySelector('[data-mod-row="modrinth:PA"]');
+      const btn = aRow
+        ? [...aRow.querySelectorAll('button')].find((b) => /dep/i.test(b.textContent ?? ''))
+        : undefined;
+      if (!btn) throw new Error('dep-chip not rendered yet');
+      return btn as HTMLButtonElement;
+    });
+
+    // Expand A's dep tree so B's node renders inside the (now sibling) DepSection.
+    await fireEvent.click(expandBtn);
+
+    // The B dep-tree node (data-mod-key only, no data-mod-row) must exist.
+    const depNode = await waitFor(() => {
+      const node = [...document.querySelectorAll('[data-mod-key="modrinth:PB"]')].find(
+        (el) => !el.hasAttribute('data-mod-row'),
+      );
+      if (!node) throw new Error('dep-tree node not rendered yet');
+      return node as HTMLElement;
+    });
+
+    // Hover A's MOD ROW (the inner hover region). This sets hoveredKey = A's key.
+    const aRow = document.querySelector('[data-mod-row="modrinth:PA"]') as HTMLElement;
+    await fireEvent.mouseEnter(aRow);
+
+    // A's row highlights...
+    expect(aRow.className).toContain('bg-highlight');
+    // ...but the B dep-node does NOT (its key is PB ≠ PA).
+    expect(depNode.className).not.toContain('bg-highlight');
+
+    // The load-bearing structural guard: the expanded dep node must NOT be a
+    // descendant of A's hover-region element. On the OLD structure the
+    // DepSection was nested INSIDE the element carrying data-mod-row +
+    // onmouseenter, so A's bg-highlight covered the whole dep section and the
+    // node's own per-node hover fought the row's hover over the shared
+    // hoveredKey. The fix makes DepSection a SIBLING of the hover region — so
+    // aRow no longer contains the dep node. This assertion fails on the old
+    // structure (aRow.contains(depNode) === true) and passes on the new one.
+    expect(aRow.contains(depNode)).toBe(false);
+  });
 });
