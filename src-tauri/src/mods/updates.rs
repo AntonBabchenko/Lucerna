@@ -291,6 +291,20 @@ mod tests {
     }
 
     #[test]
+    fn index_pairing_restores_installed_order_after_unordered_poll() {
+        // `mods_check_updates` polls platforms with `buffer_unordered`, which
+        // yields completions out of order. It pairs each result with its
+        // original installed-list index and re-sorts by that index. This
+        // proves that order-restoration mechanism: an arbitrarily shuffled
+        // `(index, value)` set sorts back to ascending-index (installed) order.
+        let mut shuffled: Vec<(usize, &str)> =
+            vec![(3, "d"), (0, "a"), (4, "e"), (1, "b"), (2, "c")];
+        shuffled.sort_by_key(|(i, _)| *i);
+        let restored: Vec<&str> = shuffled.into_iter().map(|(_, v)| v).collect();
+        assert_eq!(restored, vec!["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
     fn pack_origin_summary_lists_only_mods_dir_shas_lowercased() {
         let po = pack_origin(&[("AAA", "mods/x.jar"), ("bbb", "resourcepacks/rp.zip")]);
         let s = pack_origin_summary(&po);

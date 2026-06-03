@@ -1361,37 +1361,73 @@ pub async fn mods_check_updates(
     use crate::mods::updates::{
         classify_update, eligible_identity, ModUpdateCheck, ModUpdateState,
     };
+    use futures_util::stream::{self, StreamExt};
 
     let inst_root = instance_root(&app, &instance_id)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
     let installed = crate::mods::installed::list(&inst_root).await?;
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
 
-    let mut out = Vec::new();
-    for m in &installed {
-        let Some((source, project_id, version_id)) = eligible_identity(m, pack_origin.as_ref())
-        else {
-            continue;
-        };
-        let state = match platform_for(source)
-            .versions(&project_id, Some(&mc_version), Some(loader))
-            .await
-        {
-            Ok(versions) => classify_update(m, &versions),
-            Err(e) => ModUpdateState::CheckFailed {
-                reason: e.to_string(),
-            },
-        };
-        out.push(ModUpdateCheck {
-            sha1: m.sha1.clone(),
-            name: m.name.clone(),
-            source,
-            project_id,
-            current_version_id: version_id,
-            current_version_number: m.version_number.clone(),
-            state,
-        });
-    }
+    // Eligible mods paired with their original index, so output order
+    // matches the installed list after the unordered concurrent poll.
+    // Each task OWNS its `InstalledMod` (a small clone): borrowing `m`
+    // across the `.await` made the `.map` closure fail the higher-ranked
+    // lifetime bound `buffer_unordered` requires (`FnOnce` not general
+    // enough). Owning the few fields each task needs sidesteps that.
+    let eligible: Vec<(
+        usize,
+        crate::mods::platform::InstalledMod,
+        ModSource,
+        String,
+        String,
+    )> = installed
+        .iter()
+        .enumerate()
+        .filter_map(|(i, m)| {
+            eligible_identity(m, pack_origin.as_ref()).map(|(source, project_id, version_id)| {
+                (i, m.clone(), source, project_id, version_id)
+            })
+        })
+        .collect();
+
+    // Bounded-concurrency platform poll (limit 6). Identical per-mod
+    // semantics to the prior sequential loop: one `ModUpdateCheck` per
+    // eligible mod, same `classify_update`, same `CheckFailed`-on-error.
+    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
+        .map(|(i, m, source, project_id, version_id)| {
+            let mc = mc_version.clone();
+            async move {
+                let state = match platform_for(source)
+                    .versions(&project_id, Some(&mc), Some(loader))
+                    .await
+                {
+                    Ok(versions) => classify_update(&m, &versions),
+                    Err(e) => ModUpdateState::CheckFailed {
+                        reason: e.to_string(),
+                    },
+                };
+                (
+                    i,
+                    ModUpdateCheck {
+                        sha1: m.sha1.clone(),
+                        name: m.name.clone(),
+                        source,
+                        project_id,
+                        current_version_id: version_id,
+                        current_version_number: m.version_number.clone(),
+                        state,
+                    },
+                )
+            }
+        })
+        .buffer_unordered(6)
+        .collect()
+        .await;
+
+    // Restore installed-list order: `buffer_unordered` yields completions
+    // out of order, so re-sort by the paired original index.
+    results.sort_by_key(|(i, _)| *i);
+    let out: Vec<ModUpdateCheck> = results.into_iter().map(|(_, c)| c).collect();
     Ok(out)
 }
 
