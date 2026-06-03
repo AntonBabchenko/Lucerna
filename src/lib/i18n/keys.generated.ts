@@ -42,6 +42,7 @@ export type TranslationKey =
   | 'errors.forgeUnsupportedProcessor'
   | 'errors.hashMismatch'
   | 'errors.hostNotAllowed'
+  | 'errors.instanceBusy'
   | 'errors.instanceNameEmpty'
   | 'errors.instanceNameTooLong'
   | 'errors.instanceNotFound'

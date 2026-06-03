@@ -724,6 +724,7 @@
     "javaSpawn": "Не удалось запустить Java: {details}",
     "alreadyRunning": "Minecraft уже запущен",
     "accountNotSet": "Аккаунт не выбран — сначала введите имя",
+    "instanceBusy": "Операция уже выполняется или игра запущена.",
     "authCancelled": "Вход через Microsoft отменён.",
     "authFailed": "Ошибка входа через Microsoft на шаге {stage}: {details}",
     "noMinecraftProfile": "На этом аккаунте Microsoft нет Minecraft. Войдите с аккаунтом, у которого есть купленная копия.",

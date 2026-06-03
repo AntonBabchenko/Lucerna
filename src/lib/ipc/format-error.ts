@@ -32,6 +32,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.alreadyRunning');
     case 'account_not_set':
       return translate('errors.accountNotSet');
+    case 'instance_busy':
+      return translate('errors.instanceBusy');
     case 'auth_cancelled':
       return translate('errors.authCancelled');
     case 'auth_failed':

@@ -724,6 +724,7 @@
     "javaSpawn": "Java spawn failed: {details}",
     "alreadyRunning": "Minecraft is already running",
     "accountNotSet": "Account not set — enter your name first",
+    "instanceBusy": "An operation is already in progress, or the game is running.",
     "authCancelled": "Microsoft sign-in cancelled.",
     "authFailed": "Microsoft sign-in failed at {stage}: {details}",
     "noMinecraftProfile": "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.",
