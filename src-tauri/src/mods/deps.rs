@@ -63,9 +63,18 @@ pub struct Closure {
 /// keys are pruned. `fetch(version)` returns that version's classified direct
 /// deps; memoized here by `ProjectKey` so each project is fetched at most once.
 /// Cycle-safe via the `visited` set.
+///
+/// `installed_filenames` (lowercased jar filenames of mods already installed
+/// and enabled in the instance) prunes dependencies by filename in addition to
+/// `ProjectKey`. This is how a dependency is recognised as satisfied across
+/// sources: the same logical mod (e.g. Balm) installed from Modrinth and
+/// referenced as a CurseForge dependency carries the same jar filename even
+/// though its source-specific project ids differ. Skipping by filename here
+/// also avoids walking the satisfied dependency's own subtree.
 pub async fn resolve_closure<F, Fut>(
     roots: &[ModVersion],
     installed: &HashSet<ProjectKey>,
+    installed_filenames: &HashSet<String>,
     mut fetch: F,
 ) -> Result<Closure, crate::error::Error>
 where
@@ -96,7 +105,10 @@ where
 
     while let Some(v) = frontier.pop() {
         let key = ProjectKey::of_version(&v);
-        if visited.contains(&key) || installed.contains(&key) {
+        if visited.contains(&key)
+            || installed.contains(&key)
+            || installed_filenames.contains(&v.primary_file.filename.to_ascii_lowercase())
+        {
             continue;
         }
         visited.insert(key.clone());
@@ -255,7 +267,7 @@ mod tests {
             "open_parties",
             vec![("forge_config_api_port", DepKind::Required)],
         )];
-        let c = resolve_closure(&roots, &HashSet::new(), fetcher(graph))
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
         assert!(keys(&c).contains(&"forge_config_api_port".to_string()));
@@ -269,7 +281,7 @@ mod tests {
             ("c", &[], &[], &[]),
         ]);
         let roots = vec![mv("a", vec![("b", DepKind::Required)])];
-        let c = resolve_closure(&roots, &HashSet::new(), fetcher(graph))
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
         let mut k = keys(&c);
@@ -281,7 +293,7 @@ mod tests {
     async fn cycle_terminates() {
         let graph = g(&[("a", &["b"], &[], &[]), ("b", &["a"], &[], &[])]);
         let roots = vec![mv("a", vec![("b", DepKind::Required)])];
-        let c = resolve_closure(&roots, &HashSet::new(), fetcher(graph))
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
         assert_eq!(keys(&c), vec!["b".to_string()]);
@@ -299,7 +311,7 @@ mod tests {
             "a",
             vec![("b", DepKind::Required), ("c", DepKind::Required)],
         )];
-        let c = resolve_closure(&roots, &HashSet::new(), fetcher(graph))
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
         assert_eq!(c.required.iter().filter(|v| v.project_id == "d").count(), 1);
@@ -311,10 +323,42 @@ mod tests {
         let roots = vec![mv("a", vec![("b", DepKind::Required)])];
         let mut installed = HashSet::new();
         installed.insert(ProjectKey::Modrinth("b".into()));
-        let c = resolve_closure(&roots, &installed, fetcher(graph))
+        let c = resolve_closure(&roots, &installed, &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
         assert!(keys(&c).is_empty());
+    }
+
+    #[tokio::test]
+    async fn skips_dep_already_installed_from_another_source_by_filename() {
+        // Regression: Balm installed from Modrinth, Waystones-from-CurseForge
+        // requires Balm. The CF dependency's ProjectKey never matches the
+        // Modrinth install, but its jar filename does. The dep — and its whole
+        // subtree — must be pruned, so no duplicate install / filename clash.
+        let graph = g(&[
+            ("waystones", &["balm"], &[], &[]),
+            ("balm", &["balm_sub"], &[], &[]),
+            ("balm_sub", &[], &[], &[]),
+        ]);
+        let roots = vec![mv("waystones", vec![("balm", DepKind::Required)])];
+        // ProjectKey set is empty (cross-source: the installed Balm has a
+        // different-source id); only the filename signals it is present.
+        // `mv` names jars "<id>.jar"; the resolver lowercases before lookup.
+        let mut installed_filenames = HashSet::new();
+        installed_filenames.insert("balm.jar".to_string());
+        let c = resolve_closure(
+            &roots,
+            &HashSet::new(),
+            &installed_filenames,
+            fetcher(graph),
+        )
+        .await
+        .unwrap();
+        assert!(
+            keys(&c).is_empty(),
+            "balm and its subtree must be pruned by filename, got {:?}",
+            keys(&c)
+        );
     }
 
     #[tokio::test]
@@ -324,7 +368,7 @@ mod tests {
             ("neoforge", &[], &[], &[]),
         ]);
         let roots = vec![mv("a", vec![("neoforge", DepKind::Required)])];
-        let c = resolve_closure(&roots, &HashSet::new(), fetcher(graph))
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
         assert!(keys(&c).is_empty());
@@ -361,7 +405,7 @@ mod tests {
             ready(Ok::<_, crate::error::Error>(deps))
         };
         let roots = vec![mv("a", vec![("b", DepKind::Required)])];
-        let c = resolve_closure(&roots, &HashSet::new(), fetch)
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetch)
             .await
             .unwrap();
         assert!(

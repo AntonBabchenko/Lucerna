@@ -164,7 +164,7 @@
       "errorNoCompatibleVersion": "No compatible version found",
       "errorNoVersionForMc": "{mod} has no version for Minecraft {mcVersion} (profile “{profile}”). Latest supported: {list}",
       "errorWrongLoader": "Your profile “{profile}” uses {loader}, but {mod} has no {loader} version. Available: {list}",
-      "errorFilenameConflictNamed": "Can’t install {newMod}: it ships a file named “{filename}” that clashes with {existingMod} — uninstall that one first.",
+      "errorFilenameConflictNamed": "Can’t install {newMod}: its jar “{filename}” has the same name as {existingMod}, which is already installed with different contents. Uninstall {existingMod} first.",
       "distributionDisabledTitle": "{mod} can’t be downloaded automatically",
       "distributionDisabledBody": "Its author disabled third-party launcher downloads on {platform}. Open the project page to download it manually.",
       "distributionDisabledAction": "Open on {platform}",
