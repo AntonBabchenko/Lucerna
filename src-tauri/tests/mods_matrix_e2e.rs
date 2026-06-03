@@ -59,6 +59,20 @@ fn loader_enabled(l: LoaderKind) -> bool {
     want.split(',').any(|w| w.trim().eq_ignore_ascii_case(name))
 }
 
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+
+/// Deterministically sample up to `n` items from `pool` using `seed`.
+/// Returns all of `pool` (shuffled) when `pool.len() <= n`. Same seed +
+/// same pool => same sample, so a failing combo reproduces with the logged seed.
+fn seeded_sample<T: Clone>(pool: &[T], n: usize, seed: u64) -> Vec<T> {
+    let mut idx: Vec<usize> = (0..pool.len()).collect();
+    let mut rng = StdRng::seed_from_u64(seed);
+    idx.shuffle(&mut rng);
+    idx.into_iter().take(n).map(|i| pool[i].clone()).collect()
+}
+
 #[cfg(test)]
 mod config_tests {
     use super::*;
@@ -84,5 +98,32 @@ mod config_tests {
         assert!(ls.contains(&LoaderKind::Forge));
         assert!(!ls.contains(&LoaderKind::Fabric));
         assert!(!ls.contains(&LoaderKind::NeoForge));
+    }
+}
+
+#[cfg(test)]
+mod sample_tests {
+    use super::*;
+    #[test]
+    fn sample_is_deterministic_for_a_seed() {
+        let pool: Vec<u32> = (0..100).collect();
+        let a = seeded_sample(&pool, 20, 42);
+        let b = seeded_sample(&pool, 20, 42);
+        assert_eq!(a, b, "same seed -> same sample");
+        assert_eq!(a.len(), 20);
+    }
+    #[test]
+    fn different_seeds_differ() {
+        let pool: Vec<u32> = (0..100).collect();
+        assert_ne!(seeded_sample(&pool, 20, 1), seeded_sample(&pool, 20, 2));
+    }
+    #[test]
+    fn returns_all_when_pool_smaller_than_n() {
+        let pool: Vec<u32> = (0..5).collect();
+        let got = seeded_sample(&pool, 20, 7);
+        assert_eq!(got.len(), 5);
+        let mut sorted = got.clone();
+        sorted.sort();
+        assert_eq!(sorted, pool);
     }
 }
