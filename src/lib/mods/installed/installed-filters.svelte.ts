@@ -1,10 +1,9 @@
 import type { Row } from './installed-data.svelte';
+import { rowDisplayName } from './row-utils';
 
 export type EnabledFilter = 'all' | 'enabled' | 'disabled';
 export type QuickFilter = 'all' | 'updates' | 'issues';
 export type SortBy = 'name-asc' | 'name-desc' | 'recent' | 'source';
-
-const rowDisplayName = (r: Row): string => r.summary?.name ?? r.installed.name;
 
 // Owns the filter / sort / pagination math for the installed list. `filtered`
 // is the whole matching set (selection + dep graph span this); `paged` is just

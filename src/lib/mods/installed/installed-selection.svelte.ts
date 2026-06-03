@@ -4,8 +4,7 @@ import { t } from '$lib/i18n';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { get } from 'svelte/store';
 import type { Row } from './installed-data.svelte';
-
-const rowDisplayName = (r: Row): string => r.summary?.name ?? r.installed.name;
+import { rowDisplayName } from './row-utils';
 
 // Owns bulk-action selection state and the bulk operations themselves. The
 // `selected` Set is always reassigned whole (never mutated in place). Selections
@@ -44,14 +43,8 @@ export function createInstalledSelection(
     stopEffects = $effect.root(() => {
       $effect(() => {
         const visible = new Set(getFiltered().map((r) => r.installed.sha1));
-        let changed = false;
-        const next = new Set(selected);
-        for (const sha of next)
-          if (!visible.has(sha)) {
-            next.delete(sha);
-            changed = true;
-          }
-        if (changed) selected = next;
+        const next = new Set([...selected].filter((sha) => visible.has(sha)));
+        if (next.size !== selected.size) selected = next;
       });
       $effect(() => {
         void getInstanceId();

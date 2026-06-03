@@ -79,4 +79,21 @@ describe('createInstalledSelection', () => {
     await s.requestBulkUninstall();
     expect(s.uninstallPrompt?.removing).toEqual(['a']);
   });
+
+  it('confirmBulkUninstall uninstalls, calls onMutated, and clears the prompt', async () => {
+    const rows = [row('a', true), row('b', true)];
+    const onMutated = vi.fn();
+    const refresh = vi.fn(async () => {});
+    mocks.modsUninstall.mockClear();
+    const s = createInstalledSelection(() => rows, () => 'i', refresh, () => new Map(), onMutated);
+    s.toggleSelectAll(true);
+    await s.requestBulkUninstall();
+    await s.confirmBulkUninstall(['c']); // 'c' is an extra orphan the user opted to also remove
+    expect(mocks.modsUninstall).toHaveBeenCalledWith('i', 'a');
+    expect(mocks.modsUninstall).toHaveBeenCalledWith('i', 'b');
+    expect(mocks.modsUninstall).toHaveBeenCalledWith('i', 'c');
+    expect(onMutated).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalled();
+    expect(s.uninstallPrompt).toBeNull();
+  });
 });
