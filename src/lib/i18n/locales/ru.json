@@ -164,7 +164,7 @@
       "errorNoCompatibleVersion": "Совместимая версия не найдена",
       "errorNoVersionForMc": "У мода {mod} нет версии для Minecraft {mcVersion} (профиль «{profile}»). Последние поддерживаемые: {list}",
       "errorWrongLoader": "В профиле «{profile}» выбран загрузчик {loader}, но у мода {mod} нет версии для {loader}. Доступно: {list}",
-      "errorFilenameConflictNamed": "Не удаётся установить {newMod}: он содержит файл «{filename}», конфликтующий с {existingMod} — сначала удалите его.",
+      "errorFilenameConflictNamed": "Не удаётся установить {newMod}: его файл «{filename}» совпадает по имени с уже установленным модом {existingMod}, но отличается содержимым. Сначала удалите {existingMod}.",
       "distributionDisabledTitle": "{mod} нельзя скачать автоматически",
       "distributionDisabledBody": "Автор запретил загрузку через сторонние лаунчеры на {platform}. Откройте страницу проекта, чтобы скачать вручную.",
       "distributionDisabledAction": "Открыть на {platform}",

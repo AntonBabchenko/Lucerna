@@ -980,17 +980,32 @@ pub async fn mods_install_with_deps(
     let mut platform_box = platform_for(primary.source);
     let primary_v = find_version(&mut platform_box, &primary, &mc_version, loader).await?;
 
-    // Build the set of already-installed mods so resolve_closure can prune them.
-    let installed: std::collections::HashSet<ProjectKey> = crate::mods::installed::list(&inst_root)
-        .await?
-        .into_iter()
-        .filter_map(|m| match (m.source, m.project_id) {
-            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+    // Build the set of already-installed mods so resolve_closure can prune
+    // them. Two views: by source-specific ProjectKey, and by lowercased jar
+    // filename so a dependency already satisfied from a *different* source —
+    // same jar, different platform id — is also pruned.
+    //
+    // The filename view is deliberately enabled-only: a disabled mod lives on
+    // disk as `<name>.jar.disabled`, so it neither loads at runtime (it cannot
+    // satisfy a dependency) nor collides with a fresh `<name>.jar` install.
+    // Letting the dependency install a fresh enabled copy is the right call.
+    // (The ProjectKey view keeps its pre-existing all-mods behaviour for
+    // same-source pruning; only the new cross-source path is enabled-gated.)
+    let installed_mods = crate::mods::installed::list(&inst_root).await?;
+    let installed: std::collections::HashSet<ProjectKey> = installed_mods
+        .iter()
+        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
             (Some(ModSource::Curseforge), Some(pid)) => {
                 pid.parse().ok().map(ProjectKey::Curseforge)
             }
             _ => None,
         })
+        .collect();
+    let installed_filenames: std::collections::HashSet<String> = installed_mods
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| m.filename.to_ascii_lowercase())
         .collect();
 
     // Shared Arc platform + loader-slug cache for the make_fetch factory.
@@ -1043,10 +1058,14 @@ pub async fn mods_install_with_deps(
     });
 
     // Compute the primary's transitive required closure.
-    let primary_required =
-        resolve_closure(std::slice::from_ref(&primary_v), &installed, make_fetch())
-            .await?
-            .required;
+    let primary_required = resolve_closure(
+        std::slice::from_ref(&primary_v),
+        &installed,
+        &installed_filenames,
+        make_fetch(),
+    )
+    .await?
+    .required;
 
     // Project IDs of the primary's transitive required closure — persisted
     // onto the primary's registry entry for offline orphan detection.
@@ -1075,7 +1094,13 @@ pub async fn mods_install_with_deps(
             excl.insert(ProjectKey::of_version(v));
         }
         excl.insert(ProjectKey::of_version(&ov));
-        let sub = resolve_closure(std::slice::from_ref(&ov), &excl, make_fetch()).await?;
+        let sub = resolve_closure(
+            std::slice::from_ref(&ov),
+            &excl,
+            &installed_filenames,
+            make_fetch(),
+        )
+        .await?;
         dep_versions.extend(sub.required);
         chosen_optionals.push(ov);
     }
@@ -1150,16 +1175,26 @@ pub async fn mods_resolve_install_plan(
     use std::sync::Arc;
 
     let root = instance_root(&app, &instance_id)?;
-    let installed: std::collections::HashSet<ProjectKey> = crate::mods::installed::list(&root)
-        .await?
-        .into_iter()
-        .filter_map(|m| match (m.source, m.project_id) {
-            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid)),
+    // Mirror mods_install_with_deps: prune by source-specific ProjectKey AND by
+    // lowercased jar filename, so a dependency already satisfied from a
+    // different source is not offered for (re)install. The filename view is
+    // enabled-only for the same reason as there — a disabled `.jar.disabled`
+    // neither loads nor collides, so it should not suppress a fresh install.
+    let installed_mods = crate::mods::installed::list(&root).await?;
+    let installed: std::collections::HashSet<ProjectKey> = installed_mods
+        .iter()
+        .filter_map(|m| match (m.source, m.project_id.as_deref()) {
+            (Some(ModSource::Modrinth), Some(pid)) => Some(ProjectKey::Modrinth(pid.to_string())),
             (Some(ModSource::Curseforge), Some(pid)) => {
                 pid.parse().ok().map(ProjectKey::Curseforge)
             }
             _ => None,
         })
+        .collect();
+    let installed_filenames: std::collections::HashSet<String> = installed_mods
+        .iter()
+        .filter(|m| m.enabled)
+        .map(|m| m.filename.to_ascii_lowercase())
         .collect();
 
     // Shared platform + loader-slug cache, cloned into each closure via Arc.
@@ -1198,8 +1233,13 @@ pub async fn mods_resolve_install_plan(
     //    separate `direct_required` collect would have added — a second
     //    independent fetch would also open a theoretical version-skew
     //    window between two network calls to the same endpoint.
-    let primary_closure =
-        resolve_closure(std::slice::from_ref(&primary), &installed, make_fetch()).await?;
+    let primary_closure = resolve_closure(
+        std::slice::from_ref(&primary),
+        &installed,
+        &installed_filenames,
+        make_fetch(),
+    )
+    .await?;
     // The transitive closure already includes the primary's direct requireds,
     // is deduplicated, and has installed mods pruned by `resolve_closure`.
     let required = primary_closure.required;
@@ -1215,13 +1255,18 @@ pub async fn mods_resolve_install_plan(
     // to "install" a mod the user already has is confusing. (The required list
     // is already installed-pruned by resolve_closure; this does the same for
     // the top-level optionals.)
-    for opt in top
-        .optional
-        .iter()
-        .filter(|n| !n.is_loader && !installed.contains(&ProjectKey::of_version(&n.version)))
-    {
-        let sub =
-            resolve_closure(std::slice::from_ref(&opt.version), &exclude, make_fetch()).await?;
+    for opt in top.optional.iter().filter(|n| {
+        !n.is_loader
+            && !installed.contains(&ProjectKey::of_version(&n.version))
+            && !installed_filenames.contains(&n.version.primary_file.filename.to_ascii_lowercase())
+    }) {
+        let sub = resolve_closure(
+            std::slice::from_ref(&opt.version),
+            &exclude,
+            &installed_filenames,
+            make_fetch(),
+        )
+        .await?;
         optional.push(OptionalDep {
             version: opt.version.clone(),
             requires: dedup_versions(sub.required.into_iter()),

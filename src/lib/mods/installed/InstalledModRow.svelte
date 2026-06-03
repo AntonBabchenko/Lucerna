@@ -63,8 +63,24 @@
     onUpdate: () => void;
     onSelectChange: (checked: boolean) => void;
     onInstallDep: (node: DepTreeNode) => void;
-    onJump: (node: DepTreeNode) => void;
+    onJump: (target: { source: ModSource; project_id: string }) => void;
   } = $props();
+
+  // One expand control summarises both directions of the dependency relation:
+  // what this mod requires AND what requires it. Both share a single panel
+  // (DepSection), so a single chip / single toggle is the honest control. The
+  // pieces are joined with " · " (e.g. "1 dep · required by 2").
+  const expandLabel = $derived.by(() => {
+    const parts: string[] = [];
+    if (depTotal > 0) {
+      let s = $t('mods.installed.depCount', { count: depTotal });
+      if (depMissing > 0) s += ` · ${$t('mods.installed.depMissing', { count: depMissing })}`;
+      parts.push(s);
+    }
+    if (requiredBy.length > 0)
+      parts.push($t('mods.installed.requiredByCount', { count: requiredBy.length }));
+    return parts.join(' · ');
+  });
 
   // Single status badge per row, highest priority first (spec §4.4):
   // missing deps → update available → disabled → none.
@@ -128,27 +144,19 @@
         {/if}
         {#if graphLoading && !root}
           <span class="text-placeholder">{$t('mods.installed.resolvingShort')}</span>
-        {:else}
-          {#if depTotal > 0}
-            <button
-              type="button"
-              class="px-2 py-0.5 rounded bg-accent-soft text-accent"
-              onclick={onToggleExpand}
-            >
-              {expanded ? '▾' : '▸'}
-              {$t('mods.installed.depCount', { count: depTotal })}{depMissing > 0
-                ? ` · ${$t('mods.installed.depMissing', { count: depMissing })}`
-                : ''}
-            </button>
-          {/if}
-          {#if requiredBy.length > 0}
-            <button
-              type="button"
-              class="px-2 py-0.5 rounded bg-subtle text-secondary"
-              onclick={onToggleExpand}
-              >{$t('mods.installed.requiredByCount', { count: requiredBy.length })}</button
-            >
-          {/if}
+        {:else if depTotal > 0 || requiredBy.length > 0}
+          <!-- Single toggle for the whole relation. Accent (actionable) when the
+               mod has its own deps; muted when it is only required-by. -->
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded {depTotal > 0
+              ? 'bg-accent-soft text-accent'
+              : 'bg-subtle text-secondary'}"
+            onclick={onToggleExpand}
+          >
+            {expanded ? '▾' : '▸'}
+            {expandLabel}
+          </button>
         {/if}
       </div>
     {/if}

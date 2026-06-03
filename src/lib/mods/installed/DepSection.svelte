@@ -18,7 +18,7 @@
     hoveredKey: string | null;
     onHover: (k: string | null) => void;
     onInstall: (node: DepTreeNode) => void;
-    onJump: (node: DepTreeNode) => void;
+    onJump: (target: { source: ModSource; project_id: string }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
   } = $props();
 </script>
@@ -65,15 +65,31 @@
     <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
       {#each requiredBy as e (e.sha1)}
         {@const k = `${e.source}:${e.projectId}`}
-        <button
-          type="button"
+        <!-- Name opens the mod's info modal; the separate ↗ jumps to the
+             requiring mod's own row — mirroring the dependency tree. The keyed
+             wrapper carries the cross-highlight so hovering either control marks
+             the requiring mod's row. -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
           data-mod-key={k}
-          class="text-accent hover:underline rounded px-1 -mx-1"
+          class="inline-flex items-center gap-1 rounded px-1 -mx-1"
           class:bg-highlight={hoveredKey === k}
           onmouseenter={() => onHover(k)}
           onmouseleave={() => onHover(null)}
-          onclick={() => onOpenDetail(e.source, e.projectId)}>{e.name}</button
         >
+          <button
+            type="button"
+            class="text-accent hover:underline"
+            onclick={() => onOpenDetail(e.source, e.projectId)}>{e.name}</button
+          >
+          <button
+            type="button"
+            class="text-accent"
+            title={$t('mods.deps.jumpToTitle', { name: e.name })}
+            aria-label={$t('mods.deps.jumpToTitle', { name: e.name })}
+            onclick={() => onJump({ source: e.source, project_id: e.projectId })}>↗</button
+          >
+        </span>
       {/each}
     </div>
   {/if}

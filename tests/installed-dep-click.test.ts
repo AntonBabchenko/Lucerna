@@ -80,10 +80,10 @@ describe('"required by" entries are interactive', () => {
     { name: 'Alpha', source: 'modrinth', projectId: 'PA', sha1: 'a' },
   ];
 
-  it('clicking a "required by" entry opens the requiring mod and cross-highlights on hover', async () => {
+  it('clicking a "required by" entry NAME opens the requiring mod; the keyed wrapper cross-highlights on hover', async () => {
     const onOpenDetail = vi.fn();
     const onHover = vi.fn();
-    render(DepSection, {
+    const { container } = render(DepSection, {
       props: {
         root,
         requiredBy,
@@ -95,19 +95,43 @@ describe('"required by" entries are interactive', () => {
       },
     });
 
-    const entry = screen.getByRole('button', { name: 'Alpha' });
-    // It is keyed for cross-highlighting against the requiring mod's row/nodes.
-    expect(entry.getAttribute('data-mod-key')).toBe('modrinth:PA');
-
-    await fireEvent.mouseEnter(entry);
-    expect(onHover).toHaveBeenCalledWith('modrinth:PA');
-
-    await fireEvent.click(entry);
+    // The name button opens the requiring mod's info modal.
+    await fireEvent.click(screen.getByRole('button', { name: 'Alpha' }));
     expect(onOpenDetail).toHaveBeenCalledWith('modrinth', 'PA');
+
+    // The keyed wrapper (holding name + ↗) drives cross-highlighting against
+    // the requiring mod's row/nodes; hovering it sets hoveredKey.
+    const wrapper = container.querySelector('[data-mod-key="modrinth:PA"]') as HTMLElement;
+    expect(wrapper).not.toBeNull();
+    await fireEvent.mouseEnter(wrapper);
+    expect(onHover).toHaveBeenCalledWith('modrinth:PA');
   });
 
-  it('toggles bg-highlight when hoveredKey matches the entry', () => {
+  it('a "required by" entry has a separate ↗ jump button that navigates to the requiring mod row', async () => {
+    const onJump = vi.fn();
+    const onOpenDetail = vi.fn();
     render(DepSection, {
+      props: {
+        root,
+        requiredBy,
+        hoveredKey: null,
+        onHover: () => {},
+        onInstall: () => {},
+        onJump,
+        onOpenDetail,
+      },
+    });
+
+    const arrow = screen.getByRole('button', { name: 'Show Alpha in the list' });
+    expect(arrow.textContent).toContain('↗');
+
+    await fireEvent.click(arrow);
+    expect(onJump).toHaveBeenCalledWith({ source: 'modrinth', project_id: 'PA' });
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it('toggles bg-highlight on the wrapper when hoveredKey matches the entry', () => {
+    const { container } = render(DepSection, {
       props: {
         root,
         requiredBy,
@@ -118,7 +142,7 @@ describe('"required by" entries are interactive', () => {
         onOpenDetail: () => {},
       },
     });
-    const entry = screen.getByRole('button', { name: 'Alpha' });
-    expect(entry.className).toContain('bg-highlight');
+    const wrapper = container.querySelector('[data-mod-key="modrinth:PA"]') as HTMLElement;
+    expect(wrapper.className).toContain('bg-highlight');
   });
 });

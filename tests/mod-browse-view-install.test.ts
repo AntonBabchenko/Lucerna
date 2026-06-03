@@ -316,7 +316,7 @@ describe('ModBrowseView install flow', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
-    const bar = await screen.findByText(/clashes with/i);
+    const bar = await screen.findByText(/has the same name as/i);
     expect(bar.textContent).toContain('Other Mod');
     expect(bar.textContent).toContain('lib.jar');
   });
