@@ -8,7 +8,7 @@
 use crate::mods::platform::{InstalledMod, OrphanRef};
 use std::collections::HashSet;
 
-pub fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<OrphanRef> {
+pub(crate) fn find_orphans(mods: &[InstalledMod], removing: &[String]) -> Vec<OrphanRef> {
     let removing: HashSet<&str> = removing.iter().map(|s| s.as_str()).collect();
 
     // Project IDs still required by any mod that survives the removal.
