@@ -43,12 +43,18 @@ export function createInstalledSelection(
   let stopEffects: (() => void) | null = null;
   try {
     stopEffects = $effect.root(() => {
+      // Both effects below write `selected`. They are order-safe: on an instance
+      // switch the clear effect empties the set, then the drop-hidden effect sees
+      // size 0 === size 0 and skips its write. Keep the clear effect last so a
+      // switch always wins; do not reorder.
       $effect(() => {
+        // Drop selections for rows no longer visible (filter/search change).
         const visible = new Set(getFiltered().map((r) => r.installed.sha1));
         const next = new Set([...selected].filter((sha) => visible.has(sha)));
         if (next.size !== selected.size) selected = next;
       });
       $effect(() => {
+        // Clear selection on instance switch.
         void getInstanceId();
         selected = new Set();
       });
