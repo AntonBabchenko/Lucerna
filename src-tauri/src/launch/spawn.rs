@@ -322,7 +322,23 @@ pub async fn start(
         note_session_end();
         // Restore window from tray. Idempotent — no-op when the window
         // was never hidden (hide_to_tray_during_game was off).
-        let _ = crate::tray::restore_from_tray(&app_clone);
+        //
+        // MUST run on the main (GUI) thread, exactly like the hide path
+        // above. `restore_from_tray` removes the icon via
+        // `remove_tray_by_id` (which calls `TrayIcon::close()`), and on
+        // Windows that teardown (`Shell_NotifyIcon`) is a GUI-thread
+        // operation — it has to run on the thread that created the icon.
+        // Off-thread, the icon was left painted in the tray and every
+        // subsequent launch stacked another orphan.
+        let app_for_restore = app_clone.clone();
+        let res = app_clone.run_on_main_thread(move || {
+            if let Err(e) = crate::tray::restore_from_tray(&app_for_restore) {
+                eprintln!("tray: restore failed: {e}");
+            }
+        });
+        if let Err(e) = res {
+            eprintln!("tray: run_on_main_thread (restore) failed: {e}");
+        }
     });
 
     Ok(pid)
