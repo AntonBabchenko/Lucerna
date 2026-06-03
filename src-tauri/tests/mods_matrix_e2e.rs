@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 //! Mod-install matrix e2e: for each (loader x popular MC) combo, install N
-//! randomly-sampled COMPATIBLE mods from live Modrinth and assert the install
-//! + dependency pipeline succeeds (right version chosen, deps resolved, jars on
-//! disk, no errors). The install analogue of loader_matrix_e2e.rs.
+//! randomly-sampled COMPATIBLE mods from live Modrinth and assert the
+//! install/dependency pipeline succeeds (right version chosen, deps resolved,
+//! jars on disk, no errors). The install analogue of loader_matrix_e2e.rs.
 //!
 //! Gated behind #[ignore] — real network + downloads. Run:
 //!   cargo test --manifest-path src-tauri/Cargo.toml \
@@ -13,9 +13,7 @@
 
 use lucerna_lib::instances::schema::LoaderKind;
 
-const MC_VERSIONS_DEFAULT: &[&str] = &[
-    "1.16.5", "1.18.2", "1.20.1", "1.20.4", "1.21.1", "1.21.8",
-];
+const MC_VERSIONS_DEFAULT: &[&str] = &["1.16.5", "1.18.2", "1.20.1", "1.20.4", "1.21.1", "1.21.8"];
 
 fn mc_versions() -> Vec<String> {
     match std::env::var("LUCERNA_MOD_MATRIX_MC") {
@@ -27,9 +25,17 @@ fn mc_versions() -> Vec<String> {
 /// NeoForge applies to MC >= 1.20.1 (fork point). Mirrors loader_matrix_e2e.
 fn neoforge_applies(mc: &str) -> bool {
     let p: Vec<u32> = mc.split('.').filter_map(|s| s.parse().ok()).collect();
-    let (maj, min, pat) = (p.first().copied().unwrap_or(0), p.get(1).copied().unwrap_or(0), p.get(2).copied().unwrap_or(0));
-    if maj != 1 { return maj > 1; }
-    if min != 20 { return min > 20; }
+    let (maj, min, pat) = (
+        p.first().copied().unwrap_or(0),
+        p.get(1).copied().unwrap_or(0),
+        p.get(2).copied().unwrap_or(0),
+    );
+    if maj != 1 {
+        return maj > 1;
+    }
+    if min != 20 {
+        return min > 20;
+    }
     pat >= 1
 }
 
@@ -37,11 +43,21 @@ fn neoforge_applies(mc: &str) -> bool {
 /// Fabric/Quilt from 1.16; Forge from 1.6; NeoForge per neoforge_applies.
 fn loaders_for(mc: &str) -> Vec<LoaderKind> {
     let p: Vec<u32> = mc.split('.').filter_map(|s| s.parse().ok()).collect();
-    let mm = (p.first().copied().unwrap_or(0), p.get(1).copied().unwrap_or(0));
+    let mm = (
+        p.first().copied().unwrap_or(0),
+        p.get(1).copied().unwrap_or(0),
+    );
     let mut out = Vec::new();
-    if mm >= (1, 16) { out.push(LoaderKind::Fabric); out.push(LoaderKind::Quilt); }
-    if mm >= (1, 6) { out.push(LoaderKind::Forge); }
-    if neoforge_applies(mc) { out.push(LoaderKind::NeoForge); }
+    if mm >= (1, 16) {
+        out.push(LoaderKind::Fabric);
+        out.push(LoaderKind::Quilt);
+    }
+    if mm >= (1, 6) {
+        out.push(LoaderKind::Forge);
+    }
+    if neoforge_applies(mc) {
+        out.push(LoaderKind::NeoForge);
+    }
     out
 }
 
@@ -52,8 +68,10 @@ fn loader_enabled(l: LoaderKind) -> bool {
         _ => return true,
     };
     let name = match l {
-        LoaderKind::Fabric => "fabric", LoaderKind::Quilt => "quilt",
-        LoaderKind::Forge => "forge", LoaderKind::NeoForge => "neoforge",
+        LoaderKind::Fabric => "fabric",
+        LoaderKind::Quilt => "quilt",
+        LoaderKind::Forge => "forge",
+        LoaderKind::NeoForge => "neoforge",
         LoaderKind::Vanilla => "vanilla",
     };
     want.split(',').any(|w| w.trim().eq_ignore_ascii_case(name))
@@ -128,18 +146,28 @@ mod sample_tests {
     }
 }
 
-use std::path::Path;
 use lucerna_lib::mods::install::{install_one, ModInstallPhase, ProgressFn};
 use lucerna_lib::mods::installed;
 use lucerna_lib::mods::modrinth::ModrinthClient;
 use lucerna_lib::mods::platform::{ModPlatform, ModSearchQuery, ModSort, ModSource};
+use std::path::Path;
 
 /// Per-mod result within a combo.
 #[derive(Debug)]
 enum ModOutcome {
-    Installed { project_id: String, version_id: String, deps: usize },
-    Skipped { project_id: String, reason: String }, // no compatible version / distribution disabled
-    Failed { project_id: String, error: String },   // a real pipeline error
+    Installed {
+        project_id: String,
+        version_id: String,
+        deps: usize,
+    },
+    Skipped {
+        project_id: String,
+        reason: String,
+    }, // no compatible version / distribution disabled
+    Failed {
+        project_id: String,
+        error: String,
+    }, // a real pipeline error
 }
 
 struct ComboReport {
@@ -150,15 +178,37 @@ struct ComboReport {
 }
 
 impl ComboReport {
-    fn installed(&self) -> usize { self.outcomes.iter().filter(|o| matches!(o, ModOutcome::Installed{..})).count() }
-    fn skipped(&self) -> usize { self.outcomes.iter().filter(|o| matches!(o, ModOutcome::Skipped{..})).count() }
-    fn failed(&self) -> usize { self.outcomes.iter().filter(|o| matches!(o, ModOutcome::Failed{..})).count() }
+    fn installed(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter(|o| matches!(o, ModOutcome::Installed { .. }))
+            .count()
+    }
+    fn skipped(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter(|o| matches!(o, ModOutcome::Skipped { .. }))
+            .count()
+    }
+    fn failed(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter(|o| matches!(o, ModOutcome::Failed { .. }))
+            .count()
+    }
 }
 
-fn noop_progress() -> ProgressFn { Box::new(|_p: ModInstallPhase, _a: u64, _b: Option<u64>| {}) }
+fn noop_progress() -> ProgressFn {
+    Box::new(|_p: ModInstallPhase, _a: u64, _b: Option<u64>| {})
+}
 
 /// Page Modrinth search (facet-filtered to mc+loader) into a pool of up to `cap` summaries.
-async fn fetch_pool(client: &ModrinthClient, mc: &str, loader: LoaderKind, cap: usize) -> Result<Vec<lucerna_lib::mods::platform::ModSummary>, String> {
+async fn fetch_pool(
+    client: &ModrinthClient,
+    mc: &str,
+    loader: LoaderKind,
+    cap: usize,
+) -> Result<Vec<lucerna_lib::mods::platform::ModSummary>, String> {
     let mut pool = Vec::new();
     let page_size = 100u32;
     let mut offset = 0u32;
@@ -172,11 +222,16 @@ async fn fetch_pool(client: &ModrinthClient, mc: &str, loader: LoaderKind, cap: 
             page_size,
             offset,
         };
-        let page = client.search(&q).await.map_err(|e| format!("search: {e:?}"))?;
+        let page = client
+            .search(&q)
+            .await
+            .map_err(|e| format!("search: {e:?}"))?;
         let total = page.total;
         pool.extend(page.hits);
         offset += page_size;
-        if pool.len() >= cap || offset >= total || pool.is_empty() { break; }
+        if pool.len() >= cap || offset >= total || pool.is_empty() {
+            break;
+        }
     }
     pool.truncate(cap);
     Ok(pool)
@@ -184,7 +239,12 @@ async fn fetch_pool(client: &ModrinthClient, mc: &str, loader: LoaderKind, cap: 
 
 /// Run one (mc, loader) combo end to end.
 async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboReport {
-    let mut report = ComboReport { mc: mc.to_string(), loader, seed, outcomes: Vec::new() };
+    let mut report = ComboReport {
+        mc: mc.to_string(),
+        loader,
+        seed,
+        outcomes: Vec::new(),
+    };
     let tmp = tempfile::tempdir().expect("tempdir");
     let data_dir = tmp.path().join("data");
     let instance_root = tmp.path().join("instance");
@@ -196,7 +256,13 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
     let cap = (n * 10).max(200);
     let pool = match fetch_pool(&client, mc, loader, cap).await {
         Ok(p) => p,
-        Err(e) => { report.outcomes.push(ModOutcome::Failed { project_id: "<search>".into(), error: e }); return report; }
+        Err(e) => {
+            report.outcomes.push(ModOutcome::Failed {
+                project_id: "<search>".into(),
+                error: e,
+            });
+            return report;
+        }
     };
     let sample = seeded_sample(&pool, n, seed);
 
@@ -204,49 +270,98 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
         let pid = summary.project_id.clone();
         let versions = match client.versions(&pid, Some(mc), Some(loader)).await {
             Ok(v) => v,
-            Err(e) => { report.outcomes.push(ModOutcome::Failed { project_id: pid, error: format!("versions: {e:?}") }); continue; }
+            Err(e) => {
+                report.outcomes.push(ModOutcome::Failed {
+                    project_id: pid,
+                    error: format!("versions: {e:?}"),
+                });
+                continue;
+            }
         };
         let Some(primary) = versions.into_iter().next() else {
-            report.outcomes.push(ModOutcome::Skipped { project_id: pid, reason: "no compatible version".into() });
+            report.outcomes.push(ModOutcome::Skipped {
+                project_id: pid,
+                reason: "no compatible version".into(),
+            });
             continue;
         };
         if !primary.primary_file.distribution_allowed {
-            report.outcomes.push(ModOutcome::Skipped { project_id: pid, reason: "distribution disabled".into() });
+            report.outcomes.push(ModOutcome::Skipped {
+                project_id: pid,
+                reason: "distribution disabled".into(),
+            });
             continue;
         }
         let plan = match client.resolve_deps(&primary, mc, loader).await {
             Ok(p) => p,
-            Err(e) => { report.outcomes.push(ModOutcome::Failed { project_id: pid, error: format!("resolve: {e:?}") }); continue; }
+            Err(e) => {
+                report.outcomes.push(ModOutcome::Failed {
+                    project_id: pid,
+                    error: format!("resolve: {e:?}"),
+                });
+                continue;
+            }
         };
         let primary_vid = primary.version_id.clone();
         if let Err(e) = install_one(&data_dir, &instance_root, primary, &progress).await {
-            report.outcomes.push(ModOutcome::Failed { project_id: pid, error: format!("install primary: {e:?}") });
+            report.outcomes.push(ModOutcome::Failed {
+                project_id: pid,
+                error: format!("install primary: {e:?}"),
+            });
             continue;
         }
         let mut dep_count = 0usize;
         let mut dep_failed: Option<String> = None;
         for dep in plan.required {
-            if !dep.version.primary_file.distribution_allowed { continue; }
+            if !dep.version.primary_file.distribution_allowed {
+                continue;
+            }
             match install_one(&data_dir, &instance_root, dep.version, &progress).await {
                 Ok(_) => dep_count += 1,
-                Err(e) => { dep_failed = Some(format!("install dep: {e:?}")); break; }
+                Err(e) => {
+                    dep_failed = Some(format!("install dep: {e:?}"));
+                    break;
+                }
             }
         }
         if let Some(err) = dep_failed {
-            report.outcomes.push(ModOutcome::Failed { project_id: pid, error: err });
+            report.outcomes.push(ModOutcome::Failed {
+                project_id: pid,
+                error: err,
+            });
             continue;
         }
-        report.outcomes.push(ModOutcome::Installed { project_id: pid, version_id: primary_vid, deps: dep_count });
+        report.outcomes.push(ModOutcome::Installed {
+            project_id: pid,
+            version_id: primary_vid,
+            deps: dep_count,
+        });
     }
 
     let registry = installed::list(&instance_root).await.unwrap_or_default();
     let mods_dir = installed::mods_dir(&instance_root);
     for o in &report.outcomes {
         if let ModOutcome::Installed { version_id, .. } = o {
-            let row = registry.iter().find(|r| r.version_id.as_deref() == Some(version_id.as_str()));
-            assert!(row.is_some(), "[{} {:?}] installed version {} missing from registry (seed {})", mc, loader, version_id, seed);
+            let row = registry
+                .iter()
+                .find(|r| r.version_id.as_deref() == Some(version_id.as_str()));
+            assert!(
+                row.is_some(),
+                "[{} {:?}] installed version {} missing from registry (seed {})",
+                mc,
+                loader,
+                version_id,
+                seed
+            );
             let row = row.unwrap();
-            assert!(mods_dir.join(&row.filename).exists(), "[{} {:?}] jar {} not on disk (seed {})", mc, loader, row.filename, seed);
+            assert!(
+                mods_dir.join(&row.filename).exists(),
+                "[{} {:?}] jar {} not on disk (seed {})",
+                mc,
+                loader,
+                row.filename,
+                seed
+            );
         }
     }
     report
@@ -255,14 +370,22 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
 use std::io::Write;
 
 fn env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(default)
 }
 fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(default)
 }
 
 fn log_dir() -> std::path::PathBuf {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("mod-install-matrix-logs");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("mod-install-matrix-logs");
     std::fs::create_dir_all(&dir).expect("create log dir");
     dir
 }
@@ -271,16 +394,33 @@ fn write_combo_log(r: &ComboReport) {
     let fname = format!("{}_{:?}.log", r.mc.replace('.', "_"), r.loader);
     let path = log_dir().join(fname);
     let mut f = std::fs::File::create(&path).expect("combo log");
-    writeln!(f, "combo: MC {} loader {:?} seed {}", r.mc, r.loader, r.seed).ok();
-    writeln!(f, "installed {} skipped {} failed {}", r.installed(), r.skipped(), r.failed()).ok();
+    writeln!(
+        f,
+        "combo: MC {} loader {:?} seed {}",
+        r.mc, r.loader, r.seed
+    )
+    .ok();
+    writeln!(
+        f,
+        "installed {} skipped {} failed {}",
+        r.installed(),
+        r.skipped(),
+        r.failed()
+    )
+    .ok();
     for o in &r.outcomes {
         match o {
-            ModOutcome::Installed { project_id, version_id, deps } =>
-                writeln!(f, "  OK   {project_id} -> {version_id} (+{deps} deps)").ok(),
-            ModOutcome::Skipped { project_id, reason } =>
-                writeln!(f, "  SKIP {project_id}: {reason}").ok(),
-            ModOutcome::Failed { project_id, error } =>
-                writeln!(f, "  FAIL {project_id}: {error}").ok(),
+            ModOutcome::Installed {
+                project_id,
+                version_id,
+                deps,
+            } => writeln!(f, "  OK   {project_id} -> {version_id} (+{deps} deps)").ok(),
+            ModOutcome::Skipped { project_id, reason } => {
+                writeln!(f, "  SKIP {project_id}: {reason}").ok()
+            }
+            ModOutcome::Failed { project_id, error } => {
+                writeln!(f, "  FAIL {project_id}: {error}").ok()
+            }
         };
     }
 }
@@ -295,12 +435,19 @@ async fn mod_install_matrix() {
     let mut combo_idx: u64 = 0;
     for mc in mc_versions() {
         for loader in loaders_for(&mc) {
-            if !loader_enabled(loader) { continue; }
+            if !loader_enabled(loader) {
+                continue;
+            }
             let seed = base_seed.wrapping_add(combo_idx);
             combo_idx += 1;
             eprintln!("=== MC {mc} {loader:?} (seed {seed}) ===");
             let report = run_combo(&mc, loader, n, seed).await;
-            eprintln!("    installed {} skipped {} failed {}", report.installed(), report.skipped(), report.failed());
+            eprintln!(
+                "    installed {} skipped {} failed {}",
+                report.installed(),
+                report.skipped(),
+                report.failed()
+            );
             write_combo_log(&report);
             reports.push(report);
         }
@@ -311,8 +458,20 @@ async fn mod_install_matrix() {
     let mut total_failed = 0usize;
     for r in &reports {
         total_failed += r.failed();
-        eprintln!("| {} | {:?} | {} | {} | {} | {} |", r.mc, r.loader, r.seed, r.installed(), r.skipped(), r.failed());
+        eprintln!(
+            "| {} | {:?} | {} | {} | {} | {} |",
+            r.mc,
+            r.loader,
+            r.seed,
+            r.installed(),
+            r.skipped(),
+            r.failed()
+        );
     }
     eprintln!("\nlogs: {}", log_dir().display());
-    assert_eq!(total_failed, 0, "{} mod install(s) failed across the matrix — see per-combo logs", total_failed);
+    assert_eq!(
+        total_failed, 0,
+        "{} mod install(s) failed across the matrix — see per-combo logs",
+        total_failed
+    );
 }
