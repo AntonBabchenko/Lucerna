@@ -58,6 +58,7 @@ pub fn asset_artifact(hash: &str) -> PlannedArtifact {
         category: VerifyCategory::Assets,
         rel_path: format!("{prefix}/{hash}"),
         expected_sha: hash.to_string(),
+        // url is None by design: asset problems are repaired via a full install_version (ensure_assets), not a targeted download — see repair.rs.
         url: None,
     }
 }

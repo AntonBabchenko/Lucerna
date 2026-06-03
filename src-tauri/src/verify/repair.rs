@@ -41,7 +41,7 @@ pub async fn repair_instance_report(
     if needs_full_install(report.manifest_recoverable, &report.problems) {
         crate::versions::install_version(effective_id, app).await?;
     } else {
-        repair_targeted(&report.problems, effective_id, app).await?;
+        repair_targeted(&report.problems, instance_id, effective_id, app).await?;
     }
 
     let post = verify_instance_report(instance_id, effective_id, app).await?;
@@ -51,27 +51,37 @@ pub async fn repair_instance_report(
 
 async fn repair_targeted(
     problems: &[ProblemArtifact],
+    instance_id: &str,
     effective_id: &str,
     app: &tauri::AppHandle,
 ) -> Result<()> {
-    let mut needs_full = false;
+    let downloadable: Vec<&ProblemArtifact> = problems
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.category,
+                VerifyCategory::Client | VerifyCategory::Libraries
+            ) && p.url.is_some()
+        })
+        .collect();
+    let total = downloadable.len() as u32;
 
-    for prob in problems {
-        match prob.category {
-            VerifyCategory::Assets | VerifyCategory::Jre => needs_full = true,
-            VerifyCategory::Client | VerifyCategory::Libraries => {
-                if let Some(url) = prob.url.as_deref() {
-                    let dest = absolute_dest(prob, app)?;
-                    download_with_sha(app, url, &dest, &prob.expected_sha, "verify").await?;
-                }
-            }
-            VerifyCategory::ProfileJson => { /* handled by the full-install gate */ }
+    let mut done = 0u32;
+    for prob in &downloadable {
+        if let Some(url) = prob.url.as_deref() {
+            let dest = absolute_dest(prob, app)?;
+            download_with_sha(app, url, &dest, &prob.expected_sha, "verify").await?;
+            done += 1;
+            emit_repairing(app, instance_id, done, total.max(1));
         }
     }
 
+    // Assets / JRE problems can't be plain-downloaded — drive ensure_* via a
+    // full (idempotent) install.
+    let needs_full = problems
+        .iter()
+        .any(|p| matches!(p.category, VerifyCategory::Assets | VerifyCategory::Jre));
     if needs_full {
-        // Re-running the full install is the simplest correct way to drive
-        // ensure_assets / ensure_jre for the effective version.
         crate::versions::install_version(effective_id, app).await?;
     }
     Ok(())
@@ -91,6 +101,7 @@ fn absolute_dest(prob: &ProblemArtifact, app: &tauri::AppHandle) -> Result<std::
 fn emit_repairing(app: &tauri::AppHandle, instance_id: &str, done: u32, total: u32) {
     use crate::verify::progress::VerifyProgress;
     use tauri_specta::Event;
+    // Best-effort: a dropped event (no listener / closed window) is fine.
     let _ = VerifyProgress {
         instance_id: instance_id.to_string(),
         phase: VerifyPhase::Repairing,

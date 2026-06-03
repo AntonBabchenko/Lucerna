@@ -5,6 +5,7 @@ use crate::verify::ArtifactStatus;
 
 /// Pure classification. `on_disk_sha` is `None` when the file is absent or
 /// unreadable. Empty `expected_sha` ⇒ presence-only (can't be Corrupt).
+/// A file that exists but is unreadable (permissions/lock) hashes to None and is reported Missing (so repair re-downloads) — intentional conflation.
 pub fn classify(exists: bool, on_disk_sha: Option<&str>, expected_sha: &str) -> ArtifactStatus {
     if !exists || on_disk_sha.is_none() {
         return ArtifactStatus::Missing;
@@ -47,6 +48,20 @@ mod tests {
     #[test]
     fn presence_only_missing_when_absent_and_no_expected_sha() {
         assert_eq!(classify(false, None, ""), ArtifactStatus::Missing);
+    }
+
+    #[test]
+    fn manifest_recoverable_flag_makes_report_unhealthy() {
+        // Guards FIX 2: a recoverable-manifest report must not be healthy even
+        // with no per-file problems.
+        let r = crate::verify::VerifyReport::build(
+            "i".into(),
+            "1.20.4".into(),
+            &[(crate::verify::VerifyCategory::Assets, 0)],
+            vec![],
+            true,
+        );
+        assert!(!r.healthy);
     }
 }
 
@@ -152,27 +167,47 @@ pub async fn verify_instance_report(
 
     let mut planned: Vec<(PlannedArtifact, PathBuf)> = Vec::new();
 
-    if let Some(downloads) = details.downloads.as_ref() {
-        let c = client_artifact(effective_id, &downloads.client.sha1, &downloads.client.url);
-        let abs = versions.join(&c.rel_path);
-        planned.push((c, abs));
-    }
+    // Client jar. Normally `downloads` is Some post-merge (vanilla parent
+    // supplies it). If it's absent (defensive), still PRESENCE-check the jar
+    // at versions/<parent_mc>/<parent_mc>.jar so a missing jar isn't silently
+    // reported healthy — we just can't detect corruption without a SHA.
+    let client = match details.downloads.as_ref() {
+        Some(downloads) => {
+            client_artifact(effective_id, &downloads.client.sha1, &downloads.client.url)
+        }
+        None => client_artifact(effective_id, "", ""),
+    };
+    let client_abs = versions.join(&client.rel_path);
+    planned.push((client, client_abs));
 
     for lib in library_artifacts(&details, os, arch) {
         let abs = libraries_dir.join(&lib.rel_path);
         planned.push((lib, abs));
     }
 
+    let mut manifest_recoverable = false;
     if let Some(ai) = details.asset_index.as_ref() {
         let index_file = assets_root.join("indexes").join(format!("{}.json", ai.id));
-        if let Ok(raw) = tokio::fs::read(&index_file).await {
-            if let Ok(parsed) = serde_json::from_slice::<crate::versions::assets::AssetIndex>(&raw)
-            {
-                for obj in parsed.objects.values() {
-                    let a = asset_artifact(&obj.hash);
-                    let abs = assets_objects.join(&a.rel_path);
-                    planned.push((a, abs));
+        match tokio::fs::read(&index_file).await {
+            Ok(raw) => match serde_json::from_slice::<crate::versions::assets::AssetIndex>(&raw) {
+                Ok(parsed) => {
+                    for obj in parsed.objects.values() {
+                        let a = asset_artifact(&obj.hash);
+                        let abs = assets_objects.join(&a.rel_path);
+                        planned.push((a, abs));
+                    }
                 }
+                Err(e) => {
+                    // Unparseable index: we can't enumerate objects, so the
+                    // assets can't be verified. Mark recoverable so the report
+                    // is unhealthy and repair re-fetches the index via install.
+                    eprintln!("verify: asset index {} unparseable: {e}", ai.id);
+                    manifest_recoverable = true;
+                }
+            },
+            Err(e) => {
+                eprintln!("verify: asset index {} unreadable: {e}", ai.id);
+                manifest_recoverable = true;
             }
         }
     }
@@ -234,7 +269,7 @@ pub async fn verify_instance_report(
         effective_id.to_string(),
         &totals,
         problems,
-        false,
+        manifest_recoverable,
     );
 
     emit(app, instance_id, VerifyPhase::Complete, 1, 1, None);
@@ -271,6 +306,7 @@ fn category_totals(
         (Libraries, count(Libraries)),
         (Assets, count(Assets)),
         (Jre, jre_total),
+        // ProfileJson is a single artefact; total is always 1 (problem present only via the manifest_recoverable early-return path).
         (ProfileJson, 1),
     ]
 }
@@ -283,6 +319,7 @@ fn emit(
     files_total: u32,
     current_category: Option<VerifyCategory>,
 ) {
+    // Best-effort: a dropped event (no listener / closed window) is fine.
     let _ = VerifyProgress {
         instance_id: instance_id.to_string(),
         phase,
