@@ -188,6 +188,177 @@ async fn cf_format_non_numeric_ids_fall_back_to_bundle() {
 }
 
 #[tokio::test]
+async fn cf_format_numeric_ids_are_referenced_not_bundled() {
+    // The inverse of cf_format_non_numeric_ids_fall_back_to_bundle: when a
+    // CurseForge mod carries valid numeric project/file ids, it is referenced
+    // in manifest.json (projectID/fileID) and NOT copied into overrides. This
+    // path takes no network — the CF branch only parses the ids.
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    let mods_dir = root.join(".minecraft").join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(mods_dir.join("jei.jar"), b"cfbytes").unwrap();
+    let mut m = local_jar("jei.jar");
+    m.source = Some(ModSource::Curseforge);
+    m.project_id = Some("238222".into());
+    m.version_id = Some("4712788".into());
+    let mods = vec![m];
+
+    let dest = root.join("cf.zip");
+    run_export(
+        root,
+        "1.20.1",
+        LoaderKind::Forge,
+        Some("47.2.0"),
+        &mods,
+        &opts(ModpackFormat::Curseforge, ExportMode::Lightweight, vec![]),
+        &dest,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+
+    let names = archive_names(&dest);
+    assert!(names.iter().any(|n| n == "manifest.json"));
+    // Referenced, not bundled.
+    assert!(
+        !names.iter().any(|n| n == "overrides/mods/jei.jar"),
+        "numeric-id CF mod must be referenced, not bundled"
+    );
+
+    use std::io::Read;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+    let mut manifest = String::new();
+    zip.by_name("manifest.json")
+        .unwrap()
+        .read_to_string(&mut manifest)
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    let files = v["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1, "one referenced file");
+    assert_eq!(files[0]["projectID"], 238222);
+    assert_eq!(files[0]["fileID"], 4712788);
+}
+
+#[tokio::test]
+async fn includes_resourcepacks_shaderpacks_and_worlds_as_overrides() {
+    // Exercises the include_resourcepacks / include_shaderpacks / include_worlds
+    // branches (the existing content test only flips include_config).
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    let mc = root.join(".minecraft");
+    std::fs::create_dir_all(mc.join("mods")).unwrap();
+    std::fs::write(mc.join("mods").join("local.jar"), b"z").unwrap();
+    std::fs::create_dir_all(mc.join("resourcepacks")).unwrap();
+    std::fs::write(mc.join("resourcepacks").join("pack.zip"), b"rp").unwrap();
+    std::fs::create_dir_all(mc.join("shaderpacks")).unwrap();
+    std::fs::write(mc.join("shaderpacks").join("shader.zip"), b"sh").unwrap();
+    std::fs::create_dir_all(mc.join("saves").join("world")).unwrap();
+    std::fs::write(mc.join("saves").join("world").join("level.dat"), b"lvl").unwrap();
+    let mods = vec![local_jar("local.jar")];
+
+    let mut o = opts(ModpackFormat::Modrinth, ExportMode::Full, vec![]);
+    o.include_resourcepacks = true;
+    o.include_shaderpacks = true;
+    o.include_worlds = true;
+    let dest = root.join("full.mrpack");
+    run_export(
+        root,
+        "1.21.1",
+        LoaderKind::Fabric,
+        Some("0.16.0"),
+        &mods,
+        &o,
+        &dest,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+
+    let names = archive_names(&dest);
+    assert!(names
+        .iter()
+        .any(|n| n == "overrides/resourcepacks/pack.zip"));
+    assert!(names
+        .iter()
+        .any(|n| n == "overrides/shaderpacks/shader.zip"));
+    assert!(names.iter().any(|n| n == "overrides/saves/world/level.dat"));
+}
+
+#[tokio::test]
+async fn bundle_sha_match_is_case_insensitive() {
+    // bundle_shas and the stored mod sha are both lowercased before
+    // comparison, so an uppercase registry sha still matches a lowercase
+    // chosen sha. A naive equality check would skip the jar.
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    let mods_dir = root.join(".minecraft").join("mods");
+    std::fs::create_dir_all(&mods_dir).unwrap();
+    std::fs::write(mods_dir.join("local.jar"), b"x").unwrap();
+    let mut m = local_jar("local.jar");
+    m.sha1 = "ABCDEF0123456789ABCDEF0123456789ABCDEF01".into(); // uppercase
+    let mods = vec![m];
+
+    let dest = root.join("keep.mrpack");
+    run_export(
+        root,
+        "1.21.1",
+        LoaderKind::Fabric,
+        Some("0.16.0"),
+        &mods,
+        // chosen sha is the lowercase form of the stored (uppercase) sha
+        &opts(
+            ModpackFormat::Modrinth,
+            ExportMode::Lightweight,
+            vec!["abcdef0123456789abcdef0123456789abcdef01".into()],
+        ),
+        &dest,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+    assert!(
+        archive_names(&dest)
+            .iter()
+            .any(|n| n == "overrides/mods/local.jar"),
+        "uppercase stored sha must match the lowercase chosen sha"
+    );
+}
+
+#[tokio::test]
+async fn missing_jar_on_disk_is_skipped_not_fatal() {
+    // A mod listed in the registry whose jar is gone from disk must not abort
+    // the export — the bundling loop's `jar.exists()` guard skips it and the
+    // archive is still written (manifest present, jar absent).
+    let td = tempfile::tempdir().unwrap();
+    let root = td.path();
+    std::fs::create_dir_all(root.join(".minecraft").join("mods")).unwrap();
+    // Note: ghost.jar is intentionally NOT written to disk.
+    let mods = vec![local_jar("ghost.jar")];
+
+    let dest = root.join("out.mrpack");
+    run_export(
+        root,
+        "1.21.1",
+        LoaderKind::Fabric,
+        Some("0.16.0"),
+        &mods,
+        &opts(ModpackFormat::Modrinth, ExportMode::Full, vec![]),
+        &dest,
+        &|_p| {},
+    )
+    .await
+    .unwrap();
+
+    let names = archive_names(&dest);
+    assert!(names.iter().any(|n| n == "modrinth.index.json"));
+    assert!(
+        !names.iter().any(|n| n == "overrides/mods/ghost.jar"),
+        "a jar missing from disk is skipped, not bundled"
+    );
+}
+
+#[tokio::test]
 async fn includes_selected_content_dirs_as_overrides() {
     let td = tempfile::tempdir().unwrap();
     let root = td.path();
