@@ -824,7 +824,7 @@
       "openRepoLabel": "Открыть репозиторий Lucerna на GitHub ({url})",
       "license": "Распространяется под лицензией GPL-3.0-or-later. Java-среда и файлы Minecraft загружаются с серверов Mojang во время выполнения и никогда не изменяются.",
       "trademark": "Minecraft и Mojang являются торговыми марками Mojang Synergies AB и Microsoft Corporation. Данный лаунчер не аффилирован ни с одной из этих компаний.",
-      "keyring": "Токены обновления Microsoft хранятся в системном хранилище ключей (Windows Credential Manager) и удаляются при выходе из аккаунта."
+      "keyring": "Токены обновления Microsoft хранятся в защищённом системном хранилище ключей вашей ОС и удаляются при выходе из аккаунта."
     },
     "curseforge": {
       "statusLabel": "Статус:",
@@ -846,7 +846,7 @@
       "saveKey": "Сохранить ключ",
       "updateKey": "Обновить ключ",
       "clearKey": "Удалить ключ",
-      "keyringNote": "Хранится в системном хранилище ключей (Windows Credential Manager)."
+      "keyringNote": "Хранится в защищённом системном хранилище ключей вашей ОС."
     }
   },
   "page": {

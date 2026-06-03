@@ -474,16 +474,26 @@
               {$t('instance.manage.showSnapshots')}
             </label>
 
-            <LoaderPicker
-              mc={selected.mc_version}
-              loader={selected.loader}
-              loaderVersion={selected.loader_version}
-              onchange={async (l, v) => {
-                if (l !== selected!.loader || v !== selected!.loader_version) {
-                  await commitLoader(l, v);
-                }
-              }}
-            />
+            <!--
+              Keyed on the instance id so the picker REMOUNTS when the user
+              switches the selected instance. LoaderPicker tracks the previous
+              loader in a non-reactive `prevLoader` to tell a user-driven loader
+              switch from a mount/MC tweak; without a remount that value leaks
+              across instances, so swapping to a modpack instance was mis-read as
+              a loader change and falsely raised the pack-detach prompt.
+            -->
+            {#key selected.id}
+              <LoaderPicker
+                mc={selected.mc_version}
+                loader={selected.loader}
+                loaderVersion={selected.loader_version}
+                onchange={async (l, v) => {
+                  if (l !== selected!.loader || v !== selected!.loader_version) {
+                    await commitLoader(l, v);
+                  }
+                }}
+              />
+            {/key}
 
             {#if compatRows !== null && compatSummary(compatRows) !== null}
               <p
