@@ -86,4 +86,21 @@ describe('ModCard', () => {
     render(ModCard, { props: { summary, installed: cfInstalled, ...noopProps } });
     expect(screen.getByText(/Installed \(CurseForge\)/)).toBeTruthy();
   });
+
+  it('list row shows bg-highlight when highlighted={true}', () => {
+    const { container } = render(ModCard, {
+      props: { summary, installed: inst(true), layout: 'list', highlighted: true, ...noopProps },
+    });
+    const row = container.querySelector('[data-testid="card-list-row"]');
+    expect(row?.className).toContain('bg-highlight');
+  });
+
+  it('list row keeps bg-surface (no bg-highlight) when highlighted is false', () => {
+    const { container } = render(ModCard, {
+      props: { summary, installed: inst(true), layout: 'list', ...noopProps },
+    });
+    const row = container.querySelector('[data-testid="card-list-row"]');
+    expect(row?.className).toContain('bg-surface');
+    expect(row?.className).not.toContain('bg-highlight');
+  });
 });

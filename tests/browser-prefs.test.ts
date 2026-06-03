@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, it, test } from 'vitest';
+import { loadPrefs } from '$lib/mods/browser-prefs.svelte';
 
 describe('browser-prefs', () => {
   beforeEach(() => localStorage.clear());
@@ -12,12 +13,33 @@ describe('browser-prefs', () => {
   test('falls back to defaults on malformed localStorage', async () => {
     localStorage.setItem('lucerna.browserPrefs', '{not json');
     const m = await import('../src/lib/mods/browser-prefs.svelte');
-    expect(m.loadPrefs()).toEqual({ pageSize: 20, layout: 'grid' });
+    expect(m.loadPrefs()).toEqual({ pageSize: 20, layout: 'grid', installedPageSize: 50 });
   });
 
   test('loadPrefs reads a valid stored value', async () => {
     localStorage.setItem('lucerna.browserPrefs', JSON.stringify({ pageSize: 50, layout: 'list' }));
     const m = await import('../src/lib/mods/browser-prefs.svelte');
-    expect(m.loadPrefs()).toEqual({ pageSize: 50, layout: 'list' });
+    expect(m.loadPrefs()).toEqual({ pageSize: 50, layout: 'list', installedPageSize: 50 });
+  });
+});
+
+describe('browser-prefs installedPageSize', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults installedPageSize to 50', () => {
+    expect(loadPrefs().installedPageSize).toBe(50);
+  });
+
+  it('reads a persisted installedPageSize', () => {
+    localStorage.setItem(
+      'lucerna.browserPrefs',
+      JSON.stringify({ pageSize: 20, layout: 'grid', installedPageSize: 100 }),
+    );
+    expect(loadPrefs().installedPageSize).toBe(100);
+  });
+
+  it('falls back to 50 for an invalid persisted installedPageSize', () => {
+    localStorage.setItem('lucerna.browserPrefs', JSON.stringify({ installedPageSize: 999 }));
+    expect(loadPrefs().installedPageSize).toBe(50);
   });
 });

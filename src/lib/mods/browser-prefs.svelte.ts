@@ -9,18 +9,23 @@ export type Layout = 'grid' | 'list';
 export const PAGE_SIZES: PageSize[] = [20, 50, 100];
 
 const KEY = 'lucerna.browserPrefs';
-const DEFAULTS = { pageSize: 20 as PageSize, layout: 'grid' as Layout };
+const DEFAULTS = {
+  pageSize: 20 as PageSize,
+  layout: 'grid' as Layout,
+  installedPageSize: 50 as PageSize,
+};
 
-export function loadPrefs(): { pageSize: PageSize; layout: Layout } {
+export function loadPrefs(): { pageSize: PageSize; layout: Layout; installedPageSize: PageSize } {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
-    const pageSize = (PAGE_SIZES as number[]).includes(parsed?.pageSize)
-      ? (parsed.pageSize as PageSize)
-      : DEFAULTS.pageSize;
+    const pickSize = (v: unknown, fallback: PageSize): PageSize =>
+      (PAGE_SIZES as number[]).includes(v as number) ? (v as PageSize) : fallback;
+    const pageSize = pickSize(parsed?.pageSize, DEFAULTS.pageSize);
+    const installedPageSize = pickSize(parsed?.installedPageSize, DEFAULTS.installedPageSize);
     const layout: Layout = parsed?.layout === 'list' ? 'list' : 'grid';
-    return { pageSize, layout };
+    return { pageSize, layout, installedPageSize };
   } catch {
     return { ...DEFAULTS };
   }
@@ -31,15 +36,24 @@ const initial = loadPrefs();
 class BrowserPrefs {
   pageSize = $state<PageSize>(initial.pageSize);
   layout = $state<Layout>(initial.layout);
+  installedPageSize = $state<PageSize>(initial.installedPageSize);
 
   constructor() {
     try {
+      // BrowserPrefs is a module singleton that lives for the whole app session,
+      // so this $effect.root persists intentionally and is never disposed (the
+      // localStorage write-through must keep running). Component-scoped composables
+      // in installed/ differ: they expose dispose() called from onDestroy.
       $effect.root(() => {
         $effect(() => {
           try {
             localStorage.setItem(
               KEY,
-              JSON.stringify({ pageSize: this.pageSize, layout: this.layout }),
+              JSON.stringify({
+                pageSize: this.pageSize,
+                layout: this.layout,
+                installedPageSize: this.installedPageSize,
+              }),
             );
           } catch {
             /* localStorage unavailable — non-fatal */

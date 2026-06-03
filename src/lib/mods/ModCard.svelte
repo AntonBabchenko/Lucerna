@@ -27,11 +27,13 @@
     checking = false,
     packChip = null,
     layout = 'grid',
+    dense = false,
+    highlighted = false,
     selectable = false,
     selected = false,
     onSelectChange = (_checked: boolean) => {},
   }: {
-    summary: ModSummary;
+    summary: ModSummary | null;
     installed: InstalledMod | null;
     onInstall: () => void;
     onOpenDetail: () => void;
@@ -46,6 +48,8 @@
     checking?: boolean;
     packChip?: string | null;
     layout?: 'grid' | 'list';
+    dense?: boolean;
+    highlighted?: boolean;
     selectable?: boolean;
     selected?: boolean;
     onSelectChange?: (checked: boolean) => void;
@@ -58,13 +62,31 @@
   // hint at the source so the user understands why the version number
   // doesn't match what CF lists.
   const crossPlatform = $derived(
-    installed !== null && installed.source !== null && installed.source !== summary.source,
+    summary !== null &&
+      installed !== null &&
+      installed.source !== null &&
+      installed.source !== summary.source,
   );
   const otherPlatformLabel = $derived(
     installed?.source === 'modrinth'
       ? 'Modrinth'
       : installed?.source === 'curseforge'
         ? 'CurseForge'
+        : null,
+  );
+
+  // Degraded row: no platform summary. Either a hand-dropped manual mod
+  // (source null), a modpack-bundled jar we couldn't identify (packChip set),
+  // or a platform mod whose summary lookup failed transiently (source set).
+  const isPlatform = $derived(installed !== null && installed.source !== null);
+  const degradedTitle = $derived(
+    isPlatform && !packChip ? (installed?.name ?? '') : (installed?.filename ?? ''),
+  );
+  const sourceLabel = $derived(
+    installed?.source === 'curseforge'
+      ? 'CurseForge'
+      : installed?.source === 'modrinth'
+        ? 'Modrinth'
         : null,
   );
 </script>
@@ -130,7 +152,66 @@
   {/if}
 {/snippet}
 
-{#if layout === 'grid'}
+{#if summary === null}
+  <!-- Degraded row: no ModSummary. Same shape as the list row but with a
+       placeholder icon and a filename/identity-based title. Used by the
+       Installed tab for manual mods, pack-bundled jars, and failed lookups. -->
+  <div
+    class="flex items-center gap-3 px-3 {dense
+      ? 'py-1'
+      : 'py-2'} border-b border-border-subtle {highlighted
+      ? 'bg-highlight'
+      : 'bg-surface hover:bg-subtle'} transition-colors"
+    data-testid="manual-mod-row"
+  >
+    {#if selectable && installed}
+      <input
+        type="checkbox"
+        class="flex-shrink-0"
+        checked={selected}
+        aria-label={$t('mods.installed.selectModAriaLabel', { filename: installed.filename })}
+        onclick={(e) => e.stopPropagation()}
+        onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
+      />
+    {/if}
+    <div
+      class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0"
+      aria-hidden="true"
+    >
+      ◆
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="font-medium text-primary truncate">{degradedTitle}</div>
+      {#if installed}
+        <div class="text-xs text-muted truncate">
+          {packChip
+            ? $t('mods.installed.fromModpack')
+            : isPlatform
+              ? `${sourceLabel ?? ''} · ${$t('mods.installed.detailsUnavailable')}`
+              : $t('mods.installed.manualMod')} · {installed.enabled
+            ? $t('mods.installed.enabledStatus')
+            : $t('mods.installed.disabledStatus')}
+        </div>
+      {/if}
+    </div>
+    <div class="flex items-center gap-1 flex-shrink-0">
+      {#if packChip}
+        <span
+          class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
+          title={$t('mods.card.fromModpackTitle', { name: packChip })}>📦 {packChip}</span
+        >
+      {/if}
+      {#if installed}
+        <button type="button" class="btn-secondary btn-xs" onclick={onToggle}
+          >{installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}</button
+        >
+        <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}
+          >{$t('mods.card.uninstall')}</button
+        >
+      {/if}
+    </div>
+  </div>
+{:else if layout === 'grid'}
   <!--
     Multi-column grid tile. Same actions as the list row (rendered via the
     shared snippet); only the shape differs — icon + title on top, clamped
@@ -166,7 +247,11 @@
   </div>
 {:else}
   <div
-    class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
+    class="flex items-center gap-3 px-3 {dense
+      ? 'py-1'
+      : 'py-2'} border-b border-border-subtle {highlighted
+      ? 'bg-highlight'
+      : 'bg-surface hover:bg-subtle'} transition-colors"
     data-testid="card-list-row"
   >
     {#if selectable}

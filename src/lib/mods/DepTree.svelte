@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DepTreeNode } from '$lib/ipc/bindings';
+  import type { DepTreeNode, ModSource } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import Self from './DepTree.svelte';
 
@@ -10,6 +10,7 @@
     onInstall,
     onAdd,
     onJump = () => {},
+    onOpenDetail,
   }: {
     nodes: DepTreeNode[];
     hoveredKey: string | null;
@@ -18,6 +19,8 @@
     onAdd: (node: DepTreeNode) => void;
     // Jump to an installed dependency's own row in the list.
     onJump?: (node: DepTreeNode) => void;
+    // Open the mod's info modal for any node (installed or not).
+    onOpenDetail: (source: ModSource, projectId: string) => void;
   } = $props();
 
   const keyOf = (n: DepTreeNode) => `${n.source}:${n.project_id}`;
@@ -41,16 +44,21 @@
         onfocus={() => onHover(k)}
         onblur={() => onHover(null)}
       >
+        <!-- The name always opens the mod's info modal. For installed deps a
+             separate ↗ button jumps to the mod's own row in the list. -->
+        <button
+          type="button"
+          class="text-accent hover:underline text-left"
+          onclick={() => onOpenDetail(n.source, n.project_id)}>{n.name}</button
+        >
         {#if isInstalled(n)}
-          <!-- Installed dep → click the name to jump to its row in the list. -->
           <button
             type="button"
-            class="text-accent hover:underline text-left"
+            class="text-accent"
             title={$t('mods.deps.jumpToTitle', { name: n.name })}
-            onclick={() => onJump(n)}>{n.name} ↗</button
+            aria-label={$t('mods.deps.jumpToTitle', { name: n.name })}
+            onclick={() => onJump(n)}>↗</button
           >
-        {:else}
-          <span class="text-primary">{n.name}</span>
         {/if}
         {#if n.status === 'satisfied' || n.status === 'optional_present'}
           <span class="text-success">{$t('mods.deps.installedStatus')}</span>
@@ -75,7 +83,15 @@
       </div>
       {#if n.children.length > 0 && !n.cycle}
         <div class="ml-4 border-l border-border-subtle pl-3">
-          <Self nodes={n.children} {hoveredKey} {onHover} {onInstall} {onAdd} {onJump} />
+          <Self
+            nodes={n.children}
+            {hoveredKey}
+            {onHover}
+            {onInstall}
+            {onAdd}
+            {onJump}
+            {onOpenDetail}
+          />
         </div>
       {/if}
     </li>

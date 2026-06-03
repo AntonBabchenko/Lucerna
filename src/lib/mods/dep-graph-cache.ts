@@ -1,12 +1,7 @@
 import type { DependencyGraph } from '$lib/ipc/bindings';
+import { createLru } from './lru';
 
-// Per-instance, process-lifetime cache of the last dependency graph
-// result. Keyed by instance id. Mirrors update-check-cache.ts's
-// module-singleton style — never persisted to disk.
-const cache = new Map<string, DependencyGraph>();
-
-export const depGraphCache = {
-  get: (id: string) => cache.get(id),
-  set: (id: string, g: DependencyGraph) => cache.set(id, g),
-  delete: (id: string) => cache.delete(id),
-};
+// Per-instance, process-lifetime LRU cache (cap 5) of the last dependency
+// graph result. Never persisted to disk; bounded so navigating many instances
+// over a session does not grow unbounded.
+export const depGraphCache = createLru<DependencyGraph>(5);
