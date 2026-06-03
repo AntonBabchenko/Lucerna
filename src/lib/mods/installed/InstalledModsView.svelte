@@ -26,6 +26,7 @@
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
+  import AttentionBar from './AttentionBar.svelte';
 
   let {
     instanceId,
@@ -200,6 +201,12 @@
   {:else if data.rows.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.empty')}</div>
   {:else}
+    <AttentionBar
+      issues={deps.missingShas.size}
+      updates={updates.updateCount}
+      onShowIssues={() => (filters.quickFilter = 'issues')}
+      onShowUpdates={() => (filters.quickFilter = 'updates')}
+    />
     <div class="border border-border-subtle rounded overflow-hidden">
       <BulkActionBar
         allSelected={selection.allSelected}
