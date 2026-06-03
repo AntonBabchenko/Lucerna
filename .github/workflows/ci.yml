@@ -62,6 +62,50 @@ jobs:
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+  rust-macos:
+    name: rust (macos)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      # No rustfmt component: the fmt --check gate runs on the ubuntu leg only.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable @ 2026-05-23
+        with:
+          toolchain: stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab  # v2.7.5
+        with:
+          workspaces: src-tauri
+      # No apt-style system deps: macOS uses the system WKWebView (unlike
+      # Linux's webkit2gtk). cargo test runs the #[cfg(unix)] platform tests
+      # (set_executable, symlink, killpg_target, positive_pid) and the
+      # #[cfg(not(windows))] wait_for_window_ready no-op on a real Mac for the
+      # first time — that IS the new coverage signal.
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Install pnpm
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2  # v4.0.0
+      - name: Install Node
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # Single-arch bundle smoke (host = arm64 on macos-latest). The Universal2
+      # build lives in release.yml; here we only prove the macOS bundler runs
+      # and emits a .app + .dmg. The smoke bundle is NOT signed or launched.
+      - name: Build macOS bundle (smoke)
+        run: pnpm tauri build
+      - name: Assert .app and .dmg were produced
+        run: |
+          set -e
+          bundle=src-tauri/target/release/bundle
+          ls -d "$bundle/macos/"*.app
+          ls "$bundle/dmg/"*.dmg
+          echo "macOS bundle present."
+
   linux-bundle:
     name: linux bundle (smoke)
     runs-on: ubuntu-latest
