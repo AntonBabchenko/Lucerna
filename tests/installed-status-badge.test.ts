@@ -68,7 +68,7 @@ describe('status badge priority', () => {
   });
   it('shows "off" when disabled with no missing deps or update', () => {
     render(InstalledModRow, { props: { ...base(), installed: installed(false) } });
-    expect(screen.getByTestId('status-badge').textContent).toMatch(/off/);
+    expect(screen.getByTestId('status-badge').textContent).toMatch(/⊘ off/);
   });
   it('shows no badge when enabled, no updates, no missing deps', () => {
     render(InstalledModRow, { props: { ...base(), installed: installed(true) } });

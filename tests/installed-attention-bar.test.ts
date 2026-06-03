@@ -14,6 +14,7 @@ describe('AttentionBar', () => {
     const onShowIssues = vi.fn();
     const onShowUpdates = vi.fn();
     render(AttentionBar, { props: { issues: 2, updates: 3, onShowIssues, onShowUpdates } });
+    expect(screen.getByTestId('attention-bar').getAttribute('role')).toBe('status');
     await fireEvent.click(screen.getByText(/dependency problems/));
     expect(onShowIssues).toHaveBeenCalled();
     await fireEvent.click(screen.getByText(/updates available/));

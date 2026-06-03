@@ -28,9 +28,10 @@ export function createInstalledSelection(
   } | null>(null);
 
   const selectedRows = $derived(getFiltered().filter((r) => selected.has(r.installed.sha1)));
-  const allSelected = $derived(
-    getFiltered().length > 0 && getFiltered().every((r) => selected.has(r.installed.sha1)),
-  );
+  const allSelected = $derived.by(() => {
+    const rows = getFiltered();
+    return rows.length > 0 && rows.every((r) => selected.has(r.installed.sha1));
+  });
   const selectedUpdatable = $derived(
     selectedRows.filter(
       (r) => getUpdateChecks().get(r.installed.sha1)?.state.kind === 'update_available',

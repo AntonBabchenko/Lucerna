@@ -13,7 +13,7 @@
 
 <span class="inline-flex items-center gap-2 text-sm">
   <span class="text-muted">{$t('mods.pageSize.perPage')}</span>
-  {#each PAGE_SIZES as n}
+  {#each PAGE_SIZES as n (n)}
     <button
       type="button"
       class="px-0.5 {browserPrefs[prefsKey] === n

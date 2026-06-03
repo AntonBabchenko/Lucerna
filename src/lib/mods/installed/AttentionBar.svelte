@@ -21,6 +21,8 @@
   <div
     class="sticky top-0 z-10 flex items-center gap-3 px-3 py-1.5 text-xs rounded mb-2 bg-warning-bg/60 border border-warning-text/20"
     data-testid="attention-bar"
+    role="status"
+    aria-live="polite"
   >
     {#if issues > 0}
       <button type="button" class="text-danger hover:underline" onclick={onShowIssues}>

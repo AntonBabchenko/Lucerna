@@ -261,7 +261,7 @@
       "attentionUpdates": "{count, plural, one {# обновление доступно} few {# обновления доступно} many {# обновлений доступно} other {# обновлений доступно}}",
       "badgeMissing": "⚠ {count} отсутствует",
       "badgeUpdate": "↑ {version}",
-      "badgeOff": "выкл",
+      "badgeOff": "⊘ выкл",
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",
       "empty": "В этом профиле пока нет установленных модов.",

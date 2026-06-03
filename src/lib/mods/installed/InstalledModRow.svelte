@@ -88,13 +88,13 @@
   <!-- Hover region = the mod row + its chip line ONLY. The expanded DepSection
        is a sibling below, so its per-node hover doesn't fight the row's hover
        over the shared hoveredKey. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     data-mod-key={rowKey}
     data-mod-row={rowKey}
     class:bg-highlight={hoveredKey === rowKey}
     onmouseenter={() => onHover(rowKey)}
     onmouseleave={() => onHover(null)}
-    role="presentation"
   >
     <ModCard
       layout="list"

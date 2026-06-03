@@ -40,6 +40,10 @@ class BrowserPrefs {
 
   constructor() {
     try {
+      // BrowserPrefs is a module singleton that lives for the whole app session,
+      // so this $effect.root persists intentionally and is never disposed (the
+      // localStorage write-through must keep running). Component-scoped composables
+      // in installed/ differ: they expose dispose() called from onDestroy.
       $effect.root(() => {
         $effect(() => {
           try {

@@ -261,7 +261,7 @@
       "attentionUpdates": "{count, plural, one {# update available} other {# updates available}}",
       "badgeMissing": "⚠ {count} missing",
       "badgeUpdate": "↑ {version}",
-      "badgeOff": "off",
+      "badgeOff": "⊘ off",
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",
       "empty": "No mods installed in this instance yet.",

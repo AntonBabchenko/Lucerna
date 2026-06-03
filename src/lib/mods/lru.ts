@@ -14,6 +14,8 @@ export function createLru<V>(cap: number) {
     set(id: string, value: V): void {
       if (map.has(id)) map.delete(id);
       map.set(id, value);
+      // cap is expected ≥1; cap 0 degenerates to "cache nothing" but still
+      // terminates (the oldest === undefined break guards the empty case).
       while (map.size > cap) {
         const oldest = map.keys().next().value as string | undefined;
         if (oldest === undefined) break;
