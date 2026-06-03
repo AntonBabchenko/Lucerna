@@ -6,10 +6,10 @@
 //!
 //! Gated behind #[ignore] — real network + downloads. Run:
 //!   cargo test --manifest-path src-tauri/Cargo.toml \
-//!     --test mod_install_matrix_e2e -- --ignored --nocapture
+//!     --test mods_matrix_e2e -- --ignored --nocapture
 //! Subset overrides for a fast single-combo run:
 //!   LUCERNA_MOD_MATRIX_MC=1.21.1 LUCERNA_MOD_MATRIX_LOADER=fabric \
-//!   LUCERNA_MOD_MATRIX_N=3 cargo test --test mod_install_matrix_e2e -- --ignored --nocapture
+//!   LUCERNA_MOD_MATRIX_N=3 cargo test --test mods_matrix_e2e -- --ignored --nocapture
 
 use lucerna_lib::instances::schema::LoaderKind;
 
