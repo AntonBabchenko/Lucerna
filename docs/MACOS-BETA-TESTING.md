@@ -31,8 +31,8 @@ below clears it.
 ## 2. Accounts
 
 - [ ] Create an **offline** account; it appears in the account switcher.
-- [ ] (If MS sign-in is enabled for this build) "Sign in with Microsoft"
-      shows the expected flow / pending-approval toast — it does not crash.
+- [ ] "Sign in with Microsoft" completes the OAuth flow and the account
+      appears in the switcher — it does not crash.
 
 ## 3. Download a version + JRE
 
