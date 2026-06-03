@@ -3,7 +3,9 @@
 //! install/launch path is untouched). See
 //! `docs/superpowers/specs/2026-06-03-verify-repair-design.md`.
 
-// (submodules plan/progress/scan/repair added in later tasks)
+// (submodules plan/scan/repair added in later tasks)
+pub mod progress;
+pub use progress::{VerifyPhase, VerifyProgress};
 
 use serde::Serialize;
 use specta::Type;
