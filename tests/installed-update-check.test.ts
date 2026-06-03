@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   modsCheckUpdates: vi.fn(),
@@ -23,6 +23,11 @@ const check = (sha1: string, kind: string) => ({
 });
 
 describe('createUpdateCheck', () => {
+  beforeEach(async () => {
+    const { updateCheckCache } = await import('$lib/mods/update-check-cache');
+    (updateCheckCache as Map<string, unknown>).clear();
+  });
+
   it('checkUpdates fills updateChecks and updateCount', async () => {
     mocks.modsCheckUpdates.mockResolvedValue({ status: 'ok', data: [check('a', 'update_available'), check('b', 'up_to_date')] });
     const u = createUpdateCheck(() => 'i', async () => {});

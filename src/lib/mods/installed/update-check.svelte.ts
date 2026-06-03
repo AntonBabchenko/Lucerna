@@ -157,10 +157,12 @@ export function createUpdateCheck(getInstanceId: () => string | null, refresh: (
     get error() {
       return error;
     },
+    set error(v: string | null) {
+      error = v;
+    },
     checkUpdates,
     updateOne,
     updateAll,
-    applyUpdate,
     clearChecks,
     dispose() {
       stopEffects?.();
