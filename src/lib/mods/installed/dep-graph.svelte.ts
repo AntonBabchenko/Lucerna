@@ -222,10 +222,25 @@ export function createDepGraph(
     stopEffects = $effect.root(() => {
       $effect(() => {
         const id = getInstanceId();
-        graph = id ? (depGraphCache.get(id) ?? null) : null;
         expanded = new Set();
         hoveredKey = null;
-        if (id) void reloadGraphNow();
+        if (!id) {
+          graph = null;
+          return;
+        }
+        const cached = depGraphCache.get(id);
+        if (cached) {
+          // Reuse the session-cached graph — do NOT re-resolve. Re-resolving on
+          // every Installed-tab open / instance switch re-hit the mod platforms
+          // (a 429 rate-limit source). The cache is invalidated whenever the
+          // installed set actually changes (install/uninstall events ->
+          // reloadGraph, installDepNode -> invalidateGraph) and by the explicit
+          // "Re-check deps" button, so a stale graph can't persist past a real change.
+          graph = cached;
+        } else {
+          graph = null;
+          void reloadGraphNow();
+        }
       });
     });
   } catch {

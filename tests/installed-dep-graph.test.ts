@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   modsDependencyGraph: vi.fn(),
@@ -47,6 +47,12 @@ const ctx = {
 };
 
 describe('createDepGraph', () => {
+  beforeEach(async () => {
+    const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+    (depGraphCache as Map<string, unknown>).clear();
+    mocks.modsDependencyGraph.mockClear();
+  });
+
   it('depCounts walks the required subtree and counts missing', () => {
     const d = createDepGraph(
       () => 'i',
@@ -204,5 +210,33 @@ describe('createDepGraph', () => {
     await inflight;
     expect(d.graphLoading).toBe(false); // reset despite discarding
     expect(d.graph?.roots ?? []).toEqual([]); // stale "A" graph NOT committed
+  });
+
+  it('reuses the session-cached graph without re-resolving on mount', async () => {
+    const { depGraphCache } = await import('$lib/mods/dep-graph-cache');
+    (depGraphCache as Map<string, unknown>).set('cachedInst', {
+      roots: [
+        { sha1: 'z', source: 'modrinth', project_id: 'PZ', name: 'Z', required: [], optional: [] },
+      ],
+    });
+    const d = createDepGraph(
+      () => 'cachedInst',
+      () => [],
+      ctx,
+    );
+    await new Promise((r) => setTimeout(r, 0)); // let the seed effect run
+    expect(mocks.modsDependencyGraph).not.toHaveBeenCalled();
+    expect(d.graph?.roots?.[0]?.sha1).toBe('z');
+  });
+
+  it('resolves the graph when the cache has no entry for the instance', async () => {
+    mocks.modsDependencyGraph.mockResolvedValue({ status: 'ok', data: { roots: [] } });
+    createDepGraph(
+      () => 'freshInst',
+      () => [],
+      ctx,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.modsDependencyGraph).toHaveBeenCalled();
   });
 });
