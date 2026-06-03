@@ -70,7 +70,12 @@
     filters.pageSize = browserPrefs.installedPageSize;
   });
 
-  const busy = $derived(selection.busy || deps.busy || updates.busy);
+  // Single-row ops (toggle/uninstall/switchVersion) live in the shell, so they
+  // need their own busy flag folded into the aggregate — otherwise the toolbar
+  // and bulk bar stay clickable mid-IPC (the monolith gated them via `busy`).
+  let shellBusy = $state(false);
+
+  const busy = $derived(shellBusy || selection.busy || deps.busy || updates.busy);
   const error = $derived(data.error ?? deps.error ?? updates.error ?? selection.error);
 
   // Version-switch drawer (bridges ModDetailModal + data; lives in the shell).
@@ -78,9 +83,12 @@
   async function switchVersion(row: Row, v: ModVersion) {
     if (!instanceId) return;
     drawerRow = null;
+    data.error = null;
+    shellBusy = true;
     const removed = await commands.modsUninstall(instanceId, row.installed.sha1);
     if (removed.status === 'error') {
       data.error = formatError(removed.error);
+      shellBusy = false;
       return;
     }
     const installed = await commands.modsInstallWithDeps(
@@ -96,24 +104,31 @@
       );
     }
     await data.refresh();
+    shellBusy = false;
   }
 
   async function toggle(m: Row['installed']) {
     if (!instanceId) return;
+    data.error = null;
+    shellBusy = true;
     const result = m.enabled
       ? await commands.modsDisable(instanceId, m.sha1)
       : await commands.modsEnable(instanceId, m.sha1);
     if (result.status === 'error') data.error = formatError(result.error);
     else await data.refresh();
+    shellBusy = false;
   }
   async function uninstall(m: Row['installed']) {
     if (!instanceId) return;
+    data.error = null;
+    shellBusy = true;
     const result = await commands.modsUninstall(instanceId, m.sha1);
     if (result.status === 'error') data.error = formatError(result.error);
     else {
       await data.refresh();
       deps.reloadGraph();
     }
+    shellBusy = false;
   }
 
   // Bulk update: apply, then clear the now-stale update-check state so badges
