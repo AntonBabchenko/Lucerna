@@ -169,8 +169,10 @@ export function createDepGraph(
     expanded = next;
   }
 
-  async function jumpToMod(node: DepTreeNode) {
-    const key = `${node.source}:${node.project_id}`;
+  // Accepts any mod identity (a DepTreeNode or a required-by entry), so the
+  // ↗ jump works from both the dependency tree and the "Required by" list.
+  async function jumpToMod(target: { source: ModSource; project_id: string }) {
+    const key = `${target.source}:${target.project_id}`;
     hoveredKey = key;
     const filtered = ctx.getFiltered();
     const idx = filtered.findIndex(

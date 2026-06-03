@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
 import InstalledModRow from '$lib/mods/installed/InstalledModRow.svelte';
 
 const summary = {
@@ -73,5 +73,56 @@ describe('status badge priority', () => {
   it('shows no badge when enabled, no updates, no missing deps', () => {
     render(InstalledModRow, { props: { ...base(), installed: installed(true) } });
     expect(screen.queryByTestId('status-badge')).toBeNull();
+  });
+});
+
+describe('dependency relation chip', () => {
+  const depChips = () =>
+    screen.getAllByRole('button').filter((b) => /dep|required by/i.test(b.textContent ?? ''));
+
+  it('renders a SINGLE toggle combining both counts when the mod has deps AND is required-by', async () => {
+    const onToggleExpand = vi.fn();
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        depTotal: 1,
+        requiredBy: [{ name: 'Beta', source: 'modrinth', projectId: 'pb', sha1: 'b' }],
+        onToggleExpand,
+      },
+    });
+
+    const chips = depChips();
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toMatch(/1 dep/i);
+    expect(chips[0].textContent).toMatch(/required by 1/i);
+
+    await fireEvent.click(chips[0]);
+    expect(onToggleExpand).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the single chip with just the dep count when the mod is not required-by', () => {
+    render(InstalledModRow, {
+      props: { ...base(), installed: installed(true), depTotal: 2, requiredBy: [] },
+    });
+    const chips = depChips();
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toMatch(/2 deps/i);
+    expect(chips[0].textContent).not.toMatch(/required by/i);
+  });
+
+  it('renders the single chip with just required-by when the mod has no deps of its own', () => {
+    render(InstalledModRow, {
+      props: {
+        ...base(),
+        installed: installed(true),
+        depTotal: 0,
+        requiredBy: [{ name: 'Beta', source: 'modrinth', projectId: 'pb', sha1: 'b' }],
+      },
+    });
+    const chips = depChips();
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toMatch(/required by 1/i);
+    expect(chips[0].textContent).not.toMatch(/\bdep\b/i);
   });
 });
