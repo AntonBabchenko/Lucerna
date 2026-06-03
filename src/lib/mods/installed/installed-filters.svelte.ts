@@ -57,8 +57,7 @@ export function createInstalledFilters(
       })
       .filter(
         (r) =>
-          filter.trim() === '' ||
-          rowDisplayName(r).toLowerCase().includes(filter.toLowerCase()),
+          filter.trim() === '' || rowDisplayName(r).toLowerCase().includes(filter.toLowerCase()),
       );
   });
 
@@ -100,22 +99,56 @@ export function createInstalledFilters(
   }
 
   return {
-    get filter() { return filter; },
-    set filter(v: string) { filter = v; },
-    get enabledFilter() { return enabledFilter; },
-    set enabledFilter(v: EnabledFilter) { enabledFilter = v; },
-    get quickFilter() { return quickFilter; },
-    set quickFilter(v: QuickFilter) { quickFilter = v; },
-    get sortBy() { return sortBy; },
-    set sortBy(v: SortBy) { sortBy = v; },
-    get pageSize() { return pageSize; },
-    set pageSize(v: number) { pageSize = v; },
-    get page() { return page; },
-    set page(v: number) { page = v; },
-    get filtered() { return filtered; },
-    get paged() { return paged; },
-    get pageCount() { return pageCount; },
-    get counts() { return counts; },
-    dispose() { stopEffects?.(); },
+    get filter() {
+      return filter;
+    },
+    set filter(v: string) {
+      filter = v;
+    },
+    get enabledFilter() {
+      return enabledFilter;
+    },
+    set enabledFilter(v: EnabledFilter) {
+      enabledFilter = v;
+    },
+    get quickFilter() {
+      return quickFilter;
+    },
+    set quickFilter(v: QuickFilter) {
+      quickFilter = v;
+    },
+    get sortBy() {
+      return sortBy;
+    },
+    set sortBy(v: SortBy) {
+      sortBy = v;
+    },
+    get pageSize() {
+      return pageSize;
+    },
+    set pageSize(v: number) {
+      pageSize = v;
+    },
+    get page() {
+      return page;
+    },
+    set page(v: number) {
+      page = v;
+    },
+    get filtered() {
+      return filtered;
+    },
+    get paged() {
+      return paged;
+    },
+    get pageCount() {
+      return pageCount;
+    },
+    get counts() {
+      return counts;
+    },
+    dispose() {
+      stopEffects?.();
+    },
   };
 }

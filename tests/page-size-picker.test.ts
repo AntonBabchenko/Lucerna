@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
-import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
 import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
+import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
 
 describe('PageSizePicker', () => {
   beforeEach(() => {

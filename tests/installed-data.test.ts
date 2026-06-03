@@ -31,7 +31,21 @@ describe('createInstalledData', () => {
     mocks.modsPackOriginSummary.mockResolvedValue({ status: 'ok', data: null });
     mocks.modsProject.mockResolvedValue({
       status: 'ok',
-      data: { summary: { source: 'modrinth', project_id: 'p', slug: 's', name: 'Alpha', summary: '', icon_url: null, downloads: 1, author: 'x', updated_at: null }, description: '', website_url: null },
+      data: {
+        summary: {
+          source: 'modrinth',
+          project_id: 'p',
+          slug: 's',
+          name: 'Alpha',
+          summary: '',
+          icon_url: null,
+          downloads: 1,
+          author: 'x',
+          updated_at: null,
+        },
+        description: '',
+        website_url: null,
+      },
     });
     const data = createInstalledData(() => 'i');
     await data.refresh();

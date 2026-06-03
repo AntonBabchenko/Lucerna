@@ -13,8 +13,8 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess: vi.fn(), pushWarning:
 vi.mock('$lib/i18n', () => ({ t: { subscribe: () => () => {} } }));
 vi.mock('svelte/store', () => ({ get: () => (k: string) => k }));
 
-import { createInstalledSelection } from '$lib/mods/installed/installed-selection.svelte';
 import type { Row } from '$lib/mods/installed/installed-data.svelte';
+import { createInstalledSelection } from '$lib/mods/installed/installed-selection.svelte';
 
 const row = (sha1: string, enabled: boolean): Row => ({
   summary: null,
@@ -22,7 +22,7 @@ const row = (sha1: string, enabled: boolean): Row => ({
     filename: `${sha1}.jar`,
     sha1,
     source: 'modrinth',
-    project_id: 'p' + sha1,
+    project_id: `p${sha1}`,
     version_id: 'v',
     name: sha1.toUpperCase(),
     version_number: '1.0',
@@ -85,7 +85,13 @@ describe('createInstalledSelection', () => {
     const onMutated = vi.fn();
     const refresh = vi.fn(async () => {});
     mocks.modsUninstall.mockClear();
-    const s = createInstalledSelection(() => rows, () => 'i', refresh, () => new Map(), onMutated);
+    const s = createInstalledSelection(
+      () => rows,
+      () => 'i',
+      refresh,
+      () => new Map(),
+      onMutated,
+    );
     s.toggleSelectAll(true);
     await s.requestBulkUninstall();
     await s.confirmBulkUninstall(['c']); // 'c' is an extra orphan the user opted to also remove

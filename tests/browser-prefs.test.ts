@@ -39,10 +39,7 @@ describe('browser-prefs installedPageSize', () => {
   });
 
   it('falls back to 50 for an invalid persisted installedPageSize', () => {
-    localStorage.setItem(
-      'lucerna.browserPrefs',
-      JSON.stringify({ installedPageSize: 999 }),
-    );
+    localStorage.setItem('lucerna.browserPrefs', JSON.stringify({ installedPageSize: 999 }));
     expect(loadPrefs().installedPageSize).toBe(50);
   });
 });

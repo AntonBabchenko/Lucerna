@@ -1,3 +1,5 @@
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import {
   commands,
   type InstalledMod,
@@ -5,15 +7,16 @@ import {
   type ModVersion,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { t } from '$lib/i18n';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-import { get } from 'svelte/store';
 import { updateCheckCache } from '../update-check-cache';
 
 // Owns mod-update-check state. `updateChecks` is keyed by installed-mod sha1
 // and seeded from the per-instance session cache so reopening the tab is
 // instant; "Check for updates" forces a fresh check.
-export function createUpdateCheck(getInstanceId: () => string | null, refresh: () => Promise<void>) {
+export function createUpdateCheck(
+  getInstanceId: () => string | null,
+  refresh: () => Promise<void>,
+) {
   let updateChecks = $state<Map<string, ModUpdateCheck>>(new Map());
   let checking = $state(false);
   let showCfBanner = $state(false);
@@ -72,7 +75,9 @@ export function createUpdateCheck(getInstanceId: () => string | null, refresh: (
     }
     updateChecks = new Map(r.data.map((c) => [c.sha1, c]));
     updateCheckCache.set(id, r.data);
-    const cfFailed = r.data.some((c) => c.source === 'curseforge' && c.state.kind === 'check_failed');
+    const cfFailed = r.data.some(
+      (c) => c.source === 'curseforge' && c.state.kind === 'check_failed',
+    );
     if (cfFailed) {
       const s = await commands.modsGetCurseforgeKeyStatus();
       showCfBanner = s.status === 'ok' && s.data === 'missing';

@@ -1,8 +1,8 @@
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { commands, type ModUpdateCheck, type ModVersion, type OrphanRef } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { t } from '$lib/i18n';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-import { get } from 'svelte/store';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
 
@@ -21,9 +21,11 @@ export function createInstalledSelection(
   let selected = $state<Set<string>>(new Set());
   let busy = $state(false);
   let error = $state<string | null>(null);
-  let uninstallPrompt = $state<{ removing: string[]; names: string[]; orphans: OrphanRef[] } | null>(
-    null,
-  );
+  let uninstallPrompt = $state<{
+    removing: string[];
+    names: string[];
+    orphans: OrphanRef[];
+  } | null>(null);
 
   const selectedRows = $derived(getFiltered().filter((r) => selected.has(r.installed.sha1)));
   const allSelected = $derived(
@@ -108,10 +110,13 @@ export function createInstalledSelection(
       );
     } else {
       pushWarning(
-        get(t)(enable ? 'mods.installed.toastEnabledFailed' : 'mods.installed.toastDisabledFailed', {
-          count: ok,
-          failed,
-        }),
+        get(t)(
+          enable ? 'mods.installed.toastEnabledFailed' : 'mods.installed.toastDisabledFailed',
+          {
+            count: ok,
+            failed,
+          },
+        ),
         [],
       );
     }

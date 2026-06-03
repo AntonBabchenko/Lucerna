@@ -15,11 +15,26 @@ vi.mock('$lib/mods/update-check-cache', () => ({ updateCheckCache: new Map() }))
 import { createUpdateCheck } from '$lib/mods/installed/update-check.svelte';
 
 const check = (sha1: string, kind: string) => ({
-  sha1, name: sha1.toUpperCase(), source: 'modrinth', project_id: 'p',
-  current_version_id: 'v', current_version_number: '1.0',
-  state: kind === 'update_available'
-    ? { kind, target: { source: 'modrinth', project_id: 'p', version_id: 'v2', version_number: '2.0', name: 'n', loaders: ['fabric'] } }
-    : { kind },
+  sha1,
+  name: sha1.toUpperCase(),
+  source: 'modrinth',
+  project_id: 'p',
+  current_version_id: 'v',
+  current_version_number: '1.0',
+  state:
+    kind === 'update_available'
+      ? {
+          kind,
+          target: {
+            source: 'modrinth',
+            project_id: 'p',
+            version_id: 'v2',
+            version_number: '2.0',
+            name: 'n',
+            loaders: ['fabric'],
+          },
+        }
+      : { kind },
 });
 
 describe('createUpdateCheck', () => {
@@ -29,8 +44,14 @@ describe('createUpdateCheck', () => {
   });
 
   it('checkUpdates fills updateChecks and updateCount', async () => {
-    mocks.modsCheckUpdates.mockResolvedValue({ status: 'ok', data: [check('a', 'update_available'), check('b', 'up_to_date')] });
-    const u = createUpdateCheck(() => 'i', async () => {});
+    mocks.modsCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [check('a', 'update_available'), check('b', 'up_to_date')],
+    });
+    const u = createUpdateCheck(
+      () => 'i',
+      async () => {},
+    );
     await u.checkUpdates();
     expect(u.updateCount).toBe(1);
     expect([...u.updatableShas]).toEqual(['a']);
@@ -38,16 +59,28 @@ describe('createUpdateCheck', () => {
   });
 
   it('surfaces the CF key banner when a curseforge check fails and the key is missing', async () => {
-    mocks.modsCheckUpdates.mockResolvedValue({ status: 'ok', data: [{ ...check('c', 'check_failed'), source: 'curseforge' }] });
+    mocks.modsCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [{ ...check('c', 'check_failed'), source: 'curseforge' }],
+    });
     mocks.modsGetCurseforgeKeyStatus.mockResolvedValue({ status: 'ok', data: 'missing' });
-    const u = createUpdateCheck(() => 'i', async () => {});
+    const u = createUpdateCheck(
+      () => 'i',
+      async () => {},
+    );
     await u.checkUpdates();
     expect(u.showCfBanner).toBe(true);
   });
 
   it('clearChecks empties updateChecks', async () => {
-    mocks.modsCheckUpdates.mockResolvedValue({ status: 'ok', data: [check('a', 'update_available')] });
-    const u = createUpdateCheck(() => 'i', async () => {});
+    mocks.modsCheckUpdates.mockResolvedValue({
+      status: 'ok',
+      data: [check('a', 'update_available')],
+    });
+    const u = createUpdateCheck(
+      () => 'i',
+      async () => {},
+    );
     await u.checkUpdates();
     expect(u.updateCount).toBe(1);
     u.clearChecks();

@@ -27,7 +27,7 @@ const row = (sha1: string, name: string): Row => ({
     filename: `${sha1}.jar`,
     sha1,
     source: 'modrinth',
-    project_id: 'P' + sha1,
+    project_id: `P${sha1}`,
     version_id: 'v',
     name,
     version_number: '1.0',
@@ -186,11 +186,18 @@ describe('createDepGraph', () => {
     mocks.modsDependencyGraph.mockReset();
     mocks.modsDependencyGraph.mockImplementation((id: string) =>
       id === 'A'
-        ? pending.then(() => ({ status: 'ok', data: { roots: [{ sha1: 'z', name: 'Z', required: [], optional: [] }] } }))
+        ? pending.then(() => ({
+            status: 'ok',
+            data: { roots: [{ sha1: 'z', name: 'Z', required: [], optional: [] }] },
+          }))
         : Promise.resolve({ status: 'ok', data: { roots: [] } }),
     );
     let current = 'A';
-    const d = createDepGraph(() => current, () => [], ctx);
+    const d = createDepGraph(
+      () => current,
+      () => [],
+      ctx,
+    );
     const inflight = d.reloadGraphNow(); // for "A"
     current = 'B'; // switch mid-flight
     release(null); // "A" resolves — stale
