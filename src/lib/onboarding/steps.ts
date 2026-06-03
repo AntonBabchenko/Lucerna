@@ -36,9 +36,14 @@ export const STEPS: ReadonlyArray<TourStep> = [
     disclaimerKey: 'settings.about.disclaimer',
   },
   {
+    // Spotlights the whole ACCOUNT section (account select + "Add offline" +
+    // Microsoft sign-in), not just the Microsoft button — both paths to a
+    // playable account are equal first-class options. This same step is reused
+    // on demand as the "you need an account" hint when Play is clicked with no
+    // active account (see showAccountHint in state.svelte.ts).
     titleKey: 'onboarding.tour.signIn.title',
     bodyKey: 'onboarding.tour.signIn.body',
-    targetSelector: '[data-tour="ms-signin-btn"]',
+    targetSelector: '[data-tour="account-section"]',
     anchor: 'right',
   },
   {

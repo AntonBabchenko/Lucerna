@@ -48,10 +48,12 @@
   // renders its own "Pick an instance first" empty state.
   let {
     instanceId,
+    instanceName = null,
     mcVersion,
     loader,
   }: {
     instanceId: string | null;
+    instanceName?: string | null;
     mcVersion: string | null;
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
   } = $props();
@@ -223,7 +225,7 @@
   <div class="flex-1 overflow-y-auto relative">
     {#if browseMounted}
       <div class:hidden={view !== 'browse'}>
-        <ModBrowseView {source} {instanceId} {mcVersion} {loader} />
+        <ModBrowseView {source} {instanceId} {instanceName} {mcVersion} {loader} />
       </div>
     {/if}
     {#if installedMounted}

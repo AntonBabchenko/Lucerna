@@ -81,9 +81,11 @@ describe('formatError', () => {
     );
   });
 
-  it('formats mods_sha1_mismatch as a verification failure', () => {
+  it('formats mods_sha1_mismatch as a plain verification failure', () => {
     const msg = formatError({ kind: 'mods_sha1_mismatch', expected: 'aaa', got: 'bbb' });
-    expect(msg).toContain('Verification failed');
+    // Wording softened + raw hashes dropped from the user-facing text.
+    expect(msg).toContain('checksum');
+    expect(msg).not.toContain('aaa');
   });
 
   it('formats mods_distribution_disabled with the source label', () => {

@@ -324,12 +324,9 @@ describe('ModBrowseView', () => {
     for (let i = 0; i < 5; i++) {
       await new Promise((r) => setTimeout(r, 0));
     }
-    // Uncheck "Show installed" once the initial render has settled.
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    const toggle = screen.getByLabelText(/show installed/i);
-    await fireEvent.click(toggle);
-    // The non-installed page-2 mod is reached and rendered; the old
-    // "already installed — navigate to a different page" dead end is gone.
+    // "Show installed" is OFF by default, so the all-installed first page is
+    // skipped automatically and the page-2 non-installed mod is reached; the
+    // old "already installed — navigate to a different page" dead end is gone.
     expect(await screen.findByText('Fresh Mod')).toBeTruthy();
     expect(screen.queryByText(/already installed/i)).toBeNull();
   });
@@ -364,14 +361,14 @@ describe('ModBrowseView', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // Checked (default): counter carries "of 1".
-    expect(await screen.findByText(/Page 1 of 1/)).toBeTruthy();
-    // Unchecked: counter is "Page 1" with no total.
+    // Hidden (default): counter is "Page 1" with no total.
+    expect(await screen.findByText('Page 1')).toBeTruthy();
+    expect(screen.queryByText(/of 1/)).toBeNull();
+    // Checking "Show installed" restores the "of Y" total.
     await fireEvent.click(screen.getByTestId('browse-filters-button'));
     const toggle = screen.getByLabelText(/show installed/i);
     await fireEvent.click(toggle);
-    expect(await screen.findByText('Page 1')).toBeTruthy();
-    expect(screen.queryByText(/of 1/)).toBeNull();
+    expect(await screen.findByText(/Page 1 of 1/)).toBeTruthy();
   });
 
   it('pages forward and back through the buffer', async () => {

@@ -29,7 +29,9 @@
       "loaderAriaLabel": "Фильтр загрузчика",
       "mcVersionLabel": "Версия Minecraft",
       "any": "Любой",
-      "showInstalled": "Показывать установленные"
+      "showInstalled": "Показывать установленные",
+      "installedHidden": "Установленные скрыты",
+      "restoreForInstance": "Под текущий инстанс"
     }
   },
   "install": {
@@ -160,6 +162,12 @@
       "vanillaBody": "В vanilla Minecraft нет загрузчика модов, поэтому jar-файлы с Modrinth / CurseForge не могут быть загружены во время выполнения. Чтобы устанавливать моды, создайте или переключитесь на профиль с Fabric, Quilt, Forge или NeoForge через панель «Управление» на боковой панели.",
       "errorNoInstance": "Профиль не выбран",
       "errorNoCompatibleVersion": "Совместимая версия не найдена",
+      "errorNoVersionForMc": "У мода {mod} нет версии для Minecraft {mcVersion} (профиль «{profile}»). Последние поддерживаемые: {list}",
+      "errorWrongLoader": "В профиле «{profile}» выбран загрузчик {loader}, но у мода {mod} нет версии для {loader}. Доступно: {list}",
+      "errorFilenameConflictNamed": "Не удаётся установить {newMod}: он содержит файл «{filename}», конфликтующий с {existingMod} — сначала удалите его.",
+      "distributionDisabledTitle": "{mod} нельзя скачать автоматически",
+      "distributionDisabledBody": "Автор запретил загрузку через сторонние лаунчеры на {platform}. Откройте страницу проекта, чтобы скачать вручную.",
+      "distributionDisabledAction": "Открыть на {platform}",
       "errorVanillaLoader": "Этот профиль — vanilla Minecraft (без загрузчика модов). Переключитесь на профиль с Fabric / Quilt / Forge / NeoForge, чтобы устанавливать моды.",
       "dropzoneLabel": "Перетащите .jar мода сюда или нажмите для выбора файла",
       "dropzoneDisabled": "Выберите профиль с загрузчиком для установки модов",
@@ -243,8 +251,8 @@
       "filterPlaceholder": "Фильтр установленных…",
       "filterAriaLabel": "Фильтр установленных модов",
       "sortLabel": "Сортировка:",
-      "sortNameAsc": "Имя (А → Я)",
-      "sortNameDesc": "Имя (Я → А)",
+      "sortNameAsc": "Имя (A → Z)",
+      "sortNameDesc": "Имя (Z → A)",
       "sortRecent": "Недавно установленные",
       "sortSource": "Источник",
       "checkUpdates": "Проверить обновления",
@@ -364,7 +372,7 @@
         "allLoaders": "Все загрузчики",
         "sortNewest": "Сначала новые",
         "sortOldest": "Сначала старые",
-        "sortName": "Имя (А–Я)",
+        "sortName": "Имя (A–Z)",
         "noResults": "Сборки по фильтру не найдены."
       },
       "card": {
@@ -599,8 +607,8 @@
         "body": "Lucerna организует Minecraft в профили — изолированные среды со своей версией, загрузчиком, модами, конфигами и сохранениями. Сменить профиль = сменить установку Minecraft, не затрагивая остальные."
       },
       "signIn": {
-        "title": "Войти (необязательно)",
-        "body": "Нажмите «Войти через Microsoft», чтобы играть онлайн, или пропустите этот шаг и используйте офлайн-аккаунт для игры в LAN и одиночном режиме."
+        "title": "Выберите аккаунт",
+        "body": "Для запуска игры нужен аккаунт. Войдите через Microsoft для вашего настоящего аккаунта или добавьте офлайн-аккаунт для одиночной игры и LAN."
       },
       "pickInstance": {
         "title": "Выбор профиля",
@@ -727,8 +735,8 @@
     "modsDistributionDisabled": "Автор этого мода запретил загрузку через сторонние лаунчеры на {source}.",
     "modsNotFound": "Этот мод больше не доступен на {source}.",
     "modsDecode": "Неожиданный ответ от {source}: {details}",
-    "modsSha1Unavailable": "Хеш этого мода отсутствует; установка отклонена.",
-    "modsSha1Mismatch": "Проверка не пройдена: ожидался {expected}, получен {got}",
+    "modsSha1Unavailable": "Мод не установлен: автор не опубликовал контрольную сумму, поэтому загрузку нельзя проверить.",
+    "modsSha1Mismatch": "Мод не установлен: загрузка не совпала с опубликованной контрольной суммой — файл может быть повреждён или подменён.",
     "modsDependencyUnresolvable": "Обязательная зависимость {projectRef} недоступна для этой версии MC и загрузчика",
     "modsFilenameConflict": "Другой файл с именем «{filename}» уже существует в этом профиле — сначала удалите его",
     "modsCacheIo": "Не удалось записать в кэш модов: {details}",

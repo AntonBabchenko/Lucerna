@@ -20,6 +20,7 @@ const {
   modsDisable,
   pushSuccess,
   pushWarning,
+  pushActionToast,
 } = vi.hoisted(() => ({
   modsSearch: vi.fn(),
   modsGetCurseforgeKeyStatus: vi.fn(),
@@ -33,6 +34,7 @@ const {
   modsDisable: vi.fn(),
   pushSuccess: vi.fn(),
   pushWarning: vi.fn(),
+  pushActionToast: vi.fn(),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -54,9 +56,22 @@ vi.mock('$lib/ipc/bindings', () => ({
     modToggle: { listen: vi.fn().mockResolvedValue(() => {}) },
   },
 }));
-vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess, pushWarning }));
+vi.mock('$lib/toasts/toasts.svelte', () => ({ pushSuccess, pushWarning, pushActionToast }));
 
+import type { VersionEntry } from '$lib/ipc/bindings';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
+import { mcVersions } from '$lib/settings/state.svelte';
+
+// Minecraft manifest order (newest-first), used by the no-compatible-version
+// path to decide the "latest supported" MC version per loader.
+function setManifest(ids: string[]) {
+  mcVersions.value = ids.map((id) => ({
+    id,
+    version_type: 'release',
+    release_date: '',
+    url: '',
+  })) as VersionEntry[];
+}
 
 // --- fixtures ---------------------------------------------------------------
 function hit(overrides: Partial<ModSummary> = {}): ModSummary {
@@ -135,6 +150,7 @@ const full = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setManifest([]);
   // Baseline defaults — individual tests override the relevant ones. A default
   // empty page for modsSearch is the safety net: a test that forgets
   // searchReturns() still renders (no card) instead of an undefined result
@@ -202,6 +218,128 @@ describe('ModBrowseView install flow', () => {
     expect(modsInstallWithDeps).not.toHaveBeenCalled();
   });
 
+  it('explains the MC mismatch and lists the latest per loader when the current loader is supported', async () => {
+    searchReturns([hit()]);
+    setManifest(['1.21', '1.20.4', '1.20.1', '1.19.2']);
+    // First lookup (current MC + loader) is empty; the all-versions lookup
+    // shows the mod tops out at Fabric 1.21 and Forge 1.19.2.
+    modsVersions
+      .mockResolvedValueOnce(ok([]))
+      .mockResolvedValueOnce(
+        ok([
+          version({ loaders: ['fabric'], mc_versions: ['1.21'] }),
+          version({ loaders: ['forge'], mc_versions: ['1.19.2'] }),
+        ]),
+      );
+    render(ModBrowseView, { props: { ...full, instanceName: 'My Pack' } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+
+    const bar = await screen.findByText(/Latest supported/);
+    expect(bar.textContent).toContain('1.20.1');
+    expect(bar.textContent).toContain('My Pack');
+    expect(bar.textContent).toContain('Fabric 1.21');
+    expect(bar.textContent).toContain('Forge 1.19.2');
+    expect(modsInstallWithDeps).not.toHaveBeenCalled();
+  });
+
+  it('explains a loader mismatch when the mod is only for other loaders', async () => {
+    searchReturns([hit()]);
+    setManifest(['1.21', '1.20.4', '1.20.1', '1.19.2']);
+    modsVersions
+      .mockResolvedValueOnce(ok([]))
+      .mockResolvedValueOnce(ok([version({ loaders: ['forge'], mc_versions: ['1.20.4'] })]));
+    render(ModBrowseView, { props: { ...full, instanceName: 'My Pack' } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+
+    const bar = await screen.findByText(/has no Fabric version/i);
+    expect(bar.textContent).toContain('Forge 1.20.4');
+    expect(modsInstallWithDeps).not.toHaveBeenCalled();
+  });
+
+  it('raises an actionable toast when the author disabled third-party downloads', async () => {
+    searchReturns([hit({ name: 'Cool Mod', slug: 'cool-mod' })]);
+    modsProject.mockResolvedValue(project('Cool Mod'));
+    modsVersions.mockResolvedValue(ok([version()]));
+    modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
+    modsInstallWithDeps.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'mods_distribution_disabled', source: 'modrinth', project_id: 'p1' },
+    });
+    render(ModBrowseView, { props: { ...full } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+
+    await waitFor(() => expect(pushActionToast).toHaveBeenCalled());
+    const [kind, title, action] = pushActionToast.mock.calls[0];
+    expect(kind).toBe('warning');
+    expect(title).toContain('Cool Mod');
+    expect(action.label).toMatch(/Modrinth/);
+    // The generic install-failed toast is NOT used for this case.
+    expect(pushWarning).not.toHaveBeenCalled();
+  });
+
+  it('names the conflicting installed mod on a filename clash', async () => {
+    searchReturns([hit()]);
+    modsListInstalled.mockResolvedValue(
+      ok([
+        {
+          filename: 'lib.jar',
+          sha1: 'conflict-sha',
+          source: 'modrinth',
+          project_id: 'other',
+          version_id: 'ov',
+          name: 'Other Mod',
+          version_number: '1',
+          installed_at: '2026-06-01T00:00:00Z',
+          enabled: true,
+        },
+      ]),
+    );
+    modsProject.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'mods_not_found', source: 'modrinth' },
+    });
+    modsVersions.mockResolvedValue(ok([version()]));
+    modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
+    modsInstallWithDeps.mockResolvedValue({
+      status: 'error',
+      error: {
+        kind: 'mods_filename_conflict',
+        filename: 'lib.jar',
+        existing_sha: 'conflict-sha',
+        incoming_sha: 'incoming',
+      },
+    });
+    render(ModBrowseView, { props: { ...full } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+
+    const bar = await screen.findByText(/clashes with/i);
+    expect(bar.textContent).toContain('Other Mod');
+    expect(bar.textContent).toContain('lib.jar');
+  });
+
+  it('shows the Restore button only when filters differ from the instance and snaps back', async () => {
+    searchReturns([hit()]);
+    modsVersions.mockResolvedValue(ok([version()]));
+    render(ModBrowseView, { props: { ...full, instanceName: 'My Pack' } });
+    await screen.findByRole('button', { name: /^install$/i });
+
+    // Default state already matches the instance (fabric / 1.20.1 / hide
+    // installed) → no Restore button.
+    expect(screen.queryByTestId('browse-restore-instance')).toBeNull();
+
+    // Clear all → filters now differ from the instance → Restore appears.
+    await fireEvent.click(screen.getByTestId('mod-clear-filters'));
+    expect(await screen.findByTestId('browse-restore-instance')).toBeTruthy();
+
+    // Restore → back to the instance defaults → Restore button gone again.
+    await fireEvent.click(screen.getByTestId('browse-restore-instance'));
+    await waitFor(() => expect(screen.queryByTestId('browse-restore-instance')).toBeNull());
+  });
+
   it('surfaces a version-lookup error and does not install', async () => {
     searchReturns([hit()]);
     modsVersions.mockResolvedValue({
@@ -259,10 +397,18 @@ describe('ModBrowseView card actions', () => {
     enabled: true,
   };
 
+  // Installed mods are hidden by default now, so card-action tests must first
+  // enable "Show installed" (open the Filters drawer, check the box).
+  async function enableShowInstalled() {
+    await fireEvent.click(screen.getByTestId('browse-filters-button'));
+    await fireEvent.click(screen.getByLabelText(/show installed/i));
+  }
+
   it('uninstalls an installed card', async () => {
     searchReturns([hit()]);
     modsListInstalled.mockResolvedValue(ok([installedRow]));
     render(ModBrowseView, { props: { ...full } });
+    await enableShowInstalled();
 
     await fireEvent.click(await screen.findByRole('button', { name: /uninstall/i }));
 
@@ -273,6 +419,7 @@ describe('ModBrowseView card actions', () => {
     searchReturns([hit()]);
     modsListInstalled.mockResolvedValue(ok([installedRow]));
     render(ModBrowseView, { props: { ...full } });
+    await enableShowInstalled();
 
     await fireEvent.click(await screen.findByRole('button', { name: /disable/i }));
 

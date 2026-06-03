@@ -29,7 +29,9 @@
       "loaderAriaLabel": "Loader filter",
       "mcVersionLabel": "Minecraft version",
       "any": "Any",
-      "showInstalled": "Show installed"
+      "showInstalled": "Show installed",
+      "installedHidden": "Installed hidden",
+      "restoreForInstance": "Match this instance"
     }
   },
   "install": {
@@ -160,6 +162,12 @@
       "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
       "errorNoInstance": "No active instance",
       "errorNoCompatibleVersion": "No compatible version found",
+      "errorNoVersionForMc": "{mod} has no version for Minecraft {mcVersion} (profile “{profile}”). Latest supported: {list}",
+      "errorWrongLoader": "Your profile “{profile}” uses {loader}, but {mod} has no {loader} version. Available: {list}",
+      "errorFilenameConflictNamed": "Can’t install {newMod}: it ships a file named “{filename}” that clashes with {existingMod} — uninstall that one first.",
+      "distributionDisabledTitle": "{mod} can’t be downloaded automatically",
+      "distributionDisabledBody": "Its author disabled third-party launcher downloads on {platform}. Open the project page to download it manually.",
+      "distributionDisabledAction": "Open on {platform}",
       "errorVanillaLoader": "This instance is vanilla Minecraft (no mod loader). Switch to a Fabric / Quilt / Forge / NeoForge instance to install mods.",
       "dropzoneLabel": "Drop a mod .jar here to install — or click to browse",
       "dropzoneDisabled": "Select a non-vanilla instance to install mods",
@@ -599,8 +607,8 @@
         "body": "Lucerna organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others."
       },
       "signIn": {
-        "title": "Sign in (optional)",
-        "body": "Click 'Sign in with Microsoft' to play online with your Microsoft account, or skip this step and use an offline account for LAN and single-player."
+        "title": "Choose an account",
+        "body": "You need an account to launch the game. Sign in with Microsoft for your real account, or add an offline account for single-player and LAN."
       },
       "pickInstance": {
         "title": "Pick an instance",
@@ -727,8 +735,8 @@
     "modsDistributionDisabled": "This mod's author has disabled third-party launcher downloads on {source}.",
     "modsNotFound": "This mod is no longer available on {source}.",
     "modsDecode": "Unexpected response from {source}: {details}",
-    "modsSha1Unavailable": "This mod's hash is missing; refusing to install.",
-    "modsSha1Mismatch": "Verification failed: expected {expected}, got {got}",
+    "modsSha1Unavailable": "This mod wasn’t installed: its author didn’t publish a checksum, so the download can’t be verified.",
+    "modsSha1Mismatch": "This mod wasn’t installed: the download didn’t match the published checksum, so it may be corrupted or tampered with.",
     "modsDependencyUnresolvable": "Required dependency {projectRef} is not available for this MC + loader",
     "modsFilenameConflict": "A different file named \"{filename}\" already exists in this instance — uninstall it first",
     "modsCacheIo": "Couldn't write to mod cache: {details}",

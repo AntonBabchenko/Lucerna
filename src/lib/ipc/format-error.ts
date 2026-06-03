@@ -107,7 +107,9 @@ export function formatError(e: IpcError): string {
     case 'mods_sha1_unavailable':
       return translate('errors.modsSha1Unavailable');
     case 'mods_sha1_mismatch':
-      return translate('errors.modsSha1Mismatch', { expected: e.expected, got: e.got });
+      // Wording intentionally omits the raw hashes — they're noise to a user;
+      // the full hex lives in the launcher log.
+      return translate('errors.modsSha1Mismatch');
     case 'mods_dependency_unresolvable':
       return translate('errors.modsDependencyUnresolvable', { projectRef: e.project_ref });
     case 'mods_filename_conflict':

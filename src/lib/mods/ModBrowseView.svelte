@@ -2,6 +2,7 @@
   import {
     commands,
     events,
+    type Error as IpcError,
     type InstalledMod,
     type LoaderKind,
     type ModSort,
@@ -12,12 +13,15 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
+  import { displayLoader } from '$lib/instances/loader-display';
+  import { latestSupportedPerLoader } from '$lib/mods/latest-supported-version';
+  import { modProjectUrl } from '$lib/mods/project-url';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
-  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
+  import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { cfKeyVersion, mcVersions, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
   import PageSizePicker from './PageSizePicker.svelte';
@@ -52,11 +56,16 @@
   let {
     source,
     instanceId,
+    instanceName = null,
     mcVersion,
     loader,
   }: {
     source: ModSource;
     instanceId: string | null;
+    // Profile/instance name — informational, used only to make the
+    // no-compatible-version error message concrete. Optional so the many
+    // component tests that render ModBrowseView directly need not pass it.
+    instanceName?: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
   } = $props();
@@ -87,7 +96,9 @@
   // cleaner "discovery" view. The pagination counter still reflects
   // the platform's total, so an early page may render fewer cards
   // when many of its hits are already installed.
-  let showInstalled = $state(true);
+  // Default to a discovery view: installed mods are hidden so Browse surfaces
+  // new mods. The "Installed hidden" chip + the drawer toggle flip it on.
+  let showInstalled = $state(false);
   const pageSize = $derived(browserPrefs.pageSize);
   // Reset to page 1 when the user changes the page size so we never
   // land on an out-of-range page. The existing buffer is kept — future
@@ -180,6 +191,16 @@
     });
     if (instanceId !== reqId) return;
     installedMods = next;
+    // When installed mods are hidden, the current page can come up short once
+    // the installed set is known — the initial fill may have run before this
+    // list loaded, so an all-installed first page would otherwise dead-end on
+    // an empty view. Top it up now that filtering is accurate. Skip while a
+    // fill is already running: fetchNextPlatformPage keys its offset off
+    // buffer.length, so a concurrent fill would request a duplicate offset and
+    // clobber results. The initial fill (one search round-trip) normally
+    // finishes well before this list (N project lookups); if not, the next
+    // user action re-fills.
+    if (!showInstalled && !loading) void fill(displayPage);
   }
 
   $effect(() => {
@@ -423,6 +444,26 @@
 
   const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter, showInstalled });
 
+  // The instance's default filter state — what Browse opens with for the active
+  // instance (its loader + MC, installed hidden). "Restore" snaps back to this;
+  // "Clear all" goes the other way (no narrowing at all).
+  const instanceLoaderFilter = $derived(loader && loader !== 'vanilla' ? loader : '');
+  const instanceMcFilter = $derived(mcVersion ?? '');
+  const canRestore = $derived(
+    instanceId !== null &&
+      (loaderFilter !== instanceLoaderFilter ||
+        mcFilter !== instanceMcFilter ||
+        showInstalled !== false),
+  );
+
+  async function restoreInstanceFilters() {
+    loaderFilter = instanceLoaderFilter;
+    mcFilter = instanceMcFilter;
+    // setShowInstalled re-pages; the loader/mc writes above also trigger the
+    // search-reset effect — same path the drawer bindings already use.
+    await setShowInstalled(false);
+  }
+
   function clearChip(key: FilterChipKey) {
     if (key === 'loader') loaderFilter = '';
     else if (key === 'mc') mcFilter = '';
@@ -446,6 +487,85 @@
     }, 300);
   }
 
+  // Turn an install-time IPC error into the right UI for the cases that
+  // benefit from extra context, returning true when handled. Callers fall back
+  // to their default (error bar / toast) when this returns false.
+  function reportInstallError(
+    err: IpcError,
+    modName: string,
+    modSource: ModSource,
+    slugOrId: string,
+  ): boolean {
+    const tr = get(t);
+    if (err.kind === 'mods_distribution_disabled') {
+      // The generic message only names the platform. Name the mod and offer a
+      // one-click jump to the project page so the user can download manually.
+      const platform = modSource === 'modrinth' ? 'Modrinth' : 'CurseForge';
+      const url = modProjectUrl(modSource, slugOrId);
+      pushActionToast(
+        'warning',
+        tr('mods.browse.distributionDisabledTitle', { mod: modName }),
+        {
+          label: tr('mods.browse.distributionDisabledAction', { platform }),
+          run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+        },
+        [tr('mods.browse.distributionDisabledBody', { platform })],
+      );
+      return true;
+    }
+    if (err.kind === 'mods_filename_conflict') {
+      // Name the already-installed mod that owns the clashing filename, not just
+      // the filename — far more actionable.
+      const existing = installedMods.find((r) => r.installed.sha1 === err.existing_sha);
+      if (existing) {
+        error = tr('mods.browse.errorFilenameConflictNamed', {
+          filename: err.filename,
+          newMod: modName,
+          existingMod: existing.projectName ?? existing.installed.name,
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // No version of the mod matches the active instance's MC + loader. Fetch the
+  // mod's full version set (all loaders) and explain precisely why: either the
+  // mod is for a different loader, or it just doesn't cover this MC version —
+  // listing the latest MC it supports per loader.
+  async function reportNoCompatibleVersion(card: ModSummary, currentLoader: LoaderKind) {
+    const tr = get(t);
+    const all = await commands.modsVersions(card.source, card.project_id, null, null);
+    if (all.status === 'error') {
+      error = tr('mods.browse.errorNoCompatibleVersion');
+      return;
+    }
+    const perLoader = latestSupportedPerLoader(
+      all.data,
+      mcVersions.value.map((v) => v.id),
+    );
+    if (perLoader.length === 0) {
+      error = tr('mods.browse.errorNoCompatibleVersion');
+      return;
+    }
+    const list = perLoader.map((p) => `${displayLoader(p.loader)} ${p.mcVersion}`).join(' · ');
+    if (perLoader.some((p) => p.loader === currentLoader)) {
+      error = tr('mods.browse.errorNoVersionForMc', {
+        mod: card.name,
+        mcVersion: mcVersion ?? '',
+        profile: instanceName ?? '',
+        list,
+      });
+    } else {
+      error = tr('mods.browse.errorWrongLoader', {
+        mod: card.name,
+        loader: displayLoader(currentLoader),
+        profile: instanceName ?? '',
+        list,
+      });
+    }
+  }
+
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
     if (!instanceId || !mcVersion || !loader) {
       error = get(t)('mods.browse.errorNoInstance');
@@ -466,7 +586,7 @@
         return;
       }
       if (versions.data.length === 0) {
-        error = get(t)('mods.browse.errorNoCompatibleVersion');
+        await reportNoCompatibleVersion(card, loader);
         return;
       }
       primary = versions.data[0]!;
@@ -484,7 +604,8 @@
     }
     const plan = await commands.modsResolveInstallPlan(instanceId, primary, mcVersion, loader);
     if (plan.status === 'error') {
-      error = formatError(plan.error);
+      if (!reportInstallError(plan.error, card.name, card.source, card.slug ?? card.project_id))
+        error = formatError(plan.error);
       return;
     }
     const p = plan.data;
@@ -562,7 +683,15 @@
         [],
       );
       if (installed.status === 'error') {
-        pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+        if (
+          !reportInstallError(
+            installed.error,
+            primaryProjectName,
+            primary.source,
+            card.slug ?? card.project_id,
+          )
+        )
+          pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
       } else {
         // Fast path has no dependencies; use the resolved project name (not
         // the backend's release-title `primary_name`) for the toast title.
@@ -613,10 +742,13 @@
       onOpenDrawer={() => (drawerOpen = true)}
     />
     <BrowseFilterChips
-      chips={activeChips(filterFacets)}
+      chips={activeChips(filterFacets, { installedHidden: $t('browse.filter.installedHidden') })}
       onClear={clearChip}
       onClearAll={clearAllFilters}
       clearAllTestid="mod-clear-filters"
+      showRestore={canRestore}
+      restoreLabel={$t('browse.filter.restoreForInstance')}
+      onRestore={() => void restoreInstanceFilters()}
     />
   </div>
 
@@ -762,7 +894,15 @@
           })),
         );
         if (installed.status === 'error') {
-          pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+          if (
+            !reportInstallError(
+              installed.error,
+              prompt.primaryProjectName,
+              prompt.primary.source,
+              prompt.primary.project_id,
+            )
+          )
+            pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
         } else {
           // Build the per-mod toast from the dialog's already-resolved project
           // names (the backend's InstallSummary carries release titles, not mod

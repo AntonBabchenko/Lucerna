@@ -22,14 +22,21 @@ const LOADER_LABELS: Record<string, string> = {
   vanilla: 'Vanilla',
 };
 
+// Overridable chip labels. Loader names (brand) and the MC version (a number)
+// are language-neutral, but the "Installed hidden" label is prose and must be
+// localized — the caller passes the translated string. Defaults keep the model
+// usable without i18n (e.g. the badge count, which ignores labels).
+export type ChipLabels = { installedHidden?: string };
+
 // Build the ordered list of active-filter chips. This is the single
 // source of truth: the badge count is just its length, and the chip row
 // renders it directly.
-export function activeChips(f: FilterFacets): FilterChip[] {
+export function activeChips(f: FilterFacets, labels: ChipLabels = {}): FilterChip[] {
   const chips: FilterChip[] = [];
   if (f.loader) chips.push({ key: 'loader', label: LOADER_LABELS[f.loader] ?? f.loader });
   if (f.mc) chips.push({ key: 'mc', label: f.mc });
-  if (f.showInstalled === false) chips.push({ key: 'showInstalled', label: 'Installed hidden' });
+  if (f.showInstalled === false)
+    chips.push({ key: 'showInstalled', label: labels.installedHidden ?? 'Installed hidden' });
   return chips;
 }
 
