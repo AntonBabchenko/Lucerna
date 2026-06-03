@@ -172,6 +172,7 @@
     bind:filter={filters.filter}
     bind:sortBy={filters.sortBy}
     bind:enabledFilter={filters.enabledFilter}
+    bind:quickFilter={filters.quickFilter}
     {busy}
     checking={updates.checking}
     graphLoading={deps.graphLoading}

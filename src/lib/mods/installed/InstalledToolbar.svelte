@@ -1,13 +1,14 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
-  import type { EnabledFilter, SortBy } from './installed-filters.svelte';
+  import type { EnabledFilter, QuickFilter, SortBy } from './installed-filters.svelte';
 
   let {
     counts,
     filter = $bindable(),
     sortBy = $bindable(),
     enabledFilter = $bindable(),
+    quickFilter = $bindable(),
     busy,
     checking,
     graphLoading,
@@ -16,10 +17,17 @@
     onRecheckDeps,
     onUpdateAll,
   }: {
-    counts: { total: number; enabled: number; disabled: number };
+    counts: {
+      total: number;
+      enabled: number;
+      disabled: number;
+      updates: number;
+      issues: number;
+    };
     filter: string;
     sortBy: SortBy;
     enabledFilter: EnabledFilter;
+    quickFilter: QuickFilter;
     busy: boolean;
     checking: boolean;
     graphLoading: boolean;
@@ -165,6 +173,36 @@
       >
         {$t('mods.installed.filterDisabled', { count: counts.disabled })}
       </button>
+    </div>
+  {/if}
+  {#if counts.updates > 0 || counts.issues > 0}
+    <div class="flex gap-1 text-xs mt-1">
+      {#if counts.updates > 0}
+        <button
+          type="button"
+          class="btn-secondary btn-xs"
+          class:bg-warning-bg={quickFilter === 'updates'}
+          class:text-warning-text={quickFilter === 'updates'}
+          class:font-medium={quickFilter === 'updates'}
+          aria-pressed={quickFilter === 'updates'}
+          onclick={() => (quickFilter = quickFilter === 'updates' ? 'all' : 'updates')}
+        >
+          {$t('mods.installed.filterUpdates', { count: counts.updates })}
+        </button>
+      {/if}
+      {#if counts.issues > 0}
+        <button
+          type="button"
+          class="btn-secondary btn-xs"
+          class:bg-danger-bg={quickFilter === 'issues'}
+          class:text-danger={quickFilter === 'issues'}
+          class:font-medium={quickFilter === 'issues'}
+          aria-pressed={quickFilter === 'issues'}
+          onclick={() => (quickFilter = quickFilter === 'issues' ? 'all' : 'issues')}
+        >
+          {$t('mods.installed.filterIssues', { count: counts.issues })}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
