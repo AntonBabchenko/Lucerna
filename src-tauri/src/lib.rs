@@ -14,6 +14,7 @@ pub mod playtime;
 pub mod process;
 pub mod tray;
 pub mod update;
+pub mod verify;
 pub mod versions;
 pub mod worlds;
 
