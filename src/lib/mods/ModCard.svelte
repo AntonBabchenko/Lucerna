@@ -28,6 +28,7 @@
     packChip = null,
     layout = 'grid',
     dense = false,
+    highlighted = false,
     selectable = false,
     selected = false,
     onSelectChange = (_checked: boolean) => {},
@@ -48,6 +49,7 @@
     packChip?: string | null;
     layout?: 'grid' | 'list';
     dense?: boolean;
+    highlighted?: boolean;
     selectable?: boolean;
     selected?: boolean;
     onSelectChange?: (checked: boolean) => void;
@@ -157,7 +159,9 @@
   <div
     class="flex items-center gap-3 px-3 {dense
       ? 'py-1'
-      : 'py-2'} border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
+      : 'py-2'} border-b border-border-subtle {highlighted
+      ? 'bg-highlight'
+      : 'bg-surface hover:bg-subtle'} transition-colors"
     data-testid="manual-mod-row"
   >
     {#if selectable && installed}
@@ -245,7 +249,9 @@
   <div
     class="flex items-center gap-3 px-3 {dense
       ? 'py-1'
-      : 'py-2'} border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
+      : 'py-2'} border-b border-border-subtle {highlighted
+      ? 'bg-highlight'
+      : 'bg-surface hover:bg-subtle'} transition-colors"
     data-testid="card-list-row"
   >
     {#if selectable}

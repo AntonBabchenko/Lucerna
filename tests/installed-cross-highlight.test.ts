@@ -154,5 +154,14 @@ describe('hover cross-highlight across dep-tree nodes and rows', () => {
 
     const bRow = document.querySelector('[data-mod-row="modrinth:PB"]');
     expect(bRow?.className).toContain('bg-highlight');
+
+    // The wrapper highlight alone was visually masked: ModCard's list-row paints
+    // an opaque bg-surface that covers the parent's bg-highlight. The fix routes
+    // the highlight into ModCard via the `highlighted` prop, so the inner row
+    // itself must now carry bg-highlight (this is the part that was broken).
+    const bInnerRow = document.querySelector(
+      '[data-mod-row="modrinth:PB"] [data-testid="card-list-row"]',
+    );
+    expect(bInnerRow?.className).toContain('bg-highlight');
   });
 });

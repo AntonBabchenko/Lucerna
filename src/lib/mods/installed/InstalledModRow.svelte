@@ -90,6 +90,7 @@
   <ModCard
     layout="list"
     dense={true}
+    highlighted={hoveredKey === rowKey}
     {summary}
     {installed}
     onInstall={() => {}}
