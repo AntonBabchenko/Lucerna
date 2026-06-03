@@ -99,13 +99,16 @@ modules.
 - To erase all Lucerna data: uninstall the launcher, delete
   `%APPDATA%/com.lucerna.app/`, and remove the relevant entries
   from Windows Credential Manager (Control Panel → Credential
-  Manager → Generic Credentials → look for entries whose Internet
-  or network address is `lucerna` — the username field will be
-  one of `curseforge-api-key`, `microsoft-refresh-<account-id>`,
-  or `microsoft-mc-access-<account-id>`. The exact rendering varies
-  by OS; macOS Keychain shows them under service "lucerna" with
-  the same account names, and Linux Secret Service stores them as
-  schema attributes on the same SERVICE).
+  Manager → Generic Credentials → look for three entries:
+  the CurseForge API key (network address `lucerna`, username
+  `curseforge-api-key`), the Microsoft refresh token (network
+  address `lucerna-microsoft-refresh`, username `<account-id>`),
+  and the Minecraft access token (network address
+  `lucerna-mc-access`, username `<account-id>`). The exact
+  rendering varies by OS; macOS Keychain shows them under the same
+  service names with the account set to `<account-id>`, and Linux
+  Secret Service stores them as schema attributes on the same
+  service).
 
 ## 7. Children's privacy
 
