@@ -1368,12 +1368,20 @@ pub async fn mods_check_updates(
     let installed = crate::mods::installed::list(&inst_root).await?;
     let pack_origin = crate::mods::installed::get_pack_origin(&inst_root).await?;
 
+    // Bound platform polling so a large instance doesn't fan out dozens of
+    // simultaneous requests (which intermittently trips per-IP rate limits).
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
+
     // Eligible mods paired with their original index, so output order
     // matches the installed list after the unordered concurrent poll.
     // Each task OWNS its `InstalledMod` (a small clone): borrowing `m`
     // across the `.await` made the `.map` closure fail the higher-ranked
     // lifetime bound `buffer_unordered` requires (`FnOnce` not general
     // enough). Owning the few fields each task needs sidesteps that.
+    // Collecting eagerly here (rather than feeding the borrowing
+    // `filter_map` straight to `stream::iter`) is what decouples those
+    // borrows from the async closure's lifetimes — passing the lazy
+    // iterator directly re-triggers the same HRTB failure.
     let eligible: Vec<(
         usize,
         crate::mods::platform::InstalledMod,
@@ -1390,9 +1398,9 @@ pub async fn mods_check_updates(
         })
         .collect();
 
-    // Bounded-concurrency platform poll (limit 6). Identical per-mod
-    // semantics to the prior sequential loop: one `ModUpdateCheck` per
-    // eligible mod, same `classify_update`, same `CheckFailed`-on-error.
+    // Bounded-concurrency platform poll. Identical per-mod semantics to the
+    // prior sequential loop: one `ModUpdateCheck` per eligible mod, same
+    // `classify_update`, same `CheckFailed`-on-error.
     let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
         .map(|(i, m, source, project_id, version_id)| {
             let mc = mc_version.clone();
@@ -1420,7 +1428,7 @@ pub async fn mods_check_updates(
                 )
             }
         })
-        .buffer_unordered(6)
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
         .collect()
         .await;
 
