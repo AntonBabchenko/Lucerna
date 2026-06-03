@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { depGraphCache } from '$lib/mods/dep-graph-cache';
 import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
 
 vi.mock('$lib/ipc/bindings', async (orig) => {
@@ -51,6 +52,14 @@ vi.mock('$lib/ipc/bindings', async (orig) => {
 });
 
 const props = { instanceId: 'inst1', mcVersion: '1.20.1', loader: 'fabric' as const };
+
+// The dependency-graph cache is a process-lifetime singleton shared across
+// tests. Without clearing it, the first test seeds `inst1` with an empty graph
+// and later tests (which swap the modsDependencyGraph mock) re-use that stale
+// cached graph instead of re-resolving — so dep chips never render.
+beforeEach(() => {
+  depGraphCache.delete('inst1');
+});
 
 describe('InstalledModsView selection', () => {
   it('Select all checks every filtered row', async () => {

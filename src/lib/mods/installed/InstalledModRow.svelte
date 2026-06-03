@@ -3,19 +3,21 @@
     DepRoot,
     DepTreeNode,
     InstalledMod,
+    ModSource,
     ModSummary,
     ModUpdateState,
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
+  import type { RequiredByEntry } from './dep-graph.svelte';
 
   let {
     summary,
     installed,
     rowKey,
     root,
-    requiredByNames,
+    requiredBy,
     depTotal,
     depMissing,
     expanded,
@@ -28,6 +30,7 @@
     onToggleExpand,
     onHover,
     onOpenDetail,
+    onOpenDetailMod,
     onToggle,
     onUninstall,
     onUpdate,
@@ -39,7 +42,7 @@
     installed: InstalledMod;
     rowKey: string;
     root: DepRoot | undefined;
-    requiredByNames: string[];
+    requiredBy: RequiredByEntry[];
     depTotal: number;
     depMissing: number;
     expanded: boolean;
@@ -51,7 +54,10 @@
     selected: boolean;
     onToggleExpand: () => void;
     onHover: (k: string | null) => void;
+    // The MAIN row's own ModCard detail opener.
     onOpenDetail: () => void;
+    // Opens the info modal for any dependency mod by (source, project_id).
+    onOpenDetailMod: (source: ModSource, projectId: string) => void;
     onToggle: () => void;
     onUninstall: () => void;
     onUpdate: () => void;
@@ -135,12 +141,12 @@
                 : ''}
             </button>
           {/if}
-          {#if requiredByNames.length > 0}
+          {#if requiredBy.length > 0}
             <button
               type="button"
               class="px-2 py-0.5 rounded bg-subtle text-secondary"
               onclick={onToggleExpand}
-              >{$t('mods.installed.requiredByCount', { count: requiredByNames.length })}</button
+              >{$t('mods.installed.requiredByCount', { count: requiredBy.length })}</button
             >
           {/if}
         {/if}
@@ -148,6 +154,14 @@
     {/if}
   </div>
   {#if summary && expanded && root}
-    <DepSection {root} {requiredByNames} {hoveredKey} {onHover} onInstall={onInstallDep} {onJump} />
+    <DepSection
+      {root}
+      {requiredBy}
+      {hoveredKey}
+      {onHover}
+      onInstall={onInstallDep}
+      {onJump}
+      onOpenDetail={onOpenDetailMod}
+    />
   {/if}
 </div>

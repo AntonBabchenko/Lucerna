@@ -7,12 +7,15 @@ import {
   type DepRoot,
   type DepTreeNode,
   type LoaderKind,
+  type ModSource,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { depGraphCache } from '../dep-graph-cache';
 import type { Row } from './installed-data.svelte';
 import { modKey, rowDisplayName } from './row-utils';
+
+export type RequiredByEntry = { name: string; source: ModSource; projectId: string; sha1: string };
 
 export type DepGraphCtx = {
   getMcVersion: () => string | null;
@@ -65,19 +68,26 @@ export function createDepGraph(
     return map;
   });
 
-  // Combine: project_id → display names. Cheap join of the two maps above; the
-  // graph root's own `name` is the registry/release title, so prefer the
-  // resolved project name from rows.
+  // project_id -> the installed mods that require it, as clickable/hoverable
+  // entries (name + identity keys), preferring the resolved row name over the
+  // graph root's release-title name.
   const requiredBy = $derived.by(() => {
-    const out = new Map<string, string[]>();
+    const out = new Map<string, RequiredByEntry[]>();
     for (const [pid, shas] of requiredByShas) {
-      // Prefer the resolved row display name; fall back to the graph root's own
-      // name (release title), then the raw sha1. Equivalent to the monolith's
-      // `nameBySha.get(r.sha1) ?? r.name` — the sha1 tail is an unreachable guard
-      // since requiredByShas and rootBySha derive from the same graph.
       out.set(
         pid,
-        shas.map((sha) => nameBySha.get(sha) ?? rootBySha.get(sha)?.name ?? sha),
+        shas.flatMap((sha) => {
+          const root = rootBySha.get(sha);
+          if (!root) return [];
+          return [
+            {
+              name: nameBySha.get(sha) ?? root.name,
+              source: root.source,
+              projectId: root.project_id,
+              sha1: sha,
+            },
+          ];
+        }),
       );
     }
     return out;

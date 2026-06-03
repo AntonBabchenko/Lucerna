@@ -183,7 +183,8 @@ describe('createDepGraph', () => {
       ctx,
     );
     await d.reloadGraphNow();
-    expect(d.requiredBy.get('Pb')).toEqual(['Alpha']);
+    // The resolved row name ("Alpha") wins over the graph root's release title.
+    expect(d.requiredBy.get('Pb')?.[0]?.name).toBe('Alpha');
   });
 
   it('reloadGraphNow drops a stale result and resets graphLoading on instance switch', async () => {

@@ -71,7 +71,7 @@
     filters.pageSize = browserPrefs.installedPageSize;
   });
 
-  // Single-row ops (toggle/uninstall/switchVersion) live in the shell, so they
+  // Single-row ops (toggle/uninstall/detail install) live in the shell, so they
   // need their own busy flag folded into the aggregate — otherwise the toolbar
   // and bulk bar stay clickable mid-IPC (the monolith gated them via `busy`).
   let shellBusy = $state(false);
@@ -79,33 +79,51 @@
   const busy = $derived(shellBusy || selection.busy || deps.busy || updates.busy);
   const error = $derived(data.error ?? deps.error ?? updates.error ?? selection.error);
 
-  // Version-switch drawer (bridges ModDetailModal + data; lives in the shell).
-  let drawerRow = $state<Row | null>(null);
-  async function switchVersion(row: Row, v: ModVersion) {
-    if (!instanceId) return;
-    drawerRow = null;
-    data.error = null;
+  // Detail modal can target ANY mod by (source, project_id): the row's own mod,
+  // an installed dependency, or a not-yet-installed dependency. Install resolves
+  // to a swap when a different version of the same project is already installed,
+  // else a fresh install.
+  let detail = $state<{ source: ModSource; projectId: string } | null>(null);
+  function openDetailMod(source: ModSource, projectId: string) {
+    detail = { source, projectId };
+  }
+  const detailInstalledVersionId = $derived.by(() => {
+    if (!detail) return null;
+    const r = data.rows.find(
+      (x) => x.installed.source === detail!.source && x.installed.project_id === detail!.projectId,
+    );
+    return r?.installed.version_id ?? null;
+  });
+  async function installDetailVersion(v: ModVersion) {
+    if (!instanceId || !detail) return;
+    const existing = data.rows.find(
+      (x) => x.installed.source === detail!.source && x.installed.project_id === detail!.projectId,
+    );
+    detail = null;
     shellBusy = true;
-    const removed = await commands.modsUninstall(instanceId, row.installed.sha1);
-    if (removed.status === 'error') {
-      data.error = formatError(removed.error);
-      shellBusy = false;
-      return;
+    data.error = null;
+    if (existing && existing.installed.version_id !== v.version_id) {
+      const removed = await commands.modsUninstall(instanceId, existing.installed.sha1);
+      if (removed.status === 'error') {
+        data.error = formatError(removed.error);
+        shellBusy = false;
+        return;
+      }
     }
-    const installed = await commands.modsInstallWithDeps(
+    const res = await commands.modsInstallWithDeps(
       instanceId,
       { source: v.source, project_id: v.project_id, version_id: v.version_id },
       [],
     );
-    if (installed.status === 'error') {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+    const name = existing?.summary?.name ?? existing?.installed.name ?? v.name;
+    if (res.status === 'error') {
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(res.error)]);
     } else {
-      pushSuccess(
-        get(t)('mods.browse.toastInstalledMod', { name: row.summary?.name ?? row.installed.name }),
-      );
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name }));
     }
-    await data.refresh();
     shellBusy = false;
+    deps.invalidateGraph();
+    await data.refresh();
   }
 
   async function toggle(m: Row['installed']) {
@@ -231,7 +249,7 @@
           installed={row.installed}
           {rowKey}
           {root}
-          requiredByNames={reqBy}
+          requiredBy={reqBy}
           depTotal={counts.total}
           depMissing={counts.missing}
           expanded={deps.expanded.has(row.installed.sha1)}
@@ -245,7 +263,11 @@
           selected={selection.selected.has(row.installed.sha1)}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
           onHover={(k) => (deps.hoveredKey = k)}
-          onOpenDetail={() => (drawerRow = row)}
+          onOpenDetail={() => {
+            if (row.installed.source && row.installed.project_id)
+              openDetailMod(row.installed.source as ModSource, row.installed.project_id);
+          }}
+          onOpenDetailMod={openDetailMod}
           onToggle={() => toggle(row.installed)}
           onUninstall={() => uninstall(row.installed)}
           onUpdate={() => updates.updateOne(row.installed)}
@@ -280,17 +302,15 @@
     </div>
   {/if}
 
-  {#if drawerRow && drawerRow.installed.source && drawerRow.installed.project_id && instanceId}
+  {#if detail && instanceId}
     <ModDetailModal
-      source={drawerRow.installed.source as ModSource}
-      projectId={drawerRow.installed.project_id}
+      source={detail.source}
+      projectId={detail.projectId}
       {mcVersion}
       {loader}
-      installedVersionId={drawerRow.installed.version_id}
-      onClose={() => (drawerRow = null)}
-      onInstall={(v) => {
-        if (drawerRow) void switchVersion(drawerRow, v);
-      }}
+      installedVersionId={detailInstalledVersionId}
+      onClose={() => (detail = null)}
+      onInstall={installDetailVersion}
     />
   {/if}
 

@@ -1,22 +1,25 @@
 <script lang="ts">
-  import type { DepRoot, DepTreeNode } from '$lib/ipc/bindings';
+  import type { DepRoot, DepTreeNode, ModSource } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import DepTree from '../DepTree.svelte';
+  import type { RequiredByEntry } from './dep-graph.svelte';
 
   let {
     root,
-    requiredByNames,
+    requiredBy,
     hoveredKey,
     onHover,
     onInstall,
     onJump,
+    onOpenDetail,
   }: {
     root: DepRoot;
-    requiredByNames: string[];
+    requiredBy: RequiredByEntry[];
     hoveredKey: string | null;
     onHover: (k: string | null) => void;
     onInstall: (node: DepTreeNode) => void;
     onJump: (node: DepTreeNode) => void;
+    onOpenDetail: (source: ModSource, projectId: string) => void;
   } = $props();
 </script>
 
@@ -31,18 +34,47 @@
     <div class="text-[10px] uppercase tracking-wide text-muted mt-1">
       {$t('mods.installed.sectionRequires')}
     </div>
-    <DepTree nodes={root.required} {hoveredKey} {onHover} {onInstall} onAdd={onInstall} {onJump} />
+    <DepTree
+      nodes={root.required}
+      {hoveredKey}
+      {onHover}
+      {onInstall}
+      onAdd={onInstall}
+      {onJump}
+      {onOpenDetail}
+    />
   {/if}
   {#if root.optional.length > 0}
     <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
       {$t('mods.installed.sectionRecommended')}
     </div>
-    <DepTree nodes={root.optional} {hoveredKey} {onHover} {onInstall} onAdd={onInstall} {onJump} />
+    <DepTree
+      nodes={root.optional}
+      {hoveredKey}
+      {onHover}
+      {onInstall}
+      onAdd={onInstall}
+      {onJump}
+      {onOpenDetail}
+    />
   {/if}
-  {#if requiredByNames.length > 0}
+  {#if requiredBy.length > 0}
     <div class="text-[10px] uppercase tracking-wide text-muted mt-2">
       {$t('mods.installed.sectionRequiredBy')}
     </div>
-    <div class="text-xs text-secondary">{requiredByNames.join(', ')}</div>
+    <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+      {#each requiredBy as e (e.sha1)}
+        {@const k = `${e.source}:${e.projectId}`}
+        <button
+          type="button"
+          data-mod-key={k}
+          class="text-accent hover:underline rounded px-1 -mx-1"
+          class:bg-highlight={hoveredKey === k}
+          onmouseenter={() => onHover(k)}
+          onmouseleave={() => onHover(null)}
+          onclick={() => onOpenDetail(e.source, e.projectId)}>{e.name}</button
+        >
+      {/each}
+    </div>
   {/if}
 </div>
