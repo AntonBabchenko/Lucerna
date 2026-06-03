@@ -78,7 +78,13 @@
   const degradedTitle = $derived(
     isPlatform && !packChip ? (installed?.name ?? '') : (installed?.filename ?? ''),
   );
-  const sourceLabel = $derived(installed?.source === 'curseforge' ? 'CurseForge' : 'Modrinth');
+  const sourceLabel = $derived(
+    installed?.source === 'curseforge'
+      ? 'CurseForge'
+      : installed?.source === 'modrinth'
+        ? 'Modrinth'
+        : null,
+  );
 </script>
 
 <!--
@@ -147,7 +153,7 @@
        placeholder icon and a filename/identity-based title. Used by the
        Installed tab for manual mods, pack-bundled jars, and failed lookups. -->
   <div
-    class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface"
+    class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
     data-testid="manual-mod-row"
   >
     {#if selectable && installed}
@@ -173,7 +179,7 @@
           {packChip
             ? $t('mods.installed.fromModpack')
             : isPlatform
-              ? `${sourceLabel} · ${$t('mods.installed.detailsUnavailable')}`
+              ? `${sourceLabel ?? ''} · ${$t('mods.installed.detailsUnavailable')}`
               : $t('mods.installed.manualMod')} · {installed.enabled
             ? $t('mods.installed.enabledStatus')
             : $t('mods.installed.disabledStatus')}
