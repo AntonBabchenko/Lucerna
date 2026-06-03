@@ -13,16 +13,19 @@ files come straight from Mojang and are never modified.
 
 Lucerna integrates the official Modrinth and CurseForge APIs for mod and modpack
 browsing, supports Fabric / Quilt / Forge / NeoForge, isolates every Minecraft install
-into its own instance, and ships offline play as a first-class option. Microsoft / Xbox
-Live sign-in is wired up end-to-end; its final step is gated on pending Microsoft Azure
-app approval, so until then it returns a typed pending-approval response while offline
-accounts remain fully usable (see [Known limitations](#known-limitations)).
+into its own instance, and ships Microsoft / Xbox Live sign-in and offline play as
+equal first-class options.
 
 The principles that constrain every decision live in
 [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply-chain stance
 lives in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## What works today
+
+**Accounts** — sign in with a Microsoft / Xbox Live account (the full PKCE
+OAuth → Xbox Live → XSTS → Minecraft Services chain runs in-process), or use
+an offline account for LAN and single-player. Multiple accounts coexist in a
+switcher.
 
 **Instances** — multiple isolated `.minecraft` directories side-by-side. Each
 instance has its own MC version, mod loader, mods, configs, worlds, and
@@ -76,7 +79,6 @@ process is a deliberate code change, not an emergent capability.
   by CI, but not yet verified end-to-end on those desktops.
 - **One running Minecraft instance at a time.** Multi-instance launch is
   not planned for v1.
-- **Microsoft (Xbox Live) account support** is wired up in the launcher. The full PKCE OAuth → Xbox Live → XSTS → Minecraft Services chain executes when you click "Sign in with Microsoft". Until Microsoft approves Lucerna's Azure app registration, the final step returns a typed pending-approval response and the launcher shows a friendly info toast; offline accounts remain fully usable for LAN and single-player. Once Microsoft approves, sign-in starts working with no launcher update required.
 - **Not code-signed / notarized.** Windows SmartScreen warns on first run;
   click "More info" → "Run anyway". The macOS `.dmg` is only ad-hoc signed,
   so Gatekeeper quarantines a downloaded copy — clear it with

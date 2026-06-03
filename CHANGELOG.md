@@ -24,6 +24,12 @@ release is **0.9.0**.
   End-to-end Minecraft-launch verification on each desktop is still pending.
 
 ### Changed
+- **Microsoft / Xbox Live sign-in is now live.** Microsoft approved Lucerna's
+  Azure app registration, so the Microsoft sign-in flow completes end-to-end and
+  signs you into your Minecraft account. No launcher code change was required —
+  the previously pending-approval state simply stopped occurring once Microsoft
+  began returning a successful response. Offline accounts remain an equal
+  first-class option.
 - The modpack browser now opens as a full-screen modal.
 - All native `<select>` dropdowns were replaced with a themeable Select
   component — consistent rendering across platforms and a fix for the dark-mode
