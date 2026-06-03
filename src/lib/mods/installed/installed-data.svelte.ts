@@ -104,8 +104,8 @@ export function createInstalledData(getInstanceId: () => string | null) {
         if (id) {
           rows = [];
           error = null;
+          void refresh();
         }
-        void refresh();
       });
     });
   } catch {
@@ -125,6 +125,9 @@ export function createInstalledData(getInstanceId: () => string | null) {
     get error() {
       return error;
     },
+    // Writable: the view's single-row action handlers (toggle/uninstall/
+    // switchVersion) set this to surface their own IPC errors through the
+    // same banner. Kept on the composable so error display stays centralized.
     set error(v: string | null) {
       error = v;
     },

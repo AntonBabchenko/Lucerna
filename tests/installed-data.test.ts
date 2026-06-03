@@ -58,4 +58,27 @@ describe('createInstalledData', () => {
     expect(data.error).toBe('boom');
     expect(data.loading).toBe(false);
   });
+
+  it('drops a stale refresh when the instance changes mid-flight', async () => {
+    // modsListInstalled for instance "A" hangs until we signal it.
+    let releaseA: (v: unknown) => void = () => {};
+    const aPending = new Promise((res) => (releaseA = res));
+    mocks.modsListInstalled.mockReset();
+    mocks.modsPackOriginSummary.mockResolvedValue({ status: 'ok', data: null });
+    mocks.modsListInstalled.mockImplementation((id: string) =>
+      id === 'A'
+        ? aPending.then(() => ({ status: 'ok', data: [row('stale', 'modrinth')] }))
+        : Promise.resolve({ status: 'ok', data: [] }),
+    );
+
+    let current = 'A';
+    const data = createInstalledData(() => current);
+    const inflight = data.refresh(); // started for "A"
+    current = 'B'; // user switches instances while "A" is still loading
+    releaseA(null); // now "A"'s list resolves — but it is stale
+    await inflight;
+
+    // The stale "A" result must NOT have been committed under instance "B".
+    expect(data.rows).toHaveLength(0);
+  });
 });
