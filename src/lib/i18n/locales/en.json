@@ -824,7 +824,7 @@
       "openRepoLabel": "Open Lucerna repository on GitHub ({url})",
       "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
       "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
-      "keyring": "Microsoft refresh tokens are stored in the OS keyring (Windows Credential Manager) and removed when you sign out."
+      "keyring": "Microsoft refresh tokens are stored in your operating system's secure keyring and removed when you sign out."
     },
     "curseforge": {
       "statusLabel": "Status:",
@@ -846,7 +846,7 @@
       "saveKey": "Save key",
       "updateKey": "Update key",
       "clearKey": "Clear key",
-      "keyringNote": "Stored in OS keyring (Windows Credential Manager)."
+      "keyringNote": "Stored in your operating system's secure keyring."
     }
   },
   "page": {
