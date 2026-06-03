@@ -59,6 +59,23 @@
     onInstallDep: (node: DepTreeNode) => void;
     onJump: (node: DepTreeNode) => void;
   } = $props();
+
+  // Single status badge per row, highest priority first (spec §4.4):
+  // missing deps → update available → disabled → none.
+  const badge = $derived.by(() => {
+    if (depMissing > 0)
+      return {
+        kind: 'missing' as const,
+        text: $t('mods.installed.badgeMissing', { count: depMissing }),
+      };
+    if (updateState?.kind === 'update_available')
+      return {
+        kind: 'update' as const,
+        text: $t('mods.installed.badgeUpdate', { version: updateState.target.version_number }),
+      };
+    if (!installed.enabled) return { kind: 'off' as const, text: $t('mods.installed.badgeOff') };
+    return null;
+  });
 </script>
 
 <div
@@ -88,6 +105,16 @@
   />
   {#if summary}
     <div class="flex items-center gap-2 px-3 pb-1 text-xs">
+      {#if badge}
+        <span
+          data-testid="status-badge"
+          class="px-2 py-0.5 rounded {badge.kind === 'missing'
+            ? 'bg-danger-bg text-danger'
+            : badge.kind === 'update'
+              ? 'bg-warning-bg text-warning-text'
+              : 'bg-subtle text-muted'}">{badge.text}</span
+        >
+      {/if}
       {#if graphLoading && !root}
         <span class="text-placeholder">{$t('mods.installed.resolvingShort')}</span>
       {:else}
