@@ -14,9 +14,9 @@
       {
         "title": "Lucerna",
         "width": 820,
-        "height": 680,
+        "height": 520,
         "minWidth": 820,
-        "minHeight": 680
+        "minHeight": 520
       }
     ],
     "security": {
