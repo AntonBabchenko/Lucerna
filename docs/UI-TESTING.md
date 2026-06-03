@@ -24,8 +24,9 @@ button's intent, consistent with the existing assertions there.
 ## Layer 2 — Playwright visual snapshots
 
 For "render" regressions like "the toast background went translucent".
-Runs in `pnpm test:e2e`. Baselines are PNGs committed under
-`tests-e2e/visual/*-snapshots/`.
+Runs locally via `pnpm test:e2e`. The spec files live under
+`tests-e2e/visual/`; baseline PNGs (`*-snapshots/`) are **not yet seeded
+or committed** — see the note below.
 
 **Updating baselines after an intentional visual change:**
 
@@ -43,10 +44,13 @@ Ubuntu). Windows local runs include `test.skip(process.platform !==
 `pnpm test:e2e` shows skipped visual tests, that's the expected
 behavior.
 
-**The CI uploads diff PNGs as artifacts on visual-test failure.** When
-a PR breaks a baseline, click the failed `frontend` job → Artifacts →
-download `playwright-report.zip`. The HTML report shows the
-expected / actual / diff for every failed test.
+**The CI visual job is currently disabled.** It is gated off in
+`.github/workflows/ci.yml` pending committed Linux baselines, and the
+`frontend` job runs only typecheck + `i18n:keys:check` + `pnpm test`
+(not `test:e2e`). Once baselines are seeded on Linux and committed, the
+job can be re-enabled to upload diff PNGs as a `playwright-report.zip`
+artifact on failure. Until then, visual regressions are caught only by a
+local `pnpm test:e2e` run on Linux.
 
 ## Adding a new visual surface
 

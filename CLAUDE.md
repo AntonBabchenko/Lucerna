@@ -6,7 +6,7 @@ This file is the working agreement between the human maintainer and Claude. Clau
 
 ## What this project is
 
-Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. (The Microsoft sign-in chain is wired up end-to-end; its final step is gated on pending Microsoft Azure app approval, so until then it returns a typed pending-approval response — offline play is unaffected.) Russian-language UX is a roadmap goal — not yet shipped; the UI is English-only today.
+Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. (The Microsoft sign-in chain is wired up end-to-end; its final step is gated on pending Microsoft Azure app approval, so until then it returns a typed pending-approval response — offline play is unaffected.) The UI ships in English and Russian, switchable live in-app (Settings → General).
 
 The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes.
 
@@ -57,7 +57,7 @@ tools/                              Small CI/dev helper scripts (Node, .mjs)
 tests/                              Vitest unit tests
 tests-e2e/                          Playwright e2e tests
 docs/                               Public docs: PRINCIPLES, SECURITY, TESTING, UI-TESTING (superpowers/ is gitignored, local-only)
-.github/workflows/ci.yml            CI: rust-ubuntu, rust-windows, frontend, lint (SHA-pinned)
+.github/workflows/ci.yml            CI: rust-ubuntu/windows/macos, linux-bundle, frontend, lint, coverage (SHA-pinned)
 ```
 
 ## Entry-point commands

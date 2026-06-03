@@ -10,6 +10,32 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+### Added
+- **Localisation.** The entire UI is available in English and Russian with a
+  live in-app language switch (Settings → General) — no restart required.
+- **Modpack export.** Round-trip a customised instance back to a `.mrpack` or a
+  CurseForge `.zip`, in a lightweight (manifest-only) or full (bundled-files)
+  variant.
+- **Bulk mod actions.** A compact installed-mods list with multi-select and a
+  bulk action bar (enable / disable / delete), an inline nested dependency tree,
+  and orphan-dependency safety.
+- **Cross-platform foundation (beta).** Linux (x86_64) and macOS (Universal2,
+  unsigned / ad-hoc) now build, sign, and publish in CI as beta targets.
+  End-to-end Minecraft-launch verification on each desktop is still pending.
+
+### Changed
+- The modpack browser now opens as a full-screen modal.
+- All native `<select>` dropdowns were replaced with a themeable Select
+  component — consistent rendering across platforms and a fix for the dark-mode
+  dropdown on Linux / WebKitGTK.
+
+### Fixed
+- Transitive mod dependency resolution now installs dependencies-of-dependencies,
+  with a per-mod install toast.
+- Installing a mod built for the wrong loader is now prevented, and replaying
+  onboarding re-arms the contextual tours.
+- Native form controls now match the active theme (`color-scheme` set per theme).
+
 ## [0.9.1] — 2026-06-01
 
 ### Added
@@ -60,6 +86,7 @@ release is **0.9.0**.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.9.0...main
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.9.1...main
+[0.9.1]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.1
 [0.9.0]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.0
 [0.1.0]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.1.0

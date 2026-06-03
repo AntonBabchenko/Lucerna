@@ -16,7 +16,9 @@ entirely by the GPL; nothing in this document narrows them.
 > either.
 
 The same sentence is displayed inside the launcher (Settings →
-About) and at the top of the README.
+About). The top of the README carries an equivalent disclaimer
+("NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED
+WITH MOJANG OR MICROSOFT.").
 
 ## 3. Account responsibility
 

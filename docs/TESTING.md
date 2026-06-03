@@ -23,7 +23,7 @@ Lucerna uses a layered test strategy. Each layer targets a different class of fa
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Expected: ~283 lib tests + integration tests, all pass. Anything failing here is a regression — investigate before continuing.
+Expected: 800+ lib tests + integration tests, all pass. Anything failing here is a regression — investigate before continuing.
 
 ### UI checks
 
@@ -39,8 +39,10 @@ Pre-existing lint warnings exist in three files inherited from v0.1.0 (`PhaseSta
 Pinned reference installer per era. Validates the full install pipeline (forge processors + library fetch + JRE resolution) against the actual upstream artifact.
 
 ```powershell
-# Legacy era (Forge 1.7.10-10.13.4.1614)
-cargo test --manifest-path src-tauri/Cargo.toml --test forge_legacy_era_e2e -- --ignored --nocapture
+# Legacy era (Forge 1.7.10) — no dedicated single-MC e2e target.
+# The legacy installer path is covered by forge_legacy_era_integration.rs
+# and forge_legacy_pipeline_integration.rs (both run by default) plus the
+# loader matrix below.
 
 # Transitional era (Forge 1.16.5-36.2.42)
 cargo test --manifest-path src-tauri/Cargo.toml --test forge_transitional_era_e2e -- --ignored --nocapture
@@ -68,7 +70,7 @@ $env:LUCERNA_MATRIX_MC = "1.20.4,1.21.11"
 cargo test --manifest-path src-tauri/Cargo.toml --test loader_matrix_e2e -- --ignored --nocapture
 ```
 
-Default matrix: 8 MC versions × applicable loaders = 28 combos. Cached run ~17 min; cold ~3 h + ~10 GB disk + network.
+Default matrix: 11 MC versions × applicable loaders (`MC_VERSIONS_DEFAULT` / `loaders_for` in `loader_matrix_e2e.rs`) ≈ 46 combos. Cached run ~17 min; cold ~3 h + ~10 GB disk + network.
 
 Outputs:
 - Console: progress line per combo + summary table at the end.
@@ -108,6 +110,6 @@ CI doesn't run them by default. The maintainer runs them locally before merges t
 ## Test fixture rules
 
 - **Forge installer fixtures** live in `src-tauri/tests/fixtures/forge/installers/` (gitignored). SHA-pinned in `SHA1SUMS`. Download via `pwsh fetch.ps1` from the same directory.
-- **Bytecode golden fixtures** (small, checked-in) live under `src-tauri/tests/fixtures/specialsource/` and `src-tauri/tests/fixtures/binarypatcher/`. They're optional — tests skip cleanly if absent.
+- **Bytecode golden fixtures** (small, checked-in) live under `src-tauri/tests/fixtures/specialsource/`. They're optional — tests skip cleanly if absent.
 
 Adding a new fixture: append a SHA1SUMS row and verify `fetch.ps1` finds the upstream URL. The `<mc>-<fv>-<mc>` legacy quirk (1.7.10 et al) is hardcoded in `fetch.ps1`'s allowlist.
