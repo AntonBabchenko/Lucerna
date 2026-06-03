@@ -1,4 +1,5 @@
 import { commands, events, type VerifyReport } from '$lib/ipc/bindings';
+import { formatError } from '$lib/ipc/format-error';
 
 export type IntegrityState = 'idle' | 'verifying' | 'report' | 'repairing';
 
@@ -47,7 +48,7 @@ export function createIntegrity(instanceId: () => string, isRunning: () => boole
       report = res.data;
       state = 'report';
     } else {
-      error = String(res.error);
+      error = formatError(res.error);
       state = 'idle';
     }
   }
@@ -62,7 +63,7 @@ export function createIntegrity(instanceId: () => string, isRunning: () => boole
     if (res.status === 'ok') {
       report = res.data;
     } else {
-      error = String(res.error);
+      error = formatError(res.error);
     }
     state = 'report';
   }
