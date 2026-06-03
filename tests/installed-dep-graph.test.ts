@@ -179,4 +179,23 @@ describe('createDepGraph', () => {
     await d.reloadGraphNow();
     expect(d.requiredBy.get('Pb')).toEqual(['Alpha']);
   });
+
+  it('reloadGraphNow drops a stale result and resets graphLoading on instance switch', async () => {
+    let release: (v: unknown) => void = () => {};
+    const pending = new Promise((res) => (release = res));
+    mocks.modsDependencyGraph.mockReset();
+    mocks.modsDependencyGraph.mockImplementation((id: string) =>
+      id === 'A'
+        ? pending.then(() => ({ status: 'ok', data: { roots: [{ sha1: 'z', name: 'Z', required: [], optional: [] }] } }))
+        : Promise.resolve({ status: 'ok', data: { roots: [] } }),
+    );
+    let current = 'A';
+    const d = createDepGraph(() => current, () => [], ctx);
+    const inflight = d.reloadGraphNow(); // for "A"
+    current = 'B'; // switch mid-flight
+    release(null); // "A" resolves — stale
+    await inflight;
+    expect(d.graphLoading).toBe(false); // reset despite discarding
+    expect(d.graph?.roots ?? []).toEqual([]); // stale "A" graph NOT committed
+  });
 });

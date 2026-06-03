@@ -71,6 +71,10 @@ export function createDepGraph(
   const requiredBy = $derived.by(() => {
     const out = new Map<string, string[]>();
     for (const [pid, shas] of requiredByShas) {
+      // Prefer the resolved row display name; fall back to the graph root's own
+      // name (release title), then the raw sha1. Equivalent to the monolith's
+      // `nameBySha.get(r.sha1) ?? r.name` — the sha1 tail is an unreachable guard
+      // since requiredByShas and rootBySha derive from the same graph.
       out.set(
         pid,
         shas.map((sha) => nameBySha.get(sha) ?? rootBySha.get(sha)?.name ?? sha),
@@ -109,7 +113,10 @@ export function createDepGraph(
     if (!id) return;
     graphLoading = true;
     const r = await commands.modsDependencyGraph(id);
-    if (getInstanceId() !== id) return; // instance-switch race guard
+    if (getInstanceId() !== id) {
+      graphLoading = false; // reset even when discarding the stale result
+      return;
+    }
     graphLoading = false;
     if (r.status === 'ok') {
       graph = r.data;
@@ -196,7 +203,14 @@ export function createDepGraph(
       pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: node.name }));
     }
     busy = false;
-    invalidateGraph();
+    // Await the graph re-resolve before refreshing rows so the tree's
+    // satisfied/missing state is current when the new rows render (matches the
+    // original monolith ordering). reloadGraphNow re-reads the instance + race-guards.
+    const cur = getInstanceId();
+    if (cur) {
+      depGraphCache.delete(cur);
+      await reloadGraphNow();
+    }
     await ctx.refresh();
   }
 
