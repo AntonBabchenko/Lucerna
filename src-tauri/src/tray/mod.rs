@@ -1,24 +1,32 @@
 //! Lifecycle helpers for the system-tray icon that appears while the
 //! launcher window is hidden during a Minecraft session. Created on
-//! `hide_to_tray`, destroyed on `restore_from_tray`. The icon is NOT
+//! `hide_to_tray`, removed on `restore_from_tray`. The icon is NOT
 //! always-on — see the 2026-05-26 tray-minimize design spec.
+//!
+//! Ownership note: Tauri itself is the source of truth for the tray.
+//! `TrayIconBuilder::build` registers the icon as a resource inside the
+//! `AppHandle` (keyed by its id), and the app keeps that reference for
+//! the icon's whole lifetime. Dropping a `TrayIcon` handle we hold does
+//! NOT remove the icon from the system tray — only `TrayIcon::close()`
+//! does, which is what `AppHandle::remove_tray_by_id` calls. So we must
+//! never track the icon in our own slot and drop it; we look it up and
+//! remove it through the app by id instead. (A previous implementation
+//! stored the icon in a `OnceLock` and dropped it on restore, which left
+//! the OS icon painted in the tray and stacked a fresh one every launch.)
 
 use crate::error::{Error, Result};
-use std::sync::{Mutex, OnceLock};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
-    tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager,
 };
 
-static TRAY: OnceLock<Mutex<Option<TrayIcon>>> = OnceLock::new();
+/// Stable id for the single launcher tray icon. Used both to build it and
+/// to look it up / remove it through the `AppHandle`.
+const TRAY_ID: &str = "lucerna-tray";
 
-fn tray_slot() -> &'static Mutex<Option<TrayIcon>> {
-    TRAY.get_or_init(|| Mutex::new(None))
-}
-
-/// Hide the main window and create a tray icon. Idempotent — if the
-/// tray already exists (e.g. previous session's restore failed), the
+/// Hide the main window and create the tray icon. Idempotent — if the
+/// tray already exists (e.g. a previous session's restore failed), the
 /// existing icon is reused and the window just hides again.
 pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
     if let Some(window) = app.get_webview_window("main") {
@@ -27,8 +35,9 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
         })?;
     }
 
-    let mut slot = tray_slot().lock().expect("tray slot mutex poisoned");
-    if slot.is_some() {
+    // The app (not us) owns the tray. If it already has one under our id,
+    // don't build a second — that would put two icons in the tray.
+    if app.tray_by_id(TRAY_ID).is_some() {
         return Ok(());
     }
 
@@ -56,7 +65,7 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
             details: "no default window icon to use for tray".into(),
         })?;
 
-    let tray = TrayIconBuilder::with_id("lucerna-tray")
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .tooltip("Lucerna — Minecraft running")
         .menu(&menu)
@@ -88,17 +97,19 @@ pub fn hide_to_tray(app: &AppHandle) -> Result<()> {
             details: format!("tray build: {e}"),
         })?;
 
-    *slot = Some(tray);
     Ok(())
 }
 
 /// Remove the tray icon and bring the main window back to the front.
 /// No-op if no tray icon exists.
+///
+/// Removal goes through `AppHandle::remove_tray_by_id`, which calls
+/// `TrayIcon::close()` — the only thing that actually tears the icon out
+/// of the system tray. We loop so that any duplicates left over from an
+/// earlier buggy run (which could stack multiple icons under the same id)
+/// are all cleared in one restore.
 pub fn restore_from_tray(app: &AppHandle) -> Result<()> {
-    let mut slot = tray_slot().lock().expect("tray slot mutex poisoned");
-    if let Some(tray) = slot.take() {
-        drop(tray); // dropping TrayIcon removes it from the system tray
-    }
+    while app.remove_tray_by_id(TRAY_ID).is_some() {}
 
     if let Some(window) = app.get_webview_window("main") {
         window.show().map_err(|e| Error::TrayIo {
