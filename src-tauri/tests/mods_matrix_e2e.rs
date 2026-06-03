@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Mod-install matrix e2e: for each (loader x popular MC) combo, install N
 //! randomly-sampled COMPATIBLE mods from live Modrinth and assert the
 //! install/dependency pipeline succeeds (right version chosen, deps resolved,
@@ -227,9 +226,12 @@ async fn fetch_pool(
             .await
             .map_err(|e| format!("search: {e:?}"))?;
         let total = page.total;
+        let n_hits = page.hits.len();
         pool.extend(page.hits);
         offset += page_size;
-        if pool.len() >= cap || offset >= total || pool.is_empty() {
+        // Stop on: enough collected, server says we're past the end, or this
+        // page came back empty (catalogue inconsistency / true end).
+        if pool.len() >= cap || offset >= total || n_hits == 0 {
             break;
         }
     }
@@ -311,22 +313,23 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
             continue;
         }
         let mut dep_count = 0usize;
-        let mut dep_failed: Option<String> = None;
+        let mut dep_failed: Option<(String, String)> = None;
         for dep in plan.required {
             if !dep.version.primary_file.distribution_allowed {
                 continue;
             }
+            let dep_pid = dep.version.project_id.clone();
             match install_one(&data_dir, &instance_root, dep.version, &progress).await {
                 Ok(_) => dep_count += 1,
                 Err(e) => {
-                    dep_failed = Some(format!("install dep: {e:?}"));
+                    dep_failed = Some((dep_pid, format!("install dep of {pid}: {e:?}")));
                     break;
                 }
             }
         }
-        if let Some(err) = dep_failed {
+        if let Some((dep_pid, err)) = dep_failed {
             report.outcomes.push(ModOutcome::Failed {
-                project_id: pid,
+                project_id: dep_pid,
                 error: err,
             });
             continue;
@@ -338,22 +341,34 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
         });
     }
 
+    // Guard against a silent false-green: a non-empty pool that installs
+    // nothing (every sample entry skipped) means the run exercised the
+    // pipeline on zero mods. Treat that as a combo failure, not a pass.
+    if !pool.is_empty() && report.installed() == 0 && report.failed() == 0 {
+        report.outcomes.push(ModOutcome::Failed {
+            project_id: "<combo>".into(),
+            error: format!(
+                "pool had {} mods but installed 0 ({} skipped) — nothing exercised",
+                pool.len(),
+                report.skipped()
+            ),
+        });
+        return report;
+    }
+
     let registry = installed::list(&instance_root).await.unwrap_or_default();
     let mods_dir = installed::mods_dir(&instance_root);
     for o in &report.outcomes {
         if let ModOutcome::Installed { version_id, .. } = o {
             let row = registry
                 .iter()
-                .find(|r| r.version_id.as_deref() == Some(version_id.as_str()));
-            assert!(
-                row.is_some(),
-                "[{} {:?}] installed version {} missing from registry (seed {})",
-                mc,
-                loader,
-                version_id,
-                seed
-            );
-            let row = row.unwrap();
+                .find(|r| r.version_id.as_deref() == Some(version_id.as_str()))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "[{} {:?}] installed version {} missing from registry (seed {})",
+                        mc, loader, version_id, seed
+                    )
+                });
             assert!(
                 mods_dir.join(&row.filename).exists(),
                 "[{} {:?}] jar {} not on disk (seed {})",
