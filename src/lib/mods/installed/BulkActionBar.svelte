@@ -58,6 +58,8 @@
       <button type="button" class="btn-ghost-danger btn-xs" disabled={busy} onclick={onUninstall}
         >{$t('mods.card.uninstall')}</button
       >
+      <!-- Clear is deliberately not gated on `busy`: deselecting is a local-only
+           state reset and is safe to do while a bulk IPC op is in flight. -->
       <button type="button" class="btn-ghost btn-xs" onclick={onClear}
         >{$t('mods.installed.bulkClear')}</button
       >

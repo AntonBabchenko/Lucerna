@@ -68,6 +68,7 @@
   onmouseenter={() => onHover(rowKey)}
   onmouseleave={() => onHover(null)}
   role="group"
+  aria-label={installed.name}
 >
   <ModCard
     layout="list"

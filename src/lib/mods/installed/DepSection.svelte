@@ -20,6 +20,9 @@
   } = $props();
 </script>
 
+<!-- onAdd and onInstall both resolve to the same install handler here: in this
+     view, "install missing required" and "add recommended" trigger the identical
+     resolve-and-install path. DepTree keeps them separate for other callers. -->
 <div class="px-4 pb-3 bg-subtle/40">
   {#if root.required.length > 0}
     <div class="text-[10px] uppercase tracking-wide text-muted mt-1">
