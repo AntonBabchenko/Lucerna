@@ -27,6 +27,7 @@
     checking = false,
     packChip = null,
     layout = 'grid',
+    dense = false,
     selectable = false,
     selected = false,
     onSelectChange = (_checked: boolean) => {},
@@ -46,6 +47,7 @@
     checking?: boolean;
     packChip?: string | null;
     layout?: 'grid' | 'list';
+    dense?: boolean;
     selectable?: boolean;
     selected?: boolean;
     onSelectChange?: (checked: boolean) => void;
@@ -153,7 +155,9 @@
        placeholder icon and a filename/identity-based title. Used by the
        Installed tab for manual mods, pack-bundled jars, and failed lookups. -->
   <div
-    class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
+    class="flex items-center gap-3 px-3 {dense
+      ? 'py-1'
+      : 'py-2'} border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
     data-testid="manual-mod-row"
   >
     {#if selectable && installed}
@@ -239,7 +243,9 @@
   </div>
 {:else}
   <div
-    class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
+    class="flex items-center gap-3 px-3 {dense
+      ? 'py-1'
+      : 'py-2'} border-b border-border-subtle bg-surface hover:bg-subtle transition-colors"
     data-testid="card-list-row"
   >
     {#if selectable}

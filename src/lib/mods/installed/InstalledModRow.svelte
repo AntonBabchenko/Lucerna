@@ -89,6 +89,7 @@
 >
   <ModCard
     layout="list"
+    dense={true}
     {summary}
     {installed}
     onInstall={() => {}}
@@ -104,7 +105,7 @@
     {onSelectChange}
   />
   {#if summary}
-    <div class="flex items-center gap-2 px-3 pb-1 text-xs">
+    <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
       {#if badge}
         <span
           data-testid="status-badge"
