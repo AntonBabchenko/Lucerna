@@ -53,4 +53,21 @@ describe('SegmentedControl', () => {
     await fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowRight' });
     expect(onChange).toHaveBeenCalledWith('forge');
   });
+
+  it('wrap mode renders a wrapping chip group instead of a clipped single strip', () => {
+    // Regression: 5 loader options (incl. "NeoForge") overflowed the narrow
+    // Filters drawer and clipped the last chip. Wrap mode lets them flow.
+    const { getByRole } = render(SegmentedControl, {
+      props: {
+        value: '',
+        options: OPTIONS,
+        ariaLabel: 'Loader filter',
+        onChange: () => {},
+        wrap: true,
+      },
+    });
+    const group = getByRole('radiogroup');
+    expect(group.className).toContain('flex-wrap');
+    expect(group.className).not.toContain('overflow-hidden');
+  });
 });

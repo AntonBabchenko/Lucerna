@@ -115,6 +115,7 @@
           options={LOADER_OPTIONS}
           ariaLabel={$t('browse.filter.loaderAriaLabel')}
           testid="browse-loader-segment"
+          wrap
           onChange={(v) => (loader = v as LoaderKind | '')}
         />
       </div>

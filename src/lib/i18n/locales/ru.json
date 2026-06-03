@@ -31,7 +31,7 @@
       "any": "Любой",
       "showInstalled": "Показывать установленные",
       "installedHidden": "Установленные скрыты",
-      "restoreForInstance": "Под текущий инстанс"
+      "restoreForInstance": "Под текущий профиль"
     }
   },
   "install": {

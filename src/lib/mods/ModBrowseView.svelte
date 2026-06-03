@@ -91,13 +91,10 @@
     loaderFilter = loader && loader !== 'vanilla' ? loader : '';
   });
   let sort = $state<ModSort>('downloads');
-  // Default: include installed mods in the result list (current
-  // behaviour). Toggle off → filter them out client-side for a
-  // cleaner "discovery" view. The pagination counter still reflects
-  // the platform's total, so an early page may render fewer cards
-  // when many of its hits are already installed.
   // Default to a discovery view: installed mods are hidden so Browse surfaces
-  // new mods. The "Installed hidden" chip + the drawer toggle flip it on.
+  // new mods. Toggling on (drawer checkbox / "Installed hidden" chip) filters
+  // them back in client-side; the pagination counter then reflects the
+  // platform total, so an early page may render fewer cards.
   let showInstalled = $state(false);
   const pageSize = $derived(browserPrefs.pageSize);
   // Reset to page 1 when the user changes the page size so we never
@@ -444,24 +441,20 @@
 
   const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter, showInstalled });
 
-  // The instance's default filter state — what Browse opens with for the active
-  // instance (its loader + MC, installed hidden). "Restore" snaps back to this;
-  // "Clear all" goes the other way (no narrowing at all).
+  // The active instance's loader + MC — what Browse pre-fills for it. "Restore"
+  // snaps loader + MC back to these (it deliberately leaves "Show installed"
+  // alone — that's the user's view preference, not an instance property).
   const instanceLoaderFilter = $derived(loader && loader !== 'vanilla' ? loader : '');
   const instanceMcFilter = $derived(mcVersion ?? '');
   const canRestore = $derived(
-    instanceId !== null &&
-      (loaderFilter !== instanceLoaderFilter ||
-        mcFilter !== instanceMcFilter ||
-        showInstalled !== false),
+    instanceId !== null && (loaderFilter !== instanceLoaderFilter || mcFilter !== instanceMcFilter),
   );
 
-  async function restoreInstanceFilters() {
+  function restoreInstanceFilters() {
+    // Setting loader/mc triggers the search-reset effect (same path the drawer
+    // bindings use); "Show installed" is intentionally left untouched.
     loaderFilter = instanceLoaderFilter;
     mcFilter = instanceMcFilter;
-    // setShowInstalled re-pages; the loader/mc writes above also trigger the
-    // search-reset effect — same path the drawer bindings already use.
-    await setShowInstalled(false);
   }
 
   function clearChip(key: FilterChipKey) {
@@ -748,7 +741,7 @@
       clearAllTestid="mod-clear-filters"
       showRestore={canRestore}
       restoreLabel={$t('browse.filter.restoreForInstance')}
-      onRestore={() => void restoreInstanceFilters()}
+      onRestore={restoreInstanceFilters}
     />
   </div>
 

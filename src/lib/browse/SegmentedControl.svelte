@@ -13,12 +13,17 @@
     ariaLabel,
     testid,
     onChange,
+    wrap = false,
   }: {
     value: string;
     options: Option[];
     ariaLabel: string;
     testid?: string;
     onChange: (value: string) => void;
+    // When the options don't fit on one row in a narrow container (e.g. the
+    // 5-entry loader filter in the Filters drawer), render them as a wrapping
+    // group of rounded toggle chips instead of a single clipped strip.
+    wrap?: boolean;
   } = $props();
 
   let groupEl: HTMLDivElement | undefined = $state();
@@ -70,7 +75,9 @@
   aria-label={ariaLabel}
   data-testid={testid}
   tabindex={-1}
-  class="inline-flex w-full rounded border border-border-emphasis overflow-hidden"
+  class={wrap
+    ? 'flex flex-wrap gap-1'
+    : 'inline-flex w-full rounded border border-border-emphasis overflow-hidden'}
   onkeydown={onKeyDown}
 >
   {#each options as opt, i (opt.value)}
@@ -79,7 +86,9 @@
       role="radio"
       aria-checked={value === opt.value}
       tabindex={i === selectedIndex ? 0 : -1}
-      class={`flex-1 px-2 py-1 text-sm text-center border-r border-border-subtle last:border-r-0 ${value === opt.value ? 'bg-accent/15' : ''}`}
+      class={wrap
+        ? `rounded border px-2 py-1 text-sm ${value === opt.value ? 'border-accent bg-accent/15' : 'border-border-emphasis'}`
+        : `flex-1 px-2 py-1 text-sm text-center border-r border-border-subtle last:border-r-0 ${value === opt.value ? 'bg-accent/15' : ''}`}
       class:text-accent={value === opt.value}
       class:font-medium={value === opt.value}
       class:text-secondary={value !== opt.value}
