@@ -127,3 +127,126 @@ mod sample_tests {
         assert_eq!(sorted, pool);
     }
 }
+
+use lucerna_lib::mods::install::{install_one, ModInstallPhase, ProgressFn};
+use lucerna_lib::mods::installed;
+use lucerna_lib::mods::modrinth::ModrinthClient;
+use lucerna_lib::mods::platform::{ModPlatform, ModSearchQuery, ModSort, ModSource};
+
+/// Per-mod result within a combo.
+#[derive(Debug)]
+enum ModOutcome {
+    Installed { project_id: String, version_id: String, deps: usize },
+    Skipped { project_id: String, reason: String }, // no compatible version / distribution disabled
+    Failed { project_id: String, error: String },   // a real pipeline error
+}
+
+struct ComboReport {
+    mc: String,
+    loader: LoaderKind,
+    seed: u64,
+    outcomes: Vec<ModOutcome>,
+}
+
+impl ComboReport {
+    fn installed(&self) -> usize { self.outcomes.iter().filter(|o| matches!(o, ModOutcome::Installed{..})).count() }
+    fn skipped(&self) -> usize { self.outcomes.iter().filter(|o| matches!(o, ModOutcome::Skipped{..})).count() }
+    fn failed(&self) -> usize { self.outcomes.iter().filter(|o| matches!(o, ModOutcome::Failed{..})).count() }
+}
+
+fn noop_progress() -> ProgressFn { Box::new(|_p: ModInstallPhase, _a: u64, _b: Option<u64>| {}) }
+
+/// Page Modrinth search (facet-filtered to mc+loader) into a pool of up to `cap` summaries.
+async fn fetch_pool(client: &ModrinthClient, mc: &str, loader: LoaderKind, cap: usize) -> Result<Vec<lucerna_lib::mods::platform::ModSummary>, String> {
+    let mut pool = Vec::new();
+    let page_size = 100u32;
+    let mut offset = 0u32;
+    loop {
+        let q = ModSearchQuery {
+            source: ModSource::Modrinth,
+            query: String::new(),
+            mc_version: Some(mc.to_string()),
+            loader: Some(loader),
+            sort: ModSort::Downloads,
+            page_size,
+            offset,
+        };
+        let page = client.search(&q).await.map_err(|e| format!("search: {e:?}"))?;
+        let total = page.total;
+        pool.extend(page.hits);
+        offset += page_size;
+        if pool.len() >= cap || offset >= total || pool.is_empty() { break; }
+    }
+    pool.truncate(cap);
+    Ok(pool)
+}
+
+/// Run one (mc, loader) combo end to end.
+async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboReport {
+    let mut report = ComboReport { mc: mc.to_string(), loader, seed, outcomes: Vec::new() };
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let data_dir = tmp.path().join("data");
+    let instance_root = tmp.path().join("instance");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&instance_root).unwrap();
+    let client = ModrinthClient::new();
+    let progress = noop_progress();
+
+    let cap = (n * 10).max(200);
+    let pool = match fetch_pool(&client, mc, loader, cap).await {
+        Ok(p) => p,
+        Err(e) => { report.outcomes.push(ModOutcome::Failed { project_id: "<search>".into(), error: e }); return report; }
+    };
+    let sample = seeded_sample(&pool, n, seed);
+
+    for summary in sample {
+        let pid = summary.project_id.clone();
+        let versions = match client.versions(&pid, Some(mc), Some(loader)).await {
+            Ok(v) => v,
+            Err(e) => { report.outcomes.push(ModOutcome::Failed { project_id: pid, error: format!("versions: {e:?}") }); continue; }
+        };
+        let Some(primary) = versions.into_iter().next() else {
+            report.outcomes.push(ModOutcome::Skipped { project_id: pid, reason: "no compatible version".into() });
+            continue;
+        };
+        if !primary.primary_file.distribution_allowed {
+            report.outcomes.push(ModOutcome::Skipped { project_id: pid, reason: "distribution disabled".into() });
+            continue;
+        }
+        let plan = match client.resolve_deps(&primary, mc, loader).await {
+            Ok(p) => p,
+            Err(e) => { report.outcomes.push(ModOutcome::Failed { project_id: pid, error: format!("resolve: {e:?}") }); continue; }
+        };
+        let primary_vid = primary.version_id.clone();
+        if let Err(e) = install_one(&data_dir, &instance_root, primary, &progress).await {
+            report.outcomes.push(ModOutcome::Failed { project_id: pid, error: format!("install primary: {e:?}") });
+            continue;
+        }
+        let mut dep_count = 0usize;
+        let mut dep_failed: Option<String> = None;
+        for dep in plan.required {
+            if !dep.version.primary_file.distribution_allowed { continue; }
+            match install_one(&data_dir, &instance_root, dep.version, &progress).await {
+                Ok(_) => dep_count += 1,
+                Err(e) => { dep_failed = Some(format!("install dep: {e:?}")); break; }
+            }
+        }
+        if let Some(err) = dep_failed {
+            report.outcomes.push(ModOutcome::Failed { project_id: pid, error: err });
+            continue;
+        }
+        report.outcomes.push(ModOutcome::Installed { project_id: pid, version_id: primary_vid, deps: dep_count });
+    }
+
+    let registry = installed::list(&instance_root).await.unwrap_or_default();
+    let mods_dir = installed::mods_dir(&instance_root);
+    for o in &report.outcomes {
+        if let ModOutcome::Installed { version_id, .. } = o {
+            let row = registry.iter().find(|r| r.version_id.as_deref() == Some(version_id.as_str()));
+            assert!(row.is_some(), "[{} {:?}] installed version {} missing from registry (seed {})", mc, loader, version_id, seed);
+            let row = row.unwrap();
+            assert!(mods_dir.join(&row.filename).exists(), "[{} {:?}] jar {} not on disk (seed {})", mc, loader, row.filename, seed);
+        }
+    }
+    report
+}
