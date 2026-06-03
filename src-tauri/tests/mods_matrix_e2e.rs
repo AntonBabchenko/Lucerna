@@ -128,6 +128,7 @@ mod sample_tests {
     }
 }
 
+use std::path::Path;
 use lucerna_lib::mods::install::{install_one, ModInstallPhase, ProgressFn};
 use lucerna_lib::mods::installed;
 use lucerna_lib::mods::modrinth::ModrinthClient;
@@ -249,4 +250,69 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
         }
     }
     report
+}
+
+use std::io::Write;
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(default)
+}
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(default)
+}
+
+fn log_dir() -> std::path::PathBuf {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("mod-install-matrix-logs");
+    std::fs::create_dir_all(&dir).expect("create log dir");
+    dir
+}
+
+fn write_combo_log(r: &ComboReport) {
+    let fname = format!("{}_{:?}.log", r.mc.replace('.', "_"), r.loader);
+    let path = log_dir().join(fname);
+    let mut f = std::fs::File::create(&path).expect("combo log");
+    writeln!(f, "combo: MC {} loader {:?} seed {}", r.mc, r.loader, r.seed).ok();
+    writeln!(f, "installed {} skipped {} failed {}", r.installed(), r.skipped(), r.failed()).ok();
+    for o in &r.outcomes {
+        match o {
+            ModOutcome::Installed { project_id, version_id, deps } =>
+                writeln!(f, "  OK   {project_id} -> {version_id} (+{deps} deps)").ok(),
+            ModOutcome::Skipped { project_id, reason } =>
+                writeln!(f, "  SKIP {project_id}: {reason}").ok(),
+            ModOutcome::Failed { project_id, error } =>
+                writeln!(f, "  FAIL {project_id}: {error}").ok(),
+        };
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "real network + downloads; run manually with --ignored"]
+async fn mod_install_matrix() {
+    let n = env_usize("LUCERNA_MOD_MATRIX_N", 20);
+    let base_seed = env_u64("LUCERNA_MOD_MATRIX_SEED", 0xC0FFEE);
+
+    let mut reports: Vec<ComboReport> = Vec::new();
+    let mut combo_idx: u64 = 0;
+    for mc in mc_versions() {
+        for loader in loaders_for(&mc) {
+            if !loader_enabled(loader) { continue; }
+            let seed = base_seed.wrapping_add(combo_idx);
+            combo_idx += 1;
+            eprintln!("=== MC {mc} {loader:?} (seed {seed}) ===");
+            let report = run_combo(&mc, loader, n, seed).await;
+            eprintln!("    installed {} skipped {} failed {}", report.installed(), report.skipped(), report.failed());
+            write_combo_log(&report);
+            reports.push(report);
+        }
+    }
+
+    eprintln!("\n| MC | Loader | seed | installed | skipped | failed |");
+    eprintln!("|---|---|---|---|---|---|");
+    let mut total_failed = 0usize;
+    for r in &reports {
+        total_failed += r.failed();
+        eprintln!("| {} | {:?} | {} | {} | {} | {} |", r.mc, r.loader, r.seed, r.installed(), r.skipped(), r.failed());
+    }
+    eprintln!("\nlogs: {}", log_dir().display());
+    assert_eq!(total_failed, 0, "{} mod install(s) failed across the matrix — see per-combo logs", total_failed);
 }
