@@ -59,6 +59,9 @@ release is **0.9.0**.
 - Long toast messages now wrap instead of being truncated to a single line.
 - Lowered the minimum window height so the sidebar's Logs / Settings controls
   sit flush at the bottom instead of leaving empty space below them.
+- Orphaned tray icons no longer pile up. With *hide launcher to tray during
+  game* enabled, each game launch used to leave a tray icon that never went
+  away; the icon is now properly removed when the game closes.
 
 ## [0.9.1] — 2026-06-01
 
