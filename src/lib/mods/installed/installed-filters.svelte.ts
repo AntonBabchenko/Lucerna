@@ -93,6 +93,14 @@ export function createInstalledFilters(
       $effect(() => {
         if (page > pageCount - 1) page = Math.max(0, pageCount - 1);
       });
+      // When the active quick-filter's set empties out (user fixed the last
+      // dependency problem or applied the last update), its chip + the attention
+      // bar disappear — so auto-reset to 'all' instead of stranding an empty list
+      // with no control to clear the filter.
+      $effect(() => {
+        if (quickFilter === 'updates' && getUpdatableShas().size === 0) quickFilter = 'all';
+        else if (quickFilter === 'issues' && getMissingShas().size === 0) quickFilter = 'all';
+      });
     });
   } catch {
     /* no Svelte runtime (vitest) — effects inert, which is what unit tests want */
