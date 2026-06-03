@@ -10,7 +10,10 @@ import type { ModSource } from '$lib/ipc/bindings';
  * platforms).
  */
 export function modProjectUrl(source: ModSource, slugOrId: string): string {
+  // Platform slugs/ids are already url-safe, but encode defensively so a stray
+  // character can never break out of the path.
+  const seg = encodeURIComponent(slugOrId);
   return source === 'modrinth'
-    ? `https://modrinth.com/mod/${slugOrId}`
-    : `https://www.curseforge.com/minecraft/mc-mods/${slugOrId}`;
+    ? `https://modrinth.com/mod/${seg}`
+    : `https://www.curseforge.com/minecraft/mc-mods/${seg}`;
 }

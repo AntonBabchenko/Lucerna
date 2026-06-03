@@ -56,7 +56,7 @@ export function showAccountHint(): void {
 }
 
 /** Dismiss the contextual account hint without touching onboarding completion
- *  (the × / "Got it" button, Esc, and overlay click). */
+ *  (the "Got it" button or Esc). */
 export function closeHint(): void {
   tourState.active = false;
   tourState.contextual = false;
