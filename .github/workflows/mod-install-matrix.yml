@@ -23,6 +23,9 @@ on:
 jobs:
   matrix:
     runs-on: windows-latest
+    # Sequential live-network installs: the full default matrix at N=20 can
+    # approach this cap. If the matrix grows, shard via the dispatch inputs
+    # (run per-loader or per-MC) or lower N rather than raising the timeout.
     timeout-minutes: 240
     steps:
       - name: Checkout

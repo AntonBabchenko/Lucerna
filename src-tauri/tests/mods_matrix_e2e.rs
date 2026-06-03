@@ -280,6 +280,8 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
                 continue;
             }
         };
+        // Modrinth returns a project's versions newest-first, so the first
+        // (mc, loader)-filtered entry is the version the browser would install.
         let Some(primary) = versions.into_iter().next() else {
             report.outcomes.push(ModOutcome::Skipped {
                 project_id: pid,
@@ -315,10 +317,18 @@ async fn run_combo(mc: &str, loader: LoaderKind, n: usize, seed: u64) -> ComboRe
         let mut dep_count = 0usize;
         let mut dep_failed: Option<(String, String)> = None;
         for dep in plan.required {
+            let dep_pid = dep.version.project_id.clone();
+            // A required dep the author marked non-distributable can't be
+            // downloaded by anyone — record it as a visible SKIP rather than
+            // silently dropping it, so a missing required dependency shows in
+            // the log instead of vanishing behind the primary's (+N deps).
             if !dep.version.primary_file.distribution_allowed {
+                report.outcomes.push(ModOutcome::Skipped {
+                    project_id: dep_pid,
+                    reason: format!("required dep of {pid}: distribution disabled"),
+                });
                 continue;
             }
-            let dep_pid = dep.version.project_id.clone();
             match install_one(&data_dir, &instance_root, dep.version, &progress).await {
                 Ok(_) => dep_count += 1,
                 Err(e) => {
