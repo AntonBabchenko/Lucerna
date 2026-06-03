@@ -97,14 +97,17 @@ describe('Warning toast — full intent coverage', () => {
     expect(btn).toHaveBtnVariant('icon');
   });
 
-  it('list items each carry the truncate class', () => {
+  it('list items wrap (break-words) instead of truncating to one line', () => {
+    // Long detail lines (e.g. the MS pending-approval message) must wrap, not
+    // get clipped to a single ellipsised row — so `break-words`, not `truncate`.
     pushWarning('Title', ['line1', 'line2', 'line3']);
     const { container } = render(ToastHost);
     const t = getToast(container, 'warning');
     const items = t.querySelectorAll('li');
     expect(items.length).toBe(3);
     for (const li of items) {
-      expect(li.className).toContain('truncate');
+      expect(li.className).toContain('break-words');
+      expect(li.className).not.toContain('truncate');
     }
   });
 
