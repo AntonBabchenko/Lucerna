@@ -276,8 +276,6 @@
       "enabledStatus": "Включён",
       "disabledStatus": "Отключён",
       "selectModAriaLabel": "Выбрать мод {filename}",
-      "prevPage": "← Назад",
-      "nextPage": "Вперёд →",
       "toastEnabled": "{count, plural, one {Включён # мод} few {Включено # мода} many {Включено # модов} other {Включено # мода}}",
       "toastDisabled": "{count, plural, one {Отключён # мод} few {Отключено # мода} many {Отключено # модов} other {Отключено # мода}}",
       "toastEnabledFailed": "{count, plural, one {Включён # мод} few {Включено # мода} many {Включено # модов} other {Включено # мода}}, не удалось: {failed}",

@@ -276,8 +276,6 @@
       "enabledStatus": "Enabled",
       "disabledStatus": "Disabled",
       "selectModAriaLabel": "Select mod {filename}",
-      "prevPage": "← Prev",
-      "nextPage": "Next →",
       "toastEnabled": "{count, plural, one {Enabled # mod} other {Enabled # mods}}",
       "toastDisabled": "{count, plural, one {Disabled # mod} other {Disabled # mods}}",
       "toastEnabledFailed": "{count, plural, one {Enabled # mod} other {Enabled # mods}}, {failed} failed",
