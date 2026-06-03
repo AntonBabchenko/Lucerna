@@ -51,8 +51,6 @@ pub fn library_artifact(rel_path: String, sha1: String, url: String) -> PlannedA
     }
 }
 
-// used by scan.rs (Task 5)
-#[allow(dead_code)]
 pub fn asset_artifact(hash: &str) -> PlannedArtifact {
     // Objects are stored at `<objects>/<2hex>/<full-hash>` and named by hash.
     let prefix = &hash[..2.min(hash.len())];
@@ -65,8 +63,6 @@ pub fn asset_artifact(hash: &str) -> PlannedArtifact {
 }
 
 /// Plan all library artefacts for the current platform.
-// used by scan.rs (Task 5)
-#[allow(dead_code)]
 pub fn library_artifacts(details: &VersionDetails, os: &str, arch: &str) -> Vec<PlannedArtifact> {
     details
         .libraries

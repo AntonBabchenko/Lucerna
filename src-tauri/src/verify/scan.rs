@@ -49,3 +49,247 @@ mod tests {
         assert_eq!(classify(false, None, ""), ArtifactStatus::Missing);
     }
 }
+
+use crate::error::{Error, Result};
+use crate::verify::plan::{asset_artifact, client_artifact, library_artifacts, PlannedArtifact};
+use crate::verify::progress::{VerifyPhase, VerifyProgress};
+use crate::verify::{ProblemArtifact, VerifyCategory, VerifyReport};
+use crate::versions::install::ensure_version_json;
+use futures_util::stream::{self, StreamExt};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use tauri_specta::Event;
+
+const CONCURRENCY: usize = 8;
+
+/// An artefact resolved to its absolute on-disk path, ready to hash.
+pub struct PlannedOnDisk {
+    pub abs_path: PathBuf,
+    pub expected_sha: String,
+}
+
+async fn file_sha1(path: &std::path::Path) -> Option<String> {
+    use sha1::{Digest, Sha1};
+    let bytes = tokio::fs::read(path).await.ok()?;
+    Some(hex::encode(Sha1::digest(&bytes)))
+}
+
+/// Hash each item in parallel and classify. `on_progress(done, total, bytes)`
+/// fires after each file (bytes currently always 0 — progress is file-count
+/// based). Preserves input order in the returned vec.
+pub async fn hash_planned(
+    items: Vec<PlannedOnDisk>,
+    concurrency: usize,
+    on_progress: impl Fn(u32, u32, u64) + Send + Sync + 'static,
+) -> Vec<ArtifactStatus> {
+    let total = items.len() as u32;
+    let progress = Arc::new(on_progress);
+    let done = Arc::new(AtomicU32::new(0));
+
+    let mut indexed: Vec<(usize, ArtifactStatus)> = stream::iter(items.into_iter().enumerate())
+        .map(|(i, item)| {
+            let progress = Arc::clone(&progress);
+            let done = Arc::clone(&done);
+            async move {
+                let exists = tokio::fs::metadata(&item.abs_path).await.is_ok();
+                let on_disk = if exists {
+                    file_sha1(&item.abs_path).await
+                } else {
+                    None
+                };
+                let status = classify(exists, on_disk.as_deref(), &item.expected_sha);
+                let d = done.fetch_add(1, Ordering::Relaxed) + 1;
+                progress(d, total, 0);
+                (i, status)
+            }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .collect::<Vec<_>>()
+        .await;
+
+    indexed.sort_by_key(|(i, _)| *i);
+    indexed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Full read-only verification for an instance's effective version. Offline
+/// for the hashing pass; only the network if ensure_version_json must fetch.
+pub async fn verify_instance_report(
+    instance_id: &str,
+    effective_id: &str,
+    app: &tauri::AppHandle,
+) -> Result<VerifyReport> {
+    emit(app, instance_id, VerifyPhase::Manifest, 0, 1, None);
+
+    // Profile JSON / manifest. On failure the manifest is unrecoverable.
+    let details = match ensure_version_json(effective_id, app).await {
+        Ok(d) => d,
+        Err(_) => {
+            return Ok(VerifyReport::build(
+                instance_id.to_string(),
+                effective_id.to_string(),
+                &[(VerifyCategory::ProfileJson, 1)],
+                vec![ProblemArtifact {
+                    category: VerifyCategory::ProfileJson,
+                    rel_path: format!("{effective_id}.json"),
+                    expected_sha: String::new(),
+                    url: None,
+                    status: ArtifactStatus::Missing,
+                }],
+                true,
+            ));
+        }
+    };
+
+    let os = crate::versions::install::current_os();
+    let arch = crate::versions::install::current_arch();
+
+    let versions = crate::paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
+    let libraries_dir =
+        crate::paths::libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
+    let assets_root = crate::paths::assets_dir(app).map_err(|e| Error::io("<assets_dir>", e))?;
+    let assets_objects = assets_root.join("objects");
+
+    let mut planned: Vec<(PlannedArtifact, PathBuf)> = Vec::new();
+
+    if let Some(downloads) = details.downloads.as_ref() {
+        let c = client_artifact(effective_id, &downloads.client.sha1, &downloads.client.url);
+        let abs = versions.join(&c.rel_path);
+        planned.push((c, abs));
+    }
+
+    for lib in library_artifacts(&details, os, arch) {
+        let abs = libraries_dir.join(&lib.rel_path);
+        planned.push((lib, abs));
+    }
+
+    if let Some(ai) = details.asset_index.as_ref() {
+        let index_file = assets_root.join("indexes").join(format!("{}.json", ai.id));
+        if let Ok(raw) = tokio::fs::read(&index_file).await {
+            if let Ok(parsed) = serde_json::from_slice::<crate::versions::assets::AssetIndex>(&raw)
+            {
+                for obj in parsed.objects.values() {
+                    let a = asset_artifact(&obj.hash);
+                    let abs = assets_objects.join(&a.rel_path);
+                    planned.push((a, abs));
+                }
+            }
+        }
+    }
+
+    let on_disk: Vec<PlannedOnDisk> = planned
+        .iter()
+        .map(|(p, abs)| PlannedOnDisk {
+            abs_path: abs.clone(),
+            expected_sha: p.expected_sha.clone(),
+        })
+        .collect();
+
+    let app_clone = app.clone();
+    let id_owned = instance_id.to_string();
+    let statuses = hash_planned(on_disk, CONCURRENCY, move |done, total, _bytes| {
+        emit(
+            &app_clone,
+            &id_owned,
+            VerifyPhase::Hashing,
+            done,
+            total,
+            None,
+        );
+    })
+    .await;
+
+    let jre_component = details
+        .java_version
+        .as_ref()
+        .map(|jv| jv.component.clone())
+        .unwrap_or_else(|| crate::jre::DEFAULT_LEGACY_COMPONENT.to_string());
+    let jre_ok = jre_present(&jre_component, app).await;
+
+    let mut problems: Vec<ProblemArtifact> = Vec::new();
+    for ((p, _abs), status) in planned.iter().zip(statuses.iter()) {
+        if *status != ArtifactStatus::Ok {
+            problems.push(ProblemArtifact {
+                category: p.category,
+                rel_path: p.rel_path.clone(),
+                expected_sha: p.expected_sha.clone(),
+                url: p.url.clone(),
+                status: *status,
+            });
+        }
+    }
+    if !jre_ok {
+        problems.push(ProblemArtifact {
+            category: VerifyCategory::Jre,
+            rel_path: format!("{jre_component}/bin"),
+            expected_sha: String::new(),
+            url: None,
+            status: ArtifactStatus::Missing,
+        });
+    }
+
+    let totals = category_totals(&planned, 1);
+    let report = VerifyReport::build(
+        instance_id.to_string(),
+        effective_id.to_string(),
+        &totals,
+        problems,
+        false,
+    );
+
+    emit(app, instance_id, VerifyPhase::Complete, 1, 1, None);
+    Ok(report)
+}
+
+/// Marker present + parseable + the java executable exists.
+async fn jre_present(component: &str, app: &tauri::AppHandle) -> bool {
+    let Ok(marker) = crate::jre::install::marker_path(component, app) else {
+        return false;
+    };
+    let marker_ok = tokio::fs::read_to_string(&marker)
+        .await
+        .ok()
+        .and_then(|s| crate::jre::install::Marker::parse(&s))
+        .is_some();
+    if !marker_ok {
+        return false;
+    }
+    match crate::jre::java_executable_path(component, app) {
+        Ok(exe) => tokio::fs::metadata(&exe).await.is_ok(),
+        Err(_) => false,
+    }
+}
+
+fn category_totals(
+    planned: &[(PlannedArtifact, PathBuf)],
+    jre_total: u32,
+) -> Vec<(VerifyCategory, u32)> {
+    use VerifyCategory::*;
+    let count = |c: VerifyCategory| planned.iter().filter(|(p, _)| p.category == c).count() as u32;
+    vec![
+        (Client, count(Client)),
+        (Libraries, count(Libraries)),
+        (Assets, count(Assets)),
+        (Jre, jre_total),
+        (ProfileJson, 1),
+    ]
+}
+
+fn emit(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    phase: VerifyPhase,
+    files_done: u32,
+    files_total: u32,
+    current_category: Option<VerifyCategory>,
+) {
+    let _ = VerifyProgress {
+        instance_id: instance_id.to_string(),
+        phase,
+        files_done,
+        files_total,
+        bytes_done: 0.0,
+        current_category,
+    }
+    .emit(app);
+}
