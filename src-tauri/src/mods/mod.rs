@@ -15,6 +15,7 @@ pub mod installed;
 pub mod local;
 pub mod modpack;
 pub mod modrinth;
+pub mod orphans;
 pub mod platform;
 pub mod project_cache;
 pub mod render;
