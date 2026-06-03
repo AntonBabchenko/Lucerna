@@ -7,7 +7,7 @@
   // While active, sets <body data-tour-active="true"> so a global CSS
   // rule disables pointer-events on the underlying UI. Esc = Skip.
   import { onMount, untrack, tick } from 'svelte';
-  import { tourState, TOTAL_STEPS, next, back, finishOrSkip } from './state.svelte';
+  import { tourState, TOTAL_STEPS, next, back, finishOrSkip, closeHint } from './state.svelte';
   import { STEPS } from './steps';
   import { t } from '$lib/i18n';
 
@@ -69,7 +69,10 @@
   function onKeydown(e: KeyboardEvent) {
     if (!tourState.active) return;
     if (e.key === 'Escape') {
-      void finishOrSkip();
+      // The contextual account hint dismisses without marking the onboarding
+      // tour completed; the full tour's Esc is "Skip".
+      if (tourState.contextual) closeHint();
+      else void finishOrSkip();
       return;
     }
     if (e.key === 'Tab') {
@@ -182,12 +185,14 @@
       class="fixed z-50 bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
       style={popoverStyle(rect, step.anchor)}
     >
-      <div class="text-xs text-muted mb-1">
-        {$t('onboarding.controls.stepOf', {
-          current: tourState.currentStep + 1,
-          total: TOTAL_STEPS,
-        })}
-      </div>
+      {#if !tourState.contextual}
+        <div class="text-xs text-muted mb-1">
+          {$t('onboarding.controls.stepOf', {
+            current: tourState.currentStep + 1,
+            total: TOTAL_STEPS,
+          })}
+        </div>
+      {/if}
       <h3 id="tour-popover-title" class="font-semibold text-sm text-primary mb-2">
         {$t(step.titleKey)}
       </h3>
@@ -195,31 +200,40 @@
       {#if step.disclaimerKey}
         <p class="text-xs text-muted mt-3">{$t(step.disclaimerKey)}</p>
       {/if}
-      <div class="flex justify-between gap-2">
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          disabled={isFirst}
-          onclick={() => back()}
-        >
-          {$t('onboarding.controls.back')}
-        </button>
-        <div class="flex gap-2">
-          {#if !isLast}
-            <button type="button" class="btn-tertiary" onclick={() => void finishOrSkip()}>
-              {$t('onboarding.controls.skip')}
-            </button>
-          {/if}
-          <button
-            type="button"
-            data-tour-primary
-            class="btn-primary btn-sm"
-            onclick={() => (isLast ? void finishOrSkip() : next())}
-          >
-            {isLast ? $t('onboarding.controls.finish') : $t('onboarding.controls.next')}
+      {#if tourState.contextual}
+        <!-- On-demand account hint: no tour navigation, just acknowledge. -->
+        <div class="flex justify-end">
+          <button type="button" data-tour-primary class="btn-primary btn-sm" onclick={closeHint}>
+            {$t('onboarding.controls.gotIt')}
           </button>
         </div>
-      </div>
+      {:else}
+        <div class="flex justify-between gap-2">
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            disabled={isFirst}
+            onclick={() => back()}
+          >
+            {$t('onboarding.controls.back')}
+          </button>
+          <div class="flex gap-2">
+            {#if !isLast}
+              <button type="button" class="btn-tertiary" onclick={() => void finishOrSkip()}>
+                {$t('onboarding.controls.skip')}
+              </button>
+            {/if}
+            <button
+              type="button"
+              data-tour-primary
+              class="btn-primary btn-sm"
+              onclick={() => (isLast ? void finishOrSkip() : next())}
+            >
+              {isLast ? $t('onboarding.controls.finish') : $t('onboarding.controls.next')}
+            </button>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}

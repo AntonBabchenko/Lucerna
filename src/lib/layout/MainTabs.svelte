@@ -13,12 +13,14 @@
   let {
     overview,
     instanceId = null,
+    instanceName = null,
     mcVersion = null,
     loader = null,
     onListChanged = () => {},
   }: {
     overview?: Snippet;
     instanceId?: string | null;
+    instanceName?: string | null;
     mcVersion?: string | null;
     loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     onListChanged?: () => void;
@@ -124,7 +126,7 @@
         {@render overview()}
       {/if}
     {:else if active === 'mod_browser'}
-      <ModBrowserTab {instanceId} {mcVersion} {loader} />
+      <ModBrowserTab {instanceId} {instanceName} {mcVersion} {loader} />
     {:else if active === 'worlds'}
       <WorldsTab {instanceId} {onListChanged} />
     {/if}

@@ -23,6 +23,15 @@ describe('filter-model', () => {
     ]);
   });
 
+  it('uses the provided (localized) installed-hidden label when given', () => {
+    expect(
+      activeChips(
+        { loader: '', mc: '', showInstalled: false },
+        { installedHidden: 'Установленные скрыты' },
+      ),
+    ).toEqual([{ key: 'showInstalled', label: 'Установленные скрыты' }]);
+  });
+
   it('counts all active narrowing facets together', () => {
     expect(activeCount({ loader: 'fabric', mc: '1.21.1', showInstalled: false })).toBe(3);
   });

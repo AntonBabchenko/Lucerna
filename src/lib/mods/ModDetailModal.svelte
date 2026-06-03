@@ -8,6 +8,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { modProjectUrl } from '$lib/mods/project-url';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
@@ -58,11 +59,7 @@
   // Mod install needs a real (non-vanilla) loader + mc + an instance.
   const canInstall = $derived(mcVersion !== null && loader !== null && loader !== 'vanilla');
 
-  const externalUrl = $derived(
-    source === 'modrinth'
-      ? `https://modrinth.com/mod/${project?.summary.slug ?? projectId}`
-      : `https://www.curseforge.com/minecraft/mc-mods/${project?.summary.slug ?? projectId}`,
-  );
+  const externalUrl = $derived(modProjectUrl(source, project?.summary.slug ?? projectId));
 
   $effect(() => {
     void projectId;

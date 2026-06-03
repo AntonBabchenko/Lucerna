@@ -12,15 +12,19 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 import { hasSeen, markSeen } from '../src/lib/onboarding/contextual-tours';
 import {
+  ACCOUNT_STEP_INDEX,
   back,
+  closeHint,
   finishOrSkip,
   initOnboarding,
   next,
   replayTour,
+  showAccountHint,
   TOTAL_STEPS,
   TOUR_VERSION,
   tourState,
 } from '../src/lib/onboarding/state.svelte';
+import { STEPS } from '../src/lib/onboarding/steps';
 
 beforeEach(() => {
   appSettingsGet.mockReset();
@@ -28,6 +32,7 @@ beforeEach(() => {
   // Reset the shared rune between tests.
   tourState.active = false;
   tourState.currentStep = 0;
+  tourState.contextual = false;
 });
 
 describe('initOnboarding', () => {
@@ -131,6 +136,31 @@ describe('replayTour', () => {
 
     expect(hasSeen('logs')).toBe(false);
     expect(hasSeen('worlds')).toBe(false);
+  });
+});
+
+describe('account hint (contextual reuse of the account step)', () => {
+  test('ACCOUNT_STEP_INDEX points at the step targeting the account section', () => {
+    expect(STEPS[ACCOUNT_STEP_INDEX]?.targetSelector).toBe('[data-tour="account-section"]');
+  });
+
+  test('showAccountHint activates the account step in contextual mode', () => {
+    tourState.active = false;
+    tourState.contextual = false;
+    tourState.currentStep = 0;
+    showAccountHint();
+    expect(tourState.active).toBe(true);
+    expect(tourState.contextual).toBe(true);
+    expect(tourState.currentStep).toBe(ACCOUNT_STEP_INDEX);
+  });
+
+  test('closeHint clears active + contextual WITHOUT persisting tour completion', () => {
+    appSettingsMarkTourCompleted.mockClear();
+    showAccountHint();
+    closeHint();
+    expect(tourState.active).toBe(false);
+    expect(tourState.contextual).toBe(false);
+    expect(appSettingsMarkTourCompleted).not.toHaveBeenCalled();
   });
 });
 

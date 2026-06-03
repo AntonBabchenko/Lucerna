@@ -30,7 +30,7 @@
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
-  import { initOnboarding } from '$lib/onboarding/state.svelte';
+  import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { initLocale } from '$lib/i18n/state.svelte';
   import { t } from '$lib/i18n';
@@ -428,6 +428,13 @@
 
   async function onPlay() {
     if (!activeInstance) return;
+    // No account = the game can't launch. Instead of the backend's terse
+    // AccountNotSet error in a tiny banner, spotlight the ACCOUNT section and
+    // explain the two paths (Microsoft / offline). Fires every time.
+    if (!activeAccount) {
+      showAccountHint();
+      return;
+    }
     if (activeInstance.mc_version === '') return;
     if (!activeInstance.ready) return;
     installError = null;
@@ -539,6 +546,7 @@
 
     <MainTabs
       instanceId={activeInstance?.id ?? null}
+      instanceName={activeInstance?.name ?? null}
       mcVersion={activeInstance?.mc_version ?? null}
       loader={activeInstance?.loader ?? null}
       onListChanged={() => {

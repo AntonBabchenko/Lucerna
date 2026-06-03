@@ -11,12 +11,18 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import { TOTAL_STEPS, TOUR_VERSION, tourState } from '../src/lib/onboarding/state.svelte';
+import {
+  ACCOUNT_STEP_INDEX,
+  TOTAL_STEPS,
+  TOUR_VERSION,
+  tourState,
+} from '../src/lib/onboarding/state.svelte';
 import TourOverlay from '../src/lib/onboarding/TourOverlay.svelte';
 
 beforeEach(() => {
   tourState.active = true;
   tourState.currentStep = 0;
+  tourState.contextual = false;
   appSettingsMarkTourCompleted.mockResolvedValue({ status: 'ok', data: null });
 });
 
@@ -81,6 +87,42 @@ describe('TourOverlay', () => {
     expect(labelledBy).toBeTruthy();
     const title = document.getElementById(labelledBy as string);
     expect(title?.textContent).toMatch(/Welcome to Lucerna/i);
+  });
+
+  describe('contextual account hint mode', () => {
+    beforeEach(() => {
+      // This file's top-level beforeEach does not reset the persistence mock,
+      // and earlier full-tour tests call it — clear so "not called" assertions
+      // measure only this test's behaviour.
+      appSettingsMarkTourCompleted.mockClear();
+      tourState.contextual = true;
+      tourState.currentStep = ACCOUNT_STEP_INDEX;
+    });
+
+    test('hides the step counter and Back/Skip/Next controls', () => {
+      render(TourOverlay);
+      expect(screen.queryByText(/Step \d+ of \d+/i)).toBeNull();
+      expect(screen.queryByRole('button', { name: /back/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /next/i })).toBeNull();
+    });
+
+    test('shows a single "Got it" button that closes without persisting', async () => {
+      render(TourOverlay);
+      const gotIt = screen.getByRole('button', { name: /got it/i });
+      await fireEvent.click(gotIt);
+      expect(tourState.active).toBe(false);
+      expect(tourState.contextual).toBe(false);
+      expect(appSettingsMarkTourCompleted).not.toHaveBeenCalled();
+    });
+
+    test('Escape closes the hint without persisting tour completion', async () => {
+      render(TourOverlay);
+      await fireEvent.keyDown(window, { key: 'Escape' });
+      expect(tourState.active).toBe(false);
+      expect(tourState.contextual).toBe(false);
+      expect(appSettingsMarkTourCompleted).not.toHaveBeenCalled();
+    });
   });
 
   test('Tab on the last focusable wraps to the first (focus trap)', async () => {

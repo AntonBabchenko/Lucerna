@@ -37,4 +37,16 @@ describe('ToastHost', () => {
     await fireEvent.click(getByLabelText('Dismiss notification'));
     expect(queryByText('failed')).toBeNull();
   });
+
+  // Regression guard: long detail lines must WRAP, not get clipped to a single
+  // ellipsised row. `truncate` (white-space:nowrap + overflow:hidden + ellipsis)
+  // was the bug — a long line like the MS pending-approval message was cut off.
+  it('detail lines wrap (break-words) instead of being truncated', () => {
+    pushWarning('Title', ['Microsoft has not yet approved the app registration.']);
+    const { container } = render(ToastHost);
+    const line = container.querySelector('li');
+    expect(line).toBeTruthy();
+    expect(line?.className).toContain('break-words');
+    expect(line?.className).not.toContain('truncate');
+  });
 });

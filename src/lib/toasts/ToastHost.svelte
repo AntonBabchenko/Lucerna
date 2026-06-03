@@ -26,7 +26,7 @@
       data-testid={`toast-${t.kind}`}
     >
       <div class="flex items-start gap-2">
-        <span class="flex-1 font-medium">{t.title}</span>
+        <span class="min-w-0 flex-1 break-words font-medium">{t.title}</span>
         <CloseButton
           onClick={() => {
             t.onDismiss?.();
@@ -38,7 +38,10 @@
       {#if t.lines.length > 0}
         <ul class="mt-1 space-y-0.5 text-xs selectable">
           {#each t.lines as line}
-            <li class="truncate">{line}</li>
+            <!-- break-words (overflow-wrap) so long detail lines wrap to the
+                 next line instead of being clipped to a single ellipsised row;
+                 also breaks unbreakable strings like file paths / URLs. -->
+            <li class="break-words">{line}</li>
           {/each}
         </ul>
       {/if}

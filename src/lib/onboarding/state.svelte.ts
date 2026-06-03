@@ -16,9 +16,20 @@ export const TOUR_VERSION = '0.5.0';
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;
 
-export const tourState = $state<{ active: boolean; currentStep: number }>({
+// Index of the ACCOUNT-section step, resolved from STEPS (not hard-coded) so a
+// step reorder can't desync the on-demand account hint from the real step.
+export const ACCOUNT_STEP_INDEX = STEPS.findIndex(
+  (s) => s.targetSelector === '[data-tour="account-section"]',
+);
+
+// `contextual` flags the one-off "you need an account" hint: it reuses the
+// account step's spotlight + copy but, unlike the full tour, hides the
+// Step-X-of-Y counter and Back/Skip/Next controls and does NOT persist tour
+// completion when dismissed.
+export const tourState = $state<{ active: boolean; currentStep: number; contextual: boolean }>({
   active: false,
   currentStep: 0,
+  contextual: false,
 });
 
 export async function initOnboarding(): Promise<void> {
@@ -26,8 +37,29 @@ export async function initOnboarding(): Promise<void> {
   if (r.status !== 'ok') return;
   if (r.data.onboarding.tour_completed_version !== TOUR_VERSION) {
     tourState.active = true;
+    tourState.contextual = false;
     tourState.currentStep = 0;
   }
+}
+
+/** Show the on-demand account hint: reuse the account step's spotlight + copy
+ *  in contextual mode (no tour chrome, no completion persistence). Triggered
+ *  when Play is clicked with no active account. */
+export function showAccountHint(): void {
+  // Defensive: if a step reorder/rename ever desyncs the selector, findIndex
+  // returns -1 and STEPS[-1] is undefined — rendering would throw. Fail silent
+  // rather than crash the launch flow. (A test asserts the index resolves.)
+  if (ACCOUNT_STEP_INDEX === -1) return;
+  tourState.contextual = true;
+  tourState.currentStep = ACCOUNT_STEP_INDEX;
+  tourState.active = true;
+}
+
+/** Dismiss the contextual account hint without touching onboarding completion
+ *  (the "Got it" button or Esc). */
+export function closeHint(): void {
+  tourState.active = false;
+  tourState.contextual = false;
 }
 
 export function next(): void {
@@ -49,5 +81,6 @@ export function replayTour(): void {
   // by their localStorage flags and never reappear.
   resetAllContextualTours();
   tourState.currentStep = 0;
+  tourState.contextual = false;
   tourState.active = true;
 }
