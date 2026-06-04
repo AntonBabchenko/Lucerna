@@ -114,8 +114,11 @@ pub fn eligible_identity(
 /// platform currently lists (caller fetches them, newest-first for the
 /// instance's MC version). Pure. Never returns `CheckFailed`.
 ///
-/// Empty `fetched` list or `None` installed version both return `UpToDate`
-/// (nothing newer offered, or no baseline to compare against).
+/// The newest fetched version is compared to `installed_version_id`.
+/// Returns `UpToDate` when the fetched list is empty (nothing newer offered),
+/// when `installed_version_id` is `None` (no baseline to compare against),
+/// or when the installed version already matches the newest. Returns
+/// `UpdateAvailable` only when a differing installed version is known.
 pub fn classify_asset_update(
     installed_version_id: Option<&str>,
     fetched: &[ModVersion],
@@ -124,8 +127,10 @@ pub fn classify_asset_update(
         return AssetUpdateState::UpToDate;
     };
     match installed_version_id {
+        // Same version, or we don't know what's installed → nothing to do.
+        None => AssetUpdateState::UpToDate,
         Some(vid) if vid == latest.version_id => AssetUpdateState::UpToDate,
-        _ => AssetUpdateState::UpdateAvailable {
+        Some(_) => AssetUpdateState::UpdateAvailable {
             latest: Box::new(latest.clone()),
         },
     }
@@ -328,6 +333,12 @@ mod tests {
         // empty fetched list → UpToDate (nothing newer offered)
         assert_eq!(
             classify_asset_update(Some("v1"), &[]),
+            AssetUpdateState::UpToDate
+        );
+
+        // Unknown installed version → don't nag.
+        assert_eq!(
+            classify_asset_update(None, &[version("v2")]),
             AssetUpdateState::UpToDate
         );
     }
