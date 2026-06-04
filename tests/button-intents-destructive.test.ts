@@ -58,6 +58,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     mrpack_source: null,
     mrpack_summary: null,
     mrpack_version_id: null,
+    integrity: null,
     ...over,
   };
 }

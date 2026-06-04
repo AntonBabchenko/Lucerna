@@ -152,6 +152,7 @@ pub fn create_instance(
         mrpack_source,
         mrpack_summary,
         mrpack_version_id,
+        integrity: None,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
@@ -404,6 +405,7 @@ mod tests {
             mrpack_source: Some(crate::mods::platform::ModSource::Modrinth),
             mrpack_summary: Some("A great pack".into()),
             mrpack_version_id: Some("vyRB9jtS".into()),
+            integrity: None,
         }
     }
 
@@ -424,6 +426,7 @@ mod tests {
             mrpack_source: None,
             mrpack_summary: None,
             mrpack_version_id: None,
+            integrity: None,
         }
     }
 

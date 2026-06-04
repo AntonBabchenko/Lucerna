@@ -108,6 +108,7 @@ function instance(overrides: Partial<InstanceWithStatus> = {}): InstanceWithStat
     mrpack_source: 'modrinth' as ModSource,
     mrpack_summary: 'A pack about being cool.',
     mrpack_version_id: null,
+    integrity: null,
     ...overrides,
   };
 }

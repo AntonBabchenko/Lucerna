@@ -181,6 +181,7 @@ describe('formatError', () => {
       java_spawn: { kind: 'java_spawn', details: 'no java' },
       already_running: { kind: 'already_running' },
       account_not_set: { kind: 'account_not_set' },
+      instance_busy: { kind: 'instance_busy' },
       auth_cancelled: { kind: 'auth_cancelled' },
       auth_failed: { kind: 'auth_failed', stage: 'xsts', details: 'd' },
       no_minecraft_profile: { kind: 'no_minecraft_profile' },

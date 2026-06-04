@@ -127,6 +127,11 @@ pub async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<u32, crate::error::Error> {
+    // Don't launch on top of a repair that's rewriting this instance's shared
+    // library/client jars — the JVM could read a half-written file and crash.
+    if crate::verify::repair_in_progress() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     let json_path = crate::paths::instance_json(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
@@ -155,6 +160,74 @@ fn resolve_instance_effective_id(
     let instance = crate::instances::store::read_instance_json(&json_path)?;
     crate::instances::status::effective_version_id(&instance)
         .ok_or(crate::error::Error::NoVersionSelected)
+}
+
+/// Persist a `VerifyReport` summary into the instance's `instance.json` so the
+/// UI can surface a passive integrity badge + Overview row without re-hashing.
+/// Read-modify-write — preserves every other field. Timestamp = now (unix ms).
+fn persist_integrity(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    report: &crate::verify::VerifyReport,
+) -> Result<(), crate::error::Error> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0);
+    let path = crate::paths::instance_json(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
+    let mut file = crate::instances::store::read_instance_json(&path)?;
+    file.integrity = Some(crate::verify::IntegrityStatus::from_report(report, now_ms));
+    crate::instances::store::write_instance_json(&path, &file)
+}
+
+/// Integrity verification of an instance's installed files. The hashing pass is
+/// read-only; on a cold cache the manifest fetch inside it may write the version
+/// JSON (offline no-op for an already-installed instance — the normal case).
+/// Blocked while a game is running (can't hash a live game's files).
+#[tauri::command]
+#[specta::specta]
+pub async fn verify_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::verify::VerifyReport, crate::error::Error> {
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+    let report = crate::verify::verify_instance_report(&instance_id, &effective_id, &app).await?;
+    // Best-effort: a successful verify/repair is valuable even if we can't
+    // persist the badge status. Log, don't fail the command.
+    if let Err(e) = persist_integrity(&app, &instance_id, &report) {
+        eprintln!("verify: failed to persist integrity for {instance_id}: {e}");
+    }
+    Ok(report)
+}
+
+/// Repair the instance's broken/missing files, then return the post-repair
+/// report. Blocked while a game is running.
+#[tauri::command]
+#[specta::specta]
+pub async fn repair_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::verify::VerifyReport, crate::error::Error> {
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    // Mark repair-in-progress for the whole rewrite so a concurrent launch is
+    // rejected (closes the TOCTOU between the is_running() check above and the
+    // minutes-long file rewrite below). Also rejects a second concurrent repair.
+    let _repair_guard =
+        crate::verify::RepairGuard::acquire().ok_or(crate::error::Error::InstanceBusy)?;
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+    let report = crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await?;
+    // Best-effort: a successful verify/repair is valuable even if we can't
+    // persist the badge status. Log, don't fail the command.
+    if let Err(e) = persist_integrity(&app, &instance_id, &report) {
+        eprintln!("verify: failed to persist integrity for {instance_id}: {e}");
+    }
+    Ok(report)
 }
 
 /// Kill the running Minecraft process if any. Idempotent.
@@ -3141,5 +3214,15 @@ mod tests {
     #[test]
     fn latest_newer_none_for_empty_list() {
         assert!(crate::commands::latest_newer(vec![], "id-1.0").is_none());
+    }
+}
+
+#[cfg(test)]
+mod verify_cmd_tests {
+    #[test]
+    fn busy_error_has_stable_shape() {
+        let e = crate::error::Error::InstanceBusy;
+        let msg = format!("{e}");
+        assert!(!msg.is_empty());
     }
 }
