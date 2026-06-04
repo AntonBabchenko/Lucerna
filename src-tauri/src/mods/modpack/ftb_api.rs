@@ -18,10 +18,6 @@ const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 struct FtbSearchResp {
     #[serde(default)]
     packs: Vec<u64>,
-    /// Preserved for response fidelity; not used by `search_ids`.
-    #[serde(default)]
-    #[allow(dead_code)]
-    total: u32,
 }
 
 #[derive(Debug, Deserialize)]

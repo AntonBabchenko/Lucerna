@@ -25,6 +25,9 @@ pub fn classify(
     let mut unresolvable = Vec::new();
     for m in mods {
         let has_ids = m.project_id.is_some() && m.version_id.is_some();
+        // FTB: pack-managed source — not an export target, so FTB mods always
+        // land in unresolvable (bundled). The `Ftb` variant never appears in
+        // an export format request; including it in the match would be wrong.
         let ok = has_ids
             && matches!(
                 (format, m.source),

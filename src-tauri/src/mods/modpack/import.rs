@@ -15,6 +15,10 @@ pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Erro
     match fmt {
         ModpackFormat::Modrinth => mr_parse::parse(bytes),
         ModpackFormat::Curseforge => cf_parse::parse(bytes, cf_base).await,
+        // FTB: pack-managed source — FTB packs are imported via the API
+        // sidecar path (not a local archive). This arm is unreachable for
+        // drag-drop inspect but required for exhaustiveness.
+        ModpackFormat::Ftb => Err(Error::ModpackFormatUnknown),
     }
 }
 
@@ -32,6 +36,8 @@ pub fn build_pack_origin(
     let source = match summary.format {
         ModpackFormat::Modrinth => ModSource::Modrinth,
         ModpackFormat::Curseforge => ModSource::Curseforge,
+        // FTB: pack-managed source — provenance is Ftb.
+        ModpackFormat::Ftb => ModSource::Ftb,
     };
     let files = selected
         .iter()
@@ -419,6 +425,8 @@ pub async fn import(
     let parser_source = match summary.format {
         ModpackFormat::Modrinth => Some(crate::mods::platform::ModSource::Modrinth),
         ModpackFormat::Curseforge => Some(crate::mods::platform::ModSource::Curseforge),
+        // FTB: pack-managed source — provenance is Ftb.
+        ModpackFormat::Ftb => Some(crate::mods::platform::ModSource::Ftb),
     };
     let (mrpack_project_id, pack_meta, mrpack_source) =
         match (hint_project_id.as_deref(), hint_source, summary.format) {
@@ -458,6 +466,9 @@ pub async fn import(
                 (pid, meta, parser_source)
             }
             (_, _, ModpackFormat::Curseforge) => (None, PackMeta::default(), parser_source),
+            // FTB: pack-managed source — project metadata is fetched by the
+            // FtbModpackSource adapter before import; nothing to back-fill here.
+            (_, _, ModpackFormat::Ftb) => (None, PackMeta::default(), parser_source),
         };
     let PackMeta {
         name: platform_name,

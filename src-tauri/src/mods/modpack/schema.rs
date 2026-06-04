@@ -13,6 +13,8 @@ use crate::mods::platform::{LoaderKind, ModSource};
 pub enum ModpackFormat {
     Modrinth,
     Curseforge,
+    /// Feed The Beast — API-only source; no local archive format.
+    Ftb,
 }
 
 /// Sort order for `/v2/search`. Maps to Modrinth's `index=<value>` query
