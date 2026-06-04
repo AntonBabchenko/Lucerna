@@ -12,6 +12,7 @@ pub mod overrides;
 pub mod path_safety;
 pub mod schema;
 pub mod search;
+pub mod source;
 
 pub use detect::detect_format;
 pub use export::{
