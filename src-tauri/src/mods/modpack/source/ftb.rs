@@ -32,11 +32,11 @@ impl ModpackSource for FtbModpackSource {
     }
 
     async fn get_versions(&self, _project_id: &str) -> Result<Vec<ModpackVersionEntry>, Error> {
-        todo!("Task 7")
+        todo!("Task 7: FtbModpackSource::get_versions")
     }
 
     async fn get_project(&self, _project_id: &str) -> Result<ModpackProject, Error> {
-        todo!("Task 7")
+        todo!("Task 7: FtbModpackSource::get_project")
     }
 
     async fn stage_version_to_temp(
@@ -45,6 +45,6 @@ impl ModpackSource for FtbModpackSource {
         _project_id: &str,
         _version_id: &str,
     ) -> Result<String, Error> {
-        todo!("Task 7")
+        todo!("Task 7: FtbModpackSource::stage_version_to_temp")
     }
 }

@@ -32,11 +32,11 @@ impl ModpackSource for ModrinthModpackSource {
     }
 
     async fn get_versions(&self, _project_id: &str) -> Result<Vec<ModpackVersionEntry>, Error> {
-        todo!("Task 3")
+        todo!("Task 3: ModrinthModpackSource::get_versions")
     }
 
     async fn get_project(&self, _project_id: &str) -> Result<ModpackProject, Error> {
-        todo!("Task 3")
+        todo!("Task 3: ModrinthModpackSource::get_project")
     }
 
     async fn stage_version_to_temp(
@@ -45,6 +45,6 @@ impl ModpackSource for ModrinthModpackSource {
         _project_id: &str,
         _version_id: &str,
     ) -> Result<String, Error> {
-        todo!("Task 3")
+        todo!("Task 3: ModrinthModpackSource::stage_version_to_temp")
     }
 }

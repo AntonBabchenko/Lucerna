@@ -3,7 +3,7 @@
 //! `commands::platform_for`. Adding a source = one impl + one match arm.
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::error::Error;
@@ -23,7 +23,7 @@ pub use modrinth::ModrinthModpackSource;
 /// Capability descriptor read by the UI to drive source-specific affordances
 /// without hardcoding `if source == ftb`. Each field maps to a *present*
 /// divergence between the three sources (Principle B.2 — no speculative fields).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 pub struct SourceCaps {
     /// CurseForge requires a stored API key; Modrinth/FTB do not.
     pub needs_api_key: bool,

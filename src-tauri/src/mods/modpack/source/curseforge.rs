@@ -32,11 +32,11 @@ impl ModpackSource for CurseforgeModpackSource {
     }
 
     async fn get_versions(&self, _project_id: &str) -> Result<Vec<ModpackVersionEntry>, Error> {
-        todo!("Task 4")
+        todo!("Task 4: CurseforgeModpackSource::get_versions")
     }
 
     async fn get_project(&self, _project_id: &str) -> Result<ModpackProject, Error> {
-        todo!("Task 4")
+        todo!("Task 4: CurseforgeModpackSource::get_project")
     }
 
     async fn stage_version_to_temp(
@@ -45,6 +45,6 @@ impl ModpackSource for CurseforgeModpackSource {
         _project_id: &str,
         _version_id: &str,
     ) -> Result<String, Error> {
-        todo!("Task 4")
+        todo!("Task 4: CurseforgeModpackSource::stage_version_to_temp")
     }
 }
