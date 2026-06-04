@@ -119,6 +119,10 @@ pub async fn run_export(
                     Ok(None) | Err(_) => fallback_bundle.push(m),
                 }
             }
+            // FTB: pack-managed source — export is unsupported (no upload target).
+            // classify() already routes all FTB mods to unresolvable/bundle; this
+            // arm is unreachable in practice but required for exhaustiveness.
+            ModpackFormat::Ftb => fallback_bundle.push(m),
         }
     }
 
@@ -196,6 +200,14 @@ pub async fn run_export(
                     details: e.to_string(),
                 })?,
         ),
+        // FTB: pack-managed source — export is not supported (FTB has no
+        // user-upload target). The UI gates export behind SourceCaps.can_export;
+        // returning a typed error here guards against mis-routing.
+        ModpackFormat::Ftb => {
+            return Err(Error::ModpackExportFailed {
+                details: "FTB packs cannot be exported".into(),
+            });
+        }
     };
     entries.push(ZipEntry {
         archive_path: manifest_name,

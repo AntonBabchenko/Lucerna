@@ -121,6 +121,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::modpack_restore_file,
             commands::modpack_get_versions,
             commands::modpack_project,
+            commands::modpack_source_caps,
             commands::modpack_check_update,
             commands::modpack_compute_update,
             commands::modpack_apply_update,

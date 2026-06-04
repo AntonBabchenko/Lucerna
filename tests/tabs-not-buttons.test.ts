@@ -38,6 +38,10 @@ vi.mock('$lib/ipc/bindings', () => ({
       status: 'ok',
       data: { hits: [], total: 0, offset: 0, limit: 20 },
     }),
+    modpackSourceCaps: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { needs_api_key: false, supports_server_filter: true, can_export: true },
+    }),
     modpackInspect: vi.fn().mockResolvedValue({
       status: 'error',
       error: { kind: 'modpack_format_unknown' },

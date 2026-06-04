@@ -6,12 +6,15 @@ pub mod cf_api;
 pub mod curseforge;
 pub mod detect;
 pub mod export;
+pub mod ftb_api;
+pub mod ftb_map;
 pub mod import;
 pub mod modrinth;
 pub mod overrides;
 pub mod path_safety;
 pub mod schema;
 pub mod search;
+pub mod source;
 
 pub use detect::detect_format;
 pub use export::{

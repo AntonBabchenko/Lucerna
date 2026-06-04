@@ -116,6 +116,7 @@ pub async fn install_one(
             platform: match version.source {
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
+                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
             }
             .into(),
             project_id: version.project_id.clone(),
@@ -219,6 +220,11 @@ pub async fn install_asset(
     install_path: &str,
     progress: &ProgressFn,
 ) -> Result<(), Error> {
+    // Empty/whitespace sha1 guard FIRST (no-TOFU, Principle B.6): refuse to
+    // install a file whose integrity we cannot verify, before any I/O.
+    if sha.trim().is_empty() {
+        return Err(Error::ModsSha1Unavailable);
+    }
     // String-level guard FIRST — before any directory is created — so an
     // escaping path can never cause a mkdir outside `.minecraft/`.
     if !crate::mods::modpack::path_safety::is_safe_relative_path(install_path) {
@@ -367,6 +373,7 @@ pub async fn update_one(
                 platform: match v.source {
                     ModSource::Modrinth => "modrinth",
                     ModSource::Curseforge => "curseforge",
+                    ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                 }
                 .into(),
                 project_id: v.project_id.clone(),
@@ -569,6 +576,44 @@ mod tests {
         enable(td_inst.path(), &sha).await.unwrap();
         assert!(installed::mods_dir(td_inst.path()).join("d.jar").exists());
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+    }
+
+    #[tokio::test]
+    async fn install_asset_empty_sha1_rejects_before_io() {
+        // An empty sha1 must be rejected immediately — no network I/O, no
+        // directory creation — so the no-TOFU guard fires before any side-effect.
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        // Pass a dummy URL that would trigger a real request if not guarded.
+        let r = install_asset(
+            td_data.path(),
+            td_inst.path(),
+            "http://127.0.0.1:1/unreachable.zip",
+            "",
+            100.0,
+            "resourcepacks/RP.zip",
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(r, Err(Error::ModsSha1Unavailable)),
+            "empty sha1 must return ModsSha1Unavailable, got {r:?}"
+        );
+        // Guard must also fire for whitespace-only sha1.
+        let r2 = install_asset(
+            td_data.path(),
+            td_inst.path(),
+            "http://127.0.0.1:1/unreachable.zip",
+            "   ",
+            100.0,
+            "resourcepacks/RP.zip",
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(r2, Err(Error::ModsSha1Unavailable)),
+            "whitespace sha1 must return ModsSha1Unavailable, got {r2:?}"
+        );
     }
 
     #[tokio::test]

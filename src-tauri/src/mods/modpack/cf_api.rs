@@ -407,6 +407,94 @@ pub async fn fetch_project_detail(
     })
 }
 
+// ---- bulk file resolution (shared with FTB cf-ref pass) -------------
+
+/// Result of resolving a single CurseForge file id via the bulk-files API.
+#[derive(Debug)]
+pub(crate) struct CfResolvedFile {
+    /// `None` when the author disabled third-party distribution.
+    pub download_url: Option<String>,
+    /// SHA-1 hash (lowercased), when the CF response carries one (algo=1).
+    pub sha1: Option<String>,
+}
+
+/// POST `/v1/mods/files` for the given `file_ids` and return a map from
+/// file id → `CfResolvedFile`. Files missing from the response are absent
+/// from the returned map; callers treat absence the same as
+/// `download_url: None`.
+///
+/// `key` follows the same optional-but-validated pattern as the rest of this
+/// module: `None` short-circuits to `ModsPlatformAuth::Missing`.
+pub(crate) async fn resolve_files(
+    base: &str,
+    key: Option<&str>,
+    file_ids: &[u64],
+) -> Result<std::collections::HashMap<u64, CfResolvedFile>, Error> {
+    if file_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let key = require_key(key)?;
+    let url = format!("{base}/v1/mods/files");
+    let body = serde_json::json!({ "fileIds": file_ids });
+    let body_bytes = serde_json::to_vec(&body)
+        .expect("infallible: a serde_json::Value constructed via json!() always serializes");
+    let resp = crate::network::request::post(
+        &url,
+        &[("x-api-key", key), ("content-type", "application/json")],
+        &body_bytes,
+        "modpacks",
+    )
+    .await
+    .map_err(|e| Error::ModsNetwork {
+        url: url.clone(),
+        details: e.to_string(),
+    })?;
+    check_status(&resp, &url)?;
+
+    #[derive(Deserialize)]
+    struct BulkResp {
+        data: Vec<BulkFile>,
+    }
+    #[derive(Deserialize)]
+    struct BulkFile {
+        id: u64,
+        #[serde(rename = "downloadUrl")]
+        download_url: Option<String>,
+        #[serde(default)]
+        hashes: Vec<BulkHash>,
+    }
+    #[derive(Deserialize)]
+    struct BulkHash {
+        value: String,
+        algo: u32, // 1 = SHA-1, 2 = MD5
+    }
+
+    let bulk: BulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "curseforge".into(),
+        details: e.to_string(),
+    })?;
+
+    let map = bulk
+        .data
+        .into_iter()
+        .map(|f| {
+            let sha1 = f
+                .hashes
+                .iter()
+                .find(|h| h.algo == 1)
+                .map(|h| h.value.to_ascii_lowercase());
+            (
+                f.id,
+                CfResolvedFile {
+                    download_url: f.download_url,
+                    sha1,
+                },
+            )
+        })
+        .collect();
+    Ok(map)
+}
+
 // ---- single-file download resolution --------------------------------
 
 /// Resolve a CurseForge modpack file to its `.zip` download URL. A
@@ -746,6 +834,70 @@ mod tests {
         assert!(d.body_html.contains("<p>Pack</p>"));
         assert!(!d.body_html.contains("<script"));
         assert_eq!(d.website_url.as_deref(), Some("https://rlcraft.example"));
+    }
+
+    #[tokio::test]
+    async fn resolve_files_maps_download_url_and_sha1() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let body = serde_json::json!({
+            "data": [
+                {
+                    "id": 111u64, "downloadUrl": "https://edge.forgecdn.net/files/1/1/mod-a.jar",
+                    "hashes": [{ "value": "aabbccdd", "algo": 1 }]
+                },
+                {
+                    "id": 222u64, "downloadUrl": null,
+                    "hashes": [{ "value": "deadbeef", "algo": 1 }]
+                }
+            ]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let map = resolve_files(&s.uri(), Some("k"), &[111, 222])
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        // File 111: has a downloadUrl and a sha1.
+        let f111 = map.get(&111).expect("file 111 must be present");
+        assert_eq!(
+            f111.download_url.as_deref(),
+            Some("https://edge.forgecdn.net/files/1/1/mod-a.jar")
+        );
+        assert_eq!(f111.sha1.as_deref(), Some("aabbccdd"));
+        // File 222: distribution disabled (null downloadUrl); sha1 still present.
+        let f222 = map.get(&222).expect("file 222 must be present");
+        assert!(
+            f222.download_url.is_none(),
+            "null downloadUrl must map to None"
+        );
+        assert_eq!(f222.sha1.as_deref(), Some("deadbeef"));
+    }
+
+    #[tokio::test]
+    async fn resolve_files_empty_ids_returns_empty_map() {
+        // No network call should be made for an empty id list.
+        let map = resolve_files("http://127.0.0.1:1", Some("k"), &[])
+            .await
+            .unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_files_missing_key_is_auth_missing() {
+        let err = resolve_files("http://127.0.0.1:1", None, &[1])
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::ModsPlatformAuth {
+                kind: ModsAuthKind::Missing
+            }
+        ));
     }
 
     #[tokio::test]

@@ -18,6 +18,8 @@
     source = $bindable<ModSource | undefined>(undefined),
     showInstalled = undefined,
     onShowInstalledChange,
+    allowFtb = false,
+    serverFilters = true,
   }: {
     open?: boolean;
     loader?: LoaderKind | '';
@@ -28,6 +30,12 @@
     // the mod browser needs bespoke re-paging when it flips.
     showInstalled?: boolean | undefined;
     onShowInstalledChange?: (value: boolean) => void;
+    /** When true, appends the FTB option to the source selector. Default false
+     *  keeps the mod-browser usage unchanged (Modrinth + CurseForge only). */
+    allowFtb?: boolean;
+    /** When false, loader + MC-version filters are greyed out and a note is
+     *  shown explaining that FTB filtering is client-side only. */
+    serverFilters?: boolean;
   } = $props();
 
   const LOADER_OPTIONS = $derived([
@@ -41,6 +49,9 @@
     { value: 'modrinth', label: 'Modrinth' },
     { value: 'curseforge', label: 'CurseForge' },
   ];
+  const sourceOptions = $derived(
+    allowFtb ? [...SOURCE_OPTIONS, { value: 'ftb', label: 'FTB' }] : SOURCE_OPTIONS,
+  );
 
   let panelEl: HTMLDivElement | undefined = $state();
 
@@ -98,7 +109,7 @@
           >
           <SegmentedControl
             value={source}
-            options={SOURCE_OPTIONS}
+            options={sourceOptions}
             ariaLabel={$t('browse.filter.sourceAriaLabel')}
             testid="browse-source-segment"
             onChange={(v) => (source = v as ModSource)}
@@ -106,30 +117,41 @@
         </div>
       {/if}
 
-      <div class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-wide text-placeholder"
-          >{$t('browse.filter.loaderLabel')}</span
-        >
-        <SegmentedControl
-          value={loader}
-          options={LOADER_OPTIONS}
-          ariaLabel={$t('browse.filter.loaderAriaLabel')}
-          testid="browse-loader-segment"
-          wrap
-          onChange={(v) => (loader = v as LoaderKind | '')}
-        />
+      <div
+        class:opacity-50={!serverFilters}
+        class:pointer-events-none={!serverFilters}
+        aria-disabled={!serverFilters}
+        class="flex flex-col gap-4"
+      >
+        <div class="flex flex-col gap-1">
+          <span class="text-xs uppercase tracking-wide text-placeholder"
+            >{$t('browse.filter.loaderLabel')}</span
+          >
+          <SegmentedControl
+            value={loader}
+            options={LOADER_OPTIONS}
+            ariaLabel={$t('browse.filter.loaderAriaLabel')}
+            testid="browse-loader-segment"
+            wrap
+            onChange={(v) => (loader = v as LoaderKind | '')}
+          />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <span class="text-xs uppercase tracking-wide text-placeholder"
+            >{$t('browse.filter.mcVersionLabel')}</span
+          >
+          <McVersionCombobox
+            bind:value={mc}
+            dataTestid={mcTestid}
+            placeholder={$t('browse.filter.any')}
+          />
+        </div>
       </div>
 
-      <div class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-wide text-placeholder"
-          >{$t('browse.filter.mcVersionLabel')}</span
-        >
-        <McVersionCombobox
-          bind:value={mc}
-          dataTestid={mcTestid}
-          placeholder={$t('browse.filter.any')}
-        />
-      </div>
+      {#if !serverFilters}
+        <p class="text-xs text-placeholder">{$t('modpacks.browse.ftbClientFilterNote')}</p>
+      {/if}
 
       {#if showInstalled !== undefined && onShowInstalledChange}
         <label class="flex items-center gap-2 text-sm text-secondary">

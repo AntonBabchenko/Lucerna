@@ -1,18 +1,33 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { modpackBrowseState } from '$lib/modpacks/browse-state.svelte';
 
 // `vi.mock` factory is hoisted above the SUT import, so any variable it
 // captures must be declared via `vi.hoisted` (also hoisted). `modpack_search`
 // returns the tauri-specta `{ status, data | error }` shape.
-const { mockSearch, mockKeyStatus } = vi.hoisted(() => ({
+const { mockSearch, mockKeyStatus, mockSourceCaps } = vi.hoisted(() => ({
   mockSearch: vi.fn().mockResolvedValue({
     status: 'ok',
     data: { hits: [], total: 0, offset: 0, limit: 20 },
   }),
   mockKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'present' }),
+  // Returns realistic caps per source: CurseForge needs_api_key, FTB no
+  // server filters, Modrinth defaults (all false/true).
+  mockSourceCaps: vi.fn().mockImplementation(async (source: string) => ({
+    status: 'ok',
+    data: {
+      needs_api_key: source === 'curseforge',
+      supports_server_filter: source !== 'ftb',
+      can_export: source !== 'ftb',
+    },
+  })),
 }));
 vi.mock('$lib/ipc/bindings', () => ({
-  commands: { modpackSearch: mockSearch, modsGetCurseforgeKeyStatus: mockKeyStatus },
+  commands: {
+    modpackSearch: mockSearch,
+    modsGetCurseforgeKeyStatus: mockKeyStatus,
+    modpackSourceCaps: mockSourceCaps,
+  },
   events: {},
 }));
 vi.mock('$lib/settings/state.svelte', () => ({
@@ -39,6 +54,21 @@ describe('ModpackBrowseView', () => {
     mockSearch.mockClear();
     mockKeyStatus.mockClear();
     mockKeyStatus.mockResolvedValue({ status: 'ok', data: 'present' });
+    mockSourceCaps.mockClear();
+    mockSourceCaps.mockImplementation(async (source: string) => ({
+      status: 'ok',
+      data: {
+        needs_api_key: source === 'curseforge',
+        supports_server_filter: source !== 'ftb',
+        can_export: source !== 'ftb',
+      },
+    }));
+    // Reset the persisted browse-state singleton to defaults so each test
+    // starts from the same known state (state is module-level, not per-render).
+    modpackBrowseState.source = 'modrinth';
+    modpackBrowseState.mcFilter = '';
+    modpackBrowseState.loaderFilter = '';
+    modpackBrowseState.sortChoice = 'relevance';
   });
 
   it('renders the source segmented control inside the drawer', async () => {

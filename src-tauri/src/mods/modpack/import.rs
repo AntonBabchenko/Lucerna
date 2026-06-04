@@ -15,6 +15,10 @@ pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Erro
     match fmt {
         ModpackFormat::Modrinth => mr_parse::parse(bytes),
         ModpackFormat::Curseforge => cf_parse::parse(bytes, cf_base).await,
+        // FTB: pack-managed source — FTB packs are imported via the API
+        // sidecar path (not a local archive). This arm is unreachable for
+        // drag-drop inspect but required for exhaustiveness.
+        ModpackFormat::Ftb => Err(Error::ModpackFormatUnknown),
     }
 }
 
@@ -32,6 +36,8 @@ pub fn build_pack_origin(
     let source = match summary.format {
         ModpackFormat::Modrinth => ModSource::Modrinth,
         ModpackFormat::Curseforge => ModSource::Curseforge,
+        // FTB: pack-managed source — provenance is Ftb.
+        ModpackFormat::Ftb => ModSource::Ftb,
     };
     let files = selected
         .iter()
@@ -60,7 +66,9 @@ pub fn build_pack_origin(
             .filter(|u| {
                 matches!(
                     u.reason,
-                    UnresolvableReason::DistributionDisabled | UnresolvableReason::HostNotAllowed
+                    UnresolvableReason::DistributionDisabled
+                        | UnresolvableReason::HostNotAllowed
+                        | UnresolvableReason::MissingChecksum
                 )
             })
             .cloned()
@@ -291,6 +299,17 @@ pub fn modpack_file_to_mod_version(
     game_version: &str,
     loader: crate::mods::platform::LoaderKind,
 ) -> ModVersion {
+    // Emit None for an empty/whitespace sha1 so install_one's sha-guard
+    // (`ok_or(Error::ModsSha1Unavailable)`) rejects the file rather than
+    // silently installing an unverifiable archive (no-TOFU, Principle B.6).
+    let sha1 = {
+        let s = file.sha1.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    };
     ModVersion {
         source: file.source,
         project_id: file.project_id.clone(),
@@ -302,7 +321,7 @@ pub fn modpack_file_to_mod_version(
         primary_file: ModFile {
             filename: file.filename.clone(),
             url: file.url.clone(),
-            sha1: Some(file.sha1.clone()),
+            sha1,
             size: file.size,
             distribution_allowed: true,
         },
@@ -326,6 +345,19 @@ pub fn pack_origin_file_to_mod_version(
     mc_version: &str,
     loader: crate::mods::platform::LoaderKind,
 ) -> ModVersion {
+    // Emit None for an empty/whitespace sha1 so install_one's sha-guard
+    // rejects the file rather than installing an unverifiable archive
+    // (no-TOFU, Principle B.6). The pack-origin snapshot is only written
+    // for successfully installed files, so an empty sha here is a
+    // defensive guard against corrupt snapshot data.
+    let sha1 = {
+        let s = f.sha1.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    };
     ModVersion {
         source: f.source,
         project_id: f.project_id.clone(),
@@ -337,7 +369,7 @@ pub fn pack_origin_file_to_mod_version(
         primary_file: ModFile {
             filename: f.filename.clone(),
             url: f.url.clone(),
-            sha1: Some(f.sha1.clone()),
+            sha1,
             size: f.size,
             distribution_allowed: true,
         },
@@ -374,12 +406,21 @@ pub fn resolve_name(desired: &str, existing: &[String]) -> Result<String, Error>
     })
 }
 
+/// Shared install pipeline for a pack whose manifest has already been
+/// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
+/// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
+/// sidecar path in `commands.rs` (passes `archive_bytes = None`).
+///
+/// `archive_bytes` is `None` for FTB packs — they have no local archive
+/// and therefore no overrides to extract; the overrides block is guarded
+/// by this option. All other behaviour is identical for every format.
 #[allow(clippy::too_many_arguments)]
-pub async fn import(
+pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
-    bytes: &[u8],
+    summary: ModpackSummary,
     selected_shas: &[String],
     apply_overrides: bool,
+    archive_bytes: Option<&[u8]>, // None for FTB — no overrides
     cf_base: &str,
     // Browse-flow hints. When the import was kicked off from the
     // Modpacks → Browse sub-tab the UI already knows the source
@@ -395,9 +436,6 @@ pub async fn import(
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
 ) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
-    on_progress(ModpackProgress::Inspecting);
-    let summary = inspect(bytes, cf_base).await?;
-
     if selected_shas.is_empty() {
         return Err(Error::ModpackNoFilesSelected);
     }
@@ -419,6 +457,8 @@ pub async fn import(
     let parser_source = match summary.format {
         ModpackFormat::Modrinth => Some(crate::mods::platform::ModSource::Modrinth),
         ModpackFormat::Curseforge => Some(crate::mods::platform::ModSource::Curseforge),
+        // FTB: pack-managed source — provenance is Ftb.
+        ModpackFormat::Ftb => Some(crate::mods::platform::ModSource::Ftb),
     };
     let (mrpack_project_id, pack_meta, mrpack_source) =
         match (hint_project_id.as_deref(), hint_source, summary.format) {
@@ -458,6 +498,9 @@ pub async fn import(
                 (pid, meta, parser_source)
             }
             (_, _, ModpackFormat::Curseforge) => (None, PackMeta::default(), parser_source),
+            // FTB: pack-managed source — project metadata is fetched by the
+            // FtbModpackSource adapter before import; nothing to back-fill here.
+            (_, _, ModpackFormat::Ftb) => (None, PackMeta::default(), parser_source),
         };
     let PackMeta {
         name: platform_name,
@@ -548,16 +591,20 @@ pub async fn import(
     // scan-reconcile-driven InstalledMod entries land with source=None
     // and fall into the "manual" badge even though the bytes came
     // straight from the pack archive.
+    // FTB packs have no archive and therefore no overrides — `archive_bytes`
+    // is `None` for that path and the block is skipped entirely.
     let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
     if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
-        let bytes_clone = bytes.to_vec();
-        bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
-            on_progress(ModpackProgress::ExtractingOverrides {
-                current: c,
-                total: t,
-            });
-        })
-        .await?;
+        if let Some(bytes) = archive_bytes {
+            let bytes_clone = bytes.to_vec();
+            bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
+                on_progress(ModpackProgress::ExtractingOverrides {
+                    current: c,
+                    total: t,
+                });
+            })
+            .await?;
+        }
     }
 
     // Persist the origin snapshot. Best-effort — the import itself
@@ -627,6 +674,42 @@ pub async fn import(
             failed: failures,
         })
     }
+}
+
+/// Thin wrapper: inspect the archive bytes into a `ModpackSummary`, then
+/// delegate to `install_resolved_pack`. Exists for the Modrinth / CurseForge
+/// archive (`.mrpack` / `.zip`) import path. FTB imports bypass this and
+/// call `install_resolved_pack` directly via the sidecar branch in
+/// `commands::modpack_import`.
+#[allow(clippy::too_many_arguments)]
+pub async fn import(
+    app: &tauri::AppHandle,
+    bytes: &[u8],
+    selected_shas: &[String],
+    apply_overrides: bool,
+    cf_base: &str,
+    hint_project_id: Option<String>,
+    hint_source: Option<crate::mods::platform::ModSource>,
+    hint_version_id: Option<String>,
+    on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
+    install_progress: ProgressFn,
+) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+    on_progress(ModpackProgress::Inspecting);
+    let summary = inspect(bytes, cf_base).await?;
+    install_resolved_pack(
+        app,
+        summary,
+        selected_shas,
+        apply_overrides,
+        Some(bytes),
+        cf_base,
+        hint_project_id,
+        hint_source,
+        hint_version_id,
+        on_progress,
+        install_progress,
+    )
+    .await
 }
 
 /// Best-effort project metadata backfilled from the mod platform.
@@ -807,6 +890,14 @@ mod tests {
             env_client: EnvSupport::Required,
             source: ModSource::Modrinth,
         }
+    }
+
+    #[test]
+    fn build_pack_origin_marks_ftb_source() {
+        let summary = sample_summary(ModpackFormat::Ftb);
+        let f = sample_file("ddd");
+        let origin = build_pack_origin(&summary, &[&f], Some("91".into()), &summary.name);
+        assert_eq!(origin.source, ModSource::Ftb);
     }
 
     #[test]
@@ -1007,6 +1098,48 @@ mod tests {
         m.sha1 = "abc".into();
         let s = compute_status(origin, &[m], &std::collections::HashSet::new());
         assert!(!s.is_modified);
+    }
+
+    #[test]
+    fn modpack_file_to_mod_version_empty_sha1_yields_none() {
+        // An empty sha1 in a ModpackFile must produce None in primary_file.sha1
+        // so that install_one's sha guard (ok_or(ModsSha1Unavailable)) rejects it.
+        let mut f = mp_file("proj", "");
+        f.sha1 = String::new();
+        let v =
+            modpack_file_to_mod_version(&f, "1.20.1", crate::mods::platform::LoaderKind::Fabric);
+        assert!(
+            v.primary_file.sha1.is_none(),
+            "empty sha1 must become None, not Some(\"\")"
+        );
+    }
+
+    #[test]
+    fn modpack_file_to_mod_version_whitespace_sha1_yields_none() {
+        let mut f = mp_file("proj", "   ");
+        f.sha1 = "   ".to_string();
+        let v =
+            modpack_file_to_mod_version(&f, "1.20.1", crate::mods::platform::LoaderKind::Fabric);
+        assert!(
+            v.primary_file.sha1.is_none(),
+            "whitespace sha1 must become None"
+        );
+    }
+
+    #[test]
+    fn pack_origin_file_to_mod_version_empty_sha1_yields_none() {
+        // Same guard for the restore path.
+        let mut f = pack_file("aaa");
+        f.sha1 = String::new();
+        let v = pack_origin_file_to_mod_version(
+            &f,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+        );
+        assert!(
+            v.primary_file.sha1.is_none(),
+            "empty sha1 in PackOriginFile must produce None"
+        );
     }
 
     #[test]
@@ -1220,13 +1353,28 @@ mod tests {
                 sha1: None,
                 project_id: None,
             },
+            ModpackUnresolvable {
+                reason: UnresolvableReason::MissingChecksum,
+                mod_name: "nohash.jar".into(),
+                manual_action_url: String::new(),
+                filename: "nohash.jar".into(),
+                size: 4.0,
+                sha1: None,
+                project_id: None,
+            },
         ];
         let origin = build_pack_origin(&summary, &[], None, "Test Pack");
-        assert_eq!(origin.missing_mods.len(), 2);
+        // DistributionDisabled + HostNotAllowed + MissingChecksum are kept (3 total).
+        // UnsafePath is excluded.
+        assert_eq!(origin.missing_mods.len(), 3);
         assert!(origin
             .missing_mods
             .iter()
             .all(|m| !matches!(m.reason, UnresolvableReason::UnsafePath)));
+        assert!(origin
+            .missing_mods
+            .iter()
+            .any(|m| matches!(m.reason, UnresolvableReason::MissingChecksum)));
     }
 
     #[test]

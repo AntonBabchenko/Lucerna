@@ -264,7 +264,9 @@ export const commands = {
 	 */
 	openInstanceFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("open_instance_folder", { id })),
 	/**
-	 *  Read-only integrity verification of an instance's installed files.
+	 *  Integrity verification of an instance's installed files. The hashing pass is
+	 *  read-only; on a cold cache the manifest fetch inside it may write the version
+	 *  JSON (offline no-op for an already-installed instance — the normal case).
 	 *  Blocked while a game is running (can't hash a live game's files).
 	 */
 	verifyInstance: (instanceId: string) => typedError<VerifyReport, Error>(__TAURI_INVOKE("verify_instance", { instanceId })),
@@ -441,6 +443,8 @@ export const commands = {
 	 *  Read a `.mrpack` / `.zip` from disk and return a parsed summary
 	 *  (resolved mod files, overrides count, loader, mc version). The UI
 	 *  uses this for the picker dialog before the user commits to import.
+	 *  For `.ftbpack.json` sidecar files (written by `FtbModpackSource::stage_version_to_temp`),
+	 *  the summary is deserialised directly — no archive parsing needed.
 	 */
 	modpackInspect: (path: string) => typedError<ModpackSummary, Error>(__TAURI_INVOKE("modpack_inspect", { path })),
 	/**
@@ -453,8 +457,11 @@ export const commands = {
 	 *    / copy bytes). The per-mod stream is keyed by phase only, not by
 	 *    `project_id` — the UI correlates it with the `InstallingFile`
 	 *    phase emitted on `on_progress`.
+	 * 
+	 *  For `.ftbpack.json` sidecar files the summary is deserialised directly
+	 *  and the archive path is skipped entirely (no bytes to read, no overrides).
 	 */
-	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
+	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | "ftb" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Search a modpack catalogue. `source` selects Modrinth (anonymous)
 	 *  or CurseForge (requires a stored API key — a missing key surfaces
@@ -531,6 +538,12 @@ export const commands = {
 	 *  + the description endpoint.
 	 */
 	modpackProject: (source: ModSource, projectId: string) => typedError<ModpackProject, Error>(__TAURI_INVOKE("modpack_project", { source, projectId })),
+	/**
+	 *  Capability descriptor for a modpack source — read by the UI to drive
+	 *  source-specific affordances (hide the API-key prompt, grey out server
+	 *  filters, hide export) without hardcoding per-source branches.
+	 */
+	modpackSourceCaps: (source: ModSource) => typedError<SourceCaps, Error>(__TAURI_INVOKE("modpack_source_caps", { source })),
 	/**
 	 *  Check whether a newer version of an imported Modrinth modpack exists.
 	 *  Returns `None` for non-Modrinth pack instances and when the instance
@@ -806,7 +819,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "mc_logs_upload"; details: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "mc_logs_upload"; details: string };
 
 export type ExportMetadata = {
 	name: string,
@@ -1168,7 +1181,7 @@ export type ModSearchQuery = {
 
 export type ModSort = "relevance" | "downloads" | "updated";
 
-export type ModSource = "modrinth" | "curseforge";
+export type ModSource = "modrinth" | "curseforge" | "ftb";
 
 export type ModSummary = {
 	source: ModSource,
@@ -1262,7 +1275,9 @@ export type ModpackFile = {
 	source: ModSource,
 };
 
-export type ModpackFormat = "modrinth" | "curseforge";
+export type ModpackFormat = "modrinth" | "curseforge" | 
+/**  Feed The Beast — API-only source; no local archive format. */
+"ftb";
 
 export type ModpackHit = {
 	project_id: string,
@@ -1634,9 +1649,33 @@ export type RestoredWorld = {
 	final_folder_name: string,
 };
 
+/**
+ *  Capability descriptor read by the UI to drive source-specific affordances
+ *  without hardcoding `if source == ftb`. Each field maps to a *present*
+ *  divergence between the three sources (Principle B.2 — no speculative fields).
+ */
+export type SourceCaps = {
+	/**  CurseForge requires a stored API key; Modrinth/FTB do not. */
+	needs_api_key: boolean,
+	/**
+	 *  Modrinth/CF filter by MC version + loader server-side; FTB search
+	 *  returns IDs only, so its filters are applied client-side.
+	 */
+	supports_server_filter: boolean,
+	/**  Modrinth/CF support export; FTB packs are curated (nowhere to upload). */
+	can_export: boolean,
+};
+
 export type ThemePreference = "system" | "light" | "dark";
 
-export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path";
+export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path" | 
+/**
+ *  A file whose integrity cannot be verified because no SHA-1 checksum was
+ *  available from any source (the pack manifest and any secondary API all
+ *  returned an absent or empty hash). Installing such a file would be TOFU
+ *  (trust-on-first-use); it is surfaced as manually unresolvable instead.
+ */
+"missing_checksum";
 
 /**
  *  The result of an update check. `available` is false when up-to-date.
@@ -1678,6 +1717,12 @@ export type VerifyReport = {
 	categories: CategoryReport[],
 	problems: ProblemArtifact[],
 	healthy: boolean,
+	/**
+	 *  `true` means the manifest/profile JSON itself is missing or unparseable,
+	 *  so per-file SHAs are unknowable — the report is unhealthy and repair must
+	 *  re-fetch/regenerate the manifest first. Naming: "recoverable" = repair
+	 *  can recover it, NOT "everything's fine". (true = there IS a problem.)
+	 */
 	manifest_recoverable: boolean,
 };
 

@@ -218,6 +218,7 @@ describe('formatError', () => {
         project_id: '1',
       },
       mods_not_found: { kind: 'mods_not_found', source: 'modrinth' },
+      mods_platform_unsupported: { kind: 'mods_platform_unsupported', source: 'ftb' },
       mods_decode: { kind: 'mods_decode', source: 'modrinth', details: 'd' },
       mods_sha1_unavailable: { kind: 'mods_sha1_unavailable' },
       mods_sha1_mismatch: { kind: 'mods_sha1_mismatch', expected: 'a', got: 'b' },
@@ -317,7 +318,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(66);
+      expect(Object.keys(samples)).toHaveLength(67);
     });
   });
 

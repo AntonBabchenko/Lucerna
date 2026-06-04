@@ -3,7 +3,12 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
-  import type { InstanceWithStatus, ModpackHit, ModpackSummary } from '$lib/ipc/bindings';
+  import type {
+    InstanceWithStatus,
+    ModpackHit,
+    ModpackSummary,
+    ModSource,
+  } from '$lib/ipc/bindings';
   import type { ModpackImportRequest } from './import-request';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { droppedModpack, modpacksNav, dragActive } from '$lib/settings/state.svelte';
@@ -124,7 +129,7 @@
   // hop on the Rust side). Drag-drop imports keep these null and the
   // orchestrator falls back to the version-id auto-lookup added in P1.
   let hintProjectId = $state<string | null>(null);
-  let hintSource = $state<'modrinth' | 'curseforge' | null>(null);
+  let hintSource = $state<ModSource | null>(null);
   // Modrinth version id of the picked version (Browse flow). Threaded to
   // `modpack_import` so the new instance stores `mrpack_version_id` — the
   // stable identifier the update flow compares against.
@@ -132,13 +137,19 @@
 
   async function inspect(path: string) {
     error = null;
-    const r = await commands.modpackInspect(path);
-    if (r.status === 'ok') {
-      // Stash the path on the summary so confirmImport can use it
-      // without re-prompting the user.
-      summary = { ...r.data, _path: path } as ModpackSummary & { _path: string };
-    } else {
-      error = formatError(r.error);
+    try {
+      const r = await commands.modpackInspect(path);
+      if (r.status === 'ok') {
+        // Stash the path on the summary so confirmImport can use it
+        // without re-prompting the user.
+        summary = { ...r.data, _path: path } as ModpackSummary & { _path: string };
+      } else {
+        error = formatError(r.error);
+      }
+    } catch (e) {
+      // A thrown/rejected invoke (e.g. a backend panic) must not vanish —
+      // surface it so the user sees why the picker never opened.
+      error = e instanceof Error ? e.message : String(e);
     }
   }
 

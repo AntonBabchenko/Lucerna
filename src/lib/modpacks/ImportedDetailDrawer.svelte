@@ -284,18 +284,21 @@
       return `https://modrinth.com/modpack/${i.mrpack_project_id}`;
     if (i.mrpack_source === 'curseforge')
       return `https://www.curseforge.com/projects/${i.mrpack_project_id}`;
+    // FTB has no stable per-pack web URL keyed by numeric ID — hide the link.
     return null;
   }
 
   function sourceLabel(src: ModSource | null): string {
     if (src === 'modrinth') return 'Modrinth';
     if (src === 'curseforge') return 'CurseForge';
+    if (src === 'ftb') return 'FTB';
     return '';
   }
 
   function formatBadge(src: ModSource | null): string {
     if (src === 'modrinth') return 'Modrinth .mrpack';
     if (src === 'curseforge') return 'CurseForge .zip';
+    if (src === 'ftb') return 'FTB';
     return '.mrpack';
   }
 

@@ -31,6 +31,7 @@ fn key(source: ModSource, project_id: &str) -> String {
     let s = match source {
         ModSource::Modrinth => "modrinth",
         ModSource::Curseforge => "curseforge",
+        ModSource::Ftb => "ftb", // FTB: pack-managed; keyed by id for dedup purposes.
     };
     format!("{s}:{project_id}")
 }

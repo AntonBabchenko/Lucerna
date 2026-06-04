@@ -144,6 +144,15 @@ pub enum Error {
         platform: String,
     },
 
+    #[error("Mod source {platform:?} has no per-mod browser — it is a modpack-only source")]
+    ModsPlatformUnsupported {
+        // Rust field named `platform` (not `source`) to avoid thiserror v2
+        // treating it as Error::source(); serialized as `source` on the wire
+        // so the TS bindings stay consistent with sibling Mods* variants.
+        #[serde(rename = "source")]
+        platform: crate::mods::platform::ModSource,
+    },
+
     #[error("Unexpected response from {platform}: {details}")]
     ModsDecode {
         #[serde(rename = "source")]
