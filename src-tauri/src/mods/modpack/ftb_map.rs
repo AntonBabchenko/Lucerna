@@ -77,7 +77,7 @@ fn unres(
 ///    urls via the CF bulk-files API. Unsafe paths are still rejected (step 2
 ///    runs first). FTB sha1 is kept if present; left empty if absent (CF API
 ///    will backfill it during resolution).
-/// 4. Empty / whitespace `sha1` → `UnresolvableReason::HostNotAllowed` (no
+/// 4. Empty / whitespace `sha1` → `UnresolvableReason::MissingChecksum` (no
 ///    TOFU — we never trust a file whose integrity we cannot verify). Not applied
 ///    to CF-ref files (covered by step 3 above).
 /// 5. Host not on the allowlist → `UnresolvableReason::HostNotAllowed`.
