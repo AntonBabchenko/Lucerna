@@ -15,6 +15,7 @@ use crate::mods::platform::{LoaderKind, ModSource};
 pub mod curseforge;
 pub mod ftb;
 pub mod modrinth;
+pub(crate) mod stage;
 
 pub use curseforge::CurseforgeModpackSource;
 pub use ftb::FtbModpackSource;
