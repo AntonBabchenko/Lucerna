@@ -149,14 +149,10 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
             }
         }
 
-        // 4. Missing sha1 → unresolvable (never TOFU).
+        // 4. Missing sha1 → unresolvable (never TOFU, Principle B.6).
         if f.sha1.trim().is_empty() {
-            // DEVIATION: reuse HostNotAllowed because no MissingChecksum variant exists
-            // (YAGNI — dist.modpacks.ch always supplies sha1; this is a defensive
-            // near-never guard). Add UnresolvableReason::MissingChecksum if this ever
-            // becomes user-visible or a second FTB CDN omits checksums.
             unresolvable.push(unres(
-                UnresolvableReason::HostNotAllowed,
+                UnresolvableReason::MissingChecksum,
                 &f.name,
                 f.url.clone(),
                 &f.name,
@@ -379,11 +375,10 @@ mod tests {
         assert_eq!(s.files.len(), 0, "no-sha1 file must not be added to files");
         assert_eq!(s.unresolvable.len(), 1);
         assert!(s.unresolvable[0].sha1.is_none());
-        // Documents the conscious reuse of HostNotAllowed for the missing-sha1 case
-        // and guards future refactors that add a dedicated MissingChecksum variant.
+        // MissingChecksum: no sha1 available → never install unverifiable file (no-TOFU).
         assert!(matches!(
             s.unresolvable[0].reason,
-            UnresolvableReason::HostNotAllowed
+            UnresolvableReason::MissingChecksum
         ));
     }
 

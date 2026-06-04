@@ -352,23 +352,31 @@ async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Optio
             }
         };
         match resolved.get(&file_id) {
-            Some(r) if r.download_url.is_some() => {
-                // Fill the placeholder url.
-                f.url = r.download_url.clone().unwrap();
-                // Backfill sha1 from CF if FTB didn't provide one.
-                if f.sha1.is_empty() {
-                    if let Some(ref h) = r.sha1 {
-                        f.sha1 = h.clone();
+            Some(r) => {
+                match &r.download_url {
+                    Some(url) => {
+                        // Fill the placeholder url.
+                        f.url = url.clone();
+                        // Backfill sha1 from CF if FTB didn't provide one.
+                        if f.sha1.is_empty() {
+                            if let Some(ref h) = r.sha1 {
+                                f.sha1 = h.clone();
+                            }
+                        }
+                        // no-TOFU (B.6): CF returned a URL but no checksum and FTB
+                        // provided none — refuse to install an unverifiable file.
+                        if f.sha1.trim().is_empty() {
+                            to_remove.push(idx);
+                        }
+                    }
+                    // distribution_disabled (None download_url).
+                    None => {
+                        to_remove.push(idx);
                     }
                 }
-                // no-TOFU (B.6): CF returned a URL but no checksum and FTB provided
-                // none — refuse to install an unverifiable file.
-                if f.sha1.trim().is_empty() {
-                    to_remove.push(idx);
-                }
             }
-            // distribution_disabled (None download_url) or absent from response.
-            _ => {
+            // Absent from response — treat as distribution-disabled.
+            None => {
                 to_remove.push(idx);
             }
         }
@@ -382,8 +390,9 @@ async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Optio
         // Determine whether this is a no-TOFU reject (url set but sha1 missing)
         // or a genuine distribution-disabled / absent case.
         let (reason, cf_sha1) = if !f.url.is_empty() {
-            // URL was filled but sha1 is missing — no-TOFU rejection.
-            (UnresolvableReason::HostNotAllowed, None)
+            // URL was filled but sha1 is missing after all backfill attempts —
+            // no-TOFU rejection: we refuse to install an unverifiable file.
+            (UnresolvableReason::MissingChecksum, None)
         } else {
             // distribution_disabled or absent from CF response — try to recover
             // sha1 from the resolved map for the unresolvable entry.
@@ -679,8 +688,8 @@ mod tests {
         assert_eq!(summary.unresolvable.len(), 1);
         let u = &summary.unresolvable[0];
         assert!(
-            matches!(u.reason, UnresolvableReason::HostNotAllowed),
-            "expected HostNotAllowed for no-TOFU rejection, got {:?}",
+            matches!(u.reason, UnresolvableReason::MissingChecksum),
+            "expected MissingChecksum for no-TOFU rejection (url present, sha1 absent), got {:?}",
             u.reason
         );
         assert!(u.manual_action_url.contains("238222"));
