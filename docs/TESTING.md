@@ -121,6 +121,36 @@ Several tests are gated behind `#[ignore]` because they:
 
 CI doesn't run them by default. The maintainer runs them locally before merges that touch install/launch paths. Phase 2 and Phase 3 had a strict pre-merge protocol of "run the era-specific `_e2e` test green before squash". Phase 3 raised the bar to "the cross-loader matrix green".
 
+## Known flaky test: the allowlist env-race
+
+A wiremock-backed unit test can fail on CI with an assertion like `200 + matches
+should be succeeded=true`, preceded by a log line `host not on allowlist:
+http://127.0.0.1:<port>/...`. It has surfaced on `mods::enrich::tests` (both the
+modrinth and curseforge resolve tests) and is a **pre-existing flake, not a
+regression** — a clean `gh run rerun --failed` passes.
+
+**Why it happens.** The wiremock tests reach a local server on `127.0.0.1`,
+which the network allowlist permits only when `LUCERNA_EXTRA_ALLOWED_HOSTS` is
+set. Tests that *mutate* that env var hold `crate::test_env_lock()` (a single
+process-wide mutex) for their duration, so mutator-vs-mutator is serialised. The
+hole is **mutator-vs-reader**: a test that issues an allowlist-checked request
+but does not itself mutate the var never takes the lock, so a concurrent mutator
+test that momentarily sets the var to `""` / `remove_var`s it can clear the host
+allowance mid-request. Only the parallel-execution + thread-scheduling combo on
+the macOS/Ubuntu runners loses the race; Windows-local and `--test-threads=1`
+win it, which is why it stays invisible in normal local dev.
+
+**What to do when you see it.** Confirm the failure is exactly this signature
+(one `mods::enrich` test, `host not on allowlist` for a `127.0.0.1` port), then
+`gh run rerun --failed`. Don't treat a red macOS `rust` job with this signature
+as a blocker for an unrelated diff.
+
+**The proper fix (Epic E6, not yet done).** Introduce an RAII helper —
+`with_extra_allowed_hosts(hosts, || { ... })` — that takes `test_env_lock()`
+*and* sets/clears the env var atomically, then migrate every wiremock test onto
+it so readers hold the lock for the duration of their request too, not just
+mutators. Until then, coverage runs already dodge it with `--test-threads=1`.
+
 ## Testing external source integrations (mods, modpacks)
 
 Wiremock unit/integration tests are the right layer for source clients
