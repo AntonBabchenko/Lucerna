@@ -148,7 +148,9 @@ mod sample_tests {
 use lucerna_lib::mods::install::{install_one, ModInstallPhase, ProgressFn};
 use lucerna_lib::mods::installed;
 use lucerna_lib::mods::modrinth::ModrinthClient;
-use lucerna_lib::mods::platform::{ModPlatform, ModSearchQuery, ModSort, ModSource};
+use lucerna_lib::mods::platform::{
+    ContentKind, ModPlatform, ModSearchQuery, ModSort, ModSource,
+};
 use std::path::Path;
 
 /// Per-mod result within a combo.
@@ -214,6 +216,7 @@ async fn fetch_pool(
     loop {
         let q = ModSearchQuery {
             source: ModSource::Modrinth,
+            kind: ContentKind::Mod,
             query: String::new(),
             mc_version: Some(mc.to_string()),
             loader: Some(loader),
