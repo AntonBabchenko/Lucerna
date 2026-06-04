@@ -226,6 +226,7 @@ export const commands = {
 	mrpack_source: ModSource | null,
 	mrpack_summary: string | null,
 	mrpack_version_id: string | null,
+	integrity: IntegrityStatus | null,
 } | null, Error>(__TAURI_INVOKE("get_active_instance")),
 	/**  Set the active instance by id. Errors `InstanceNotFound` if id is unknown. */
 	setActiveInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_instance", { id })),
@@ -989,6 +990,19 @@ export type InstanceWithStatus = {
 	mrpack_source: ModSource | null,
 	mrpack_summary: string | null,
 	mrpack_version_id: string | null,
+	integrity: IntegrityStatus | null,
+};
+
+/**
+ *  Persisted summary of an instance's last integrity check. Stored in
+ *  instance.json and surfaced on InstanceWithStatus for a passive badge.
+ */
+export type IntegrityStatus = {
+	healthy: boolean,
+	/**  Unix ms of the check (f64 per the specta/u64 rule). */
+	checked_unix_ms: number | null,
+	categories: CategoryReport[],
+	problem_count: number,
 };
 
 export type KeyStatus = "missing" | "set" | "invalid";
