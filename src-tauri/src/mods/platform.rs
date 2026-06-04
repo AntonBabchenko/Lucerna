@@ -18,6 +18,17 @@ pub enum ModSource {
     Curseforge,
 }
 
+/// What kind of content a search/install targets. `Mod` is the historical
+/// default so payloads that omit it keep working (serde `default`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentKind {
+    #[default]
+    Mod,
+    ResourcePack,
+    Shader,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModSort {
@@ -86,6 +97,8 @@ pub fn drop_filename_loader_mismatches(
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModSearchQuery {
     pub source: ModSource,
+    #[serde(default)]
+    pub kind: ContentKind,
     pub query: String,
     pub mc_version: Option<String>,
     pub loader: Option<LoaderKind>,
@@ -439,5 +452,33 @@ mod tests {
             version_with_filename("x-forge-1.jar"),
         ];
         assert_eq!(drop_filename_loader_mismatches(mixed, None).len(), 2);
+    }
+
+    #[test]
+    fn content_kind_round_trips_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ContentKind::Mod).unwrap(),
+            r#""mod""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentKind::ResourcePack).unwrap(),
+            r#""resource_pack""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentKind::Shader).unwrap(),
+            r#""shader""#
+        );
+        let back: ContentKind = serde_json::from_str(r#""shader""#).unwrap();
+        assert_eq!(back, ContentKind::Shader);
+    }
+
+    #[test]
+    fn content_kind_defaults_to_mod_when_absent() {
+        let q: ModSearchQuery = serde_json::from_str(
+            r#"{"source":"modrinth","query":"x","mc_version":null,"loader":null,
+                "sort":"relevance","page_size":20,"offset":0}"#,
+        )
+        .unwrap();
+        assert_eq!(q.kind, ContentKind::Mod);
     }
 }

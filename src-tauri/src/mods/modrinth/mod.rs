@@ -404,6 +404,7 @@ mod tests {
         let c = ModrinthClient::with_base(s.uri());
         let q = ModSearchQuery {
             source: ModSource::Modrinth,
+            kind: ContentKind::Mod,
             query: "jei".into(),
             mc_version: Some("1.20.1".into()),
             loader: Some(LoaderKind::Fabric),
@@ -432,6 +433,7 @@ mod tests {
         let c = ModrinthClient::with_base(s.uri());
         let q = ModSearchQuery {
             source: ModSource::Modrinth,
+            kind: ContentKind::Mod,
             query: "x".into(),
             mc_version: None,
             loader: None,

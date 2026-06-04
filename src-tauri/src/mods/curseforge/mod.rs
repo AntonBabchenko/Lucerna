@@ -426,6 +426,7 @@ mod tests {
         let c = CurseForgeClient::with_base_and_key(s.uri(), None);
         let q = ModSearchQuery {
             source: ModSource::Curseforge,
+            kind: ContentKind::Mod,
             query: "x".into(),
             mc_version: None,
             loader: None,
@@ -455,6 +456,7 @@ mod tests {
         let c = client(s.uri());
         let q = ModSearchQuery {
             source: ModSource::Curseforge,
+            kind: ContentKind::Mod,
             query: "x".into(),
             mc_version: None,
             loader: None,
@@ -527,6 +529,7 @@ mod tests {
             .await;
         let q = ModSearchQuery {
             source: ModSource::Curseforge,
+            kind: ContentKind::Mod,
             query: "jei".into(),
             mc_version: Some("1.20.1".into()),
             loader: Some(LoaderKind::Fabric),
