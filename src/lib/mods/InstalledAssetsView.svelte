@@ -105,17 +105,22 @@
     if (instanceId === null) return;
     checking = true;
     error = null;
-    const res = await commands.assetsCheckUpdates(instanceId, kind);
-    checking = false;
-    if (res.status === 'error') {
-      pushWarning(formatError(res.error));
-      return;
+    try {
+      const res = await commands.assetsCheckUpdates(instanceId, kind);
+      if (res.status === 'error') {
+        pushWarning(formatError(res.error));
+        return;
+      }
+      const map = new Map<string, AssetUpdateState>();
+      for (const check of res.data) map.set(check.filename, check.state);
+      updateStates = map;
+      const anyUpdate = res.data.some((c) => c.state.kind === 'update_available');
+      if (!anyUpdate) pushSuccess(get(t)('addons.installed.upToDateToast'));
+    } catch (e: unknown) {
+      pushWarning(e instanceof Error ? e.message : String(e));
+    } finally {
+      checking = false;
     }
-    const map = new Map<string, AssetUpdateState>();
-    for (const check of res.data) map.set(check.filename, check.state);
-    updateStates = map;
-    const anyUpdate = res.data.some((c) => c.state.kind === 'update_available');
-    if (!anyUpdate) pushSuccess(get(t)('addons.installed.upToDateToast'));
   }
 
   async function update(asset: InstalledAsset, latest: ModVersion) {
@@ -148,6 +153,10 @@
   }
   function checkFailed(filename: string): boolean {
     return updateStates.get(filename)?.kind === 'check_failed';
+  }
+  function checkFailedReason(filename: string): string | null {
+    const s = updateStates.get(filename);
+    return s?.kind === 'check_failed' ? s.reason : null;
   }
 </script>
 
@@ -193,9 +202,10 @@
             {/if}
           </div>
           {#if checkFailed(asset.filename)}
+            {@const reason = checkFailedReason(asset.filename)}
             <span
               class="text-xs text-placeholder"
-              title={$t('addons.installed.checkFailed')}
+              title={reason ?? $t('addons.installed.checkFailed')}
               aria-label={$t('addons.installed.checkFailed')}
               role="img"
             >

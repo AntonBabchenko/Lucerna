@@ -179,6 +179,48 @@ describe('InstalledAssetsView', () => {
     expect(screen.queryByText('Complementary Shaders')).toBeTruthy();
   });
 
+  it('resets checking to false when assetsCheckUpdates throws (IPC error)', async () => {
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsCheckUpdates.mockRejectedValue(new Error('ipc failure'));
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    const checkBtn = screen.getByRole('button', { name: 'Check for updates' });
+
+    // Before click — button enabled (not disabled).
+    expect(checkBtn.hasAttribute('disabled')).toBe(false);
+
+    await fireEvent.click(checkBtn);
+
+    // After the rejected promise settles, checking must have been reset so the
+    // button is no longer permanently stuck in the disabled state.
+    await waitFor(() => expect(checkBtn.hasAttribute('disabled')).toBe(false));
+  });
+
+  it('shows the check_failed reason in the indicator title', async () => {
+    const reason = 'Project was delisted from Modrinth';
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsCheckUpdates.mockResolvedValue(
+      ok([
+        {
+          filename: 'complementary.zip',
+          name: 'Complementary Shaders',
+          state: { kind: 'check_failed', reason },
+        },
+      ]),
+    );
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+
+    // The ⚠ indicator's title must carry the reason string.
+    const indicator = await screen.findByRole('img', { name: 'Update check failed' });
+    expect(indicator.getAttribute('title')).toBe(reason);
+  });
+
   it('refetches assetsList when the shared assetsChanged signal is bumped', async () => {
     // Start with an empty list — simulates the bug: a pack installed from Browse
     // exists on disk but the Installed view was rendered before it landed.

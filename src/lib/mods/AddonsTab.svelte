@@ -92,7 +92,6 @@
   // opened it for the current kind. This prevents premature IPC when switching
   // kind while the Installed tab had been open for a previous kind.
   // Browse is always mounted (it is the default landing sub-tab).
-  const browseMounted = $derived(true);
   const installedMounted = $derived(installedOpenedForKind.has(kind));
 
   // When the user clicks a sub-tab, arm the mount flag and switch the view.
@@ -305,15 +304,13 @@
   {/if}
 
   <div class="flex-1 overflow-y-auto relative">
-    {#if browseMounted}
-      <div class:hidden={view !== 'browse'}>
-        <!-- Re-key per kind so switching content type resets the browse
-             filters/results instead of leaking the previous kind's state. -->
-        {#key kind}
-          <ModBrowseView {kind} {source} {instanceId} {instanceName} {mcVersion} {loader} />
-        {/key}
-      </div>
-    {/if}
+    <div class:hidden={view !== 'browse'}>
+      <!-- Re-key per kind so switching content type resets the browse
+           filters/results instead of leaking the previous kind's state. -->
+      {#key kind}
+        <ModBrowseView {kind} {source} {instanceId} {instanceName} {mcVersion} {loader} />
+      {/key}
+    </div>
     {#if installedMounted}
       <div class:hidden={view !== 'installed'}>
         {#if kind === 'mod'}
