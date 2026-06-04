@@ -23,7 +23,10 @@
     () => instanceId,
     () => isRunning,
     untrack(() => initial),
-    () => onChanged(),
+    // Capture the callback by reference so a verify that finishes AFTER the
+    // user switched instances (this component unmounted) can still refresh
+    // the list — reading the prop post-unmount would be undefined.
+    untrack(() => onChanged),
   );
   onDestroy(() => integ.dispose());
 

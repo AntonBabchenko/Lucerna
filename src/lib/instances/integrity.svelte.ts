@@ -51,12 +51,15 @@ export function createIntegrity(
     filesDone = 0;
     filesTotal = 0;
     const res = await commands.verifyInstance(target);
-    if (target !== instanceId()) return; // switched mid-flight; drop result
+    // The backend persisted the status regardless of UI navigation, so refresh
+    // the instance list even if the user switched away mid-scan — otherwise the
+    // badge/Overview wouldn't update until the next list refresh / app restart.
+    if (res.status === 'ok') onPersisted();
+    if (target !== instanceId()) return; // switched away: skip the local UI mutation only
     if (res.status === 'ok') {
       report = res.data;
       liveCheckedAt = Date.now();
       state = 'report';
-      onPersisted();
     } else {
       error = formatError(res.error);
       state = stored ? 'report' : 'idle';
@@ -71,11 +74,11 @@ export function createIntegrity(
     filesDone = 0;
     filesTotal = 0;
     const res = await commands.repairInstance(target);
-    if (target !== instanceId()) return;
+    if (res.status === 'ok') onPersisted(); // refresh list even if user switched away
+    if (target !== instanceId()) return; // switched away: skip the local UI mutation only
     if (res.status === 'ok') {
       report = res.data;
       liveCheckedAt = Date.now();
-      onPersisted();
     } else {
       error = formatError(res.error);
     }
