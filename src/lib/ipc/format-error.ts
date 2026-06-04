@@ -32,6 +32,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.alreadyRunning');
     case 'account_not_set':
       return translate('errors.accountNotSet');
+    case 'instance_busy':
+      return translate('errors.instanceBusy');
     case 'auth_cancelled':
       return translate('errors.authCancelled');
     case 'auth_failed':
@@ -102,6 +104,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.modsDistributionDisabled', { source: e.source });
     case 'mods_not_found':
       return translate('errors.modsNotFound', { source: e.source });
+    case 'mods_platform_unsupported':
+      return translate('errors.modsPlatformUnsupported', { source: e.source });
     case 'mods_decode':
       return translate('errors.modsDecode', { source: e.source, details: e.details });
     case 'mods_sha1_unavailable':

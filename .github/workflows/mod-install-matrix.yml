@@ -1,0 +1,52 @@
+name: mod-install-matrix
+
+# Real-network mod-install matrix (the #[ignore]d mods_matrix_e2e test).
+# Manual + weekly only — NOT a PR gate (slow, downloads real mods, catalogue-dependent).
+on:
+  workflow_dispatch:
+    inputs:
+      mc:
+        description: "LUCERNA_MOD_MATRIX_MC (csv, blank = full default list)"
+        required: false
+        default: ""
+      loader:
+        description: "LUCERNA_MOD_MATRIX_LOADER (csv: fabric,quilt,forge,neoforge; blank = all)"
+        required: false
+        default: ""
+      n:
+        description: "mods per combo"
+        required: false
+        default: "20"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+jobs:
+  matrix:
+    runs-on: windows-latest
+    # Sequential live-network installs: the full default matrix at N=20 can
+    # approach this cap. If the matrix grows, shard via the dispatch inputs
+    # (run per-loader or per-MC) or lower N rather than raising the timeout.
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable @ 2026-05-23
+        with:
+          toolchain: stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab # v2.7.5
+        with:
+          workspaces: src-tauri
+      - name: Run mod-install matrix (ignored)
+        env:
+          LUCERNA_MOD_MATRIX_MC: ${{ github.event.inputs.mc }}
+          LUCERNA_MOD_MATRIX_LOADER: ${{ github.event.inputs.loader }}
+          LUCERNA_MOD_MATRIX_N: ${{ github.event.inputs.n || '20' }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml --test mods_matrix_e2e -- --ignored --nocapture
+      - name: Upload per-combo logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mod-install-matrix-logs
+          path: src-tauri/target/mod-install-matrix-logs/

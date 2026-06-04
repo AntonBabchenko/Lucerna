@@ -61,6 +61,36 @@ local `pnpm test:e2e` run on Linux.
 5. Run `pnpm test:e2e:update` once to seed baselines.
 6. Verify each baseline PNG visually before committing.
 
+## Gotchas (learned the hard way)
+
+### Keyed `{#each}` keys must be guaranteed-unique — never a content hash or URL
+
+Svelte 5 throws `each_key_duplicate` **at render time** when a keyed
+`{#each list as item (item.key)}` sees two equal keys. The throw aborts the
+component mount — and it does so **silently**: it is a *render* error, so a
+`try/catch` around the IPC call that produced the data does NOT catch it, and
+no error banner shows. The symptom reads as "the button does nothing" — the
+modal/picker never appears, with no visible error.
+
+Key by a structurally-unique field (a file path; an array index for a static,
+non-reordered list) — **never** by `sha1` or a download URL, because real data
+collides. The modpack import picker hit this with 24 duplicate `sha1`s across
+988 files and 205 unresolvable entries sharing an empty `manual_action_url`
+(an FTB pack, `#41`); the picker never mounted. Mocks with 1–2 files never
+reproduce it — only a large real pack does.
+
+### The dev build has no console — use DevTools or a temp file-log
+
+`pnpm tauri dev` runs the app as a Windows GUI-subsystem process, so Rust
+`eprintln!` and panics do **not** reach the `tauri dev` terminal. To diagnose a
+runtime error:
+
+- Open the webview **DevTools** (F12 / right-click → Inspect) — frontend errors,
+  unhandled promise rejections, and the real IPC error land in the Console.
+- For backend-side tracing, write to a temp file from Rust
+  (`std::env::temp_dir().join("…")`) and read it back, rather than relying on
+  stderr you cannot see.
+
 ## Out of scope
 
 - Cross-browser testing — Tauri webview is Edge WebView2; Chromium is

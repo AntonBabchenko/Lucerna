@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
 
   // Modal that shows the parsed `ModpackSummary` to the user and lets them
   // choose which optional mods to install. Required mods are listed but
@@ -23,6 +24,7 @@
     onConfirm: (selectedShas: string[]) => void;
   } = $props();
 
+  // Selection logic: required/optional split (env_client-based).
   const required: ModpackFile[] = $derived(
     summary.files.filter((f) => f.env_client === 'required'),
   );
@@ -44,15 +46,86 @@
     optionalSelected = next;
   }
 
+  // Deduplicated sha1 list for the install payload. FTB packs can have
+  // duplicate sha1s across files; dedupe so the "Install N" count and
+  // the payload the backend receives are clean.
   const selectedShas = $derived([
-    ...required.map((f) => f.sha1),
-    ...optional.filter((f) => optionalSelected.has(f.sha1)).map((f) => f.sha1),
+    ...new Set([
+      ...required.map((f) => f.sha1),
+      ...optional.filter((f) => optionalSelected.has(f.sha1)).map((f) => f.sha1),
+    ]),
   ]);
 
+  // ── Size formatter ──────────────────────────────────────────────────────
+  // Binary (IEC) units. Small files that round to "0.0 MiB" are shown in
+  // KiB or plain bytes instead of a misleading zero.
   function formatSize(size: number | null): string {
-    if (size == null) return '';
+    if (size == null || size <= 0) return '';
+    if (size < 1024) return `${Math.round(size)} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
     return `${(size / 1024 / 1024).toFixed(1)} MiB`;
   }
+
+  // ── Category grouping ───────────────────────────────────────────────────
+  type CategoryKey =
+    | 'groupMods'
+    | 'groupResourcepacks'
+    | 'groupShaderpacks'
+    | 'groupConfig'
+    | 'groupScripts'
+    | 'groupOther';
+
+  function categorise(installPath: string): CategoryKey {
+    const p = installPath.toLowerCase();
+    if (p.startsWith('mods/')) return 'groupMods';
+    if (p.startsWith('resourcepacks/')) return 'groupResourcepacks';
+    if (p.startsWith('shaderpacks/')) return 'groupShaderpacks';
+    if (p.startsWith('config/') || p.startsWith('defaultconfigs/')) return 'groupConfig';
+    if (p.startsWith('kubejs/') || p.startsWith('scripts/')) return 'groupScripts';
+    return 'groupOther';
+  }
+
+  const CATEGORY_ORDER: CategoryKey[] = [
+    'groupMods',
+    'groupResourcepacks',
+    'groupShaderpacks',
+    'groupConfig',
+    'groupScripts',
+    'groupOther',
+  ];
+
+  // Static map from CategoryKey to its i18n key — greppable and compile-time
+  // checked via TranslationKey (no dynamic key construction at runtime).
+  const GROUP_LABEL_KEY: Record<CategoryKey, TranslationKey> = {
+    groupMods: 'modpacks.import.picker.groupMods',
+    groupResourcepacks: 'modpacks.import.picker.groupResourcepacks',
+    groupShaderpacks: 'modpacks.import.picker.groupShaderpacks',
+    groupConfig: 'modpacks.import.picker.groupConfig',
+    groupScripts: 'modpacks.import.picker.groupScripts',
+    groupOther: 'modpacks.import.picker.groupOther',
+  };
+
+  interface FileGroup {
+    key: CategoryKey;
+    files: ModpackFile[];
+    totalSize: number;
+  }
+
+  const fileGroups = $derived.by((): FileGroup[] => {
+    const map = new Map<CategoryKey, ModpackFile[]>();
+    for (const key of CATEGORY_ORDER) map.set(key, []);
+    for (const f of summary.files) {
+      map.get(categorise(f.install_path))!.push(f);
+    }
+    const result: FileGroup[] = [];
+    for (const key of CATEGORY_ORDER) {
+      const files = map.get(key)!;
+      if (files.length === 0) continue;
+      const totalSize = files.reduce((acc, f) => acc + (f.size ?? 0), 0);
+      result.push({ key, files, totalSize });
+    }
+    return result;
+  });
 </script>
 
 <div
@@ -66,7 +139,11 @@
       <h2 class="text-lg font-semibold text-primary">{summary.name}</h2>
       <div class="text-sm text-muted">
         v{summary.version} ·
-        {summary.format === 'modrinth' ? 'Modrinth .mrpack' : 'CurseForge .zip'}
+        {summary.format === 'modrinth'
+          ? 'Modrinth .mrpack'
+          : summary.format === 'ftb'
+            ? 'FTB'
+            : 'CurseForge .zip'}
         · MC {summary.game_version} · {summary.loader}{summary.loader_version
           ? ` ${summary.loader_version}`
           : ''}
@@ -81,67 +158,85 @@
       </div>
     {/if}
 
-    <div class="flex-1 overflow-y-auto p-4">
-      <h3 class="font-medium text-sm text-primary mb-2">
-        {$t('modpacks.import.picker.requiredSection', { count: required.length })}
-      </h3>
-      <ul class="space-y-1 mb-4">
-        {#each required as f (f.sha1)}
-          <li class="text-sm py-1 flex items-center">
-            <input
-              type="checkbox"
-              checked
-              disabled
-              class="mr-2"
-              aria-label={$t('modpacks.import.picker.requiredModAriaLabel', { name: f.name })}
-            />
-            <span>{f.name}</span>
-            <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
-          </li>
-        {/each}
-      </ul>
-
-      {#if optional.length > 0}
-        <h3 class="font-medium text-sm text-primary mb-2">
-          {$t('modpacks.import.picker.optionalSection', { count: optional.length })}
-        </h3>
-        <ul class="space-y-1 mb-4">
-          {#each optional as f (f.sha1)}
-            <li class="text-sm py-1 flex items-center">
-              <input
-                type="checkbox"
-                checked={optionalSelected.has(f.sha1)}
-                onchange={() => toggle(f.sha1)}
-                class="mr-2"
-                aria-label={$t('modpacks.import.picker.installModAriaLabel', { name: f.name })}
-              />
-              <span>{f.name}</span>
-              <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
+    <div class="flex-1 overflow-y-auto p-4 space-y-2">
+      {#each fileGroups as group (group.key)}
+        {@const sizeStr = formatSize(group.totalSize)}
+        <details open={group.key === 'groupMods'}>
+          <summary
+            class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
+          >
+            <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+            {#if sizeStr}
+              {$t('modpacks.import.picker.groupHeader', {
+                label: $t(GROUP_LABEL_KEY[group.key]),
+                count: group.files.length,
+                size: sizeStr,
+              })}
+            {:else}
+              {$t('modpacks.import.picker.groupHeaderNoSize', {
+                label: $t(GROUP_LABEL_KEY[group.key]),
+                count: group.files.length,
+              })}
+            {/if}
+          </summary>
+          <ul class="space-y-1 mt-1 mb-2 pl-4">
+            {#each group.files as f (f.install_path)}
+              {@const isRequired = f.env_client === 'required'}
+              <li class="text-sm py-1 flex items-center">
+                {#if isRequired}
+                  <input
+                    type="checkbox"
+                    checked
+                    disabled
+                    class="mr-2"
+                    aria-label={$t('modpacks.import.picker.requiredModAriaLabel', {
+                      name: f.name,
+                    })}
+                  />
+                {:else}
+                  <input
+                    type="checkbox"
+                    checked={optionalSelected.has(f.sha1)}
+                    onchange={() => toggle(f.sha1)}
+                    class="mr-2"
+                    aria-label={$t('modpacks.import.picker.installModAriaLabel', { name: f.name })}
+                  />
+                {/if}
+                <span>{f.name}</span>
+                <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
+              </li>
+            {/each}
+          </ul>
+        </details>
+      {/each}
 
       {#if unresolvable.length > 0}
-        <h3 class="font-medium text-sm text-primary mb-2">
-          {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
-        </h3>
-        <ul class="space-y-1">
-          {#each unresolvable as u (u.manual_action_url)}
-            <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
-              <span class="flex-1">{u.mod_name}</span>
-              <button
-                type="button"
-                onclick={() =>
-                  void import('@tauri-apps/plugin-opener').then((m) =>
-                    m.openUrl(u.manual_action_url),
-                  )}
-                class="text-accent hover:underline text-xs"
-                >{$t('modpacks.import.picker.openLink')}</button
-              >
-            </li>
-          {/each}
-        </ul>
+        <details>
+          <summary
+            class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
+          >
+            <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+            {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
+          </summary>
+          <ul class="space-y-1 mt-1 mb-2 pl-4">
+            {#each unresolvable as u, i (i)}
+              <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
+                <span class="flex-1">{u.mod_name}</span>
+                {#if u.manual_action_url}
+                  <button
+                    type="button"
+                    onclick={() =>
+                      void import('@tauri-apps/plugin-opener').then((m) =>
+                        m.openUrl(u.manual_action_url),
+                      )}
+                    class="text-accent hover:underline text-xs"
+                    >{$t('modpacks.import.picker.openLink')}</button
+                  >
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </details>
       {/if}
     </div>
 
@@ -160,3 +255,14 @@
     </footer>
   </div>
 </div>
+
+<style>
+  details[open] > summary .disclosure-caret {
+    transform: rotate(90deg);
+  }
+  .disclosure-caret {
+    display: inline-block;
+    font-size: 0.6em;
+    transition: transform 0.15s ease;
+  }
+</style>

@@ -88,6 +88,10 @@ vi.mock('$lib/ipc/bindings', () => ({
       status: 'ok',
       data: { hits: [], total: 0, offset: 0, limit: 20 },
     }),
+    modpackSourceCaps: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { needs_api_key: false, supports_server_filter: true, can_export: true },
+    }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     // ModpackDetailModal
     modpackGetVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -155,6 +159,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     mrpack_source: 'modrinth' as ModSource,
     mrpack_summary: 'A cool modpack.',
     mrpack_version_id: 'ver-1',
+    integrity: null,
     ...over,
   };
 }

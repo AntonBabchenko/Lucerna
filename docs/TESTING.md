@@ -107,6 +107,31 @@ Several tests are gated behind `#[ignore]` because they:
 
 CI doesn't run them by default. The maintainer runs them locally before merges that touch install/launch paths. Phase 2 and Phase 3 had a strict pre-merge protocol of "run the era-specific `_e2e` test green before squash". Phase 3 raised the bar to "the cross-loader matrix green".
 
+## Testing external source integrations (mods, modpacks)
+
+Wiremock unit/integration tests are the right layer for source clients
+(Modrinth, CurseForge, FTB) — but a mock is only as good as its fixture. Two
+failure modes that tiny mocks miss, both found only in manual testing of the FTB
+source (`#41`):
+
+- **Wrong response *shape*.** Mirror the real API, including its error
+  envelopes. FTB's search returns `{"status":"error","message":"Search term too
+  short."}` with **HTTP 200** for an empty term — a happy-path mock never
+  exercised it, so the default (empty-query) browse silently returned nothing.
+  Capture a real response — including the error/empty cases — when writing the
+  fixture.
+- **Scale and composition.** Large real packs surface bugs small mocks can't:
+  duplicate `{#each}` keys (see [`UI-TESTING.md`](UI-TESTING.md) → Gotchas),
+  pagination/total math, and composition surprises — an FTB pack's actual mods
+  are almost entirely CurseForge refs (empty `url` + a `curseforge` id), not
+  FTB-hosted files, so the pack is non-functional without the CF-key resolve
+  path. Exercise at least one 1000+-file pack (a manual-gate step is fine if a
+  checked-in fixture is too large).
+
+The meta-rule: a green wiremock suite proves the code handles the shapes *you
+imagined*. Manual-test one real, large instance before claiming a source
+integration works.
+
 ## Test fixture rules
 
 - **Forge installer fixtures** live in `src-tauri/tests/fixtures/forge/installers/` (gitignored). SHA-pinned in `SHA1SUMS`. Download via `pwsh fetch.ps1` from the same directory.

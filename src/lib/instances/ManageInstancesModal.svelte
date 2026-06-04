@@ -8,6 +8,7 @@
     type Error as IpcError,
     type ModCompat,
   } from '$lib/ipc/bindings';
+  import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
@@ -25,12 +26,14 @@
     activeInstance = $bindable<InstanceWithStatus | null>(),
     versions,
     onChanged,
+    isRunning = false,
   }: {
     open: boolean;
     instances: InstanceWithStatus[];
     activeInstance: InstanceWithStatus | null;
     versions: VersionEntry[];
     onChanged: () => void;
+    isRunning?: boolean;
   } = $props();
 
   let selectedId = $state<string | null>(null);
@@ -367,6 +370,14 @@
               <div class="font-medium">
                 {i.ready ? '✓' : '↓'}
                 {i.name}
+                {#if i.integrity && !i.integrity.healthy}
+                  <span
+                    class="text-warning-text"
+                    title={$t('instance.integrity.statusProblems', {
+                      count: i.integrity.problem_count,
+                    })}>⚠</span
+                  >
+                {/if}
                 {#if i.id === activeInstance?.id}
                   <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
                 {/if}
@@ -526,6 +537,13 @@
               placeholder={$t('instance.manage.jvmArgsPlaceholder')}
               value={selected.extra_jvm_args}
               onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
+            />
+
+            <IntegritySection
+              instanceId={selected.id}
+              {isRunning}
+              name={selected.name}
+              status={selected.integrity}
             />
 
             <div

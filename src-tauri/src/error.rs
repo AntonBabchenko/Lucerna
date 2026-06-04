@@ -50,6 +50,9 @@ pub enum Error {
     #[error("Account not set — enter your name first")]
     AccountNotSet,
 
+    #[error("an instance operation is already in progress or the game is running")]
+    InstanceBusy,
+
     #[error("Microsoft sign-in cancelled")]
     AuthCancelled,
 
@@ -139,6 +142,15 @@ pub enum Error {
     ModsNotFound {
         #[serde(rename = "source")]
         platform: String,
+    },
+
+    #[error("Mod source {platform:?} has no per-mod browser — it is a modpack-only source")]
+    ModsPlatformUnsupported {
+        // Rust field named `platform` (not `source`) to avoid thiserror v2
+        // treating it as Error::source(); serialized as `source` on the wire
+        // so the TS bindings stay consistent with sibling Mods* variants.
+        #[serde(rename = "source")]
+        platform: crate::mods::platform::ModSource,
     },
 
     #[error("Unexpected response from {platform}: {details}")]

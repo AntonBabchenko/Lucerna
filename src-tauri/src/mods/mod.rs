@@ -20,6 +20,7 @@ pub mod orphans;
 pub mod platform;
 pub mod project_cache;
 pub mod render;
+pub mod unsupported;
 pub mod updates;
 
 pub use platform::*;

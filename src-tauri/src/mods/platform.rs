@@ -16,6 +16,7 @@ pub use crate::instances::schema::LoaderKind;
 pub enum ModSource {
     Modrinth,
     Curseforge,
+    Ftb,
 }
 
 /// What kind of content a search/install targets. `Mod` is the historical
@@ -377,6 +378,14 @@ mod tests {
         assert_eq!(j, r#""modrinth""#);
         let back: ModSource = serde_json::from_str(r#""curseforge""#).unwrap();
         assert_eq!(back, ModSource::Curseforge);
+    }
+
+    #[test]
+    fn mod_source_ftb_round_trips_snake_case() {
+        let j = serde_json::to_string(&ModSource::Ftb).unwrap();
+        assert_eq!(j, r#""ftb""#);
+        let back: ModSource = serde_json::from_str(r#""ftb""#).unwrap();
+        assert_eq!(back, ModSource::Ftb);
     }
 
     #[test]
