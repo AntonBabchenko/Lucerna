@@ -1856,9 +1856,25 @@ use tauri::Manager;
 /// Read a `.mrpack` / `.zip` from disk and return a parsed summary
 /// (resolved mod files, overrides count, loader, mc version). The UI
 /// uses this for the picker dialog before the user commits to import.
+/// For `.ftbpack.json` sidecar files (written by `FtbModpackSource::stage_version_to_temp`),
+/// the summary is deserialised directly — no archive parsing needed.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::error::Error> {
+    if path.ends_with(".ftbpack.json") {
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|e| crate::error::Error::Io {
+                path: path.clone(),
+                details: e.to_string(),
+            })?;
+        return serde_json::from_slice(&bytes).map_err(|e| {
+            crate::error::Error::ModpackManifestInvalid {
+                format: "ftb".into(),
+                details: e.to_string(),
+            }
+        });
+    }
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|e| crate::error::Error::Io {
@@ -1877,6 +1893,9 @@ pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::erro
 ///   / copy bytes). The per-mod stream is keyed by phase only, not by
 ///   `project_id` — the UI correlates it with the `InstallingFile`
 ///   phase emitted on `on_progress`.
+///
+/// For `.ftbpack.json` sidecar files the summary is deserialised directly
+/// and the archive path is skipped entirely (no bytes to read, no overrides).
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -1896,12 +1915,6 @@ pub async fn modpack_import(
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|e| crate::error::Error::Io {
-            path: path.clone(),
-            details: e.to_string(),
-        })?;
     let install_progress: crate::mods::install::ProgressFn =
         Box::new(move |phase, current, total| {
             let _ = on_install_progress.send(crate::mods::install::ProgressTick {
@@ -1910,6 +1923,49 @@ pub async fn modpack_import(
                 total: total.map(|t| t as f64),
             });
         });
+
+    // FTB sidecar path: the `.ftbpack.json` file holds a pre-resolved
+    // `ModpackSummary` serialised by `FtbModpackSource::stage_version_to_temp`.
+    // No archive bytes exist, so overrides extraction is skipped (`archive_bytes = None`).
+    if path.ends_with(".ftbpack.json") {
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|e| crate::error::Error::Io {
+                path: path.clone(),
+                details: e.to_string(),
+            })?;
+        let summary: ModpackSummary = serde_json::from_slice(&bytes).map_err(|e| {
+            crate::error::Error::ModpackManifestInvalid {
+                format: "ftb".into(),
+                details: e.to_string(),
+            }
+        })?;
+        on_progress.send(ModpackProgress::Inspecting).ok();
+        return modpack::import::install_resolved_pack(
+            &app,
+            summary,
+            &selected_shas,
+            apply_overrides,
+            None, // FTB: no archive bytes, no overrides
+            "https://api.curseforge.com",
+            hint_project_id,
+            hint_source,
+            hint_version_id,
+            &|p| {
+                let _ = on_progress.send(p);
+            },
+            install_progress,
+        )
+        .await;
+    }
+
+    // Archive path (Modrinth `.mrpack` / CurseForge `.zip`).
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: path.clone(),
+            details: e.to_string(),
+        })?;
     modpack::import::import(
         &app,
         &bytes,

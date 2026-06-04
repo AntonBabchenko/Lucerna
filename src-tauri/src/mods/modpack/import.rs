@@ -380,12 +380,21 @@ pub fn resolve_name(desired: &str, existing: &[String]) -> Result<String, Error>
     })
 }
 
+/// Shared install pipeline for a pack whose manifest has already been
+/// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
+/// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
+/// sidecar path in `commands.rs` (passes `archive_bytes = None`).
+///
+/// `archive_bytes` is `None` for FTB packs — they have no local archive
+/// and therefore no overrides to extract; the overrides block is guarded
+/// by this option. All other behaviour is identical for every format.
 #[allow(clippy::too_many_arguments)]
-pub async fn import(
+pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
-    bytes: &[u8],
+    summary: ModpackSummary,
     selected_shas: &[String],
     apply_overrides: bool,
+    archive_bytes: Option<&[u8]>, // None for FTB — no overrides
     cf_base: &str,
     // Browse-flow hints. When the import was kicked off from the
     // Modpacks → Browse sub-tab the UI already knows the source
@@ -401,9 +410,6 @@ pub async fn import(
     on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
     install_progress: ProgressFn,
 ) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
-    on_progress(ModpackProgress::Inspecting);
-    let summary = inspect(bytes, cf_base).await?;
-
     if selected_shas.is_empty() {
         return Err(Error::ModpackNoFilesSelected);
     }
@@ -559,16 +565,22 @@ pub async fn import(
     // scan-reconcile-driven InstalledMod entries land with source=None
     // and fall into the "manual" badge even though the bytes came
     // straight from the pack archive.
+    // FTB packs have no archive and therefore no overrides — `archive_bytes`
+    // is `None` for that path and the block is skipped entirely.
     let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
-    if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
-        let bytes_clone = bytes.to_vec();
-        bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
-            on_progress(ModpackProgress::ExtractingOverrides {
-                current: c,
-                total: t,
-            });
-        })
-        .await?;
+    if apply_overrides {
+        if let Some(bytes) = archive_bytes {
+            if summary.has_overrides || summary.has_client_overrides {
+                let bytes_clone = bytes.to_vec();
+                bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
+                    on_progress(ModpackProgress::ExtractingOverrides {
+                        current: c,
+                        total: t,
+                    });
+                })
+                .await?;
+            }
+        }
     }
 
     // Persist the origin snapshot. Best-effort — the import itself
@@ -638,6 +650,42 @@ pub async fn import(
             failed: failures,
         })
     }
+}
+
+/// Thin wrapper: inspect the archive bytes into a `ModpackSummary`, then
+/// delegate to `install_resolved_pack`. Exists for the Modrinth / CurseForge
+/// archive (`.mrpack` / `.zip`) import path. FTB imports bypass this and
+/// call `install_resolved_pack` directly via the sidecar branch in
+/// `commands::modpack_import`.
+#[allow(clippy::too_many_arguments)]
+pub async fn import(
+    app: &tauri::AppHandle,
+    bytes: &[u8],
+    selected_shas: &[String],
+    apply_overrides: bool,
+    cf_base: &str,
+    hint_project_id: Option<String>,
+    hint_source: Option<crate::mods::platform::ModSource>,
+    hint_version_id: Option<String>,
+    on_progress: &(dyn Fn(ModpackProgress) + Send + Sync),
+    install_progress: ProgressFn,
+) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+    on_progress(ModpackProgress::Inspecting);
+    let summary = inspect(bytes, cf_base).await?;
+    install_resolved_pack(
+        app,
+        summary,
+        selected_shas,
+        apply_overrides,
+        Some(bytes),
+        cf_base,
+        hint_project_id,
+        hint_source,
+        hint_version_id,
+        on_progress,
+        install_progress,
+    )
+    .await
 }
 
 /// Best-effort project metadata backfilled from the mod platform.
@@ -818,6 +866,14 @@ mod tests {
             env_client: EnvSupport::Required,
             source: ModSource::Modrinth,
         }
+    }
+
+    #[test]
+    fn build_pack_origin_marks_ftb_source() {
+        let summary = sample_summary(ModpackFormat::Ftb);
+        let f = sample_file("ddd");
+        let origin = build_pack_origin(&summary, &[&f], Some("91".into()), &summary.name);
+        assert_eq!(origin.source, ModSource::Ftb);
     }
 
     #[test]
