@@ -568,18 +568,16 @@ pub async fn install_resolved_pack(
     // FTB packs have no archive and therefore no overrides — `archive_bytes`
     // is `None` for that path and the block is skipped entirely.
     let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
-    if apply_overrides {
+    if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
         if let Some(bytes) = archive_bytes {
-            if summary.has_overrides || summary.has_client_overrides {
-                let bytes_clone = bytes.to_vec();
-                bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
-                    on_progress(ModpackProgress::ExtractingOverrides {
-                        current: c,
-                        total: t,
-                    });
-                })
-                .await?;
-            }
+            let bytes_clone = bytes.to_vec();
+            bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
+                on_progress(ModpackProgress::ExtractingOverrides {
+                    current: c,
+                    total: t,
+                });
+            })
+            .await?;
         }
     }
 

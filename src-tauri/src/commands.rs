@@ -1853,6 +1853,21 @@ use crate::mods::modpack::schema::{
 use tauri::ipc::Channel;
 use tauri::Manager;
 
+/// Read a `.ftbpack.json` sidecar (an FTB-resolved ModpackSummary staged by
+/// FtbModpackSource::stage_version_to_temp) back into a ModpackSummary.
+async fn read_ftbpack_sidecar(path: &str) -> Result<ModpackSummary, crate::error::Error> {
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|e| crate::error::Error::Io {
+            path: path.to_owned(),
+            details: e.to_string(),
+        })?;
+    serde_json::from_slice(&bytes).map_err(|e| crate::error::Error::ModpackManifestInvalid {
+        format: "ftb".into(),
+        details: e.to_string(),
+    })
+}
+
 /// Read a `.mrpack` / `.zip` from disk and return a parsed summary
 /// (resolved mod files, overrides count, loader, mc version). The UI
 /// uses this for the picker dialog before the user commits to import.
@@ -1862,18 +1877,7 @@ use tauri::Manager;
 #[specta::specta]
 pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::error::Error> {
     if path.ends_with(".ftbpack.json") {
-        let bytes = tokio::fs::read(&path)
-            .await
-            .map_err(|e| crate::error::Error::Io {
-                path: path.clone(),
-                details: e.to_string(),
-            })?;
-        return serde_json::from_slice(&bytes).map_err(|e| {
-            crate::error::Error::ModpackManifestInvalid {
-                format: "ftb".into(),
-                details: e.to_string(),
-            }
-        });
+        return read_ftbpack_sidecar(&path).await;
     }
     let bytes = tokio::fs::read(&path)
         .await
@@ -1928,18 +1932,7 @@ pub async fn modpack_import(
     // `ModpackSummary` serialised by `FtbModpackSource::stage_version_to_temp`.
     // No archive bytes exist, so overrides extraction is skipped (`archive_bytes = None`).
     if path.ends_with(".ftbpack.json") {
-        let bytes = tokio::fs::read(&path)
-            .await
-            .map_err(|e| crate::error::Error::Io {
-                path: path.clone(),
-                details: e.to_string(),
-            })?;
-        let summary: ModpackSummary = serde_json::from_slice(&bytes).map_err(|e| {
-            crate::error::Error::ModpackManifestInvalid {
-                format: "ftb".into(),
-                details: e.to_string(),
-            }
-        })?;
+        let summary = read_ftbpack_sidecar(&path).await?;
         on_progress.send(ModpackProgress::Inspecting).ok();
         return modpack::import::install_resolved_pack(
             &app,
