@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     commands,
+    type ContentKind,
     events,
     type Error as IpcError,
     type InstalledMod,
@@ -20,6 +21,7 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
+  import { canInstallContent } from './content-kind';
   import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { cfKeyVersion, mcVersions, settingsOpen } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
@@ -59,6 +61,7 @@
     instanceName = null,
     mcVersion,
     loader,
+    kind = 'mod',
   }: {
     source: ModSource;
     instanceId: string | null;
@@ -68,7 +71,17 @@
     instanceName?: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    // Which content kind this browser is for. 'mod' keeps the historical
+    // behaviour (loader facet + dependency-aware install). Resource packs
+    // and shaders have no loader facet and install via assetInstall.
+    kind?: ContentKind;
   } = $props();
+
+  // Resource packs and shaders are loader-agnostic: Modrinth's mod loader
+  // facet (fabric/forge/…) doesn't apply, and LoaderKind can't represent
+  // the shader-specific facets (iris/optifine/canvas). For both non-mod
+  // kinds we omit the loader filter entirely and never send a loader facet.
+  const isMod = $derived(kind === 'mod');
 
   let query = $state('');
   // Filters mirror the active instance's MC + loader. They re-sync
@@ -355,13 +368,16 @@
   async function fetchNextPlatformPage(): Promise<'ok' | 'auth' | 'error'> {
     const result = await commands.modsSearch({
       source,
+      kind,
       query,
       // Empty input strings collapse to `null` — the search backend
       // treats null as "no MC / no loader facet", same as the old
       // "Show all" checkbox did when checked. Clearing both fields
       // (or hitting Clear filters) is the explicit way to widen.
       mc_version: mcFilter || null,
-      loader: (loaderFilter || null) as LoaderKind | null,
+      // Resource packs / shaders have no loader facet, so always send
+      // null for non-mod kinds regardless of any stale filter value.
+      loader: isMod ? ((loaderFilter || null) as LoaderKind | null) : null,
       sort,
       page_size: pageSize,
       offset: buffer.length,
@@ -439,7 +455,13 @@
     await fill(1);
   }
 
-  const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter, showInstalled });
+  // Non-mod kinds have no loader facet: drop it from the chip row / badge
+  // count so resource-pack / shader browsers never surface a loader chip.
+  const filterFacets = $derived({
+    loader: isMod ? loaderFilter : ('' as LoaderKind | ''),
+    mc: mcFilter,
+    showInstalled,
+  });
 
   // The active instance's loader + MC — what Browse pre-fills for it. "Restore"
   // snaps loader + MC back to these (it deliberately leaves "Show installed"
@@ -559,7 +581,45 @@
     }
   }
 
+  // Resource packs / shaders install via the asset command — no loader,
+  // no dependency resolution. We still pin to a concrete ModVersion: the
+  // detail modal passes one explicitly; a card "Install" picks the latest
+  // version compatible with the instance's MC (no loader facet).
+  async function startAssetInstall(card: ModSummary, pinnedVersion?: ModVersion) {
+    if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
+      error = get(t)('mods.browse.errorNoInstance');
+      return;
+    }
+    let version: ModVersion;
+    if (pinnedVersion) {
+      version = pinnedVersion;
+    } else {
+      const versions = await commands.modsVersions(card.source, card.project_id, mcVersion, null);
+      if (versions.status === 'error') {
+        error = formatError(versions.error);
+        return;
+      }
+      if (versions.data.length === 0) {
+        error = get(t)('mods.browse.errorNoCompatibleVersion');
+        return;
+      }
+      version = versions.data[0]!;
+    }
+    const installed = await commands.assetInstall(instanceId, version, kind);
+    if (installed.status === 'error') {
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+      return;
+    }
+    pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+  }
+
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
+    // Resource packs and shaders take the asset path; mods keep the
+    // dependency-aware flow below untouched.
+    if (kind !== 'mod') {
+      await startAssetInstall(card, pinnedVersion);
+      return;
+    }
     if (!instanceId || !mcVersion || !loader) {
       error = get(t)('mods.browse.errorNoInstance');
       return;
@@ -706,7 +766,7 @@
   }
 </script>
 
-{#if loader === 'vanilla'}
+{#if isMod && loader === 'vanilla'}
   <div
     class="p-6 bg-warning-bg border border-warning-text/30 rounded mx-3 my-4 text-sm text-warning-text"
   >
@@ -749,6 +809,7 @@
     bind:open={drawerOpen}
     bind:loader={loaderFilter}
     bind:mc={mcFilter}
+    showLoader={isMod}
     {showInstalled}
     onShowInstalledChange={(v) => void setShowInstalled(v)}
   />

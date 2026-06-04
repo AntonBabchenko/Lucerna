@@ -18,6 +18,7 @@
     source = $bindable<ModSource | undefined>(undefined),
     showInstalled = undefined,
     onShowInstalledChange,
+    showLoader = true,
   }: {
     open?: boolean;
     loader?: LoaderKind | '';
@@ -28,6 +29,9 @@
     // the mod browser needs bespoke re-paging when it flips.
     showInstalled?: boolean | undefined;
     onShowInstalledChange?: (value: boolean) => void;
+    // The loader facet is mod-only — resource packs / shaders are
+    // loader-agnostic, so their browsers hide it entirely.
+    showLoader?: boolean;
   } = $props();
 
   const LOADER_OPTIONS = $derived([
@@ -106,19 +110,21 @@
         </div>
       {/if}
 
-      <div class="flex flex-col gap-1">
-        <span class="text-xs uppercase tracking-wide text-placeholder"
-          >{$t('browse.filter.loaderLabel')}</span
-        >
-        <SegmentedControl
-          value={loader}
-          options={LOADER_OPTIONS}
-          ariaLabel={$t('browse.filter.loaderAriaLabel')}
-          testid="browse-loader-segment"
-          wrap
-          onChange={(v) => (loader = v as LoaderKind | '')}
-        />
-      </div>
+      {#if showLoader}
+        <div class="flex flex-col gap-1">
+          <span class="text-xs uppercase tracking-wide text-placeholder"
+            >{$t('browse.filter.loaderLabel')}</span
+          >
+          <SegmentedControl
+            value={loader}
+            options={LOADER_OPTIONS}
+            ariaLabel={$t('browse.filter.loaderAriaLabel')}
+            testid="browse-loader-segment"
+            wrap
+            onChange={(v) => (loader = v as LoaderKind | '')}
+          />
+        </div>
+      {/if}
 
       <div class="flex flex-col gap-1">
         <span class="text-xs uppercase tracking-wide text-placeholder"
