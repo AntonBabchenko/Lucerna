@@ -331,6 +331,17 @@
       "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
     }
   },
+  "addons": {
+    "installed": {
+      "checkUpdates": "Check for updates",
+      "update": "Update",
+      "remove": "Remove",
+      "empty": "Nothing installed in this instance yet.",
+      "pickInstance": "Pick an instance first.",
+      "upToDateToast": "Everything is up to date.",
+      "checkFailed": "Update check failed"
+    }
+  },
   "modpacks": {
     "modal": {
       "title": "Modpacks",
