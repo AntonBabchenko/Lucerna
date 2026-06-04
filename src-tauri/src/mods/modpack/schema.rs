@@ -45,7 +45,7 @@ pub enum UnresolvableReason {
     UnsafePath,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModpackFile {
     pub project_id: String,
     pub version_id: String,
@@ -89,7 +89,7 @@ pub struct ModpackUnresolvable {
     pub project_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModpackSummary {
     pub format: ModpackFormat,
     pub name: String,
@@ -265,4 +265,31 @@ pub struct ModpackVersionEntry {
     pub game_versions: Vec<String>,
     pub loaders: Vec<String>,
     pub date_published: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mods::platform::LoaderKind;
+
+    #[test]
+    fn modpack_summary_round_trips_json() {
+        let s = ModpackSummary {
+            format: ModpackFormat::Ftb,
+            name: "P".into(),
+            version: "1".into(),
+            game_version: "1.20.1".into(),
+            loader: LoaderKind::Fabric,
+            loader_version: Some("0.1".into()),
+            files: vec![],
+            unresolvable: vec![],
+            has_overrides: false,
+            has_client_overrides: false,
+            has_saves_in_overrides: false,
+        };
+        let j = serde_json::to_vec(&s).unwrap();
+        let back: ModpackSummary = serde_json::from_slice(&j).unwrap();
+        assert_eq!(back.format, ModpackFormat::Ftb);
+        assert_eq!(back.name, "P");
+    }
 }
