@@ -266,6 +266,68 @@ pub async fn install_asset(
     Ok(())
 }
 
+/// Directory under `.minecraft/` for a non-mod content kind.
+fn asset_dir(kind: crate::mods::platform::ContentKind) -> &'static str {
+    use crate::mods::platform::ContentKind::*;
+    match kind {
+        ResourcePack => "resourcepacks",
+        Shader => "shaderpacks",
+        Mod => "mods", // assets path is rp/shader only; never used for Mod
+    }
+}
+
+/// `<asset_dir>/<filename>` — the install path under `.minecraft/`. Shared by
+/// `install_asset_tracked` and the uninstall command (Task 7).
+pub fn asset_subpath(kind: crate::mods::platform::ContentKind, filename: &str) -> String {
+    format!("{}/{}", asset_dir(kind), filename)
+}
+
+/// Download + install a resource pack or shader, then record it in the
+/// per-instance assets registry. Routes by `kind`; never touches installed-mods.json.
+#[allow(clippy::too_many_arguments)]
+pub async fn install_asset_tracked(
+    data_dir: &Path,
+    instance_root: &Path,
+    kind: crate::mods::platform::ContentKind,
+    source: Option<ModSource>,
+    project_id: Option<String>,
+    version_id: Option<String>,
+    name: &str,
+    version_number: Option<String>,
+    filename: &str,
+    url: &str,
+    sha: &str,
+    size: f64,
+    progress: &ProgressFn,
+) -> Result<(), Error> {
+    let install_path = asset_subpath(kind, filename);
+    install_asset(
+        data_dir,
+        instance_root,
+        url,
+        sha,
+        size,
+        &install_path,
+        progress,
+    )
+    .await?;
+    crate::mods::assets::add(
+        instance_root,
+        crate::mods::platform::InstalledAsset {
+            kind,
+            filename: filename.to_string(),
+            sha1: sha.to_ascii_lowercase(),
+            source,
+            project_id,
+            version_id,
+            name: name.to_string(),
+            version_number,
+            installed_at: Utc::now().to_rfc3339(),
+        },
+    )
+    .await
+}
+
 /// Disable: rename `.jar` → `.jar.disabled` and flip JSON flag.
 pub async fn disable(instance_root: &Path, sha1: &str) -> Result<(), Error> {
     flip_enabled(instance_root, sha1, false).await
@@ -897,5 +959,94 @@ mod tests {
         )
         .await;
         assert!(matches!(r, Err(Error::ModsDistributionDisabled { .. })));
+    }
+
+    #[tokio::test]
+    async fn install_asset_tracked_routes_shader_and_records() {
+        use crate::mods::platform::{ContentKind, ModSource};
+        let _g = test_lock();
+        let body = b"shader-bytes";
+        let sha = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/Complementary-r5.3.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        install_asset_tracked(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            Some(ModSource::Modrinth),
+            Some("proj".into()),
+            Some("ver".into()),
+            "Complementary",
+            Some("r5.3".into()),
+            "Complementary-r5.3.zip",
+            &format!("{}/Complementary-r5.3.zip", s.uri()),
+            &sha,
+            body.len() as f64,
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert!(td_inst
+            .path()
+            .join(".minecraft/shaderpacks/Complementary-r5.3.zip")
+            .exists());
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].filename, "Complementary-r5.3.zip");
+        assert_eq!(listed[0].sha1, sha.to_ascii_lowercase());
+    }
+
+    #[tokio::test]
+    async fn install_asset_tracked_routes_resourcepack() {
+        use crate::mods::platform::{ContentKind, ModSource};
+        let _g = test_lock();
+        let body = b"resourcepack-tracked-bytes";
+        let sha = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/Faithful.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        install_asset_tracked(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::ResourcePack,
+            Some(ModSource::Modrinth),
+            Some("fp".into()),
+            Some("fv".into()),
+            "Faithful",
+            Some("1.20".into()),
+            "Faithful.zip",
+            &format!("{}/Faithful.zip", s.uri()),
+            &sha,
+            body.len() as f64,
+            &nop_progress(),
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert!(td_inst
+            .path()
+            .join(".minecraft/resourcepacks/Faithful.zip")
+            .exists());
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::ResourcePack)
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].filename, "Faithful.zip");
     }
 }
