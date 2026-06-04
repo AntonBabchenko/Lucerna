@@ -31,6 +31,7 @@ function instance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
     mrpack_source: null,
     mrpack_summary: null,
     mrpack_version_id: null,
+    integrity: null,
     ...over,
   };
 }

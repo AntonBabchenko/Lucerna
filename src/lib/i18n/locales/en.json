@@ -151,7 +151,13 @@
       "countOk": "{ok}/{total} OK",
       "countProblems": "{corrupt} corrupt, {missing} missing",
       "busy": "Stop the running game before verifying.",
-      "failed": "Some files could not be repaired. Try again or reinstall."
+      "failed": "Some files could not be repaired. Try again or reinstall.",
+      "checkedAt": "checked {date}",
+      "statusNotChecked": "Integrity not checked",
+      "statusOk": "Integrity OK",
+      "statusProblems": "{count} integrity problems",
+      "overviewOpenManage": "Open Manage to check",
+      "overviewOpenRepair": "Open Manage to repair"
     },
     "compat": {
       "dialogLabel": "Mod compatibility warning",

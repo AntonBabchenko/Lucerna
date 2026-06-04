@@ -93,4 +93,31 @@ describe('integrity composable', () => {
     expect(it_.report?.healthy).toBe(true);
     it_.dispose();
   });
+
+  it('initialises from stored status', () => {
+    const it_ = createIntegrity(
+      () => 'i',
+      () => false,
+      { healthy: false, checked_unix_ms: 123, categories: [], problem_count: 2 },
+    );
+    expect(it_.state).toBe('report');
+    expect(it_.hasResult).toBe(true);
+    expect(it_.healthy).toBe(false);
+    expect(it_.problemCount).toBe(2);
+    expect(it_.checkedAt).toBe(123);
+    it_.dispose();
+  });
+
+  it('live verify overrides stored', async () => {
+    (commands.verifyInstance as any).mockResolvedValue({ status: 'ok', data: healthy });
+    const it_ = createIntegrity(
+      () => 'i',
+      () => false,
+      { healthy: false, checked_unix_ms: 123, categories: [], problem_count: 2 },
+    );
+    await it_.verify();
+    expect(it_.healthy).toBe(true);
+    expect(it_.problemCount).toBe(0);
+    it_.dispose();
+  });
 });

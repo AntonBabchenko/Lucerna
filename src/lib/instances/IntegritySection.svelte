@@ -4,11 +4,20 @@
   import type { VerifyCategory } from '$lib/ipc/bindings';
   import { createIntegrity } from '$lib/instances/integrity.svelte';
 
-  let { instanceId, isRunning = false }: { instanceId: string; isRunning?: boolean } = $props();
+  let {
+    instanceId,
+    isRunning = false,
+    initial = null,
+  }: {
+    instanceId: string;
+    isRunning?: boolean;
+    initial?: import('$lib/ipc/bindings').IntegrityStatus | null;
+  } = $props();
 
   const integ = createIntegrity(
     () => instanceId,
     () => isRunning,
+    initial,
   );
   onDestroy(() => integ.dispose());
 
@@ -34,7 +43,7 @@
       title={isRunning ? $t('instance.integrity.busy') : ''}
       onclick={() => integ.verify()}
     >
-      {integ.report ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
+      {integ.hasResult ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
     </button>
   </div>
 
@@ -58,12 +67,12 @@
     </div>
   {/if}
 
-  {#if integ.state === 'report' && integ.report}
-    {#if integ.report.healthy}
+  {#if integ.state === 'report' && integ.hasResult}
+    {#if integ.healthy === true}
       <p class="mt-2 text-sm text-success">✓ {$t('instance.integrity.allOk')}</p>
     {:else}
       <ul class="mt-2 space-y-1" aria-live="polite">
-        {#each integ.report.categories as cat (cat.category)}
+        {#each integ.categories as cat (cat.category)}
           {@const bad = cat.missing + cat.corrupt}
           <li class="flex items-center justify-between text-xs">
             <span class="flex items-center gap-1.5">
@@ -93,6 +102,13 @@
           {$t('instance.integrity.repairBtn', { values: { count: integ.problemCount } })}
         </button>
       </div>
+    {/if}
+    {#if integ.checkedAt}
+      <p class="text-xs text-muted mt-1">
+        {$t('instance.integrity.checkedAt', {
+          values: { date: new Date(integ.checkedAt).toLocaleString() },
+        })}
+      </p>
     {/if}
   {/if}
 
