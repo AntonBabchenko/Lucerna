@@ -14,7 +14,7 @@ use crate::mods::platform::{
 /// `Error::ModsPlatformUnsupported` so the caller gets a typed error rather
 /// than a panic.
 pub struct UnsupportedModPlatform {
-    pub source: ModSource,
+    pub(crate) source: ModSource,
 }
 
 #[async_trait]

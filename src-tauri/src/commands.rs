@@ -1323,7 +1323,10 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
                 file_id: v.version_id.parse().ok(),
             }
         }
-        // FTB: pack-managed, no per-mod dep ref; fall back to Modrinth-style string ref.
+        // TODO(ftb): placeholder — FTB versions are dead in this path today (no FTB mod browser /
+        // dep resolution). If a future task makes FTB mods enter dedup/dep-graph keying, introduce
+        // DepProjectRef::Ftb instead of borrowing the Modrinth tag, to avoid a numeric-id collision
+        // with real Modrinth ids.
         crate::mods::platform::ModSource::Ftb => crate::mods::platform::DepProjectRef::Modrinth {
             project_id: v.project_id.clone(),
             version_id: Some(v.version_id.clone()),
@@ -2926,6 +2929,11 @@ pub async fn mods_dependency_graph(
     let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
     let cf: Arc<dyn crate::mods::platform::ModPlatform> =
         platform_for(ModSource::Curseforge).into();
+    // FTB has no per-mod browser; build the stub once and clone per call (mirrors mr/cf above).
+    let ftb: Arc<dyn crate::mods::platform::ModPlatform> =
+        Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Ftb,
+        });
     let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
         ProjectKey,
         bool,
@@ -2938,6 +2946,7 @@ pub async fn mods_dependency_graph(
     let make_fetch = move || {
         let mr = mr.clone();
         let cf = cf.clone();
+        let ftb = ftb.clone();
         let loader_cache = loader_cache.clone();
         let mc = mc.clone();
         move |source: ModSource, project_id: String| {
@@ -2945,9 +2954,7 @@ pub async fn mods_dependency_graph(
                 ModSource::Modrinth => mr.clone(),
                 ModSource::Curseforge => cf.clone(),
                 // FTB: pack-managed, not individually dep-resolvable — treat as leaf.
-                ModSource::Ftb => Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
-                    source: ModSource::Ftb,
-                }),
+                ModSource::Ftb => ftb.clone(),
             };
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
