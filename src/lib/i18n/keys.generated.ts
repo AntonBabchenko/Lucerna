@@ -222,6 +222,7 @@ export type TranslationKey =
   | 'modpacks.detail.tabOverview'
   | 'modpacks.detail.tabVersions'
   | 'modpacks.detail.viewOn'
+  | 'modpacks.detail.website'
   | 'modpacks.export.authorPlaceholder'
   | 'modpacks.export.configs'
   | 'modpacks.export.configsWarning'

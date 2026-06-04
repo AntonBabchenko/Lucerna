@@ -38,6 +38,21 @@ pub struct FtbPackDetail {
     pub installs: u64,
     #[serde(default)]
     pub versions: Vec<FtbVersionRef>,
+    #[serde(default)]
+    pub links: Vec<FtbLink>,
+}
+
+/// A link entry from the FTB pack detail `links` array.
+/// Some packs include entries with `type: "website"` that provide a
+/// canonical project URL.
+#[derive(Debug, Deserialize)]
+pub struct FtbLink {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub link: String,
+    #[serde(default, rename = "type")]
+    pub link_type: String,
 }
 
 #[derive(Debug, Deserialize)]

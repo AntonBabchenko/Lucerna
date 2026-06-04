@@ -235,10 +235,17 @@ pub(crate) async fn get_project_impl(
         })
         .collect();
 
+    // Use the first link entry with type "website" and a valid https:// URL.
+    let website_url = detail
+        .links
+        .iter()
+        .find(|l| l.link_type == "website" && l.link.starts_with("https://"))
+        .map(|l| l.link.clone());
+
     Ok(ModpackProject {
         body_html,
         gallery,
-        website_url: None,
+        website_url,
     })
 }
 
@@ -931,6 +938,79 @@ mod tests {
             "expected 2 gallery images (both https art entries)"
         );
         assert!(proj.gallery.iter().all(|g| g.url.starts_with("https://")));
+    }
+
+    /// get_project sets website_url from the first link with type "website"
+    /// and an https:// URL.
+    #[tokio::test]
+    async fn ftb_get_project_sets_website_from_links() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+
+        let resp = serde_json::json!({
+            "id": 91,
+            "name": "FTB Presents Direwolf20 1.16",
+            "synopsis": "Synopsis",
+            "description": "Full description.",
+            "art": [],
+            "authors": [{ "name": "Direwolf20" }],
+            "installs": 100,
+            "versions": [],
+            "links": [
+                { "name": "Website", "link": "https://feed-the-beast.com/modpack/91", "type": "website" },
+                { "name": "Discord", "link": "https://discord.gg/ftb", "type": "discord" }
+            ]
+        });
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/91"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(resp))
+            .mount(&s)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let proj = get_project_impl(&s.uri(), "91").await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(
+            proj.website_url,
+            Some("https://feed-the-beast.com/modpack/91".to_string()),
+            "website_url must be populated from the website link"
+        );
+    }
+
+    /// get_project returns website_url = None when there is no website link.
+    #[tokio::test]
+    async fn ftb_get_project_no_website_link_yields_none() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+
+        let resp = serde_json::json!({
+            "id": 92,
+            "name": "Some Pack",
+            "synopsis": "Synopsis",
+            "description": "",
+            "art": [],
+            "authors": [],
+            "installs": 0,
+            "versions": [],
+            "links": [
+                { "name": "Discord", "link": "https://discord.gg/some", "type": "discord" }
+            ]
+        });
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/92"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(resp))
+            .mount(&s)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let proj = get_project_impl(&s.uri(), "92").await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert!(
+            proj.website_url.is_none(),
+            "website_url must be None when no website link is present"
+        );
     }
 
     /// Non-numeric project_id returns ModpackManifestInvalid.
