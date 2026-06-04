@@ -1851,7 +1851,6 @@ use crate::mods::modpack::schema::{
     ModpackProgress, ModpackSearchPage, ModpackSort, ModpackStatus, ModpackSummary,
 };
 use tauri::ipc::Channel;
-use tauri::Manager;
 
 /// Read a `.ftbpack.json` sidecar (an FTB-resolved ModpackSummary staged by
 /// FtbModpackSource::stage_version_to_temp) back into a ModpackSummary.
@@ -1990,40 +1989,9 @@ pub async fn modpack_search(
     sort: ModpackSort,
     page_size: u32,
 ) -> Result<ModpackSearchPage, crate::error::Error> {
-    match source {
-        crate::mods::platform::ModSource::Modrinth => {
-            modpack::search::search(
-                "https://api.modrinth.com",
-                &query,
-                page,
-                mc_version.as_deref(),
-                loader,
-                sort,
-                page_size,
-            )
-            .await
-        }
-        crate::mods::platform::ModSource::Curseforge => {
-            let key = crate::mods::curseforge::keyring::get().ok().flatten();
-            modpack::cf_api::search(
-                "https://api.curseforge.com",
-                key.as_deref(),
-                &query,
-                page,
-                mc_version.as_deref(),
-                loader,
-                sort,
-                page_size,
-            )
-            .await
-        }
-        // FTB: pack-managed source — no modpack browser via this command.
-        crate::mods::platform::ModSource::Ftb => {
-            Err(crate::error::Error::ModsPlatformUnsupported {
-                platform: crate::mods::platform::ModSource::Ftb,
-            })
-        }
-    }
+    modpack::source::modpack_source_for(source)
+        .search(&query, page, mc_version.as_deref(), loader, sort, page_size)
+        .await
 }
 
 /// Pull a modpack version's archive to a temp path under the OS temp
@@ -2041,109 +2009,9 @@ pub async fn modpack_fetch_to_temp(
     project_id: String,
     version_id: String,
 ) -> Result<String, crate::error::Error> {
-    let (bytes, ext) = match source {
-        crate::mods::platform::ModSource::Modrinth => {
-            let url =
-                format!("https://api.modrinth.com/v2/project/{project_id}/version/{version_id}");
-            let resp = crate::network::request::get(
-                &url,
-                &[("user-agent", "AntonBabchenko/Lucerna")],
-                "modpacks",
-            )
-            .await
-            .map_err(|e| crate::error::Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
-            if !(200..300).contains(&resp.status) {
-                return Err(crate::error::Error::ModsNetwork {
-                    url,
-                    details: format!("HTTP {}", resp.status),
-                });
-            }
-            #[derive(serde::Deserialize)]
-            struct V {
-                files: Vec<F>,
-            }
-            #[derive(serde::Deserialize)]
-            struct F {
-                url: String,
-                filename: String,
-                primary: bool,
-            }
-            let v: V = serde_json::from_slice(&resp.body).map_err(|e| {
-                crate::error::Error::ModsDecode {
-                    platform: "modrinth".into(),
-                    details: e.to_string(),
-                }
-            })?;
-            let f = v
-                .files
-                .iter()
-                .find(|f| f.primary)
-                .or_else(|| v.files.iter().find(|f| f.filename.ends_with(".mrpack")))
-                .ok_or(crate::error::Error::ModpackManifestInvalid {
-                    format: "modrinth".into(),
-                    details: "no primary .mrpack file on version".into(),
-                })?;
-            let bytes = crate::network::get_bytes(&f.url, "modpacks")
-                .await
-                .map_err(|e| crate::error::Error::ModsNetwork {
-                    url: f.url.clone(),
-                    details: e.to_string(),
-                })?;
-            (bytes, "mrpack")
-        }
-        crate::mods::platform::ModSource::Curseforge => {
-            let key = crate::mods::curseforge::keyring::get().ok().flatten();
-            // For CurseForge, `version_id` carries the file id — the
-            // command keeps the `version_id` name for symmetry with Modrinth.
-            let dl = modpack::cf_api::resolve_file_download(
-                "https://api.curseforge.com",
-                key.as_deref(),
-                &project_id,
-                &version_id,
-            )
-            .await?;
-            let bytes = crate::network::get_bytes(&dl, "modpacks")
-                .await
-                .map_err(|e| crate::error::Error::ModsNetwork {
-                    url: dl.clone(),
-                    details: e.to_string(),
-                })?;
-            (bytes, "zip")
-        }
-        // FTB: pack-managed source — archive download not supported via this command.
-        crate::mods::platform::ModSource::Ftb => {
-            return Err(crate::error::Error::ModsPlatformUnsupported {
-                platform: crate::mods::platform::ModSource::Ftb,
-            });
-        }
-    };
-
-    let temp_dir = app
-        .path()
-        .temp_dir()
-        .map_err(|e| crate::error::Error::Io {
-            path: "<temp>".into(),
-            details: e.to_string(),
-        })?
-        .join("lucerna")
-        .join("modpack");
-    tokio::fs::create_dir_all(&temp_dir)
+    modpack::source::modpack_source_for(source)
+        .stage_version_to_temp(&app, &project_id, &version_id)
         .await
-        .map_err(|e| crate::error::Error::Io {
-            path: temp_dir.display().to_string(),
-            details: e.to_string(),
-        })?;
-    let dest = temp_dir.join(format!("{}.{ext}", uuid::Uuid::new_v4()));
-    tokio::fs::write(&dest, &bytes)
-        .await
-        .map_err(|e| crate::error::Error::Io {
-            path: dest.display().to_string(),
-            details: e.to_string(),
-        })?;
-    Ok(dest.to_string_lossy().to_string())
 }
 
 /// Return the pack-origin snapshot + a live diff for a pack-imported
@@ -2313,22 +2181,9 @@ pub async fn modpack_get_versions(
     source: crate::mods::platform::ModSource,
     project_id: String,
 ) -> crate::error::Result<Vec<crate::mods::modpack::schema::ModpackVersionEntry>> {
-    match source {
-        crate::mods::platform::ModSource::Modrinth => {
-            fetch_modpack_versions("https://api.modrinth.com", &project_id).await
-        }
-        crate::mods::platform::ModSource::Curseforge => {
-            let key = crate::mods::curseforge::keyring::get().ok().flatten();
-            modpack::cf_api::list_files("https://api.curseforge.com", key.as_deref(), &project_id)
-                .await
-        }
-        // FTB: pack-managed source — no version listing via this command.
-        crate::mods::platform::ModSource::Ftb => {
-            Err(crate::error::Error::ModsPlatformUnsupported {
-                platform: crate::mods::platform::ModSource::Ftb,
-            })
-        }
-    }
+    modpack::source::modpack_source_for(source)
+        .get_versions(&project_id)
+        .await
 }
 
 /// Minimal serde shape for the Modrinth `/v2/project/{id}` fields the
@@ -2407,26 +2262,9 @@ pub async fn modpack_project(
     source: crate::mods::platform::ModSource,
     project_id: String,
 ) -> crate::error::Result<crate::mods::modpack::schema::ModpackProject> {
-    match source {
-        crate::mods::platform::ModSource::Modrinth => {
-            fetch_modrinth_modpack_project("https://api.modrinth.com", &project_id).await
-        }
-        crate::mods::platform::ModSource::Curseforge => {
-            let key = crate::mods::curseforge::keyring::get().ok().flatten();
-            modpack::cf_api::fetch_project_detail(
-                "https://api.curseforge.com",
-                key.as_deref(),
-                &project_id,
-            )
-            .await
-        }
-        // FTB: pack-managed source — no project detail fetch via this command.
-        crate::mods::platform::ModSource::Ftb => {
-            Err(crate::error::Error::ModsPlatformUnsupported {
-                platform: crate::mods::platform::ModSource::Ftb,
-            })
-        }
-    }
+    modpack::source::modpack_source_for(source)
+        .get_project(&project_id)
+        .await
 }
 
 /// Pick the most-recently-published version, or `None` if the list is
