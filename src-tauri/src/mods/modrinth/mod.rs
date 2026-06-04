@@ -54,13 +54,7 @@ impl Default for ModrinthClient {
 #[async_trait]
 impl ModPlatform for ModrinthClient {
     async fn search(&self, q: &ModSearchQuery) -> Result<ModSearchPage, Error> {
-        let mut facets: Vec<Vec<String>> = vec![vec!["project_type:mod".into()]];
-        if let Some(mc) = &q.mc_version {
-            facets.push(vec![format!("versions:{mc}")]);
-        }
-        if let Some(l) = q.loader {
-            facets.push(vec![format!("categories:{}", Self::loader_facet(l))]);
-        }
+        let facets = build_facets(q.kind, q.mc_version.as_deref(), q.loader);
         let facets_json = serde_json::to_string(&facets).unwrap();
         let url = format!(
             "{}/v2/search?query={}&limit={}&offset={}&index={}&facets={}",
@@ -370,6 +364,35 @@ fn convert_version(v: types::Version) -> ModVersion {
     }
 }
 
+fn project_type_facet(kind: ContentKind) -> &'static str {
+    match kind {
+        ContentKind::Mod => "project_type:mod",
+        ContentKind::ResourcePack => "project_type:resourcepack",
+        ContentKind::Shader => "project_type:shader",
+    }
+}
+
+fn build_facets(
+    kind: ContentKind,
+    mc_version: Option<&str>,
+    loader: Option<LoaderKind>,
+) -> Vec<Vec<String>> {
+    let mut facets: Vec<Vec<String>> = vec![vec![project_type_facet(kind).into()]];
+    if let Some(mc) = mc_version {
+        facets.push(vec![format!("versions:{mc}")]);
+    }
+    // Resource packs have no loader; mods + shaders do.
+    if kind != ContentKind::ResourcePack {
+        if let Some(l) = loader {
+            facets.push(vec![format!(
+                "categories:{}",
+                ModrinthClient::loader_facet(l)
+            )]);
+        }
+    }
+    facets
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,6 +401,32 @@ mod tests {
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    #[test]
+    fn facets_use_project_type_per_kind_and_skip_loader_for_resourcepack() {
+        let f = build_facets(ContentKind::Mod, Some("1.20.4"), Some(LoaderKind::Fabric));
+        assert!(f.contains(&vec!["project_type:mod".to_string()]));
+        assert!(f
+            .iter()
+            .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
+        assert!(f.contains(&vec!["versions:1.20.4".to_string()]));
+
+        let f = build_facets(
+            ContentKind::ResourcePack,
+            Some("1.20.4"),
+            Some(LoaderKind::Fabric),
+        );
+        assert!(f.contains(&vec!["project_type:resourcepack".to_string()]));
+        assert!(!f
+            .iter()
+            .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
+
+        let f = build_facets(ContentKind::Shader, None, Some(LoaderKind::Fabric));
+        assert!(f.contains(&vec!["project_type:shader".to_string()]));
+        assert!(f
+            .iter()
+            .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
     }
 
     async fn server() -> MockServer {
