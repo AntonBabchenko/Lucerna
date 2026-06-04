@@ -42,7 +42,7 @@ fn resolve_loader(targets: &[FtbTarget]) -> (LoaderKind, Option<String>) {
     (LoaderKind::Vanilla, None)
 }
 
-/// Build an `ModpackUnresolvable` entry.
+/// Build a `ModpackUnresolvable` entry.
 fn unres(
     reason: UnresolvableReason,
     mod_name: impl Into<String>,
@@ -116,6 +116,10 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
 
         // 3. Missing sha1 → unresolvable (never TOFU).
         if f.sha1.trim().is_empty() {
+            // DEVIATION: reuse HostNotAllowed because no MissingChecksum variant exists
+            // (YAGNI — dist.modpacks.ch always supplies sha1; this is a defensive
+            // near-never guard). Add UnresolvableReason::MissingChecksum if this ever
+            // becomes user-visible or a second FTB CDN omits checksums.
             unresolvable.push(unres(
                 UnresolvableReason::HostNotAllowed,
                 &f.name,
@@ -312,6 +316,12 @@ mod tests {
         assert_eq!(s.files.len(), 0, "no-sha1 file must not be added to files");
         assert_eq!(s.unresolvable.len(), 1);
         assert!(s.unresolvable[0].sha1.is_none());
+        // Documents the conscious reuse of HostNotAllowed for the missing-sha1 case
+        // and guards future refactors that add a dedicated MissingChecksum variant.
+        assert!(matches!(
+            s.unresolvable[0].reason,
+            UnresolvableReason::HostNotAllowed
+        ));
     }
 
     // ── Test 4 ────────────────────────────────────────────────────────────────
@@ -415,5 +425,35 @@ mod tests {
             s.unresolvable[0].reason,
             UnresolvableReason::UnsafePath
         ));
+    }
+
+    // ── Test 8 ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn vanilla_pack_has_no_loader() {
+        // Mirror of modrinth.rs's `vanilla_pack_has_no_loader_dep`.
+        // An FtbVersion with only a minecraft game target and no files should
+        // resolve to Vanilla with no loader version.
+        let v = FtbVersion {
+            files: vec![],
+            targets: vec![mc_target("1.20.4")],
+        };
+        let s = map_version("Vanilla Test", "1.0", &v);
+        assert_eq!(s.loader, LoaderKind::Vanilla);
+        assert_eq!(s.loader_version, None);
+        assert_eq!(s.game_version, "1.20.4");
+    }
+
+    // ── Test 9 ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn join_path_edge_cases() {
+        // Empty dir: name returned as-is, no "./" prefix.
+        assert_eq!(join_path("", "x.jar"), "x.jar");
+        // Plain dir: joined with "/", no "./" prefix.
+        assert_eq!(join_path("mods", "x.jar"), "mods/x.jar");
+        // "./mods/sub/" with trailing slash: leading "./" stripped, trailing "/"
+        // trimmed, yielding a clean "mods/sub/x.jar".
+        assert_eq!(join_path("./mods/sub/", "x.jar"), "mods/sub/x.jar");
     }
 }
