@@ -66,7 +66,11 @@
       <h2 class="text-lg font-semibold text-primary">{summary.name}</h2>
       <div class="text-sm text-muted">
         v{summary.version} ·
-        {summary.format === 'modrinth' ? 'Modrinth .mrpack' : 'CurseForge .zip'}
+        {summary.format === 'modrinth'
+          ? 'Modrinth .mrpack'
+          : summary.format === 'ftb'
+            ? 'FTB'
+            : 'CurseForge .zip'}
         · MC {summary.game_version} · {summary.loader}{summary.loader_version
           ? ` ${summary.loader_version}`
           : ''}

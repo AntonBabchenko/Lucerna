@@ -52,14 +52,19 @@
   const recommended = $derived(visibleVersions[0] ?? null);
   const gallery = $derived<GalleryImage[]>(project?.gallery ?? []);
 
-  const platformName = $derived(hit.source === 'modrinth' ? 'Modrinth' : 'CurseForge');
+  const platformName = $derived(
+    hit.source === 'modrinth' ? 'Modrinth' : hit.source === 'ftb' ? 'FTB' : 'CurseForge',
+  );
   // Canonical project page on the source platform — the "View on …" link
   // under the title and the distribution-blocked "Open on CurseForge"
-  // fallback both point here.
+  // fallback both point here. FTB has no stable per-pack web URL keyed by
+  // numeric ID, so we return null and hide the external-link button.
   const sourceUrl = $derived(
     hit.source === 'modrinth'
       ? `https://modrinth.com/modpack/${hit.slug}`
-      : `https://www.curseforge.com/minecraft/modpacks/${hit.slug}`,
+      : hit.source === 'curseforge'
+        ? `https://www.curseforge.com/minecraft/modpacks/${hit.slug}`
+        : null,
   );
 
   function openExternal(url: string) {
@@ -116,13 +121,15 @@
     <header class="p-4 border-b flex items-start shrink-0">
       <div class="flex-1 min-w-0">
         <h3 class="font-semibold text-primary">{hit.title}</h3>
-        <button
-          type="button"
-          class="btn-tertiary text-xs mt-0.5"
-          onclick={() => openExternal(sourceUrl)}
-        >
-          {$t('modpacks.detail.viewOn', { platform: platformName })}
-        </button>
+        {#if sourceUrl}
+          <button
+            type="button"
+            class="btn-tertiary text-xs mt-0.5"
+            onclick={() => openExternal(sourceUrl)}
+          >
+            {$t('modpacks.detail.viewOn', { platform: platformName })}
+          </button>
+        {/if}
       </div>
       <CloseButton onClick={onClose} ariaLabel={$t('modpacks.detail.closeAriaLabel')} />
     </header>
@@ -132,9 +139,15 @@
         <p class="mb-3">
           {$t('modpacks.detail.blockedBody')}
         </p>
-        <button type="button" class="btn-secondary btn-sm" onclick={() => openExternal(sourceUrl)}>
-          {$t('modpacks.detail.openOnCurseForge')}
-        </button>
+        {#if sourceUrl}
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onclick={() => openExternal(sourceUrl)}
+          >
+            {$t('modpacks.detail.openOnCurseForge')}
+          </button>
+        {/if}
       </div>
     {:else}
       <div class="px-4 pt-3 shrink-0">
@@ -158,7 +171,7 @@
             {#if project && project.body_html}
               <p class="text-xs text-placeholder italic">
                 {$t('modpacks.detail.contentDisclaimer', {
-                  source: hit.source === 'modrinth' ? 'Modrinth' : 'CurseForge',
+                  source: platformName,
                 })}
               </p>
             {/if}
