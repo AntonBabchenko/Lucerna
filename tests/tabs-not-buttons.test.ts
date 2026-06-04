@@ -73,7 +73,7 @@ vi.mock('@tauri-apps/api/webview', () => ({
 
 import MainTabs from '$lib/layout/MainTabs.svelte';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
-import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
+import ModBrowserTab from '$lib/mods/AddonsTab.svelte';
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import { settingsOpen } from '$lib/settings/state.svelte';
 

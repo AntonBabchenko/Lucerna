@@ -66,7 +66,7 @@ describe('MainTabs', () => {
   it('renders the three tab labels', () => {
     const { getByText } = render(MainTabs, { props: {} });
     expect(getByText('Overview')).toBeTruthy();
-    expect(getByText('Mod browser')).toBeTruthy();
+    expect(getByText('Add-ons')).toBeTruthy();
     expect(getByText('Worlds')).toBeTruthy();
   });
 
@@ -83,14 +83,14 @@ describe('MainTabs', () => {
 
   it('switches active tab on click', async () => {
     const { getByText } = render(MainTabs, { props: {} });
-    await fireEvent.click(getByText('Mod browser'));
-    const browser = getByText('Mod browser').closest('button');
+    await fireEvent.click(getByText('Add-ons'));
+    const browser = getByText('Add-ons').closest('button');
     expect(browser?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('renders ModBrowserTab when Mod browser tab is active', async () => {
     const { getByText, getByLabelText } = render(MainTabs, { props: {} });
-    await fireEvent.click(getByText('Mod browser'));
+    await fireEvent.click(getByText('Add-ons'));
     expect(getByText('Browse')).toBeTruthy();
     expect(getByText('Installed')).toBeTruthy();
     expect(getByLabelText('Mod source')).toBeTruthy();
@@ -98,7 +98,7 @@ describe('MainTabs', () => {
 
   it('Mod browser tab carries data-tour attribute', () => {
     const { getByText } = render(MainTabs, { props: {} });
-    const mods = getByText('Mod browser').closest('button');
+    const mods = getByText('Add-ons').closest('button');
     expect(mods?.getAttribute('data-tour')).toBe('tab-mods');
   });
 });
@@ -122,7 +122,7 @@ describe('MainTabs drag-drop routing', () => {
   it('routes a .jar drop on the Mods tab to droppedMods', async () => {
     render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
     await flushMount();
-    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
     await flushMount();
     dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/a.jar', '/x/readme.txt'] } });
     // ModBrowserTab immediately consumes droppedMods and triggers the install
@@ -137,7 +137,7 @@ describe('MainTabs drag-drop routing', () => {
   it('ignores .mrpack/.zip drops in MainTabs (modpacks moved to sidebar)', async () => {
     render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
     await flushMount();
-    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
     await flushMount();
     dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/pack.mrpack'] } });
     const { droppedModpack } = await import('$lib/settings/state.svelte');
@@ -156,7 +156,7 @@ describe('MainTabs drag-drop routing', () => {
   it('does not route a .jar when there is no installable instance', async () => {
     render(MainTabs, { props: { instanceId: null, mcVersion: null, loader: null } });
     await flushMount();
-    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
     await flushMount();
     dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/a.jar'] } });
     const { droppedMods } = await import('$lib/settings/state.svelte');
@@ -166,7 +166,7 @@ describe('MainTabs drag-drop routing', () => {
   it('flips the dragActive rune on drag enter over the Mods tab and back on leave', async () => {
     render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
     await flushMount();
-    await fireEvent.click(screen.getByRole('tab', { name: 'Mod browser' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
     await flushMount();
     const { dragActive } = await import('$lib/settings/state.svelte');
     expect(dragActive.value).toBe(false);

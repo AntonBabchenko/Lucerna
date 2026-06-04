@@ -217,7 +217,7 @@ describe('MainTabs — active and inactive tab state classes', () => {
 
   it('inactive Mod browser tab has border-transparent text-placeholder', () => {
     render(MainTabs, { props: {} });
-    const modsTab = screen.getByRole('tab', { name: 'Mod browser' });
+    const modsTab = screen.getByRole('tab', { name: 'Add-ons' });
     const cls = modsTab.className;
     expect(cls).toContain('border-transparent');
     expect(cls).toContain('text-placeholder');

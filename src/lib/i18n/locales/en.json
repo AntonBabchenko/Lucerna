@@ -54,6 +54,7 @@
   "nav": {
     "overview": "Overview",
     "modBrowser": "Mod browser",
+    "addons": "Add-ons",
     "worlds": "Worlds"
   },
   "sidebar": {
@@ -332,6 +333,11 @@
     }
   },
   "addons": {
+    "kindMods": "Mods",
+    "kindResourcePacks": "Resource packs",
+    "kindShaders": "Shaders",
+    "kindSwitchAria": "Content type",
+    "shaderLoaderHint": "Shaders need Iris or OptiFine installed to run.",
     "installed": {
       "checkUpdates": "Check for updates",
       "update": "Update",

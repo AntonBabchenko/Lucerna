@@ -1,10 +1,14 @@
 <script lang="ts">
-  import type { CompatVerdict, ModSource } from '$lib/ipc/bindings';
+  import type { CompatVerdict, ContentKind, ModSource } from '$lib/ipc/bindings';
   import { modBrowserNav } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import InstalledModsView from './InstalledModsView.svelte';
+  import InstalledAssetsView from './InstalledAssetsView.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
+  import SegmentedControl from '$lib/browse/SegmentedControl.svelte';
+  import { CONTENT_KINDS } from './content-kind';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -17,8 +21,21 @@
 
   type View = 'browse' | 'installed';
 
+  // The content kind this Add-ons tab is currently showing. Switching it
+  // re-keys the Browse view (clean filters/results) and swaps the Installed
+  // sub-view between the mods view and the assets view. The default is 'mod'
+  // so the historical Mod-browser experience is unchanged.
+  let kind = $state<ContentKind>('mod');
   let view = $state<View>('browse');
   let source = $state<ModSource>('modrinth');
+
+  // i18n labels for the kind switch — order mirrors CONTENT_KINDS.
+  const kindLabels: Record<ContentKind, TranslationKey> = {
+    mod: 'addons.kindMods',
+    resource_pack: 'addons.kindResourcePacks',
+    shader: 'addons.kindShaders',
+  };
+  const kindOptions = $derived(CONTENT_KINDS.map((k) => ({ value: k, label: $t(kindLabels[k]) })));
 
   // Once a sub-tab is opened we keep it mounted (hidden via CSS when
   // not active) so the user's filters, search query, pagination etc.
@@ -32,8 +49,9 @@
   });
 
   // Cross-component navigation from Overview: open the Installed
-  // sub-view directly. Resets the rune so subsequent in-tab clicks
-  // aren't hijacked.
+  // sub-view directly. Only applies to mods (the Overview link is
+  // "Installed mods"); we leave `kind` untouched so the mod path stays
+  // intact. Resets the rune so subsequent in-tab clicks aren't hijacked.
   $effect(() => {
     if (modBrowserNav.value !== null) {
       view = modBrowserNav.value.view;
@@ -42,10 +60,9 @@
   });
 
   // Props come from +page.svelte's activeInstance and are forwarded to
-  // ModBrowseView (Task 14) and InstalledModsView (Task 17). When no
-  // instance is selected the Browse pane still works for read-only
-  // browsing — only Install needs all three, and InstalledModsView
-  // renders its own "Pick an instance first" empty state.
+  // ModBrowseView and the Installed sub-view. When no instance is selected
+  // the Browse pane still works for read-only browsing — only Install needs
+  // all three, and the Installed views render their own empty states.
   let {
     instanceId,
     instanceName = null,
@@ -58,20 +75,21 @@
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
   } = $props();
 
-  // Local-mod install (the drag-drop droppedMods consumer + the "Install
-  // from file…" button) is available only for a selected, non-vanilla
-  // instance. Same rule as MainTabs' drag-drop router — shared via
-  // canInstallMods() so it is defined once.
+  // Local-jar install (the drag-drop droppedMods consumer + the "Install
+  // from file…" button) is MOD-ONLY and available only for a selected,
+  // non-vanilla instance. Same rule as MainTabs' drag-drop router — shared
+  // via canInstallMods() so it is defined once.
   const installDisabled = $derived(!canInstallMods(instanceId, loader));
 
   // Files dropped on the Mods tab arrive via the droppedMods rune
   // (routed by MainTabs). Consume and reset so a later action isn't
-  // re-triggered.
+  // re-triggered. Guarded to kind='mod': a jar dropped while a non-mod
+  // segment is active is ignored (cleared without acting).
   $effect(() => {
     const v = droppedMods.value;
     if (v !== null) {
       droppedMods.value = null;
-      void onJarsPicked(v);
+      if (kind === 'mod') void onJarsPicked(v);
     }
   });
 
@@ -177,9 +195,21 @@
 </script>
 
 <div class="flex flex-col h-full">
+  <!-- Content-kind switch: Mods · Resource packs · Shaders. Sits above the
+       Browse/Installed sub-tab row so it scopes everything below it. -->
+  <div class="px-3 pt-3">
+    <SegmentedControl
+      value={kind}
+      options={kindOptions}
+      ariaLabel={$t('addons.kindSwitchAria')}
+      testid="addons-kind-switch"
+      onChange={(v) => (kind = v as ContentKind)}
+    />
+  </div>
+
   <!-- Sub-tab row. Underline style — matches the Modpacks tab's
        Browse/Imported sub-tabs and the top-level tab row. -->
-  <div class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface">
+  <div class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface mt-3">
     <div role="tablist" class="flex gap-1">
       <button
         type="button"
@@ -213,24 +243,46 @@
     <SourcePicker value={source} onChange={(v) => (source = v)} />
   </div>
 
-  <div class="px-3 pt-3">
-    <FileDropzone
-      label={$t('mods.browse.dropzoneLabel')}
-      disabled={installDisabled}
-      disabledLabel={$t('mods.browse.dropzoneDisabled')}
-      onClick={installFromFile}
-    />
-  </div>
+  {#if kind === 'shader'}
+    <!-- Non-blocking info banner: shaders need a shader loader to run. -->
+    <div class="px-3 pt-3">
+      <div
+        class="bg-accent/10 border border-accent/40 text-secondary text-sm rounded p-2"
+        role="note"
+      >
+        {$t('addons.shaderLoaderHint')}
+      </div>
+    </div>
+  {/if}
+
+  {#if kind === 'mod'}
+    <div class="px-3 pt-3">
+      <FileDropzone
+        label={$t('mods.browse.dropzoneLabel')}
+        disabled={installDisabled}
+        disabledLabel={$t('mods.browse.dropzoneDisabled')}
+        onClick={installFromFile}
+      />
+    </div>
+  {/if}
 
   <div class="flex-1 overflow-y-auto relative">
     {#if browseMounted}
       <div class:hidden={view !== 'browse'}>
-        <ModBrowseView {source} {instanceId} {instanceName} {mcVersion} {loader} />
+        <!-- Re-key per kind so switching content type resets the browse
+             filters/results instead of leaking the previous kind's state. -->
+        {#key kind}
+          <ModBrowseView {kind} {source} {instanceId} {instanceName} {mcVersion} {loader} />
+        {/key}
       </div>
     {/if}
     {#if installedMounted}
       <div class:hidden={view !== 'installed'}>
-        <InstalledModsView {instanceId} {mcVersion} {loader} />
+        {#if kind === 'mod'}
+          <InstalledModsView {instanceId} {mcVersion} {loader} />
+        {:else}
+          <InstalledAssetsView {instanceId} {kind} />
+        {/if}
       </div>
     {/if}
   </div>

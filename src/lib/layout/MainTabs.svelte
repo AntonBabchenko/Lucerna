@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
-  import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
+  import AddonsTab from '$lib/mods/AddonsTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
   import { modBrowserNav, droppedMods, dragActive } from '$lib/settings/state.svelte';
@@ -102,7 +102,7 @@
       class:text-placeholder={active !== 'mod_browser'}
       onclick={() => (active = 'mod_browser')}
     >
-      {$t('nav.modBrowser')}
+      {$t('nav.addons')}
     </button>
     <button
       type="button"
@@ -126,7 +126,7 @@
         {@render overview()}
       {/if}
     {:else if active === 'mod_browser'}
-      <ModBrowserTab {instanceId} {instanceName} {mcVersion} {loader} />
+      <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} />
     {:else if active === 'worlds'}
       <WorldsTab {instanceId} {onListChanged} />
     {/if}
