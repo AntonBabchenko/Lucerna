@@ -57,14 +57,15 @@
   );
   // Canonical project page on the source platform — the "View on …" link
   // under the title and the distribution-blocked "Open on CurseForge"
-  // fallback both point here. FTB has no stable per-pack web URL keyed by
-  // numeric ID, so we return null and hide the external-link button.
+  // fallback both point here. FTB pages are keyed by numeric pack id at
+  // feed-the-beast.com/modpacks/<id> (the slug suffix is optional), and
+  // hit.project_id IS that numeric id for FTB hits.
   const sourceUrl = $derived(
     hit.source === 'modrinth'
       ? `https://modrinth.com/modpack/${hit.slug}`
       : hit.source === 'curseforge'
         ? `https://www.curseforge.com/minecraft/modpacks/${hit.slug}`
-        : null,
+        : `https://www.feed-the-beast.com/modpacks/${hit.project_id}`,
   );
 
   function openExternal(url: string) {
