@@ -137,13 +137,19 @@
 
   async function inspect(path: string) {
     error = null;
-    const r = await commands.modpackInspect(path);
-    if (r.status === 'ok') {
-      // Stash the path on the summary so confirmImport can use it
-      // without re-prompting the user.
-      summary = { ...r.data, _path: path } as ModpackSummary & { _path: string };
-    } else {
-      error = formatError(r.error);
+    try {
+      const r = await commands.modpackInspect(path);
+      if (r.status === 'ok') {
+        // Stash the path on the summary so confirmImport can use it
+        // without re-prompting the user.
+        summary = { ...r.data, _path: path } as ModpackSummary & { _path: string };
+      } else {
+        error = formatError(r.error);
+      }
+    } catch (e) {
+      // A thrown/rejected invoke (e.g. a backend panic) must not vanish —
+      // surface it so the user sees why the picker never opened.
+      error = e instanceof Error ? e.message : String(e);
     }
   }
 

@@ -99,6 +99,10 @@
       } else {
         error = formatError(result.error);
       }
+    } catch (e) {
+      // Never swallow a thrown/rejected invoke — surface it instead of
+      // leaving the button dim with no feedback.
+      error = e instanceof Error ? e.message : String(e);
     } finally {
       downloading = false;
     }

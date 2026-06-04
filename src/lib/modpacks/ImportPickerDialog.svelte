@@ -90,7 +90,7 @@
         {$t('modpacks.import.picker.requiredSection', { count: required.length })}
       </h3>
       <ul class="space-y-1 mb-4">
-        {#each required as f (f.sha1)}
+        {#each required as f (f.install_path)}
           <li class="text-sm py-1 flex items-center">
             <input
               type="checkbox"
@@ -110,7 +110,7 @@
           {$t('modpacks.import.picker.optionalSection', { count: optional.length })}
         </h3>
         <ul class="space-y-1 mb-4">
-          {#each optional as f (f.sha1)}
+          {#each optional as f (f.install_path)}
             <li class="text-sm py-1 flex items-center">
               <input
                 type="checkbox"
@@ -131,7 +131,7 @@
           {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
         </h3>
         <ul class="space-y-1">
-          {#each unresolvable as u (u.manual_action_url)}
+          {#each unresolvable as u, i (i)}
             <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
               <span class="flex-1">{u.mod_name}</span>
               <button
