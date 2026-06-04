@@ -436,8 +436,8 @@ pub(crate) async fn resolve_files(
     let key = require_key(key)?;
     let url = format!("{base}/v1/mods/files");
     let body = serde_json::json!({ "fileIds": file_ids });
-    // unreachable: serialising a serde_json::Value to bytes is infallible.
-    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let body_bytes = serde_json::to_vec(&body)
+        .expect("infallible: a serde_json::Value constructed via json!() always serializes");
     let resp = crate::network::request::post(
         &url,
         &[("x-api-key", key), ("content-type", "application/json")],
