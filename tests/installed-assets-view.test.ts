@@ -2,8 +2,9 @@
 // shader sibling of the mods Installed view. Verifies: row render, Remove
 // wiring, Check-updates → Update wiring, and the pick-instance empty state.
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledAsset, ModVersion } from '$lib/ipc/bindings';
+import { assetsChanged } from '$lib/settings/state.svelte';
 
 // vi.mock is hoisted — the spies live in vi.hoisted so the factory and the
 // tests share the same references.
@@ -80,6 +81,13 @@ describe('InstalledAssetsView', () => {
     for (const s of Object.values(spies)) s.mockReset();
     pushWarning.mockReset();
     pushSuccess.mockReset();
+    // The assetsChanged rune is module-global and shared across tests — reset
+    // it so a bump from one test can't leak into the next.
+    assetsChanged.value = 0;
+  });
+
+  afterEach(() => {
+    assetsChanged.value = 0;
   });
 
   it('renders an asset row with its name and a Remove button', async () => {
@@ -169,5 +177,24 @@ describe('InstalledAssetsView', () => {
     await waitFor(() => expect(pushWarning).toHaveBeenCalled());
     // Component must still be alive — the row is still present
     expect(screen.queryByText('Complementary Shaders')).toBeTruthy();
+  });
+
+  it('refetches assetsList when the shared assetsChanged signal is bumped', async () => {
+    // Start with an empty list — simulates the bug: a pack installed from Browse
+    // exists on disk but the Installed view was rendered before it landed.
+    spies.assetsList.mockResolvedValue(ok([] as InstalledAsset[]));
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    expect(await screen.findByText('Nothing installed in this instance yet.')).toBeTruthy();
+    expect(spies.assetsList).toHaveBeenCalledTimes(1);
+
+    // A pack is now installed elsewhere (Browse / a producer) → the next list
+    // call should surface it. Bumping the signal must drive a refetch.
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    assetsChanged.value++;
+
+    expect(await screen.findByText('Complementary Shaders')).toBeTruthy();
+    expect(spies.assetsList).toHaveBeenCalledTimes(2);
   });
 });

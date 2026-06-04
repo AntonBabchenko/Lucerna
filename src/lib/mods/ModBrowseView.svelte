@@ -24,7 +24,12 @@
   import { browserPrefs } from './browser-prefs.svelte';
   import { canInstallContent } from './content-kind';
   import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import { cfKeyVersion, mcVersions, settingsOpen } from '$lib/settings/state.svelte';
+  import {
+    assetsChanged,
+    cfKeyVersion,
+    mcVersions,
+    settingsOpen,
+  } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
   import PageSizePicker from './PageSizePicker.svelte';
@@ -244,6 +249,11 @@
     const _id = instanceId;
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _kind = kind;
+    // Also re-run when an asset is installed/uninstalled from the Installed
+    // tab so the Browse "Installed · vX" badges stay in sync. This effect only
+    // reads the signal — it must never bump it (the bump lives in the action
+    // handlers below), or refreshInstalledAssets would loop.
+    void assetsChanged.value;
     void refreshInstalled();
     // For mods this clears the asset list (isMod → []); for resource packs /
     // shaders it loads the per-instance asset registry so result cards flip to
@@ -364,6 +374,8 @@
         return;
       }
       await refreshInstalledAssets();
+      // Notify the Installed-assets view (no Tauri events for assets).
+      assetsChanged.value++;
       return;
     }
     const inst = installedFor(card);
@@ -688,6 +700,8 @@
     // events, so refresh the asset list explicitly to flip the card to the
     // "Installed · vX" + Uninstall state immediately.
     await refreshInstalledAssets();
+    // Notify the Installed-assets view so it re-lists.
+    assetsChanged.value++;
   }
 
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {

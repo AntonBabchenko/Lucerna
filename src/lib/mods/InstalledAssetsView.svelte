@@ -12,6 +12,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { assetsChanged } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { get } from 'svelte/store';
@@ -41,6 +42,10 @@
   $effect(() => {
     const id = instanceId;
     const k = kind;
+    // Re-list when a pack is installed/uninstalled from the Browse view (assets
+    // have no Tauri events). Read-only here — the bump lives in remove()/update()
+    // and in ModBrowseView's handlers; bumping inside this effect would loop.
+    void assetsChanged.value;
     const gen = ++generation;
     // Clear any prior update badges — they belonged to the previous list.
     updateStates = new Map();
@@ -88,6 +93,8 @@
       const next = new Map(updateStates);
       next.delete(asset.filename);
       updateStates = next;
+      // Notify the Browse view so its "Installed" badge clears.
+      assetsChanged.value++;
       pushSuccess(asset.name);
     } finally {
       busy = false;
@@ -127,6 +134,8 @@
       next.delete(asset.filename);
       updateStates = next;
       await refresh();
+      // Notify the Browse view so its badge reflects the new version.
+      assetsChanged.value++;
       pushSuccess(asset.name);
     } finally {
       busy = false;
