@@ -98,6 +98,23 @@ pub struct FtbFile {
     pub serveronly: bool,
     #[serde(default)]
     pub optional: bool,
+    /// Present when the file is distributed via CurseForge rather than the
+    /// FTB CDN directly. The `url` field will be empty in this case; the
+    /// project/file ids are used to resolve the real download URL via the CF
+    /// bulk-files API before install.
+    #[serde(default)]
+    pub curseforge: Option<FtbCfRef>,
+}
+
+/// CurseForge project + file reference embedded in an FTB file manifest entry.
+/// Both fields default to 0 when absent; zero values are treated as "not a
+/// valid CF ref" throughout the mapper.
+#[derive(Debug, Deserialize, Clone)]
+pub struct FtbCfRef {
+    #[serde(default)]
+    pub project: u64,
+    #[serde(default)]
+    pub file: u64,
 }
 
 #[derive(Debug, Deserialize)]

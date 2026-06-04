@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use crate::error::Error;
 use crate::mods::modpack::ftb_api::FtbTarget;
 use crate::mods::modpack::schema::{
-    ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
+    ModpackProject, ModpackSearchPage, ModpackSort, ModpackSummary, ModpackUnresolvable,
+    ModpackVersionEntry, UnresolvableReason,
 };
 use crate::mods::modpack::source::{ModpackSource, SourceCaps};
 use crate::mods::platform::{GalleryImage, LoaderKind, ModSource};
@@ -241,6 +242,154 @@ pub(crate) async fn get_project_impl(
     })
 }
 
+/// CurseForge API base for CF-ref resolution in FTB packs.
+const CF_BASE: &str = "https://api.curseforge.com";
+
+/// Bulk-resolve any `ModpackFile` entries in `summary` that have
+/// `source == Curseforge` and an empty url (i.e. FTB CF-ref placeholders
+/// emitted by `ftb_map::map_version`).
+///
+/// - If a CF API key is present: POST to the CF bulk-files endpoint and fill
+///   each file's url. Files whose `downloadUrl` is `null` (distribution
+///   disabled) are moved to `summary.unresolvable`.
+/// - If no CF API key is available: all CF-ref placeholder files are moved to
+///   `summary.unresolvable` with `reason: HostNotAllowed` (closest existing
+///   reason for "couldn't fetch") and a manual CurseForge project URL so the
+///   import picker can show them with an "Open on CurseForge" link.
+/// FTB cf-ref files need a CurseForge API key to resolve; without one they
+/// degrade to manual.
+async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Option<&str>) {
+    use crate::mods::modpack::cf_api;
+
+    // Collect indices of CF-ref placeholder files (source=Curseforge, empty url).
+    let cf_indices: Vec<usize> = summary
+        .files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.source == ModSource::Curseforge && f.url.is_empty())
+        .map(|(i, _)| i)
+        .collect();
+
+    if cf_indices.is_empty() {
+        return;
+    }
+
+    // Collect CF file ids in the same order as cf_indices.
+    let file_ids: Vec<u64> = cf_indices
+        .iter()
+        .filter_map(|&i| summary.files[i].version_id.parse::<u64>().ok())
+        .collect();
+
+    if key.is_none() {
+        // No key — move all CF-ref placeholders to unresolvable (manual download).
+        // Process in reverse index order so removals don't shift earlier indices.
+        for &idx in cf_indices.iter().rev() {
+            let f = summary.files.remove(idx);
+            summary.unresolvable.push(ModpackUnresolvable {
+                reason: UnresolvableReason::HostNotAllowed,
+                mod_name: f.name,
+                manual_action_url: format!("https://www.curseforge.com/projects/{}", f.project_id),
+                filename: f.filename,
+                size: f.size,
+                sha1: if f.sha1.is_empty() {
+                    None
+                } else {
+                    Some(f.sha1)
+                },
+                project_id: Some(f.project_id),
+            });
+        }
+        return;
+    }
+
+    // Attempt bulk resolution.
+    let resolved = match cf_api::resolve_files(cf_base, key, &file_ids).await {
+        Ok(map) => map,
+        Err(_) => {
+            // Network/decode failure — degrade all CF-ref files to unresolvable.
+            for &idx in cf_indices.iter().rev() {
+                let f = summary.files.remove(idx);
+                summary.unresolvable.push(ModpackUnresolvable {
+                    reason: UnresolvableReason::HostNotAllowed,
+                    mod_name: f.name,
+                    manual_action_url: format!(
+                        "https://www.curseforge.com/projects/{}",
+                        f.project_id
+                    ),
+                    filename: f.filename,
+                    size: f.size,
+                    sha1: if f.sha1.is_empty() {
+                        None
+                    } else {
+                        Some(f.sha1)
+                    },
+                    project_id: Some(f.project_id),
+                });
+            }
+            return;
+        }
+    };
+
+    // Apply resolutions. Collect indices to remove (distribution-disabled) first,
+    // then remove in reverse order.
+    let mut to_remove: Vec<usize> = Vec::new();
+
+    for &idx in &cf_indices {
+        let f = &mut summary.files[idx];
+        let file_id: u64 = match f.version_id.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                to_remove.push(idx);
+                continue;
+            }
+        };
+        match resolved.get(&file_id) {
+            Some(r) if r.download_url.is_some() => {
+                // Fill the placeholder url.
+                f.url = r.download_url.clone().unwrap();
+                // Backfill sha1 from CF if FTB didn't provide one.
+                if f.sha1.is_empty() {
+                    if let Some(ref h) = r.sha1 {
+                        f.sha1 = h.clone();
+                    }
+                }
+            }
+            // distribution_disabled (None download_url) or absent from response.
+            _ => {
+                to_remove.push(idx);
+            }
+        }
+    }
+
+    // Move distribution-disabled files to unresolvable (reverse order to
+    // preserve earlier indices).
+    to_remove.sort_unstable();
+    for &idx in to_remove.iter().rev() {
+        let f = summary.files.remove(idx);
+        // Try to get sha1 and url from the resolved map for the unresolvable entry.
+        let cf_sha1 = f
+            .version_id
+            .parse::<u64>()
+            .ok()
+            .and_then(|id| resolved.get(&id))
+            .and_then(|r| r.sha1.clone());
+        let sha1 = if !f.sha1.is_empty() {
+            Some(f.sha1)
+        } else {
+            cf_sha1
+        };
+        summary.unresolvable.push(ModpackUnresolvable {
+            reason: UnresolvableReason::DistributionDisabled,
+            mod_name: f.name,
+            manual_action_url: format!("https://www.curseforge.com/projects/{}", f.project_id),
+            filename: f.filename,
+            size: f.size,
+            sha1,
+            project_id: Some(f.project_id),
+        });
+    }
+}
+
 /// Download the FTB version manifest, map it to `ModpackSummary`, serialise to
 /// a `.ftbpack.json` sidecar in the OS temp dir, and return the path.
 pub(crate) async fn stage_impl(
@@ -275,7 +424,11 @@ pub(crate) async fn stage_impl(
         .unwrap_or_else(|| version_id.to_string());
 
     let manifest = ftb_api::version_manifest(base, id, vid).await?;
-    let summary = ftb_map::map_version(&detail.name, &version_name, &manifest);
+    let mut summary = ftb_map::map_version(&detail.name, &version_name, &manifest);
+
+    // Resolve any CurseForge-ref files (empty-url placeholders with source=Curseforge).
+    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    resolve_cf_refs(&mut summary, CF_BASE, cf_key.as_deref()).await;
 
     // Serialise ModpackSummary and write to temp sidecar.
     // Filename MUST end with .ftbpack.json (Task 9 detects FTB by this extension).
@@ -335,12 +488,195 @@ impl ModpackSource for FtbModpackSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::platform::ModSource;
+    use crate::mods::modpack::schema::{EnvSupport, ModpackFile, ModpackFormat, ModpackSummary};
+    use crate::mods::platform::{LoaderKind, ModSource};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    /// Build a minimal `ModpackSummary` with one CF-ref placeholder file.
+    fn summary_with_cf_placeholder(project_id: &str, file_id: &str, sha1: &str) -> ModpackSummary {
+        ModpackSummary {
+            format: ModpackFormat::Ftb,
+            name: "Test Pack".into(),
+            version: "1.0".into(),
+            game_version: "1.20.1".into(),
+            loader: LoaderKind::Forge,
+            loader_version: Some("47.2.0".into()),
+            files: vec![ModpackFile {
+                project_id: project_id.into(),
+                version_id: file_id.into(),
+                name: "ae2.jar".into(),
+                filename: "ae2.jar".into(),
+                install_path: "mods/ae2.jar".into(),
+                sha1: sha1.into(),
+                url: String::new(), // placeholder
+                size: 1024.0,
+                env_client: EnvSupport::Required,
+                source: ModSource::Curseforge,
+            }],
+            unresolvable: vec![],
+            has_overrides: false,
+            has_client_overrides: false,
+            has_saves_in_overrides: false,
+        }
+    }
+
+    /// resolve_cf_refs fills the url and backfills sha1 when the CF API returns
+    /// a download URL.
+    #[tokio::test]
+    async fn resolve_cf_refs_fills_url_and_backfills_sha1() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let body = serde_json::json!({
+            "data": [{
+                "id": 4499899u64,
+                "downloadUrl": "https://edge.forgecdn.net/files/4/4/ae2.jar",
+                "hashes": [{ "value": "aabbccdd", "algo": 1 }]
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // sha1 empty — CF should backfill it.
+        let mut summary = summary_with_cf_placeholder("238222", "4499899", "");
+        resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(summary.files.len(), 1);
+        assert!(summary.unresolvable.is_empty());
+        assert_eq!(
+            summary.files[0].url,
+            "https://edge.forgecdn.net/files/4/4/ae2.jar"
+        );
+        assert_eq!(
+            summary.files[0].sha1, "aabbccdd",
+            "sha1 must be backfilled from CF"
+        );
+    }
+
+    /// resolve_cf_refs preserves an existing FTB sha1 even when CF also returns one.
+    #[tokio::test]
+    async fn resolve_cf_refs_preserves_existing_sha1() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let body = serde_json::json!({
+            "data": [{
+                "id": 4499899u64,
+                "downloadUrl": "https://edge.forgecdn.net/files/4/4/ae2.jar",
+                "hashes": [{ "value": "cf-sha1", "algo": 1 }]
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // FTB sha1 already present — must be kept.
+        let mut summary = summary_with_cf_placeholder("238222", "4499899", "ftb-sha1");
+        resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(
+            summary.files[0].sha1, "ftb-sha1",
+            "FTB sha1 must not be overwritten"
+        );
+    }
+
+    /// resolve_cf_refs moves a distribution-disabled file to unresolvable.
+    #[tokio::test]
+    async fn resolve_cf_refs_distribution_disabled_moves_to_unresolvable() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let body = serde_json::json!({
+            "data": [{
+                "id": 4499899u64,
+                "downloadUrl": null,
+                "hashes": [{ "value": "deadbeef", "algo": 1 }]
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let mut summary = summary_with_cf_placeholder("238222", "4499899", "");
+        resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert!(
+            summary.files.is_empty(),
+            "distribution-disabled file must leave files"
+        );
+        assert_eq!(summary.unresolvable.len(), 1);
+        let u = &summary.unresolvable[0];
+        assert!(matches!(u.reason, UnresolvableReason::DistributionDisabled));
+        assert!(u.manual_action_url.contains("238222"));
+        assert_eq!(u.project_id.as_deref(), Some("238222"));
+        // sha1 backfilled from CF response
+        assert_eq!(u.sha1.as_deref(), Some("deadbeef"));
+    }
+
+    /// resolve_cf_refs with no CF key moves all CF-ref files to unresolvable
+    /// with HostNotAllowed reason.
+    #[tokio::test]
+    async fn resolve_cf_refs_no_key_degrades_to_unresolvable() {
+        let mut summary = summary_with_cf_placeholder("238222", "4499899", "abc");
+        resolve_cf_refs(&mut summary, "http://127.0.0.1:1", None).await;
+        assert!(
+            summary.files.is_empty(),
+            "no-key path must move CF-ref files out"
+        );
+        assert_eq!(summary.unresolvable.len(), 1);
+        let u = &summary.unresolvable[0];
+        assert!(matches!(u.reason, UnresolvableReason::HostNotAllowed));
+        assert!(u.manual_action_url.contains("238222"));
+        assert_eq!(u.sha1.as_deref(), Some("abc"));
+        assert_eq!(u.project_id.as_deref(), Some("238222"));
+    }
+
+    /// resolve_cf_refs is a no-op when there are no CF-ref placeholders.
+    #[tokio::test]
+    async fn resolve_cf_refs_noop_when_no_cf_placeholders() {
+        let mut summary = ModpackSummary {
+            format: ModpackFormat::Ftb,
+            name: "P".into(),
+            version: "1".into(),
+            game_version: "1.20.1".into(),
+            loader: LoaderKind::Fabric,
+            loader_version: None,
+            files: vec![ModpackFile {
+                project_id: "1001".into(),
+                version_id: "abc".into(),
+                name: "sodium.jar".into(),
+                filename: "sodium.jar".into(),
+                install_path: "mods/sodium.jar".into(),
+                sha1: "abc".into(),
+                url: "https://dist.modpacks.ch/x/sodium.jar".into(),
+                size: 100.0,
+                env_client: EnvSupport::Required,
+                source: ModSource::Ftb,
+            }],
+            unresolvable: vec![],
+            has_overrides: false,
+            has_client_overrides: false,
+            has_saves_in_overrides: false,
+        };
+        resolve_cf_refs(&mut summary, "http://127.0.0.1:1", None).await;
+        assert_eq!(
+            summary.files.len(),
+            1,
+            "non-CF-ref files must not be touched"
+        );
+        assert!(summary.unresolvable.is_empty());
     }
 
     fn pack_detail_json(id: u64, mc: &str, loader: &str, installs: u64) -> serde_json::Value {
@@ -650,9 +986,15 @@ mod tests {
             .await;
 
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        let page = search_impl(&s.uri(), "ab", 0, None, None, 20).await.unwrap();
+        let page = search_impl(&s.uri(), "ab", 0, None, None, 20)
+            .await
+            .unwrap();
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
-        assert_eq!(page.hits.len(), 0, "too-short term should yield empty, not error");
+        assert_eq!(
+            page.hits.len(),
+            0,
+            "too-short term should yield empty, not error"
+        );
     }
 }

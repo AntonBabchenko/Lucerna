@@ -71,15 +71,22 @@ fn unres(
 ///    in Modrinth). Zero cost — the client never needs them.
 /// 2. `install_path = join_path(path, name)`. Reject with `UnsafePath` if
 ///    the path fails the safety check.
-/// 3. Empty / whitespace `sha1` → `UnresolvableReason::HostNotAllowed` (no
-///    TOFU — we never trust a file whose integrity we cannot verify).
-/// 4. Host not on the allowlist → `UnresolvableReason::HostNotAllowed`.
-/// 5. All others → `ModpackFile` (env_client always `Required`; FTB does not
+/// 3. CurseForge-ref file (`curseforge.project != 0 && curseforge.file != 0` AND
+///    empty url) → emit `ModpackFile` with `source: Curseforge`, empty url
+///    placeholder. `stage_impl` runs `resolve_cf_refs` after this call to fill
+///    urls via the CF bulk-files API. Unsafe paths are still rejected (step 2
+///    runs first). FTB sha1 is kept if present; left empty if absent (CF API
+///    will backfill it during resolution).
+/// 4. Empty / whitespace `sha1` → `UnresolvableReason::HostNotAllowed` (no
+///    TOFU — we never trust a file whose integrity we cannot verify). Not applied
+///    to CF-ref files (covered by step 3 above).
+/// 5. Host not on the allowlist → `UnresolvableReason::HostNotAllowed`.
+/// 6. All others → `ModpackFile` (env_client always `Required`; FTB does not
 ///    expose per-file client/server env tags).
 ///
-/// `project_id` is set to the FTB file `id` (stable per-file identity used
-/// by `compute_update_diff`). `version_id` is the sha1 (FTB has no per-file
-/// version id).
+/// For FTB-CDN files: `project_id` is the FTB file `id`; `version_id` is the
+/// sha1. For CF-ref files: `project_id` / `version_id` are the CF project/file
+/// ids so the install pipeline can treat them as CF mods.
 pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> ModpackSummary {
     let game_version = v
         .targets
@@ -114,7 +121,35 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
             continue;
         }
 
-        // 3. Missing sha1 → unresolvable (never TOFU).
+        // 3. CurseForge-ref file: empty url but a valid CF project+file id.
+        //    Emit as a Curseforge-sourced ModpackFile with an empty url placeholder;
+        //    stage_impl will bulk-resolve these before writing the sidecar.
+        //    The sha1 check (step 4) is deliberately skipped here — FTB sometimes
+        //    omits sha1 for CF-ref entries; the CF API will backfill it.
+        if let Some(cf) = &f.curseforge {
+            if cf.project != 0 && cf.file != 0 && f.url.trim().is_empty() {
+                let sha1 = if f.sha1.trim().is_empty() {
+                    String::new()
+                } else {
+                    f.sha1.to_ascii_lowercase()
+                };
+                files.push(ModpackFile {
+                    project_id: cf.project.to_string(),
+                    version_id: cf.file.to_string(),
+                    name: f.name.clone(),
+                    filename: f.name.clone(),
+                    install_path,
+                    sha1,
+                    url: String::new(), // placeholder — filled by resolve_cf_refs in stage_impl
+                    size: f.size,
+                    env_client: EnvSupport::Required,
+                    source: ModSource::Curseforge,
+                });
+                continue;
+            }
+        }
+
+        // 4. Missing sha1 → unresolvable (never TOFU).
         if f.sha1.trim().is_empty() {
             // DEVIATION: reuse HostNotAllowed because no MissingChecksum variant exists
             // (YAGNI — dist.modpacks.ch always supplies sha1; this is a defensive
@@ -131,7 +166,7 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
             continue;
         }
 
-        // 4. Host allowlist check.
+        // 5. Host allowlist check.
         let host = url::Url::parse(&f.url)
             .ok()
             .and_then(|u| u.host_str().map(str::to_ascii_lowercase));
@@ -148,7 +183,7 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
             continue;
         }
 
-        // 5. Accepted file.
+        // 6. Accepted FTB-CDN file.
         let sha1 = f.sha1.to_ascii_lowercase();
         files.push(ModpackFile {
             project_id: f.id.to_string(),
@@ -229,6 +264,34 @@ mod tests {
             clientonly: false,
             serveronly,
             optional: false,
+            curseforge: None,
+        }
+    }
+
+    fn cf_ref_file(
+        id: u64,
+        name: &str,
+        path: &str,
+        sha1: &str,
+        cf_project: u64,
+        cf_file: u64,
+    ) -> FtbFile {
+        use crate::mods::modpack::ftb_api::FtbCfRef;
+        FtbFile {
+            id,
+            name: name.into(),
+            path: path.into(),
+            url: String::new(), // empty — CF-distributed
+            sha1: sha1.into(),
+            size: 1024.0,
+            file_type: "mod".into(),
+            clientonly: false,
+            serveronly: false,
+            optional: false,
+            curseforge: Some(FtbCfRef {
+                project: cf_project,
+                file: cf_file,
+            }),
         }
     }
 
@@ -445,6 +508,113 @@ mod tests {
     }
 
     // ── Test 9 ────────────────────────────────────────────────────────────────
+
+    /// A file with an empty url but a valid CurseForge project+file ref must
+    /// land in `files` with `source = Curseforge`, the CF ids in project_id /
+    /// version_id, and NOT in `unresolvable`.
+    #[test]
+    fn cf_ref_file_becomes_curseforge_placeholder() {
+        let f = cf_ref_file(
+            9001, // FTB file id (not used for CF-ref files)
+            "ae2.jar",
+            "./mods/",
+            "aabbccddeeff", // sha1 provided by FTB
+            238222,         // CF project id
+            4499899,        // CF file id
+        );
+        let v = FtbVersion {
+            files: vec![f],
+            targets: vec![mc_target("1.20.1"), loader_target("forge", "47.2.0")],
+        };
+        let s = map_version("Test Pack", "1.0", &v);
+
+        assert_eq!(
+            s.files.len(),
+            1,
+            "CF-ref file must be added to files, not skipped"
+        );
+        assert!(
+            s.unresolvable.is_empty(),
+            "CF-ref file must NOT appear in unresolvable"
+        );
+        let f = &s.files[0];
+        assert_eq!(
+            f.source,
+            ModSource::Curseforge,
+            "source must be Curseforge for CF-ref files"
+        );
+        assert_eq!(f.project_id, "238222", "project_id must be CF project id");
+        assert_eq!(f.version_id, "4499899", "version_id must be CF file id");
+        assert!(
+            f.url.is_empty(),
+            "url must be empty placeholder (resolved later by stage_impl)"
+        );
+        assert_eq!(
+            f.sha1, "aabbccddeeff",
+            "sha1 from FTB manifest must be preserved"
+        );
+        assert_eq!(f.install_path, "mods/ae2.jar");
+    }
+
+    /// A CF-ref file with an empty FTB sha1 should still land in files (not
+    /// unresolvable) — the CF API will backfill the sha1 during resolution.
+    #[test]
+    fn cf_ref_file_empty_sha1_still_accepted() {
+        let f = cf_ref_file(
+            9002,
+            "peripheral.jar",
+            "./mods/",
+            "",      // empty sha1
+            312197,  // CF project id
+            5678901, // CF file id
+        );
+        let v = FtbVersion {
+            files: vec![f],
+            targets: vec![mc_target("1.20.1")],
+        };
+        let s = map_version("Test Pack", "1.0", &v);
+        assert_eq!(s.files.len(), 1);
+        assert!(s.unresolvable.is_empty());
+        assert_eq!(s.files[0].source, ModSource::Curseforge);
+        assert!(
+            s.files[0].sha1.is_empty(),
+            "empty sha1 must be passed through"
+        );
+    }
+
+    /// A file with an empty url AND no CF ref should still go to unresolvable.
+    #[test]
+    fn empty_url_without_cf_ref_is_unresolvable() {
+        // Build a file with empty url and no curseforge ref, but with a sha1.
+        // This hits the host-not-allowed path (empty url fails url::Url::parse).
+        use crate::mods::modpack::ftb_api::FtbFile;
+        let f = FtbFile {
+            id: 9003,
+            name: "unknown.jar".into(),
+            path: "./mods/".into(),
+            url: String::new(), // empty url, no CF ref
+            sha1: "deadbeef".into(),
+            size: 100.0,
+            file_type: "mod".into(),
+            clientonly: false,
+            serveronly: false,
+            optional: false,
+            curseforge: None,
+        };
+        let v = FtbVersion {
+            files: vec![f],
+            targets: vec![mc_target("1.20.1")],
+        };
+        let s = map_version("Test Pack", "1.0", &v);
+        assert_eq!(s.files.len(), 0, "no CF ref → not a valid file");
+        assert_eq!(
+            s.unresolvable.len(),
+            1,
+            "no CF ref + empty url must go to unresolvable"
+        );
+    }
+
+    // ── Test 10 ───────────────────────────────────────────────────────────────
 
     #[test]
     fn join_path_edge_cases() {
