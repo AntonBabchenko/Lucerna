@@ -5,6 +5,10 @@ description = "Lucerna — a clean, transparent open-source Minecraft launcher f
 authors = ["AntonBabchenko"]
 license = "GPL-3.0-or-later"
 edition = "2021"
+# The crate has two binaries: the launcher (`lucerna`, from src/main.rs) and the
+# bindings generator (`export_bindings`, from src/bin/). `cargo run` / `tauri dev`
+# need to know which is the default — run the helper explicitly via --bin export_bindings.
+default-run = "lucerna"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
