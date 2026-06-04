@@ -539,14 +539,12 @@
               onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
             />
 
-            {#key selected.id}
-              <IntegritySection
-                instanceId={selected.id}
-                {isRunning}
-                initial={selected.integrity}
-                {onChanged}
-              />
-            {/key}
+            <IntegritySection
+              instanceId={selected.id}
+              {isRunning}
+              name={selected.name}
+              status={selected.integrity}
+            />
 
             <div
               class="flex items-center justify-between pt-3 border-t"

@@ -25,6 +25,8 @@
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
   import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
+  import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
+  import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
   import type { ModpackImportRequest } from '$lib/modpacks/import-request';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
@@ -251,6 +253,21 @@
         void refreshPlaytime(newId);
       }
     });
+  });
+
+  // When a background integrity verify/repair finishes, the store bumps
+  // `completionTick`. Refresh the instance list so the persisted status
+  // (badge + Overview + the Manage section's reactive `status`) updates,
+  // independent of any modal/section lifecycle. Skip the very first run
+  // (mount) so this doesn't double-fetch alongside onMount's refresh.
+  let integritySettled = false;
+  $effect(() => {
+    void integrityCompletionTick();
+    if (integritySettled) {
+      void refreshInstances();
+    } else {
+      integritySettled = true;
+    }
   });
 
   async function refreshAccounts() {
@@ -868,6 +885,9 @@
   <!-- Page-level import progress toast — lives outside the modal so it survives
        the modal being closed mid-import. Renders nothing when no import runs. -->
   <ImportProgressView phase={importPhase} modBytes={importBytes} />
+  <!-- Page-level integrity verify/repair progress — like the import view, lives
+       outside the Manage modal so a background op stays visible after close. -->
+  <IntegrityProgressView />
   <TourOverlay />
   {#if exportDialogOpen && activeInstance}
     <ExportPackDialog

@@ -1,34 +1,32 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
   import { t } from 'svelte-i18n';
-  import type { VerifyCategory } from '$lib/ipc/bindings';
-  import { createIntegrity } from '$lib/instances/integrity.svelte';
+  import { enqueueIntegrity, integrityStatusFor } from '$lib/instances/integrity-ops.svelte';
+  import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
+
+  // Observer view: the verify/repair op is owned by the page-level
+  // integrity-ops store, not this section. The section reads the live op phase
+  // (running/queued) for this instance, and otherwise renders the persisted
+  // `status` passed reactively from `selected.integrity` — which the page
+  // refreshes when an op completes (completionTick effect). No local state
+  // machine, no remount-reset, no stale-response guard.
 
   let {
     instanceId,
     isRunning = false,
-    initial = null,
-    onChanged = () => {},
+    name,
+    status = null,
   }: {
     instanceId: string;
     isRunning?: boolean;
-    initial?: import('$lib/ipc/bindings').IntegrityStatus | null;
-    onChanged?: () => void;
+    name: string;
+    status?: IntegrityStatus | null;
   } = $props();
 
-  // `initial` is a one-shot snapshot of the instance's persisted status;
-  // {#key instanceId} remounts this component on switch, so re-capturing the
-  // current value here is intentional (untrack documents that).
-  const integ = createIntegrity(
-    () => instanceId,
-    () => isRunning,
-    untrack(() => initial),
-    // Capture the callback by reference so a verify that finishes AFTER the
-    // user switched instances (this component unmounted) can still refresh
-    // the list — reading the prop post-unmount would be undefined.
-    untrack(() => onChanged),
-  );
-  onDestroy(() => integ.dispose());
+  const op = $derived(integrityStatusFor(instanceId));
+  // Buttons are blocked while the game runs OR while an op for this instance is
+  // running/queued (dedupe is also enforced in the store, but disabling gives
+  // the user feedback).
+  const blocked = $derived(isRunning || op !== null);
 
   const catKey: Record<VerifyCategory, string> = {
     client: 'instance.integrity.catClient',
@@ -37,6 +35,11 @@
     jre: 'instance.integrity.catJre',
     profile_json: 'instance.integrity.catProfileJson',
   };
+
+  function percent(done: number, total: number): number {
+    if (total <= 0) return 0;
+    return Math.min(100, (done / total) * 100);
+  }
 </script>
 
 <section class="pt-3 border-t" data-tour-ctx="manage-integrity">
@@ -48,40 +51,38 @@
     <button
       type="button"
       class="btn-secondary btn-sm"
-      disabled={isRunning || integ.state === 'verifying' || integ.state === 'repairing'}
+      disabled={blocked}
       title={isRunning ? $t('instance.integrity.busy') : ''}
-      onclick={() => integ.verify()}
+      onclick={() => enqueueIntegrity(instanceId, name, 'verify')}
     >
-      {integ.hasResult ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
+      {status ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
     </button>
   </div>
 
-  {#if integ.state === 'verifying' || integ.state === 'repairing'}
+  {#if op?.phase === 'running'}
     <div class="mt-2" aria-live="polite">
       <p class="text-xs text-muted">
-        {integ.state === 'verifying'
-          ? $t('instance.integrity.verifying', {
-              values: { done: integ.filesDone, total: integ.filesTotal },
-            })
-          : $t('instance.integrity.repairing', {
-              values: { done: integ.filesDone, total: integ.filesTotal },
-            })}
+        {$t('instance.integrity.verifying', {
+          values: { done: op.filesDone, total: op.filesTotal },
+        })}
       </p>
       <div class="h-2 bg-subtle rounded overflow-hidden mt-1">
         <div
           class="h-full bg-accent transition-all"
-          style="width: {integ.filesTotal > 0 ? (integ.filesDone / integ.filesTotal) * 100 : 0}%"
+          style="width: {percent(op.filesDone, op.filesTotal)}%"
         ></div>
       </div>
     </div>
-  {/if}
-
-  {#if integ.state === 'report' && integ.hasResult}
-    {#if integ.healthy === true}
+  {:else if op?.phase === 'queued'}
+    <p class="mt-2 text-xs text-muted" aria-live="polite">
+      {$t('instance.integrity.statusQueued')}
+    </p>
+  {:else if status}
+    {#if status.healthy}
       <p class="mt-2 text-sm text-success">✓ {$t('instance.integrity.allOk')}</p>
     {:else}
       <ul class="mt-2 space-y-1" aria-live="polite">
-        {#each integ.categories as cat (cat.category)}
+        {#each status.categories as cat (cat.category)}
           {@const bad = cat.missing + cat.corrupt}
           <li class="flex items-center justify-between text-xs">
             <span class="flex items-center gap-1.5">
@@ -104,24 +105,22 @@
         <button
           type="button"
           class="btn-primary btn-sm"
-          disabled={isRunning}
+          disabled={blocked}
           title={isRunning ? $t('instance.integrity.busy') : ''}
-          onclick={() => integ.repair()}
+          onclick={() => enqueueIntegrity(instanceId, name, 'repair')}
         >
-          {$t('instance.integrity.repairBtn', { values: { count: integ.problemCount } })}
+          {$t('instance.integrity.repairBtn', { values: { count: status.problem_count } })}
         </button>
       </div>
     {/if}
-    {#if integ.checkedAt}
+    {#if status.checked_unix_ms !== null}
       <p class="text-xs text-muted mt-1">
         {$t('instance.integrity.checkedAt', {
-          values: { date: new Date(integ.checkedAt).toLocaleString() },
+          values: { date: new Date(status.checked_unix_ms).toLocaleString() },
         })}
       </p>
     {/if}
-  {/if}
-
-  {#if integ.error}
-    <p class="mt-2 text-xs text-danger">{integ.error}</p>
+  {:else}
+    <p class="mt-2 text-xs text-muted">{$t('instance.integrity.statusNotChecked')}</p>
   {/if}
 </section>
