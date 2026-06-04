@@ -66,7 +66,9 @@ pub fn build_pack_origin(
             .filter(|u| {
                 matches!(
                     u.reason,
-                    UnresolvableReason::DistributionDisabled | UnresolvableReason::HostNotAllowed
+                    UnresolvableReason::DistributionDisabled
+                        | UnresolvableReason::HostNotAllowed
+                        | UnresolvableReason::MissingChecksum
                 )
             })
             .cloned()
@@ -297,6 +299,17 @@ pub fn modpack_file_to_mod_version(
     game_version: &str,
     loader: crate::mods::platform::LoaderKind,
 ) -> ModVersion {
+    // Emit None for an empty/whitespace sha1 so install_one's sha-guard
+    // (`ok_or(Error::ModsSha1Unavailable)`) rejects the file rather than
+    // silently installing an unverifiable archive (no-TOFU, Principle B.6).
+    let sha1 = {
+        let s = file.sha1.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    };
     ModVersion {
         source: file.source,
         project_id: file.project_id.clone(),
@@ -308,7 +321,7 @@ pub fn modpack_file_to_mod_version(
         primary_file: ModFile {
             filename: file.filename.clone(),
             url: file.url.clone(),
-            sha1: Some(file.sha1.clone()),
+            sha1,
             size: file.size,
             distribution_allowed: true,
         },
@@ -332,6 +345,19 @@ pub fn pack_origin_file_to_mod_version(
     mc_version: &str,
     loader: crate::mods::platform::LoaderKind,
 ) -> ModVersion {
+    // Emit None for an empty/whitespace sha1 so install_one's sha-guard
+    // rejects the file rather than installing an unverifiable archive
+    // (no-TOFU, Principle B.6). The pack-origin snapshot is only written
+    // for successfully installed files, so an empty sha here is a
+    // defensive guard against corrupt snapshot data.
+    let sha1 = {
+        let s = f.sha1.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    };
     ModVersion {
         source: f.source,
         project_id: f.project_id.clone(),
@@ -343,7 +369,7 @@ pub fn pack_origin_file_to_mod_version(
         primary_file: ModFile {
             filename: f.filename.clone(),
             url: f.url.clone(),
-            sha1: Some(f.sha1.clone()),
+            sha1,
             size: f.size,
             distribution_allowed: true,
         },
@@ -1075,6 +1101,48 @@ mod tests {
     }
 
     #[test]
+    fn modpack_file_to_mod_version_empty_sha1_yields_none() {
+        // An empty sha1 in a ModpackFile must produce None in primary_file.sha1
+        // so that install_one's sha guard (ok_or(ModsSha1Unavailable)) rejects it.
+        let mut f = mp_file("proj", "");
+        f.sha1 = String::new();
+        let v =
+            modpack_file_to_mod_version(&f, "1.20.1", crate::mods::platform::LoaderKind::Fabric);
+        assert!(
+            v.primary_file.sha1.is_none(),
+            "empty sha1 must become None, not Some(\"\")"
+        );
+    }
+
+    #[test]
+    fn modpack_file_to_mod_version_whitespace_sha1_yields_none() {
+        let mut f = mp_file("proj", "   ");
+        f.sha1 = "   ".to_string();
+        let v =
+            modpack_file_to_mod_version(&f, "1.20.1", crate::mods::platform::LoaderKind::Fabric);
+        assert!(
+            v.primary_file.sha1.is_none(),
+            "whitespace sha1 must become None"
+        );
+    }
+
+    #[test]
+    fn pack_origin_file_to_mod_version_empty_sha1_yields_none() {
+        // Same guard for the restore path.
+        let mut f = pack_file("aaa");
+        f.sha1 = String::new();
+        let v = pack_origin_file_to_mod_version(
+            &f,
+            "1.20.1",
+            crate::mods::platform::LoaderKind::Fabric,
+        );
+        assert!(
+            v.primary_file.sha1.is_none(),
+            "empty sha1 in PackOriginFile must produce None"
+        );
+    }
+
+    #[test]
     fn pack_origin_file_to_mod_version_round_trip() {
         let f = pack_file("aaa");
         let v = pack_origin_file_to_mod_version(
@@ -1285,13 +1353,28 @@ mod tests {
                 sha1: None,
                 project_id: None,
             },
+            ModpackUnresolvable {
+                reason: UnresolvableReason::MissingChecksum,
+                mod_name: "nohash.jar".into(),
+                manual_action_url: String::new(),
+                filename: "nohash.jar".into(),
+                size: 4.0,
+                sha1: None,
+                project_id: None,
+            },
         ];
         let origin = build_pack_origin(&summary, &[], None, "Test Pack");
-        assert_eq!(origin.missing_mods.len(), 2);
+        // DistributionDisabled + HostNotAllowed + MissingChecksum are kept (3 total).
+        // UnsafePath is excluded.
+        assert_eq!(origin.missing_mods.len(), 3);
         assert!(origin
             .missing_mods
             .iter()
             .all(|m| !matches!(m.reason, UnresolvableReason::UnsafePath)));
+        assert!(origin
+            .missing_mods
+            .iter()
+            .any(|m| matches!(m.reason, UnresolvableReason::MissingChecksum)));
     }
 
     #[test]

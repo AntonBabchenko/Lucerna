@@ -43,6 +43,11 @@ pub enum UnresolvableReason {
     DistributionDisabled,
     HostNotAllowed,
     UnsafePath,
+    /// A file whose integrity cannot be verified because no SHA-1 checksum was
+    /// available from any source (the pack manifest and any secondary API all
+    /// returned an absent or empty hash). Installing such a file would be TOFU
+    /// (trust-on-first-use); it is surfaced as manually unresolvable instead.
+    MissingChecksum,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
