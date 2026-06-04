@@ -732,6 +732,7 @@
     "modsNetwork": "Network error talking to {url}: {details}",
     "modsPlatformAuthInvalid": "CurseForge API key is invalid — please enter a new one in Settings",
     "modsPlatformAuthMissing": "CurseForge requires an API key — set it in Settings",
+    "modsPlatformUnsupported": "This action is not supported on {source}.",
     "modsDistributionDisabled": "This mod's author has disabled third-party launcher downloads on {source}.",
     "modsNotFound": "This mod is no longer available on {source}.",
     "modsDecode": "Unexpected response from {source}: {details}",

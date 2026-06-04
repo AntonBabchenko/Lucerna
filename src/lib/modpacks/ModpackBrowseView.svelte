@@ -6,6 +6,7 @@
     ModpackSearchPage,
     ModpackSort,
     ModSource,
+    SourceCaps,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
@@ -37,13 +38,30 @@
   let query = $state('');
   let source = $state<ModSource>('modrinth');
 
+  // Per-source capability flags — fetched on every source change so the UI
+  // adjusts without any hardcoded `if source === 'x'` checks. Default values
+  // match Modrinth/CurseForge behaviour so the first render is correct before
+  // the IPC round-trip completes.
+  let caps = $state<SourceCaps>({
+    needs_api_key: false,
+    supports_server_filter: true,
+    can_export: true,
+  });
+  $effect(() => {
+    void source;
+    void (async () => {
+      const r = await commands.modpackSourceCaps(source);
+      if (r.status === 'ok') caps = r.data;
+    })();
+  });
+
   // CurseForge needs an API key; Modrinth is anonymous. When the user
   // picks CurseForge with no key stored, the whole search UI is
   // replaced by the key banner — same pattern as the sub-3 mod browser.
   let needsCfKey = $state(false);
 
   async function refreshCfKey() {
-    if (source !== 'curseforge') {
+    if (!caps.needs_api_key) {
       needsCfKey = false;
       return;
     }
@@ -90,7 +108,7 @@
       // before its IPC resolves. This guard is the fast path — the
       // mods_platform_auth fallback below is the safety net if
       // needsCfKey is still stale-false.
-      if (source === 'curseforge' && needsCfKey) {
+      if (caps.needs_api_key && needsCfKey) {
         page = null;
         return;
       }
@@ -168,7 +186,9 @@
     searchAriaLabel={$t('modpacks.browse.searchAriaLabel')}
     searchPlaceholder={source === 'curseforge'
       ? $t('modpacks.browse.searchPlaceholderCurseForge')
-      : $t('modpacks.browse.searchPlaceholderModrinth')}
+      : source === 'ftb'
+        ? $t('modpacks.browse.searchPlaceholderFtb')
+        : $t('modpacks.browse.searchPlaceholderModrinth')}
     searchTestid="modpack-search-input"
     sort={sortChoice}
     sortOptions={[
@@ -198,10 +218,12 @@
   bind:mc={mcFilter}
   bind:source
   mcTestid="modpack-mc-input"
+  allowFtb={true}
+  serverFilters={caps.supports_server_filter}
 />
 
 <div class="px-4 pb-4">
-  {#if source === 'curseforge' && needsCfKey}
+  {#if caps.needs_api_key && needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
   {:else if loading}
     <div class="flex justify-center py-8 text-secondary">

@@ -732,6 +732,7 @@
     "modsNetwork": "Ошибка сети при запросе к {url}: {details}",
     "modsPlatformAuthInvalid": "API-ключ CurseForge недействителен — введите новый в настройках",
     "modsPlatformAuthMissing": "CurseForge требует API-ключ — укажите его в настройках",
+    "modsPlatformUnsupported": "Это действие не поддерживается на {source}.",
     "modsDistributionDisabled": "Автор этого мода запретил загрузку через сторонние лаунчеры на {source}.",
     "modsNotFound": "Этот мод больше не доступен на {source}.",
     "modsDecode": "Неожиданный ответ от {source}: {details}",
