@@ -1668,7 +1668,14 @@ export type SourceCaps = {
 
 export type ThemePreference = "system" | "light" | "dark";
 
-export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path";
+export type UnresolvableReason = "distribution_disabled" | "host_not_allowed" | "unsafe_path" | 
+/**
+ *  A file whose integrity cannot be verified because no SHA-1 checksum was
+ *  available from any source (the pack manifest and any secondary API all
+ *  returned an absent or empty hash). Installing such a file would be TOFU
+ *  (trust-on-first-use); it is surfaced as manually unresolvable instead.
+ */
+"missing_checksum";
 
 /**
  *  The result of an update check. `available` is false when up-to-date.
