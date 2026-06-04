@@ -351,7 +351,15 @@
         "installModAriaLabel": "Install {name}",
         "cannotAutoInstall": "Cannot auto-install ({count})",
         "openLink": "Open ↗",
-        "installBtn": "Install {count} selected"
+        "installBtn": "Install {count} selected",
+        "groupMods": "Mods",
+        "groupResourcepacks": "Resource packs",
+        "groupShaderpacks": "Shader packs",
+        "groupConfig": "Config",
+        "groupScripts": "Scripts",
+        "groupOther": "Other",
+        "groupHeader": "{label} ({count} · {size})",
+        "groupHeaderNoSize": "{label} ({count})"
       },
       "progress": {
         "ariaLabel": "Modpack import progress",
