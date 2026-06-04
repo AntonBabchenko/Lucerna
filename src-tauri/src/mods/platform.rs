@@ -274,6 +274,22 @@ pub struct VersionRef {
     pub version_id: String,
 }
 
+/// A resource pack or shader installed into an instance. Unlike `InstalledMod`
+/// there is no `enabled`/`requires` — Minecraft owns activation and these have
+/// no dependencies. `kind` is `ResourcePack` or `Shader` (never `Mod`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct InstalledAsset {
+    pub kind: ContentKind,
+    pub filename: String,
+    pub sha1: String,
+    pub source: Option<ModSource>,
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub name: String,
+    pub version_number: Option<String>,
+    pub installed_at: String, // RFC 3339
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstalledMod {
     pub filename: String,

@@ -4,6 +4,7 @@
 //! Two implementations live under [`modrinth`] and [`curseforge`].
 //! The install pipeline lives in [`install`].
 
+pub mod assets;
 pub mod cache;
 pub mod compat;
 pub mod curseforge;
