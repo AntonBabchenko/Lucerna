@@ -8,10 +8,12 @@
     instanceId,
     isRunning = false,
     initial = null,
+    onChanged = () => {},
   }: {
     instanceId: string;
     isRunning?: boolean;
     initial?: import('$lib/ipc/bindings').IntegrityStatus | null;
+    onChanged?: () => void;
   } = $props();
 
   // `initial` is a one-shot snapshot of the instance's persisted status;
@@ -21,6 +23,7 @@
     () => instanceId,
     () => isRunning,
     untrack(() => initial),
+    () => onChanged(),
   );
   onDestroy(() => integ.dispose());
 

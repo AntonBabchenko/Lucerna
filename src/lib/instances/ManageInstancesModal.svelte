@@ -540,7 +540,12 @@
             />
 
             {#key selected.id}
-              <IntegritySection instanceId={selected.id} {isRunning} initial={selected.integrity} />
+              <IntegritySection
+                instanceId={selected.id}
+                {isRunning}
+                initial={selected.integrity}
+                {onChanged}
+              />
             {/key}
 
             <div

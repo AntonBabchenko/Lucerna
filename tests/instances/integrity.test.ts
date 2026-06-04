@@ -120,4 +120,35 @@ describe('integrity composable', () => {
     expect(it_.problemCount).toBe(0);
     it_.dispose();
   });
+
+  it('calls onPersisted after a successful verify so the list can refresh', async () => {
+    (commands.verifyInstance as any).mockResolvedValue({ status: 'ok', data: broken });
+    const onPersisted = vi.fn();
+    const it_ = createIntegrity(
+      () => 'i',
+      () => false,
+      null,
+      onPersisted,
+    );
+    await it_.verify();
+    expect(onPersisted).toHaveBeenCalledTimes(1);
+    it_.dispose();
+  });
+
+  it('does not call onPersisted when verify errors', async () => {
+    (commands.verifyInstance as any).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'instance_busy' },
+    });
+    const onPersisted = vi.fn();
+    const it_ = createIntegrity(
+      () => 'i',
+      () => false,
+      null,
+      onPersisted,
+    );
+    await it_.verify();
+    expect(onPersisted).not.toHaveBeenCalled();
+    it_.dispose();
+  });
 });

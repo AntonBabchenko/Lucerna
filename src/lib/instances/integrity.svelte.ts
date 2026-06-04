@@ -12,6 +12,9 @@ export function createIntegrity(
   instanceId: () => string,
   isRunning: () => boolean,
   initial: IntegrityStatus | null = null,
+  /** Called after a verify/repair persists a new status, so the caller can
+   *  refresh the instance list (badge + Overview read the persisted field). */
+  onPersisted: () => void = () => {},
 ) {
   let state = $state<IntegrityState>(initial ? 'report' : 'idle');
   let report = $state<VerifyReport | null>(null);
@@ -53,6 +56,7 @@ export function createIntegrity(
       report = res.data;
       liveCheckedAt = Date.now();
       state = 'report';
+      onPersisted();
     } else {
       error = formatError(res.error);
       state = stored ? 'report' : 'idle';
@@ -71,6 +75,7 @@ export function createIntegrity(
     if (res.status === 'ok') {
       report = res.data;
       liveCheckedAt = Date.now();
+      onPersisted();
     } else {
       error = formatError(res.error);
     }
