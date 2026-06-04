@@ -686,7 +686,12 @@ export type AppFile_Serialize = {
 };
 
 /**  Outcome of checking a single planned artefact against disk. */
-export type ArtifactStatus = "ok" | "missing" | "corrupt";
+export type ArtifactStatus = "ok" | "missing" | 
+/**
+ *  File present but bad: SHA mismatch for hashed artefacts; unparseable
+ *  for the profile JSON (which has no authoritative SHA).
+ */
+"corrupt";
 
 /**  One on-disk backup zip for a world. */
 export type Backup = {
@@ -1649,7 +1654,7 @@ export type VerifyProgress = {
 	 *  Cumulative bytes within the current phase. `f64` (not `u64`) is a
 	 *  specta/serde-JS quirk shared with `InstallProgress` and playtime.
 	 */
-	bytes_done: number,
+	bytes_done: number | null,
 	current_category: VerifyCategory | null,
 };
 
