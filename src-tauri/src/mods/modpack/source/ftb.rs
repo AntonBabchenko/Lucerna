@@ -256,6 +256,7 @@ const CF_BASE: &str = "https://api.curseforge.com";
 ///   `summary.unresolvable` with `reason: HostNotAllowed` (closest existing
 ///   reason for "couldn't fetch") and a manual CurseForge project URL so the
 ///   import picker can show them with an "Open on CurseForge" link.
+///
 /// FTB cf-ref files need a CurseForge API key to resolve; without one they
 /// degrade to manual.
 async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Option<&str>) {
@@ -353,6 +354,11 @@ async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Optio
                         f.sha1 = h.clone();
                     }
                 }
+                // no-TOFU (B.6): CF returned a URL but no checksum and FTB provided
+                // none — refuse to install an unverifiable file.
+                if f.sha1.trim().is_empty() {
+                    to_remove.push(idx);
+                }
             }
             // distribution_disabled (None download_url) or absent from response.
             _ => {
@@ -361,25 +367,34 @@ async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Optio
         }
     }
 
-    // Move distribution-disabled files to unresolvable (reverse order to
-    // preserve earlier indices).
+    // Move distribution-disabled (and no-TOFU-rejected) files to unresolvable
+    // (reverse order to preserve earlier indices).
     to_remove.sort_unstable();
     for &idx in to_remove.iter().rev() {
         let f = summary.files.remove(idx);
-        // Try to get sha1 and url from the resolved map for the unresolvable entry.
-        let cf_sha1 = f
-            .version_id
-            .parse::<u64>()
-            .ok()
-            .and_then(|id| resolved.get(&id))
-            .and_then(|r| r.sha1.clone());
+        // Determine whether this is a no-TOFU reject (url set but sha1 missing)
+        // or a genuine distribution-disabled / absent case.
+        let (reason, cf_sha1) = if !f.url.is_empty() {
+            // URL was filled but sha1 is missing — no-TOFU rejection.
+            (UnresolvableReason::HostNotAllowed, None)
+        } else {
+            // distribution_disabled or absent from CF response — try to recover
+            // sha1 from the resolved map for the unresolvable entry.
+            let sha1 = f
+                .version_id
+                .parse::<u64>()
+                .ok()
+                .and_then(|id| resolved.get(&id))
+                .and_then(|r| r.sha1.clone());
+            (UnresolvableReason::DistributionDisabled, sha1)
+        };
         let sha1 = if !f.sha1.is_empty() {
             Some(f.sha1)
         } else {
             cf_sha1
         };
         summary.unresolvable.push(ModpackUnresolvable {
-            reason: UnresolvableReason::DistributionDisabled,
+            reason,
             mod_name: f.name,
             manual_action_url: format!("https://www.curseforge.com/projects/{}", f.project_id),
             filename: f.filename,
@@ -623,6 +638,46 @@ mod tests {
         assert_eq!(u.project_id.as_deref(), Some("238222"));
         // sha1 backfilled from CF response
         assert_eq!(u.sha1.as_deref(), Some("deadbeef"));
+    }
+
+    /// resolve_cf_refs moves a file to unresolvable when CF returns a downloadUrl
+    /// but provides no sha1 hash and FTB had none either (no-TOFU, B.6).
+    #[tokio::test]
+    async fn resolve_cf_refs_url_without_sha1_is_unresolvable() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        // CF returns a downloadUrl but an empty hashes array — no sha1.
+        let body = serde_json::json!({
+            "data": [{
+                "id": 4499899u64,
+                "downloadUrl": "https://edge.forgecdn.net/files/4/4/ae2.jar",
+                "hashes": []
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // FTB also has no sha1.
+        let mut summary = summary_with_cf_placeholder("238222", "4499899", "");
+        resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert!(
+            summary.files.is_empty(),
+            "url-without-sha1 file must not stay in files (no-TOFU)"
+        );
+        assert_eq!(summary.unresolvable.len(), 1);
+        let u = &summary.unresolvable[0];
+        assert!(
+            matches!(u.reason, UnresolvableReason::HostNotAllowed),
+            "expected HostNotAllowed for no-TOFU rejection, got {:?}",
+            u.reason
+        );
+        assert!(u.manual_action_url.contains("238222"));
+        assert_eq!(u.project_id.as_deref(), Some("238222"));
     }
 
     /// resolve_cf_refs with no CF key moves all CF-ref files to unresolvable
