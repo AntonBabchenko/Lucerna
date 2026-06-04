@@ -24,6 +24,8 @@ impl ProjectKey {
             ModSource::Modrinth => ProjectKey::Modrinth(v.project_id.clone()),
             // CF project_id is always a numeric mod id; unwrap_or(0) is a defensive fallback (never expected in practice).
             ModSource::Curseforge => ProjectKey::Curseforge(v.project_id.parse().unwrap_or(0)),
+            // FTB: pack-managed; use string key for dedup (no numeric id convention).
+            ModSource::Ftb => ProjectKey::Modrinth(v.project_id.clone()),
         }
     }
     pub fn of_ref(r: &DepProjectRef) -> ProjectKey {

@@ -92,6 +92,8 @@ pub async fn resolve_download_url(
                 Err(e) => Err(e),
             }
         }
+        // FTB: pack-managed mods have no canonical download URL for export; bundle locally.
+        ModSource::Ftb => Ok(None),
     }
 }
 

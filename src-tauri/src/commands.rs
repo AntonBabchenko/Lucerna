@@ -673,6 +673,10 @@ fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
     match source {
         ModSource::Modrinth => Box::new(ModrinthClient::new()),
         ModSource::Curseforge => Box::new(CurseForgeClient::new()),
+        // FTB is a modpack-only source — no per-mod browser.
+        ModSource::Ftb => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Ftb,
+        }),
     }
 }
 
@@ -938,6 +942,7 @@ async fn find_version(
             platform: match vr.source {
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
+                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
             }
             .into(),
         })
@@ -1318,6 +1323,11 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
                 file_id: v.version_id.parse().ok(),
             }
         }
+        // FTB: pack-managed, no per-mod dep ref; fall back to Modrinth-style string ref.
+        crate::mods::platform::ModSource::Ftb => crate::mods::platform::DepProjectRef::Modrinth {
+            project_id: v.project_id.clone(),
+            version_id: Some(v.version_id.clone()),
+        },
     }
 }
 
@@ -1955,6 +1965,12 @@ pub async fn modpack_search(
             )
             .await
         }
+        // FTB: pack-managed source — no modpack browser via this command.
+        crate::mods::platform::ModSource::Ftb => {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: crate::mods::platform::ModSource::Ftb,
+            })
+        }
     }
 }
 
@@ -2044,6 +2060,12 @@ pub async fn modpack_fetch_to_temp(
                     details: e.to_string(),
                 })?;
             (bytes, "zip")
+        }
+        // FTB: pack-managed source — archive download not supported via this command.
+        crate::mods::platform::ModSource::Ftb => {
+            return Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: crate::mods::platform::ModSource::Ftb,
+            });
         }
     };
 
@@ -2248,6 +2270,12 @@ pub async fn modpack_get_versions(
             modpack::cf_api::list_files("https://api.curseforge.com", key.as_deref(), &project_id)
                 .await
         }
+        // FTB: pack-managed source — no version listing via this command.
+        crate::mods::platform::ModSource::Ftb => {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: crate::mods::platform::ModSource::Ftb,
+            })
+        }
     }
 }
 
@@ -2339,6 +2367,12 @@ pub async fn modpack_project(
                 &project_id,
             )
             .await
+        }
+        // FTB: pack-managed source — no project detail fetch via this command.
+        crate::mods::platform::ModSource::Ftb => {
+            Err(crate::error::Error::ModsPlatformUnsupported {
+                platform: crate::mods::platform::ModSource::Ftb,
+            })
         }
     }
 }
@@ -2910,6 +2944,10 @@ pub async fn mods_dependency_graph(
             let platform: Arc<dyn crate::mods::platform::ModPlatform> = match source {
                 ModSource::Modrinth => mr.clone(),
                 ModSource::Curseforge => cf.clone(),
+                // FTB: pack-managed, not individually dep-resolvable — treat as leaf.
+                ModSource::Ftb => Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
+                    source: ModSource::Ftb,
+                }),
             };
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();

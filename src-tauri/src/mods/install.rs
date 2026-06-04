@@ -116,6 +116,7 @@ pub async fn install_one(
             platform: match version.source {
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
+                ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
             }
             .into(),
             project_id: version.project_id.clone(),
@@ -367,6 +368,7 @@ pub async fn update_one(
                 platform: match v.source {
                     ModSource::Modrinth => "modrinth",
                     ModSource::Curseforge => "curseforge",
+                    ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
                 }
                 .into(),
                 project_id: v.project_id.clone(),
