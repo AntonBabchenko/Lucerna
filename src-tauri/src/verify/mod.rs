@@ -13,6 +13,41 @@ pub use scan::verify_instance_report;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set while a repair is rewriting an instance's shared files. `launch::start`
+/// consults this so the game is never launched on top of half-rewritten
+/// library/client jars (a repair streams files over minutes; the one-shot
+/// `is_running()` check at repair start can't see a launch that happens
+/// mid-rewrite, so we guard the reverse direction too).
+static REPAIR_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// True while a repair is actively rewriting files. Checked by the launch path.
+pub fn repair_in_progress() -> bool {
+    REPAIR_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+/// RAII guard for the repair-in-progress flag. `acquire()` returns `None` if a
+/// repair is already running (rejects concurrent repairs even if the frontend
+/// queue is bypassed); the flag clears on drop — panic-safe.
+pub struct RepairGuard {
+    _private: (),
+}
+
+impl RepairGuard {
+    pub fn acquire() -> Option<Self> {
+        REPAIR_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| RepairGuard { _private: () })
+    }
+}
+
+impl Drop for RepairGuard {
+    fn drop(&mut self) {
+        REPAIR_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Outcome of checking a single planned artefact against disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -63,6 +98,10 @@ pub struct VerifyReport {
     pub categories: Vec<CategoryReport>,
     pub problems: Vec<ProblemArtifact>,
     pub healthy: bool,
+    /// `true` means the manifest/profile JSON itself is missing or unparseable,
+    /// so per-file SHAs are unknowable — the report is unhealthy and repair must
+    /// re-fetch/regenerate the manifest first. Naming: "recoverable" = repair
+    /// can recover it, NOT "everything's fine". (true = there IS a problem.)
     pub manifest_recoverable: bool,
 }
 
@@ -192,6 +231,22 @@ mod tests {
         let r = VerifyReport::build("i".into(), "1.20.4".into(), &[], vec![], true);
         assert!(!r.healthy);
         assert!(r.manifest_recoverable);
+    }
+
+    #[test]
+    fn repair_guard_blocks_concurrent_and_clears_on_drop() {
+        assert!(!repair_in_progress());
+        let g1 = RepairGuard::acquire().expect("first acquire succeeds");
+        assert!(repair_in_progress());
+        // A second repair (or a launch) sees the flag set.
+        assert!(RepairGuard::acquire().is_none());
+        drop(g1);
+        assert!(!repair_in_progress());
+        // Re-acquirable once cleared.
+        let g2 = RepairGuard::acquire().expect("re-acquire after drop");
+        assert!(repair_in_progress());
+        drop(g2);
+        assert!(!repair_in_progress());
     }
 
     #[test]

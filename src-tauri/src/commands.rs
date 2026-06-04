@@ -127,6 +127,11 @@ pub async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<u32, crate::error::Error> {
+    // Don't launch on top of a repair that's rewriting this instance's shared
+    // library/client jars — the JVM could read a half-written file and crash.
+    if crate::verify::repair_in_progress() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     let json_path = crate::paths::instance_json(&app, &instance_id)
         .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
@@ -176,7 +181,9 @@ fn persist_integrity(
     crate::instances::store::write_instance_json(&path, &file)
 }
 
-/// Read-only integrity verification of an instance's installed files.
+/// Integrity verification of an instance's installed files. The hashing pass is
+/// read-only; on a cold cache the manifest fetch inside it may write the version
+/// JSON (offline no-op for an already-installed instance — the normal case).
 /// Blocked while a game is running (can't hash a live game's files).
 #[tauri::command]
 #[specta::specta]
@@ -208,6 +215,11 @@ pub async fn repair_instance(
     if crate::launch::spawn::is_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
+    // Mark repair-in-progress for the whole rewrite so a concurrent launch is
+    // rejected (closes the TOCTOU between the is_running() check above and the
+    // minutes-long file rewrite below). Also rejects a second concurrent repair.
+    let _repair_guard =
+        crate::verify::RepairGuard::acquire().ok_or(crate::error::Error::InstanceBusy)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     let report = crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await?;
     // Best-effort: a successful verify/repair is valuable even if we can't

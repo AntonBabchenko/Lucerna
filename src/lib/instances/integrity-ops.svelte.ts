@@ -33,8 +33,11 @@ let completionTick = $state(0);
 
 // One module-level progress listener, attached lazily on first enqueue so it
 // stays inert under vitest (no Tauri runtime → `events.verifyProgress.listen`
-// throws / rejects, which we swallow).
+// throws / rejects, which we swallow). The unlisten handle is retained so the
+// test reset can detach it — otherwise re-attaching after a reset would stack a
+// second listener in the same vitest process.
 let listenerInit = false;
+let unlisten: (() => void) | null = null;
 function ensureListener(): void {
   if (listenerInit) return;
   listenerInit = true;
@@ -48,6 +51,9 @@ function ensureListener(): void {
             filesTotal: e.payload.files_total,
           };
         }
+      })
+      .then((u) => {
+        unlisten = u;
       })
       .catch(() => {});
   } catch {
@@ -114,15 +120,25 @@ async function processNext(): Promise<void> {
   void processNext();
 }
 
-/** Live phase for an instance, for the section to render. */
-export function integrityStatusFor(
-  instanceId: string,
-): { phase: 'running' | 'queued'; filesDone: number; filesTotal: number } | null {
+/** Live phase for an instance, for the section to render. `kind` lets the view
+ *  label progress correctly ("Repairing…" vs "Verifying…"). */
+export function integrityStatusFor(instanceId: string): {
+  phase: 'running' | 'queued';
+  kind: IntegrityKind;
+  filesDone: number;
+  filesTotal: number;
+} | null {
   if (running?.instanceId === instanceId) {
-    return { phase: 'running', filesDone: running.filesDone, filesTotal: running.filesTotal };
+    return {
+      phase: 'running',
+      kind: running.kind,
+      filesDone: running.filesDone,
+      filesTotal: running.filesTotal,
+    };
   }
-  if (queue.some((q) => q.instanceId === instanceId)) {
-    return { phase: 'queued', filesDone: 0, filesTotal: 0 };
+  const queued = queue.find((q) => q.instanceId === instanceId);
+  if (queued) {
+    return { phase: 'queued', kind: queued.kind, filesDone: 0, filesTotal: 0 };
   }
   return null;
 }
@@ -149,5 +165,7 @@ export function __resetIntegrityOpsForTest(): void {
   running = null;
   queue = [];
   completionTick = 0;
+  unlisten?.();
+  unlisten = null;
   listenerInit = false;
 }

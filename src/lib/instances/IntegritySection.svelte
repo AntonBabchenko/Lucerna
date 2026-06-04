@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { t } from 'svelte-i18n';
+  import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { enqueueIntegrity, integrityStatusFor } from '$lib/instances/integrity-ops.svelte';
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
 
@@ -27,8 +28,13 @@
   // running/queued (dedupe is also enforced in the store, but disabling gives
   // the user feedback).
   const blocked = $derived(isRunning || op !== null);
+  // Non-empty tooltip whenever a button is disabled, so a blocked click isn't
+  // silent: game-running vs an integrity op already pending for this instance.
+  const blockTitle = $derived(
+    isRunning ? $t('instance.integrity.busy') : op ? $t('instance.integrity.statusQueued') : '',
+  );
 
-  const catKey: Record<VerifyCategory, string> = {
+  const catKey: Record<VerifyCategory, TranslationKey> = {
     client: 'instance.integrity.catClient',
     libraries: 'instance.integrity.catLibraries',
     assets: 'instance.integrity.catAssets',
@@ -52,7 +58,7 @@
       type="button"
       class="btn-secondary btn-sm"
       disabled={blocked}
-      title={isRunning ? $t('instance.integrity.busy') : ''}
+      title={blockTitle}
       onclick={() => enqueueIntegrity(instanceId, name, 'verify')}
     >
       {status ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
@@ -62,9 +68,9 @@
   {#if op?.phase === 'running'}
     <div class="mt-2" aria-live="polite">
       <p class="text-xs text-muted">
-        {$t('instance.integrity.verifying', {
-          values: { done: op.filesDone, total: op.filesTotal },
-        })}
+        {op.kind === 'repair'
+          ? $t('instance.integrity.repairing', { done: op.filesDone, total: op.filesTotal })
+          : $t('instance.integrity.verifying', { done: op.filesDone, total: op.filesTotal })}
       </p>
       <div class="h-2 bg-subtle rounded overflow-hidden mt-1">
         <div
@@ -91,11 +97,10 @@
             </span>
             <span class={bad === 0 ? 'text-muted' : 'text-danger'}>
               {bad === 0
-                ? $t('instance.integrity.countOk', {
-                    values: { ok: cat.ok, total: cat.total },
-                  })
+                ? $t('instance.integrity.countOk', { ok: cat.ok, total: cat.total })
                 : $t('instance.integrity.countProblems', {
-                    values: { corrupt: cat.corrupt, missing: cat.missing },
+                    corrupt: cat.corrupt,
+                    missing: cat.missing,
                   })}
             </span>
           </li>
@@ -106,17 +111,17 @@
           type="button"
           class="btn-primary btn-sm"
           disabled={blocked}
-          title={isRunning ? $t('instance.integrity.busy') : ''}
+          title={blockTitle}
           onclick={() => enqueueIntegrity(instanceId, name, 'repair')}
         >
-          {$t('instance.integrity.repairBtn', { values: { count: status.problem_count } })}
+          {$t('instance.integrity.repairBtn', { count: status.problem_count })}
         </button>
       </div>
     {/if}
     {#if status.checked_unix_ms !== null}
       <p class="text-xs text-muted mt-1">
         {$t('instance.integrity.checkedAt', {
-          values: { date: new Date(status.checked_unix_ms).toLocaleString() },
+          date: new Date(status.checked_unix_ms).toLocaleString(),
         })}
       </p>
     {/if}

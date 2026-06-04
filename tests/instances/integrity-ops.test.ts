@@ -191,8 +191,18 @@ describe('integrity-ops store', () => {
     enqueueIntegrity('a', 'Alpha', 'verify');
     enqueueIntegrity('b', 'Bravo', 'repair');
 
-    expect(integrityStatusFor('a')).toEqual({ phase: 'running', filesDone: 0, filesTotal: 0 });
-    expect(integrityStatusFor('b')).toEqual({ phase: 'queued', filesDone: 0, filesTotal: 0 });
+    expect(integrityStatusFor('a')).toEqual({
+      phase: 'running',
+      kind: 'verify',
+      filesDone: 0,
+      filesTotal: 0,
+    });
+    expect(integrityStatusFor('b')).toEqual({
+      phase: 'queued',
+      kind: 'repair',
+      filesDone: 0,
+      filesTotal: 0,
+    });
     expect(integrityStatusFor('c')).toBeNull();
 
     d.resolve({ status: 'ok', data: healthyReport });

@@ -1,5 +1,12 @@
-//! Read-only integrity scan. Hashes on-disk files in parallel, classifies
-//! each planned artefact, and aggregates a `VerifyReport`. No disk writes.
+//! Integrity scan. Hashes on-disk files in parallel, classifies each planned
+//! artefact, and aggregates a `VerifyReport`.
+//!
+//! The hashing pass itself never writes. The one caveat is the manifest:
+//! `verify_instance_report` calls `ensure_version_json`, which on a COLD cache
+//! fetches (and writes) the version JSON — and for synth loaders runs the merge
+//! / install-pipeline. For an already-installed instance (the normal case) this
+//! is the disk fast-path with no network and no writes. So "read-only" holds in
+//! practice but is not an absolute guarantee on a never-installed instance.
 
 use crate::verify::ArtifactStatus;
 
@@ -306,7 +313,11 @@ fn category_totals(
         (Libraries, count(Libraries)),
         (Assets, count(Assets)),
         (Jre, jre_total),
-        // ProfileJson is a single artefact; total is always 1 (problem present only via the manifest_recoverable early-return path).
+        // ProfileJson is one artefact, total always 1. It is presence/parse-checked
+        // only — it has no authoritative SHA — so a JSON that parses but is
+        // semantically wrong reads as OK here; a missing/unparseable one is caught
+        // earlier via the manifest_recoverable early-return (so it never reaches here
+        // showing green). The 1/1 OK in the happy path means "parsed", not "SHA-verified".
         (ProfileJson, 1),
     ]
 }

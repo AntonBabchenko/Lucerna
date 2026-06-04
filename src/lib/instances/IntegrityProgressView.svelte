@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from 'svelte-i18n';
+  import { t } from '$lib/i18n';
   import { integrityQueueLength, integrityRunning } from '$lib/instances/integrity-ops.svelte';
 
   // Render-only page-level progress for the running integrity op, mirroring
@@ -28,8 +28,8 @@
     </h3>
     <div class="text-sm text-secondary truncate">
       {running.kind === 'verify'
-        ? $t('instance.integrity.opVerifying', { values: { name: running.name } })
-        : $t('instance.integrity.opRepairing', { values: { name: running.name } })}
+        ? $t('instance.integrity.opVerifying', { name: running.name })
+        : $t('instance.integrity.opRepairing', { name: running.name })}
       {running.filesDone}/{running.filesTotal}
     </div>
     <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">
@@ -40,7 +40,7 @@
     </div>
     {#if queued > 0}
       <div class="text-xs text-muted mt-1">
-        (+{$t('instance.integrity.opQueued', { values: { count: queued } })})
+        (+{$t('instance.integrity.opQueued', { count: queued })})
       </div>
     {/if}
   </div>
