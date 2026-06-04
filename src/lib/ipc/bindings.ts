@@ -329,6 +329,29 @@ export const commands = {
 	 */
 	modsCheckUpdates: (instanceId: string) => typedError<ModUpdateCheck[], Error>(__TAURI_INVOKE("mods_check_updates", { instanceId })),
 	/**
+	 *  Download + install a resource pack or shader version into an instance,
+	 *  recording it in the assets registry. No progress events yet (no UI
+	 *  callers), so a no-op progress sink is supplied.
+	 */
+	assetInstall: (instanceId: string, version: ModVersion, kind: ContentKind) => typedError<null, Error>(__TAURI_INVOKE("asset_install", { instanceId, version, kind })),
+	/**
+	 *  List installed resource packs or shaders for an instance, filtered by
+	 *  `kind`. Reads the per-instance assets registry; never touches mods.
+	 */
+	assetsList: (instanceId: string, kind: ContentKind) => typedError<InstalledAsset[], Error>(__TAURI_INVOKE("assets_list", { instanceId, kind })),
+	/**
+	 *  Remove an asset's file from disk (best-effort) and drop its registry
+	 *  entry. The registry is the source of truth, so a missing file is fine.
+	 */
+	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<null, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
+	/**
+	 *  Check every installed asset of `kind` that carries platform identity
+	 *  for a newer version on the instance's MC version. A single asset's
+	 *  query failure becomes that asset's `CheckFailed` state. Resource packs
+	 *  and shaders are not loader-filtered, so the loader facet is omitted.
+	 */
+	assetsCheckUpdates: (instanceId: string, kind: ContentKind) => typedError<AssetUpdateCheck[], Error>(__TAURI_INVOKE("assets_check_updates", { instanceId, kind })),
+	/**
 	 *  For each installed mod in `id`, report whether any platform version
 	 *  exists for the given target `mc` + `loader`. Non-destructive — no
 	 *  files are modified.
@@ -674,6 +697,25 @@ export type AppFile_Serialize = {
 	update_dismissed_version?: string | null,
 };
 
+/**  One installed resource-pack/shader's update-check result. */
+export type AssetUpdateCheck = {
+	filename: string,
+	name: string,
+	state: AssetUpdateState,
+};
+
+/**  The per-asset update classification (mirrors `ModUpdateState` for mods). */
+export type AssetUpdateState = 
+/**  The installed version is the newest offered for this MC version. */
+{ kind: "up_to_date" } | 
+/**  A newer version exists; `latest` is the version to install. */
+{ kind: "update_available"; latest: ModVersion } | 
+/**
+ *  The platform query failed (network error, project delisted, etc.).
+ *  Set by the command layer — never produced by `classify_asset_update`.
+ */
+{ kind: "check_failed"; reason: string };
+
 /**  One on-disk backup zip for a world. */
 export type Backup = {
 	/**
@@ -705,6 +747,12 @@ export type CompatVerdict = {
 	/**  The jar's declared MC `major.minor` differs from the instance's. */
 	mc_mismatch: boolean,
 };
+
+/**
+ *  What kind of content a search/install targets. `Mod` is the historical
+ *  default so payloads that omit it keep working (serde `default`).
+ */
+export type ContentKind = "mod" | "resource_pack" | "shader";
 
 export type CrashReport = {
 	path: string,
@@ -917,6 +965,23 @@ export type InstallSummary = {
 	installed_dependencies: string[],
 };
 
+/**
+ *  A resource pack or shader installed into an instance. Unlike `InstalledMod`
+ *  there is no `enabled`/`requires` — Minecraft owns activation and these have
+ *  no dependencies. `kind` is `ResourcePack` or `Shader` (never `Mod`).
+ */
+export type InstalledAsset = {
+	kind: ContentKind,
+	filename: string,
+	sha1: string,
+	source: ModSource | null,
+	project_id: string | null,
+	version_id: string | null,
+	name: string,
+	version_number: string | null,
+	installed_at: string,
+};
+
 export type InstalledMod = {
 	filename: string,
 	sha1: string,
@@ -1117,6 +1182,7 @@ export type ModSearchPage = {
 
 export type ModSearchQuery = {
 	source: ModSource,
+	kind?: ContentKind,
 	query: string,
 	mc_version: string | null,
 	loader: LoaderKind | null,

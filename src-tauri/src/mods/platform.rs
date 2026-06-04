@@ -288,7 +288,7 @@ pub enum AssetUpdateState {
 }
 
 /// One installed resource-pack/shader's update-check result.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct AssetUpdateCheck {
     pub filename: String,
     pub name: String,
