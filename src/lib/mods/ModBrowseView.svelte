@@ -4,6 +4,7 @@
     type ContentKind,
     events,
     type Error as IpcError,
+    type InstalledAsset,
     type InstalledMod,
     type LoaderKind,
     type ModSort,
@@ -175,6 +176,31 @@
   type InstalledRow = { installed: InstalledMod; projectName: string | null };
   let installedMods = $state<InstalledRow[]>([]);
 
+  // Resource packs / shaders have their own per-instance registry (assets_list).
+  // Unlike mods there is no enable/disable and no cross-platform name lookup —
+  // an asset is matched purely by source + project_id. We keep the raw list and
+  // synthesise an InstalledMod-shaped record in `installedFor` so ModCard can
+  // render the same "Installed · vX" badge + Uninstall without any card change.
+  let installedAssets = $state<InstalledAsset[]>([]);
+
+  async function refreshInstalledAssets() {
+    // Assets only exist for non-mod kinds with a selected instance. Capture the
+    // instance so a stale result can't overwrite the current instance's badges
+    // (mirrors refreshInstalled's reqId guard).
+    if (isMod) {
+      installedAssets = [];
+      return;
+    }
+    const reqId = instanceId;
+    if (!reqId) {
+      installedAssets = [];
+      return;
+    }
+    const r = await commands.assetsList(reqId, kind);
+    if (instanceId !== reqId || r.status !== 'ok') return;
+    installedAssets = r.data;
+  }
+
   async function refreshInstalled() {
     // Capture the instance; drop the result if the user switches mid-flight
     // (the per-mod project lookups below are slow) so a stale list can't
@@ -216,7 +242,13 @@
   $effect(() => {
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _id = instanceId;
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _kind = kind;
     void refreshInstalled();
+    // For mods this clears the asset list (isMod → []); for resource packs /
+    // shaders it loads the per-instance asset registry so result cards flip to
+    // the installed state. Re-runs when instance or kind changes.
+    void refreshInstalledAssets();
   });
 
   // Mods can be enabled/disabled/uninstalled from the Installed tab (a sibling
@@ -252,6 +284,30 @@
   }
 
   function installedFor(card: ModSummary): InstalledMod | null {
+    // Resource packs / shaders: match purely by source + project_id against the
+    // asset registry, then synthesise an InstalledMod-shaped record so ModCard
+    // renders the green "Installed · vX" badge + Uninstall unchanged. Assets
+    // have no enable/disable, no deps, and no enrichment — those fields are
+    // filled with inert defaults (enabled: true so the badge reads "Installed").
+    if (!isMod) {
+      const a = installedAssets.find(
+        (x) => x.source === card.source && x.project_id === card.project_id,
+      );
+      if (!a) return null;
+      return {
+        filename: a.filename,
+        sha1: a.sha1,
+        source: a.source,
+        project_id: a.project_id,
+        version_id: a.version_id,
+        name: a.name,
+        version_number: a.version_number,
+        installed_at: a.installed_at,
+        enabled: true,
+        requires: [],
+        enrich_attempted: false,
+      };
+    }
     // Exact platform-and-id match first.
     const exact = installedMods.find(
       (r) => r.installed.source === card.source && r.installed.project_id === card.project_id,
@@ -293,6 +349,23 @@
 
   async function uninstallCard(card: ModSummary) {
     if (!instanceId) return;
+    // Resource packs / shaders uninstall via assetUninstall keyed on filename
+    // (their registry has no sha1-based mod command). Match the installed asset
+    // by source + project_id, then refresh the asset list so the card flips
+    // back to "Install".
+    if (!isMod) {
+      const asset = installedAssets.find(
+        (x) => x.source === card.source && x.project_id === card.project_id,
+      );
+      if (!asset) return;
+      const r = await commands.assetUninstall(instanceId, kind, asset.filename);
+      if (r.status === 'error') {
+        error = formatError(r.error);
+        return;
+      }
+      await refreshInstalledAssets();
+      return;
+    }
     const inst = installedFor(card);
     if (!inst) return;
     const r = await commands.modsUninstall(instanceId, inst.sha1);
@@ -611,6 +684,10 @@
       return;
     }
     pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+    // Mods refresh their installed-state via Tauri events; assets have no such
+    // events, so refresh the asset list explicitly to flip the card to the
+    // "Installed · vX" + Uninstall state immediately.
+    await refreshInstalledAssets();
   }
 
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
@@ -833,6 +910,7 @@
               onOpenDetail={() => (drawerProject = hit.project_id)}
               onToggle={() => toggleCard(hit)}
               onUninstall={() => uninstallCard(hit)}
+              canToggle={isMod}
               layout="grid"
             />
           {/each}
@@ -847,6 +925,7 @@
               onOpenDetail={() => (drawerProject = hit.project_id)}
               onToggle={() => toggleCard(hit)}
               onUninstall={() => uninstallCard(hit)}
+              canToggle={isMod}
               layout="list"
             />
           {/each}

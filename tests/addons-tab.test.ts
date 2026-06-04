@@ -95,7 +95,6 @@ describe('AddonsTab', () => {
   });
 
   it('switching kind resets to Browse sub-view', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
     render(AddonsTab, { props });
 
     // Open the Installed sub-tab while on Mods.
@@ -117,14 +116,15 @@ describe('AddonsTab', () => {
       'false',
     );
 
-    // assetsList must NOT have been called — installedMounted was reset to
-    // false by the kind switch, so InstalledAssetsView was never mounted.
-    const assetsList = commands.assetsList as ReturnType<typeof vi.fn>;
-    expect(assetsList).not.toHaveBeenCalled();
+    // InstalledAssetsView must NOT be mounted — installedMounted was reset to
+    // false by the kind switch. We assert on its unique "Check for updates"
+    // button rather than assetsList: the Browse pane (ModBrowseView) now also
+    // calls assetsList on mount for non-mod kinds to drive installed-state
+    // badges, so that command is no longer a mount signal for the Installed view.
+    expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
   });
 
   it('switching kind does not auto-mount Installed sub-view (no premature IPC)', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
     render(AddonsTab, { props });
 
     // Switch through all non-mod kinds without opening the Installed tab.
@@ -138,9 +138,10 @@ describe('AddonsTab', () => {
       );
     });
 
-    // InstalledAssetsView was never mounted so assetsList must not have fired.
-    const assetsList = commands.assetsList as ReturnType<typeof vi.fn>;
-    expect(assetsList).not.toHaveBeenCalled();
+    // InstalledAssetsView was never mounted — assert on its unique "Check for
+    // updates" button. (assetsList is no longer a valid mount signal: the Browse
+    // pane now calls it on mount for non-mod kinds to render installed badges.)
+    expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
   });
 
   it('tablist has an accessible name', () => {

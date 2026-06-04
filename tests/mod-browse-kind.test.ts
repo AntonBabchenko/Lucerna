@@ -55,6 +55,11 @@ vi.mock('$lib/ipc/bindings', () => ({
       ],
     }),
     assetInstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // Installed-asset registry for resource packs / shaders. Default: empty so
+    // existing tests see the "Install" button; the installed-state tests below
+    // override this with a matching InstalledAsset.
+    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    assetUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsInstallWithDeps: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
   events: {
@@ -178,6 +183,154 @@ describe('ModBrowseView — content kind', () => {
     expect(assetInstall.mock.calls[0]![2]).toBe('shader');
     // The dependency-aware mod path must NOT be invoked.
     expect(installWithDeps).not.toHaveBeenCalled();
+  });
+
+  // ── Installed-state awareness for resource packs / shaders ────────────────
+
+  // A search hit whose source + project_id match an installed asset.
+  const shaderHit = {
+    source: 'modrinth',
+    project_id: 'shader1',
+    slug: 'pretty-shader',
+    name: 'Pretty Shader',
+    summary: '',
+    icon_url: null,
+    downloads: 1,
+    author: '',
+    updated_at: null,
+  };
+
+  // An InstalledAsset matching shaderHit by source + project_id.
+  const installedShader = {
+    kind: 'shader',
+    filename: 'pretty-shader.zip',
+    sha1: 'abc123',
+    source: 'modrinth',
+    project_id: 'shader1',
+    version_id: 'v1',
+    name: 'Pretty Shader',
+    version_number: '1.0',
+    installed_at: '2026-01-01T00:00:00Z',
+  };
+
+  // "Show installed" defaults off (discovery view), which filters installed
+  // hits out of the result list. Flip it on via the "Installed hidden" chip so
+  // the installed card is rendered and its install-state controls assertable.
+  async function showInstalledOn() {
+    await fireEvent.click(await screen.findByTestId('browse-chip-showInstalled'));
+    for (let i = 0; i < 4; i++) await tick();
+  }
+
+  it('renders the installed state (Uninstall, no Install) when an asset matches the hit', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    const assetsList = mod.commands.assetsList as unknown as ReturnType<typeof vi.fn>;
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
+    });
+    assetsList.mockResolvedValue({ status: 'ok', data: [installedShader] });
+
+    render(ModBrowseView, {
+      props: {
+        source: 'modrinth',
+        instanceId: 'i',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        kind: 'shader',
+      },
+    });
+    await showInstalledOn();
+
+    // The installed card shows Uninstall and must NOT show Install.
+    expect(await screen.findByRole('button', { name: /^uninstall$/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^install$/i })).toBeNull();
+  });
+
+  it('does not render a Disable toggle for an installed asset (assets have no enable/disable)', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    const assetsList = mod.commands.assetsList as unknown as ReturnType<typeof vi.fn>;
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
+    });
+    assetsList.mockResolvedValue({ status: 'ok', data: [installedShader] });
+
+    render(ModBrowseView, {
+      props: {
+        source: 'modrinth',
+        instanceId: 'i',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        kind: 'shader',
+      },
+    });
+    await showInstalledOn();
+
+    // Wait for the installed card to render, then assert no enable/disable toggle.
+    await screen.findByRole('button', { name: /^uninstall$/i });
+    expect(screen.queryByRole('button', { name: /^disable$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^enable$/i })).toBeNull();
+  });
+
+  it('uninstalls an asset via assetUninstall(instanceId, kind, filename)', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    const assetsList = mod.commands.assetsList as unknown as ReturnType<typeof vi.fn>;
+    const assetUninstall = mod.commands.assetUninstall as unknown as ReturnType<typeof vi.fn>;
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
+    });
+    assetsList.mockResolvedValue({ status: 'ok', data: [installedShader] });
+    assetUninstall.mockClear();
+
+    render(ModBrowseView, {
+      props: {
+        source: 'modrinth',
+        instanceId: 'i',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        kind: 'shader',
+      },
+    });
+    await showInstalledOn();
+
+    const uninstallBtn = await screen.findByRole('button', { name: /^uninstall$/i });
+    await fireEvent.click(uninstallBtn);
+    for (let i = 0; i < 4; i++) await tick();
+
+    expect(assetUninstall).toHaveBeenCalled();
+    expect(assetUninstall.mock.calls[0]).toEqual(['i', 'shader', 'pretty-shader.zip']);
+  });
+
+  it('shows Install (not Uninstall) for an asset hit that does NOT match any installed asset', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    const assetsList = mod.commands.assetsList as unknown as ReturnType<typeof vi.fn>;
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [shaderHit], total: 1, offset: 0, page_size: 20 },
+    });
+    // Installed asset is a DIFFERENT project — no match for shaderHit.
+    assetsList.mockResolvedValue({
+      status: 'ok',
+      data: [{ ...installedShader, project_id: 'other', filename: 'other.zip' }],
+    });
+
+    render(ModBrowseView, {
+      props: {
+        source: 'modrinth',
+        instanceId: 'i',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        kind: 'shader',
+      },
+    });
+
+    expect(await screen.findByRole('button', { name: /^install$/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^uninstall$/i })).toBeNull();
   });
 
   // ── Detail modal loader-propagation ──────────────────────────────────────
