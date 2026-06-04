@@ -99,7 +99,7 @@
     totalSize: number;
   }
 
-  const fileGroups = $derived((): FileGroup[] => {
+  const fileGroups = $derived.by((): FileGroup[] => {
     const map = new Map<CategoryKey, ModpackFile[]>();
     for (const key of CATEGORY_ORDER) map.set(key, []);
     for (const f of summary.files) {
@@ -147,7 +147,7 @@
     {/if}
 
     <div class="flex-1 overflow-y-auto p-4 space-y-2">
-      {#each fileGroups() as group (group.key)}
+      {#each fileGroups as group (group.key)}
         {@const sizeStr = formatSize(group.totalSize)}
         <details open={group.key === 'groupMods'}>
           <summary
