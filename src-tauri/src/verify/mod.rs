@@ -11,7 +11,7 @@ pub use progress::{VerifyPhase, VerifyProgress};
 pub use repair::repair_instance_report;
 pub use scan::verify_instance_report;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// Outcome of checking a single planned artefact against disk.
@@ -25,7 +25,7 @@ pub enum ArtifactStatus {
     Corrupt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum VerifyCategory {
     Client,
@@ -35,7 +35,7 @@ pub enum VerifyCategory {
     ProfileJson,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct CategoryReport {
     pub category: VerifyCategory,
     pub total: u32,
@@ -86,6 +86,28 @@ impl VerifyReport {
             problems,
             healthy,
             manifest_recoverable,
+        }
+    }
+}
+
+/// Persisted summary of an instance's last integrity check. Stored in
+/// instance.json and surfaced on InstanceWithStatus for a passive badge.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Type)]
+pub struct IntegrityStatus {
+    pub healthy: bool,
+    /// Unix ms of the check (f64 per the specta/u64 rule).
+    pub checked_unix_ms: f64,
+    pub categories: Vec<CategoryReport>,
+    pub problem_count: u32,
+}
+
+impl IntegrityStatus {
+    pub fn from_report(report: &VerifyReport, checked_unix_ms: f64) -> Self {
+        IntegrityStatus {
+            healthy: report.healthy,
+            checked_unix_ms,
+            categories: report.categories.clone(),
+            problem_count: report.problems.len() as u32,
         }
     }
 }
@@ -170,5 +192,39 @@ mod tests {
         let r = VerifyReport::build("i".into(), "1.20.4".into(), &[], vec![], true);
         assert!(!r.healthy);
         assert!(r.manifest_recoverable);
+    }
+
+    #[test]
+    fn integrity_status_from_report_maps_fields() {
+        let planned_totals = [
+            (VerifyCategory::Client, 1u32),
+            (VerifyCategory::Assets, 5u32),
+        ];
+        let problems = vec![
+            problem(VerifyCategory::Assets, "a"),
+            problem(VerifyCategory::Assets, "b"),
+        ];
+        let report = VerifyReport::build(
+            "inst-1".into(),
+            "1.20.4".into(),
+            &planned_totals,
+            problems,
+            false,
+        );
+        let status = IntegrityStatus::from_report(&report, 1_700_000_000_000.0);
+        assert_eq!(status.healthy, report.healthy);
+        assert!(!status.healthy, "two problems → unhealthy");
+        assert_eq!(status.problem_count, 2);
+        assert_eq!(status.categories.len(), 2);
+        assert_eq!(status.checked_unix_ms, 1_700_000_000_000.0);
+    }
+
+    #[test]
+    fn integrity_status_round_trips_through_json() {
+        let report = VerifyReport::build("i".into(), "1.20.4".into(), &[], vec![], false);
+        let status = IntegrityStatus::from_report(&report, 42.0);
+        let json = serde_json::to_string(&status).unwrap();
+        let back: IntegrityStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(status, back);
     }
 }

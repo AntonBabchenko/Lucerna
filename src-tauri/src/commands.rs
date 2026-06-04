@@ -157,6 +157,25 @@ fn resolve_instance_effective_id(
         .ok_or(crate::error::Error::NoVersionSelected)
 }
 
+/// Persist a `VerifyReport` summary into the instance's `instance.json` so the
+/// UI can surface a passive integrity badge + Overview row without re-hashing.
+/// Read-modify-write — preserves every other field. Timestamp = now (unix ms).
+fn persist_integrity(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    report: &crate::verify::VerifyReport,
+) -> Result<(), crate::error::Error> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0);
+    let path = crate::paths::instance_json(app, instance_id)
+        .map_err(|e| crate::error::Error::io("<instance_json>", e))?;
+    let mut file = crate::instances::store::read_instance_json(&path)?;
+    file.integrity = Some(crate::verify::IntegrityStatus::from_report(report, now_ms));
+    crate::instances::store::write_instance_json(&path, &file)
+}
+
 /// Read-only integrity verification of an instance's installed files.
 /// Blocked while a game is running (can't hash a live game's files).
 #[tauri::command]
@@ -169,7 +188,9 @@ pub async fn verify_instance(
         return Err(crate::error::Error::InstanceBusy);
     }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-    crate::verify::verify_instance_report(&instance_id, &effective_id, &app).await
+    let report = crate::verify::verify_instance_report(&instance_id, &effective_id, &app).await?;
+    persist_integrity(&app, &instance_id, &report)?;
+    Ok(report)
 }
 
 /// Repair the instance's broken/missing files, then return the post-repair
@@ -184,7 +205,9 @@ pub async fn repair_instance(
         return Err(crate::error::Error::InstanceBusy);
     }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-    crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await
+    let report = crate::verify::repair_instance_report(&instance_id, &effective_id, &app).await?;
+    persist_integrity(&app, &instance_id, &report)?;
+    Ok(report)
 }
 
 /// Kill the running Minecraft process if any. Idempotent.
