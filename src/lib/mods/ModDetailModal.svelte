@@ -56,8 +56,12 @@
   const gallery = $derived<GalleryImage[]>(project?.gallery ?? []);
   const recommended = $derived(compatibleVersions?.[0] ?? null);
   const versionList = $derived(showAll ? allVersions : compatibleVersions);
-  // Mod install needs a real (non-vanilla) loader + mc + an instance.
-  const canInstall = $derived(mcVersion !== null && loader !== null && loader !== 'vanilla');
+  // Mod install needs a real (non-vanilla) loader + mc. loader-agnostic
+  // content (resource packs, shaders) arrives with loader === null — for
+  // those, only mcVersion needs to be set.
+  const canInstall = $derived(
+    mcVersion !== null && (loader === null || loader !== 'vanilla'),
+  );
 
   const externalUrl = $derived(modProjectUrl(source, project?.summary.slug ?? projectId));
 
@@ -75,7 +79,11 @@
       error = formatError(p.error);
       return;
     }
-    if (mcVersion && loader && loader !== 'vanilla') {
+    if (mcVersion && (loader === null || loader !== 'vanilla')) {
+      // loader === null means the caller is loader-agnostic (resource pack /
+      // shader): pass null to modsVersions so it returns all MC-compatible
+      // versions without filtering by loader. A real loader value (non-vanilla)
+      // is forwarded as-is so mods still get the loader-filtered list.
       const v = await commands.modsVersions(source, projectId, mcVersion, loader);
       compatibleVersions = v.status === 'ok' ? v.data : [];
       if (v.status === 'error') error = formatError(v.error);

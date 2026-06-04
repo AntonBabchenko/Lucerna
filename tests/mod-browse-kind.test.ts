@@ -40,8 +40,17 @@ vi.mock('$lib/ipc/bindings', () => ({
           version_id: 'v1',
           name: 'Pretty Pack 1.0',
           version_number: '1.0',
+          mc_versions: ['1.20.1'],
           loaders: [],
-          game_versions: ['1.20.1'],
+          primary_file: {
+            filename: 'pack.zip',
+            url: '',
+            sha1: '',
+            size: 0,
+            distribution_allowed: true,
+          },
+          deps: [],
+          published_at: null,
         },
       ],
     }),
@@ -56,6 +65,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
+import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -168,5 +178,115 @@ describe('ModBrowseView — content kind', () => {
     expect(assetInstall.mock.calls[0]![2]).toBe('shader');
     // The dependency-aware mod path must NOT be invoked.
     expect(installWithDeps).not.toHaveBeenCalled();
+  });
+
+  // ── Detail modal loader-propagation ──────────────────────────────────────
+
+  it('passes loader=null to ModDetailModal for shader kind so modsVersions fetches all MC-compatible versions', async () => {
+    // Render the detail modal directly with loader=null (the value ModBrowseView
+    // now passes for non-mod kinds). modsVersions must be called without a loader
+    // filter so the user sees every MC-compatible version, not just Fabric ones.
+    const mod = await import('$lib/ipc/bindings');
+    const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
+    modsVersions.mockClear();
+
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'shader1',
+        mcVersion: '1.20.1',
+        loader: null,
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    // Let the async load() complete.
+    for (let i = 0; i < 4; i++) await tick();
+
+    expect(modsVersions).toHaveBeenCalled();
+    // The loader argument (4th positional) must be null — no loader filter.
+    const callArgs = modsVersions.mock.calls[0] as [string, string, string | null, string | null];
+    expect(callArgs[3]).toBeNull();
+  });
+
+  it('passes the instance loader to ModDetailModal for mod kind so modsVersions filters by loader', async () => {
+    // For mods, ModBrowseView passes loader={loader} unchanged — the existing
+    // behaviour must not regress.
+    const mod = await import('$lib/ipc/bindings');
+    const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
+    modsVersions.mockClear();
+
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'mod1',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    for (let i = 0; i < 4; i++) await tick();
+
+    expect(modsVersions).toHaveBeenCalled();
+    const callArgs = modsVersions.mock.calls[0] as [string, string, string | null, string | null];
+    expect(callArgs[3]).toBe('fabric');
+  });
+
+  it('ModBrowseView passes loader=null to ModDetailModal when kind=shader (integration)', async () => {
+    // End-to-end: ModBrowseView with kind=shader renders one hit, the user
+    // opens the detail modal by clicking the card title, and modsVersions is
+    // called with null (not the instance loader 'fabric') so the modal shows
+    // all MC-compatible shader versions.
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
+    modsVersions.mockClear();
+
+    search.mockResolvedValue({
+      status: 'ok',
+      data: {
+        hits: [
+          {
+            source: 'modrinth',
+            project_id: 'shader1',
+            slug: 'pretty-shader',
+            name: 'Pretty Shader',
+            summary: '',
+            icon_url: null,
+            downloads: 1,
+            author: '',
+            updated_at: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        page_size: 20,
+      },
+    });
+
+    render(ModBrowseView, {
+      props: {
+        source: 'modrinth',
+        instanceId: 'i',
+        mcVersion: '1.20.1',
+        loader: 'fabric',
+        kind: 'shader',
+      },
+    });
+
+    // Wait for the search result card to render.
+    const cardBtn = await screen.findByRole('button', { name: /Pretty Shader/i });
+    await fireEvent.click(cardBtn);
+    // Let ModDetailModal's async load() complete.
+    for (let i = 0; i < 6; i++) await tick();
+
+    // modsVersions must have been called with null loader (not 'fabric').
+    const versionsCalls = modsVersions.mock.calls as Array<
+      [string, string, string | null, string | null]
+    >;
+    const detailCall = versionsCalls.find((c) => c[1] === 'shader1');
+    expect(detailCall).toBeDefined();
+    expect(detailCall![3]).toBeNull();
   });
 });
