@@ -6,6 +6,7 @@ pub mod cf_api;
 pub mod curseforge;
 pub mod detect;
 pub mod export;
+pub mod ftb_api;
 pub mod import;
 pub mod modrinth;
 pub mod overrides;

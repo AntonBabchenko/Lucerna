@@ -39,7 +39,7 @@ struct MrHit {
 /// `%HH` form. Mirrors the helper in `mods/modrinth/mod.rs` — kept
 /// local to avoid pulling `serde_urlencoded` features that are disabled
 /// by our `reqwest` flags and to avoid a new `urlencoding` dependency.
-fn urlencode(s: &str) -> String {
+pub(crate) fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for &b in s.as_bytes() {
         let safe = b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~');
