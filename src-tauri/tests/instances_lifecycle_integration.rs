@@ -30,6 +30,7 @@ fn make(id: &str, name: &str, mc: &str, created_unix_ms: f64) -> InstanceFile {
         mrpack_source: None,
         mrpack_summary: None,
         mrpack_version_id: None,
+        integrity: None,
     }
 }
 

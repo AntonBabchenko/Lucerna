@@ -155,6 +155,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     mrpack_source: 'modrinth' as ModSource,
     mrpack_summary: 'A cool modpack.',
     mrpack_version_id: 'ver-1',
+    integrity: null,
     ...over,
   };
 }

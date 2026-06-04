@@ -24,6 +24,7 @@ fn make(id: &str, name: &str) -> InstanceFile {
         mrpack_source: None,
         mrpack_summary: None,
         mrpack_version_id: None,
+        integrity: None,
     }
 }
 

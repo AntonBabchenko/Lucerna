@@ -65,6 +65,11 @@ pub struct InstanceFile {
     /// string is not a stable identifier).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mrpack_version_id: Option<String>,
+    /// Summary of the instance's last Verify/Repair integrity check.
+    /// `None` until the user runs Verify once. Additive — old instance.json
+    /// without it deserialises to None (no schema-version bump).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integrity: Option<crate::verify::IntegrityStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
@@ -173,6 +178,7 @@ pub struct InstanceWithStatus {
     pub mrpack_source: Option<crate::mods::platform::ModSource>,
     pub mrpack_summary: Option<String>,
     pub mrpack_version_id: Option<String>,
+    pub integrity: Option<crate::verify::IntegrityStatus>,
 }
 
 impl InstanceWithStatus {
@@ -193,6 +199,7 @@ impl InstanceWithStatus {
             mrpack_source: file.mrpack_source,
             mrpack_summary: file.mrpack_summary.clone(),
             mrpack_version_id: file.mrpack_version_id.clone(),
+            integrity: file.integrity.clone(),
         }
     }
 }
@@ -218,6 +225,7 @@ mod tests {
             mrpack_source: None,
             mrpack_summary: None,
             mrpack_version_id: None,
+            integrity: None,
         }
     }
 
@@ -493,5 +501,62 @@ mod tests {
         let s = serde_json::to_string(&f).unwrap();
         let back: AppFile = serde_json::from_str(&s).unwrap();
         assert_eq!(back.update_dismissed_version, Some("0.9.1".into()));
+    }
+
+    fn sample_integrity() -> crate::verify::IntegrityStatus {
+        crate::verify::IntegrityStatus {
+            healthy: false,
+            checked_unix_ms: 1_700_000_000_000.0,
+            categories: vec![crate::verify::CategoryReport {
+                category: crate::verify::VerifyCategory::Assets,
+                total: 5,
+                ok: 3,
+                missing: 2,
+                corrupt: 0,
+            }],
+            problem_count: 2,
+        }
+    }
+
+    #[test]
+    fn instance_file_serializes_skip_none_integrity() {
+        let s = sample();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("integrity"), "got: {json}");
+    }
+
+    #[test]
+    fn instance_file_roundtrips_with_some_integrity() {
+        let mut s = sample();
+        s.integrity = Some(sample_integrity());
+        let json = serde_json::to_string(&s).unwrap();
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
+        assert_eq!(back.integrity, Some(sample_integrity()));
+    }
+
+    #[test]
+    fn instance_file_deserializes_old_json_with_no_integrity_field() {
+        let json = r#"{
+            "version": 1,
+            "id": "abc",
+            "name": "Old",
+            "mc_version": "1.20.1",
+            "loader": "vanilla",
+            "loader_version": null,
+            "max_heap_mb": 2048,
+            "extra_jvm_args": "",
+            "created_unix_ms": 1700000000000.0
+        }"#;
+        let inst: InstanceFile = serde_json::from_str(json).unwrap();
+        assert_eq!(inst.integrity, None);
+    }
+
+    #[test]
+    fn instance_with_status_carries_integrity() {
+        let mut s = sample();
+        s.integrity = Some(sample_integrity());
+        let w = InstanceWithStatus::from_file(&s, true);
+        assert_eq!(w.integrity, Some(sample_integrity()));
     }
 }

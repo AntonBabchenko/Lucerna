@@ -50,6 +50,9 @@ pub enum Error {
     #[error("Account not set — enter your name first")]
     AccountNotSet,
 
+    #[error("an instance operation is already in progress or the game is running")]
+    InstanceBusy,
+
     #[error("Microsoft sign-in cancelled")]
     AuthCancelled,
 

@@ -74,7 +74,7 @@
   const instanceOptions = $derived(
     instances.map((i) => ({
       value: i.id,
-      label: `${i.ready ? '✓' : '↓'} ${i.name} · ${displayLoader(i.loader)} ${
+      label: `${i.ready ? '✓' : '↓'}${i.integrity && !i.integrity.healthy ? ' ⚠' : ''} ${i.name} · ${displayLoader(i.loader)} ${
         i.mc_version || $t('sidebar.pickMcVersion')
       }`,
     })),
