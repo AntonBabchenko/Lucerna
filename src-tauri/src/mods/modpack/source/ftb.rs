@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use tauri::Manager;
 
 use crate::error::Error;
+use crate::mods::modpack::ftb_api::FtbTarget;
 use crate::mods::modpack::schema::{
     ModpackProject, ModpackSearchPage, ModpackSort, ModpackVersionEntry,
 };
@@ -26,7 +26,7 @@ fn loader_kind_from_name(name: &str) -> Option<LoaderKind> {
 }
 
 /// Find the minecraft-game target version for a slice of `FtbTarget`s.
-fn mc_version_from_targets(targets: &[crate::mods::modpack::ftb_api::FtbTarget]) -> Option<String> {
+fn mc_version_from_targets(targets: &[FtbTarget]) -> Option<String> {
     targets
         .iter()
         .find(|t| t.target_type == "game" && t.name == "minecraft")
@@ -47,8 +47,15 @@ pub(crate) async fn search_impl(
 ) -> Result<ModpackSearchPage, Error> {
     use crate::mods::modpack::ftb_api;
 
-    // FTB search has no server-side offset paging; we slice the id list client-side.
-    let all_ids = ftb_api::search_ids(base, query, page_size).await?;
+    // FTB search has no server-side offset paging; fetch a window covering all
+    // pages up to the requested one so we can slice client-side.
+    let fetch_limit = (page + 1).saturating_mul(page_size);
+    let all_ids = ftb_api::search_ids(base, query, fetch_limit).await?;
+    // total is the unfiltered id count up to the fetched window — approximate.
+    // FTB search has no server-side total/offset; client-side mc/loader filtering
+    // further means a page may show fewer than page_size hits. The pager treats
+    // this as best-effort (caps.supports_server_filter=false).
+    let total = all_ids.len() as u32;
     let page_ids: Vec<u64> = all_ids
         .into_iter()
         .skip((page * page_size) as usize)
@@ -113,6 +120,9 @@ pub(crate) async fn search_impl(
     }
 
     // caps.supports_server_filter=false — FTB filters are best-effort client-side.
+    // TODO(ftb): mc filter keys on latest_mc_version only — a pack with an older
+    // version matching the filter but a newer latest is under-selected. Acceptable
+    // for v1; scan all version game-targets if this proves too coarse.
     if let Some(mc_ver) = mc {
         hits.retain(|h| {
             h.latest_mc_version
@@ -125,9 +135,6 @@ pub(crate) async fn search_impl(
         hits.retain(|h| h.supported_loaders.contains(&want_loader));
     }
 
-    // total is approximate (post-filter count; actual total from FTB is not
-    // available after client-side filtering).
-    let total = hits.len() as u32;
     Ok(ModpackSearchPage {
         hits,
         total,
@@ -264,37 +271,14 @@ pub(crate) async fn stage_impl(
     let summary = ftb_map::map_version(&detail.name, &version_name, &manifest);
 
     // Serialise ModpackSummary and write to temp sidecar.
-    let bytes = serde_json::to_vec(&summary).map_err(|e| Error::ModsDecode {
+    // Filename MUST end with .ftbpack.json (Task 9 detects FTB by this extension).
+    // write_to_temp produces <uuid>.ftbpack.json when ext = "ftbpack.json".
+    let json = serde_json::to_vec(&summary).map_err(|e| Error::ModsDecode {
         platform: "ftb".into(),
         details: e.to_string(),
     })?;
 
-    // Mirror the temp-dir pattern from source/stage.rs::write_to_temp.
-    let temp_dir = app
-        .path()
-        .temp_dir()
-        .map_err(|e| Error::Io {
-            path: "<temp>".into(),
-            details: e.to_string(),
-        })?
-        .join("lucerna")
-        .join("modpack");
-    tokio::fs::create_dir_all(&temp_dir)
-        .await
-        .map_err(|e| Error::Io {
-            path: temp_dir.display().to_string(),
-            details: e.to_string(),
-        })?;
-    // Filename MUST end with .ftbpack.json (Task 9 detects FTB by this extension).
-    let dest = temp_dir.join(format!("{}.ftbpack.json", uuid::Uuid::new_v4()));
-    tokio::fs::write(&dest, &bytes)
-        .await
-        .map_err(|e| Error::Io {
-            path: dest.display().to_string(),
-            details: e.to_string(),
-        })?;
-
-    Ok(dest.to_string_lossy().to_string())
+    crate::mods::modpack::source::stage::write_to_temp(app, &json, "ftbpack.json").await
 }
 
 // ── trait impl ────────────────────────────────────────────────────────────────
@@ -560,5 +544,50 @@ mod tests {
             matches!(result, Err(Error::ModpackManifestInvalid { .. })),
             "expected ModpackManifestInvalid, got: {result:?}"
         );
+    }
+
+    /// Page 1 (0-indexed) with page_size=2 must request fetch_limit=4 and
+    /// return only the ids in the second window: skip(2).take(2).
+    ///
+    /// With search returning ids [1, 2, 3], page 1 should have 1 hit (id 3),
+    /// offset=2, total=3.
+    #[tokio::test]
+    async fn ftb_search_page_one_returns_second_window() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+
+        // fetch_limit = (1 + 1) * 2 = 4  → path segment "4"
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/search/4"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "packs": [1u64, 2u64, 3u64], "curseforge": [], "total": 3 }),
+            ))
+            .mount(&s)
+            .await;
+
+        // Only id 3 is on page 1 after skip(2).take(2)
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/3"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(pack_detail_json(3, "1.20.1", "fabric", 42)),
+            )
+            .mount(&s)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let page = search_impl(&s.uri(), "test", 1, None, None, 2)
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(
+            page.hits.len(),
+            1,
+            "page 1 with ids [1,2,3] and page_size=2 should yield 1 hit"
+        );
+        assert_eq!(page.hits[0].project_id, "3");
+        assert_eq!(page.offset, 2, "offset should be page * page_size = 2");
+        assert_eq!(page.total, 3, "total should be unfiltered id count = 3");
     }
 }

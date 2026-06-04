@@ -95,8 +95,12 @@ pub(crate) async fn download_curseforge_zip(
 }
 
 /// Write `bytes` to `<temp>/lucerna/modpack/<uuid>.<ext>` and return the
-/// path string. Shared by both download helpers above.
-async fn write_to_temp(app: &tauri::AppHandle, bytes: &[u8], ext: &str) -> Result<String, Error> {
+/// path string. Shared by both download helpers above and FTB staging.
+pub(crate) async fn write_to_temp(
+    app: &tauri::AppHandle,
+    bytes: &[u8],
+    ext: &str,
+) -> Result<String, Error> {
     let temp_dir = app
         .path()
         .temp_dir()
