@@ -1,8 +1,10 @@
 <script lang="ts">
   import {
     commands,
+    type ContentKind,
     events,
     type Error as IpcError,
+    type InstalledAsset,
     type InstalledMod,
     type LoaderKind,
     type ModSort,
@@ -20,8 +22,14 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { browserPrefs } from './browser-prefs.svelte';
+  import { canInstallContent } from './content-kind';
   import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-  import { cfKeyVersion, mcVersions, settingsOpen } from '$lib/settings/state.svelte';
+  import {
+    assetsChanged,
+    cfKeyVersion,
+    mcVersions,
+    settingsOpen,
+  } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
   import PageSizePicker from './PageSizePicker.svelte';
@@ -59,6 +67,7 @@
     instanceName = null,
     mcVersion,
     loader,
+    kind = 'mod',
   }: {
     source: ModSource;
     instanceId: string | null;
@@ -68,7 +77,17 @@
     instanceName?: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    // Which content kind this browser is for. 'mod' keeps the historical
+    // behaviour (loader facet + dependency-aware install). Resource packs
+    // and shaders have no loader facet and install via assetInstall.
+    kind?: ContentKind;
   } = $props();
+
+  // Resource packs and shaders are loader-agnostic: Modrinth's mod loader
+  // facet (fabric/forge/…) doesn't apply, and LoaderKind can't represent
+  // the shader-specific facets (iris/optifine/canvas). For both non-mod
+  // kinds we omit the loader filter entirely and never send a loader facet.
+  const isMod = $derived(kind === 'mod');
 
   let query = $state('');
   // Filters mirror the active instance's MC + loader. They re-sync
@@ -162,6 +181,31 @@
   type InstalledRow = { installed: InstalledMod; projectName: string | null };
   let installedMods = $state<InstalledRow[]>([]);
 
+  // Resource packs / shaders have their own per-instance registry (assets_list).
+  // Unlike mods there is no enable/disable and no cross-platform name lookup —
+  // an asset is matched purely by source + project_id. We keep the raw list and
+  // synthesise an InstalledMod-shaped record in `installedFor` so ModCard can
+  // render the same "Installed · vX" badge + Uninstall without any card change.
+  let installedAssets = $state<InstalledAsset[]>([]);
+
+  async function refreshInstalledAssets() {
+    // Assets only exist for non-mod kinds with a selected instance. Capture the
+    // instance so a stale result can't overwrite the current instance's badges
+    // (mirrors refreshInstalled's reqId guard).
+    if (isMod) {
+      installedAssets = [];
+      return;
+    }
+    const reqId = instanceId;
+    if (!reqId) {
+      installedAssets = [];
+      return;
+    }
+    const r = await commands.assetsList(reqId, kind);
+    if (instanceId !== reqId || r.status !== 'ok') return;
+    installedAssets = r.data;
+  }
+
   async function refreshInstalled() {
     // Capture the instance; drop the result if the user switches mid-flight
     // (the per-mod project lookups below are slow) so a stale list can't
@@ -203,7 +247,18 @@
   $effect(() => {
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _id = instanceId;
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _kind = kind;
+    // Also re-run when an asset is installed/uninstalled from the Installed
+    // tab so the Browse "Installed · vX" badges stay in sync. This effect only
+    // reads the signal — it must never bump it (the bump lives in the action
+    // handlers below), or refreshInstalledAssets would loop.
+    void assetsChanged.value;
     void refreshInstalled();
+    // For mods this clears the asset list (isMod → []); for resource packs /
+    // shaders it loads the per-instance asset registry so result cards flip to
+    // the installed state. Re-runs when instance or kind changes.
+    void refreshInstalledAssets();
   });
 
   // Mods can be enabled/disabled/uninstalled from the Installed tab (a sibling
@@ -239,6 +294,30 @@
   }
 
   function installedFor(card: ModSummary): InstalledMod | null {
+    // Resource packs / shaders: match purely by source + project_id against the
+    // asset registry, then synthesise an InstalledMod-shaped record so ModCard
+    // renders the green "Installed · vX" badge + Uninstall unchanged. Assets
+    // have no enable/disable, no deps, and no enrichment — those fields are
+    // filled with inert defaults (enabled: true so the badge reads "Installed").
+    if (!isMod) {
+      const a = installedAssets.find(
+        (x) => x.source === card.source && x.project_id === card.project_id,
+      );
+      if (!a) return null;
+      return {
+        filename: a.filename,
+        sha1: a.sha1,
+        source: a.source,
+        project_id: a.project_id,
+        version_id: a.version_id,
+        name: a.name,
+        version_number: a.version_number,
+        installed_at: a.installed_at,
+        enabled: true,
+        requires: [],
+        enrich_attempted: false,
+      };
+    }
     // Exact platform-and-id match first.
     const exact = installedMods.find(
       (r) => r.installed.source === card.source && r.installed.project_id === card.project_id,
@@ -280,6 +359,25 @@
 
   async function uninstallCard(card: ModSummary) {
     if (!instanceId) return;
+    // Resource packs / shaders uninstall via assetUninstall keyed on filename
+    // (their registry has no sha1-based mod command). Match the installed asset
+    // by source + project_id, then refresh the asset list so the card flips
+    // back to "Install".
+    if (!isMod) {
+      const asset = installedAssets.find(
+        (x) => x.source === card.source && x.project_id === card.project_id,
+      );
+      if (!asset) return;
+      const r = await commands.assetUninstall(instanceId, kind, asset.filename);
+      if (r.status === 'error') {
+        error = formatError(r.error);
+        return;
+      }
+      await refreshInstalledAssets();
+      // Notify the Installed-assets view (no Tauri events for assets).
+      assetsChanged.value++;
+      return;
+    }
     const inst = installedFor(card);
     if (!inst) return;
     const r = await commands.modsUninstall(instanceId, inst.sha1);
@@ -355,13 +453,16 @@
   async function fetchNextPlatformPage(): Promise<'ok' | 'auth' | 'error'> {
     const result = await commands.modsSearch({
       source,
+      kind,
       query,
       // Empty input strings collapse to `null` — the search backend
       // treats null as "no MC / no loader facet", same as the old
       // "Show all" checkbox did when checked. Clearing both fields
       // (or hitting Clear filters) is the explicit way to widen.
       mc_version: mcFilter || null,
-      loader: (loaderFilter || null) as LoaderKind | null,
+      // Resource packs / shaders have no loader facet, so always send
+      // null for non-mod kinds regardless of any stale filter value.
+      loader: isMod ? ((loaderFilter || null) as LoaderKind | null) : null,
       sort,
       page_size: pageSize,
       offset: buffer.length,
@@ -439,7 +540,13 @@
     await fill(1);
   }
 
-  const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter, showInstalled });
+  // Non-mod kinds have no loader facet: drop it from the chip row / badge
+  // count so resource-pack / shader browsers never surface a loader chip.
+  const filterFacets = $derived({
+    loader: isMod ? loaderFilter : ('' as LoaderKind | ''),
+    mc: mcFilter,
+    showInstalled,
+  });
 
   // The active instance's loader + MC — what Browse pre-fills for it. "Restore"
   // snaps loader + MC back to these (it deliberately leaves "Show installed"
@@ -559,7 +666,51 @@
     }
   }
 
+  // Resource packs / shaders install via the asset command — no loader,
+  // no dependency resolution. We still pin to a concrete ModVersion: the
+  // detail modal passes one explicitly; a card "Install" picks the latest
+  // version compatible with the instance's MC (no loader facet).
+  async function startAssetInstall(card: ModSummary, pinnedVersion?: ModVersion) {
+    if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
+      error = get(t)('mods.browse.errorNoInstance');
+      return;
+    }
+    let version: ModVersion;
+    if (pinnedVersion) {
+      version = pinnedVersion;
+    } else {
+      const versions = await commands.modsVersions(card.source, card.project_id, mcVersion, null);
+      if (versions.status === 'error') {
+        error = formatError(versions.error);
+        return;
+      }
+      if (versions.data.length === 0) {
+        error = get(t)('mods.browse.errorNoCompatibleVersion');
+        return;
+      }
+      version = versions.data[0]!;
+    }
+    const installed = await commands.assetInstall(instanceId, version, kind);
+    if (installed.status === 'error') {
+      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+      return;
+    }
+    pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+    // Mods refresh their installed-state via Tauri events; assets have no such
+    // events, so refresh the asset list explicitly to flip the card to the
+    // "Installed · vX" + Uninstall state immediately.
+    await refreshInstalledAssets();
+    // Notify the Installed-assets view so it re-lists.
+    assetsChanged.value++;
+  }
+
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
+    // Resource packs and shaders take the asset path; mods keep the
+    // dependency-aware flow below untouched.
+    if (kind !== 'mod') {
+      await startAssetInstall(card, pinnedVersion);
+      return;
+    }
     if (!instanceId || !mcVersion || !loader) {
       error = get(t)('mods.browse.errorNoInstance');
       return;
@@ -706,7 +857,7 @@
   }
 </script>
 
-{#if loader === 'vanilla'}
+{#if isMod && loader === 'vanilla'}
   <div
     class="p-6 bg-warning-bg border border-warning-text/30 rounded mx-3 my-4 text-sm text-warning-text"
   >
@@ -749,6 +900,7 @@
     bind:open={drawerOpen}
     bind:loader={loaderFilter}
     bind:mc={mcFilter}
+    showLoader={isMod}
     {showInstalled}
     onShowInstalledChange={(v) => void setShowInstalled(v)}
   />
@@ -772,6 +924,7 @@
               onOpenDetail={() => (drawerProject = hit.project_id)}
               onToggle={() => toggleCard(hit)}
               onUninstall={() => uninstallCard(hit)}
+              canToggle={isMod}
               layout="grid"
             />
           {/each}
@@ -786,6 +939,7 @@
               onOpenDetail={() => (drawerProject = hit.project_id)}
               onToggle={() => toggleCard(hit)}
               onUninstall={() => uninstallCard(hit)}
+              canToggle={isMod}
               layout="list"
             />
           {/each}
@@ -827,7 +981,8 @@
       {source}
       projectId={drawerProject}
       {mcVersion}
-      {loader}
+      loader={isMod ? loader : null}
+      {kind}
       installedVersionId={installedMods.find(
         (r) => r.installed.source === source && r.installed.project_id === drawerProject,
       )?.installed.version_id ?? null}

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
+import ModBrowserTab from '$lib/mods/AddonsTab.svelte';
 
 // Task 14 wires the real ModBrowseView in (Browse branch makes IPC
 // calls on mount: mods_get_curseforge_key_status, mods_search). Task 17

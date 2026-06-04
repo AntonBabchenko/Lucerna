@@ -48,6 +48,14 @@ export const droppedModpack = $state<{ value: string | null }>({ value: null });
 // highlight.
 export const dragActive = $state<{ value: boolean }>({ value: false });
 
+// Bumped whenever a resource pack / shader is installed or uninstalled, so the
+// Browse badges and the Installed-assets list stay in sync (assets have no
+// Tauri events like mods do). Consumers read `.value` inside an $effect to
+// refetch; producers call the bump after a successful install/uninstall.
+// Producers must bump ONLY in action handlers — never inside a fetch effect,
+// or the refetch would re-bump and loop.
+export const assetsChanged = $state<{ value: number }>({ value: 0 });
+
 // Mojang's Minecraft version list — fetched once at app startup
 // (+page.svelte onMount) and consumed by both the McVersionCombobox in
 // the mod / modpack browsers and the Manage modal's version picker.

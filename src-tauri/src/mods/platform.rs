@@ -19,6 +19,17 @@ pub enum ModSource {
     Ftb,
 }
 
+/// What kind of content a search/install targets. `Mod` is the historical
+/// default so payloads that omit it keep working (serde `default`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentKind {
+    #[default]
+    Mod,
+    ResourcePack,
+    Shader,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModSort {
@@ -87,6 +98,8 @@ pub fn drop_filename_loader_mismatches(
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ModSearchQuery {
     pub source: ModSource,
+    #[serde(default)]
+    pub kind: ContentKind,
     pub query: String,
     pub mc_version: Option<String>,
     pub loader: Option<LoaderKind>,
@@ -139,7 +152,7 @@ pub struct ModProject {
     pub website_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModVersion {
     pub source: ModSource,
     pub project_id: String,
@@ -153,7 +166,7 @@ pub struct ModVersion {
     pub published_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModFile {
     pub filename: String,
     pub url: String,
@@ -173,7 +186,7 @@ pub enum DepKind {
     Embedded,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum DepProjectRef {
     Modrinth {
@@ -195,7 +208,7 @@ impl DepProjectRef {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModDepLink {
     pub kind: DepKind,
     pub project_ref: DepProjectRef,
@@ -260,6 +273,43 @@ pub struct VersionRef {
     pub source: ModSource,
     pub project_id: String,
     pub version_id: String,
+}
+
+/// The per-asset update classification (mirrors `ModUpdateState` for mods).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AssetUpdateState {
+    /// The installed version is the newest offered for this MC version.
+    UpToDate,
+    /// A newer version exists; `latest` is the version to install.
+    UpdateAvailable { latest: Box<ModVersion> },
+    /// The platform query failed (network error, project delisted, etc.).
+    /// Set by the command layer — never produced by `classify_asset_update`.
+    CheckFailed { reason: String },
+}
+
+/// One installed resource-pack/shader's update-check result.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct AssetUpdateCheck {
+    pub filename: String,
+    pub name: String,
+    pub state: AssetUpdateState,
+}
+
+/// A resource pack or shader installed into an instance. Unlike `InstalledMod`
+/// there is no `enabled`/`requires` — Minecraft owns activation and these have
+/// no dependencies. `kind` is `ResourcePack` or `Shader` (never `Mod`).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct InstalledAsset {
+    pub kind: ContentKind,
+    pub filename: String,
+    pub sha1: String,
+    pub source: Option<ModSource>,
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub name: String,
+    pub version_number: Option<String>,
+    pub installed_at: String, // RFC 3339
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -448,5 +498,33 @@ mod tests {
             version_with_filename("x-forge-1.jar"),
         ];
         assert_eq!(drop_filename_loader_mismatches(mixed, None).len(), 2);
+    }
+
+    #[test]
+    fn content_kind_round_trips_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ContentKind::Mod).unwrap(),
+            r#""mod""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentKind::ResourcePack).unwrap(),
+            r#""resource_pack""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ContentKind::Shader).unwrap(),
+            r#""shader""#
+        );
+        let back: ContentKind = serde_json::from_str(r#""shader""#).unwrap();
+        assert_eq!(back, ContentKind::Shader);
+    }
+
+    #[test]
+    fn content_kind_defaults_to_mod_when_absent() {
+        let q: ModSearchQuery = serde_json::from_str(
+            r#"{"source":"modrinth","query":"x","mc_version":null,"loader":null,
+                "sort":"relevance","page_size":20,"offset":0}"#,
+        )
+        .unwrap();
+        assert_eq!(q.kind, ContentKind::Mod);
     }
 }

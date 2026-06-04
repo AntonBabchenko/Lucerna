@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     commands,
+    type ContentKind,
     type GalleryImage,
     type LoaderKind,
     type ModProject,
@@ -27,6 +28,7 @@
     projectId,
     mcVersion,
     loader,
+    kind = 'mod',
     installedVersionId = null,
     onClose,
     onInstall,
@@ -35,6 +37,12 @@
     projectId: string;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    // Distinguishes mods (loader-aware, dependency-resolved install) from
+    // loader-agnostic asset kinds (resource packs, shaders). Drives the
+    // version-fetch guard and the install-eligibility check so that assets
+    // never require a non-vanilla loader, and mods keep the original strict
+    // loader requirement.
+    kind?: ContentKind;
     installedVersionId?: string | null;
     onClose: () => void;
     onInstall: (v: ModVersion) => void;
@@ -56,8 +64,14 @@
   const gallery = $derived<GalleryImage[]>(project?.gallery ?? []);
   const recommended = $derived(compatibleVersions?.[0] ?? null);
   const versionList = $derived(showAll ? allVersions : compatibleVersions);
-  // Mod install needs a real (non-vanilla) loader + mc + an instance.
-  const canInstall = $derived(mcVersion !== null && loader !== null && loader !== 'vanilla');
+  // Mods need a real (non-vanilla) loader + mc version.
+  // Assets (resource packs, shaders) only need mcVersion — they are
+  // loader-agnostic so vanilla instances are valid install targets too.
+  const canInstall = $derived(
+    kind !== 'mod'
+      ? mcVersion !== null
+      : mcVersion !== null && loader !== null && loader !== 'vanilla',
+  );
 
   const externalUrl = $derived(modProjectUrl(source, project?.summary.slug ?? projectId));
 
@@ -75,12 +89,27 @@
       error = formatError(p.error);
       return;
     }
-    if (mcVersion && loader && loader !== 'vanilla') {
-      const v = await commands.modsVersions(source, projectId, mcVersion, loader);
-      compatibleVersions = v.status === 'ok' ? v.data : [];
-      if (v.status === 'error') error = formatError(v.error);
+    if (kind !== 'mod') {
+      // Asset kinds (resource packs, shaders) are loader-agnostic.
+      // Fetch all MC-compatible versions when mcVersion is set; pass null
+      // for loader so modsVersions returns every matching file regardless
+      // of the instance's loader.
+      if (mcVersion) {
+        const v = await commands.modsVersions(source, projectId, mcVersion, null);
+        compatibleVersions = v.status === 'ok' ? v.data : [];
+        if (v.status === 'error') error = formatError(v.error);
+      } else {
+        compatibleVersions = [];
+      }
     } else {
-      compatibleVersions = [];
+      // Mods: only load versions when a real (non-vanilla) loader + mc are set.
+      if (mcVersion && loader && loader !== 'vanilla') {
+        const v = await commands.modsVersions(source, projectId, mcVersion, loader);
+        compatibleVersions = v.status === 'ok' ? v.data : [];
+        if (v.status === 'error') error = formatError(v.error);
+      } else {
+        compatibleVersions = [];
+      }
     }
   }
 
@@ -274,7 +303,13 @@
         {:else}
           <div class="text-xs text-placeholder text-center">
             {#if !canInstall}
-              {$t('mods.detail.selectInstanceHint')}
+              {#if kind !== 'mod'}
+                {$t('mods.browse.errorNoInstance')}
+              {:else}
+                {$t('mods.detail.selectInstanceHint')}
+              {/if}
+            {:else if kind !== 'mod'}
+              {$t('mods.detail.noCompatVersionAsset', { mc: mcVersion ?? '' })}
             {:else}
               {$t('mods.detail.noCompatVersion', { mc: mcVersion ?? '', loader: loader ?? '' })}
             {/if}

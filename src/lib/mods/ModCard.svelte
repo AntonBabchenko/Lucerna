@@ -32,6 +32,7 @@
     selectable = false,
     selected = false,
     onSelectChange = (_checked: boolean) => {},
+    canToggle = true,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -53,6 +54,10 @@
     selectable?: boolean;
     selected?: boolean;
     onSelectChange?: (checked: boolean) => void;
+    // Whether the Disable/Enable toggle renders. Mods default to true. Resource
+    // packs / shaders pass false — Minecraft owns their activation, there is no
+    // enable/disable, only install / uninstall.
+    canToggle?: boolean;
   } = $props();
 
   // True when the installed record came from a different platform than
@@ -139,9 +144,11 @@
           ? ` · v${installed.version_number}`
           : ''}
     </span>
-    <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
-      {installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-    </button>
+    {#if canToggle}
+      <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
+        {installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+      </button>
+    {/if}
     <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}
       >{$t('mods.card.uninstall')}</button
     >

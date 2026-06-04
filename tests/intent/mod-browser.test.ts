@@ -128,8 +128,8 @@ vi.mock('@tauri-apps/api/webview', () => ({
   }),
 }));
 
+import ModBrowserTab from '$lib/mods/AddonsTab.svelte';
 import InstalledModsView from '$lib/mods/InstalledModsView.svelte';
-import ModBrowserTab from '$lib/mods/ModBrowserTab.svelte';
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import ModCard from '$lib/mods/ModCard.svelte';
 import ModDetailModal from '$lib/mods/ModDetailModal.svelte';

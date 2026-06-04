@@ -54,6 +54,7 @@
   "nav": {
     "overview": "Overview",
     "modBrowser": "Mod browser",
+    "addons": "Add-ons",
     "worlds": "Worlds"
   },
   "sidebar": {
@@ -252,7 +253,8 @@
       "footerRestricted": "Restricted — open on platform",
       "footerInstall": "Install {version}",
       "selectInstanceHint": "Select a Fabric / Quilt / Forge / NeoForge instance to install mods.",
-      "noCompatVersion": "No compatible version for {mc} / {loader}."
+      "noCompatVersion": "No compatible version for {mc} / {loader}.",
+      "noCompatVersionAsset": "No version compatible with {mc}."
     },
     "source": {
       "label": "Source:",
@@ -359,6 +361,24 @@
       "unresolvableWarning": "⚠ Could not find compatible versions of: {names} — install anyway?",
       "subRequires": "requires: {name}",
       "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
+    }
+  },
+  "addons": {
+    "kindMods": "Mods",
+    "kindResourcePacks": "Resource packs",
+    "kindShaders": "Shaders",
+    "kindSwitchAria": "Content type",
+    "subTabsLabel": "Add-on views",
+    "shaderLoaderHint": "Shaders need Iris or OptiFine installed to run.",
+    "installed": {
+      "checkUpdates": "Check for updates",
+      "update": "Update",
+      "remove": "Remove",
+      "empty": "Nothing installed in this instance yet.",
+      "loading": "Loading…",
+      "pickInstance": "Pick an instance first.",
+      "upToDateToast": "Everything is up to date.",
+      "checkFailed": "Update check failed"
     }
   },
   "modpacks": {

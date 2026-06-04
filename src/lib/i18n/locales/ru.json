@@ -54,6 +54,7 @@
   "nav": {
     "overview": "Обзор",
     "modBrowser": "Браузер модов",
+    "addons": "Дополнения",
     "worlds": "Миры"
   },
   "sidebar": {
@@ -252,7 +253,8 @@
       "footerRestricted": "Ограничено — откройте на платформе",
       "footerInstall": "Установить {version}",
       "selectInstanceHint": "Выберите профиль с Fabric / Quilt / Forge / NeoForge для установки модов.",
-      "noCompatVersion": "Нет совместимой версии для {mc} / {loader}."
+      "noCompatVersion": "Нет совместимой версии для {mc} / {loader}.",
+      "noCompatVersionAsset": "Нет версии, совместимой с {mc}."
     },
     "source": {
       "label": "Источник:",
@@ -359,6 +361,24 @@
       "unresolvableWarning": "⚠ Не удалось найти совместимые версии: {names} — установить всё равно?",
       "subRequires": "требует: {name}",
       "installBtn": "{count, plural, one {Установить (# мод)} few {Установить (# мода)} many {Установить (# модов)} other {Установить (# мода)}}"
+    }
+  },
+  "addons": {
+    "kindMods": "Моды",
+    "kindResourcePacks": "Ресурс-паки",
+    "kindShaders": "Шейдеры",
+    "kindSwitchAria": "Тип контента",
+    "subTabsLabel": "Разделы дополнений",
+    "shaderLoaderHint": "Для работы шейдеров нужен Iris или OptiFine.",
+    "installed": {
+      "checkUpdates": "Проверить обновления",
+      "update": "Обновить",
+      "remove": "Удалить",
+      "empty": "В этом экземпляре пока ничего не установлено.",
+      "loading": "Загрузка…",
+      "pickInstance": "Сначала выберите экземпляр.",
+      "upToDateToast": "Всё обновлено.",
+      "checkFailed": "Не удалось проверить обновления"
     }
   },
   "modpacks": {
