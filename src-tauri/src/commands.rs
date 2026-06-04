@@ -2267,6 +2267,17 @@ pub async fn modpack_project(
         .await
 }
 
+/// Capability descriptor for a modpack source — read by the UI to drive
+/// source-specific affordances (hide the API-key prompt, grey out server
+/// filters, hide export) without hardcoding per-source branches.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_source_caps(
+    source: crate::mods::platform::ModSource,
+) -> Result<crate::mods::modpack::source::SourceCaps, crate::error::Error> {
+    Ok(modpack::source::modpack_source_for(source).caps())
+}
+
 /// Pick the most-recently-published version, or `None` if the list is
 /// empty or its newest entry's opaque Modrinth `id` already equals
 /// `current_id`. Pure — split out so it is unit-testable.

@@ -1,11 +1,8 @@
 //! Reusable helpers that download a modpack version archive to the OS temp
 //! dir and return the local path. Extracted from `modpack_fetch_to_temp` so
 //! the `ModpackSource` adapters can delegate to them without duplicating the
-//! HTTP + temp-write logic.
-//!
-//! The original `modpack_fetch_to_temp` command in `commands.rs` is **not**
-//! modified here — it still contains its own inline copy (Task 10 will
-//! rewrite it to call these helpers).
+//! HTTP + temp-write logic. These helpers are the canonical archive-staging
+//! logic used by the Modrinth, CurseForge, and FTB adapters.
 
 use tauri::Manager;
 
