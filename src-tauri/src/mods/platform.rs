@@ -151,7 +151,7 @@ pub struct ModProject {
     pub website_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModVersion {
     pub source: ModSource,
     pub project_id: String,
@@ -165,7 +165,7 @@ pub struct ModVersion {
     pub published_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModFile {
     pub filename: String,
     pub url: String,
@@ -185,7 +185,7 @@ pub enum DepKind {
     Embedded,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum DepProjectRef {
     Modrinth {
@@ -207,7 +207,7 @@ impl DepProjectRef {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModDepLink {
     pub kind: DepKind,
     pub project_ref: DepProjectRef,
@@ -272,6 +272,27 @@ pub struct VersionRef {
     pub source: ModSource,
     pub project_id: String,
     pub version_id: String,
+}
+
+/// The per-asset update classification (mirrors `ModUpdateState` for mods).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AssetUpdateState {
+    /// The installed version is the newest offered for this MC version.
+    UpToDate,
+    /// A newer version exists; `latest` is the version to install.
+    UpdateAvailable { latest: Box<ModVersion> },
+    /// The platform query failed (network error, project delisted, etc.).
+    /// Set by the command layer — never produced by `classify_asset_update`.
+    CheckFailed { reason: String },
+}
+
+/// One installed resource-pack/shader's update-check result.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct AssetUpdateCheck {
+    pub filename: String,
+    pub name: String,
+    pub state: AssetUpdateState,
 }
 
 /// A resource pack or shader installed into an instance. Unlike `InstalledMod`

@@ -7,7 +7,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::mods::installed::PackOrigin;
-use crate::mods::platform::{InstalledMod, ModSource, ModVersion};
+use crate::mods::platform::{AssetUpdateState, InstalledMod, ModSource, ModVersion};
 
 /// One installed user-mod's update-check result. One per *eligible*
 /// mod — see [`eligible_identity`]; ineligible mods are absent.
@@ -107,6 +107,27 @@ pub fn eligible_identity(
             Some((source, project_id.clone(), version_id.clone()))
         }
         _ => None,
+    }
+}
+
+/// Classify an installed resource-pack or shader against the versions the
+/// platform currently lists (caller fetches them, newest-first for the
+/// instance's MC version). Pure. Never returns `CheckFailed`.
+///
+/// Empty `fetched` list or `None` installed version both return `UpToDate`
+/// (nothing newer offered, or no baseline to compare against).
+pub fn classify_asset_update(
+    installed_version_id: Option<&str>,
+    fetched: &[ModVersion],
+) -> AssetUpdateState {
+    let Some(latest) = fetched.first() else {
+        return AssetUpdateState::UpToDate;
+    };
+    match installed_version_id {
+        Some(vid) if vid == latest.version_id => AssetUpdateState::UpToDate,
+        _ => AssetUpdateState::UpdateAvailable {
+            latest: Box::new(latest.clone()),
+        },
     }
 }
 
@@ -287,6 +308,27 @@ mod tests {
         assert_eq!(
             eligible_identity(&m, None),
             Some((ModSource::Modrinth, "proj".to_string(), "ver".to_string()))
+        );
+    }
+
+    #[test]
+    fn classify_asset_update_flags_newer_version_id() {
+        use crate::mods::platform::AssetUpdateState;
+
+        let latest = version("v2");
+        let state = classify_asset_update(Some("v1"), &[latest]);
+        assert!(matches!(state, AssetUpdateState::UpdateAvailable { .. }));
+
+        let same = version("v1");
+        assert_eq!(
+            classify_asset_update(Some("v1"), &[same]),
+            AssetUpdateState::UpToDate
+        );
+
+        // empty fetched list → UpToDate (nothing newer offered)
+        assert_eq!(
+            classify_asset_update(Some("v1"), &[]),
+            AssetUpdateState::UpToDate
         );
     }
 
