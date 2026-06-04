@@ -50,7 +50,14 @@ pub(crate) async fn search_impl(
     // FTB search has no server-side offset paging; fetch a window covering all
     // pages up to the requested one so we can slice client-side.
     let fetch_limit = (page + 1).saturating_mul(page_size);
-    let all_ids = ftb_api::search_ids(base, query, fetch_limit).await?;
+    // Default browse (empty query): FTB's search endpoint rejects empty/short
+    // terms ("Search term too short."), so fall back to the most-installed list
+    // — matching how Modrinth/CurseForge show popular packs before the user types.
+    let all_ids = if query.trim().is_empty() {
+        ftb_api::popular_ids(base, fetch_limit).await?
+    } else {
+        ftb_api::search_ids(base, query, fetch_limit).await?
+    };
     // total is the unfiltered id count up to the fetched window — approximate.
     // FTB search has no server-side total/offset; client-side mc/loader filtering
     // further means a page may show fewer than page_size hits. The pager treats
@@ -589,5 +596,63 @@ mod tests {
         assert_eq!(page.hits[0].project_id, "3");
         assert_eq!(page.offset, 2, "offset should be page * page_size = 2");
         assert_eq!(page.total, 3, "total should be unfiltered id count = 3");
+    }
+
+    /// Regression (manual-test gap): an empty query must populate the default
+    /// browse from the FTB *popular* endpoint, NOT call /search with an empty
+    /// term (which FTB rejects with "Search term too short."). Only the popular
+    /// mock is mounted — if search_impl wrongly hit /search, no detail would be
+    /// fetched and the page would be empty, failing this test.
+    #[tokio::test]
+    async fn ftb_empty_query_uses_popular_endpoint() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+
+        // fetch_limit = (0 + 1) * 20 = 20
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/popular/installs/20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "packs": [91u64], "total": 1, "status": "success" }),
+            ))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/91"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(pack_detail_json(91, "1.16.5", "forge", 500_000)),
+            )
+            .mount(&s)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let page = search_impl(&s.uri(), "", 0, None, None, 20).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(page.hits.len(), 1, "empty query should show popular packs");
+        assert_eq!(page.hits[0].project_id, "91");
+    }
+
+    /// A too-short term makes FTB return HTTP 200 with an error body
+    /// (`{"status":"error","message":"Search term too short."}`) that has no
+    /// `packs` field. This must degrade to an empty page, never an error.
+    #[tokio::test]
+    async fn ftb_too_short_term_yields_empty_page_not_error() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/search/20"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "status": "error", "message": "Search term too short." }),
+            ))
+            .mount(&s)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let page = search_impl(&s.uri(), "ab", 0, None, None, 20).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(page.hits.len(), 0, "too-short term should yield empty, not error");
     }
 }

@@ -130,6 +130,38 @@ pub async fn search_ids(base: &str, query: &str, limit: u32) -> Result<Vec<u64>,
             details: format!("HTTP {}", resp.status),
         });
     }
+    // Note: FTB returns HTTP 200 with `{"status":"error","message":"Search
+    // term too short."}` for empty/too-short terms. That body has no `packs`,
+    // so `#[serde(default)]` yields an empty vec — a graceful "no results"
+    // while the user is still typing. The empty-query default-browse path uses
+    // `popular_ids` instead (see `FtbModpackSource::search`).
+    let r: FtbSearchResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+        platform: "ftb".into(),
+        details: e.to_string(),
+    })?;
+    Ok(r.packs)
+}
+
+/// Fetch the most-installed FTB packs; returns a list of FTB pack IDs.
+/// Used to populate the default browse view when no search term is entered
+/// (FTB's search endpoint rejects empty/short terms).
+///
+/// Calls `GET {base}/public/modpack/popular/installs/{limit}`. The response
+/// shares the `{ "packs": [...] }` shape with the search endpoint.
+pub async fn popular_ids(base: &str, limit: u32) -> Result<Vec<u64>, Error> {
+    let url = format!("{base}/public/modpack/popular/installs/{limit}");
+    let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
+        .await
+        .map_err(|e| Error::ModsNetwork {
+            url: url.clone(),
+            details: e.to_string(),
+        })?;
+    if !(200..300).contains(&resp.status) {
+        return Err(Error::ModsNetwork {
+            url,
+            details: format!("HTTP {}", resp.status),
+        });
+    }
     let r: FtbSearchResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "ftb".into(),
         details: e.to_string(),
