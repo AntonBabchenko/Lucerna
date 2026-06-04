@@ -1,6 +1,12 @@
 <script lang="ts">
   import { commands } from '$lib/ipc/bindings';
-  import type { ModpackHit, ModpackSearchPage, ModpackSort, SourceCaps } from '$lib/ipc/bindings';
+  import type {
+    ModpackHit,
+    ModpackSearchPage,
+    ModpackSort,
+    ModSource,
+    SourceCaps,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
@@ -33,18 +39,29 @@
   let query = $state('');
 
   // Per-source capability flags — fetched on every source change so the UI
-  // adjusts without any hardcoded `if source === 'x'` checks. Default values
-  // match Modrinth/CurseForge behaviour so the first render is correct before
-  // the IPC round-trip completes.
+  // adjusts without any hardcoded `if source === 'x'` checks.
+  //
+  // To prevent a stale-race while the async IPC call resolves (e.g. the CF-key
+  // banner incorrectly flashing during a fast FTB→CurseForge switch), caps are
+  // set SYNCHRONOUSLY to known values before the await. The async fetch is the
+  // authority and corrects any drift if the Rust side ever changes.
+  const SOURCE_CAPS: Record<ModSource, SourceCaps> = {
+    modrinth: { needs_api_key: false, supports_server_filter: true, can_export: true },
+    curseforge: { needs_api_key: true, supports_server_filter: true, can_export: true },
+    // Mirrors FtbModpackSource::caps() in source/ftb.rs exactly.
+    ftb: { needs_api_key: false, supports_server_filter: false, can_export: false },
+  };
   let caps = $state<SourceCaps>({
     needs_api_key: false,
     supports_server_filter: true,
     can_export: true,
   });
   $effect(() => {
-    void modpackBrowseState.source;
+    const source = modpackBrowseState.source;
+    // Synchronous pre-set eliminates the stale-window.
+    caps = SOURCE_CAPS[source];
     void (async () => {
-      const r = await commands.modpackSourceCaps(modpackBrowseState.source);
+      const r = await commands.modpackSourceCaps(source);
       if (r.status === 'ok') caps = r.data;
     })();
   });

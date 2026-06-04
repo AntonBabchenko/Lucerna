@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
 
   // Modal that shows the parsed `ModpackSummary` to the user and lets them
   // choose which optional mods to install. Required mods are listed but
@@ -93,6 +94,17 @@
     'groupOther',
   ];
 
+  // Static map from CategoryKey to its i18n key — greppable and compile-time
+  // checked via TranslationKey (no dynamic key construction at runtime).
+  const GROUP_LABEL_KEY: Record<CategoryKey, TranslationKey> = {
+    groupMods: 'modpacks.import.picker.groupMods',
+    groupResourcepacks: 'modpacks.import.picker.groupResourcepacks',
+    groupShaderpacks: 'modpacks.import.picker.groupShaderpacks',
+    groupConfig: 'modpacks.import.picker.groupConfig',
+    groupScripts: 'modpacks.import.picker.groupScripts',
+    groupOther: 'modpacks.import.picker.groupOther',
+  };
+
   interface FileGroup {
     key: CategoryKey;
     files: ModpackFile[];
@@ -155,14 +167,14 @@
           >
             <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
             {#if sizeStr}
-              {$t(`modpacks.import.picker.groupHeader`, {
-                label: $t(`modpacks.import.picker.${group.key}`),
+              {$t('modpacks.import.picker.groupHeader', {
+                label: $t(GROUP_LABEL_KEY[group.key]),
                 count: group.files.length,
                 size: sizeStr,
               })}
             {:else}
-              {$t(`modpacks.import.picker.groupHeaderNoSize`, {
-                label: $t(`modpacks.import.picker.${group.key}`),
+              {$t('modpacks.import.picker.groupHeaderNoSize', {
+                label: $t(GROUP_LABEL_KEY[group.key]),
                 count: group.files.length,
               })}
             {/if}
@@ -210,15 +222,17 @@
             {#each unresolvable as u, i (i)}
               <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
                 <span class="flex-1">{u.mod_name}</span>
-                <button
-                  type="button"
-                  onclick={() =>
-                    void import('@tauri-apps/plugin-opener').then((m) =>
-                      m.openUrl(u.manual_action_url),
-                    )}
-                  class="text-accent hover:underline text-xs"
-                  >{$t('modpacks.import.picker.openLink')}</button
-                >
+                {#if u.manual_action_url}
+                  <button
+                    type="button"
+                    onclick={() =>
+                      void import('@tauri-apps/plugin-opener').then((m) =>
+                        m.openUrl(u.manual_action_url),
+                      )}
+                    class="text-accent hover:underline text-xs"
+                    >{$t('modpacks.import.picker.openLink')}</button
+                  >
+                {/if}
               </li>
             {/each}
           </ul>
