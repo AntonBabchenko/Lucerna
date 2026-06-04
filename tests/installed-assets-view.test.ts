@@ -7,21 +7,28 @@ import type { InstalledAsset, ModVersion } from '$lib/ipc/bindings';
 
 // vi.mock is hoisted — the spies live in vi.hoisted so the factory and the
 // tests share the same references.
-const spies = vi.hoisted(() => ({
-  assetsList: vi.fn(),
-  assetUninstall: vi.fn(),
-  assetsCheckUpdates: vi.fn(),
-  assetInstall: vi.fn(),
-}));
+const { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, pushWarning, pushSuccess } =
+  vi.hoisted(() => ({
+    assetsList: vi.fn(),
+    assetUninstall: vi.fn(),
+    assetsCheckUpdates: vi.fn(),
+    assetInstall: vi.fn(),
+    pushWarning: vi.fn(),
+    pushSuccess: vi.fn(),
+  }));
+
+const spies = { assetsList, assetUninstall, assetsCheckUpdates, assetInstall };
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    assetsList: spies.assetsList,
-    assetUninstall: spies.assetUninstall,
-    assetsCheckUpdates: spies.assetsCheckUpdates,
-    assetInstall: spies.assetInstall,
+    assetsList,
+    assetUninstall,
+    assetsCheckUpdates,
+    assetInstall,
   },
 }));
+
+vi.mock('$lib/toasts/toasts.svelte', () => ({ pushWarning, pushSuccess }));
 
 import InstalledAssetsView from '$lib/mods/InstalledAssetsView.svelte';
 
@@ -71,6 +78,8 @@ function ok<T>(data: T) {
 describe('InstalledAssetsView', () => {
   beforeEach(() => {
     for (const s of Object.values(spies)) s.mockReset();
+    pushWarning.mockReset();
+    pushSuccess.mockReset();
   });
 
   it('renders an asset row with its name and a Remove button', async () => {
@@ -129,5 +138,36 @@ describe('InstalledAssetsView', () => {
 
     expect(await screen.findByText('Pick an instance first.')).toBeTruthy();
     expect(spies.assetsList).not.toHaveBeenCalled();
+  });
+
+  it('calls pushWarning and does not remove the row when assetUninstall returns an error', async () => {
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetUninstall.mockResolvedValue({ status: 'error' as const, error: 'disk full' });
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(pushWarning).toHaveBeenCalled());
+    // Row must still be present after error
+    expect(screen.queryByText('Complementary Shaders')).toBeTruthy();
+  });
+
+  it('calls pushWarning and does not crash when assetsCheckUpdates returns an error', async () => {
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+    spies.assetsCheckUpdates.mockResolvedValue({
+      status: 'error' as const,
+      error: 'network error',
+    });
+
+    render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+
+    await waitFor(() => expect(pushWarning).toHaveBeenCalled());
+    // Component must still be alive — the row is still present
+    expect(screen.queryByText('Complementary Shaders')).toBeTruthy();
   });
 });

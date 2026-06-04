@@ -7,6 +7,7 @@ export type TranslationKey =
   | 'addons.installed.checkFailed'
   | 'addons.installed.checkUpdates'
   | 'addons.installed.empty'
+  | 'addons.installed.loading'
   | 'addons.installed.pickInstance'
   | 'addons.installed.remove'
   | 'addons.installed.upToDateToast'

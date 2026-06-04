@@ -78,17 +78,20 @@
     if (instanceId === null) return;
     busy = true;
     error = null;
-    const res = await commands.assetUninstall(instanceId, kind, asset.filename);
-    busy = false;
-    if (res.status === 'error') {
-      pushWarning(formatError(res.error));
-      return;
+    try {
+      const res = await commands.assetUninstall(instanceId, kind, asset.filename);
+      if (res.status === 'error') {
+        pushWarning(formatError(res.error));
+        return;
+      }
+      assets = assets.filter((a) => a.filename !== asset.filename);
+      const next = new Map(updateStates);
+      next.delete(asset.filename);
+      updateStates = next;
+      pushSuccess(asset.name);
+    } finally {
+      busy = false;
     }
-    assets = assets.filter((a) => a.filename !== asset.filename);
-    const next = new Map(updateStates);
-    next.delete(asset.filename);
-    updateStates = next;
-    pushSuccess(asset.name);
   }
 
   async function checkUpdates() {
@@ -112,20 +115,22 @@
     if (instanceId === null) return;
     busy = true;
     error = null;
-    const res = await commands.assetInstall(instanceId, latest, kind);
-    if (res.status === 'error') {
+    try {
+      const res = await commands.assetInstall(instanceId, latest, kind);
+      if (res.status === 'error') {
+        pushWarning(formatError(res.error));
+        return;
+      }
+      // The freshly installed version is now current — drop its badge and re-list
+      // so name / version_number reflect the new file.
+      const next = new Map(updateStates);
+      next.delete(asset.filename);
+      updateStates = next;
+      await refresh();
+      pushSuccess(asset.name);
+    } finally {
       busy = false;
-      pushWarning(formatError(res.error));
-      return;
     }
-    // The freshly installed version is now current — drop its badge and re-list
-    // so name / version_number reflect the new file.
-    const next = new Map(updateStates);
-    next.delete(asset.filename);
-    updateStates = next;
-    await refresh();
-    busy = false;
-    pushSuccess(asset.name);
   }
 
   function updatable(filename: string): ModVersion | null {
@@ -161,7 +166,7 @@
     </div>
   {:else if loading && assets.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">
-      {$t('addons.installed.pickInstance')}
+      {$t('addons.installed.loading')}
     </div>
   {:else if assets.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">{$t('addons.installed.empty')}</div>
@@ -179,7 +184,12 @@
             {/if}
           </div>
           {#if checkFailed(asset.filename)}
-            <span class="text-xs text-placeholder" title={$t('addons.installed.checkFailed')}>
+            <span
+              class="text-xs text-placeholder"
+              title={$t('addons.installed.checkFailed')}
+              aria-label={$t('addons.installed.checkFailed')}
+              role="img"
+            >
               ⚠
             </span>
           {/if}

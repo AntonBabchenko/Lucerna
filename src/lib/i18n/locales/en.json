@@ -337,6 +337,7 @@
       "update": "Update",
       "remove": "Remove",
       "empty": "Nothing installed in this instance yet.",
+      "loading": "Loading…",
       "pickInstance": "Pick an instance first.",
       "upToDateToast": "Everything is up to date.",
       "checkFailed": "Update check failed"
