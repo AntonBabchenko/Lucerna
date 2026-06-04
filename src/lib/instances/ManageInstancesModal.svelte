@@ -370,6 +370,14 @@
               <div class="font-medium">
                 {i.ready ? '✓' : '↓'}
                 {i.name}
+                {#if i.integrity && !i.integrity.healthy}
+                  <span
+                    class="text-warning-text"
+                    title={$t('instance.integrity.statusProblems', {
+                      count: i.integrity.problem_count,
+                    })}>⚠</span
+                  >
+                {/if}
                 {#if i.id === activeInstance?.id}
                   <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
                 {/if}
