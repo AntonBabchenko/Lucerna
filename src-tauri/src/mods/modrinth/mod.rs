@@ -381,8 +381,10 @@ fn build_facets(
     if let Some(mc) = mc_version {
         facets.push(vec![format!("versions:{mc}")]);
     }
-    // Resource packs have no loader; mods + shaders do.
-    if kind != ContentKind::ResourcePack {
+    // The Java loader facet applies to mods ONLY. Resource packs have no
+    // loader, and Modrinth shader categories are iris/optifine/canvas — passing
+    // `categories:<loader>` to a shader search returns almost nothing.
+    if kind == ContentKind::Mod {
         if let Some(l) = loader {
             facets.push(vec![format!(
                 "categories:{}",
@@ -422,9 +424,12 @@ mod tests {
             .iter()
             .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
 
+        // Shaders use iris/optifine/canvas categories, NOT the Java loader.
+        // Passing `categories:fabric` to a shader search returns almost nothing,
+        // so the loader facet must be omitted for shaders (mods only).
         let f = build_facets(ContentKind::Shader, None, Some(LoaderKind::Fabric));
         assert!(f.contains(&vec!["project_type:shader".to_string()]));
-        assert!(f
+        assert!(!f
             .iter()
             .any(|g| g.iter().any(|s| s.starts_with("categories:"))));
     }

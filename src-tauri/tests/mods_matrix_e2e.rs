@@ -148,9 +148,7 @@ mod sample_tests {
 use lucerna_lib::mods::install::{install_one, ModInstallPhase, ProgressFn};
 use lucerna_lib::mods::installed;
 use lucerna_lib::mods::modrinth::ModrinthClient;
-use lucerna_lib::mods::platform::{
-    ContentKind, ModPlatform, ModSearchQuery, ModSort, ModSource,
-};
+use lucerna_lib::mods::platform::{ContentKind, ModPlatform, ModSearchQuery, ModSort, ModSource};
 use std::path::Path;
 
 /// Per-mod result within a combo.

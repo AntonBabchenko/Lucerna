@@ -318,7 +318,33 @@ pub fn safe_asset_remove_path(
             entry: filename.to_string(),
         });
     }
-    Ok(instance_root.join(".minecraft").join(rel))
+    let mc_dir = instance_root.join(".minecraft");
+    let dest = mc_dir.join(&rel);
+    // Defense in depth (mirrors install_asset): the canonical parent must stay
+    // inside `.minecraft/`, catching symlink-based escapes the string checks
+    // cannot see (e.g. a symlink under shaderpacks/ redirecting the delete out
+    // of the instance). Only canonicalize when the parent actually exists — if
+    // the asset dir is absent there is nothing to remove and remove_file will
+    // no-op, so an absent dir must not be treated as an escape.
+    if let Some(parent) = dest.parent() {
+        if parent.exists() {
+            let mc_canon = dunce::canonicalize(&mc_dir).map_err(|e| Error::ModsInstancePath {
+                path: mc_dir.display().to_string(),
+                details: e.to_string(),
+            })?;
+            let parent_canon =
+                dunce::canonicalize(parent).map_err(|e| Error::ModsInstancePath {
+                    path: parent.display().to_string(),
+                    details: e.to_string(),
+                })?;
+            if !parent_canon.starts_with(&mc_canon) {
+                return Err(Error::ModpackOverridesPathEscape {
+                    entry: filename.to_string(),
+                });
+            }
+        }
+    }
+    Ok(dest)
 }
 
 /// Download + install a resource pack or shader, then record it in the
@@ -335,10 +361,14 @@ pub async fn install_asset_tracked(
     version_number: Option<String>,
     filename: &str,
     url: &str,
-    sha: &str,
+    sha: Option<&str>,
     size: f64,
     progress: &ProgressFn,
 ) -> Result<(), Error> {
+    // No-TOFU: refuse before any download/IO when the platform omits a SHA-1.
+    // Mirrors `install_one`'s `ok_or(Error::ModsSha1Unavailable)?` so an asset
+    // is never written without an integrity check (CurseForge can omit SHA-1).
+    let sha = sha.ok_or(Error::ModsSha1Unavailable)?;
     let install_path = asset_subpath(kind, filename);
     install_asset(
         data_dir,
@@ -1065,7 +1095,7 @@ mod tests {
             Some("r5.3".into()),
             "Complementary-r5.3.zip",
             &format!("{}/Complementary-r5.3.zip", s.uri()),
-            &sha,
+            Some(&sha),
             body.len() as f64,
             &nop_progress(),
         )
@@ -1110,7 +1140,7 @@ mod tests {
             Some("1.20".into()),
             "Faithful.zip",
             &format!("{}/Faithful.zip", s.uri()),
-            &sha,
+            Some(&sha),
             body.len() as f64,
             &nop_progress(),
         )
@@ -1126,6 +1156,45 @@ mod tests {
             .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "Faithful.zip");
+    }
+
+    #[tokio::test]
+    async fn install_asset_tracked_none_sha_rejects_no_file_no_registry() {
+        // No-TOFU: a missing SHA-1 must abort before any IO — no file on disk
+        // and no registry entry. Mirrors install_one's ModsSha1Unavailable gate.
+        use crate::mods::platform::ContentKind;
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        let r = install_asset_tracked(
+            td_data.path(),
+            td_inst.path(),
+            ContentKind::Shader,
+            None,
+            None,
+            None,
+            "NoSha",
+            None,
+            "NoSha.zip",
+            "http://127.0.0.1:1/unreachable.zip",
+            None,
+            100.0,
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(r, Err(Error::ModsSha1Unavailable)),
+            "None sha must return ModsSha1Unavailable, got {r:?}"
+        );
+        // No file written.
+        assert!(!td_inst
+            .path()
+            .join(".minecraft/shaderpacks/NoSha.zip")
+            .exists());
+        // No registry entry.
+        let listed = crate::mods::assets::list(td_inst.path(), ContentKind::Shader)
+            .await
+            .unwrap();
+        assert!(listed.is_empty());
     }
 
     #[test]

@@ -13,6 +13,27 @@ fn registry_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join("installed-assets.json")
 }
 
+/// Guard the asset commands against `ContentKind::Mod`.
+///
+/// The asset subsystem only manages resource packs and shaders. If `Mod`
+/// reached these commands, `asset_dir(Mod)` resolves to `mods` — so an
+/// uninstall would delete from `.minecraft/mods/` while the assets registry
+/// (which never tracks mods) finds nothing, silently orphaning the mods
+/// registry. We reject it at the boundary.
+///
+/// Reuses [`Error::ModpackOverridesPathEscape`] (no new variant per the
+/// bindings-freeze constraint): a `Mod` kind would route the asset write/delete
+/// into `.minecraft/mods/`, i.e. outside the resourcepacks/shaderpacks subtree
+/// the asset commands are allowed to touch.
+pub fn require_asset_kind(kind: ContentKind) -> Result<(), Error> {
+    if kind == ContentKind::Mod {
+        return Err(Error::ModpackOverridesPathEscape {
+            entry: "mods (asset commands accept resource packs and shaders only)".to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn io_err(path: &Path, e: std::io::Error) -> Error {
     Error::ModsInstancePath {
         path: path.display().to_string(),
@@ -46,7 +67,11 @@ async fn write_all(instance_root: &Path, items: &[InstalledAsset]) -> Result<(),
         platform: "installed-assets.json".into(),
         details: e.to_string(),
     })?;
-    fs::write(&path, json).await.map_err(|e| io_err(&path, e))
+    // Atomic write (mirrors installed.rs): write to a temp file then rename
+    // over the target, so a crash mid-write can't leave a truncated registry.
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &json).await.map_err(|e| io_err(&tmp, e))?;
+    fs::rename(&tmp, &path).await.map_err(|e| io_err(&path, e))
 }
 
 pub async fn add(instance_root: &Path, asset: InstalledAsset) -> Result<(), Error> {
@@ -116,6 +141,16 @@ mod tests {
         let shaders = list(root, ContentKind::Shader).await.unwrap();
         assert_eq!(shaders.len(), 1);
         assert_eq!(shaders[0].version_number.as_deref(), Some("2.0"));
+    }
+
+    #[test]
+    fn require_asset_kind_rejects_mod_accepts_assets() {
+        assert!(matches!(
+            require_asset_kind(ContentKind::Mod),
+            Err(Error::ModpackOverridesPathEscape { .. })
+        ));
+        assert!(require_asset_kind(ContentKind::ResourcePack).is_ok());
+        assert!(require_asset_kind(ContentKind::Shader).is_ok());
     }
 
     #[tokio::test]

@@ -1583,6 +1583,7 @@ pub async fn assets_list(
     instance_id: String,
     kind: crate::mods::platform::ContentKind,
 ) -> crate::error::Result<Vec<crate::mods::platform::InstalledAsset>> {
+    crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     crate::mods::assets::list(&inst_root, kind).await
 }
@@ -1597,6 +1598,7 @@ pub async fn asset_uninstall(
     kind: crate::mods::platform::ContentKind,
     filename: String,
 ) -> crate::error::Result<()> {
+    crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     // Guard against path escape before touching the filesystem (defense-in-depth:
     // install_asset validates the same way, so any registry basename always passes).
@@ -1616,6 +1618,7 @@ pub async fn asset_install(
     version: crate::mods::platform::ModVersion,
     kind: crate::mods::platform::ContentKind,
 ) -> crate::error::Result<()> {
+    crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
     let f = &version.primary_file;
@@ -1631,7 +1634,7 @@ pub async fn asset_install(
         Some(version.version_number.clone()),
         &f.filename,
         &f.url,
-        f.sha1.as_deref().unwrap_or_default(),
+        f.sha1.as_deref(),
         f.size,
         &progress,
     )
@@ -1642,6 +1645,10 @@ pub async fn asset_install(
 /// for a newer version on the instance's MC version. A single asset's
 /// query failure becomes that asset's `CheckFailed` state. Resource packs
 /// and shaders are not loader-filtered, so the loader facet is omitted.
+///
+/// Hand-dropped assets with no platform identity (no `source`/`project_id`)
+/// are silently omitted from the result — there is nothing to query an
+/// update against.
 #[tauri::command]
 #[specta::specta]
 pub async fn assets_check_updates(
@@ -1650,6 +1657,7 @@ pub async fn assets_check_updates(
     kind: crate::mods::platform::ContentKind,
 ) -> crate::error::Result<Vec<crate::mods::platform::AssetUpdateCheck>> {
     use crate::mods::platform::{AssetUpdateCheck, AssetUpdateState};
+    crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
     let (mc_version, _loader) = read_active_mc_and_loader(&app, &instance_id)?;
     let installed = crate::mods::assets::list(&inst_root, kind).await?;
