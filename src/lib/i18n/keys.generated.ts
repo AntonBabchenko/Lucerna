@@ -17,6 +17,7 @@ export type TranslationKey =
   | 'addons.kindShaders'
   | 'addons.kindSwitchAria'
   | 'addons.shaderLoaderHint'
+  | 'addons.subTabsLabel'
   | 'browse.filter.any'
   | 'browse.filter.clearAll'
   | 'browse.filter.close'

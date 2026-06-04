@@ -18,6 +18,7 @@
   import { get } from 'svelte/store';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import FileDropzone from './FileDropzone.svelte';
+  import { untrack } from 'svelte';
 
   type View = 'browse' | 'installed';
 
@@ -37,16 +38,19 @@
   };
   const kindOptions = $derived(CONTENT_KINDS.map((k) => ({ value: k, label: $t(kindLabels[k]) })));
 
-  // Once a sub-tab is opened we keep it mounted (hidden via CSS when
-  // not active) so the user's filters, search query, pagination etc.
-  // survive switching back and forth. Without this each switch
-  // re-mounts the view component and resets its $state.
-  let browseMounted = $state(true); // Browse is the default — mount immediately.
-  let installedMounted = $state(false);
-  $effect(() => {
-    if (view === 'browse') browseMounted = true;
-    if (view === 'installed') installedMounted = true;
-  });
+  // Compat-warning dialog state — declared early so the kind-change
+  // derived below can reference them.
+  type PendingJar = { path: string; filename: string };
+  type MismatchRow = { filename: string; reason: string };
+  let mismatchRows = $state<MismatchRow[]>([]);
+  let pendingCompatible = $state<PendingJar[]>([]);
+  let pendingMismatched = $state<PendingJar[]>([]);
+
+  // Tracks which kinds the user has explicitly opened the Installed sub-tab
+  // for. This is the source of truth for lazy-mount: the Installed pane is
+  // only mounted when the user has opened it for the CURRENT kind, which
+  // prevents premature IPC on kind switch.
+  let installedOpenedForKind = $state(new Set<ContentKind>());
 
   // Cross-component navigation from Overview: open the Installed
   // sub-view directly. Only applies to mods (the Overview link is
@@ -55,9 +59,49 @@
   $effect(() => {
     if (modBrowserNav.value !== null) {
       view = modBrowserNav.value.view;
+      if (modBrowserNav.value.view === 'installed') {
+        installedOpenedForKind = new Set([...installedOpenedForKind, kind]);
+      }
       modBrowserNav.value = null;
     }
   });
+
+  // When kind changes, reset to Browse so the new kind always starts on the
+  // browse sub-tab, and clear any compat-dialog state left over from mods.
+  // `prevKind` is intentionally non-reactive (not $state) and seeded with
+  // `untrack` to read the initial kind without subscribing — this lets the
+  // guard skip the first render (which may have been pre-set to 'installed'
+  // by the modBrowserNav effect above) while still triggering on later
+  // kind changes.
+  let prevKind = untrack(() => kind);
+  $effect(() => {
+    const currentKind = kind; // subscribe to kind
+    if (currentKind !== prevKind) {
+      prevKind = currentKind;
+      view = 'browse';
+      // Clear any compat-warning dialog state — a mismatch dialog left open
+      // on Mods must not remain actionable after switching to another kind,
+      // and stale state must not reappear if the user switches back to Mods.
+      mismatchRows = [];
+      pendingCompatible = [];
+      pendingMismatched = [];
+    }
+  });
+
+  // Lazy-mount: Installed pane is only rendered once the user has explicitly
+  // opened it for the current kind. This prevents premature IPC when switching
+  // kind while the Installed tab had been open for a previous kind.
+  // Browse is always mounted (it is the default landing sub-tab).
+  const browseMounted = $derived(true);
+  const installedMounted = $derived(installedOpenedForKind.has(kind));
+
+  // When the user clicks a sub-tab, arm the mount flag and switch the view.
+  function selectView(v: View) {
+    view = v;
+    if (v === 'installed') {
+      installedOpenedForKind = new Set([...installedOpenedForKind, kind]);
+    }
+  }
 
   // Props come from +page.svelte's activeInstance and are forwarded to
   // ModBrowseView and the Installed sub-view. When no instance is selected
@@ -101,12 +145,6 @@
     });
     if (Array.isArray(r) && r.length > 0) await onJarsPicked(r);
   }
-
-  type PendingJar = { path: string; filename: string };
-  type MismatchRow = { filename: string; reason: string };
-  let mismatchRows = $state<MismatchRow[]>([]);
-  let pendingCompatible = $state<PendingJar[]>([]);
-  let pendingMismatched = $state<PendingJar[]>([]);
 
   function filenameOf(path: string): string {
     return path.split(/[\\/]/).pop() ?? path;
@@ -210,7 +248,7 @@
   <!-- Sub-tab row. Underline style — matches the Modpacks tab's
        Browse/Imported sub-tabs and the top-level tab row. -->
   <div class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface mt-3">
-    <div role="tablist" class="flex gap-1">
+    <div role="tablist" aria-label={$t('addons.subTabsLabel')} class="flex gap-1">
       <button
         type="button"
         role="tab"
@@ -221,7 +259,7 @@
         class:font-semibold={view === 'browse'}
         class:border-transparent={view !== 'browse'}
         class:text-placeholder={view !== 'browse'}
-        onclick={() => (view = 'browse')}
+        onclick={() => selectView('browse')}
       >
         {$t('mods.browse.tabBrowse')}
       </button>
@@ -235,7 +273,7 @@
         class:font-semibold={view === 'installed'}
         class:border-transparent={view !== 'installed'}
         class:text-placeholder={view !== 'installed'}
-        onclick={() => (view = 'installed')}
+        onclick={() => selectView('installed')}
       >
         {$t('mods.browse.tabInstalled')}
       </button>

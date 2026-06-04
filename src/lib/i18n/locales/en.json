@@ -337,6 +337,7 @@
     "kindResourcePacks": "Resource packs",
     "kindShaders": "Shaders",
     "kindSwitchAria": "Content type",
+    "subTabsLabel": "Add-on views",
     "shaderLoaderHint": "Shaders need Iris or OptiFine installed to run.",
     "installed": {
       "checkUpdates": "Check for updates",

@@ -337,6 +337,7 @@
     "kindResourcePacks": "Ресурс-паки",
     "kindShaders": "Шейдеры",
     "kindSwitchAria": "Тип контента",
+    "subTabsLabel": "Разделы дополнений",
     "shaderLoaderHint": "Для работы шейдеров нужен Iris или OptiFine.",
     "installed": {
       "checkUpdates": "Проверить обновления",

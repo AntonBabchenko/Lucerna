@@ -57,6 +57,9 @@ describe('AddonsTab', () => {
   afterEach(async () => {
     const { droppedMods } = await import('$lib/settings/state.svelte');
     droppedMods.value = null;
+    // Reset all mock call counts between tests so assertions about "not called"
+    // are not poisoned by invocations from earlier tests.
+    vi.clearAllMocks();
   });
 
   it('renders the content-kind switch with the three labels and the mod dropzone by default', () => {
@@ -89,5 +92,60 @@ describe('AddonsTab', () => {
     });
     expect(screen.queryByText('Shaders need Iris or OptiFine installed to run.')).toBeNull();
     expect(screen.queryByTestId('file-dropzone')).toBeNull();
+  });
+
+  it('switching kind resets to Browse sub-view', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    render(AddonsTab, { props });
+
+    // Open the Installed sub-tab while on Mods.
+    await fireEvent.click(screen.getByRole('tab', { name: 'Installed' }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
+    });
+
+    // Switch to Shaders — the kind-reset effect must land on Browse.
+    await fireEvent.click(screen.getByRole('radio', { name: 'Shaders' }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
+    });
+    expect(screen.getByRole('tab', { name: 'Installed' }).getAttribute('aria-selected')).toBe(
+      'false',
+    );
+
+    // assetsList must NOT have been called — installedMounted was reset to
+    // false by the kind switch, so InstalledAssetsView was never mounted.
+    const assetsList = commands.assetsList as ReturnType<typeof vi.fn>;
+    expect(assetsList).not.toHaveBeenCalled();
+  });
+
+  it('switching kind does not auto-mount Installed sub-view (no premature IPC)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    render(AddonsTab, { props });
+
+    // Switch through all non-mod kinds without opening the Installed tab.
+    await fireEvent.click(screen.getByRole('radio', { name: 'Resource packs' }));
+    await fireEvent.click(screen.getByRole('radio', { name: 'Shaders' }));
+
+    // Browse is still the active sub-tab.
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
+    });
+
+    // InstalledAssetsView was never mounted so assetsList must not have fired.
+    const assetsList = commands.assetsList as ReturnType<typeof vi.fn>;
+    expect(assetsList).not.toHaveBeenCalled();
+  });
+
+  it('tablist has an accessible name', () => {
+    render(AddonsTab, { props });
+    const tablist = screen.getByRole('tablist');
+    expect(tablist.getAttribute('aria-label')).toBeTruthy();
   });
 });
