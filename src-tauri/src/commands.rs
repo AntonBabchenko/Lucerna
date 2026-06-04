@@ -1512,9 +1512,9 @@ pub async fn asset_uninstall(
     filename: String,
 ) -> crate::error::Result<()> {
     let inst_root = instance_root(&app, &instance_id)?;
-    let path = inst_root
-        .join(".minecraft")
-        .join(crate::mods::install::asset_subpath(kind, &filename));
+    // Guard against path escape before touching the filesystem (defense-in-depth:
+    // install_asset validates the same way, so any registry basename always passes).
+    let path = crate::mods::install::safe_asset_remove_path(&inst_root, kind, &filename)?;
     let _ = tokio::fs::remove_file(&path).await; // best-effort; registry is source of truth
     crate::mods::assets::remove(&inst_root, kind, &filename).await
 }

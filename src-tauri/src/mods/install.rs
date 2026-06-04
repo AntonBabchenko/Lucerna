@@ -282,6 +282,39 @@ pub fn asset_subpath(kind: crate::mods::platform::ContentKind, filename: &str) -
     format!("{}/{}", asset_dir(kind), filename)
 }
 
+/// Resolve the on-disk path for an asset removal, rejecting any filename that
+/// would escape the instance's `.minecraft/` directory.
+///
+/// Defense-in-depth: `install_asset` validates the same way on the install
+/// path, so a registry basename always passes.  This guard closes the
+/// asymmetry on the uninstall path.
+///
+/// We validate both the raw `filename` and the composed relative path
+/// (`<asset_dir>/<filename>`).  Validating the filename alone catches
+/// absolute paths and traversals that `asset_subpath` would otherwise
+/// silently embed inside the composed string.
+pub fn safe_asset_remove_path(
+    instance_root: &std::path::Path,
+    kind: crate::mods::platform::ContentKind,
+    filename: &str,
+) -> Result<std::path::PathBuf, Error> {
+    // Validate the bare filename first — catches `/abs`, `..` in the name,
+    // backslashes, empty string, etc.
+    if !crate::mods::modpack::path_safety::is_safe_relative_path(filename) {
+        return Err(Error::ModpackOverridesPathEscape {
+            entry: filename.to_string(),
+        });
+    }
+    // Then validate the full relative path as a belt-and-suspenders check.
+    let rel = asset_subpath(kind, filename);
+    if !crate::mods::modpack::path_safety::is_safe_relative_path(&rel) {
+        return Err(Error::ModpackOverridesPathEscape {
+            entry: filename.to_string(),
+        });
+    }
+    Ok(instance_root.join(".minecraft").join(rel))
+}
+
 /// Download + install a resource pack or shader, then record it in the
 /// per-instance assets registry. Routes by `kind`; never touches installed-mods.json.
 #[allow(clippy::too_many_arguments)]
@@ -1048,5 +1081,40 @@ mod tests {
             .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].filename, "Faithful.zip");
+    }
+
+    #[test]
+    fn safe_asset_remove_path_rejects_escape() {
+        use crate::mods::platform::ContentKind;
+        let root = std::path::Path::new("/tmp/inst");
+        // Traversal with ..
+        assert!(
+            safe_asset_remove_path(root, ContentKind::Shader, "../../evil").is_err(),
+            "../../evil should be rejected"
+        );
+        // Backslash separator
+        assert!(
+            safe_asset_remove_path(root, ContentKind::Shader, r"sub\evil.zip").is_err(),
+            r"sub\evil.zip should be rejected"
+        );
+        // Absolute path component
+        assert!(
+            safe_asset_remove_path(root, ContentKind::Shader, "/abs/evil.zip").is_err(),
+            "/abs/evil.zip should be rejected"
+        );
+        // Empty filename produces empty rel → rejected
+        assert!(
+            safe_asset_remove_path(root, ContentKind::ResourcePack, "").is_err(),
+            "empty filename should be rejected"
+        );
+        // Normal basename is accepted
+        assert!(
+            safe_asset_remove_path(root, ContentKind::Shader, "Complementary.zip").is_ok(),
+            "Complementary.zip should be accepted"
+        );
+        assert!(
+            safe_asset_remove_path(root, ContentKind::ResourcePack, "Faithful.zip").is_ok(),
+            "Faithful.zip should be accepted"
+        );
     }
 }
