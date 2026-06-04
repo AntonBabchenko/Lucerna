@@ -452,6 +452,8 @@
       "searchAriaLabel": "Поиск сборок",
       "searchPlaceholderCurseForge": "Поиск сборок на CurseForge...",
       "searchPlaceholderModrinth": "Поиск сборок на Modrinth...",
+      "searchPlaceholderFtb": "Поиск модпаков на FTB...",
+      "ftbClientFilterNote": "Фильтры FTB применяются на стороне клиента — результаты приблизительны.",
       "sortRelevance": "Релевантность",
       "sortDownloads": "Скачивания",
       "sortNewest": "Новые",

@@ -3,7 +3,12 @@
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
-  import type { InstanceWithStatus, ModpackHit, ModpackSummary, ModSource } from '$lib/ipc/bindings';
+  import type {
+    InstanceWithStatus,
+    ModpackHit,
+    ModpackSummary,
+    ModSource,
+  } from '$lib/ipc/bindings';
   import type { ModpackImportRequest } from './import-request';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import { droppedModpack, modpacksNav, dragActive } from '$lib/settings/state.svelte';

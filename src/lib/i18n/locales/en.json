@@ -452,6 +452,8 @@
       "searchAriaLabel": "Search modpacks",
       "searchPlaceholderCurseForge": "Search modpacks on CurseForge...",
       "searchPlaceholderModrinth": "Search modpacks on Modrinth...",
+      "searchPlaceholderFtb": "Search modpacks on FTB...",
+      "ftbClientFilterNote": "FTB filters apply on the client — results may be approximate.",
       "sortRelevance": "Relevance",
       "sortDownloads": "Downloads",
       "sortNewest": "Newest",
