@@ -1,16 +1,10 @@
 <script lang="ts">
   import { commands } from '$lib/ipc/bindings';
-  import type {
-    LoaderKind,
-    ModpackHit,
-    ModpackSearchPage,
-    ModpackSort,
-    ModSource,
-    SourceCaps,
-  } from '$lib/ipc/bindings';
+  import type { ModpackHit, ModpackSearchPage, ModpackSort, SourceCaps } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { cfKeyVersion, settingsOpen } from '$lib/settings/state.svelte';
   import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
+  import { modpackBrowseState } from './browse-state.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -35,8 +29,8 @@
   // from the active instance.
   let { onPickHit }: { onPickHit: (hit: ModpackHit, mc: string | null) => void } = $props();
 
+  // query resets to '' on each open (intentional — search box starts blank).
   let query = $state('');
-  let source = $state<ModSource>('modrinth');
 
   // Per-source capability flags — fetched on every source change so the UI
   // adjusts without any hardcoded `if source === 'x'` checks. Default values
@@ -48,9 +42,9 @@
     can_export: true,
   });
   $effect(() => {
-    void source;
+    void modpackBrowseState.source;
     void (async () => {
-      const r = await commands.modpackSourceCaps(source);
+      const r = await commands.modpackSourceCaps(modpackBrowseState.source);
       if (r.status === 'ok') caps = r.data;
     })();
   });
@@ -78,18 +72,11 @@
 
   // Re-poll on source flip and whenever Settings saves/clears a key.
   $effect(() => {
-    void source;
+    void modpackBrowseState.source;
     void cfKeyVersion.value;
     void refreshCfKey();
   });
 
-  // Filters start empty — the modpack browser is independent of the
-  // selected instance, so we don't make assumptions about what MC /
-  // loader the user wants. They pick.
-  let mcFilter = $state('');
-  let loaderFilter = $state<LoaderKind | ''>('');
-
-  let sortChoice = $state<ModpackSort>('relevance');
   let page = $state<ModpackSearchPage | null>(null);
   let pageNum = $state(0);
   let loading = $state(false);
@@ -115,15 +102,15 @@
       loading = true;
       error = null;
       try {
-        const mc = mcFilter.trim() || null;
-        const loaderArg = loaderFilter ? (loaderFilter as LoaderKind) : null;
+        const mc = modpackBrowseState.mcFilter.trim() || null;
+        const loaderArg = modpackBrowseState.loaderFilter ? modpackBrowseState.loaderFilter : null;
         const result = await commands.modpackSearch(
-          source,
+          modpackBrowseState.source,
           query,
           pageNum,
           mc,
           loaderArg,
-          sortChoice,
+          modpackBrowseState.sortChoice,
           browserPrefs.pageSize,
         );
         if (result.status === 'ok') {
@@ -145,25 +132,28 @@
   // Modpack browser has no "show installed" facet, so it never enters
   // the chip model. source is a context switch, not a chip (see
   // filter-model). Only loader + mc surface as chips here.
-  const filterFacets = $derived({ loader: loaderFilter, mc: mcFilter });
+  const filterFacets = $derived({
+    loader: modpackBrowseState.loaderFilter,
+    mc: modpackBrowseState.mcFilter,
+  });
 
   function clearChip(key: FilterChipKey) {
-    if (key === 'loader') loaderFilter = '';
-    else if (key === 'mc') mcFilter = '';
+    if (key === 'loader') modpackBrowseState.loaderFilter = '';
+    else if (key === 'mc') modpackBrowseState.mcFilter = '';
   }
 
   function clearAllFilters() {
-    loaderFilter = '';
-    mcFilter = '';
+    modpackBrowseState.loaderFilter = '';
+    modpackBrowseState.mcFilter = '';
   }
 
   // Re-run search on any reactive input change.
   $effect(() => {
-    void source;
+    void modpackBrowseState.source;
     void query;
-    void mcFilter;
-    void loaderFilter;
-    void sortChoice;
+    void modpackBrowseState.mcFilter;
+    void modpackBrowseState.loaderFilter;
+    void modpackBrowseState.sortChoice;
     void pageNum;
     void browserPrefs.pageSize;
     runSearch();
@@ -173,7 +163,7 @@
   // a narrowed query could land the user on an empty page mid-list.
   let prevFilters = $state('');
   $effect(() => {
-    const fp = `${source}|${query}|${mcFilter}|${loaderFilter}|${sortChoice}|${browserPrefs.pageSize}`;
+    const fp = `${modpackBrowseState.source}|${query}|${modpackBrowseState.mcFilter}|${modpackBrowseState.loaderFilter}|${modpackBrowseState.sortChoice}|${browserPrefs.pageSize}`;
     if (fp !== prevFilters) {
       prevFilters = fp;
       if (pageNum !== 0) pageNum = 0;
@@ -184,13 +174,13 @@
 <div data-tour-ctx="modpacks-filters" class="pt-2">
   <BrowseFilterBar
     searchAriaLabel={$t('modpacks.browse.searchAriaLabel')}
-    searchPlaceholder={source === 'curseforge'
+    searchPlaceholder={modpackBrowseState.source === 'curseforge'
       ? $t('modpacks.browse.searchPlaceholderCurseForge')
-      : source === 'ftb'
+      : modpackBrowseState.source === 'ftb'
         ? $t('modpacks.browse.searchPlaceholderFtb')
         : $t('modpacks.browse.searchPlaceholderModrinth')}
     searchTestid="modpack-search-input"
-    sort={sortChoice}
+    sort={modpackBrowseState.sortChoice}
     sortOptions={[
       { value: 'relevance', label: $t('modpacks.browse.sortRelevance') },
       { value: 'downloads', label: $t('modpacks.browse.sortDownloads') },
@@ -201,7 +191,7 @@
     activeCount={activeCount(filterFacets)}
     expanded={drawerOpen}
     onSearchInput={(v) => (query = v)}
-    onSortChange={(v) => (sortChoice = v as ModpackSort)}
+    onSortChange={(v) => (modpackBrowseState.sortChoice = v as ModpackSort)}
     onOpenDrawer={() => (drawerOpen = true)}
   />
   <BrowseFilterChips
@@ -214,9 +204,9 @@
 
 <BrowseFilterDrawer
   bind:open={drawerOpen}
-  bind:loader={loaderFilter}
-  bind:mc={mcFilter}
-  bind:source
+  bind:loader={modpackBrowseState.loaderFilter}
+  bind:mc={modpackBrowseState.mcFilter}
+  bind:source={modpackBrowseState.source}
   mcTestid="modpack-mc-input"
   allowFtb={true}
   serverFilters={caps.supports_server_filter}
@@ -240,7 +230,7 @@
           <ModpackCard
             {hit}
             layout="grid"
-            onClick={() => onPickHit(hit, mcFilter.trim() || null)}
+            onClick={() => onPickHit(hit, modpackBrowseState.mcFilter.trim() || null)}
           />
         {/each}
       </div>
@@ -250,7 +240,7 @@
           <ModpackCard
             {hit}
             layout="list"
-            onClick={() => onPickHit(hit, mcFilter.trim() || null)}
+            onClick={() => onPickHit(hit, modpackBrowseState.mcFilter.trim() || null)}
           />
         {/each}
       </div>

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { modpackBrowseState } from '$lib/modpacks/browse-state.svelte';
 
 // `vi.mock` factory is hoisted above the SUT import, so any variable it
 // captures must be declared via `vi.hoisted` (also hoisted). `modpack_search`
@@ -62,6 +63,12 @@ describe('ModpackBrowseView', () => {
         can_export: source !== 'ftb',
       },
     }));
+    // Reset the persisted browse-state singleton to defaults so each test
+    // starts from the same known state (state is module-level, not per-render).
+    modpackBrowseState.source = 'modrinth';
+    modpackBrowseState.mcFilter = '';
+    modpackBrowseState.loaderFilter = '';
+    modpackBrowseState.sortChoice = 'relevance';
   });
 
   it('renders the source segmented control inside the drawer', async () => {
