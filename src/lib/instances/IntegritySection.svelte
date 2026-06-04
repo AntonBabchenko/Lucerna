@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { t } from 'svelte-i18n';
   import type { VerifyCategory } from '$lib/ipc/bindings';
   import { createIntegrity } from '$lib/instances/integrity.svelte';
@@ -14,10 +14,13 @@
     initial?: import('$lib/ipc/bindings').IntegrityStatus | null;
   } = $props();
 
+  // `initial` is a one-shot snapshot of the instance's persisted status;
+  // {#key instanceId} remounts this component on switch, so re-capturing the
+  // current value here is intentional (untrack documents that).
   const integ = createIntegrity(
     () => instanceId,
     () => isRunning,
-    initial,
+    untrack(() => initial),
   );
   onDestroy(() => integ.dispose());
 
