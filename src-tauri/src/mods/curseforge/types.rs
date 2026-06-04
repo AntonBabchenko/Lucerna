@@ -5,6 +5,17 @@ use serde::Deserialize;
 
 pub const GAME_MINECRAFT: u32 = 432;
 
+// CurseForge Minecraft class IDs (https://docs.curseforge.com — categories):
+// Mods=6, Resource Packs=12, Shaders=6552. (Datapacks=6945, Worlds=17 — unused.)
+pub fn class_id(kind: crate::mods::platform::ContentKind) -> u32 {
+    use crate::mods::platform::ContentKind::*;
+    match kind {
+        Mod => 6,
+        ResourcePack => 12,
+        Shader => 6552,
+    }
+}
+
 // modLoaderType: 0=Any 1=Forge 4=Fabric 5=Quilt 6=NeoForge
 pub fn loader_type(loader: crate::mods::platform::LoaderKind) -> u32 {
     use crate::mods::platform::LoaderKind::*;
@@ -49,6 +60,14 @@ pub fn is_environment_marker(tag: &str) -> bool {
 mod tests {
     use super::loader_from_tag;
     use crate::mods::platform::LoaderKind;
+
+    #[test]
+    fn class_id_maps_each_kind() {
+        use crate::mods::platform::ContentKind::*;
+        assert_eq!(super::class_id(Mod), 6);
+        assert_eq!(super::class_id(ResourcePack), 12);
+        assert_eq!(super::class_id(Shader), 6552);
+    }
 
     #[test]
     fn maps_known_loader_tags_case_insensitively() {

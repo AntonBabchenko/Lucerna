@@ -92,11 +92,14 @@ impl ModPlatform for CurseForgeClient {
             ("pageSize", q.page_size.to_string()),
             ("index", q.offset.to_string()),
         ];
+        params.push(("classId", types::class_id(q.kind).to_string()));
         if let Some(mc) = &q.mc_version {
             params.push(("gameVersion", mc.clone()));
         }
-        if let Some(l) = q.loader {
-            params.push(("modLoaderType", types::loader_type(l).to_string()));
+        if q.kind == crate::mods::platform::ContentKind::Mod {
+            if let Some(l) = q.loader {
+                params.push(("modLoaderType", types::loader_type(l).to_string()));
+            }
         }
         match q.sort {
             ModSort::Downloads => {
@@ -408,7 +411,7 @@ fn encode_pairs(pairs: &[(&str, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -631,5 +634,36 @@ mod tests {
         assert_eq!(v.len(), 1, "only the Forge file should survive");
         assert_eq!(v[0].loaders, vec![LoaderKind::Forge]);
         assert_eq!(v[0].version_number, "x-forge.jar");
+    }
+
+    #[tokio::test]
+    async fn search_sends_class_id_for_shader_kind() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/search"))
+            .and(header("x-api-key", "test-key"))
+            .and(query_param("classId", "6552"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [],
+                "pagination": {"index": 0, "pageSize": 20, "resultCount": 0, "totalCount": 0}
+            })))
+            .mount(&s)
+            .await;
+        let q = ModSearchQuery {
+            source: ModSource::Curseforge,
+            kind: ContentKind::Shader,
+            query: "complementary".into(),
+            mc_version: None,
+            loader: None,
+            sort: ModSort::Relevance,
+            page_size: 20,
+            offset: 0,
+        };
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let page = client(s.uri()).search(&q).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(page.total, 0);
+        assert!(page.hits.is_empty());
     }
 }
