@@ -221,7 +221,8 @@
       "footerRestricted": "Ограничено — откройте на платформе",
       "footerInstall": "Установить {version}",
       "selectInstanceHint": "Выберите профиль с Fabric / Quilt / Forge / NeoForge для установки модов.",
-      "noCompatVersion": "Нет совместимой версии для {mc} / {loader}."
+      "noCompatVersion": "Нет совместимой версии для {mc} / {loader}.",
+      "noCompatVersionAsset": "Нет версии, совместимой с {mc}."
     },
     "source": {
       "label": "Источник:",

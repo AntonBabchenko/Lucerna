@@ -221,7 +221,8 @@
       "footerRestricted": "Restricted — open on platform",
       "footerInstall": "Install {version}",
       "selectInstanceHint": "Select a Fabric / Quilt / Forge / NeoForge instance to install mods.",
-      "noCompatVersion": "No compatible version for {mc} / {loader}."
+      "noCompatVersion": "No compatible version for {mc} / {loader}.",
+      "noCompatVersionAsset": "No version compatible with {mc}."
     },
     "source": {
       "label": "Source:",

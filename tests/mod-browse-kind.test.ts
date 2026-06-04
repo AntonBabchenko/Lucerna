@@ -183,9 +183,9 @@ describe('ModBrowseView — content kind', () => {
   // ── Detail modal loader-propagation ──────────────────────────────────────
 
   it('passes loader=null to ModDetailModal for shader kind so modsVersions fetches all MC-compatible versions', async () => {
-    // Render the detail modal directly with loader=null (the value ModBrowseView
-    // now passes for non-mod kinds). modsVersions must be called without a loader
-    // filter so the user sees every MC-compatible version, not just Fabric ones.
+    // Render the detail modal with kind='shader' + loader=null (the value
+    // ModBrowseView now passes for non-mod kinds). modsVersions must be called
+    // without a loader filter so the user sees every MC-compatible version.
     const mod = await import('$lib/ipc/bindings');
     const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
     modsVersions.mockClear();
@@ -196,6 +196,7 @@ describe('ModBrowseView — content kind', () => {
         projectId: 'shader1',
         mcVersion: '1.20.1',
         loader: null,
+        kind: 'shader',
         onClose: () => {},
         onInstall: () => {},
       },
@@ -222,6 +223,126 @@ describe('ModBrowseView — content kind', () => {
         projectId: 'mod1',
         mcVersion: '1.20.1',
         loader: 'fabric',
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    for (let i = 0; i < 4; i++) await tick();
+
+    expect(modsVersions).toHaveBeenCalled();
+    const callArgs = modsVersions.mock.calls[0] as [string, string, string | null, string | null];
+    expect(callArgs[3]).toBe('fabric');
+  });
+
+  // ── kind-aware install eligibility (original mod guard restored) ──────────
+
+  it('mod kind + no instance (loader=null, mcVersion=null): modsVersions NOT called', async () => {
+    // When kind='mod' and no instance is selected (loader=null, mcVersion=null),
+    // modsVersions must not be called — the original mod guard is restored.
+    const mod = await import('$lib/ipc/bindings');
+    const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
+    modsVersions.mockClear();
+
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'mod1',
+        mcVersion: null,
+        loader: null,
+        kind: 'mod',
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    for (let i = 0; i < 4; i++) await tick();
+
+    // With no instance selected, modsVersions must not be called.
+    expect(modsVersions).not.toHaveBeenCalled();
+  });
+
+  it('mod kind + no instance: install button NOT shown', async () => {
+    // canInstall for mods requires mcVersion != null && loader != null &&
+    // loader != vanilla — original behaviour preserved.
+    const { container } = render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'mod1',
+        mcVersion: null,
+        loader: null,
+        kind: 'mod',
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    for (let i = 0; i < 4; i++) await tick();
+
+    // The footer install button must not be present when no instance is selected.
+    const installBtn = container.querySelector('button.btn-primary');
+    expect(installBtn).toBeNull();
+  });
+
+  it('shader kind + mcVersion set + loader=null: modsVersions called with null loader', async () => {
+    // For asset kinds (shaders), modsVersions is called with null loader so all
+    // MC-compatible versions are returned without loader filtering.
+    const mod = await import('$lib/ipc/bindings');
+    const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
+    modsVersions.mockClear();
+
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'shader1',
+        mcVersion: '1.20.1',
+        loader: null,
+        kind: 'shader',
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    for (let i = 0; i < 4; i++) await tick();
+
+    expect(modsVersions).toHaveBeenCalled();
+    const callArgs = modsVersions.mock.calls[0] as [string, string, string | null, string | null];
+    expect(callArgs[3]).toBeNull();
+  });
+
+  it('shader kind + mcVersion set: install button shown (asset installable on any instance)', async () => {
+    // canInstall for assets only requires mcVersion != null — loader is irrelevant.
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'shader1',
+        mcVersion: '1.20.1',
+        loader: null,
+        kind: 'shader',
+        onClose: () => {},
+        onInstall: () => {},
+      },
+    });
+    for (let i = 0; i < 6; i++) await tick();
+
+    // modsVersions mock returns one version, so recommended is set and
+    // the footer install button must be visible.
+    const installBtn = await screen.findByRole('button', {
+      name: /install/i,
+    });
+    expect(installBtn).toBeTruthy();
+  });
+
+  it('mod kind + fabric + mcVersion: modsVersions called with fabric loader (unchanged)', async () => {
+    // Original mod behaviour: modsVersions is called with the real loader value
+    // when kind='mod', mcVersion is set, and loader is non-vanilla.
+    const mod = await import('$lib/ipc/bindings');
+    const modsVersions = mod.commands.modsVersions as unknown as ReturnType<typeof vi.fn>;
+    modsVersions.mockClear();
+
+    render(ModDetailModal, {
+      props: {
+        source: 'modrinth',
+        projectId: 'fabric-mod',
+        mcVersion: '1.20.4',
+        loader: 'fabric',
+        kind: 'mod',
         onClose: () => {},
         onInstall: () => {},
       },

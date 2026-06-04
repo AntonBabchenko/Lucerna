@@ -889,6 +889,7 @@
       projectId={drawerProject}
       {mcVersion}
       loader={isMod ? loader : null}
+      {kind}
       installedVersionId={installedMods.find(
         (r) => r.installed.source === source && r.installed.project_id === drawerProject,
       )?.installed.version_id ?? null}

@@ -407,6 +407,7 @@ export type TranslationKey =
   | 'mods.detail.loadingDescription'
   | 'mods.detail.loadingVersions'
   | 'mods.detail.noCompatVersion'
+  | 'mods.detail.noCompatVersionAsset'
   | 'mods.detail.noVersionsCompat'
   | 'mods.detail.noVersionsPlatform'
   | 'mods.detail.selectInstanceHint'
