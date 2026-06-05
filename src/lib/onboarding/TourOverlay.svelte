@@ -9,6 +9,9 @@
   import { onMount, untrack, tick } from 'svelte';
   import { tourState, TOTAL_STEPS, next, back, finishOrSkip, closeHint } from './state.svelte';
   import { STEPS } from './steps';
+  import { explanationState, setExplanationLevel } from './explanation-level.svelte';
+  import { explainKey } from './explanation-keys';
+  import type { ExplanationLevel } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
 
   const PADDING = 6;
@@ -154,6 +157,17 @@
   let step = $derived(STEPS[tourState.currentStep]);
   let isLast = $derived(tourState.currentStep === TOTAL_STEPS - 1);
   let isFirst = $derived(tourState.currentStep === 0);
+
+  let level = $derived(explanationState.level);
+  let isChooser = $derived(step?.kind === 'chooser');
+  // Chooser uses its keys verbatim; all other steps resolve to the level variant.
+  let titleKey = $derived(isChooser ? step.titleKey : explainKey(step.titleKey, level));
+  let bodyKey = $derived(isChooser ? step.bodyKey : explainKey(step.bodyKey, level));
+
+  function chooseLevel(l: ExplanationLevel) {
+    void setExplanationLevel(l);
+    next();
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -194,13 +208,33 @@
         </div>
       {/if}
       <h3 id="tour-popover-title" class="font-semibold text-sm text-primary mb-2">
-        {$t(step.titleKey)}
+        {$t(titleKey)}
       </h3>
-      <p class="text-sm text-secondary mb-4">{$t(step.bodyKey)}</p>
+      <p class="text-sm text-secondary mb-4">{$t(bodyKey)}</p>
       {#if step.disclaimerKey}
         <p class="text-xs text-muted mt-3">{$t(step.disclaimerKey)}</p>
       {/if}
-      {#if tourState.contextual}
+      {#if isChooser}
+        <div class="flex flex-col gap-2">
+          <button
+            type="button"
+            data-tour-primary
+            class="btn-primary w-full text-left flex flex-col items-start py-2"
+            onclick={() => chooseLevel('basic')}
+          >
+            <span class="font-medium">{$t('onboarding.chooser.basicLabel')}</span>
+            <span class="text-xs opacity-80">{$t('onboarding.chooser.basicHint')}</span>
+          </button>
+          <button
+            type="button"
+            class="btn-secondary w-full text-left flex flex-col items-start py-2"
+            onclick={() => chooseLevel('advanced')}
+          >
+            <span class="font-medium">{$t('onboarding.chooser.advancedLabel')}</span>
+            <span class="text-xs opacity-80">{$t('onboarding.chooser.advancedHint')}</span>
+          </button>
+        </div>
+      {:else if tourState.contextual}
         <!-- On-demand account hint: no tour navigation, just acknowledge. -->
         <div class="flex justify-end">
           <button type="button" data-tour-primary class="btn-primary btn-sm" onclick={closeHint}>

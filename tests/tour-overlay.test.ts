@@ -27,27 +27,37 @@ beforeEach(() => {
 });
 
 describe('TourOverlay', () => {
-  test('renders the welcome step on initial active state', () => {
+  test('step 0 is the Basic/Advanced chooser with no Back/Skip/Next controls', () => {
+    render(TourOverlay);
+    expect(screen.getByText(/How much detail/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /back/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /next/i })).toBeNull();
+  });
+
+  test('renders the welcome step after the chooser', () => {
+    tourState.currentStep = 1;
     render(TourOverlay);
     expect(screen.getByText(/Welcome to Lucerna/i)).toBeTruthy();
-    expect(screen.getByText(/Step 1 of 7/i)).toBeTruthy();
+    expect(screen.getByText(/Step 2 of 8/i)).toBeTruthy();
   });
 
   test('Next button advances currentStep', async () => {
+    tourState.currentStep = 1;
     render(TourOverlay);
     await fireEvent.click(screen.getByRole('button', { name: /next/i }));
-    expect(tourState.currentStep).toBe(1);
+    expect(tourState.currentStep).toBe(2);
   });
 
-  test('Back button is disabled on step 1', () => {
+  test('Back button is enabled on the welcome step (can return to the chooser)', () => {
+    tourState.currentStep = 1;
     render(TourOverlay);
-    const back = screen.getByRole('button', {
-      name: /back/i,
-    }) as HTMLButtonElement;
-    expect(back.disabled).toBe(true);
+    const back = screen.getByRole('button', { name: /back/i }) as HTMLButtonElement;
+    expect(back.disabled).toBe(false);
   });
 
   test('Skip button calls finishOrSkip + clears active', async () => {
+    tourState.currentStep = 1;
     render(TourOverlay);
     await fireEvent.click(screen.getByRole('button', { name: /skip/i }));
     expect(appSettingsMarkTourCompleted).toHaveBeenCalledWith(TOUR_VERSION);
@@ -81,6 +91,7 @@ describe('TourOverlay', () => {
   });
 
   test('dialog uses aria-labelledby pointing at the title', () => {
+    tourState.currentStep = 1;
     render(TourOverlay);
     const dialog = screen.getByRole('dialog');
     const labelledBy = dialog.getAttribute('aria-labelledby');

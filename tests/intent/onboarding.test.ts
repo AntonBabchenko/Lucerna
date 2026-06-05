@@ -211,7 +211,9 @@ describe('ContextualTour — popover button variants', () => {
 describe('TourOverlay — button variants', () => {
   beforeEach(() => {
     tourState.active = true;
-    tourState.currentStep = 0;
+    // Step 0 is the Basic/Advanced chooser (no Back/Skip/Next); the standard
+    // nav controls live on the regular steps, so assert their variants there.
+    tourState.currentStep = 1;
   });
 
   it('Back button is btn-secondary btn-sm', () => {
@@ -247,7 +249,7 @@ describe('TourOverlay — button variants', () => {
     const dialog = screen.getByRole('dialog') as HTMLElement;
     const counter = dialog.querySelector('.text-xs.text-muted') as HTMLElement;
     expect(counter).not.toBeNull();
-    expect(counter.textContent).toMatch(/Step 1 of/);
+    expect(counter.textContent).toMatch(/Step 2 of/);
   });
 
   it('popover title is font-semibold text-sm text-primary', () => {
