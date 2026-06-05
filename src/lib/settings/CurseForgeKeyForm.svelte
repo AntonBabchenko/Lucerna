@@ -84,6 +84,7 @@
 </script>
 
 <div>
+  <p class="text-sm text-secondary mb-3">{$t('settings.curseforge.aboutBody')}</p>
   <div class="text-sm mb-3">
     <span class="text-muted">{$t('settings.curseforge.statusLabel')} </span>
     {#if status === 'set'}

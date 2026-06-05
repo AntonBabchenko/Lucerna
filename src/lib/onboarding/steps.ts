@@ -25,9 +25,20 @@ export interface TourStep {
    *  on the welcome step to surface the Mojang Usage Guidelines
    *  disclaimer on first launch. Resolved via $t at render time. */
   disclaimerKey?: TranslationKey;
+  /** Discriminator for special steps. `'chooser'` renders the Basic/Advanced
+   *  picker instead of normal title/body + Back/Skip/Next, and its title/body
+   *  keys are used verbatim (NOT run through explainKey). */
+  kind?: 'chooser';
 }
 
 export const STEPS: ReadonlyArray<TourStep> = [
+  {
+    kind: 'chooser',
+    titleKey: 'onboarding.chooser.title',
+    bodyKey: 'onboarding.chooser.body',
+    targetSelector: null,
+    anchor: 'center',
+  },
   {
     titleKey: 'onboarding.tour.welcome.title',
     bodyKey: 'onboarding.tour.welcome.body',

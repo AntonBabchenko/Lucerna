@@ -25,7 +25,7 @@ describe('ModpacksModal', () => {
       name: /why does installing a modpack create a new instance/i,
     });
     await fireEvent.click(help);
-    expect(screen.getByText(/creates its own new instance/i)).toBeTruthy();
+    expect(screen.getByText(/makes its own new instance/i)).toBeTruthy();
   });
 
   it('×, scrim, and Escape each call onClose', async () => {

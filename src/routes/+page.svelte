@@ -34,6 +34,7 @@
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
+  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
   import { initTheme } from '$lib/theme/state.svelte';
   import { initLocale } from '$lib/i18n/state.svelte';
   import { t } from '$lib/i18n';
@@ -332,6 +333,7 @@
     if (settingsResult.status === 'ok') {
       initTheme(settingsResult.data.general.theme ?? 'system');
       initLocale(settingsResult.data.general.language ?? 'system');
+      explanationState.level = settingsResult.data.general.explanation_level ?? 'basic';
     }
 
     // Fire-and-forget: this is a best-effort, error-swallowing check, so it

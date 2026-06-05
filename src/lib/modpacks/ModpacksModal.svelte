@@ -2,6 +2,8 @@
   import type { Snippet } from 'svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import HelpPopover from '$lib/ui/HelpPopover.svelte';
+  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
+  import { explainKey } from '$lib/onboarding/explanation-keys';
   import { t } from '$lib/i18n';
 
   // Full-viewport modal shell for the modpacks browser. Purely presentational:
@@ -49,7 +51,7 @@
       <header class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0">
         <h2 class="font-semibold text-primary">{$t('modpacks.modal.title')}</h2>
         <HelpPopover
-          body={$t('onboarding.modpackInstance.body')}
+          body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
           triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
           triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
           closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}

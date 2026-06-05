@@ -3,11 +3,17 @@
   // onboarding replay. Future general settings (language, update
   // prefs) accumulate here per the post-v0.5.0 backlog.
   import { onMount } from 'svelte';
-  import { commands, type GeneralSettings, type ThemePreference } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type ExplanationLevel,
+    type GeneralSettings,
+    type ThemePreference,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import { explanationState, setExplanationLevel } from '$lib/onboarding/explanation-level.svelte';
   import { replayTour } from '$lib/onboarding/state.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
@@ -20,6 +26,11 @@
   const languageOptions = $derived([
     { value: 'system', label: $t('settings.general.appearance.languageSystem') },
     ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
+  ]);
+
+  const tipsOptions = $derived<{ value: ExplanationLevel; label: string }[]>([
+    { value: 'basic', label: $t('settings.general.tips.basic') },
+    { value: 'advanced', label: $t('settings.general.tips.advanced') },
   ]);
 
   let general = $state<GeneralSettings>({
@@ -204,6 +215,22 @@
             : $t('settings.general.updates.updateNow')}
         </button>
       {/if}
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.tips.title')}</h3>
+    <div class="flex flex-col gap-1">
+      <span class="text-sm text-primary">{$t('settings.general.tips.levelLabel')}</span>
+      <Select
+        class="text-sm"
+        dataTestid="tip-level-select"
+        ariaLabel={$t('settings.general.tips.levelLabel')}
+        value={explanationState.level}
+        options={tipsOptions}
+        onChange={(v) => void setExplanationLevel(v as ExplanationLevel)}
+      />
+      <span class="text-xs text-muted">{$t('settings.general.tips.levelDescription')}</span>
     </div>
   </div>
 
