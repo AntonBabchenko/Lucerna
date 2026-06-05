@@ -85,21 +85,16 @@ describe('ModBrowseView — content kind', () => {
         kind: 'resource_pack',
       },
     });
-    // Open the Filters drawer where the loader segmented control lives.
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    // The loader facet must not render for resource packs.
-    expect(screen.queryByTestId('browse-loader-segment')).toBeNull();
-    expect(screen.queryByLabelText(/loader/i)).toBeNull();
-    // No loader chip should surface either.
-    expect(screen.queryByTestId('browse-chip-loader')).toBeNull();
+    // The loader facet (inline dropdown) must not render for resource packs.
+    expect(screen.queryByTestId('browse-loader-select')).toBeNull();
   });
 
   it('keeps the loader filter control for mods (default kind)', async () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    expect(screen.getByTestId('browse-loader-segment')).toBeTruthy();
+    // The loader facet is an inline dropdown in the toolbar (no drawer).
+    expect(await screen.findByTestId('browse-loader-select')).toBeTruthy();
   });
 
   it('threads kind into the modsSearch query and drops the loader facet for resource packs', async () => {
@@ -213,11 +208,11 @@ describe('ModBrowseView — content kind', () => {
     installed_at: '2026-01-01T00:00:00Z',
   };
 
-  // "Show installed" defaults off (discovery view), which filters installed
-  // hits out of the result list. Flip it on via the "Installed hidden" chip so
-  // the installed card is rendered and its install-state controls assertable.
+  // Installed hits are now shown by default (mark-don't-remove) with the
+  // "Installed · vX" badge — no chip toggle needed. Kept as a no-op so the
+  // install-state assertions below still read clearly; a few ticks let the
+  // assets list resolve and the badge render.
   async function showInstalledOn() {
-    await fireEvent.click(await screen.findByTestId('browse-chip-showInstalled'));
     for (let i = 0; i < 4; i++) await tick();
   }
 

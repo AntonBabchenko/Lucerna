@@ -36,17 +36,16 @@
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import Pagination from '$lib/ui/Pagination.svelte';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
-  import BrowseFilterChips from '$lib/browse/BrowseFilterChips.svelte';
-  import BrowseFilterDrawer from '$lib/browse/BrowseFilterDrawer.svelte';
-  import { activeChips, activeCount, type FilterChipKey } from '$lib/browse/filter-model';
+  import { activeCount } from '$lib/browse/filter-model';
 
   // The Browse pane inside ModBrowserTab. Responsibilities:
-  //   - Render the shared filter toolbar (search 300ms debounced, sort)
-  //     with a Filters drawer (loader, MC version, Show installed) and a
-  //     removable applied-filter chip row. Loader + MC pre-fill from the
-  //     active instance when one is selected.
-  //   - Page through results with Prev / Next.
+  //   - Render the shared filter toolbar (search 300ms debounced, sort) with
+  //     all facets inline (loader, MC version, Show installed) — no drawer.
+  //     Loader + MC pre-fill from the active instance when one is selected.
+  //   - Page through results with the shared Pagination control (First / Prev /
+  //     Next / Last over the server total).
   //   - Detect when source = CurseForge and no API key is stored, and
   //     swap the whole search UI for CurseForgeKeyBanner — both at
   //     mount (via mods_get_curseforge_key_status) and on demand if a
@@ -110,39 +109,24 @@
     loaderFilter = loader && loader !== 'vanilla' ? loader : '';
   });
   let sort = $state<ModSort>('downloads');
-  // Default to a discovery view: installed mods are hidden so Browse surfaces
-  // new mods. Toggling on (drawer checkbox / "Installed hidden" chip) filters
-  // them back in client-side; the pagination counter then reflects the
-  // platform total, so an early page may render fewer cards.
-  let showInstalled = $state(false);
+  // Show everything by default; installed mods get the "Installed · vX" badge —
+  // the same mark-don't-remove behaviour as Modrinth/Prism/CurseForge browsers.
+  // Unchecking the inline "Show installed" toggle hides installed mods locally
+  // on the current page only. Pagination always runs on the server total, so
+  // when hiding is on a page may render fewer than pageSize cards. See
+  // docs/superpowers/specs/2026-06-04-unified-pagination-design.md.
+  let showInstalled = $state(true);
   const pageSize = $derived(browserPrefs.pageSize);
-  // Reset to page 1 when the user changes the page size so we never
-  // land on an out-of-range page. The existing buffer is kept — future
-  // fetches will use the new chunk size automatically.
-  let prevPageSize = $state(browserPrefs.pageSize);
-  $effect(() => {
-    if (browserPrefs.pageSize !== prevPageSize) {
-      prevPageSize = browserPrefs.pageSize;
-      displayPage = 1;
-    }
-  });
-  // A single fill (fresh search or Next) fetches at most this many
-  // platform pages before yielding — bounds the request burst on an
-  // instance where most search hits are already installed.
-  const MAX_FETCHES_PER_FILL = 8;
 
-  // Accumulating buffer of every hit fetched for the current search, in
-  // platform order. "Show installed" filters this buffer at render time
-  // and pagination runs over the filtered view — so pages stay uniform
-  // and unchecking the filter never dead-ends on an empty page.
-  let buffer = $state<ModSummary[]>([]);
+  // Offset pagination over the server-reported total: `page` is 0-based and
+  // First/Prev/Next/Last map straight to a server offset = page * pageSize.
+  // No accumulating buffer — each page is a single request (random-access).
+  let page = $state(0);
+  let hits = $state<ModSummary[]>([]);
   let total = $state(0);
-  let exhausted = $state(false);
-  let displayPage = $state(1);
   let error = $state<string | null>(null);
   let loading = $state(false);
   let drawerProject = $state<string | null>(null);
-  let drawerOpen = $state(false);
   // Dependencies promoted to the dialog carry the project's display name
   // alongside the version (the version's own `name` field is the release
   // title, not the mod name — distinct on Modrinth and confusing in the
@@ -232,16 +216,9 @@
     });
     if (instanceId !== reqId) return;
     installedMods = next;
-    // When installed mods are hidden, the current page can come up short once
-    // the installed set is known — the initial fill may have run before this
-    // list loaded, so an all-installed first page would otherwise dead-end on
-    // an empty view. Top it up now that filtering is accurate. Skip while a
-    // fill is already running: fetchNextPlatformPage keys its offset off
-    // buffer.length, so a concurrent fill would request a duplicate offset and
-    // clobber results. The initial fill (one search round-trip) normally
-    // finishes well before this list (N project lookups); if not, the next
-    // user action re-fills.
-    if (!showInstalled && !loading) void fill(displayPage);
+    // pageHits derives from installedMods via installedFor, so the current
+    // page's badges (and the optional local hide-installed filter) update
+    // reactively once this list resolves — no refetch needed.
   }
 
   $effect(() => {
@@ -337,25 +314,17 @@
     );
   }
 
-  // Apply the "Show installed" filter to a hit list. Single source of
-  // the filter rule — used by the `filteredHits` derived and by the
-  // fill loop (a plain function so the loop never depends on a derived
-  // re-evaluating mid-iteration).
-  function applyInstalledFilter(hits: ModSummary[]): ModSummary[] {
-    return showInstalled ? hits : hits.filter((h) => installedFor(h) === null);
-  }
-
-  // The buffer narrowed by "Show installed", re-ranked so name-matches
-  // come first (see prioritizeByTitle for the rationale), then sliced
-  // for the current page. `hasNext` is true when there is another page
-  // to show, or more platform results might still be fetched.
-  const filteredHits = $derived(
-    prioritizeByTitle(applyInstalledFilter(buffer), query, (h) => h.name),
-  );
-  const pageHits = $derived(
-    filteredHits.slice((displayPage - 1) * pageSize, displayPage * pageSize),
-  );
-  const hasNext = $derived(filteredHits.length > displayPage * pageSize || !exhausted);
+  // The current server page, re-ranked so title matches come first (see
+  // prioritizeByTitle), then optionally narrowed by the local hide-installed
+  // filter. Hiding is a no-op by default (showInstalled=true); when off it
+  // removes installed cards from THIS page only — the server total and page
+  // count are unchanged, so the page may show fewer than pageSize cards.
+  const pageHits = $derived.by(() => {
+    const ranked = prioritizeByTitle(hits, query, (h) => h.name);
+    return showInstalled ? ranked : ranked.filter((h) => installedFor(h) === null);
+  });
+  // Total pages over the server total; always >= 1 so the pager renders.
+  const pageCount = $derived(Math.max(1, Math.ceil(total / pageSize)));
 
   async function uninstallCard(card: ModSummary) {
     if (!instanceId) return;
@@ -442,102 +411,84 @@
     const _mc = mcFilter;
     // biome-ignore lint/correctness/noUnusedVariables: reactive read
     const _ld = loaderFilter;
-    // `untrack` prevents the async work in `resetSearch` / `fill` from
-    // registering `buffer`, `exhausted`, etc. as dependencies of this
-    // effect, which would create an update cycle (write → re-run → write).
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _ps = pageSize; // a page-size change re-runs the search at page 0
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _kind = kind;
+    // `untrack` prevents the async work in `resetSearch` from registering
+    // `page`, `hits`, etc. as dependencies of this effect, which would create
+    // an update cycle (write → re-run → write).
     untrack(() => void resetSearch());
   });
 
-  // Fetch the next contiguous platform page into `buffer`. Returns
-  // 'ok' | 'auth' | 'error'; updates `total` and `exhausted`.
-  async function fetchNextPlatformPage(): Promise<'ok' | 'auth' | 'error'> {
+  // Monotonic request id so an out-of-order modsSearch response can't clobber a
+  // newer page. With offset paging (vs the old append-only buffer) a fast
+  // Next→Next can resolve B-then-A; without this guard A would overwrite B and
+  // show page-1 data under page 2. The Pagination control is also disabled while
+  // loading, but the guard is the real correctness backstop.
+  let reqSeq = 0;
+
+  // Fetch the current page directly by server offset. One request per page —
+  // First/Prev/Next/Last are O(1) random-access jumps over the server total.
+  async function reload(): Promise<void> {
+    if (needsCfKey) {
+      hits = [];
+      total = 0;
+      return;
+    }
+    const seq = ++reqSeq;
+    loading = true;
+    error = null;
     const result = await commands.modsSearch({
       source,
       kind,
       query,
-      // Empty input strings collapse to `null` — the search backend
-      // treats null as "no MC / no loader facet", same as the old
-      // "Show all" checkbox did when checked. Clearing both fields
-      // (or hitting Clear filters) is the explicit way to widen.
+      // Empty input strings collapse to `null` — the search backend treats
+      // null as "no MC / no loader facet". Clearing both fields (or hitting
+      // Clear filters) is the explicit way to widen.
       mc_version: mcFilter || null,
-      // Resource packs / shaders have no loader facet, so always send
-      // null for non-mod kinds regardless of any stale filter value.
+      // Resource packs / shaders have no loader facet, so always send null for
+      // non-mod kinds regardless of any stale filter value.
       loader: isMod ? ((loaderFilter || null) as LoaderKind | null) : null,
       sort,
       page_size: pageSize,
-      offset: buffer.length,
+      offset: page * pageSize,
     });
+    // A newer reload() superseded this one while it awaited — drop the stale
+    // result (and leave `loading` for the in-flight request to clear).
+    if (seq !== reqSeq) return;
     if (result.status === 'ok') {
-      buffer = [...buffer, ...result.data.hits];
+      hits = result.data.hits;
       total = result.data.total;
-      exhausted = buffer.length >= total;
-      return 'ok';
-    }
-    if (result.error.kind === 'mods_platform_auth') {
-      return 'auth';
-    }
-    error = formatError(result.error);
-    return 'error';
-  }
-
-  // Fetch platform pages until `filteredHits` covers `targetPage`
-  // display pages, the platform is exhausted, or the per-fill cap is
-  // hit. Drives `loading`.
-  async function fill(targetPage: number) {
-    loading = true;
-    error = null;
-    let fetches = 0;
-    while (
-      applyInstalledFilter(buffer).length < targetPage * pageSize &&
-      !exhausted &&
-      fetches < MAX_FETCHES_PER_FILL
-    ) {
-      const r = await fetchNextPlatformPage();
-      fetches += 1;
-      if (r === 'auth') {
-        needsCfKey = true;
-        buffer = [];
-        loading = false;
-        return;
-      }
-      if (r === 'error') {
-        loading = false;
-        return;
-      }
+    } else if (result.error.kind === 'mods_platform_auth') {
+      needsCfKey = true;
+      hits = [];
+      total = 0;
+    } else {
+      error = formatError(result.error);
     }
     loading = false;
   }
 
-  // Start a fresh search: drop the buffer and fetch from offset 0.
-  async function resetSearch() {
-    buffer = [];
-    total = 0;
-    exhausted = false;
-    displayPage = 1;
-    if (needsCfKey) return;
-    await fill(1);
+  // Jump back to page 0 and reload — used when filters/search/source change.
+  async function resetSearch(): Promise<void> {
+    page = 0;
+    await reload();
   }
 
-  async function next() {
-    const target = displayPage + 1;
-    await fill(target);
-    // Advance only if the target page actually has a card — a
-    // cap-limited or exhausted fill may not have reached it.
-    if (applyInstalledFilter(buffer).length > (target - 1) * pageSize) {
-      displayPage = target;
-    }
+  // Pagination control → clamp to a valid index and reload. Clamping guards a
+  // stale Last/Next after the total shrank between fetches.
+  async function goToPage(n: number): Promise<void> {
+    const clamped = Math.min(Math.max(0, n), pageCount - 1);
+    if (clamped === page) return;
+    page = clamped;
+    await reload();
   }
 
-  function prev() {
-    if (displayPage > 1) displayPage -= 1;
-  }
-
-  // Single entry point for flipping "Show installed": the drawer toggle
-  // and the chip's × both call this so the re-paging stays in one place.
-  async function setShowInstalled(value: boolean) {
+  // Flip the local hide-installed filter. Pure per-page view change — the
+  // server query and total are unchanged, so no refetch is needed.
+  function setShowInstalled(value: boolean) {
     showInstalled = value;
-    displayPage = 1;
-    await fill(1);
   }
 
   // Non-mod kinds have no loader facet: drop it from the chip row / badge
@@ -564,16 +515,10 @@
     mcFilter = instanceMcFilter;
   }
 
-  function clearChip(key: FilterChipKey) {
-    if (key === 'loader') loaderFilter = '';
-    else if (key === 'mc') mcFilter = '';
-    else if (key === 'showInstalled') void setShowInstalled(true);
-  }
-
   function clearAllFilters() {
     loaderFilter = '';
     mcFilter = '';
-    void setShowInstalled(true);
+    setShowInstalled(true);
   }
 
   let debounceTimer: number | undefined;
@@ -879,31 +824,20 @@
         { value: 'relevance', label: $t('mods.browse.sortRelevance') },
         { value: 'updated', label: $t('mods.browse.sortUpdated') },
       ]}
-      activeCount={activeCount(filterFacets)}
-      expanded={drawerOpen}
-      {onSearchInput}
-      onSortChange={(v) => (sort = v as ModSort)}
-      onOpenDrawer={() => (drawerOpen = true)}
-    />
-    <BrowseFilterChips
-      chips={activeChips(filterFacets, { installedHidden: $t('browse.filter.installedHidden') })}
-      onClear={clearChip}
-      onClearAll={clearAllFilters}
-      clearAllTestid="mod-clear-filters"
-      showRestore={canRestore}
+      showLoader={isMod}
+      bind:loader={loaderFilter}
+      bind:mc={mcFilter}
+      {showInstalled}
+      onShowInstalledChange={(v) => setShowInstalled(v)}
+      {canRestore}
       restoreLabel={$t('browse.filter.restoreForInstance')}
       onRestore={restoreInstanceFilters}
+      activeCount={activeCount(filterFacets)}
+      onClearAll={clearAllFilters}
+      {onSearchInput}
+      onSortChange={(v) => (sort = v as ModSort)}
     />
   </div>
-
-  <BrowseFilterDrawer
-    bind:open={drawerOpen}
-    bind:loader={loaderFilter}
-    bind:mc={mcFilter}
-    showLoader={isMod}
-    {showInstalled}
-    onShowInstalledChange={(v) => void setShowInstalled(v)}
-  />
 
   <div class="p-3 space-y-2">
     {#if error}
@@ -913,64 +847,53 @@
       <div class="flex justify-center py-8 text-secondary">
         <Spinner size="lg" label={$t('mods.browse.searching')} />
       </div>
-    {:else if pageHits.length > 0}
-      {#if browserPrefs.layout === 'grid'}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">
-          {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
-            <ModCard
-              summary={hit}
-              installed={installedFor(hit)}
-              onInstall={() => startInstall(hit)}
-              onOpenDetail={() => (drawerProject = hit.project_id)}
-              onToggle={() => toggleCard(hit)}
-              onUninstall={() => uninstallCard(hit)}
-              canToggle={isMod}
-              layout="grid"
-            />
-          {/each}
-        </div>
+    {:else if hits.length > 0}
+      {#if pageHits.length > 0}
+        {#if browserPrefs.layout === 'grid'}
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">
+            {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+              <ModCard
+                summary={hit}
+                installed={installedFor(hit)}
+                onInstall={() => startInstall(hit)}
+                onOpenDetail={() => (drawerProject = hit.project_id)}
+                onToggle={() => toggleCard(hit)}
+                onUninstall={() => uninstallCard(hit)}
+                canToggle={isMod}
+                layout="grid"
+              />
+            {/each}
+          </div>
+        {:else}
+          <div class="mt-1 flex flex-col border border-border-subtle rounded overflow-hidden">
+            {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
+              <ModCard
+                summary={hit}
+                installed={installedFor(hit)}
+                onInstall={() => startInstall(hit)}
+                onOpenDetail={() => (drawerProject = hit.project_id)}
+                onToggle={() => toggleCard(hit)}
+                onUninstall={() => uninstallCard(hit)}
+                canToggle={isMod}
+                layout="list"
+              />
+            {/each}
+          </div>
+        {/if}
       {:else}
-        <div class="mt-1 flex flex-col border border-border-subtle rounded overflow-hidden">
-          {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
-            <ModCard
-              summary={hit}
-              installed={installedFor(hit)}
-              onInstall={() => startInstall(hit)}
-              onOpenDetail={() => (drawerProject = hit.project_id)}
-              onToggle={() => toggleCard(hit)}
-              onUninstall={() => uninstallCard(hit)}
-              canToggle={isMod}
-              layout="list"
-            />
-          {/each}
+        <!-- Hide-installed removed every card on this page. The page still
+             exists in the server total, so keep the pager available rather than
+             dead-ending on "No results". -->
+        <div class="text-placeholder text-sm py-8 text-center">
+          {$t('mods.browse.allInstalledOnPage')}
         </div>
       {/if}
-      <!-- Steam-style footer: page nav centered, per-page selector on the right. -->
-      <div class="flex items-center gap-3 text-sm text-secondary pt-2">
-        <span class="flex-1"></span>
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          disabled={displayPage <= 1}
-          onclick={prev}
-        >
-          {$t('mods.browse.prev')}
-        </button>
-        <span>
-          {showInstalled
-            ? $t('mods.browse.pageOf', {
-                page: displayPage,
-                total: Math.max(1, Math.ceil(total / pageSize)),
-              })
-            : $t('mods.browse.page', { page: displayPage })}
-        </span>
-        <button type="button" class="btn-secondary btn-sm" disabled={!hasNext} onclick={next}>
-          {$t('mods.browse.next')}
-        </button>
-        <span class="flex-1 flex justify-end">
+      <!-- Steam-style footer: shared pagination control, per-page selector right. -->
+      <Pagination {page} {pageCount} disabled={loading} onPage={(n) => void goToPage(n)}>
+        {#snippet end()}
           <PageSizePicker />
-        </span>
-      </div>
+        {/snippet}
+      </Pagination>
     {:else}
       <div class="text-placeholder text-sm py-8 text-center">{$t('mods.browse.noResults')}</div>
     {/if}

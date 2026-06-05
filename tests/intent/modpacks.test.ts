@@ -348,17 +348,19 @@ describe('ModpackBrowseView — filter bar structural elements', () => {
     expect(input.getAttribute('type')).toBe('search');
   });
 
-  it('loader facet is a radiogroup labelled "Loader filter" inside the drawer', async () => {
+  it('loader facet is an inline dropdown in the toolbar', () => {
     render(ModpackBrowseView, { props: { onPickHit: () => {} } });
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    expect(screen.getByRole('radiogroup', { name: /loader filter/i })).toBeTruthy();
+    expect(screen.getByTestId('browse-loader-select')).toBeTruthy();
   });
 
-  it('"Clear all" appears with modpack-clear-filters once a facet is active', async () => {
+  it('"Clear all" appears with browse-clear-filters once a facet is active', async () => {
     render(ModpackBrowseView, { props: { onPickHit: () => {} } });
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    await fireEvent.click(screen.getByRole('radio', { name: 'Forge' }));
-    const btn = screen.getByTestId('modpack-clear-filters');
+    // No instance pre-fill on the modpack browser → no active facet initially.
+    expect(screen.queryByTestId('browse-clear-filters')).toBeNull();
+    // Pick a loader from the inline dropdown → a facet is now active.
+    await fireEvent.click(screen.getByTestId('browse-loader-select'));
+    await fireEvent.mouseDown(screen.getByRole('option', { name: 'Forge' }));
+    const btn = await screen.findByTestId('browse-clear-filters');
     expect(btn).toHaveBtnVariant('tertiary');
     expect(btn.className).toContain('text-xs');
   });
@@ -367,7 +369,7 @@ describe('ModpackBrowseView — filter bar structural elements', () => {
 // ── ModpackBrowseView — pagination ────────────────────────────────────────────
 
 describe('ModpackBrowseView — pagination buttons are btn-secondary btn-sm', () => {
-  it('← Previous and Next → buttons appear when hits are present', async () => {
+  it('Prev and Next buttons appear when hits are present', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const hits = Array.from({ length: 20 }, (_, i) =>
       makeHit({ project_id: `p${i}`, title: `Pack ${i}` }),
@@ -381,15 +383,15 @@ describe('ModpackBrowseView — pagination buttons are btn-secondary btn-sm', ()
     // Advance past the 300ms debounce so the search effect fires.
     await vi.runAllTimersAsync();
     vi.useRealTimers();
-    const prevBtn = await screen.findByRole('button', { name: /← previous/i });
-    const nextBtn = screen.getByRole('button', { name: /next →/i });
+    const prevBtn = await screen.findByTestId('pg-prev');
+    const nextBtn = screen.getByTestId('pg-next');
     expect(prevBtn).toHaveBtnVariant('secondary');
     expect(prevBtn).toHaveBtnSize('sm');
     expect(nextBtn).toHaveBtnVariant('secondary');
     expect(nextBtn).toHaveBtnSize('sm');
   });
 
-  it('← Previous is disabled on page 0', async () => {
+  it('Prev is disabled on page 0', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const hits = Array.from({ length: 20 }, (_, i) =>
       makeHit({ project_id: `p${i}`, title: `Pack ${i}` }),
@@ -402,7 +404,7 @@ describe('ModpackBrowseView — pagination buttons are btn-secondary btn-sm', ()
     render(ModpackBrowseView, { props: { onPickHit: () => {} } });
     await vi.runAllTimersAsync();
     vi.useRealTimers();
-    const prevBtn = await screen.findByRole('button', { name: /← previous/i });
+    const prevBtn = await screen.findByTestId('pg-prev');
     expect((prevBtn as HTMLButtonElement).disabled).toBe(true);
   });
 });

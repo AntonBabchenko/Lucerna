@@ -13,6 +13,13 @@ pub struct FtbModpackSource;
 
 const FTB_BASE: &str = "https://api.modpacks.ch";
 
+/// Upper bound on ids fetched per FTB search/popular call. Chosen to exceed the
+/// entire FTB-native catalogue (~90 packs as of 2026) so a single fetch returns
+/// the complete result set, letting us report an exact total and page through it
+/// client-side. If FTB's catalogue ever grows past this, results beyond the cap
+/// are simply not browsable — the same deep-paging cap Modrinth/CurseForge apply.
+const FTB_FETCH_LIMIT: u32 = 200;
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Map an FTB modloader target name to a `LoaderKind`, if recognised.
@@ -48,21 +55,28 @@ pub(crate) async fn search_impl(
 ) -> Result<ModpackSearchPage, Error> {
     use crate::mods::modpack::ftb_api;
 
-    // FTB search has no server-side offset paging; fetch a window covering all
-    // pages up to the requested one so we can slice client-side.
-    let fetch_limit = (page + 1).saturating_mul(page_size);
-    // Default browse (empty query): FTB's search endpoint rejects empty/short
-    // terms ("Search term too short."), so fall back to the most-installed list
-    // — matching how Modrinth/CurseForge show popular packs before the user types.
+    // FTB has no server-side offset paging, and its response `total` field is
+    // unusable for paging: the search endpoint mixes FTB + CurseForge counts
+    // into it, and the popular endpoint returns `limit - 1` ids for some limits
+    // (e.g. asking 21 yields 20), which silently defeats any per-page "n+1
+    // sentinel" probe. The redeeming fact is that the FTB-native catalogue is
+    // tiny (~90 packs total), so a single generously-capped id fetch returns the
+    // COMPLETE result set. We treat the returned id count as the exact total and
+    // slice the requested page client-side — giving Modrinth-style exact page
+    // counts and a reachable last page. Detail is fetched only for the page slice.
     let all_ids = if query.trim().is_empty() {
-        ftb_api::popular_ids(base, fetch_limit).await?
+        // Default browse (empty query): FTB's search endpoint rejects empty/short
+        // terms ("Search term too short."), so fall back to the most-installed
+        // list — matching how Modrinth/CurseForge show popular packs first.
+        ftb_api::popular_ids(base, FTB_FETCH_LIMIT).await?
     } else {
-        ftb_api::search_ids(base, query, fetch_limit).await?
+        ftb_api::search_ids(base, query, FTB_FETCH_LIMIT).await?
     };
-    // total is the unfiltered id count up to the fetched window — approximate.
-    // FTB search has no server-side total/offset; client-side mc/loader filtering
-    // further means a page may show fewer than page_size hits. The pager treats
-    // this as best-effort (caps.supports_server_filter=false).
+    // Exact total of FTB-native results (the cap exceeds the whole catalogue, so
+    // nothing is truncated in practice). NOTE: when a client-side mc/loader
+    // filter is active the displayed page may hold fewer than page_size hits and
+    // this total over-counts — FTB cannot server-filter (supports_server_filter
+    // = false), so that remains best-effort. Unfiltered browse paging is exact.
     let total = all_ids.len() as u32;
     let page_ids: Vec<u64> = all_ids
         .into_iter()
@@ -802,8 +816,9 @@ mod tests {
         let _g = test_lock();
         let s = MockServer::start().await;
 
+        // Single fixed-cap fetch covering the whole catalogue → path "200".
         Mock::given(method("GET"))
-            .and(path("/public/modpack/search/20"))
+            .and(path("/public/modpack/search/200"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!({ "packs": [91u64], "curseforge": [], "total": 1 }),
             ))
@@ -851,8 +866,9 @@ mod tests {
         let _g = test_lock();
         let s = MockServer::start().await;
 
+        // Single fixed-cap fetch covering the whole catalogue → path "200".
         Mock::given(method("GET"))
-            .and(path("/public/modpack/search/20"))
+            .and(path("/public/modpack/search/200"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!({ "packs": [91u64, 92u64], "curseforge": [], "total": 2 }),
             ))
@@ -1033,8 +1049,8 @@ mod tests {
         );
     }
 
-    /// Page 1 (0-indexed) with page_size=2 must request fetch_limit=4 and
-    /// return only the ids in the second window: skip(2).take(2).
+    /// Page 1 (0-indexed) with page_size=2: the full id list is fetched once
+    /// (fixed cap) and sliced skip(2).take(2) client-side.
     ///
     /// With search returning ids [1, 2, 3], page 1 should have 1 hit (id 3),
     /// offset=2, total=3.
@@ -1043,9 +1059,9 @@ mod tests {
         let _g = test_lock();
         let s = MockServer::start().await;
 
-        // fetch_limit = (1 + 1) * 2 = 4  → path segment "4"
+        // Single fixed-cap fetch covering the whole catalogue → path "200".
         Mock::given(method("GET"))
-            .and(path("/public/modpack/search/4"))
+            .and(path("/public/modpack/search/200"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!({ "packs": [1u64, 2u64, 3u64], "curseforge": [], "total": 3 }),
             ))
@@ -1078,6 +1094,61 @@ mod tests {
         assert_eq!(page.total, 3, "total should be unfiltered id count = 3");
     }
 
+    /// Regression: when more packs exist than fit on the current page, `total`
+    /// must exceed `(page + 1) * page_size` so the UI pager keeps "Next" enabled.
+    /// Earlier the fetched window matched the page size exactly (and FTB's popular
+    /// endpoint even returns `limit - 1`), so `total` never signalled more pages
+    /// and the pager could not advance past page 0 for FTB.
+    #[tokio::test]
+    async fn ftb_search_total_signals_more_pages_exist() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+
+        // Single fixed-cap fetch returns the whole result set [1,2,3]; with
+        // page_size 2 that is an exact total of 3 → 2 pages, Next reachable.
+        Mock::given(method("GET"))
+            .and(path("/public/modpack/search/200"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "packs": [1u64, 2u64, 3u64], "curseforge": [], "total": 3 }),
+            ))
+            .mount(&s)
+            .await;
+        // Only the first 2 ids are on page 0 (take(page_size)); detail is fetched
+        // for those, never for the off-page id 3.
+        for id in [1u64, 2u64] {
+            Mock::given(method("GET"))
+                .and(path(format!("/public/modpack/{id}")))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(pack_detail_json(id, "1.20.1", "fabric", 10)),
+                )
+                .mount(&s)
+                .await;
+        }
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let page = search_impl(&s.uri(), "test", 0, None, None, 2)
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(page.hits.len(), 2, "page 0 shows page_size hits");
+        assert!(
+            page.total > 2,
+            "total ({}) must exceed page_size so the pager enables Next",
+            page.total
+        );
+        // The exact gating the UI applies: Next is disabled when
+        // (page + 1) * page_size >= total. Here page=0, page_size=2, so the
+        // threshold is 2; 2 >= 3 is false → Next is enabled.
+        let page_num: u32 = 0;
+        let page_size: u32 = 2;
+        assert!(
+            (page_num + 1) * page_size < page.total,
+            "(page+1)*page_size must be < total for Next to be reachable"
+        );
+    }
+
     /// Regression (manual-test gap): an empty query must populate the default
     /// browse from the FTB *popular* endpoint, NOT call /search with an empty
     /// term (which FTB rejects with "Search term too short."). Only the popular
@@ -1088,9 +1159,9 @@ mod tests {
         let _g = test_lock();
         let s = MockServer::start().await;
 
-        // fetch_limit = (0 + 1) * 20 = 20
+        // Single fixed-cap popular fetch → path "200".
         Mock::given(method("GET"))
-            .and(path("/public/modpack/popular/installs/20"))
+            .and(path("/public/modpack/popular/installs/200"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!({ "packs": [91u64], "total": 1, "status": "success" }),
             ))
@@ -1121,8 +1192,9 @@ mod tests {
         let _g = test_lock();
         let s = MockServer::start().await;
 
+        // Single fixed-cap fetch → path "200".
         Mock::given(method("GET"))
-            .and(path("/public/modpack/search/20"))
+            .and(path("/public/modpack/search/200"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!({ "status": "error", "message": "Search term too short." }),
             ))

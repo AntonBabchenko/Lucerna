@@ -71,19 +71,19 @@ describe('ModpackBrowseView', () => {
     modpackBrowseState.sortChoice = 'relevance';
   });
 
-  it('renders the source segmented control inside the drawer', async () => {
-    const { getByTestId } = render(ModpackBrowseView, { props: { onPickHit: () => {} } });
-    await fireEvent.click(getByTestId('browse-filters-button'));
-    expect(screen.getByRole('radiogroup', { name: /mod source/i })).toBeTruthy();
+  it('does not render the source picker in the filter toolbar (it lives in the sub-tab row)', () => {
+    render(ModpackBrowseView, { props: { onPickHit: () => {} } });
+    expect(screen.queryByTestId('browse-source-select')).toBeNull();
   });
 
   it('switching source to CurseForge with no key shows the key banner', async () => {
     mockKeyStatus.mockResolvedValue({ status: 'ok', data: 'missing' });
-    const { getByTestId, findByText } = render(ModpackBrowseView, {
+    const { findByText } = render(ModpackBrowseView, {
       props: { onPickHit: () => {} },
     });
-    await fireEvent.click(getByTestId('browse-filters-button'));
-    await fireEvent.click(screen.getByRole('radio', { name: 'CurseForge' }));
+    // The source picker now lives in the parent (ModpacksTab); ModpackBrowseView
+    // reacts to the shared browse-state singleton, so drive it directly.
+    modpackBrowseState.source = 'curseforge';
     expect(await findByText('CurseForge requires an API key')).toBeTruthy();
   });
 
@@ -91,7 +91,8 @@ describe('ModpackBrowseView', () => {
     const { getByTestId } = render(ModpackBrowseView, { props: { onPickHit: () => {} } });
     expect(getByTestId('modpack-search-input')).toBeTruthy();
     expect(getByTestId('modpack-sort-select')).toBeTruthy();
-    expect(getByTestId('browse-filters-button')).toBeTruthy();
+    // Facets live inline in the toolbar; source is NOT here (it's in the sub-tab row).
+    expect(getByTestId('browse-loader-select')).toBeTruthy();
   });
 
   it('initial search uses relevance + null filters', async () => {
@@ -109,7 +110,6 @@ describe('ModpackBrowseView', () => {
     const { getByTestId } = render(ModpackBrowseView, { props: { onPickHit: () => {} } });
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     mockSearch.mockClear();
-    await fireEvent.click(getByTestId('browse-filters-button'));
     const mcInput = getByTestId('modpack-mc-input') as HTMLInputElement;
     mcInput.value = '1.20.1';
     await fireEvent.input(mcInput);
@@ -133,11 +133,10 @@ describe('ModpackBrowseView', () => {
   });
 
   it('selecting loader triggers search with loader param', async () => {
-    const { getByTestId } = render(ModpackBrowseView, { props: { onPickHit: () => {} } });
+    render(ModpackBrowseView, { props: { onPickHit: () => {} } });
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     mockSearch.mockClear();
-    await fireEvent.click(getByTestId('browse-filters-button'));
-    await fireEvent.click(screen.getByRole('radio', { name: 'Fabric' }));
+    await pickOption('browse-loader-select', 'Fabric');
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     const args = mockSearch.mock.calls.at(-1) ?? [];
     expect(args[4]).toBe('fabric');

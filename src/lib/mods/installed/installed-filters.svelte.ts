@@ -1,8 +1,11 @@
+import { untrack } from 'svelte';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
 
-export type EnabledFilter = 'all' | 'enabled' | 'disabled';
-export type QuickFilter = 'all' | 'updates' | 'issues';
+// A single mutually-exclusive view filter — exactly one is active at a time, so
+// picking any chip simply shows that subset (no AND-combination to reason about).
+// 'updates' / 'issues' are status views; 'enabled' / 'disabled' are state views.
+export type ViewFilter = 'all' | 'enabled' | 'disabled' | 'updates' | 'issues';
 export type SortBy = 'name-asc' | 'name-desc' | 'recent' | 'source';
 
 // Owns the filter / sort / pagination math for the installed list. `filtered`
@@ -15,8 +18,7 @@ export function createInstalledFilters(
   getMissingShas: () => Set<string>,
 ) {
   let filter = $state('');
-  let enabledFilter = $state<EnabledFilter>('all');
-  let quickFilter = $state<QuickFilter>('all');
+  let viewFilter = $state<ViewFilter>('all');
   let sortBy = $state<SortBy>('name-asc');
   let pageSize = $state<number>(50);
   let page = $state(0);
@@ -44,21 +46,28 @@ export function createInstalledFilters(
   const filtered = $derived.by(() => {
     const updatable = getUpdatableShas();
     const missing = getMissingShas();
-    return sorted
-      .filter((r) => {
-        if (enabledFilter === 'enabled') return r.installed.enabled;
-        if (enabledFilter === 'disabled') return !r.installed.enabled;
-        return true;
-      })
-      .filter((r) => {
-        if (quickFilter === 'updates') return updatable.has(r.installed.sha1);
-        if (quickFilter === 'issues') return missing.has(r.installed.sha1);
-        return true;
-      })
-      .filter(
-        (r) =>
-          filter.trim() === '' || rowDisplayName(r).toLowerCase().includes(filter.toLowerCase()),
-      );
+    return (
+      sorted
+        .filter((r) => {
+          switch (viewFilter) {
+            case 'enabled':
+              return r.installed.enabled;
+            case 'disabled':
+              return !r.installed.enabled;
+            case 'updates':
+              return updatable.has(r.installed.sha1);
+            case 'issues':
+              return missing.has(r.installed.sha1);
+            default:
+              return true; // 'all'
+          }
+        })
+        // Text search is orthogonal and always applies on top of the view filter.
+        .filter(
+          (r) =>
+            filter.trim() === '' || rowDisplayName(r).toLowerCase().includes(filter.toLowerCase()),
+        )
+    );
   });
 
   const pageCount = $derived(Math.max(1, Math.ceil(filtered.length / pageSize)));
@@ -84,8 +93,7 @@ export function createInstalledFilters(
     stopEffects = $effect.root(() => {
       $effect(() => {
         void filter;
-        void enabledFilter;
-        void quickFilter;
+        void viewFilter;
         void sortBy;
         void pageSize;
         page = 0;
@@ -93,13 +101,17 @@ export function createInstalledFilters(
       $effect(() => {
         if (page > pageCount - 1) page = Math.max(0, pageCount - 1);
       });
-      // When the active quick-filter's set empties out (user fixed the last
-      // dependency problem or applied the last update), its chip + the attention
-      // bar disappear — so auto-reset to 'all' instead of stranding an empty list
-      // with no control to clear the filter.
+      // When the active updates/issues view empties out (user fixed the last
+      // dependency problem or applied the last update), its chip disappears — so
+      // auto-reset to 'all' instead of stranding an empty list with the now-gone
+      // filter still active.
       $effect(() => {
-        if (quickFilter === 'updates' && getUpdatableShas().size === 0) quickFilter = 'all';
-        else if (quickFilter === 'issues' && getMissingShas().size === 0) quickFilter = 'all';
+        const resetUpdates = viewFilter === 'updates' && getUpdatableShas().size === 0;
+        const resetIssues = viewFilter === 'issues' && getMissingShas().size === 0;
+        // Wrap the self-referential write so the effect doesn't register
+        // `viewFilter` as a dependency of its own assignment (it already depends
+        // on it via the reads above; this keeps the update strictly one-shot).
+        if (resetUpdates || resetIssues) untrack(() => (viewFilter = 'all'));
       });
     });
   } catch {
@@ -113,17 +125,11 @@ export function createInstalledFilters(
     set filter(v: string) {
       filter = v;
     },
-    get enabledFilter() {
-      return enabledFilter;
+    get viewFilter() {
+      return viewFilter;
     },
-    set enabledFilter(v: EnabledFilter) {
-      enabledFilter = v;
-    },
-    get quickFilter() {
-      return quickFilter;
-    },
-    set quickFilter(v: QuickFilter) {
-      quickFilter = v;
+    set viewFilter(v: ViewFilter) {
+      viewFilter = v;
     },
     get sortBy() {
       return sortBy;

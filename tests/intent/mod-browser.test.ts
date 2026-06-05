@@ -244,8 +244,11 @@ describe('ModBrowserTab — Browse tab is active by default (underline pattern)'
     const { container } = render(ModBrowserTab, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // The outer flex row wrapping the tablist and SourcePicker.
-    const bar = container.querySelector('[role="tablist"]')?.parentElement;
+    // The outer flex row wrapping the sub-tab tablist and SourcePicker. Exclude
+    // the content-kind switch tablist (which sits in its own row above).
+    const bar = container.querySelector(
+      '[role="tablist"]:not([data-testid="addons-kind-switch"])',
+    )?.parentElement;
     expect(bar).not.toBeNull();
     const cls = bar?.className ?? '';
     expect(cls).toContain('border-b');
@@ -328,30 +331,29 @@ describe('ModBrowseView — filter bar structural elements', () => {
     expect(input.getAttribute('type')).toBe('search');
   });
 
-  it('loader facet is a radiogroup labelled "Loader filter" inside the drawer', async () => {
+  it('loader facet is an inline dropdown in the toolbar', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    const group = screen.getByRole('radiogroup', { name: /loader filter/i });
-    expect(group).not.toBeNull();
+    expect(screen.getByTestId('browse-loader-select')).not.toBeNull();
   });
 
-  it('"Clear all" chip-row button is btn-tertiary text-xs and carries mod-clear-filters', () => {
+  it('"Clear all" button is btn-tertiary text-xs and carries browse-clear-filters', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    const btn = screen.getByTestId('mod-clear-filters');
+    // loader + mc are pre-filled from the instance → a facet is active → the
+    // Clear-all button is present inline.
+    const btn = screen.getByTestId('browse-clear-filters');
     expect(btn).toHaveBtnVariant('tertiary');
     expect(btn.className).toContain('text-xs');
   });
 
-  it('"Show installed" toggle lives in the drawer', async () => {
+  it('"Show installed" toggle is an inline checkbox in the toolbar', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    expect(screen.getByLabelText(/show installed/i)).not.toBeNull();
+    expect(screen.getByTestId('browse-show-installed')).not.toBeNull();
   });
 });
 

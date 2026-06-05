@@ -48,37 +48,50 @@ describe('createInstalledFilters', () => {
     expect(f.filtered.map((r) => r.installed.name)).toEqual(['Sodium']);
   });
 
-  it('enabledFilter narrows to enabled / disabled', () => {
+  it('viewFilter narrows to enabled / disabled', () => {
     const rows = [row('1', 'A', true), row('2', 'B', false)];
     const f = createInstalledFilters(
       () => rows,
       () => new Set(),
       () => new Set(),
     );
-    f.enabledFilter = 'disabled';
+    f.viewFilter = 'disabled';
     expect(f.filtered.map((r) => r.installed.name)).toEqual(['B']);
   });
 
-  it('quickFilter "updates" keeps only updatable shas', () => {
+  it('viewFilter "updates" keeps only updatable shas', () => {
     const rows = [row('1', 'A', true), row('2', 'B', true)];
     const f = createInstalledFilters(
       () => rows,
       () => new Set(['2']),
       () => new Set(),
     );
-    f.quickFilter = 'updates';
+    f.viewFilter = 'updates';
     expect(f.filtered.map((r) => r.installed.sha1)).toEqual(['2']);
   });
 
-  it('quickFilter "issues" keeps only shas with missing deps', () => {
+  it('viewFilter "issues" keeps only shas with missing deps', () => {
     const rows = [row('1', 'A', true), row('2', 'B', true)];
     const f = createInstalledFilters(
       () => rows,
       () => new Set(),
       () => new Set(['1']),
     );
-    f.quickFilter = 'issues';
+    f.viewFilter = 'issues';
     expect(f.filtered.map((r) => r.installed.sha1)).toEqual(['1']);
+  });
+
+  it('view filters are mutually exclusive — selecting updates does not also keep the enabled state', () => {
+    // A disabled mod that has an update: 'updates' shows it regardless of the
+    // enabled state (no AND-combination with enabled/disabled anymore).
+    const rows = [row('1', 'A', true), row('2', 'B', false)];
+    const f = createInstalledFilters(
+      () => rows,
+      () => new Set(['2']),
+      () => new Set(),
+    );
+    f.viewFilter = 'updates';
+    expect(f.filtered.map((r) => r.installed.sha1)).toEqual(['2']);
   });
 
   it('paginates and clamps the page when the list shrinks', () => {

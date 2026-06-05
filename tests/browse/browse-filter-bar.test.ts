@@ -13,20 +13,18 @@ const SORTS = [
   { value: 'relevance', label: 'Relevance' },
 ];
 
-describe('BrowseFilterBar', () => {
-  it('renders a search input with the given aria-label and testid', () => {
-    render(BrowseFilterBar, {
-      props: {
-        searchAriaLabel: 'Search mods',
-        searchPlaceholder: 'Search mods...',
-        sort: 'downloads',
-        sortOptions: SORTS,
-        activeCount: 0,
-        onSearchInput: () => {},
-        onSortChange: () => {},
-        onOpenDrawer: () => {},
-      },
-    });
+const base = {
+  searchAriaLabel: 'Search mods',
+  searchPlaceholder: 'Search mods...',
+  sort: 'downloads',
+  sortOptions: SORTS,
+  onSearchInput: () => {},
+  onSortChange: () => {},
+};
+
+describe('BrowseFilterBar (inline facets)', () => {
+  it('renders a search input with the given aria-label', () => {
+    render(BrowseFilterBar, { props: { ...base } });
     const input = screen.getByLabelText('Search mods');
     expect(input.getAttribute('type')).toBe('search');
   });
@@ -35,17 +33,7 @@ describe('BrowseFilterBar', () => {
     const onSearchInput = vi.fn();
     const onSortChange = vi.fn();
     render(BrowseFilterBar, {
-      props: {
-        searchAriaLabel: 'Search mods',
-        searchPlaceholder: 'Search mods...',
-        sort: 'downloads',
-        sortOptions: SORTS,
-        sortTestid: 'mod-sort',
-        activeCount: 0,
-        onSearchInput,
-        onSortChange,
-        onOpenDrawer: () => {},
-      },
+      props: { ...base, sortTestid: 'mod-sort', onSearchInput, onSortChange },
     });
     const input = screen.getByLabelText('Search mods') as HTMLInputElement;
     input.value = 'sodium';
@@ -58,35 +46,48 @@ describe('BrowseFilterBar', () => {
     expect(onSortChange).toHaveBeenCalledWith('relevance');
   });
 
-  it('shows the active-filter count badge only when > 0 and opens the drawer', async () => {
-    const onOpenDrawer = vi.fn();
-    const { rerender } = render(BrowseFilterBar, {
-      props: {
-        searchAriaLabel: 'Search mods',
-        searchPlaceholder: 'Search mods...',
-        sort: 'downloads',
-        sortOptions: SORTS,
-        activeCount: 0,
-        onSearchInput: () => {},
-        onSortChange: () => {},
-        onOpenDrawer,
-      },
-    });
-    const btn = screen.getByTestId('browse-filters-button');
-    expect(btn.textContent).not.toMatch(/\d/);
-    await fireEvent.click(btn);
-    expect(onOpenDrawer).toHaveBeenCalled();
+  it('shows the loader dropdown inline only when showLoader is set', () => {
+    const { rerender } = render(BrowseFilterBar, { props: { ...base } });
+    expect(screen.queryByTestId('browse-loader-select')).toBeNull();
+    rerender({ ...base, showLoader: true });
+    expect(screen.getByTestId('browse-loader-select')).toBeTruthy();
+  });
 
-    await rerender({
-      searchAriaLabel: 'Search mods',
-      searchPlaceholder: 'Search mods...',
-      sort: 'downloads',
-      sortOptions: SORTS,
-      activeCount: 2,
-      onSearchInput: () => {},
-      onSortChange: () => {},
-      onOpenDrawer,
+  it('does not render a source dropdown (Source lives in the sub-tab row, not the toolbar)', () => {
+    render(BrowseFilterBar, { props: { ...base, showLoader: true } });
+    expect(screen.queryByTestId('browse-source-select')).toBeNull();
+  });
+
+  it('fires onShowInstalledChange when the checkbox is toggled', async () => {
+    const onShowInstalledChange = vi.fn();
+    render(BrowseFilterBar, {
+      props: { ...base, showInstalled: true, onShowInstalledChange },
     });
-    expect(screen.getByTestId('browse-filters-button').textContent).toMatch(/2/);
+    const checkbox = screen.getByTestId('browse-show-installed') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    await fireEvent.click(checkbox);
+    expect(onShowInstalledChange).toHaveBeenCalledWith(false);
+  });
+
+  it('shows a Clear-all button only when activeCount > 0 and fires onClearAll', async () => {
+    const onClearAll = vi.fn();
+    const { rerender } = render(BrowseFilterBar, {
+      props: { ...base, activeCount: 0, onClearAll },
+    });
+    expect(screen.queryByTestId('browse-clear-filters')).toBeNull();
+    await rerender({ ...base, activeCount: 2, onClearAll });
+    const clear = screen.getByTestId('browse-clear-filters');
+    await fireEvent.click(clear);
+    expect(onClearAll).toHaveBeenCalled();
+  });
+
+  it('shows the Restore button only when canRestore and fires onRestore', async () => {
+    const onRestore = vi.fn();
+    render(BrowseFilterBar, {
+      props: { ...base, canRestore: true, restoreLabel: 'Match this instance', onRestore },
+    });
+    const restore = screen.getByTestId('browse-restore-instance');
+    await fireEvent.click(restore);
+    expect(onRestore).toHaveBeenCalled();
   });
 });

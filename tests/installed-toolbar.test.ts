@@ -6,8 +6,7 @@ const base = () => ({
   counts: { total: 3, enabled: 2, disabled: 1, updates: 1, issues: 2 },
   filter: '',
   sortBy: 'name-asc' as const,
-  enabledFilter: 'all' as const,
-  quickFilter: 'all' as const,
+  viewFilter: 'all' as const,
   busy: false,
   checking: false,
   graphLoading: false,
@@ -17,39 +16,48 @@ const base = () => ({
   onUpdateAll: vi.fn(),
 });
 
-describe('InstalledToolbar quick-filters', () => {
-  it('renders Updates and Issues chips with counts', () => {
+describe('InstalledToolbar view filter (single mutually-exclusive group)', () => {
+  it('renders All/Enabled/Disabled plus Updates/Issues as radios with counts', () => {
     render(InstalledToolbar, { props: base() });
-    expect(screen.getByRole('button', { name: /Updates/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Issues/ })).toBeTruthy();
+    for (const name of [/All/, /Enabled/, /Disabled/, /Updates/, /Issues/]) {
+      expect(screen.getByRole('radio', { name })).toBeTruthy();
+    }
+    // Default selection is All.
+    expect(screen.getByRole('radio', { name: /All/ }).getAttribute('aria-checked')).toBe('true');
   });
 
-  it('clicking Issues activates the issues quick-filter (aria-pressed toggles)', async () => {
+  it('selecting a chip checks it and unchecks the others (mutually exclusive)', async () => {
     render(InstalledToolbar, { props: base() });
-    const issues = screen.getByRole('button', { name: /Issues/ });
-    expect(issues.getAttribute('aria-pressed')).toBe('false');
-    await fireEvent.click(issues);
-    // quickFilter is $bindable; the component writes it locally and re-renders,
-    // so aria-pressed flips even without a parent binding.
-    expect(issues.getAttribute('aria-pressed')).toBe('true');
+    await fireEvent.click(screen.getByRole('radio', { name: /Updates/ }));
+    expect(screen.getByRole('radio', { name: /Updates/ }).getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    // All the others are now unchecked — no AND-combination.
+    for (const name of [/All/, /Enabled/, /Disabled/, /Issues/]) {
+      expect(screen.getByRole('radio', { name }).getAttribute('aria-checked')).toBe('false');
+    }
   });
 
-  it('clicking an active chip toggles it back to all', async () => {
-    render(InstalledToolbar, { props: { ...base(), quickFilter: 'updates' } });
-    const updates = screen.getByRole('button', { name: /Updates/ });
-    expect(updates.getAttribute('aria-pressed')).toBe('true');
-    await fireEvent.click(updates);
-    expect(updates.getAttribute('aria-pressed')).toBe('false');
+  it('exactly one radio is checked at any time', async () => {
+    render(InstalledToolbar, { props: { ...base(), viewFilter: 'updates' } });
+    await fireEvent.click(screen.getByRole('radio', { name: /Disabled/ }));
+    const checked = screen
+      .getAllByRole('radio')
+      .filter((r) => r.getAttribute('aria-checked') === 'true');
+    expect(checked).toHaveLength(1);
+    expect(checked[0].textContent).toMatch(/Disabled/);
   });
 
-  it('hides chips when there are no updates or issues', () => {
+  it('hides Updates/Issues radios when there are none', () => {
     render(InstalledToolbar, {
       props: {
         ...base(),
         counts: { total: 3, enabled: 3, disabled: 0, updates: 0, issues: 0 },
       },
     });
-    expect(screen.queryByRole('button', { name: /Updates/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Issues/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Updates/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /Issues/ })).toBeNull();
+    // The state filters remain.
+    expect(screen.getByRole('radio', { name: /All/ })).toBeTruthy();
   });
 });

@@ -135,15 +135,6 @@
             {$t('modpacks.detail.viewOn', { platform: platformName })}
           </button>
         {/if}
-        {#if project?.website_url}
-          <button
-            type="button"
-            class="btn-tertiary text-xs mt-0.5 ml-2"
-            onclick={() => openExternal(project!.website_url!)}
-          >
-            {$t('modpacks.detail.website')}
-          </button>
-        {/if}
       </div>
       <CloseButton onClick={onClose} ariaLabel={$t('modpacks.detail.closeAriaLabel')} />
     </header>
