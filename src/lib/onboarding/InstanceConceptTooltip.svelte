@@ -5,11 +5,13 @@
   // tightened standalone variant of the tour's step-1 welcome text (deliberately
   // not shared with steps.ts — the popover wants one concise sentence).
   import HelpPopover from '$lib/ui/HelpPopover.svelte';
+  import { explanationState } from '$lib/onboarding/explanation-level.svelte';
+  import { explainKey } from '$lib/onboarding/explanation-keys';
   import { t } from '$lib/i18n';
 </script>
 
 <HelpPopover
-  body={$t('onboarding.instanceConcept.body')}
+  body={$t(explainKey('onboarding.instanceConcept.body', explanationState.level))}
   triggerAriaLabel={$t('onboarding.instanceConcept.triggerAriaLabel')}
   triggerTitle={$t('onboarding.instanceConcept.triggerTitle')}
   closeAriaLabel={$t('onboarding.instanceConcept.closeAriaLabel')}
