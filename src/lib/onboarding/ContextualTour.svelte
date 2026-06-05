@@ -7,6 +7,8 @@
   import { onMount, tick } from 'svelte';
   import type { TourStep } from './steps';
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
+  import { explanationState } from './explanation-level.svelte';
+  import { explainKey } from './explanation-keys';
   import { t } from '$lib/i18n';
 
   let { id, steps }: { id: ContextualTourId; steps: ReadonlyArray<TourStep> } = $props();
@@ -129,6 +131,7 @@
   let step = $derived(steps[currentStep]);
   let isLast = $derived(currentStep === steps.length - 1);
   let isFirst = $derived(currentStep === 0);
+  let level = $derived(explanationState.level);
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -162,9 +165,9 @@
       {$t('onboarding.controls.stepOf', { current: currentStep + 1, total: steps.length })}
     </div>
     <h3 id="ctx-tour-title-{id}" class="font-semibold text-sm text-primary mb-2">
-      {$t(step.titleKey)}
+      {$t(explainKey(step.titleKey, level))}
     </h3>
-    <p class="text-sm text-secondary mb-4">{$t(step.bodyKey)}</p>
+    <p class="text-sm text-secondary mb-4">{$t(explainKey(step.bodyKey, level))}</p>
     <div class="flex justify-between gap-2">
       <button type="button" class="btn-secondary btn-sm" disabled={isFirst} onclick={back}>
         {$t('onboarding.controls.back')}
