@@ -219,7 +219,7 @@
           <button
             type="button"
             data-tour-primary
-            class="btn-primary w-full text-left flex flex-col items-start py-2"
+            class="btn-primary w-full text-center flex flex-col items-center py-2"
             onclick={() => chooseLevel('basic')}
           >
             <span class="font-medium">{$t('onboarding.chooser.basicLabel')}</span>
@@ -227,7 +227,7 @@
           </button>
           <button
             type="button"
-            class="btn-secondary w-full text-left flex flex-col items-start py-2"
+            class="btn-secondary w-full text-center flex flex-col items-center py-2"
             onclick={() => chooseLevel('advanced')}
           >
             <span class="font-medium">{$t('onboarding.chooser.advancedLabel')}</span>
