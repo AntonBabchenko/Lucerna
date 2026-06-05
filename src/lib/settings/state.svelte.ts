@@ -1,3 +1,5 @@
+import type { ModSource } from '$lib/ipc/bindings';
+
 // Cross-component state for opening the Settings modal at a specific tab.
 //
 // Pattern: a `.svelte.ts` module exporting a `$state(...)` rune is the
@@ -26,6 +28,17 @@ export const cfKeyVersion = $state<{ value: number }>({ value: 0 });
 // to null so subsequent in-tab clicks don't get hijacked.
 export type ModBrowserNav = { view: 'browse' | 'installed' };
 export const modBrowserNav = $state<{ value: ModBrowserNav | null }>({ value: null });
+
+// Deep-link request to open a specific project's detail modal in the Mod
+// browser. The Add-ons → Shaders loader hint sets this to open Iris: it flips
+// the Add-ons tab to the Mods segment (which re-keys ModBrowseView) and the
+// freshly-mounted mod browser consumes the rune, opens the detail modal, and
+// resets it to null. Mirrors `modBrowserNav`. The consumer guards on `isMod`
+// + a source match so the about-to-unmount shader browser never steals it.
+export type ModBrowseOpenProject = { source: ModSource; projectId: string };
+export const modBrowseOpenProject = $state<{ value: ModBrowseOpenProject | null }>({
+  value: null,
+});
 
 // Cross-component navigation into the Modpacks tab's imported-pack
 // drawer. The Overview "missing mods" indicator sets this; MainTabs

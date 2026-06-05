@@ -28,6 +28,7 @@
     assetsChanged,
     cfKeyVersion,
     mcVersions,
+    modBrowseOpenProject,
     settingsOpen,
   } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
@@ -236,6 +237,20 @@
     // shaders it loads the per-instance asset registry so result cards flip to
     // the installed state. Re-runs when instance or kind changes.
     void refreshInstalledAssets();
+  });
+
+  // Deep-link: the Add-ons → Shaders loader hint opens Iris by flipping the
+  // tab to the Mods segment (which re-keys this view) and setting
+  // modBrowseOpenProject. This freshly-mounted mod browser consumes it and
+  // opens the detail modal. Guarded by `isMod` so the about-to-unmount shader
+  // browser doesn't steal the signal during the re-key, and by a source match
+  // so the modal opens against the matching platform. Reset to null once read.
+  $effect(() => {
+    const link = modBrowseOpenProject.value;
+    if (link && isMod && link.source === source) {
+      drawerProject = link.projectId;
+      modBrowseOpenProject.value = null;
+    }
   });
 
   // Mods can be enabled/disabled/uninstalled from the Installed tab (a sibling

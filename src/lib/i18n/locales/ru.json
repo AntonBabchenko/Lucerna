@@ -361,7 +361,14 @@
     "kindShaders": "Шейдеры",
     "kindSwitchAria": "Тип контента",
     "subTabsLabel": "Разделы дополнений",
-    "shaderLoaderHint": "Для работы шейдеров нужен Iris или OptiFine.",
+    "shaderLoaderHint": {
+      "intro": "Для работы шейдеров нужен загрузчик шейдеров — установите один из:",
+      "iris": "Iris",
+      "or": "или",
+      "optifine": "OptiFine",
+      "optifineVersion": "OptiFine: скачайте сборку под Minecraft {mc} с optifine.net.",
+      "optifineNoInstance": "OptiFine: выберите инстанс, чтобы узнать нужную сборку."
+    },
     "installed": {
       "checkUpdates": "Проверить обновления",
       "update": "Обновить",

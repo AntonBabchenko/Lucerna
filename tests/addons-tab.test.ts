@@ -17,6 +17,26 @@ vi.mock('$lib/ipc/bindings', () => ({
       .fn()
       .mockResolvedValue({ status: 'ok', data: { hits: [], total: 0, offset: 0, page_size: 20 } }),
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // ModDetailModal (opened by the Iris deep-link) loads a project + versions.
+    modsProject: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        summary: {
+          source: 'modrinth',
+          project_id: 'YL57xq9U',
+          slug: 'iris',
+          name: 'Iris Shaders',
+          summary: 'A modern shaders mod for Minecraft.',
+          icon_url: null,
+          downloads: 0,
+          author: 'coderbot',
+          updated_at: null,
+        },
+        body_html: null,
+        gallery: [],
+      },
+    }),
+    modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
     modsInspectLocal: vi.fn().mockResolvedValue({
@@ -43,6 +63,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue([]) }));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
 
@@ -55,8 +76,9 @@ const props = {
 
 describe('AddonsTab', () => {
   afterEach(async () => {
-    const { droppedMods } = await import('$lib/settings/state.svelte');
+    const { droppedMods, modBrowseOpenProject } = await import('$lib/settings/state.svelte');
     droppedMods.value = null;
+    modBrowseOpenProject.value = null;
     // Reset all mock call counts between tests so assertions about "not called"
     // are not poisoned by invocations from earlier tests.
     vi.clearAllMocks();
@@ -73,13 +95,56 @@ describe('AddonsTab', () => {
     expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('shows the shader hint banner and hides the dropzone when Shaders is selected', async () => {
+  it('shows the shader hint banner with Iris/OptiFine actions and hides the dropzone when Shaders is selected', async () => {
     render(AddonsTab, { props });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
-      expect(screen.getByText('Shaders need Iris or OptiFine installed to run.')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
     });
+    expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
     expect(screen.queryByTestId('file-dropzone')).toBeNull();
+  });
+
+  it('the shader hint names the instance MC version for OptiFine', async () => {
+    render(AddonsTab, { props });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    await waitFor(() => {
+      expect(screen.getByText(/Minecraft 1\.20\.1/)).toBeTruthy();
+    });
+  });
+
+  it('the shader hint asks to pick an instance when none is selected', async () => {
+    render(AddonsTab, { props: { ...props, instanceId: null, mcVersion: null } });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    await waitFor(() => {
+      expect(screen.getByText(/select an instance to see which build/i)).toBeTruthy();
+    });
+  });
+
+  it('clicking Iris jumps to the Mods segment and opens the Iris detail modal', async () => {
+    render(AddonsTab, { props });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    const iris = await screen.findByRole('button', { name: 'Iris' });
+    await fireEvent.click(iris);
+
+    // Mods segment becomes active (kind flipped to 'mod').
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
+    });
+    // The detail modal opened against the Iris project.
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(await screen.findByText('Iris Shaders')).toBeTruthy();
+  });
+
+  it('clicking OptiFine opens the optifine.net downloads page externally', async () => {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    render(AddonsTab, { props });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    const optifine = await screen.findByRole('button', { name: /OptiFine/ });
+    await fireEvent.click(optifine);
+    await waitFor(() => {
+      expect(openUrl).toHaveBeenCalledWith('https://optifine.net/downloads');
+    });
   });
 
   it('shows no hint banner and no dropzone when Resource packs is selected', async () => {
@@ -90,7 +155,7 @@ describe('AddonsTab', () => {
         screen.getByRole('tab', { name: 'Resource packs' }).getAttribute('aria-selected'),
       ).toBe('true');
     });
-    expect(screen.queryByText('Shaders need Iris or OptiFine installed to run.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
     expect(screen.queryByTestId('file-dropzone')).toBeNull();
   });
 

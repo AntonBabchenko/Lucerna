@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { CompatVerdict, ContentKind, ModSource } from '$lib/ipc/bindings';
-  import { modBrowserNav } from '$lib/settings/state.svelte';
+  import { modBrowseOpenProject, modBrowserNav } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import InstalledModsView from './InstalledModsView.svelte';
@@ -18,7 +18,7 @@
   import { get } from 'svelte/store';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import FileDropzone from './FileDropzone.svelte';
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
 
   type View = 'browse' | 'installed';
 
@@ -29,6 +29,36 @@
   let kind = $state<ContentKind>('mod');
   let view = $state<View>('browse');
   let source = $state<ModSource>('modrinth');
+
+  // Iris's canonical Modrinth project id (the base62 id, not the "iris" slug)
+  // so the detail modal's installed-state match and the project cache line up
+  // with how mod cards key the same project. OptiFine is distributed only from
+  // its own site — no Modrinth/CurseForge install path — so its action opens
+  // the downloads page in the system browser.
+  const IRIS_MODRINTH_PROJECT_ID = 'YL57xq9U';
+  const OPTIFINE_DOWNLOADS_URL = 'https://optifine.net/downloads';
+
+  // Shader-loader hint actions. Iris is a Fabric/Quilt mod: open it in the
+  // Mods segment's detail modal, fully reusing ModBrowseView's dependency-aware
+  // install flow. Switching `kind` to 'mod' re-keys ModBrowseView, and the
+  // freshly-mounted mod browser consumes modBrowseOpenProject to open Iris.
+  function openIris() {
+    source = 'modrinth';
+    kind = 'mod';
+    view = 'browse';
+    modBrowseOpenProject.value = { source: 'modrinth', projectId: IRIS_MODRINTH_PROJECT_ID };
+  }
+
+  function openOptifine() {
+    void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(OPTIFINE_DOWNLOADS_URL));
+  }
+
+  // The Iris deep-link rune is module-level and outlives this component. If the
+  // tab is torn down between openIris() and the mod browser consuming it, clear
+  // it so a later mount can't open Iris unprompted.
+  onDestroy(() => {
+    modBrowseOpenProject.value = null;
+  });
 
   // i18n labels for the kind switch — order mirrors CONTENT_KINDS.
   const kindLabels: Record<ContentKind, TranslationKey> = {
@@ -282,13 +312,39 @@
   </div>
 
   {#if kind === 'shader'}
-    <!-- Non-blocking info banner: shaders need a shader loader to run. -->
+    <!-- Non-blocking info banner: shaders need a shader loader to run. Iris is
+         actionable (opens its mod detail modal); OptiFine opens its downloads
+         page since it has no in-app install path. -->
     <div class="px-3 pt-3">
       <div
-        class="bg-accent/10 border border-accent/40 text-secondary text-sm rounded p-2"
+        class="bg-accent/10 border border-accent/40 text-secondary text-sm rounded p-2 space-y-1.5"
         role="note"
       >
-        {$t('addons.shaderLoaderHint')}
+        <p>{$t('addons.shaderLoaderHint.intro')}</p>
+        <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <button
+            type="button"
+            class="font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
+            onclick={openIris}
+          >
+            {$t('addons.shaderLoaderHint.iris')}
+          </button>
+          <span class="text-placeholder">{$t('addons.shaderLoaderHint.or')}</span>
+          <button
+            type="button"
+            class="font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
+            onclick={openOptifine}
+          >
+            {$t('addons.shaderLoaderHint.optifine')}<span aria-hidden="true">&nbsp;↗</span>
+          </button>
+        </p>
+        <p class="text-xs text-muted">
+          {#if mcVersion}
+            {$t('addons.shaderLoaderHint.optifineVersion', { mc: mcVersion })}
+          {:else}
+            {$t('addons.shaderLoaderHint.optifineNoInstance')}
+          {/if}
+        </p>
       </div>
     </div>
   {/if}
