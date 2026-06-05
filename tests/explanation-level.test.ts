@@ -9,39 +9,12 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-import {
-  explanationState,
-  initExplanationLevel,
-  setExplanationLevel,
-} from '$lib/onboarding/explanation-level.svelte';
+import { explanationState, setExplanationLevel } from '$lib/onboarding/explanation-level.svelte';
 
 beforeEach(() => {
   appSettingsGet.mockReset();
   appSettingsSetGeneral.mockReset();
   explanationState.level = 'basic';
-});
-
-describe('initExplanationLevel', () => {
-  it('adopts the persisted level', async () => {
-    appSettingsGet.mockResolvedValue({
-      status: 'ok',
-      data: { general: { explanation_level: 'advanced' } },
-    });
-    await initExplanationLevel();
-    expect(explanationState.level).toBe('advanced');
-  });
-
-  it('falls back to basic when general has no level', async () => {
-    appSettingsGet.mockResolvedValue({ status: 'ok', data: { general: {} } });
-    await initExplanationLevel();
-    expect(explanationState.level).toBe('basic');
-  });
-
-  it('keeps the default and does not throw when the read fails', async () => {
-    appSettingsGet.mockResolvedValue({ status: 'error', error: 'x' });
-    await initExplanationLevel();
-    expect(explanationState.level).toBe('basic');
-  });
 });
 
 describe('setExplanationLevel', () => {

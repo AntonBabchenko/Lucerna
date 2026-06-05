@@ -5,15 +5,10 @@
 
 import { commands, type ExplanationLevel } from '$lib/ipc/bindings';
 
+// Initialised at startup directly from the settings `+page.svelte` already
+// fetches (it sets `explanationState.level` inline, avoiding a second IPC
+// round-trip) — so there is intentionally no separate init function here.
 export const explanationState = $state<{ level: ExplanationLevel }>({ level: 'basic' });
-
-/** Called once at app start. Reads the persisted level; on any failure keeps the
- *  default (basic) and stays silent (mirrors initOnboarding). */
-export async function initExplanationLevel(): Promise<void> {
-  const r = await commands.appSettingsGet();
-  if (r.status !== 'ok') return;
-  explanationState.level = r.data.general.explanation_level ?? 'basic';
-}
 
 /** Set the level: update the rune instantly (live UI), then persist via a
  *  read-modify-write of the whole `general` object (the theme/language path).
