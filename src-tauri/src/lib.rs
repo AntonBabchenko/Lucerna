@@ -156,9 +156,69 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         ])
 }
 
+/// Dev-only: handle `--export-bindings [--check]` passed to the launcher.
+///
+/// Regenerates `src/lib/ipc/bindings.ts` from the same `specta_builder()` the
+/// app uses, without launching the app — the no-dev-server regen path. Returns
+/// `Some(exit_code)` when the flag is present (the caller should exit), or
+/// `None` to continue launching normally.
+///
+/// This lives on the launcher binary rather than a second `[[bin]]`: a second
+/// binary in this package makes `tauri build` try to copy a binary the bundler
+/// can't find and aborts the bundle on every platform (it copies every declared
+/// package binary), and only this binary carries the Windows application
+/// manifest the exporter needs to start (a `tests/`/`examples/` binary does not
+/// and fails with STATUS_ENTRYPOINT_NOT_FOUND).
+#[cfg(debug_assertions)]
+fn maybe_export_bindings_from_args(builder: &Builder<tauri::Wry>) -> Option<i32> {
+    use specta_typescript::Typescript;
+
+    if !std::env::args().any(|a| a == "--export-bindings") {
+        return None;
+    }
+    let target = "../src/lib/ipc/bindings.ts";
+
+    if std::env::args().any(|a| a == "--check") {
+        let tmp = std::env::temp_dir().join("lucerna-bindings-freshness-check.ts");
+        if let Err(e) = builder.export(Typescript::default(), &tmp) {
+            eprintln!("Failed to export bindings for --check: {e}");
+            return Some(1);
+        }
+        let fresh = std::fs::read_to_string(&tmp).ok();
+        let committed = std::fs::read_to_string(target).ok();
+        if fresh.is_some() && fresh == committed {
+            println!("bindings.ts is up to date.");
+            return Some(0);
+        }
+        eprintln!(
+            "bindings.ts is STALE — a Rust command/type changed without regenerating.\n\
+             Run: cargo run --manifest-path src-tauri/Cargo.toml -- --export-bindings"
+        );
+        return Some(1);
+    }
+
+    match builder.export(Typescript::default(), target) {
+        Ok(()) => {
+            println!("Regenerated {target}");
+            Some(0)
+        }
+        Err(e) => {
+            eprintln!("Failed to regenerate bindings: {e}");
+            Some(1)
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = specta_builder();
+
+    // Dev-only no-app bindings regen: `cargo run -- --export-bindings [--check]`
+    // exports the bindings and exits before the app launches.
+    #[cfg(debug_assertions)]
+    if let Some(code) = maybe_export_bindings_from_args(&builder) {
+        std::process::exit(code);
+    }
 
     #[cfg(debug_assertions)]
     builder

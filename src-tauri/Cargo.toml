@@ -5,10 +5,10 @@ description = "Lucerna — a clean, transparent open-source Minecraft launcher f
 authors = ["AntonBabchenko"]
 license = "GPL-3.0-or-later"
 edition = "2021"
-# The crate has two binaries: the launcher (`lucerna`, from src/main.rs) and the
-# bindings generator (`export_bindings`, from src/bin/). `cargo run` / `tauri dev`
-# need to know which is the default — run the helper explicitly via --bin export_bindings.
-default-run = "lucerna"
+# Single binary: the launcher (`lucerna`, from src/main.rs). The dev-only IPC
+# bindings regen is a flag on this same binary — `cargo run -- --export-bindings`
+# (see `run()` in src/lib.rs) — not a second `[[bin]]`, because a second package
+# binary makes `tauri build` abort bundling on every platform.
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
