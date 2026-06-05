@@ -28,7 +28,7 @@
     ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
   ]);
 
-  const tipsOptions = $derived([
+  const tipsOptions = $derived<{ value: ExplanationLevel; label: string }[]>([
     { value: 'basic', label: $t('settings.general.tips.basic') },
     { value: 'advanced', label: $t('settings.general.tips.advanced') },
   ]);

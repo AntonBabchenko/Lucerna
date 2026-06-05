@@ -19,7 +19,10 @@ const adaptiveBases: string[] = [
   ...STEPS.filter((s) => s.kind !== 'chooser').flatMap((s) => [s.titleKey, s.bodyKey]),
   // contextual steps
   ...Object.values(STEPS_BY_ID).flatMap((steps) => steps.flatMap((s) => [s.titleKey, s.bodyKey])),
-  // concept tooltips (body only)
+  // concept tooltips (body only). NOTE: step call-sites above are covered
+  // automatically from STEPS/STEPS_BY_ID, but non-step call-sites are listed by
+  // hand — if you add a new `explainKey(...)` render site for a fixed key, add
+  // its base key here so a missing `*Basic` sibling is caught.
   'onboarding.instanceConcept.body',
   'onboarding.modpackInstance.body',
 ];
