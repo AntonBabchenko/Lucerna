@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
   import { enqueueIntegrity, integrityStatusFor } from '$lib/instances/integrity-ops.svelte';
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
 
@@ -24,6 +25,10 @@
   } = $props();
 
   const op = $derived(integrityStatusFor(instanceId));
+  // A persisted "healthy" result from a previous launcher session is treated as
+  // not-checked (session-scoped confidence); problem results persist. See
+  // integrity-freshness.ts. The live op branches below take precedence over this.
+  const effective = $derived(effectiveIntegrityStatus(status));
   // Buttons are blocked while the game runs OR while an op for this instance is
   // running/queued (dedupe is also enforced in the store, but disabling gives
   // the user feedback).
@@ -61,7 +66,7 @@
       title={blockTitle}
       onclick={() => enqueueIntegrity(instanceId, name, 'verify')}
     >
-      {status ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
+      {effective ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
     </button>
   </div>
 
@@ -83,12 +88,12 @@
     <p class="mt-2 text-xs text-muted" aria-live="polite">
       {$t('instance.integrity.statusQueued')}
     </p>
-  {:else if status}
-    {#if status.healthy}
+  {:else if effective}
+    {#if effective.healthy}
       <p class="mt-2 text-sm text-success">✓ {$t('instance.integrity.allOk')}</p>
     {:else}
       <ul class="mt-2 space-y-1" aria-live="polite">
-        {#each status.categories as cat (cat.category)}
+        {#each effective.categories as cat (cat.category)}
           {@const bad = cat.missing + cat.corrupt}
           <li class="flex items-center justify-between text-xs">
             <span class="flex items-center gap-1.5">
@@ -114,14 +119,14 @@
           title={blockTitle}
           onclick={() => enqueueIntegrity(instanceId, name, 'repair')}
         >
-          {$t('instance.integrity.repairBtn', { count: status.problem_count })}
+          {$t('instance.integrity.repairBtn', { count: effective.problem_count })}
         </button>
       </div>
     {/if}
-    {#if status.checked_unix_ms !== null}
+    {#if effective.checked_unix_ms !== null}
       <p class="text-xs text-muted mt-1">
         {$t('instance.integrity.checkedAt', {
-          date: new Date(status.checked_unix_ms).toLocaleString(),
+          date: new Date(effective.checked_unix_ms).toLocaleString(),
         })}
       </p>
     {/if}
