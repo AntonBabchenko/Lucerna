@@ -82,20 +82,14 @@
     return parts.join(' · ');
   });
 
-  // Single status badge per row, highest priority first (spec §4.4):
-  // missing deps → update available → disabled → none.
+  // The only left-side row badge is the missing-dependency warning — it is
+  // row-specific and shown nowhere else. The "update available" and "disabled"
+  // states are intentionally NOT badged here: the ModCard on the right already
+  // shows the version transition (vOld → vNew) + Update button and the
+  // enable/disable control + "Installed" chip, so a left badge would duplicate
+  // them.
   const badge = $derived.by(() => {
-    if (depMissing > 0)
-      return {
-        kind: 'missing' as const,
-        text: $t('mods.installed.badgeMissing', { count: depMissing }),
-      };
-    if (updateState?.kind === 'update_available')
-      return {
-        kind: 'update' as const,
-        text: $t('mods.installed.badgeUpdate', { version: updateState.target.version_number }),
-      };
-    if (!installed.enabled) return { kind: 'off' as const, text: $t('mods.installed.badgeOff') };
+    if (depMissing > 0) return { text: $t('mods.installed.badgeMissing', { count: depMissing }) };
     return null;
   });
 </script>
@@ -133,13 +127,8 @@
     {#if summary}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if badge}
-          <span
-            data-testid="status-badge"
-            class="px-2 py-0.5 rounded {badge.kind === 'missing'
-              ? 'bg-danger-bg text-danger'
-              : badge.kind === 'update'
-                ? 'bg-warning-bg text-warning-text'
-                : 'bg-subtle text-muted'}">{badge.text}</span
+          <span data-testid="status-badge" class="px-2 py-0.5 rounded bg-danger-bg text-danger"
+            >{badge.text}</span
           >
         {/if}
         {#if graphLoading && !root}

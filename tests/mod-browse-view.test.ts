@@ -46,12 +46,13 @@ vi.mock('$lib/ipc/bindings', () => ({
 import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 
 describe('ModBrowseView', () => {
-  it('surfaces the MC + Loader props as active-filter chips', () => {
+  it('reflects the MC + Loader instance props in the inline filter controls', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    expect(screen.getByTestId('browse-chip-mc').textContent).toMatch(/1\.20\.1/);
-    expect(screen.getByTestId('browse-chip-loader').textContent).toMatch(/Fabric/);
+    // Loader dropdown shows the instance loader; MC combobox holds its version.
+    expect(screen.getByTestId('browse-loader-select').textContent).toMatch(/Fabric/);
+    expect(screen.getByDisplayValue('1.20.1')).toBeTruthy();
   });
 
   it('marks a Modrinth-installed mod as installed when viewing the CurseForge entry', async () => {
@@ -262,7 +263,7 @@ describe('ModBrowseView', () => {
     ).mockResolvedValue({ status: 'ok', data: 'set' });
   });
 
-  it('advances past an all-installed first page when Show installed is unchecked', async () => {
+  it('shows installed mods (badged) by default and pages to later results', async () => {
     const mod = await import('$lib/ipc/bindings');
     // Page 1 (offset 0): 20 hits, all already installed.
     // Page 2 (offset 20): one non-installed hit. total = 21.
@@ -319,19 +320,20 @@ describe('ModBrowseView', () => {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     // Wait for the mount-time refreshInstalled effect (modsListInstalled +
-    // 20×modsProject via Promise.all) to settle before toggling, so that
-    // installedMods is already populated when fill(1) runs its filter.
+    // 20×modsProject via Promise.all) to settle so the installed badges resolve.
     for (let i = 0; i < 5; i++) {
       await new Promise((r) => setTimeout(r, 0));
     }
-    // "Show installed" is OFF by default, so the all-installed first page is
-    // skipped automatically and the page-2 non-installed mod is reached; the
-    // old "already installed — navigate to a different page" dead end is gone.
-    expect(await screen.findByText('Fresh Mod')).toBeTruthy();
+    // Installed mods are shown by default now (mark-don't-remove), so page 1
+    // lists them rather than auto-skipping. total=21 → 2 pages; Next reaches the
+    // page-2 non-installed mod. No "already installed" dead end.
+    expect(await screen.findByText('Installed Mod 0')).toBeTruthy();
     expect(screen.queryByText(/already installed/i)).toBeNull();
+    await fireEvent.click(screen.getByTestId('pg-next'));
+    expect(await screen.findByText('Fresh Mod')).toBeTruthy();
   });
 
-  it('shows "of Y" only when Show installed is checked', async () => {
+  it('shows the total page count ("of Y") from the server total', async () => {
     const mod = await import('$lib/ipc/bindings');
     (mod.commands.modsSearch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
@@ -361,13 +363,7 @@ describe('ModBrowseView', () => {
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // Hidden (default): counter is "Page 1" with no total.
-    expect(await screen.findByText('Page 1')).toBeTruthy();
-    expect(screen.queryByText(/of 1/)).toBeNull();
-    // Checking "Show installed" restores the "of Y" total.
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    const toggle = screen.getByLabelText(/show installed/i);
-    await fireEvent.click(toggle);
+    // The pager always shows an exact "of Y" now (server total drives it).
     expect(await screen.findByText(/Page 1 of 1/)).toBeTruthy();
   });
 

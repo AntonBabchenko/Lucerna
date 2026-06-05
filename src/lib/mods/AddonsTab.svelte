@@ -7,7 +7,7 @@
   import InstalledAssetsView from './InstalledAssetsView.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
-  import SegmentedControl from '$lib/browse/SegmentedControl.svelte';
+  import TabBar from '$lib/ui/TabBar.svelte';
   import { CONTENT_KINDS } from './content-kind';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -232,15 +232,16 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <!-- Content-kind switch: Mods · Resource packs · Shaders. Sits above the
-       Browse/Installed sub-tab row so it scopes everything below it. -->
-  <div class="px-3 pt-3">
-    <SegmentedControl
-      value={kind}
-      options={kindOptions}
+  <!-- Content-kind switch: Mods · Resource packs · Shaders. Underline tabs (the
+       app-wide TabBar style) so it reads as the primary scope above the
+       Browse/Installed sub-tab row, not a clashing boxed segmented control. -->
+  <div class="px-3 pt-1">
+    <TabBar
+      tabs={kindOptions.map((o) => ({ id: o.value, label: o.label }))}
+      active={kind}
       ariaLabel={$t('addons.kindSwitchAria')}
       testid="addons-kind-switch"
-      onChange={(v) => (kind = v as ContentKind)}
+      onChange={(id) => (kind = id as ContentKind)}
     />
   </div>
 

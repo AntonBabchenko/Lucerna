@@ -91,6 +91,16 @@ describe('ModpacksTab', () => {
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
+  it('renders the Source picker (with FTB) in the sub-tab row, not the filter toolbar', async () => {
+    render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
+    // Source is a context switch — it lives beside the Browse|Imported tabs,
+    // mirroring the Add-ons tab. Modpacks include FTB as a third source.
+    const sourceSelect = screen.getByTestId('browse-source-select');
+    expect(sourceSelect).toBeTruthy();
+    await fireEvent.click(sourceSelect);
+    expect(screen.getByRole('option', { name: 'FTB' })).toBeTruthy();
+  });
+
   it('displays a formatted error message (not [object Object]) when inspect fails', async () => {
     // modpackInspect is already mocked to return a typed error object:
     //   { status: 'error', error: { kind: 'modpack_format_unknown' } }

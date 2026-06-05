@@ -362,6 +362,10 @@ export const commands = {
 	 *  for a newer version on the instance's MC version. A single asset's
 	 *  query failure becomes that asset's `CheckFailed` state. Resource packs
 	 *  and shaders are not loader-filtered, so the loader facet is omitted.
+	 * 
+	 *  Hand-dropped assets with no platform identity (no `source`/`project_id`)
+	 *  are silently omitted from the result — there is nothing to query an
+	 *  update against.
 	 */
 	assetsCheckUpdates: (instanceId: string, kind: ContentKind) => typedError<AssetUpdateCheck[], Error>(__TAURI_INVOKE("assets_check_updates", { instanceId, kind })),
 	/**

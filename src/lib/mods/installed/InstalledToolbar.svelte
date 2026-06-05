@@ -1,14 +1,13 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
-  import type { EnabledFilter, QuickFilter, SortBy } from './installed-filters.svelte';
+  import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
   let {
     counts,
     filter = $bindable(),
     sortBy = $bindable(),
-    enabledFilter = $bindable(),
-    quickFilter = $bindable(),
+    viewFilter = $bindable(),
     busy,
     checking,
     graphLoading,
@@ -26,8 +25,7 @@
     };
     filter: string;
     sortBy: SortBy;
-    enabledFilter: EnabledFilter;
-    quickFilter: QuickFilter;
+    viewFilter: ViewFilter;
     busy: boolean;
     checking: boolean;
     graphLoading: boolean;
@@ -44,22 +42,61 @@
     { value: 'source', label: $t('mods.installed.sortSource') },
   ]);
 
+  // One mutually-exclusive filter group. All / Enabled / Disabled are always
+  // present; Updates / Issues appear only when there is something to show. Each
+  // option carries its own active-state colour so the chips read as distinct
+  // kinds (state vs status) while behaving as a single pick-one set.
+  const filterOptions = $derived([
+    {
+      value: 'all' as const,
+      label: $t('mods.installed.filterAll', { count: counts.total }),
+      activeClass: 'bg-accent-soft text-accent font-medium',
+    },
+    {
+      value: 'enabled' as const,
+      label: $t('mods.installed.filterEnabled', { count: counts.enabled }),
+      activeClass: 'bg-success-bg text-success font-medium',
+    },
+    {
+      value: 'disabled' as const,
+      label: $t('mods.installed.filterDisabled', { count: counts.disabled }),
+      activeClass: 'bg-subtle text-secondary font-medium',
+    },
+    ...(counts.updates > 0
+      ? [
+          {
+            value: 'updates' as const,
+            label: $t('mods.installed.filterUpdates', { count: counts.updates }),
+            activeClass: 'bg-warning-bg text-warning-text font-medium',
+          },
+        ]
+      : []),
+    ...(counts.issues > 0
+      ? [
+          {
+            value: 'issues' as const,
+            label: $t('mods.installed.filterIssues', { count: counts.issues }),
+            activeClass: 'bg-danger-bg text-danger font-medium',
+          },
+        ]
+      : []),
+  ]);
+
   // WCAG radiogroup keyboard pattern. Arrow / Home / End moves selection within
   // the group; the newly-checked radio gets focus. Roving tabindex (0 on
   // checked, -1 elsewhere) keeps the whole group as one tab stop.
-  const FILTER_VALUES = ['all', 'enabled', 'disabled'] as const;
   function handleFilterKey(e: KeyboardEvent) {
-    const i = FILTER_VALUES.indexOf(enabledFilter);
-    let next: (typeof FILTER_VALUES)[number] | null = null;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown')
-      next = FILTER_VALUES[(i + 1) % FILTER_VALUES.length];
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp')
-      next = FILTER_VALUES[(i - 1 + FILTER_VALUES.length) % FILTER_VALUES.length];
-    else if (e.key === 'Home') next = FILTER_VALUES[0];
-    else if (e.key === 'End') next = FILTER_VALUES[FILTER_VALUES.length - 1];
+    const values = filterOptions.map((o) => o.value);
+    const i = values.indexOf(viewFilter);
+    const len = values.length;
+    let next: ViewFilter | null = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = values[(i + 1) % len];
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = values[(i - 1 + len) % len];
+    else if (e.key === 'Home') next = values[0];
+    else if (e.key === 'End') next = values[len - 1];
     if (next !== null) {
       e.preventDefault();
-      enabledFilter = next;
+      viewFilter = next;
       const target = e.currentTarget as HTMLElement | null;
       target?.querySelector<HTMLButtonElement>(`button[data-value="${next}"]`)?.focus();
     }
@@ -128,81 +165,22 @@
       role="radiogroup"
       aria-label={$t('mods.installed.filterGroupAriaLabel')}
       tabindex={-1}
-      class="flex gap-1 text-xs"
+      class="flex flex-wrap gap-1 text-xs"
       onkeydown={handleFilterKey}
     >
-      <button
-        type="button"
-        role="radio"
-        aria-checked={enabledFilter === 'all'}
-        tabindex={enabledFilter === 'all' ? 0 : -1}
-        data-value="all"
-        class="btn-secondary btn-xs"
-        class:bg-accent-soft={enabledFilter === 'all'}
-        class:text-accent={enabledFilter === 'all'}
-        class:font-medium={enabledFilter === 'all'}
-        onclick={() => (enabledFilter = 'all')}
-      >
-        {$t('mods.installed.filterAll', { count: counts.total })}
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={enabledFilter === 'enabled'}
-        tabindex={enabledFilter === 'enabled' ? 0 : -1}
-        data-value="enabled"
-        class="btn-secondary btn-xs"
-        class:bg-success-bg={enabledFilter === 'enabled'}
-        class:text-success={enabledFilter === 'enabled'}
-        class:font-medium={enabledFilter === 'enabled'}
-        onclick={() => (enabledFilter = 'enabled')}
-      >
-        {$t('mods.installed.filterEnabled', { count: counts.enabled })}
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={enabledFilter === 'disabled'}
-        tabindex={enabledFilter === 'disabled' ? 0 : -1}
-        data-value="disabled"
-        class="btn-secondary btn-xs"
-        class:bg-subtle={enabledFilter === 'disabled'}
-        class:text-secondary={enabledFilter === 'disabled'}
-        class:font-medium={enabledFilter === 'disabled'}
-        onclick={() => (enabledFilter = 'disabled')}
-      >
-        {$t('mods.installed.filterDisabled', { count: counts.disabled })}
-      </button>
-    </div>
-  {/if}
-  {#if counts.updates > 0 || counts.issues > 0}
-    <div class="flex gap-1 text-xs mt-1">
-      {#if counts.updates > 0}
+      {#each filterOptions as opt (opt.value)}
         <button
           type="button"
-          class="btn-secondary btn-xs"
-          class:bg-warning-bg={quickFilter === 'updates'}
-          class:text-warning-text={quickFilter === 'updates'}
-          class:font-medium={quickFilter === 'updates'}
-          aria-pressed={quickFilter === 'updates'}
-          onclick={() => (quickFilter = quickFilter === 'updates' ? 'all' : 'updates')}
+          role="radio"
+          aria-checked={viewFilter === opt.value}
+          tabindex={viewFilter === opt.value ? 0 : -1}
+          data-value={opt.value}
+          class={`btn-secondary btn-xs ${viewFilter === opt.value ? opt.activeClass : ''}`}
+          onclick={() => (viewFilter = opt.value)}
         >
-          {$t('mods.installed.filterUpdates', { count: counts.updates })}
+          {opt.label}
         </button>
-      {/if}
-      {#if counts.issues > 0}
-        <button
-          type="button"
-          class="btn-secondary btn-xs"
-          class:bg-danger-bg={quickFilter === 'issues'}
-          class:text-danger={quickFilter === 'issues'}
-          class:font-medium={quickFilter === 'issues'}
-          aria-pressed={quickFilter === 'issues'}
-          onclick={() => (quickFilter = quickFilter === 'issues' ? 'all' : 'issues')}
-        >
-          {$t('mods.installed.filterIssues', { count: counts.issues })}
-        </button>
-      {/if}
+      {/each}
     </div>
   {/if}
 </div>

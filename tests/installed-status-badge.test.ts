@@ -56,7 +56,7 @@ describe('status badge priority', () => {
     render(InstalledModRow, { props: { ...base(), installed: installed(false), depMissing: 2 } });
     expect(screen.getByTestId('status-badge').textContent).toMatch(/2 missing/);
   });
-  it('shows update arrow when an update is available and no missing deps', () => {
+  it('shows NO left-side badge for an update-available row (the ModCard shows vOld → vNew + Update on the right)', () => {
     render(InstalledModRow, {
       props: {
         ...base(),
@@ -64,13 +64,13 @@ describe('status badge priority', () => {
         updateState: { kind: 'update_available', target: { version_number: '2.0' } } as never,
       },
     });
-    expect(screen.getByTestId('status-badge').textContent).toMatch(/↑ 2\.0/);
+    expect(screen.queryByTestId('status-badge')).toBeNull();
   });
-  it('shows "off" when disabled with no missing deps or update', () => {
+  it('shows NO badge when disabled (the ModCard shows the enable/disable state on the right)', () => {
     render(InstalledModRow, { props: { ...base(), installed: installed(false) } });
-    expect(screen.getByTestId('status-badge').textContent).toMatch(/⊘ off/);
+    expect(screen.queryByTestId('status-badge')).toBeNull();
   });
-  it('shows no badge when enabled, no updates, no missing deps', () => {
+  it('shows no badge when enabled, no missing deps', () => {
     render(InstalledModRow, { props: { ...base(), installed: installed(true) } });
     expect(screen.queryByTestId('status-badge')).toBeNull();
   });

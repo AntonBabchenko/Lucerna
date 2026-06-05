@@ -64,18 +64,18 @@ describe('AddonsTab', () => {
 
   it('renders the content-kind switch with the three labels and the mod dropzone by default', () => {
     render(AddonsTab, { props });
-    expect(screen.getByRole('radio', { name: 'Mods' })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: 'Resource packs' })).toBeTruthy();
-    expect(screen.getByRole('radio', { name: 'Shaders' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Mods' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Resource packs' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Shaders' })).toBeTruthy();
     // Default kind is 'mod' → the .jar dropzone affordance is present.
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
     // Mods radio is selected by default.
-    expect(screen.getByRole('radio', { name: 'Mods' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('shows the shader hint banner and hides the dropzone when Shaders is selected', async () => {
     render(AddonsTab, { props });
-    await fireEvent.click(screen.getByRole('radio', { name: 'Shaders' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByText('Shaders need Iris or OptiFine installed to run.')).toBeTruthy();
     });
@@ -84,10 +84,10 @@ describe('AddonsTab', () => {
 
   it('shows no hint banner and no dropzone when Resource packs is selected', async () => {
     render(AddonsTab, { props });
-    await fireEvent.click(screen.getByRole('radio', { name: 'Resource packs' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await waitFor(() => {
       expect(
-        screen.getByRole('radio', { name: 'Resource packs' }).getAttribute('aria-checked'),
+        screen.getByRole('tab', { name: 'Resource packs' }).getAttribute('aria-selected'),
       ).toBe('true');
     });
     expect(screen.queryByText('Shaders need Iris or OptiFine installed to run.')).toBeNull();
@@ -106,7 +106,7 @@ describe('AddonsTab', () => {
     });
 
     // Switch to Shaders — the kind-reset effect must land on Browse.
-    await fireEvent.click(screen.getByRole('radio', { name: 'Shaders' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Browse' }).getAttribute('aria-selected')).toBe(
         'true',
@@ -128,8 +128,8 @@ describe('AddonsTab', () => {
     render(AddonsTab, { props });
 
     // Switch through all non-mod kinds without opening the Installed tab.
-    await fireEvent.click(screen.getByRole('radio', { name: 'Resource packs' }));
-    await fireEvent.click(screen.getByRole('radio', { name: 'Shaders' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
 
     // Browse is still the active sub-tab.
     await waitFor(() => {
@@ -144,9 +144,12 @@ describe('AddonsTab', () => {
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
   });
 
-  it('tablist has an accessible name', () => {
+  it('both tablists (content-kind switch + sub-tabs) have an accessible name', () => {
     render(AddonsTab, { props });
-    const tablist = screen.getByRole('tablist');
-    expect(tablist.getAttribute('aria-label')).toBeTruthy();
+    const tablists = screen.getAllByRole('tablist');
+    expect(tablists.length).toBeGreaterThanOrEqual(2);
+    for (const tl of tablists) {
+      expect(tl.getAttribute('aria-label')).toBeTruthy();
+    }
   });
 });

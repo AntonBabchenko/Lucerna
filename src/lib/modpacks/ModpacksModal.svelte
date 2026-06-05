@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import HelpPopover from '$lib/ui/HelpPopover.svelte';
   import { t } from '$lib/i18n';
 
   // Full-viewport modal shell for the modpacks browser. Purely presentational:
@@ -45,8 +46,15 @@
       aria-modal="true"
       aria-label={$t('modpacks.modal.title')}
     >
-      <header class="p-4 border-b border-border-subtle flex items-center shrink-0">
-        <h2 class="flex-1 font-semibold text-primary">{$t('modpacks.modal.title')}</h2>
+      <header class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0">
+        <h2 class="font-semibold text-primary">{$t('modpacks.modal.title')}</h2>
+        <HelpPopover
+          body={$t('onboarding.modpackInstance.body')}
+          triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
+          triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
+          closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}
+        />
+        <span class="flex-1"></span>
         <CloseButton onClick={onClose} ariaLabel={$t('modpacks.modal.closeAriaLabel')} />
       </header>
       <div class="flex-1 overflow-hidden flex flex-col min-h-0">

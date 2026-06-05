@@ -19,6 +19,15 @@ describe('ModpacksModal', () => {
     expect(screen.queryByTestId('modpacks-modal-back')).toBeNull();
   });
 
+  it('shows a (?) help explaining why a modpack install creates a new instance', async () => {
+    render(ModpacksModal, { props: { open: true, onClose: () => {} } });
+    const help = screen.getByRole('button', {
+      name: /why does installing a modpack create a new instance/i,
+    });
+    await fireEvent.click(help);
+    expect(screen.getByText(/creates its own new instance/i)).toBeTruthy();
+  });
+
   it('×, scrim, and Escape each call onClose', async () => {
     const onClose = vi.fn();
     render(ModpacksModal, { props: { open: true, onClose } });

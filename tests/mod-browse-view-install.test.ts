@@ -332,7 +332,7 @@ describe('ModBrowseView install flow', () => {
     expect(screen.queryByTestId('browse-restore-instance')).toBeNull();
 
     // Clear all → filters now differ from the instance → Restore appears.
-    await fireEvent.click(screen.getByTestId('mod-clear-filters'));
+    await fireEvent.click(screen.getByTestId('browse-clear-filters'));
     expect(await screen.findByTestId('browse-restore-instance')).toBeTruthy();
 
     // Restore → back to the instance defaults → Restore button gone again.
@@ -397,11 +397,11 @@ describe('ModBrowseView card actions', () => {
     enabled: true,
   };
 
-  // Installed mods are hidden by default now, so card-action tests must first
-  // enable "Show installed" (open the Filters drawer, check the box).
+  // Installed mods are shown by default now (mark-don't-remove, with badge), so
+  // card-action tests no longer need to reveal them. Kept as a no-op for clarity
+  // at the call sites.
   async function enableShowInstalled() {
-    await fireEvent.click(screen.getByTestId('browse-filters-button'));
-    await fireEvent.click(screen.getByLabelText(/show installed/i));
+    // no-op: installed cards are visible by default now.
   }
 
   it('uninstalls an installed card', async () => {

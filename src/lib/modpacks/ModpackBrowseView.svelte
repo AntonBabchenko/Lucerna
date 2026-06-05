@@ -13,12 +13,11 @@
   import { modpackBrowseState } from './browse-state.svelte';
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
+  import Pagination from '$lib/ui/Pagination.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
-  import BrowseFilterChips from '$lib/browse/BrowseFilterChips.svelte';
-  import BrowseFilterDrawer from '$lib/browse/BrowseFilterDrawer.svelte';
-  import { activeChips, activeCount, type FilterChipKey } from '$lib/browse/filter-model';
+  import { activeCount } from '$lib/browse/filter-model';
   import ModpackCard from './ModpackCard.svelte';
   import { t } from '$lib/i18n';
 
@@ -98,7 +97,6 @@
   let pageNum = $state(0);
   let loading = $state(false);
   let error = $state<string | null>(null);
-  let drawerOpen = $state(false);
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
   // Push hits whose title contains the search query to the top — see
@@ -154,11 +152,6 @@
     mc: modpackBrowseState.mcFilter,
   });
 
-  function clearChip(key: FilterChipKey) {
-    if (key === 'loader') modpackBrowseState.loaderFilter = '';
-    else if (key === 'mc') modpackBrowseState.mcFilter = '';
-  }
-
   function clearAllFilters() {
     modpackBrowseState.loaderFilter = '';
     modpackBrowseState.mcFilter = '';
@@ -205,29 +198,18 @@
       { value: 'updated', label: $t('modpacks.browse.sortUpdated') },
     ]}
     sortTestid="modpack-sort-select"
+    showLoader={true}
+    bind:loader={modpackBrowseState.loaderFilter}
+    bind:mc={modpackBrowseState.mcFilter}
+    mcTestid="modpack-mc-input"
+    serverFilters={caps.supports_server_filter}
+    serverFilterNote={$t('modpacks.browse.ftbClientFilterNote')}
     activeCount={activeCount(filterFacets)}
-    expanded={drawerOpen}
+    onClearAll={clearAllFilters}
     onSearchInput={(v) => (query = v)}
     onSortChange={(v) => (modpackBrowseState.sortChoice = v as ModpackSort)}
-    onOpenDrawer={() => (drawerOpen = true)}
-  />
-  <BrowseFilterChips
-    chips={activeChips(filterFacets)}
-    onClear={clearChip}
-    onClearAll={clearAllFilters}
-    clearAllTestid="modpack-clear-filters"
   />
 </div>
-
-<BrowseFilterDrawer
-  bind:open={drawerOpen}
-  bind:loader={modpackBrowseState.loaderFilter}
-  bind:mc={modpackBrowseState.mcFilter}
-  bind:source={modpackBrowseState.source}
-  mcTestid="modpack-mc-input"
-  allowFtb={true}
-  serverFilters={caps.supports_server_filter}
-/>
 
 <div class="px-4 pb-4">
   {#if caps.needs_api_key && needsCfKey}
@@ -262,34 +244,15 @@
         {/each}
       </div>
     {/if}
-    <!-- Steam-style footer: page nav centered, per-page selector on the right. -->
-    <div class="mt-4 flex items-center gap-3 text-sm text-muted">
-      <span class="flex-1"></span>
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        disabled={pageNum === 0}
-        onclick={() => (pageNum -= 1)}
-      >
-        {$t('modpacks.browse.prev')}
-      </button>
-      <span>
-        {$t('modpacks.browse.pageOf', {
-          page: pageNum + 1,
-          total: Math.max(1, Math.ceil(page.total / browserPrefs.pageSize)),
-        })}
-      </span>
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        disabled={(pageNum + 1) * browserPrefs.pageSize >= page.total}
-        onclick={() => (pageNum += 1)}
-      >
-        {$t('modpacks.browse.next')}
-      </button>
-      <span class="flex-1 flex justify-end">
+    <!-- Steam-style footer: shared pagination control, per-page selector right. -->
+    <Pagination
+      page={pageNum}
+      pageCount={Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
+      onPage={(n) => (pageNum = n)}
+    >
+      {#snippet end()}
         <PageSizePicker />
-      </span>
-    </div>
+      {/snippet}
+    </Pagination>
   {/if}
 </div>

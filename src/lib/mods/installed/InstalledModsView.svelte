@@ -16,6 +16,7 @@
   import ModDetailModal from '../ModDetailModal.svelte';
   import OrphanUninstallDialog from '../OrphanUninstallDialog.svelte';
   import PageSizePicker from '../PageSizePicker.svelte';
+  import Pagination from '$lib/ui/Pagination.svelte';
   import { browserPrefs } from '../browser-prefs.svelte';
   import { createInstalledData, type Row } from './installed-data.svelte';
   import { createInstalledFilters } from './installed-filters.svelte';
@@ -26,7 +27,6 @@
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
-  import AttentionBar from './AttentionBar.svelte';
 
   let {
     instanceId,
@@ -190,8 +190,7 @@
     counts={filters.counts}
     bind:filter={filters.filter}
     bind:sortBy={filters.sortBy}
-    bind:enabledFilter={filters.enabledFilter}
-    bind:quickFilter={filters.quickFilter}
+    bind:viewFilter={filters.viewFilter}
     {busy}
     checking={updates.checking}
     graphLoading={deps.graphLoading}
@@ -219,12 +218,6 @@
   {:else if data.rows.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.empty')}</div>
   {:else}
-    <AttentionBar
-      issues={deps.missingShas.size}
-      updates={updates.updateCount}
-      onShowIssues={() => (filters.quickFilter = 'issues')}
-      onShowUpdates={() => (filters.quickFilter = 'updates')}
-    />
     <div class="border border-border-subtle rounded overflow-hidden">
       <BulkActionBar
         allSelected={selection.allSelected}
@@ -279,27 +272,15 @@
     </div>
 
     <!-- Pagination footer — unified with Browse/Modpacks (Steam-style). -->
-    <div class="flex items-center gap-3 text-sm text-secondary pt-2">
-      <span class="flex-1"></span>
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        disabled={filters.page === 0}
-        onclick={() => (filters.page = Math.max(0, filters.page - 1))}
-      >
-        {$t('mods.browse.prev')}
-      </button>
-      <span>{$t('mods.browse.pageOf', { page: filters.page + 1, total: filters.pageCount })}</span>
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        disabled={filters.page >= filters.pageCount - 1}
-        onclick={() => (filters.page = Math.min(filters.pageCount - 1, filters.page + 1))}
-      >
-        {$t('mods.browse.next')}
-      </button>
-      <span class="flex-1 flex justify-end"><PageSizePicker prefsKey="installedPageSize" /></span>
-    </div>
+    <Pagination
+      page={filters.page}
+      pageCount={filters.pageCount}
+      onPage={(n) => (filters.page = n)}
+    >
+      {#snippet end()}
+        <PageSizePicker prefsKey="installedPageSize" />
+      {/snippet}
+    </Pagination>
   {/if}
 
   {#if detail && instanceId}

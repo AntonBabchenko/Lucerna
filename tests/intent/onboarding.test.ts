@@ -36,6 +36,14 @@ beforeEach(() => {
 
 // ── InstanceConceptTooltip ─────────────────────────────────────────────────
 
+// The popover id is generated per-instance by the shared HelpPopover, so locate
+// it via the trigger's aria-controls rather than a hardcoded id.
+function popoverEl(): HTMLElement {
+  const trigger = screen.getByRole('button', { name: /what is an instance/i });
+  const id = trigger.getAttribute('aria-controls') as string;
+  return document.getElementById(id) as HTMLElement;
+}
+
 describe('InstanceConceptTooltip — trigger button classes', () => {
   it('trigger has text-xs class', () => {
     render(InstanceConceptTooltip);
@@ -66,7 +74,7 @@ describe('InstanceConceptTooltip — popover classes (9ce0f0a regression lock)',
   it('popover has normal-case class (override upstream uppercase)', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     expect(popover).not.toBeNull();
     expect(popover.className).toContain('normal-case');
   });
@@ -74,35 +82,35 @@ describe('InstanceConceptTooltip — popover classes (9ce0f0a regression lock)',
   it('popover has tracking-normal class (override upstream letter-spacing)', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     expect(popover.className).toContain('tracking-normal');
   });
 
   it('popover has bg-surface class', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     expect(popover.className).toContain('bg-surface');
   });
 
   it('popover has border-border-subtle class', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     expect(popover.className).toContain('border-border-subtle');
   });
 
   it('popover has rounded class', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     expect(popover.className).toContain('rounded');
   });
 
   it('popover has shadow-md class', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     expect(popover.className).toContain('shadow-md');
   });
 
@@ -116,7 +124,7 @@ describe('InstanceConceptTooltip — popover classes (9ce0f0a regression lock)',
   it('close button wrapper is absolute top-1 right-1', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     const wrapper = popover.querySelector('.absolute.top-1.right-1') as HTMLElement;
     expect(wrapper).not.toBeNull();
   });
@@ -124,7 +132,7 @@ describe('InstanceConceptTooltip — popover classes (9ce0f0a regression lock)',
   it('body text has text-xs text-secondary leading-snug pr-6', async () => {
     render(InstanceConceptTooltip);
     await fireEvent.click(screen.getByRole('button', { name: /what is an instance/i }));
-    const popover = document.getElementById('instance-concept-popover') as HTMLElement;
+    const popover = popoverEl();
     const p = popover.querySelector('p') as HTMLElement;
     expect(p).not.toBeNull();
     expect(p.className).toContain('text-xs');
