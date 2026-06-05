@@ -361,7 +361,14 @@
     "kindShaders": "Shaders",
     "kindSwitchAria": "Content type",
     "subTabsLabel": "Add-on views",
-    "shaderLoaderHint": "Shaders need Iris or OptiFine installed to run.",
+    "shaderLoaderHint": {
+      "intro": "Shaders need a shader loader to run — install one:",
+      "iris": "Iris",
+      "or": "or",
+      "optifine": "OptiFine",
+      "optifineVersion": "OptiFine: download the build for Minecraft {mc} from optifine.net.",
+      "optifineNoInstance": "OptiFine: select an instance to see which build to download."
+    },
     "installed": {
       "checkUpdates": "Check for updates",
       "update": "Update",
