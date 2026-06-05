@@ -421,6 +421,13 @@
     untrack(() => void resetSearch());
   });
 
+  // Monotonic request id so an out-of-order modsSearch response can't clobber a
+  // newer page. With offset paging (vs the old append-only buffer) a fast
+  // Next→Next can resolve B-then-A; without this guard A would overwrite B and
+  // show page-1 data under page 2. The Pagination control is also disabled while
+  // loading, but the guard is the real correctness backstop.
+  let reqSeq = 0;
+
   // Fetch the current page directly by server offset. One request per page —
   // First/Prev/Next/Last are O(1) random-access jumps over the server total.
   async function reload(): Promise<void> {
@@ -429,6 +436,7 @@
       total = 0;
       return;
     }
+    const seq = ++reqSeq;
     loading = true;
     error = null;
     const result = await commands.modsSearch({
@@ -446,6 +454,9 @@
       page_size: pageSize,
       offset: page * pageSize,
     });
+    // A newer reload() superseded this one while it awaited — drop the stale
+    // result (and leave `loading` for the in-flight request to clear).
+    if (seq !== reqSeq) return;
     if (result.status === 'ok') {
       hits = result.data.hits;
       total = result.data.total;
@@ -878,7 +889,7 @@
         </div>
       {/if}
       <!-- Steam-style footer: shared pagination control, per-page selector right. -->
-      <Pagination {page} {pageCount} onPage={(n) => void goToPage(n)}>
+      <Pagination {page} {pageCount} disabled={loading} onPage={(n) => void goToPage(n)}>
         {#snippet end()}
           <PageSizePicker />
         {/snippet}

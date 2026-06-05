@@ -53,18 +53,9 @@ describe('BrowseFilterBar (inline facets)', () => {
     expect(screen.getByTestId('browse-loader-select')).toBeTruthy();
   });
 
-  it('renders the source dropdown inline when source + options are supplied', () => {
-    render(BrowseFilterBar, {
-      props: {
-        ...base,
-        source: 'modrinth',
-        sourceOptions: [
-          { value: 'modrinth', label: 'Modrinth' },
-          { value: 'curseforge', label: 'CurseForge' },
-        ],
-      },
-    });
-    expect(screen.getByTestId('browse-source-select')).toBeTruthy();
+  it('does not render a source dropdown (Source lives in the sub-tab row, not the toolbar)', () => {
+    render(BrowseFilterBar, { props: { ...base, showLoader: true } });
+    expect(screen.queryByTestId('browse-source-select')).toBeNull();
   });
 
   it('fires onShowInstalledChange when the checkbox is toggled', async () => {

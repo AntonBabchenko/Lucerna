@@ -16,11 +16,16 @@
     placeholder = 'MC version',
     id,
     dataTestid,
+    disabled = false,
   }: {
     value?: string;
     placeholder?: string;
     id?: string;
     dataTestid?: string;
+    // When disabled (e.g. an FTB source that can't server-filter by MC), the
+    // input rejects input/focus so the dropdown never opens and `value` can't be
+    // mutated into a filter the backend would ignore.
+    disabled?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -103,16 +108,19 @@
     data-testid={dataTestid}
     type="text"
     {placeholder}
+    {disabled}
     bind:value
     oninput={() => {
+      if (disabled) return;
       open = true;
       activeIndex = -1;
     }}
     onfocus={() => {
+      if (disabled) return;
       open = true;
     }}
     onkeydown={onKeyDown}
-    class="filter-control filter-control-narrow"
+    class="filter-control filter-control-narrow disabled:opacity-50 disabled:cursor-not-allowed"
     autocomplete="off"
     role="combobox"
     aria-autocomplete="list"

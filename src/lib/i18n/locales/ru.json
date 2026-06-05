@@ -25,21 +25,11 @@
   "browse": {
     "filter": {
       "sortLabel": "Сортировка:",
-      "removeFilter": "Убрать фильтр",
       "clearAll": "Сбросить все",
-      "closeOverlay": "Закрыть панель фильтров",
-      "title": "Фильтры",
-      "close": "Закрыть фильтры",
-      "sourceLabel": "Источник",
-      "sourceAriaLabel": "Источник модов",
-      "loaderLabel": "Загрузчик модов",
       "loaderShort": "Загрузчик",
-      "loaderAriaLabel": "Фильтр загрузчика",
-      "mcVersionLabel": "Версия Minecraft",
       "mcShort": "MC",
       "any": "Любой",
       "showInstalled": "Показывать установленные",
-      "installedHidden": "Установленные скрыты",
       "restoreForInstance": "Под текущий профиль"
     }
   },
@@ -195,11 +185,7 @@
       "sortUpdated": "Обновление",
       "searching": "Поиск…",
       "noResults": "Ничего не найдено.",
-      "allInstalledOnPage": "Все моды на этой странице уже установлены. Листайте дальше или отключите «Установленные скрыты».",
-      "prev": "‹ Назад",
-      "next": "Вперёд ›",
-      "pageOf": "Страница {page} из {total}",
-      "page": "Страница {page}",
+      "allInstalledOnPage": "Все моды на этой странице уже установлены. Листайте дальше или включите «Показывать установленные».",
       "vanillaHeading": "Этот профиль — vanilla Minecraft",
       "vanillaBody": "В vanilla Minecraft нет загрузчика модов, поэтому jar-файлы с Modrinth / CurseForge не могут быть загружены во время выполнения. Чтобы устанавливать моды, создайте или переключитесь на профиль с Fabric, Quilt, Forge или NeoForge через панель «Управление» на боковой панели.",
       "errorNoInstance": "Профиль не выбран",
@@ -524,10 +510,7 @@
       "sortNewest": "Новые",
       "sortUpdated": "Обновлённые",
       "searching": "Поиск…",
-      "noResults": "Сборки не найдены.",
-      "prev": "← Назад",
-      "next": "Вперёд →",
-      "pageOf": "Страница {page} из {total}"
+      "noResults": "Сборки не найдены."
     },
     "card": {
       "downloads": "{count} скачиваний",

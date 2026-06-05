@@ -248,6 +248,7 @@
     <Pagination
       page={pageNum}
       pageCount={Math.max(1, Math.ceil(page.total / browserPrefs.pageSize))}
+      disabled={loading}
       onPage={(n) => (pageNum = n)}
     >
       {#snippet end()}

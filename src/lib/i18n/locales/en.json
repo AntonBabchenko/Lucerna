@@ -25,21 +25,11 @@
   "browse": {
     "filter": {
       "sortLabel": "Sort:",
-      "removeFilter": "Remove filter",
       "clearAll": "Clear all",
-      "closeOverlay": "Close filters overlay",
-      "title": "Filters",
-      "close": "Close filters",
-      "sourceLabel": "Source",
-      "sourceAriaLabel": "Mod source",
-      "loaderLabel": "Mod loader",
       "loaderShort": "Loader",
-      "loaderAriaLabel": "Loader filter",
-      "mcVersionLabel": "Minecraft version",
       "mcShort": "MC",
       "any": "Any",
       "showInstalled": "Show installed",
-      "installedHidden": "Installed hidden",
       "restoreForInstance": "Match this instance"
     }
   },
@@ -195,11 +185,7 @@
       "sortUpdated": "Updated",
       "searching": "Searching…",
       "noResults": "No results.",
-      "allInstalledOnPage": "Every mod on this page is already installed. Use the pager to see more, or turn off “Installed hidden”.",
-      "prev": "‹ Prev",
-      "next": "Next ›",
-      "pageOf": "Page {page} of {total}",
-      "page": "Page {page}",
+      "allInstalledOnPage": "Every mod on this page is already installed. Use the pager to see more, or turn on “Show installed”.",
       "vanillaHeading": "This instance is vanilla Minecraft",
       "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
       "errorNoInstance": "No active instance",
@@ -524,10 +510,7 @@
       "sortNewest": "Newest",
       "sortUpdated": "Updated",
       "searching": "Searching…",
-      "noResults": "No modpacks found.",
-      "prev": "← Previous",
-      "next": "Next →",
-      "pageOf": "Page {page} of {total}"
+      "noResults": "No modpacks found."
     },
     "card": {
       "downloads": "{count} downloads",

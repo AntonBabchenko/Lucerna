@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
 
@@ -105,8 +106,12 @@ export function createInstalledFilters(
       // auto-reset to 'all' instead of stranding an empty list with the now-gone
       // filter still active.
       $effect(() => {
-        if (viewFilter === 'updates' && getUpdatableShas().size === 0) viewFilter = 'all';
-        else if (viewFilter === 'issues' && getMissingShas().size === 0) viewFilter = 'all';
+        const resetUpdates = viewFilter === 'updates' && getUpdatableShas().size === 0;
+        const resetIssues = viewFilter === 'issues' && getMissingShas().size === 0;
+        // Wrap the self-referential write so the effect doesn't register
+        // `viewFilter` as a dependency of its own assignment (it already depends
+        // on it via the reads above; this keeps the update strictly one-shot).
+        if (resetUpdates || resetIssues) untrack(() => (viewFilter = 'all'));
       });
     });
   } catch {

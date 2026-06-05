@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 // The mock has to be declared before the SUT import so vitest hoists it
@@ -427,5 +427,70 @@ describe('ModBrowseView', () => {
       props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     expect(await screen.findByText('No results.')).toBeTruthy();
+  });
+
+  it('drops a stale out-of-order modsSearch response (newer request wins)', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as ReturnType<typeof vi.fn>;
+    // Each call parks its resolver keyed by the requested mc_version so the test
+    // controls arrival order independent of dispatch order.
+    const deferred: Record<string, () => void> = {};
+    const page = (label: string) => ({
+      status: 'ok',
+      data: {
+        hits: [
+          {
+            source: 'modrinth',
+            project_id: label,
+            slug: label,
+            name: label,
+            summary: '',
+            icon_url: null,
+            downloads: 1,
+            author: '',
+            updated_at: null,
+          },
+        ],
+        total: 60,
+        offset: 0,
+        page_size: 20,
+      },
+    });
+    search.mockImplementation(
+      (q: { mc_version: string | null }) =>
+        new Promise((res) => {
+          deferred[q.mc_version ?? 'none'] = () => res(page(`MC ${q.mc_version}`));
+        }),
+    );
+    (mod.commands.modsListInstalled as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [],
+    });
+
+    const { rerender } = render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    // Resolve the mount load so the first page settles.
+    await waitFor(() => expect(typeof deferred['1.20.1']).toBe('function'));
+    deferred['1.20.1']();
+    expect(await screen.findByText('MC 1.20.1')).toBeTruthy();
+
+    // Two reloads in quick succession via mc-version prop changes (req seq 2, 3).
+    await rerender({ source: 'modrinth', instanceId: 'i', mcVersion: '1.21', loader: 'fabric' });
+    await rerender({ source: 'modrinth', instanceId: 'i', mcVersion: '1.16.5', loader: 'fabric' });
+    await waitFor(() =>
+      expect(
+        typeof deferred['1.21'] === 'function' && typeof deferred['1.16.5'] === 'function',
+      ).toBe(true),
+    );
+
+    // Resolve the NEWER request first, then the STALE one late — the guard must
+    // drop the stale arrival so it never replaces the newer page.
+    deferred['1.16.5']();
+    expect(await screen.findByText('MC 1.16.5')).toBeTruthy();
+    deferred['1.21']();
+    await Promise.resolve();
+    expect(screen.queryByText('MC 1.21')).toBeNull();
+    expect(screen.getByText('MC 1.16.5')).toBeTruthy();
   });
 });

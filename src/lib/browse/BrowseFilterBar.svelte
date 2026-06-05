@@ -1,21 +1,23 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
-  import type { LoaderKind, ModSource } from '$lib/ipc/bindings';
+  import type { LoaderKind } from '$lib/ipc/bindings';
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import Select from '$lib/ui/Select.svelte';
 
   // The browse toolbar. All facet controls live inline next to Sort — no
   // drawer, no chip row: the user complained the drawer made filters feel
-  // separated and hard to reach. Loader + Source render as compact themed
-  // dropdowns, MC as the shared combobox, Show-installed as a checkbox, and a
-  // "Match instance" / "Clear all" pair appears only when relevant.
+  // separated and hard to reach. Loader renders as a compact themed dropdown,
+  // MC as the shared combobox, Show-installed as a checkbox, and a
+  // "Match instance" / "Clear all" pair appears only when relevant. Source is a
+  // context switch, not a filter, so it lives in the sub-tab header row
+  // (SourcePicker), not here.
   //
-  // Facet values are bound (loader/mc/source) so the parent's existing search
-  // effect re-runs on change. Search + sort stay callbacks so each browser
-  // keeps its own debounce / narrowly-typed sort state. Optional facets render
-  // only when their props are supplied: source = modpack browser, loader =
-  // mod browser (mods only), showInstalled = mod browser.
+  // Facet values are bound (loader/mc) so the parent's existing search effect
+  // re-runs on change. Search + sort stay callbacks so each browser keeps its
+  // own debounce / narrowly-typed sort state. Optional facets render only when
+  // their props are supplied: loader = mod browser (mods only), showInstalled =
+  // mod browser.
   type SortOption = { value: string; label: string };
 
   let {
@@ -31,8 +33,6 @@
     loader = $bindable<LoaderKind | ''>(''),
     mc = $bindable(''),
     mcTestid,
-    source = $bindable<ModSource | undefined>(undefined),
-    sourceOptions = [],
     showInstalled = undefined,
     onShowInstalledChange,
     serverFilters = true,
@@ -55,10 +55,6 @@
     loader?: LoaderKind | '';
     mc?: string;
     mcTestid?: string;
-    // source renders only when supplied (modpack browser). The mod browser
-    // picks its source elsewhere (SourcePicker in AddonsTab).
-    source?: ModSource | undefined;
-    sourceOptions?: { value: string; label: string }[];
     // showInstalled is a controlled value + callback (not bound) because the
     // mod browser needs bespoke handling when it flips.
     showInstalled?: boolean | undefined;
@@ -93,19 +89,6 @@
     oninput={(e) => onSearchInput(e.currentTarget.value)}
   />
 
-  {#if source !== undefined && sourceOptions.length > 0}
-    <label class="inline-flex items-center gap-1 text-sm text-secondary">
-      {$t('browse.filter.sourceLabel')}
-      <Select
-        class="filter-control filter-control-select"
-        value={source}
-        options={sourceOptions}
-        onChange={(v) => (source = v as ModSource)}
-        dataTestid="browse-source-select"
-      />
-    </label>
-  {/if}
-
   {#if showLoader}
     <label
       class="inline-flex items-center gap-1 text-sm text-secondary"
@@ -132,6 +115,7 @@
       bind:value={mc}
       dataTestid={mcTestid}
       placeholder={$t('browse.filter.any')}
+      disabled={!serverFilters}
     />
   </label>
 

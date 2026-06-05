@@ -1,35 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { activeChips, activeCount } from '$lib/browse/filter-model';
+import { activeCount } from '$lib/browse/filter-model';
 
-describe('filter-model', () => {
-  it('returns no chips when nothing is narrowed', () => {
-    expect(activeChips({ loader: '', mc: '' })).toEqual([]);
+describe('filter-model activeCount', () => {
+  it('is 0 when nothing is narrowed', () => {
     expect(activeCount({ loader: '', mc: '' })).toBe(0);
   });
 
-  it('emits a loader chip with the display label', () => {
-    const chips = activeChips({ loader: 'neoforge', mc: '' });
-    expect(chips).toEqual([{ key: 'loader', label: 'NeoForge' }]);
+  it('counts the loader facet', () => {
+    expect(activeCount({ loader: 'neoforge', mc: '' })).toBe(1);
   });
 
-  it('emits an mc chip using the raw version string', () => {
-    expect(activeChips({ loader: '', mc: '1.21.1' })).toEqual([{ key: 'mc', label: '1.21.1' }]);
+  it('counts the mc facet', () => {
+    expect(activeCount({ loader: '', mc: '1.21.1' })).toBe(1);
   });
 
-  it('emits a showInstalled chip only when explicitly false', () => {
-    expect(activeChips({ loader: '', mc: '', showInstalled: true })).toEqual([]);
-    expect(activeChips({ loader: '', mc: '', showInstalled: false })).toEqual([
-      { key: 'showInstalled', label: 'Installed hidden' },
-    ]);
-  });
-
-  it('uses the provided (localized) installed-hidden label when given', () => {
-    expect(
-      activeChips(
-        { loader: '', mc: '', showInstalled: false },
-        { installedHidden: 'Установленные скрыты' },
-      ),
-    ).toEqual([{ key: 'showInstalled', label: 'Установленные скрыты' }]);
+  it('counts showInstalled only when explicitly false (hide active)', () => {
+    expect(activeCount({ loader: '', mc: '', showInstalled: true })).toBe(0);
+    expect(activeCount({ loader: '', mc: '', showInstalled: false })).toBe(1);
   });
 
   it('counts all active narrowing facets together', () => {
