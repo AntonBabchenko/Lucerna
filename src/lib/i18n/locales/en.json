@@ -690,9 +690,9 @@
       },
       "importModpacks": {
         "title": "Import modpacks",
-        "body": "Drop a .mrpack or CurseForge .zip here, or browse Modrinth modpacks. Each import becomes a new instance — your existing instances stay untouched.",
+        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key (Settings → CurseForge). Each import becomes a new instance — your existing instances stay untouched.",
         "titleBasic": "Add modpacks",
-        "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse packs from Modrinth. Each pack you add becomes its own new instance — your other instances stay untouched."
+        "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse modpacks from Modrinth, CurseForge, and FTB. Each pack you add becomes its own new instance — your other instances stay untouched."
       }
     },
     "contextual": {
@@ -751,9 +751,9 @@
       "modpacks": {
         "browseVsImported": {
           "title": "Browse vs Imported",
-          "body": "Browse searches Modrinth + CurseForge. Imported lists packs you've already installed — each is its own instance.",
+          "body": "Browse searches Modrinth, CurseForge, and FTB. Imported lists packs you've already installed — each is its own instance.",
           "titleBasic": "Browse vs Imported",
-          "bodyBasic": "Browse searches Modrinth and CurseForge for packs. Imported shows the packs you've already added — each one is its own instance."
+          "bodyBasic": "Browse searches Modrinth, CurseForge, and FTB for packs. Imported shows the packs you've already added — each one is its own instance."
         },
         "dragAndDrop": {
           "title": "Drag and drop",
