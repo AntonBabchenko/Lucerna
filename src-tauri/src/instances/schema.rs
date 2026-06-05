@@ -115,6 +115,17 @@ pub enum ThemePreference {
     Dark,
 }
 
+/// How verbose onboarding/help copy is. `Basic` = plain language (default,
+/// understandable to newcomers); `Advanced` = the original technical copy.
+/// Chosen on first launch and changeable in Settings → General.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum ExplanationLevel {
+    #[default]
+    Basic,
+    Advanced,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -146,6 +157,11 @@ pub struct GeneralSettings {
     /// falls back. Default `"system"`.
     #[serde(default = "default_language")]
     pub language: String,
+    /// Verbosity of onboarding/help copy. `#[serde(default)]` → existing
+    /// app.json files (written before this field existed) deserialize to
+    /// `Basic`, matching the chosen default for upgraders.
+    #[serde(default)]
+    pub explanation_level: ExplanationLevel,
 }
 
 impl Default for GeneralSettings {
@@ -155,6 +171,7 @@ impl Default for GeneralSettings {
             theme: ThemePreference::default(),
             check_updates_on_startup: true,
             language: default_language(),
+            explanation_level: ExplanationLevel::default(),
         }
     }
 }
@@ -492,6 +509,33 @@ mod tests {
         let parsed: AppFile = serde_json::from_str(json).unwrap();
         assert!(parsed.general.check_updates_on_startup);
         assert_eq!(parsed.update_dismissed_version, None);
+    }
+
+    #[test]
+    fn general_settings_defaults_explanation_level_to_basic() {
+        let g = GeneralSettings::default();
+        assert_eq!(g.explanation_level, ExplanationLevel::Basic);
+    }
+
+    #[test]
+    fn app_file_without_explanation_level_deserializes_to_basic() {
+        // app.json written before the field existed (general present, no level).
+        let old_json = r#"{
+            "version": 1,
+            "active_instance": null,
+            "general": { "hide_to_tray_during_game": true }
+        }"#;
+        let parsed: AppFile = serde_json::from_str(old_json).unwrap();
+        assert_eq!(parsed.general.explanation_level, ExplanationLevel::Basic);
+    }
+
+    #[test]
+    fn general_settings_roundtrips_explanation_level_advanced() {
+        let mut g = GeneralSettings::default();
+        g.explanation_level = ExplanationLevel::Advanced;
+        let json = serde_json::to_string(&g).unwrap();
+        let back: GeneralSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.explanation_level, ExplanationLevel::Advanced);
     }
 
     #[test]
