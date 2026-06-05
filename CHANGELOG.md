@@ -10,6 +10,43 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-06-05
+
+### Added
+- **Add-ons browser.** A new Add-ons tab with a Mods · Resource packs · Shaders
+  switcher lets you search and install resource packs and shader packs from
+  Modrinth and CurseForge — with installed-awareness and Browse ↔ Installed
+  sync, the same flow mods already use.
+- **Instance integrity — Verify & Repair.** Scan an instance for missing or
+  corrupted files and re-download what's broken, with a passive status indicator
+  on the Overview tab and a background-operation queue so a scan never blocks
+  the UI.
+- **FTB modpacks.** Feed The Beast joins Modrinth and CurseForge as a third
+  modpack source, with collapsible version groups and the same
+  import-to-instance flow.
+- **Adjustable explanation depth.** Onboarding and contextual help can now show
+  Basic or Advanced detail (Settings → General), so newcomers get plain-language
+  guidance while experienced users can skip to the specifics.
+
+### Changed
+- **Browse & Installed UX overhaul.** A single mutually-exclusive view filter on
+  the Installed tab (All / Enabled / Disabled / Updates / Issues), shared
+  pagination across the mod, modpack, and add-on browsers, and accurate Feed The
+  Beast pagination totals.
+
+### Fixed
+- The Add-ons → Shaders hint is now actionable: it opens an Iris install modal
+  or links to OptiFine downloads (naming the active instance's Minecraft
+  version), instead of being a dead-end note.
+- A healthy ("✓ OK") instance-integrity result from a previous launcher session
+  now reads as "Not checked" instead of lingering as stale confidence;
+  outstanding problems still persist until you re-verify.
+- Switching to a modpack-imported instance no longer falsely raises the
+  "detach pack" confirmation when nothing changed; keyring-related text is now
+  platform-neutral.
+- Russian: the instance-integrity subtitle now reads "профиля" instead of
+  "инстанса".
+
 ## [0.10.0] — 2026-06-03
 
 ### Added
@@ -115,7 +152,8 @@ release is **0.9.0**.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.10.0...main
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.11.0...main
+[0.11.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.1
 [0.9.0]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.0
