@@ -12,11 +12,17 @@ export const explanationState = $state<{ level: ExplanationLevel }>({ level: 'ba
 
 /** Set the level: update the rune instantly (live UI), then persist via a
  *  read-modify-write of the whole `general` object (the theme/language path).
- *  A failed write still leaves the rune reflecting the choice for the session. */
+ *  If either the settings read or the write fails, roll the rune back to the
+ *  previous level so the UI never claims a level that isn't on disk. */
 export async function setExplanationLevel(level: ExplanationLevel): Promise<void> {
+  const prev = explanationState.level;
   explanationState.level = level;
   const get = await commands.appSettingsGet();
-  if (get.status !== 'ok') return;
+  if (get.status !== 'ok') {
+    explanationState.level = prev;
+    return;
+  }
   const next = { ...get.data.general, explanation_level: level };
-  await commands.appSettingsSetGeneral(next);
+  const res = await commands.appSettingsSetGeneral(next);
+  if (res.status !== 'ok') explanationState.level = prev;
 }

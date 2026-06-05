@@ -31,4 +31,18 @@ describe('setExplanationLevel', () => {
       explanation_level: 'advanced',
     });
   });
+
+  it('rolls the rune back when the settings read fails', async () => {
+    appSettingsGet.mockResolvedValue({ status: 'error', error: 'x' });
+    await setExplanationLevel('advanced');
+    expect(explanationState.level).toBe('basic');
+    expect(appSettingsSetGeneral).not.toHaveBeenCalled();
+  });
+
+  it('rolls the rune back when the persist write fails', async () => {
+    appSettingsGet.mockResolvedValue({ status: 'ok', data: { general: {} } });
+    appSettingsSetGeneral.mockResolvedValue({ status: 'error', error: 'x' });
+    await setExplanationLevel('advanced');
+    expect(explanationState.level).toBe('basic');
+  });
 });
