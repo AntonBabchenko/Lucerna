@@ -27,6 +27,7 @@
   import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
   import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
   import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
+  import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import type { ModpackImportRequest } from '$lib/modpacks/import-request';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
@@ -718,7 +719,7 @@
               <div class="text-xs uppercase tracking-wide text-muted">
                 {$t('instance.integrity.heading')}
               </div>
-              {#if !activeInstance.integrity}
+              {#if !activeInstance.integrity || isIntegrityStale(activeInstance.integrity)}
                 <p class="text-sm text-muted">
                   {$t('instance.integrity.statusNotChecked')} ·
                   <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
