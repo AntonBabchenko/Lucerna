@@ -442,6 +442,50 @@ async fn enrich_swap_targets(
     }
 }
 
+/// Apply a user-confirmed repair choice by dispatching to the existing
+/// mutation commands. No resolution happens here — `build_repair_plan`
+/// already produced fully-formed parameters. Re-running a now-stale fix
+/// surfaces as a normal error toast in the caller.
+#[tauri::command]
+#[specta::specta]
+pub async fn execute_repair(
+    app: tauri::AppHandle,
+    instance_id: String,
+    choice: crate::logs::diagnose::repair::RepairChoice,
+) -> Result<(), crate::error::Error> {
+    use crate::logs::diagnose::repair::RepairChoice;
+
+    // Reject while a game is running — same guard the integrity repair
+    // path uses (can't mutate an instance whose files are in use).
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+
+    match choice {
+        RepairChoice::RaiseHeap { to_mb } => {
+            crate::instances::set_instance_memory(&app, &instance_id, to_mb)?;
+            Ok(())
+        }
+        RepairChoice::ReinstallLoader => {
+            let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+            crate::versions::install_version(&effective_id, &app).await
+        }
+        RepairChoice::DisableMod { sha1 } => {
+            let inst_root = instance_root(&app, &instance_id)?;
+            crate::mods::install::disable(&inst_root, &sha1).await
+        }
+        RepairChoice::Reinstall { old_sha1, target } => {
+            let inst_root = instance_root(&app, &instance_id)?;
+            // Uninstall the old jar first, then install the target (with
+            // its required deps). install_with_deps re-fetches with SHA
+            // verification, so this self-heals a corrupt download.
+            crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
+            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
+            Ok(())
+        }
+    }
+}
+
 /// Anonymise a log body and upload it to mclo.gs. Returns the
 /// shareable URL. Frontend caller is the Logs popover "Share"
 /// button. Anonymisation runs server-side so the frontend can't
