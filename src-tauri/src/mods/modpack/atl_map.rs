@@ -147,7 +147,9 @@ pub fn map_configs(pack_name: &str, version_name: &str, c: &AtlConfigs) -> Modpa
             name: m.name.clone(),
             filename: m.file.clone(),
             install_path,
-            sha1: String::new(),
+            // sha1 holds the md5 as a transient selection token; the installer
+            // replaces it with the real computed sha1 (never persisted). See spec.
+            sha1: m.md5.to_ascii_lowercase(),
             url: m.url.clone(),
             size: m.filesize,
             env_client: EnvSupport::Required,
@@ -224,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn server_mod_carries_md5_and_empty_sha1() {
+    fn server_mod_uses_md5_as_selection_token() {
         let s = with_nodecdn(|| {
             map_configs(
                 "Pack",
@@ -236,7 +238,10 @@ mod tests {
         let f = &s.files[0];
         assert_eq!(f.source, ModSource::Atlauncher);
         assert_eq!(f.md5.as_deref(), Some("abc123"));
-        assert!(f.sha1.is_empty(), "sha1 is resolved post-download");
+        assert_eq!(
+            f.sha1, "abc123",
+            "sha1 holds the md5 as the transient selection token"
+        );
         assert_eq!(f.install_path, "mods/jei.jar");
     }
 
