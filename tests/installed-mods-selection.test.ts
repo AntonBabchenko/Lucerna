@@ -44,6 +44,8 @@ vi.mock('$lib/ipc/bindings', async (orig) => {
         },
       })),
       modsDependencyGraph: vi.fn(async () => ({ status: 'ok', data: { roots: [] } })),
+      scanInstanceModCompat: vi.fn(async () => ({ status: 'ok', data: [] })),
+      checkInstanceModCompat: vi.fn(async () => ({ status: 'ok', data: [] })),
     },
     events: Object.fromEntries(
       Object.keys(actual.events).map((k) => [k, { listen: async () => () => {} }]),

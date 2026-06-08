@@ -107,6 +107,8 @@ vi.mock('$lib/ipc/bindings', () => ({
         Promise.resolve(id === 'PA' ? proj('PA', 'Alpha') : proj('PB', 'Bravo')),
       ),
     modsDependencyGraph: mocks.modsDependencyGraph,
+    scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

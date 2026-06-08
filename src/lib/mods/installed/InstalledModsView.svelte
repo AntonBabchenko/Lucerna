@@ -23,6 +23,8 @@
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
   import { createInstalledSelection } from './installed-selection.svelte';
+  import { createCompatCheck } from './compat-check.svelte';
+  import { displayLoader } from '$lib/instances/loader-display';
   import { modKey } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
@@ -41,10 +43,16 @@
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
   const data = createInstalledData(() => instanceId);
   const updates = createUpdateCheck(() => instanceId, data.refresh);
+  const compat = createCompatCheck(
+    () => instanceId,
+    () => mcVersion,
+    () => loader,
+  );
   const filters = createInstalledFilters(
     () => data.rows,
     () => updates.updatableShas,
     () => deps.missingShas,
+    () => compat.incompatibleShas,
   );
   const deps = createDepGraph(
     () => instanceId,
@@ -65,6 +73,23 @@
     () => updates.updateChecks,
     deps.invalidateGraph,
   );
+
+  // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
+  // for interpolation, which the composable does not own).
+  function compatTitle(sha1: string): string | null {
+    const h = compat.hintFor(sha1);
+    if (!h) return null;
+    if (h.key === 'fixAvailable') return get(t)('mods.installed.incompatHintFixAvailable');
+    if (h.key === 'loader')
+      return get(t)('mods.installed.incompatHintLoader', {
+        detected: h.detected,
+        loader: loader ? displayLoader(loader) : '',
+      });
+    return get(t)('mods.installed.incompatHintNoRelease', {
+      loader: loader ? displayLoader(loader) : '',
+      mc: mcVersion ?? '',
+    });
+  }
 
   // Independent per-instance page size, persisted under its own key.
   $effect(() => {
@@ -182,6 +207,7 @@
     updates.dispose();
     deps.dispose();
     selection.dispose();
+    compat.dispose();
   });
 </script>
 
@@ -198,6 +224,8 @@
     onCheckUpdates={updates.checkUpdates}
     onRecheckDeps={deps.recheckDeps}
     onUpdateAll={updates.updateAll}
+    checkingCompat={compat.checking}
+    onCheckCompat={compat.runLiveCheck}
   />
 
   {#if error}
@@ -252,6 +280,9 @@
           checking={updates.checking}
           packChip={data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1)
             ? data.packSummary.project_name
+            : null}
+          incompatibleTitle={compat.incompatibleShas.has(row.installed.sha1)
+            ? compatTitle(row.installed.sha1)
             : null}
           selected={selection.selected.has(row.installed.sha1)}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
