@@ -111,6 +111,56 @@ pub(crate) async fn fetch_to_cache(
     Ok(cached_path)
 }
 
+/// Download an md5-only file (ATLauncher server/direct mods), verifying the
+/// supplied md5, then promote it into the sha1-keyed content cache under the
+/// sha1 computed over the same bytes. Returns `(cache_path, computed_sha1)`.
+///
+/// Unlike `fetch_to_cache`, the cache key is not known up front — it is the
+/// sha1 the download returns. So this always downloads to a temp, verifies
+/// md5, then renames into the cache under the computed sha1 (a no-op cost if
+/// the sha1 already happens to be cached, which is fine).
+pub(crate) async fn fetch_to_cache_md5(
+    data_dir: &Path,
+    url: &str,
+    md5_hex: &str,
+    size: f64,
+    initiator: &str,
+    progress: &ProgressFn,
+) -> Result<(std::path::PathBuf, String), Error> {
+    let tmp = cache::cache_path_for(data_dir, md5_hex).with_extension("md5tmp");
+    let computed_sha1 = crate::network::download::download_inner(
+        url,
+        &tmp,
+        crate::network::download::Checksum::Md5(md5_hex.to_ascii_lowercase()),
+        initiator,
+        |dp| {
+            progress(
+                ModInstallPhase::Downloading,
+                dp.bytes_done as u64,
+                dp.bytes_total.map(|t| t as u64),
+            );
+        },
+    )
+    .await
+    .map_err(|e| match e {
+        Error::HashMismatch { expected, got, .. } => Error::ModsSha1Mismatch { expected, got },
+        Error::Io { path, details } => Error::ModsCacheIo {
+            details: format!("{path}: {details}"),
+        },
+        Error::Network { url, details } => Error::ModsNetwork { url, details },
+        other => other,
+    })?;
+
+    progress(ModInstallPhase::Verifying, size as u64, Some(size as u64));
+    let cached_path = cache::cache_path_for(data_dir, &computed_sha1);
+    fs::rename(&tmp, &cached_path)
+        .await
+        .map_err(|e| Error::ModsCacheIo {
+            details: e.to_string(),
+        })?;
+    Ok((cached_path, computed_sha1))
+}
+
 pub async fn install_one(
     data_dir: &Path,
     instance_root: &Path,
@@ -1201,6 +1251,41 @@ mod tests {
             .await
             .unwrap();
         assert!(listed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_to_cache_md5_warms_cache_and_returns_sha1() {
+        use md5::Digest as _;
+        let _g = test_lock();
+        let body = b"atl-md5-mod";
+        let md5_hex = hex::encode(md5::Md5::digest(body));
+        let sha1_hex = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/m.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let data = TempDir::new().unwrap();
+        let noop: ProgressFn = Box::new(|_, _, _| {});
+        let (path, got_sha1) = fetch_to_cache_md5(
+            data.path(),
+            &format!("{}/m.jar", s.uri()),
+            &md5_hex,
+            body.len() as f64,
+            "modpacks",
+            &noop,
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(got_sha1, sha1_hex);
+        assert!(
+            path.exists(),
+            "cache entry must exist under the computed sha1"
+        );
+        assert_eq!(path, cache::cache_path_for(data.path(), &sha1_hex));
     }
 
     #[test]
