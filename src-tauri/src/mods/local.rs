@@ -26,9 +26,11 @@ pub enum LoaderFamily {
 /// Best-effort metadata read from a mod `.jar`.
 #[derive(Debug, Clone, Default)]
 pub struct JarMeta {
-    /// Loader family from the descriptor, or `None` when the jar has no
-    /// recognised descriptor (coremod / library — undeterminable).
-    pub family: Option<LoaderFamily>,
+    /// Loader families the jar's descriptor(s) declare. Empty when the jar
+    /// has no recognised descriptor (coremod / library — undeterminable).
+    /// A multi-loader jar (e.g. one shipping both `fabric.mod.json` and
+    /// `META-INF/mods.toml`) lists every family it supports.
+    pub families: Vec<LoaderFamily>,
     /// Display loader name — "Fabric" / "Quilt" / "Forge" / "NeoForge".
     pub loader_label: Option<String>,
     /// Declared Minecraft version reduced to `major.minor` (e.g. "1.12"),
@@ -97,21 +99,32 @@ pub fn read_jar_meta(jar_bytes: &[u8]) -> Result<JarMeta, Error> {
         details: e.to_string(),
     })?;
 
-    // Loader family + label by descriptor presence, priority order.
-    let (family, label): (Option<LoaderFamily>, Option<&str>) =
-        if zip.by_name("quilt.mod.json").is_ok() {
-            (Some(LoaderFamily::Fabric), Some("Quilt"))
-        } else if zip.by_name("fabric.mod.json").is_ok() {
-            (Some(LoaderFamily::Fabric), Some("Fabric"))
-        } else if zip.by_name("META-INF/neoforge.mods.toml").is_ok() {
-            (Some(LoaderFamily::Forge), Some("NeoForge"))
-        } else if zip.by_name("META-INF/mods.toml").is_ok() {
-            (Some(LoaderFamily::Forge), Some("Forge"))
-        } else if zip.by_name("mcmod.info").is_ok() {
-            (Some(LoaderFamily::Forge), Some("Forge"))
-        } else {
-            (None, None)
-        };
+    // A jar may ship descriptors for MULTIPLE loaders (e.g. fabric.mod.json
+    // AND META-INF/mods.toml). Collect every family present; the label is the
+    // highest-priority one, for display only.
+    let has_quilt = zip.by_name("quilt.mod.json").is_ok();
+    let has_fabric_json = zip.by_name("fabric.mod.json").is_ok();
+    let has_neoforge = zip.by_name("META-INF/neoforge.mods.toml").is_ok();
+    let has_modstoml = zip.by_name("META-INF/mods.toml").is_ok();
+    let has_mcmod = zip.by_name("mcmod.info").is_ok();
+    let mut families: Vec<LoaderFamily> = Vec::new();
+    if has_quilt || has_fabric_json {
+        families.push(LoaderFamily::Fabric);
+    }
+    if has_neoforge || has_modstoml || has_mcmod {
+        families.push(LoaderFamily::Forge);
+    }
+    let label: Option<&str> = if has_quilt {
+        Some("Quilt")
+    } else if has_fabric_json {
+        Some("Fabric")
+    } else if has_neoforge {
+        Some("NeoForge")
+    } else if has_modstoml || has_mcmod {
+        Some("Forge")
+    } else {
+        None
+    };
 
     // Best-effort MC version + display name — only from the simple JSON
     // descriptors (`fabric.mod.json`, legacy `mcmod.info`). `mods.toml` /
@@ -146,7 +159,7 @@ pub fn read_jar_meta(jar_bytes: &[u8]) -> Result<JarMeta, Error> {
     }
 
     Ok(JarMeta {
-        family,
+        families,
         loader_label: label.map(String::from),
         mc_version,
         display_name,
@@ -189,9 +202,12 @@ pub fn compat_verdict(
     instance_loader: LoaderKind,
     instance_mc: &str,
 ) -> CompatVerdict {
-    let loader_mismatch = match (jar.family, instance_family(instance_loader)) {
-        (Some(jf), Some(inf)) => jf != inf,
-        _ => false,
+    // Mismatch only when the jar declares loader families AND none of them is
+    // the instance's family. A multi-loader jar that includes the instance's
+    // family is compatible; a descriptor-less jar (empty families) never flags.
+    let loader_mismatch = match instance_family(instance_loader) {
+        Some(inf) => !jar.families.is_empty() && !jar.families.contains(&inf),
+        None => false,
     };
     let mc_mismatch = match (jar.mc_version.as_deref(), first_major_minor(instance_mc)) {
         (Some(jmc), Some(imc)) => jmc != imc,
@@ -358,7 +374,7 @@ mod tests {
             r#"{"name":"Sodium","depends":{"minecraft":">=1.20.1"}}"#,
         )]);
         let m = read_jar_meta(&j).unwrap();
-        assert_eq!(m.family, Some(LoaderFamily::Fabric));
+        assert_eq!(m.families, vec![LoaderFamily::Fabric]);
         assert_eq!(m.loader_label.as_deref(), Some("Fabric"));
         assert_eq!(m.mc_version.as_deref(), Some("1.20"));
         assert_eq!(m.display_name.as_deref(), Some("Sodium"));
@@ -368,7 +384,7 @@ mod tests {
     fn detects_quilt_jar() {
         let j = jar(&[("quilt.mod.json", r#"{"quilt_loader":{"id":"x"}}"#)]);
         let m = read_jar_meta(&j).unwrap();
-        assert_eq!(m.family, Some(LoaderFamily::Fabric));
+        assert_eq!(m.families, vec![LoaderFamily::Fabric]);
         assert_eq!(m.loader_label.as_deref(), Some("Quilt"));
     }
 
@@ -394,7 +410,7 @@ mod tests {
     fn detects_modern_forge_jar_without_mc_version() {
         let j = jar(&[("META-INF/mods.toml", "modLoader=\"javafml\"\n")]);
         let m = read_jar_meta(&j).unwrap();
-        assert_eq!(m.family, Some(LoaderFamily::Forge));
+        assert_eq!(m.families, vec![LoaderFamily::Forge]);
         assert_eq!(m.loader_label.as_deref(), Some("Forge"));
         assert_eq!(m.mc_version, None); // mods.toml is not parsed in v1
     }
@@ -403,7 +419,7 @@ mod tests {
     fn detects_neoforge_jar() {
         let j = jar(&[("META-INF/neoforge.mods.toml", "modLoader=\"javafml\"\n")]);
         let m = read_jar_meta(&j).unwrap();
-        assert_eq!(m.family, Some(LoaderFamily::Forge));
+        assert_eq!(m.families, vec![LoaderFamily::Forge]);
         assert_eq!(m.loader_label.as_deref(), Some("NeoForge"));
     }
 
@@ -414,7 +430,7 @@ mod tests {
             r#"[{"modid":"srparasites","name":"Scape and Run: Parasites","mcversion":"1.12.2"}]"#,
         )]);
         let m = read_jar_meta(&j).unwrap();
-        assert_eq!(m.family, Some(LoaderFamily::Forge));
+        assert_eq!(m.families, vec![LoaderFamily::Forge]);
         assert_eq!(m.loader_label.as_deref(), Some("Forge"));
         assert_eq!(m.mc_version.as_deref(), Some("1.12"));
         assert_eq!(m.display_name.as_deref(), Some("Scape and Run: Parasites"));
@@ -424,7 +440,7 @@ mod tests {
     fn no_descriptor_yields_empty_meta() {
         let j = jar(&[("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n")]);
         let m = read_jar_meta(&j).unwrap();
-        assert_eq!(m.family, None);
+        assert!(m.families.is_empty());
         assert_eq!(m.loader_label, None);
         assert_eq!(m.mc_version, None);
     }
@@ -435,13 +451,14 @@ mod tests {
         assert!(r.is_err());
     }
 
-    fn meta(family: Option<LoaderFamily>, mc: Option<&str>) -> JarMeta {
+    fn meta(families: Vec<LoaderFamily>, mc: Option<&str>) -> JarMeta {
+        let loader_label = families.first().map(|f| match f {
+            LoaderFamily::Fabric => "Fabric".into(),
+            LoaderFamily::Forge => "Forge".into(),
+        });
         JarMeta {
-            family,
-            loader_label: family.map(|f| match f {
-                LoaderFamily::Fabric => "Fabric".into(),
-                LoaderFamily::Forge => "Forge".into(),
-            }),
+            families,
+            loader_label,
             mc_version: mc.map(String::from),
             display_name: None,
         }
@@ -450,7 +467,7 @@ mod tests {
     #[test]
     fn verdict_compatible_when_loader_and_mc_match() {
         let v = compat_verdict(
-            &meta(Some(LoaderFamily::Forge), Some("1.12")),
+            &meta(vec![LoaderFamily::Forge], Some("1.12")),
             LoaderKind::Forge,
             "1.12.2",
         );
@@ -461,7 +478,7 @@ mod tests {
     #[test]
     fn verdict_flags_loader_mismatch() {
         let v = compat_verdict(
-            &meta(Some(LoaderFamily::Fabric), None),
+            &meta(vec![LoaderFamily::Fabric], None),
             LoaderKind::Forge,
             "1.20.1",
         );
@@ -472,7 +489,7 @@ mod tests {
     fn verdict_no_loader_mismatch_within_forge_family() {
         // A jar detected as Forge-family on a NeoForge instance — same family.
         let v = compat_verdict(
-            &meta(Some(LoaderFamily::Forge), None),
+            &meta(vec![LoaderFamily::Forge], None),
             LoaderKind::NeoForge,
             "1.20.1",
         );
@@ -482,7 +499,7 @@ mod tests {
     #[test]
     fn verdict_flags_mc_mismatch() {
         let v = compat_verdict(
-            &meta(Some(LoaderFamily::Forge), Some("1.20")),
+            &meta(vec![LoaderFamily::Forge], Some("1.20")),
             LoaderKind::Forge,
             "1.12.2",
         );
@@ -492,7 +509,7 @@ mod tests {
     #[test]
     fn verdict_silent_when_metadata_absent() {
         // No descriptor at all — never warn.
-        let v = compat_verdict(&meta(None, None), LoaderKind::Forge, "1.12.2");
+        let v = compat_verdict(&meta(vec![], None), LoaderKind::Forge, "1.12.2");
         assert!(!v.loader_mismatch);
         assert!(!v.mc_mismatch);
     }
@@ -500,11 +517,23 @@ mod tests {
     #[test]
     fn verdict_silent_when_jar_mc_unknown() {
         let v = compat_verdict(
-            &meta(Some(LoaderFamily::Forge), None),
+            &meta(vec![LoaderFamily::Forge], None),
             LoaderKind::Forge,
             "1.12.2",
         );
         assert!(!v.mc_mismatch);
+    }
+
+    #[test]
+    fn verdict_multiloader_jar_matches_either_family() {
+        let jar = JarMeta {
+            families: vec![LoaderFamily::Fabric, LoaderFamily::Forge],
+            loader_label: Some("Fabric".into()),
+            mc_version: None,
+            display_name: Some("Collective".into()),
+        };
+        assert!(!compat_verdict(&jar, LoaderKind::Forge, "1.20.4").loader_mismatch);
+        assert!(!compat_verdict(&jar, LoaderKind::Fabric, "1.20.4").loader_mismatch);
     }
 
     // ── scan_instance tests ────────────────────────────────────────────────
@@ -606,6 +635,57 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(!out[0].loader_mismatch);
         assert!(out[0].detected_loader.is_none());
+    }
+
+    #[tokio::test]
+    async fn scan_multiloader_fabric_forge_jar_not_flagged_on_forge() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        // A jar that ships BOTH fabric and forge descriptors (like Collective).
+        let bytes = zip_with(&[
+            (
+                "fabric.mod.json",
+                br#"{"id":"collective","name":"Collective"}"#,
+            ),
+            ("META-INF/mods.toml", b"modLoader=\"javafml\""),
+        ]);
+        fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.20.4")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(
+            !out[0].loader_mismatch,
+            "multi-loader jar must NOT be flagged on Forge"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_multiloader_fabric_forge_jar_not_flagged_on_fabric() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[
+            (
+                "fabric.mod.json",
+                br#"{"id":"collective","name":"Collective"}"#,
+            ),
+            ("META-INF/mods.toml", b"modLoader=\"javafml\""),
+        ]);
+        fs::write(dir.join("collective.jar"), &bytes).await.unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.20.4")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(
+            !out[0].loader_mismatch,
+            "multi-loader jar must NOT be flagged on Fabric"
+        );
     }
 
     // ── install_local tests ────────────────────────────────────────────────
