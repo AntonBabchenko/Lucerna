@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   // One result card in ModBrowseView. Shows mod metadata plus
   // install-state-aware controls:
@@ -33,6 +34,7 @@
     selected = false,
     onSelectChange = (_checked: boolean) => {},
     canToggle = true,
+    installing = false,
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -58,6 +60,9 @@
     // packs / shaders pass false — Minecraft owns their activation, there is no
     // enable/disable, only install / uninstall.
     canToggle?: boolean;
+    // True while the parent is running this card's install flow — disables the
+    // Install button and shows a spinner from click to terminal result.
+    installing?: boolean;
   } = $props();
 
   // True when the installed record came from a different platform than
@@ -153,9 +158,9 @@
       >{$t('mods.card.uninstall')}</button
     >
   {:else}
-    <button type="button" class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
+    <BusyButton busy={installing} class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
       {$t('mods.card.install')}
-    </button>
+    </BusyButton>
   {/if}
 {/snippet}
 
