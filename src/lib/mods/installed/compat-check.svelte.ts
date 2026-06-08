@@ -49,17 +49,26 @@ export function createCompatCheck(
     return null;
   }
 
-  // Stage 2: auto-confirm platform suspects via the platform. Sequential +
-  // skips shas already decided this session.
+  // Cap on how many platform suspects we auto-query in one pass. The offline
+  // pre-filter already makes suspects rare (a multi-loader jar that includes the
+  // instance's family is not a suspect), so this only guards a pathological
+  // instance from firing a burst of Modrinth requests on tab open (we have hit
+  // Modrinth's 429 rate limit before). Suspects beyond the cap simply stay
+  // unconfirmed → unflagged (safe; the manual "Check compatibility" button does
+  // the full pass on demand).
+  const AUTO_CONFIRM_CAP = 25;
+
+  // Stage 2: auto-confirm platform suspects via the platform. Sequential (gentle
+  // on the rate limit), capped, and skips shas already decided this session.
   async function autoConfirmSuspects() {
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
     if (!id || !loader || mc == null) return;
     const rows = getRows();
-    const suspects = [...offline.values()].filter(
-      (lc) => lc.loader_mismatch && lc.live_checkable && !live.has(lc.sha1),
-    );
+    const suspects = [...offline.values()]
+      .filter((lc) => lc.loader_mismatch && lc.live_checkable && !live.has(lc.sha1))
+      .slice(0, AUTO_CONFIRM_CAP);
     for (const s of suspects) {
       const row = rows.find((r) => r.installed.sha1 === s.sha1);
       if (!row?.installed.source || !row?.installed.project_id) continue;
