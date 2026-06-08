@@ -1254,6 +1254,13 @@ export type ModLocalCompat = {
 	 *  when the jar has no recognised descriptor. Used only for the hint text.
 	 */
 	detected_loader: string | null,
+	/**
+	 *  True iff this mod has a platform identity and is not pack-bundled — i.e.
+	 *  it can be authoritatively re-checked against the platform. The frontend
+	 *  auto-runs a live check on platform suspects; manual jars (false) rely on
+	 *  the offline `loader_mismatch` verdict.
+	 */
+	live_checkable: boolean,
 };
 
 export type ModProject = {
