@@ -115,7 +115,10 @@
       onclick={confirm}
     >
       {#if busy}
-        <Spinner size="sm" label={$t('logs.repair.working')} />
+        <span class="inline-flex items-center gap-1.5">
+          <Spinner size="sm" label={$t('logs.repair.working')} />
+          {$t('logs.repair.working')}
+        </span>
       {:else}
         {$t('logs.repair.apply')}
       {/if}
