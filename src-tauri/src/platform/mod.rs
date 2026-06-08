@@ -143,8 +143,8 @@ pub fn total_system_ram_mb() -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
         // sysctl hw.memsize → total bytes via the libc sysctlbyname FFI.
-        // NB: requires `libc` under [target.'cfg(target_os = "macos")'.dependencies]
-        // — added when the macOS build is exercised (not wired in this task).
+        // `libc` is already a `cfg(unix)` dependency (used above by
+        // kill_process_tree), and macOS is unix, so it resolves here.
         let mut size: u64 = 0;
         let mut len = std::mem::size_of::<u64>();
         let name = c"hw.memsize";

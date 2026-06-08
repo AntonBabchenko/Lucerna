@@ -30,10 +30,12 @@
     open = $bindable(false),
     initialPath = null as string | null,
     instanceId = null as string | null,
+    instanceName = null as string | null,
   }: {
     open: boolean;
     initialPath?: string | null;
     instanceId?: string | null;
+    instanceName?: string | null;
   } = $props();
 
   // ---------------------------------------------------------------------------
@@ -265,7 +267,7 @@
   async function applyRepair(choice: RepairChoice) {
     if (!instanceId) return;
     repairPlan = null;
-    await enqueueRepair(instanceId, instanceId, choice);
+    await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
   }
 
   function cancelRepair() {

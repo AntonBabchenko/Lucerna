@@ -322,6 +322,11 @@ pub async fn build_repair_plan(
     };
 
     let path_buf = std::path::PathBuf::from(&path);
+    // Reject paths outside this instance's log roots before reading anything
+    // — same guard `diagnose_log`/`read_log_file` apply (the caller supplies
+    // `path`, so an arbitrary filesystem path must not be readable here).
+    let roots = crate::logs::files::allowed_roots(&app, &instance_id)?;
+    crate::logs::files::assert_under_allowed_roots(&path_buf, &roots)?;
     // Re-run the diagnoser as the single source of truth for the pattern.
     let Some(diag) = crate::logs::diagnose::diagnose(&path_buf).await? else {
         return Ok(None);
@@ -364,23 +369,24 @@ pub async fn build_repair_plan(
                 m.filename.eq_ignore_ascii_case(&jar)
                     || m.filename.eq_ignore_ascii_case(&format!("{jar}.disabled"))
             });
-            match hit {
-                Some(m)
-                    if m.source.is_some() && m.project_id.is_some() && m.version_id.is_some() =>
+            // Only platform mods (source+project+version all present) can be
+            // re-downloaded. A hand-dropped jar lacks identity → advisory.
+            if let Some(m) = hit {
+                if let (Some(source), Some(project_id), Some(version_id)) =
+                    (m.source, m.project_id.clone(), m.version_id.clone())
                 {
-                    Ok(Some(RepairPlan::RedownloadMod {
+                    return Ok(Some(RepairPlan::RedownloadMod {
                         old_sha1: m.sha1.clone(),
                         filename: m.filename.clone(),
                         target: crate::mods::platform::VersionRef {
-                            source: m.source.unwrap(),
-                            project_id: m.project_id.clone().unwrap(),
-                            version_id: m.version_id.clone().unwrap(),
+                            source,
+                            project_id,
+                            version_id,
                         },
-                    }))
+                    }));
                 }
-                // Hand-dropped jar (no identity) → can't re-download → advisory.
-                _ => Ok(None),
             }
+            Ok(None)
         }
         RepairKind::ResolveConflict => {
             let named = extract_conflict_mods(&log);
@@ -455,11 +461,18 @@ pub async fn execute_repair(
 ) -> Result<(), crate::error::Error> {
     use crate::logs::diagnose::repair::RepairChoice;
 
-    // Reject while a game is running — same guard the integrity repair
-    // path uses (can't mutate an instance whose files are in use).
+    // Reject while a game is running — can't mutate an instance whose files
+    // are in use.
     if crate::launch::spawn::is_running() {
         return Err(crate::error::Error::InstanceBusy);
     }
+    // Hold the repair guard for the whole rewrite. ReinstallLoader/Reinstall
+    // write into the instance's shared library/jar dirs, so a concurrent
+    // integrity repair must be excluded, and `launch_instance` reads this
+    // flag to block a launch mid-rewrite. Also rejects a second concurrent
+    // repair on any instance. Dropped automatically on return.
+    let _repair_guard =
+        crate::verify::RepairGuard::acquire().ok_or(crate::error::Error::InstanceBusy)?;
 
     match choice {
         RepairChoice::RaiseHeap { to_mb } => {

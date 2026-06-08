@@ -19,7 +19,18 @@
     selected = { sha1: c.sha1, mode };
   }
 
-  const canConfirm = $derived(plan.kind !== 'resolve_conflict' || selected !== null);
+  // For non-conflict plans, always confirmable. For conflict, the chosen
+  // candidate must still exist and — for a swap — still have a swap target,
+  // so a selection that goes stale (plan changes) re-disables Confirm rather
+  // than silently no-op'ing on click.
+  const canConfirm = $derived.by(() => {
+    if (plan.kind !== 'resolve_conflict') return true;
+    const sel = selected;
+    if (!sel) return false;
+    const cand = plan.candidates.find((c) => c.sha1 === sel.sha1);
+    if (!cand) return false;
+    return sel.mode === 'disable' || cand.swap_target !== null;
+  });
 
   function confirm() {
     if (plan.kind === 'raise_heap') {
