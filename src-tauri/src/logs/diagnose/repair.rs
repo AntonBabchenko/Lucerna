@@ -93,6 +93,24 @@ fn ceil_char_boundary(s: &str, mut i: usize) -> usize {
     i
 }
 
+/// Captures the mod id inside `Mod '<Name>' (<id>)`.
+static MOD_NAMED_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"Mod '[^']+' \(([^)]+)\)").expect("mod-named regex compiles"));
+
+/// Extract the distinct mod ids cited in a Fabric `ModResolutionException`,
+/// in first-seen order. May return 0, 1, or 2+. The plan builder maps these
+/// ids back to *installed* mods and drops any that don't resolve.
+pub fn extract_conflict_mods(log: &str) -> Vec<String> {
+    let mut seen = Vec::new();
+    for caps in MOD_NAMED_RE.captures_iter(log) {
+        let id = caps[1].trim().to_string();
+        if !id.is_empty() && !seen.contains(&id) {
+            seen.push(id);
+        }
+    }
+    seen
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +169,30 @@ mod tests {
             extract_corrupt_jar(log).as_deref(),
             Some("fabric-api-0.92.jar")
         );
+    }
+
+    #[test]
+    fn conflict_mods_captures_named_mods() {
+        let log = "net.fabricmc.loader.impl.discovery.ModResolutionException: \
+                   Mod resolution encountered an incompatible mod set!\n\
+                   - Mod 'Sodium' (sodium) 0.5.3 requires version 1.20.1 of fabricloader\n\
+                   - Mod 'Old Lib' (oldlib) 1.2 is incompatible";
+        assert_eq!(
+            extract_conflict_mods(log),
+            vec!["sodium".to_string(), "oldlib".to_string()]
+        );
+    }
+
+    #[test]
+    fn conflict_mods_dedupes_repeated_ids() {
+        let log = "- Mod 'Sodium' (sodium) 0.5.3 requires X\n\
+                   - Mod 'Sodium' (sodium) 0.5.3 also conflicts with Y";
+        assert_eq!(extract_conflict_mods(log), vec!["sodium".to_string()]);
+    }
+
+    #[test]
+    fn conflict_mods_empty_when_no_mod_lines() {
+        let log = "net.fabricmc.loader.impl.discovery.ModResolutionException: something";
+        assert!(extract_conflict_mods(log).is_empty());
     }
 }
