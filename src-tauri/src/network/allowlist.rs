@@ -71,6 +71,10 @@ const ALLOWED_PATTERNS: &[&str] = &[
     // CF-ref files reuse the existing edge/mediafilez forgecdn hosts above.
     "api.modpacks.ch",
     "dist.modpacks.ch",
+    // ATLauncher modpack source. api = catalogue metadata, download.nodecdn.net
+    // = Configs.json manifest + server-download mod files.
+    "api.atlauncher.com",
+    "download.nodecdn.net",
     // v0.2.0 Slice B (revived as cluster C) — Microsoft authentication chain.
     "login.microsoftonline.com",
     "login.live.com",
@@ -222,8 +226,8 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"mediafilez.forgecdn.net"));
         assert!(ALLOWED_PATTERNS.contains(&"api.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"dist.modpacks.ch"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts.
-        assert_eq!(ALLOWED_PATTERNS.len(), 27);
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts.
+        assert_eq!(ALLOWED_PATTERNS.len(), 29);
     }
 
     #[test]
@@ -233,6 +237,14 @@ mod tests {
         assert!(!is_host_allowed("evil.api.modpacks.ch"));
         assert!(!is_host_allowed("evilapi.modpacks.ch"));
         assert!(!is_host_allowed("modpacks.ch")); // bare apex not allowed
+    }
+
+    #[test]
+    fn atlauncher_hosts_are_allowed_exact_match_only() {
+        assert!(is_host_allowed("api.atlauncher.com"));
+        assert!(is_host_allowed("download.nodecdn.net"));
+        assert!(!is_host_allowed("evil.api.atlauncher.com"));
+        assert!(!is_host_allowed("evildownload.nodecdn.net"));
     }
 
     #[test]
