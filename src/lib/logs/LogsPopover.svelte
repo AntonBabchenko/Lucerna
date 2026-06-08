@@ -1,7 +1,16 @@
 <script lang="ts">
-  import { commands, type Diagnosis, type LogFileMeta, type LogSource } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type Diagnosis,
+    type LogFileMeta,
+    type LogSource,
+    type RepairChoice,
+    type RepairPlan,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
+  import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
@@ -56,6 +65,10 @@
   let selectedPath = $state<string | null>(null);
   let selectedContent = $state<string>('');
   let diagnosis = $state<Diagnosis | null>(null);
+  // Auto-repair: the concrete plan is fetched lazily on "Fix this" intent.
+  let repairPlan = $state<RepairPlan | null>(null);
+  let repairLoading = $state(false);
+  let repairUnavailable = $state(false);
   let contentError = $state<string | null>(null);
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
@@ -204,6 +217,8 @@
     loadingContent = true;
     contentError = null;
     diagnosis = null;
+    repairPlan = null;
+    repairUnavailable = false;
     const result = await commands.readLogFile(path, capBytes);
     loadingContent = false;
     if (result.status === 'ok') {
@@ -222,6 +237,39 @@
       contentError = JSON.stringify(result.error);
       selectedContent = '';
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-repair (preview → confirm → apply)
+  // ---------------------------------------------------------------------------
+
+  async function startRepair() {
+    if (!diagnosis || !selectedPath || !instanceId) return;
+    repairLoading = true;
+    repairUnavailable = false;
+    repairPlan = null;
+    const res = await commands.buildRepairPlan(instanceId, selectedPath);
+    repairLoading = false;
+    if (res.status === 'ok' && res.data) {
+      repairPlan = res.data;
+    } else {
+      // No constructible plan → keep advisory text, show a soft note.
+      repairUnavailable = true;
+      if (res.status === 'error') {
+        // biome-ignore lint/suspicious/noConsole: best-effort UI degradation when IPC fails
+        console.warn('[LogsPopover] build_repair_plan failed:', res.error);
+      }
+    }
+  }
+
+  async function applyRepair(choice: RepairChoice) {
+    if (!instanceId) return;
+    repairPlan = null;
+    await enqueueRepair(instanceId, instanceId, choice);
+  }
+
+  function cancelRepair() {
+    repairPlan = null;
   }
 
   function onCapChange(value: number) {
@@ -743,6 +791,30 @@
                   <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
                   {diagnosis.recommendation}
                 </p>
+                {#if diagnosis.repair && instanceId}
+                  {#if repairPlan}
+                    <RepairConfirmCard
+                      plan={repairPlan}
+                      onConfirm={applyRepair}
+                      onCancel={cancelRepair}
+                    />
+                  {:else}
+                    <button
+                      type="button"
+                      class="btn-primary btn-sm mt-2"
+                      data-testid="repair-start"
+                      disabled={repairLoading}
+                      onclick={startRepair}
+                    >
+                      {repairLoading ? $t('logs.repair.checking') : $t('logs.repair.fixThis')}
+                    </button>
+                    {#if repairUnavailable}
+                      <p class="mt-1 text-xs text-warning-text/80">
+                        {$t('logs.repair.unavailable')}
+                      </p>
+                    {/if}
+                  {/if}
+                {/if}
                 {#if diagnosis.matched_excerpt}
                   <pre
                     class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
