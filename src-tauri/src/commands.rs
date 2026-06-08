@@ -503,9 +503,17 @@ pub async fn execute_repair(
         }
         RepairChoice::Reinstall { old_sha1, target } => {
             let inst_root = instance_root(&app, &instance_id)?;
-            // Uninstall the old jar first, then install the target (with
-            // its required deps). install_with_deps re-fetches with SHA
-            // verification, so this self-heals a corrupt download.
+            // Uninstall the old jar first, then install the target (with its
+            // required deps). install_with_deps re-fetches with SHA verification,
+            // so this self-heals a corrupt download.
+            //
+            // NOT atomic: if the download fails the old jar is already gone. For
+            // the corrupt-jar case that's fine (the jar was unusable anyway); for
+            // a conflict-swap a network failure leaves the mod uninstalled and the
+            // user must reinstall it. The error propagates to a failure toast.
+            // Uninstall-first is required because the corrupt-redownload target
+            // has the same filename as the broken jar — installing first would
+            // collide on disk.
             crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
             mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
             Ok(())

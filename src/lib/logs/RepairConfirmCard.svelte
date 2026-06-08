@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { displayLoader } from '$lib/instances/loader-display';
   import type { RepairPlan, RepairChoice, ConflictCandidate } from '$lib/ipc/bindings';
   import Spinner from '$lib/ui/Spinner.svelte';
 
@@ -60,15 +61,23 @@
       {$t('logs.repair.raiseHeap', { from: plan.from_mb, to: plan.to_mb })}
     </p>
   {:else if plan.kind === 'reinstall_loader'}
-    <p class="text-sm">{$t('logs.repair.reinstallLoader', { loader: plan.loader })}</p>
+    <p class="text-sm">
+      {$t('logs.repair.reinstallLoader', { loader: displayLoader(plan.loader) })}
+    </p>
   {:else if plan.kind === 'redownload_mod'}
     <p class="text-sm">{$t('logs.repair.redownloadMod', { file: plan.filename })}</p>
   {:else if plan.kind === 'resolve_conflict'}
-    <p class="text-sm font-semibold">{$t('logs.repair.conflictPrompt')}</p>
+    <p id="repair-conflict-prompt" class="text-sm font-semibold">
+      {$t('logs.repair.conflictPrompt')}
+    </p>
     <!-- One shared radio group: a conflict is resolved by a single change
          (disable one mod, or update one to a compatible version), so exactly
          one option across all candidates is selectable. -->
-    <div class="mt-2 flex flex-col gap-1.5">
+    <div
+      role="radiogroup"
+      aria-labelledby="repair-conflict-prompt"
+      class="mt-2 flex flex-col gap-1.5"
+    >
       {#each plan.candidates as c (c.sha1)}
         <label class="flex items-center gap-2 text-sm">
           <input

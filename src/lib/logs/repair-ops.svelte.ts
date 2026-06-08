@@ -24,8 +24,12 @@ let completionTick = $state(0);
 
 /**
  * Enqueue a repair for an instance. Dedupe: a request for an instance that
- * already has a running or queued op is a no-op. Returns when THIS request's
- * op has been drained (or was deduped). Kicks the drain loop.
+ * already has a running or queued op is a no-op (resolves immediately). When
+ * the queue was idle, the returned promise awaits the synchronous drain it
+ * kicks off — which, in the single-instance caller, means it resolves once
+ * this op has run. With concurrent ops for other instances the drain may
+ * return before every queued op finishes; callers needing per-op completion
+ * should observe `repairCompletionTick`/`repairRunningFor` instead.
  */
 export async function enqueueRepair(
   instanceId: string,
