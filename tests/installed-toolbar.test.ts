@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import InstalledToolbar from '$lib/mods/installed/InstalledToolbar.svelte';
 
 const base = () => ({
-  counts: { total: 3, enabled: 2, disabled: 1, updates: 1, issues: 2 },
+  counts: { total: 3, enabled: 2, disabled: 1, updates: 1, issues: 2, incompatible: 0 },
   filter: '',
   sortBy: 'name-asc' as const,
   viewFilter: 'all' as const,
@@ -52,7 +52,7 @@ describe('InstalledToolbar view filter (single mutually-exclusive group)', () =>
     render(InstalledToolbar, {
       props: {
         ...base(),
-        counts: { total: 3, enabled: 3, disabled: 0, updates: 0, issues: 0 },
+        counts: { total: 3, enabled: 3, disabled: 0, updates: 0, issues: 0, incompatible: 0 },
       },
     });
     expect(screen.queryByRole('radio', { name: /Updates/ })).toBeNull();

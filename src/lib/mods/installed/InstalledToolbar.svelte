@@ -22,6 +22,7 @@
       disabled: number;
       updates: number;
       issues: number;
+      incompatible: number;
     };
     filter: string;
     sortBy: SortBy;
@@ -87,7 +88,7 @@
   // checked, -1 elsewhere) keeps the whole group as one tab stop.
   function handleFilterKey(e: KeyboardEvent) {
     const values = filterOptions.map((o) => o.value);
-    const i = values.indexOf(viewFilter);
+    const i = values.indexOf(viewFilter as (typeof values)[number]);
     const len = values.length;
     let next: ViewFilter | null = null;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = values[(i + 1) % len];
