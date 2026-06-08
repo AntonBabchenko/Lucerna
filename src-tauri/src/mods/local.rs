@@ -10,6 +10,7 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
+use crate::mods::compat::ModLocalCompat;
 use crate::mods::installed;
 use crate::mods::platform::{InstalledMod, LoaderKind};
 
@@ -203,6 +204,46 @@ pub fn compat_verdict(
         loader_mismatch,
         mc_mismatch,
     }
+}
+
+/// Offline loader-family compatibility scan of an instance's installed mods.
+/// Layer 1 of the proactive incompatibility check: for each registered mod,
+/// read its jar's descriptor and judge loader family against the instance.
+/// Network-free. A mod whose jar is missing/unreadable, or has no recognised
+/// descriptor, yields `loader_mismatch = false` (conservative — never a false
+/// alarm). `mc` is passed to `compat_verdict` (its signature needs it) but only
+/// the loader outputs are surfaced.
+pub async fn scan_instance(
+    instance_root: &Path,
+    instance_loader: LoaderKind,
+    mc: &str,
+) -> Result<Vec<ModLocalCompat>, Error> {
+    let mods = installed::list(instance_root).await?;
+    let dir = installed::mods_dir(instance_root);
+    let mut out = Vec::with_capacity(mods.len());
+    for m in &mods {
+        let verdict = read_jar_for(&dir, &m.filename)
+            .await
+            .and_then(|bytes| read_jar_meta(&bytes).ok())
+            .map(|meta| compat_verdict(&meta, instance_loader, mc));
+        out.push(ModLocalCompat {
+            sha1: m.sha1.clone(),
+            loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
+            detected_loader: verdict.and_then(|v| v.detected_loader),
+        });
+    }
+    Ok(out)
+}
+
+/// Read a mod jar's bytes by base filename, trying the `.disabled` variant
+/// too. Returns `None` if neither exists or the read fails.
+async fn read_jar_for(mods_dir: &Path, filename: &str) -> Option<Vec<u8>> {
+    if let Ok(b) = fs::read(mods_dir.join(filename)).await {
+        return Some(b);
+    }
+    fs::read(mods_dir.join(format!("{filename}.disabled")))
+        .await
+        .ok()
 }
 
 /// Install a local mod jar into `{instance}/.minecraft/mods/`: write the
@@ -465,6 +506,108 @@ mod tests {
         );
         assert!(!v.mc_mismatch);
     }
+
+    // ── scan_instance tests ────────────────────────────────────────────────
+
+    /// Build a minimal in-memory zip (jar) from (name, bytes) entries.
+    fn zip_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+            for (name, body) in entries {
+                w.start_file(*name, SimpleFileOptions::default()).unwrap();
+                w.write_all(body).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        buf
+    }
+
+    #[tokio::test]
+    async fn scan_flags_fabric_jar_in_forge_instance() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
+        fs::write(dir.join("x.jar"), &bytes).await.unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(out[0].loader_mismatch);
+        assert_eq!(out[0].detected_loader.as_deref(), Some("Fabric"));
+    }
+
+    #[tokio::test]
+    async fn scan_no_mismatch_for_forge_jar_in_forge_instance() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("META-INF/mods.toml", b"modLoader=\"javafml\"")]);
+        fs::write(dir.join("f.jar"), &bytes).await.unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].loader_mismatch);
+    }
+
+    #[tokio::test]
+    async fn scan_no_mismatch_for_descriptorless_jar() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("data/whatever.txt", b"not a mod")]);
+        fs::write(dir.join("lib.jar"), &bytes).await.unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Fabric, "1.21")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].loader_mismatch);
+        assert!(out[0].detected_loader.is_none());
+    }
+
+    #[tokio::test]
+    async fn scan_vanilla_instance_never_flags() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x"}"#)]);
+        fs::write(dir.join("x.jar"), &bytes).await.unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Vanilla, "1.21")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].loader_mismatch);
+    }
+
+    #[tokio::test]
+    async fn scan_skips_unreadable_jar_but_still_succeeds() {
+        use crate::mods::installed::mods_dir;
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        fs::create_dir_all(&dir).await.unwrap();
+        fs::write(dir.join("broken.jar"), b"not a zip at all")
+            .await
+            .unwrap();
+
+        let out = scan_instance(td.path(), LoaderKind::Forge, "1.21")
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(!out[0].loader_mismatch);
+        assert!(out[0].detected_loader.is_none());
+    }
+
+    // ── install_local tests ────────────────────────────────────────────────
 
     use tempfile::TempDir;
 
