@@ -98,9 +98,12 @@
     installedStats = { total, enabled, disabled: total - enabled };
   }
 
-  // Offline incompatible-mod count for the Overview indicator (loader-only,
-  // network-free — the same Layer-1 scan the Installed tab uses). Empty for
-  // vanilla / version-less instances (the scan never flags those).
+  // Offline incompatible-mod count for the Overview indicator (network-free).
+  // Counts ONLY manual jars whose loader family mismatches (`!live_checkable`) —
+  // those are the definitive offline verdicts. Platform suspects need the live
+  // auto-confirm the Installed tab performs (the Overview makes no network call),
+  // so counting their raw offline suspicion here would re-introduce false
+  // positives. Empty for vanilla / version-less instances.
   let incompatibleCount = $state(0);
   async function refreshIncompatible(id: string | null) {
     const inst = id ? instances.find((i) => i.id === id) : null;
@@ -109,7 +112,10 @@
       return;
     }
     const r = await commands.scanInstanceModCompat(inst.id, inst.mc_version, inst.loader);
-    incompatibleCount = r.status === 'ok' ? r.data.filter((x) => x.loader_mismatch).length : 0;
+    incompatibleCount =
+      r.status === 'ok'
+        ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length
+        : 0;
   }
 
   // Per-instance playtime stats — refreshed on instance switch and
