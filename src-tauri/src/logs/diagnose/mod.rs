@@ -5,6 +5,7 @@
 
 pub mod engine;
 pub mod patterns;
+pub mod repair;
 
 use crate::error::Result;
 use crate::logs::files::LogSource;
@@ -29,6 +30,10 @@ pub struct Diagnosis {
     pub explanation: String,
     pub recommendation: String,
     pub matched_excerpt: String,
+    /// Repair affordance tag. `Some` iff the matched pattern is in the
+    /// actionable set — tells the UI to show a Fix button. The concrete
+    /// plan is fetched lazily via `build_repair_plan`.
+    pub repair: Option<repair::RepairKind>,
 }
 
 /// Read the file at `path` (capped at 1 MB tail) and run the

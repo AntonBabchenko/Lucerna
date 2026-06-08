@@ -34,6 +34,7 @@ pub(crate) fn match_log_with(
                 explanation: p.explanation.into(),
                 recommendation: p.recommendation.into(),
                 matched_excerpt: extract_excerpt(content, idx, 200),
+                repair: super::repair::repair_kind_for(p.id),
             });
         }
     }
