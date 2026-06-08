@@ -14,6 +14,8 @@ const base = () => ({
   onCheckUpdates: vi.fn(),
   onRecheckDeps: vi.fn(),
   onUpdateAll: vi.fn(),
+  checkingCompat: false,
+  onCheckCompat: vi.fn(),
 });
 
 describe('InstalledToolbar view filter (single mutually-exclusive group)', () => {

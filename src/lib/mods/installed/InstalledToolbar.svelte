@@ -15,6 +15,8 @@
     onCheckUpdates,
     onRecheckDeps,
     onUpdateAll,
+    checkingCompat,
+    onCheckCompat,
   }: {
     counts: {
       total: number;
@@ -34,6 +36,8 @@
     onCheckUpdates: () => void;
     onRecheckDeps: () => void;
     onUpdateAll: () => void;
+    checkingCompat: boolean;
+    onCheckCompat: () => void;
   } = $props();
 
   const sortOptions = $derived([
@@ -78,6 +82,15 @@
             value: 'issues' as const,
             label: $t('mods.installed.filterIssues', { count: counts.issues }),
             activeClass: 'bg-danger-bg text-danger font-medium',
+          },
+        ]
+      : []),
+    ...(counts.incompatible > 0
+      ? [
+          {
+            value: 'incompatible' as const,
+            label: $t('mods.installed.filterIncompatible', { count: counts.incompatible }),
+            activeClass: 'bg-warning-bg text-warning-text font-medium',
           },
         ]
       : []),
@@ -146,6 +159,14 @@
       onclick={onCheckUpdates}
     >
       {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
+    </button>
+    <button
+      type="button"
+      class="btn-secondary btn-xs"
+      disabled={busy || checkingCompat || counts.total === 0}
+      onclick={onCheckCompat}
+    >
+      {checkingCompat ? $t('mods.installed.checkingCompat') : $t('mods.installed.checkCompat')}
     </button>
     <button
       type="button"
