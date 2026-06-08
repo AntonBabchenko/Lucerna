@@ -145,9 +145,136 @@ pub fn suggest_heap_mb(current_mb: u32, total_ram_mb: Option<u64>) -> Option<u32
     }
 }
 
+use crate::instances::schema::LoaderKind;
+use crate::mods::platform::{InstalledMod, VersionRef};
+
+/// The concrete, parameterised fix proposal returned by
+/// `build_repair_plan`. Every variant carries everything the executor
+/// needs — the executor itself does no resolution.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RepairPlan {
+    RaiseHeap { from_mb: u32, to_mb: u32 },
+    ReinstallLoader { loader: LoaderKind },
+    RedownloadMod {
+        old_sha1: String,
+        filename: String,
+        target: VersionRef,
+    },
+    ResolveConflict { candidates: Vec<ConflictCandidate> },
+}
+
+/// One side of a mod conflict the user can act on.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ConflictCandidate {
+    pub sha1: String,
+    pub name: String,
+    /// compat-check (PR #54) flagged this mod as mismatching the
+    /// instance's loader/MC — a *hint*, not a decision.
+    pub compat_flagged: bool,
+    /// A compatible version to swap to, when one exists. Filled by the
+    /// async enrichment step in the command; pure mapping leaves `None`.
+    pub swap_target: Option<VersionRef>,
+    /// Human label for the swap target (e.g. "1.4.0"); paired with
+    /// `swap_target`.
+    pub swap_version_label: Option<String>,
+}
+
+/// The user's confirmed choice, sent back to `execute_repair`.
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RepairChoice {
+    RaiseHeap { to_mb: u32 },
+    ReinstallLoader,
+    /// Re-fetch a mod: uninstall `old_sha1`, install `target`. Covers
+    /// both corrupt-redownload (same version) and conflict-swap (new
+    /// version).
+    Reinstall { old_sha1: String, target: VersionRef },
+    DisableMod { sha1: String },
+}
+
+/// Map the conflict-cited mod ids to *installed* mods. An id matches an
+/// installed mod when it equals the mod's `project_id` (case-insensitive)
+/// or, failing that, its `name` (case-insensitive). Unresolvable ids are
+/// dropped. `flagged_sha1s` marks candidates that compat-check flagged.
+pub fn build_conflict_candidates(
+    named: &[String],
+    installed: &[InstalledMod],
+    flagged_sha1s: &[&str],
+) -> Vec<ConflictCandidate> {
+    let mut out = Vec::new();
+    for id in named {
+        let id_lc = id.to_lowercase();
+        let hit = installed.iter().find(|m| {
+            m.project_id
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case(&id_lc))
+                .unwrap_or(false)
+                || m.name.eq_ignore_ascii_case(&id_lc)
+        });
+        if let Some(m) = hit {
+            if out.iter().any(|c: &ConflictCandidate| c.sha1 == m.sha1) {
+                continue; // dedupe by installed identity
+            }
+            out.push(ConflictCandidate {
+                sha1: m.sha1.clone(),
+                name: m.name.clone(),
+                compat_flagged: flagged_sha1s.contains(&m.sha1.as_str()),
+                swap_target: None,
+                swap_version_label: None,
+            });
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mods::platform::{InstalledMod, ModSource};
+
+    fn fake_installed(name: &str, sha1: &str, project: Option<&str>) -> InstalledMod {
+        InstalledMod {
+            filename: format!("{name}.jar"),
+            sha1: sha1.into(),
+            source: project.map(|_| ModSource::Modrinth),
+            project_id: project.map(|p| p.into()),
+            version_id: project.map(|_| "verid".into()),
+            name: name.into(),
+            version_number: Some("1.0".into()),
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        }
+    }
+
+    #[test]
+    fn conflict_candidates_maps_named_ids_to_installed_by_project_then_name() {
+        let installed = vec![
+            fake_installed("Sodium", "aaa", Some("sodium")),
+            fake_installed("Old Lib", "bbb", Some("oldlib")),
+            fake_installed("Unrelated", "ccc", Some("other")),
+        ];
+        let named = vec!["sodium".to_string(), "oldlib".to_string()];
+        let flagged: &[&str] = &["bbb"];
+        let cands = build_conflict_candidates(&named, &installed, flagged);
+        assert_eq!(cands.len(), 2);
+        assert_eq!(cands[0].sha1, "aaa");
+        assert!(!cands[0].compat_flagged);
+        assert_eq!(cands[1].sha1, "bbb");
+        assert!(cands[1].compat_flagged);
+        assert!(cands[0].swap_target.is_none());
+    }
+
+    #[test]
+    fn conflict_candidates_drops_unresolvable_named_ids() {
+        let installed = vec![fake_installed("Sodium", "aaa", Some("sodium"))];
+        let named = vec!["sodium".to_string(), "ghostmod".to_string()];
+        let cands = build_conflict_candidates(&named, &installed, &[]);
+        assert_eq!(cands.len(), 1, "ghostmod is not installed → dropped");
+        assert_eq!(cands[0].sha1, "aaa");
+    }
 
     #[test]
     fn repair_kind_maps_actionable_patterns() {
