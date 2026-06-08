@@ -99,7 +99,12 @@
     >
       {$t('logs.repair.apply')}
     </button>
-    <button type="button" class="btn-secondary btn-sm" data-testid="repair-cancel" onclick={onCancel}>
+    <button
+      type="button"
+      class="btn-secondary btn-sm"
+      data-testid="repair-cancel"
+      onclick={onCancel}
+    >
       {$t('common.cancel')}
     </button>
   </div>

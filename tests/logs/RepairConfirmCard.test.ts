@@ -1,5 +1,5 @@
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
 
 vi.mock('$lib/i18n', () => ({
   t: {
@@ -33,8 +33,20 @@ describe('RepairConfirmCard', () => {
         plan: {
           kind: 'resolve_conflict',
           candidates: [
-            { sha1: 'aaa', name: 'Sodium', compat_flagged: false, swap_target: null, swap_version_label: null },
-            { sha1: 'bbb', name: 'Old Lib', compat_flagged: true, swap_target: null, swap_version_label: null },
+            {
+              sha1: 'aaa',
+              name: 'Sodium',
+              compat_flagged: false,
+              swap_target: null,
+              swap_version_label: null,
+            },
+            {
+              sha1: 'bbb',
+              name: 'Old Lib',
+              compat_flagged: true,
+              swap_target: null,
+              swap_version_label: null,
+            },
           ],
         },
         onConfirm,

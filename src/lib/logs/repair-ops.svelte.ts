@@ -10,8 +10,8 @@
 
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
-import { commands } from '$lib/ipc/bindings';
 import type { RepairChoice } from '$lib/ipc/bindings';
+import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 

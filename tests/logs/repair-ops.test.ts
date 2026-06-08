@@ -20,7 +20,11 @@ vi.mock('$lib/i18n', () => ({
   },
 }));
 
-import { enqueueRepair, repairRunningFor, __resetRepairOpsForTest } from '$lib/logs/repair-ops.svelte';
+import {
+  __resetRepairOpsForTest,
+  enqueueRepair,
+  repairRunningFor,
+} from '$lib/logs/repair-ops.svelte';
 
 describe('repair-ops store', () => {
   beforeEach(() => {
