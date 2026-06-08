@@ -111,6 +111,40 @@ pub fn extract_conflict_mods(log: &str) -> Vec<String> {
     seen
 }
 
+/// Floor for any heap suggestion (MB). Below this, modded MC reliably OOMs.
+const HEAP_FLOOR_MB: u32 = 4096;
+
+/// Suggest a new max-heap (MB) for an OOM, or `None` when no safe raise
+/// is possible. With known RAM: `clamp(current*2, FLOOR, RAM/2)`, but
+/// `None` if `current >= RAM/2` (no headroom). With unknown RAM: a
+/// conservative fixed bump to `FLOOR`, only when `current < FLOOR`.
+pub fn suggest_heap_mb(current_mb: u32, total_ram_mb: Option<u64>) -> Option<u32> {
+    match total_ram_mb {
+        Some(ram) => {
+            let half = (ram / 2) as u32;
+            if current_mb >= half {
+                return None; // already at the safe ceiling
+            }
+            let doubled = current_mb.saturating_mul(2);
+            let proposed = doubled.max(HEAP_FLOOR_MB).min(half);
+            // min() against `half` can pull below current in pathological
+            // cases; guard so we never propose a *decrease*.
+            if proposed > current_mb {
+                Some(proposed)
+            } else {
+                None
+            }
+        }
+        None => {
+            if current_mb < HEAP_FLOOR_MB {
+                Some(HEAP_FLOOR_MB)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +228,33 @@ mod tests {
     fn conflict_mods_empty_when_no_mod_lines() {
         let log = "net.fabricmc.loader.impl.discovery.ModResolutionException: something";
         assert!(extract_conflict_mods(log).is_empty());
+    }
+
+    #[test]
+    fn heap_doubles_current_clamped_to_min_4096() {
+        assert_eq!(suggest_heap_mb(2048, Some(16384)), Some(4096));
+    }
+
+    #[test]
+    fn heap_doubles_above_floor_when_current_large() {
+        assert_eq!(suggest_heap_mb(4096, Some(16384)), Some(8192));
+    }
+
+    #[test]
+    fn heap_capped_at_half_ram() {
+        assert_eq!(suggest_heap_mb(4096, Some(12288)), Some(6144));
+    }
+
+    #[test]
+    fn heap_none_when_already_at_or_above_half_ram() {
+        assert_eq!(suggest_heap_mb(8192, Some(16384)), None);
+        assert_eq!(suggest_heap_mb(9000, Some(16384)), None);
+    }
+
+    #[test]
+    fn heap_unknown_ram_conservative_bump_to_4096() {
+        assert_eq!(suggest_heap_mb(2048, None), Some(4096));
+        assert_eq!(suggest_heap_mb(4096, None), None);
+        assert_eq!(suggest_heap_mb(6144, None), None);
     }
 }
