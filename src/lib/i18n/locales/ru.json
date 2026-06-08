@@ -300,7 +300,6 @@
       "checkCompat": "Проверить совместимость",
       "checkingCompat": "Проверка…",
       "incompatHintLoader": "Этот мод для {detected}; инстанс использует {loader}",
-      "incompatHintFixAvailable": "Доступна совместимая версия — откройте детали для замены",
       "incompatHintNoRelease": "Нет релиза под {loader} {mc} — отключите или удалите",
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",

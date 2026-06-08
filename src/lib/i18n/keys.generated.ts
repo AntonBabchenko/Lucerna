@@ -490,7 +490,6 @@ export type TranslationKey =
   | 'mods.installed.filterPlaceholder'
   | 'mods.installed.filterUpdates'
   | 'mods.installed.fromModpack'
-  | 'mods.installed.incompatHintFixAvailable'
   | 'mods.installed.incompatHintLoader'
   | 'mods.installed.incompatHintNoRelease'
   | 'mods.installed.installDepFailed'

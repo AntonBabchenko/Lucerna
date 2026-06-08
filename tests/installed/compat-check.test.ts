@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ModSource } from '$lib/ipc/bindings';
 
 const scanMock = vi.fn();
+const versionsMock = vi.fn();
 const liveMock = vi.fn();
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     scanInstanceModCompat: (...a: unknown[]) => scanMock(...a),
+    modsVersions: (...a: unknown[]) => versionsMock(...a),
     checkInstanceModCompat: (...a: unknown[]) => liveMock(...a),
   },
 }));
@@ -12,79 +15,96 @@ vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e)
 
 import { createCompatCheck } from '$lib/mods/installed/compat-check.svelte';
 
-function local(sha1: string, loader_mismatch: boolean, detected_loader: string | null = null) {
-  return { sha1, loader_mismatch, detected_loader };
+function lc(
+  sha: string,
+  loader_mismatch: boolean,
+  live_checkable: boolean,
+  detected_loader: string | null = null,
+) {
+  return { sha1: sha, loader_mismatch, live_checkable, detected_loader };
 }
-function live(sha1: string, status: 'compatible' | 'incompatible' | 'unknown') {
-  return { sha1, name: sha1, status: { status } };
+function row(sha: string, source: ModSource | null, project_id: string | null) {
+  return { installed: { sha1: sha, source, project_id } };
 }
 
-describe('createCompatCheck merge', () => {
+describe('createCompatCheck two-stage pipeline', () => {
   beforeEach(() => {
     scanMock.mockReset();
+    versionsMock.mockReset();
     liveMock.mockReset();
   });
 
-  it('flags loader mismatch from the offline scan', async () => {
-    scanMock.mockResolvedValue({
-      status: 'ok',
-      data: [local('a', true, 'Fabric'), local('b', false)],
-    });
+  it('manual suspect is flagged from the offline verdict (loader hint)', async () => {
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, false, 'Fabric')] });
     const c = createCompatCheck(
-      () => 'i1',
+      () => 'i',
       () => '1.21',
       () => 'forge',
+      () => [row('a', null, null)],
     );
     await c.runOfflineScan();
-    expect([...c.incompatibleShas].sort()).toEqual(['a']);
-    expect(c.incompatibleCount).toBe(1);
-    expect(c.hintFor('a')).toEqual({ key: 'loader', detected: 'Fabric' });
-    expect(c.hintFor('b')).toBeNull();
-    c.dispose();
-  });
-
-  it('live Compatible does NOT clear a loader mismatch but refines the hint', async () => {
-    scanMock.mockResolvedValue({ status: 'ok', data: [local('a', true, 'Fabric')] });
-    liveMock.mockResolvedValue({ status: 'ok', data: [live('a', 'compatible')] });
-    const c = createCompatCheck(
-      () => 'i1',
-      () => '1.21',
-      () => 'forge',
-    );
-    await c.runOfflineScan();
-    await c.runLiveCheck();
     expect([...c.incompatibleShas]).toEqual(['a']);
-    expect(c.hintFor('a')).toEqual({ key: 'fixAvailable' });
+    expect(c.hintFor('a')).toEqual({ key: 'loader', detected: 'Fabric' });
+    expect(versionsMock).not.toHaveBeenCalled();
     c.dispose();
   });
 
-  it('flags a clean mod when the live check returns Incompatible', async () => {
-    scanMock.mockResolvedValue({ status: 'ok', data: [local('a', false)] });
-    liveMock.mockResolvedValue({ status: 'ok', data: [live('a', 'incompatible')] });
+  it('platform suspect auto-confirmed compatible -> NOT flagged', async () => {
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Fabric')] });
+    versionsMock.mockResolvedValue({ status: 'ok', data: [{ version_id: 'v1' }] });
     const c = createCompatCheck(
-      () => 'i1',
+      () => 'i',
       () => '1.21',
       () => 'forge',
+      () => [row('a', 'modrinth', 'px')],
     );
     await c.runOfflineScan();
-    await c.runLiveCheck();
+    expect(c.incompatibleCount).toBe(0);
+    expect(c.hintFor('a')).toBeNull();
+    expect(versionsMock).toHaveBeenCalledWith('modrinth', 'px', '1.21', 'forge');
+    c.dispose();
+  });
+
+  it('platform suspect auto-confirmed incompatible -> flagged (noRelease)', async () => {
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Forge')] });
+    versionsMock.mockResolvedValue({ status: 'ok', data: [] });
+    const c = createCompatCheck(
+      () => 'i',
+      () => '1.21',
+      () => 'forge',
+      () => [row('a', 'modrinth', 'px')],
+    );
+    await c.runOfflineScan();
     expect([...c.incompatibleShas]).toEqual(['a']);
     expect(c.hintFor('a')).toEqual({ key: 'noRelease' });
     c.dispose();
   });
 
-  it('live Unknown adds no flag', async () => {
-    scanMock.mockResolvedValue({ status: 'ok', data: [local('a', false)] });
-    liveMock.mockResolvedValue({ status: 'ok', data: [live('a', 'unknown')] });
+  it('platform suspect auto-confirm fails (429/error) -> NOT flagged', async () => {
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Forge')] });
+    versionsMock.mockResolvedValue({ status: 'error', error: 'HTTP 429' });
     const c = createCompatCheck(
-      () => 'i1',
+      () => 'i',
       () => '1.21',
       () => 'forge',
+      () => [row('a', 'modrinth', 'px')],
     );
     await c.runOfflineScan();
-    await c.runLiveCheck();
     expect(c.incompatibleCount).toBe(0);
-    expect(c.hintFor('a')).toBeNull();
+    c.dispose();
+  });
+
+  it('non-suspect is not flagged and fires no live query', async () => {
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', false, true)] });
+    const c = createCompatCheck(
+      () => 'i',
+      () => '1.21',
+      () => 'forge',
+      () => [row('a', 'modrinth', 'px')],
+    );
+    await c.runOfflineScan();
+    expect(c.incompatibleCount).toBe(0);
+    expect(versionsMock).not.toHaveBeenCalled();
     c.dispose();
   });
 });

@@ -300,7 +300,6 @@
       "checkCompat": "Check compatibility",
       "checkingCompat": "Checking…",
       "incompatHintLoader": "This mod is for {detected}; the instance uses {loader}",
-      "incompatHintFixAvailable": "A compatible version is available — open details to switch",
       "incompatHintNoRelease": "No release for {loader} {mc} — disable or remove it",
       "pickInstanceFirst": "Pick an instance first.",
       "loading": "Loading installed mods…",

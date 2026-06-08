@@ -1,61 +1,99 @@
-import { commands, type LoaderKind, type ModCompat, type ModLocalCompat } from '$lib/ipc/bindings';
+import { commands, type LoaderKind, type ModLocalCompat, type ModSource } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 
 // Tooltip hint descriptor. The component maps these to i18n strings (it owns the
 // instance loader/mc for interpolation).
-export type CompatHint =
-  | { key: 'fixAvailable' }
-  | { key: 'loader'; detected: string }
-  | { key: 'noRelease' };
+export type CompatHint = { key: 'loader'; detected: string } | { key: 'noRelease' };
 
-// Owns proactive compatibility state. Layer 1 (offline scan) runs automatically
-// on instance/mc/loader change; Layer 2 (live check) runs on the toolbar button.
-// A mod is flagged iff the offline scan found a loader-family mismatch OR the
-// live check returned Incompatible. Live Compatible never clears an offline
-// mismatch (the installed jar is the wrong family); it only refines the hint.
+type LiveVerdict = 'compatible' | 'incompatible' | 'unknown';
+// Minimal row shape the composable needs to live-query a platform suspect.
+type CompatRow = {
+  installed: { sha1: string; source: ModSource | null; project_id: string | null };
+};
+
+// Owns proactive compatibility state as a two-stage AUTO pipeline:
+//   1. offline scan (network-free) flags loader-family SUSPECTS;
+//   2. for platform suspects (live_checkable), auto-query the platform to confirm.
+// A mod is flagged iff the live verdict is `incompatible`, OR it is a manual
+// suspect (loader_mismatch && !live_checkable) with no compatible live verdict.
+// Live `compatible` clears; live failure/`unknown` never flags (transient errors
+// must not read as incompatible). Auto-confirm is bounded to suspects, sequential
+// (gentle on Modrinth rate limits), and cached per session by sha.
 export function createCompatCheck(
   getInstanceId: () => string | null,
   getMcVersion: () => string | null,
   getLoader: () => LoaderKind | null,
+  getRows: () => CompatRow[],
 ) {
   let offline = $state<Map<string, ModLocalCompat>>(new Map());
-  let live = $state<Map<string, ModCompat>>(new Map());
+  let live = $state<Map<string, LiveVerdict>>(new Map());
   let checking = $state(false);
   let error = $state<string | null>(null);
 
   const incompatibleShas = $derived.by(() => {
     const out = new Set<string>();
-    for (const [sha, lc] of offline) if (lc.loader_mismatch) out.add(sha);
-    for (const [sha, lv] of live) if (lv.status.status === 'incompatible') out.add(sha);
+    for (const [sha, v] of live) if (v === 'incompatible') out.add(sha);
+    for (const [sha, lc] of offline) {
+      // Manual suspect: offline verdict stands (no platform identity to verify).
+      if (lc.loader_mismatch && !lc.live_checkable) out.add(sha);
+    }
     return out;
   });
   const incompatibleCount = $derived(incompatibleShas.size);
 
   function hintFor(sha1: string): CompatHint | null {
+    if (live.get(sha1) === 'incompatible') return { key: 'noRelease' };
     const lc = offline.get(sha1);
-    const lv = live.get(sha1);
-    if (lc?.loader_mismatch) {
-      if (lv?.status.status === 'compatible') return { key: 'fixAvailable' };
+    if (lc?.loader_mismatch && !lc.live_checkable)
       return { key: 'loader', detected: lc.detected_loader ?? '?' };
-    }
-    if (lv?.status.status === 'incompatible') return { key: 'noRelease' };
     return null;
   }
 
+  // Stage 2: auto-confirm platform suspects via the platform. Sequential +
+  // skips shas already decided this session.
+  async function autoConfirmSuspects() {
+    const id = getInstanceId();
+    const loader = getLoader();
+    const mc = getMcVersion();
+    if (!id || !loader || mc == null) return;
+    const rows = getRows();
+    const suspects = [...offline.values()].filter(
+      (lc) => lc.loader_mismatch && lc.live_checkable && !live.has(lc.sha1),
+    );
+    for (const s of suspects) {
+      const row = rows.find((r) => r.installed.sha1 === s.sha1);
+      if (!row?.installed.source || !row?.installed.project_id) continue;
+      const r = await commands.modsVersions(
+        row.installed.source,
+        row.installed.project_id,
+        mc,
+        loader,
+      );
+      const verdict: LiveVerdict =
+        r.status === 'error' ? 'unknown' : r.data.length > 0 ? 'compatible' : 'incompatible';
+      const next = new Map(live);
+      next.set(s.sha1, verdict);
+      live = next;
+    }
+  }
+
+  // Stage 1: offline scan, then auto-confirm.
   async function runOfflineScan() {
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
     if (!id || !loader || mc == null) {
       offline = new Map();
+      live = new Map();
       return;
     }
     const r = await commands.scanInstanceModCompat(id, mc, loader);
-    // Always replace (empty on error) — stale data from the previous instance
-    // must not persist.
     offline = r.status === 'ok' ? new Map(r.data.map((x) => [x.sha1, x])) : new Map();
+    await autoConfirmSuspects();
   }
 
+  // Manual "Check compatibility" button — FULL re-check of every platform mod
+  // (also catches MC-only incompatibility the suspect pre-filter skips).
   async function runLiveCheck() {
     const id = getInstanceId();
     const loader = getLoader();
@@ -69,12 +107,13 @@ export function createCompatCheck(
       error = formatError(r.error);
       return;
     }
-    live = new Map(r.data.map((x) => [x.sha1, x]));
+    const next = new Map(live);
+    for (const c of r.data) next.set(c.sha1, c.status.status as LiveVerdict);
+    live = next;
   }
 
-  // Re-scan offline + drop stale live results whenever the instance / mc /
-  // loader changes. Wrapped in $effect.root for unit-testability (inert under
-  // vitest); torn down via dispose() on unmount.
+  // Re-run the pipeline whenever instance / mc / loader changes. Inert under
+  // vitest (no Svelte runtime); torn down via dispose().
   let stopEffects: (() => void) | null = null;
   try {
     stopEffects = $effect.root(() => {

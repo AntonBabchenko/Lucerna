@@ -47,6 +47,7 @@
     () => instanceId,
     () => mcVersion,
     () => loader,
+    () => data.rows,
   );
   const filters = createInstalledFilters(
     () => data.rows,
@@ -79,7 +80,6 @@
   function compatTitle(sha1: string): string | null {
     const h = compat.hintFor(sha1);
     if (!h) return null;
-    if (h.key === 'fixAvailable') return get(t)('mods.installed.incompatHintFixAvailable');
     if (h.key === 'loader')
       return get(t)('mods.installed.incompatHintLoader', {
         detected: h.detected,
