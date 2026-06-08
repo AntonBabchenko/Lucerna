@@ -107,4 +107,32 @@ describe('createCompatCheck two-stage pipeline', () => {
     expect(versionsMock).not.toHaveBeenCalled();
     c.dispose();
   });
+
+  it('drops a superseded scan: a newer run wins, the stale write is dropped', async () => {
+    scanMock.mockResolvedValue({ status: 'ok', data: [lc('a', true, true, 'Fabric')] });
+    // Run A's live query hangs; run B's resolves "compatible".
+    let releaseA: (v: unknown) => void = () => {};
+    const aPending = new Promise((res) => {
+      releaseA = res;
+    });
+    versionsMock
+      .mockImplementationOnce(() => aPending)
+      .mockResolvedValue({ status: 'ok', data: [{ version_id: 'v' }] });
+    const c = createCompatCheck(
+      () => 'i',
+      () => '1.21',
+      () => 'forge',
+      () => [row('a', 'modrinth', 'px')],
+    );
+    const runA = c.runOfflineScan(); // will reach autoConfirm and park on the pending query
+    // Flush microtasks so A gets past its offline scan and into the live query
+    // (consuming the pending mock) BEFORE B starts.
+    await new Promise((r) => setTimeout(r, 0));
+    const runB = c.runOfflineScan(); // supersedes A (bumps generation)
+    await runB; // B confirms 'a' compatible
+    releaseA({ status: 'ok', data: [] }); // A would resolve to "incompatible"...
+    await runA; // ...but A is stale → its write is dropped by the generation guard
+    expect(c.incompatibleCount).toBe(0);
+    c.dispose();
+  });
 });

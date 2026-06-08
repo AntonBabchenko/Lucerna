@@ -299,7 +299,7 @@
       "badgeIncompatible": "⚠ Несовместим",
       "checkCompat": "Проверить совместимость",
       "checkingCompat": "Проверка…",
-      "incompatHintLoader": "Этот мод для {detected}; инстанс использует {loader}",
+      "incompatHintLoader": "Этот мод для {detected}; профиль использует {loader}",
       "incompatHintNoRelease": "Нет релиза под {loader} {mc} — отключите или удалите",
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",
@@ -373,7 +373,7 @@
       "or": "или",
       "optifine": "OptiFine",
       "optifineVersion": "OptiFine: скачайте сборку под Minecraft {mc} с optifine.net.",
-      "optifineNoInstance": "OptiFine: выберите инстанс, чтобы узнать нужную сборку."
+      "optifineNoInstance": "OptiFine: выберите профиль, чтобы узнать нужную сборку."
     },
     "installed": {
       "checkUpdates": "Проверить обновления",

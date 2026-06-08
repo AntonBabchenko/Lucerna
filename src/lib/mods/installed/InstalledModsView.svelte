@@ -96,6 +96,18 @@
     filters.pageSize = browserPrefs.installedPageSize;
   });
 
+  // Drive the compat pipeline: re-scan whenever the instance / mc / loader
+  // changes. The composable owns no self-effect (kept directly unit-testable);
+  // this is its single reactive trigger, plus the mod add/remove/toggle handlers
+  // in onMount. The composable's generation guard makes a rapid switch supersede
+  // any in-flight scan from the previous instance.
+  $effect(() => {
+    void instanceId;
+    void mcVersion;
+    void loader;
+    void compat.runOfflineScan();
+  });
+
   // Single-row ops (toggle/uninstall/detail install) live in the shell, so they
   // need their own busy flag folded into the aggregate — otherwise the toolbar
   // and bulk bar stay clickable mid-IPC (the monolith gated them via `busy`).
@@ -183,19 +195,30 @@
     updates.clearChecks();
   }
 
-  // Event listeners (belt-and-suspenders; also call refresh directly).
+  // Event listeners (belt-and-suspenders; also call refresh directly). The
+  // compat composable's effect only re-runs on instance/mc/loader change, so we
+  // also re-scan on mod add/remove/toggle here — otherwise a freshly installed
+  // mod's incompatibility chip would not appear until the next instance switch
+  // (and the Installed view would disagree with the Overview indicator, which
+  // already reacts to these events). The re-scan is cheap (offline) and the
+  // auto-confirm step skips shas already decided this session.
   let unlisteners: Array<() => void> = [];
   onMount(async () => {
     const handlers = [
       events.modInstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
+        void compat.runOfflineScan();
       }),
       events.modUninstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
+        void compat.runOfflineScan();
       }),
-      events.modToggle.listen(() => void data.refresh()),
+      events.modToggle.listen(() => {
+        void data.refresh();
+        void compat.runOfflineScan();
+      }),
     ];
     for (const p of handlers) unlisteners.push(await p);
   });

@@ -30,9 +30,20 @@ export function createCompatCheck(
   let checking = $state(false);
   let error = $state<string | null>(null);
 
+  // Monotonic run id. Every scan / live-check captures the value at entry and
+  // bumps it; any later run supersedes earlier ones. Because the live-confirm
+  // loop awaits up to 25 sequential network calls (seconds), an instance switch
+  // can land mid-loop — without this guard a stale run would write a verdict
+  // computed against the previous instance's loader/mc into the new instance's
+  // `live` map (wrong chip + inflated `Incompatible (N)` count). Mirrors the
+  // project's generation-token composable pattern.
+  let generation = 0;
+
   const incompatibleShas = $derived.by(() => {
     const out = new Set<string>();
-    for (const [sha, v] of live) if (v === 'incompatible') out.add(sha);
+    // Only count live verdicts for mods still present in the current scan — a
+    // stale `live` entry for a since-uninstalled mod must not inflate the count.
+    for (const [sha, v] of live) if (v === 'incompatible' && offline.has(sha)) out.add(sha);
     for (const [sha, lc] of offline) {
       // Manual suspect: offline verdict stands (no platform identity to verify).
       if (lc.loader_mismatch && !lc.live_checkable) out.add(sha);
@@ -60,7 +71,8 @@ export function createCompatCheck(
 
   // Stage 2: auto-confirm platform suspects via the platform. Sequential (gentle
   // on the rate limit), capped, and skips shas already decided this session.
-  async function autoConfirmSuspects() {
+  // `gen` is its parent run's id; the loop bails the moment a newer run starts.
+  async function autoConfirmSuspects(gen: number) {
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
@@ -78,6 +90,7 @@ export function createCompatCheck(
         mc,
         loader,
       );
+      if (gen !== generation) return; // superseded by a newer scan — drop the write
       const verdict: LiveVerdict =
         r.status === 'error' ? 'unknown' : r.data.length > 0 ? 'compatible' : 'incompatible';
       const next = new Map(live);
@@ -88,22 +101,27 @@ export function createCompatCheck(
 
   // Stage 1: offline scan, then auto-confirm.
   async function runOfflineScan() {
+    const gen = ++generation;
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
     if (!id || !loader || mc == null) {
-      offline = new Map();
-      live = new Map();
+      if (gen === generation) {
+        offline = new Map();
+        live = new Map();
+      }
       return;
     }
     const r = await commands.scanInstanceModCompat(id, mc, loader);
+    if (gen !== generation) return; // superseded mid-scan
     offline = r.status === 'ok' ? new Map(r.data.map((x) => [x.sha1, x])) : new Map();
-    await autoConfirmSuspects();
+    await autoConfirmSuspects(gen);
   }
 
   // Manual "Check compatibility" button — FULL re-check of every platform mod
   // (also catches MC-only incompatibility the suspect pre-filter skips).
   async function runLiveCheck() {
+    const gen = ++generation;
     const id = getInstanceId();
     const loader = getLoader();
     const mc = getMcVersion();
@@ -112,6 +130,7 @@ export function createCompatCheck(
     error = null;
     const r = await commands.checkInstanceModCompat(id, mc, loader);
     checking = false;
+    if (gen !== generation) return; // superseded (e.g. instance switched mid-check)
     if (r.status === 'error') {
       error = formatError(r.error);
       return;
@@ -121,22 +140,14 @@ export function createCompatCheck(
     live = next;
   }
 
-  // Re-run the pipeline whenever instance / mc / loader changes. Inert under
-  // vitest (no Svelte runtime); torn down via dispose().
-  let stopEffects: (() => void) | null = null;
-  try {
-    stopEffects = $effect.root(() => {
-      $effect(() => {
-        void getInstanceId();
-        void getMcVersion();
-        void getLoader();
-        live = new Map();
-        void runOfflineScan();
-      });
-    });
-  } catch {
-    /* no Svelte runtime (vitest) — effect inert; tests call runOfflineScan directly */
-  }
+  // NOTE: the pipeline is driven by the consuming component (InstalledModsView),
+  // which calls `runOfflineScan()` from a `$effect` on instance/mc/loader change
+  // and from the mod add/remove/toggle event handlers. The composable does NOT
+  // own a self-effect: a self-effect here would also fire under @testing-library
+  // AND flush during the unit tests' awaits, racing the tests' direct
+  // `runOfflineScan()` calls against the generation guard. Keeping the trigger in
+  // the component gives one well-defined caller and keeps this factory a pure,
+  // directly-testable state machine.
 
   return {
     get incompatibleShas() {
@@ -154,8 +165,8 @@ export function createCompatCheck(
     hintFor,
     runOfflineScan,
     runLiveCheck,
-    dispose() {
-      stopEffects?.();
-    },
+    // No internal effect to tear down; kept for API symmetry with the other
+    // installed-tab composables (InstalledModsView calls dispose() on unmount).
+    dispose() {},
   };
 }
