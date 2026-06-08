@@ -628,15 +628,15 @@ pub async fn install_resolved_pack(
             )
             .await
         };
-        match res {
-            Ok(()) => {
-                // Record the resolved file (real sha1, md5 cleared) for the origin snapshot.
-                resolved_for_origin.push((*file).clone());
-            }
-            Err(e) => {
-                failures.push((file.install_path.clone(), e.to_string()));
-            }
+        if let Err(e) = &res {
+            failures.push((file.install_path.clone(), e.to_string()));
         }
+        // Record in the pack origin regardless of install outcome: a file that
+        // failed to install must still appear in the snapshot so it surfaces as
+        // `removed_files` (with a Restore affordance), matching pre-97e2bd3
+        // behaviour. (ATL md5 files whose md5-fetch failed already `continue`d
+        // above and are intentionally excluded — we never persist an md5 token.)
+        resolved_for_origin.push((*file).clone());
     }
 
     // md5-in-sha1 selection tokens must never reach the persisted PackOrigin.
@@ -1749,6 +1749,70 @@ mod tests {
         assert_ne!(
             origin.files[0].sha1, md5_hex,
             "PackOrigin must NOT carry the md5 as sha1"
+        );
+    }
+
+    /// Regression test for the bug introduced in 97e2bd3: a non-md5 file whose
+    /// install attempt fails must still be recorded in `resolved_for_origin` so
+    /// that `build_pack_origin` captures it, and `compute_status` later surfaces
+    /// it as a `removed_files` entry (with a Restore affordance). Before 97e2bd3
+    /// `build_pack_origin` received `&selected` = ALL user-selected files; after
+    /// that commit only successfully-installed files were pushed, so a failed
+    /// install silently vanished from the origin.
+    ///
+    /// This test exercises the accumulation logic directly: it calls the same
+    /// `build_pack_origin` helper that the install loop uses, passing a slice
+    /// that includes a "failed" file (a file that would not have been pushed
+    /// under the regressed code). It then asserts that `compute_status` flags
+    /// that file's sha1 as removed — i.e. in the origin but not installed.
+    #[test]
+    fn failed_install_still_recorded_in_origin() {
+        // Two files were selected for install.
+        let good_file = sample_file("aaaa1111");
+        let failed_file = sample_file("bbbb2222"); // this one "failed" to install
+
+        // Pre-97e2bd3 semantics: both files go into resolved_for_origin,
+        // regardless of install success/failure (only ATL md5-fetch failures
+        // skip via `continue` — those files never reach this point). After the
+        // fix, the install loop pushes both; we simulate that here.
+        let resolved_refs: Vec<&ModpackFile> = vec![&good_file, &failed_file];
+
+        let summary = sample_summary(ModpackFormat::Modrinth);
+        let origin = build_pack_origin(&summary, &resolved_refs, None, "Test Pack");
+
+        // Origin must record both files.
+        assert_eq!(origin.files.len(), 2, "both files must be in the origin");
+        let shas: Vec<&str> = origin.files.iter().map(|f| f.sha1.as_str()).collect();
+        assert!(
+            shas.contains(&"aaaa1111"),
+            "good file sha must be in origin"
+        );
+        assert!(
+            shas.contains(&"bbbb2222"),
+            "failed file sha must be in origin even though install failed"
+        );
+
+        // Now simulate a world where only the good file ended up installed on disk.
+        // compute_status must report the failed file as `removed_files` (Restore affordance).
+        let installed_on_disk = vec![installed("aaaa1111", true)];
+        let status = compute_status(
+            origin,
+            &installed_on_disk,
+            &std::collections::HashSet::new(),
+        );
+
+        assert!(
+            status.is_modified,
+            "pack must be flagged as modified when a file is missing from disk"
+        );
+        assert_eq!(
+            status.removed_files.len(),
+            1,
+            "exactly one file must appear in removed_files"
+        );
+        assert_eq!(
+            status.removed_files[0].sha1, "bbbb2222",
+            "the failed-install file must surface as removed_files so Restore is available"
         );
     }
 }
