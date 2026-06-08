@@ -26,6 +26,7 @@
     updateState,
     checking,
     packChip,
+    incompatibleTitle,
     selected,
     onToggleExpand,
     onHover,
@@ -51,6 +52,7 @@
     updateState: ModUpdateState | null;
     checking: boolean;
     packChip: string | null;
+    incompatibleTitle: string | null;
     selected: boolean;
     onToggleExpand: () => void;
     onHover: (k: string | null) => void;
@@ -129,6 +131,13 @@
         {#if badge}
           <span data-testid="status-badge" class="px-2 py-0.5 rounded bg-danger-bg text-danger"
             >{badge.text}</span
+          >
+        {/if}
+        {#if incompatibleTitle}
+          <span
+            data-testid="incompat-badge"
+            class="px-2 py-0.5 rounded bg-warning-bg text-warning-text"
+            title={incompatibleTitle}>{$t('mods.installed.badgeIncompatible')}</span
           >
         {/if}
         {#if graphLoading && !root}

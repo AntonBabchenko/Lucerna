@@ -38,6 +38,7 @@ const base = () => ({
   updateState: null,
   checking: false,
   packChip: null,
+  incompatibleTitle: null,
   selected: false,
   onToggleExpand() {},
   onHover() {},
