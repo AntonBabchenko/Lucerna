@@ -66,6 +66,8 @@ pub fn modpack_source_for(source: ModSource) -> Box<dyn ModpackSource> {
         ModSource::Modrinth => Box::new(ModrinthModpackSource),
         ModSource::Curseforge => Box::new(CurseforgeModpackSource),
         ModSource::Ftb => Box::new(FtbModpackSource),
+        // ATLauncher: handled by a dedicated task; this arm is a placeholder for exhaustiveness.
+        ModSource::Atlauncher => Box::new(FtbModpackSource),
     }
 }
 

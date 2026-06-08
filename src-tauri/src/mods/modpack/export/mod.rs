@@ -123,6 +123,8 @@ pub async fn run_export(
             // classify() already routes all FTB mods to unresolvable/bundle; this
             // arm is unreachable in practice but required for exhaustiveness.
             ModpackFormat::Ftb => fallback_bundle.push(m),
+            // ATLauncher: pack-managed source — export is unsupported. Bundle locally.
+            ModpackFormat::Atlauncher => fallback_bundle.push(m),
         }
     }
 
@@ -206,6 +208,12 @@ pub async fn run_export(
         ModpackFormat::Ftb => {
             return Err(Error::ModpackExportFailed {
                 details: "FTB packs cannot be exported".into(),
+            });
+        }
+        // ATLauncher: pack-managed source — export is not supported.
+        ModpackFormat::Atlauncher => {
+            return Err(Error::ModpackExportFailed {
+                details: "ATLauncher packs cannot be exported".into(),
             });
         }
     };

@@ -17,6 +17,7 @@ pub enum ModSource {
     Modrinth,
     Curseforge,
     Ftb,
+    Atlauncher,
 }
 
 /// What kind of content a search/install targets. `Mod` is the historical
@@ -386,6 +387,14 @@ mod tests {
         assert_eq!(j, r#""ftb""#);
         let back: ModSource = serde_json::from_str(r#""ftb""#).unwrap();
         assert_eq!(back, ModSource::Ftb);
+    }
+
+    #[test]
+    fn mod_source_atlauncher_round_trips_snake_case() {
+        let j = serde_json::to_string(&ModSource::Atlauncher).unwrap();
+        assert_eq!(j, r#""atlauncher""#);
+        let back: ModSource = serde_json::from_str(r#""atlauncher""#).unwrap();
+        assert_eq!(back, ModSource::Atlauncher);
     }
 
     #[test]

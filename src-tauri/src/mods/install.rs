@@ -173,6 +173,7 @@ pub async fn install_one(
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
+                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
             }
             .into(),
             project_id: version.project_id.clone(),
@@ -555,6 +556,7 @@ pub async fn update_one(
                     ModSource::Modrinth => "modrinth",
                     ModSource::Curseforge => "curseforge",
                     ModSource::Ftb => "ftb", // FTB: pack-managed, not individually distributable.
+                    ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually distributable.
                 }
                 .into(),
                 project_id: v.project_id.clone(),

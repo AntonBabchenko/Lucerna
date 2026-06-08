@@ -29,6 +29,8 @@ impl ProjectKey {
             // ProjectKey::Ftb instead of borrowing the Modrinth tag, to avoid a numeric-id collision
             // with real Modrinth ids.
             ModSource::Ftb => ProjectKey::Modrinth(v.project_id.clone()),
+            // TODO(atlauncher): placeholder — ATLauncher versions are dead in this path today.
+            ModSource::Atlauncher => ProjectKey::Modrinth(v.project_id.clone()),
         }
     }
     pub fn of_ref(r: &DepProjectRef) -> ProjectKey {

@@ -558,6 +558,7 @@ mod tests {
                 filename: "ae2.jar".into(),
                 install_path: "mods/ae2.jar".into(),
                 sha1: sha1.into(),
+                md5: None,
                 url: String::new(), // placeholder
                 size: 1024.0,
                 env_client: EnvSupport::Required,
@@ -745,6 +746,7 @@ mod tests {
                 filename: "sodium.jar".into(),
                 install_path: "mods/sodium.jar".into(),
                 sha1: "abc".into(),
+                md5: None,
                 url: "https://dist.modpacks.ch/x/sodium.jar".into(),
                 size: 100.0,
                 env_client: EnvSupport::Required,

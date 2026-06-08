@@ -19,6 +19,9 @@ pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Erro
         // sidecar path (not a local archive). This arm is unreachable for
         // drag-drop inspect but required for exhaustiveness.
         ModpackFormat::Ftb => Err(Error::ModpackFormatUnknown),
+        // ATLauncher: pack-managed source — imported via the API path.
+        // Unreachable for drag-drop inspect but required for exhaustiveness.
+        ModpackFormat::Atlauncher => Err(Error::ModpackFormatUnknown),
     }
 }
 
@@ -38,6 +41,8 @@ pub fn build_pack_origin(
         ModpackFormat::Curseforge => ModSource::Curseforge,
         // FTB: pack-managed source — provenance is Ftb.
         ModpackFormat::Ftb => ModSource::Ftb,
+        // ATLauncher: pack-managed source — provenance is Atlauncher.
+        ModpackFormat::Atlauncher => ModSource::Atlauncher,
     };
     let files = selected
         .iter()
@@ -459,6 +464,8 @@ pub async fn install_resolved_pack(
         ModpackFormat::Curseforge => Some(crate::mods::platform::ModSource::Curseforge),
         // FTB: pack-managed source — provenance is Ftb.
         ModpackFormat::Ftb => Some(crate::mods::platform::ModSource::Ftb),
+        // ATLauncher: pack-managed source — provenance is Atlauncher.
+        ModpackFormat::Atlauncher => Some(crate::mods::platform::ModSource::Atlauncher),
     };
     let (mrpack_project_id, pack_meta, mrpack_source) =
         match (hint_project_id.as_deref(), hint_source, summary.format) {
@@ -501,6 +508,9 @@ pub async fn install_resolved_pack(
             // FTB: pack-managed source — project metadata is fetched by the
             // FtbModpackSource adapter before import; nothing to back-fill here.
             (_, _, ModpackFormat::Ftb) => (None, PackMeta::default(), parser_source),
+            // ATLauncher: pack-managed source — project metadata is fetched by the
+            // ATLauncher adapter before import; nothing to back-fill here.
+            (_, _, ModpackFormat::Atlauncher) => (None, PackMeta::default(), parser_source),
         };
     let PackMeta {
         name: platform_name,
@@ -885,6 +895,7 @@ mod tests {
             filename: format!("{sha}.jar"),
             install_path: format!("mods/{sha}.jar"),
             sha1: sha.into(),
+            md5: None,
             url: format!("https://example.com/{sha}.jar"),
             size: 42.0,
             env_client: EnvSupport::Required,
@@ -1169,6 +1180,7 @@ mod tests {
             filename: format!("{project}.jar"),
             install_path: format!("mods/{project}.jar"),
             sha1: sha.into(),
+            md5: None,
             url: format!("https://cdn.modrinth.com/data/{project}/x/{project}.jar"),
             size: 1.0,
             env_client: EnvSupport::Required,

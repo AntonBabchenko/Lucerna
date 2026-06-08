@@ -750,6 +750,10 @@ fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
         ModSource::Ftb => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
             source: ModSource::Ftb,
         }),
+        // ATLauncher is a modpack-only source — no per-mod browser.
+        ModSource::Atlauncher => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Atlauncher,
+        }),
     }
 }
 
@@ -1016,6 +1020,7 @@ async fn find_version(
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
+                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually resolvable.
             }
             .into(),
         })
@@ -1404,6 +1409,13 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
             project_id: v.project_id.clone(),
             version_id: Some(v.version_id.clone()),
         },
+        // TODO(atlauncher): placeholder — ATLauncher versions are dead in this path today.
+        crate::mods::platform::ModSource::Atlauncher => {
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: v.project_id.clone(),
+                version_id: Some(v.version_id.clone()),
+            }
+        }
     }
 }
 
@@ -3057,6 +3069,8 @@ pub async fn mods_dependency_graph(
                 ModSource::Curseforge => cf.clone(),
                 // FTB: pack-managed, not individually dep-resolvable — treat as leaf.
                 ModSource::Ftb => ftb.clone(),
+                // ATLauncher: pack-managed, not individually dep-resolvable — treat as leaf.
+                ModSource::Atlauncher => ftb.clone(),
             };
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
