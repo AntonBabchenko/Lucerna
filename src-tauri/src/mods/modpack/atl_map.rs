@@ -272,6 +272,18 @@ mod tests {
     }
 
     #[test]
+    fn unsafe_file_path_is_unresolvable() {
+        let mut m = base_mod("x", "server");
+        m.file = "../escape.jar".into();
+        let s = map_configs("Pack", "1.0", &forge_configs(vec![m]));
+        assert_eq!(s.files.len(), 0);
+        assert!(matches!(
+            s.unresolvable[0].reason,
+            UnresolvableReason::UnsafePath
+        ));
+    }
+
+    #[test]
     fn server_mod_without_md5_is_missing_checksum() {
         let mut m = base_mod("x", "server");
         m.md5 = String::new();
