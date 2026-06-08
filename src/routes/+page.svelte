@@ -113,9 +113,7 @@
     }
     const r = await commands.scanInstanceModCompat(inst.id, inst.mc_version, inst.loader);
     incompatibleCount =
-      r.status === 'ok'
-        ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length
-        : 0;
+      r.status === 'ok' ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length : 0;
   }
 
   // Per-instance playtime stats — refreshed on instance switch and
