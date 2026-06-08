@@ -1,4 +1,5 @@
 import { fireEvent, render } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import BusyButton from '../src/lib/ui/BusyButton.svelte';
@@ -29,7 +30,8 @@ describe('BusyButton', () => {
     expect(btn.getAttribute('aria-busy')).toBe('true');
     expect(btn.querySelector('[role="status"]')).not.toBeNull();
     expect(btn.textContent).toContain('Install');
-    await fireEvent.click(btn);
+    // userEvent respects the disabled attribute; fireEvent would not.
+    await userEvent.setup().click(btn);
     expect(onclick).not.toHaveBeenCalled();
   });
 
@@ -42,8 +44,18 @@ describe('BusyButton', () => {
     expect(btn.hasAttribute('disabled')).toBe(true);
     expect(btn.getAttribute('aria-busy')).toBe('false');
     expect(btn.querySelector('[role="status"]')).toBeNull();
-    await fireEvent.click(btn);
+    // userEvent respects the disabled attribute; fireEvent would not.
+    await userEvent.setup().click(btn);
     expect(onclick).not.toHaveBeenCalled();
+  });
+
+  it('applies spinnerClass to the rendered spinner element', () => {
+    const { getByRole } = render(BusyButton, {
+      props: { busy: true, spinnerClass: 'text-red-500', children: label('Install') },
+    });
+    const status = getByRole('button').querySelector('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status?.className).toContain('text-red-500');
   });
 
   it('forwards the provided class to the button', () => {
