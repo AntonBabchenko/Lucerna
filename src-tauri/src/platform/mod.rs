@@ -115,9 +115,7 @@ pub fn kill_process_tree(pid: u32) {
 pub fn total_system_ram_mb() -> Option<u64> {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::System::SystemInformation::{
-            GlobalMemoryStatusEx, MEMORYSTATUSEX,
-        };
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
         // SAFETY: MEMORYSTATUSEX is a plain-old-data struct; we zero it,
         // set dwLength as the API requires, and pass a valid pointer.
         let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };

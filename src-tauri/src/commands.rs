@@ -395,10 +395,13 @@ pub async fn build_repair_plan(
             }
             let inst_root = instance_root(&app, &instance_id)?;
             let installed = crate::mods::installed::list(&inst_root).await?;
-            let compat =
-                crate::mods::local::scan_instance(&inst_root, instance.loader, &instance.mc_version)
-                    .await
-                    .unwrap_or_default();
+            let compat = crate::mods::local::scan_instance(
+                &inst_root,
+                instance.loader,
+                &instance.mc_version,
+            )
+            .await
+            .unwrap_or_default();
             let flagged: Vec<&str> = compat
                 .iter()
                 .filter(|c| c.loader_mismatch)
@@ -433,7 +436,11 @@ async fn enrich_swap_targets(
         };
         let platform = platform_for(source);
         let versions = platform
-            .versions(project_id, Some(&instance.mc_version), Some(instance.loader))
+            .versions(
+                project_id,
+                Some(&instance.mc_version),
+                Some(instance.loader),
+            )
             .await;
         if let Ok(list) = versions {
             if let Some(v) = list.into_iter().next() {

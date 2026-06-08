@@ -50,10 +50,7 @@ const CORRUPT_MARKERS: &[&str] = &["Invalid or corrupt jarfile", "java.util.zip.
 /// after the marker, falling back to one before). `None` when no jar
 /// token is present near a marker.
 pub fn extract_corrupt_jar(log: &str) -> Option<String> {
-    let marker = CORRUPT_MARKERS
-        .iter()
-        .filter_map(|m| log.find(m))
-        .min()?;
+    let marker = CORRUPT_MARKERS.iter().filter_map(|m| log.find(m)).min()?;
     let win_start = marker.saturating_sub(600);
     let win_end = (marker + 600).min(log.len());
     // Snap to char boundaries before slicing (log is &str / UTF-8).
@@ -154,14 +151,21 @@ use crate::mods::platform::{InstalledMod, VersionRef};
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RepairPlan {
-    RaiseHeap { from_mb: u32, to_mb: u32 },
-    ReinstallLoader { loader: LoaderKind },
+    RaiseHeap {
+        from_mb: u32,
+        to_mb: u32,
+    },
+    ReinstallLoader {
+        loader: LoaderKind,
+    },
     RedownloadMod {
         old_sha1: String,
         filename: String,
         target: VersionRef,
     },
-    ResolveConflict { candidates: Vec<ConflictCandidate> },
+    ResolveConflict {
+        candidates: Vec<ConflictCandidate>,
+    },
 }
 
 /// One side of a mod conflict the user can act on.
@@ -184,13 +188,20 @@ pub struct ConflictCandidate {
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RepairChoice {
-    RaiseHeap { to_mb: u32 },
+    RaiseHeap {
+        to_mb: u32,
+    },
     ReinstallLoader,
     /// Re-fetch a mod: uninstall `old_sha1`, install `target`. Covers
     /// both corrupt-redownload (same version) and conflict-swap (new
     /// version).
-    Reinstall { old_sha1: String, target: VersionRef },
-    DisableMod { sha1: String },
+    Reinstall {
+        old_sha1: String,
+        target: VersionRef,
+    },
+    DisableMod {
+        sha1: String,
+    },
 }
 
 /// Map the conflict-cited mod ids to *installed* mods. An id matches an
@@ -278,7 +289,10 @@ mod tests {
 
     #[test]
     fn repair_kind_maps_actionable_patterns() {
-        assert_eq!(repair_kind_for("out-of-memory"), Some(RepairKind::RaiseHeap));
+        assert_eq!(
+            repair_kind_for("out-of-memory"),
+            Some(RepairKind::RaiseHeap)
+        );
         assert_eq!(
             repair_kind_for("fabric-loader-missing-main"),
             Some(RepairKind::ReinstallLoader)
