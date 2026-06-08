@@ -209,11 +209,11 @@ mod tests {
     }
 
     fn with_nodecdn<F: FnOnce() -> R, R>(f: F) -> R {
+        // Serialize tests that touch the process-global allowlist state.
+        // `download.nodecdn.net` is on the production allowlist, so no env
+        // override is needed — the guard alone is sufficient.
         let _g = crate::test_env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "download.nodecdn.net");
-        let r = f();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-        r
+        f()
     }
 
     #[test]

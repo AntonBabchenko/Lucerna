@@ -3066,6 +3066,11 @@ pub async fn mods_dependency_graph(
         Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
             source: ModSource::Ftb,
         });
+    // ATLauncher has no per-mod browser; separate stub so error labels name the right source.
+    let atl: Arc<dyn crate::mods::platform::ModPlatform> =
+        Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Atlauncher,
+        });
     let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
         ProjectKey,
         bool,
@@ -3079,6 +3084,7 @@ pub async fn mods_dependency_graph(
         let mr = mr.clone();
         let cf = cf.clone();
         let ftb = ftb.clone();
+        let atl = atl.clone();
         let loader_cache = loader_cache.clone();
         let mc = mc.clone();
         move |source: ModSource, project_id: String| {
@@ -3088,7 +3094,7 @@ pub async fn mods_dependency_graph(
                 // FTB: pack-managed, not individually dep-resolvable — treat as leaf.
                 ModSource::Ftb => ftb.clone(),
                 // ATLauncher: pack-managed, not individually dep-resolvable — treat as leaf.
-                ModSource::Atlauncher => ftb.clone(),
+                ModSource::Atlauncher => atl.clone(),
             };
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
