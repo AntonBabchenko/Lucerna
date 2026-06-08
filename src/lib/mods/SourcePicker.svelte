@@ -6,25 +6,25 @@
   // Source is a context switch (which catalogue am I browsing), not a narrowing
   // filter — so it lives in the sub-tab header row, not the filter toolbar. Used
   // by both the Add-ons tab (Modrinth + CurseForge) and the Modpacks tab, which
-  // passes allowFtb to append FTB.
+  // passes allowFtb / allowAtlauncher to append FTB / ATLauncher.
   let {
     value,
     onChange,
     allowFtb = false,
-  }: { value: ModSource; onChange: (value: ModSource) => void; allowFtb?: boolean } = $props();
+    allowAtlauncher = false,
+  }: {
+    value: ModSource;
+    onChange: (value: ModSource) => void;
+    allowFtb?: boolean;
+    allowAtlauncher?: boolean;
+  } = $props();
 
-  const options = $derived(
-    allowFtb
-      ? [
-          { value: 'modrinth', label: 'Modrinth' },
-          { value: 'curseforge', label: 'CurseForge' },
-          { value: 'ftb', label: 'FTB' },
-        ]
-      : [
-          { value: 'modrinth', label: 'Modrinth' },
-          { value: 'curseforge', label: 'CurseForge' },
-        ],
-  );
+  const options = $derived([
+    { value: 'modrinth', label: 'Modrinth' },
+    { value: 'curseforge', label: 'CurseForge' },
+    ...(allowFtb ? [{ value: 'ftb', label: 'FTB' }] : []),
+    ...(allowAtlauncher ? [{ value: 'atlauncher', label: 'ATLauncher' }] : []),
+  ]);
 </script>
 
 <label class="text-sm text-secondary inline-flex items-center gap-1">

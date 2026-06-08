@@ -222,6 +222,7 @@
     <SourcePicker
       value={modpackBrowseState.source}
       allowFtb={true}
+      allowAtlauncher={true}
       onChange={(v) => (modpackBrowseState.source = v)}
     />
   </div>

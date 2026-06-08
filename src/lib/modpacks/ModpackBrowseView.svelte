@@ -49,6 +49,8 @@
     curseforge: { needs_api_key: true, supports_server_filter: true, can_export: true },
     // Mirrors FtbModpackSource::caps() in source/ftb.rs exactly.
     ftb: { needs_api_key: false, supports_server_filter: false, can_export: false },
+    // Mirrors AtlauncherModpackSource::caps() in source/atlauncher.rs exactly.
+    atlauncher: { needs_api_key: false, supports_server_filter: false, can_export: false },
   };
   let caps = $state<SourceCaps>({
     needs_api_key: false,
@@ -188,7 +190,9 @@
       ? $t('modpacks.browse.searchPlaceholderCurseForge')
       : modpackBrowseState.source === 'ftb'
         ? $t('modpacks.browse.searchPlaceholderFtb')
-        : $t('modpacks.browse.searchPlaceholderModrinth')}
+        : modpackBrowseState.source === 'atlauncher'
+          ? $t('modpacks.browse.searchPlaceholderAtlauncher')
+          : $t('modpacks.browse.searchPlaceholderModrinth')}
     searchTestid="modpack-search-input"
     sort={modpackBrowseState.sortChoice}
     sortOptions={[

@@ -517,6 +517,7 @@
       "searchPlaceholderCurseForge": "Search modpacks on CurseForge...",
       "searchPlaceholderModrinth": "Search modpacks on Modrinth...",
       "searchPlaceholderFtb": "Search modpacks on FTB...",
+      "searchPlaceholderAtlauncher": "Search modpacks on ATLauncher...",
       "ftbClientFilterNote": "FTB filters apply on the client — results may be approximate.",
       "sortRelevance": "Relevance",
       "sortDownloads": "Downloads",

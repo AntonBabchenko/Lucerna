@@ -292,6 +292,7 @@
     if (src === 'modrinth') return 'Modrinth';
     if (src === 'curseforge') return 'CurseForge';
     if (src === 'ftb') return 'FTB';
+    if (src === 'atlauncher') return 'ATLauncher';
     return '';
   }
 
@@ -299,6 +300,7 @@
     if (src === 'modrinth') return 'Modrinth .mrpack';
     if (src === 'curseforge') return 'CurseForge .zip';
     if (src === 'ftb') return 'FTB';
+    if (src === 'atlauncher') return 'ATLauncher';
     return '.mrpack';
   }
 
