@@ -126,18 +126,18 @@
       {selected}
       {onSelectChange}
     />
-    {#if summary}
+    {#if summary || incompatibleTitle}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
-        {#if badge}
-          <span data-testid="status-badge" class="px-2 py-0.5 rounded bg-danger-bg text-danger"
-            >{badge.text}</span
-          >
-        {/if}
         {#if incompatibleTitle}
           <span
             data-testid="incompat-badge"
             class="px-2 py-0.5 rounded bg-warning-bg text-warning-text"
             title={incompatibleTitle}>{$t('mods.installed.badgeIncompatible')}</span
+          >
+        {/if}
+        {#if badge}
+          <span data-testid="status-badge" class="px-2 py-0.5 rounded bg-danger-bg text-danger"
+            >{badge.text}</span
           >
         {/if}
         {#if graphLoading && !root}

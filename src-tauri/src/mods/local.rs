@@ -554,6 +554,7 @@ mod tests {
             .unwrap();
         assert_eq!(out.len(), 1);
         assert!(!out[0].loader_mismatch);
+        assert_eq!(out[0].detected_loader.as_deref(), Some("Forge"));
     }
 
     #[tokio::test]

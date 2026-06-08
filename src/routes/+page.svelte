@@ -808,7 +808,7 @@
             {#if incompatibleCount > 0}
               <button
                 type="button"
-                class="flex items-center gap-2 text-sm text-warning-text hover:underline text-left"
+                class="btn-warning-soft btn-sm w-full flex items-center gap-2 text-left"
                 data-testid="overview-incompatible"
                 onclick={() => (modBrowserNav.value = { view: 'installed' })}
               >

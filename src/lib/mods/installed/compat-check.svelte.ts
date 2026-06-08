@@ -51,7 +51,9 @@ export function createCompatCheck(
       return;
     }
     const r = await commands.scanInstanceModCompat(id, mc, loader);
-    if (r.status === 'ok') offline = new Map(r.data.map((x) => [x.sha1, x]));
+    // Always replace (empty on error) — stale data from the previous instance
+    // must not persist.
+    offline = r.status === 'ok' ? new Map(r.data.map((x) => [x.sha1, x])) : new Map();
   }
 
   async function runLiveCheck() {
