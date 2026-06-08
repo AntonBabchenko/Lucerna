@@ -98,6 +98,24 @@
     installedStats = { total, enabled, disabled: total - enabled };
   }
 
+  // Offline incompatible-mod count for the Overview indicator (network-free).
+  // Counts ONLY manual jars whose loader family mismatches (`!live_checkable`) —
+  // those are the definitive offline verdicts. Platform suspects need the live
+  // auto-confirm the Installed tab performs (the Overview makes no network call),
+  // so counting their raw offline suspicion here would re-introduce false
+  // positives. Empty for vanilla / version-less instances.
+  let incompatibleCount = $state(0);
+  async function refreshIncompatible(id: string | null) {
+    const inst = id ? instances.find((i) => i.id === id) : null;
+    if (!inst || !inst.mc_version || inst.loader === 'vanilla') {
+      incompatibleCount = 0;
+      return;
+    }
+    const r = await commands.scanInstanceModCompat(inst.id, inst.mc_version, inst.loader);
+    incompatibleCount =
+      r.status === 'ok' ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length : 0;
+  }
+
   // Per-instance playtime stats — refreshed on instance switch and
   // after every game exit (via the existing processExited handler).
   // last_session_unix_ms === null is the canonical "never played"
@@ -251,6 +269,7 @@
         exited = null;
         crashReport = null;
         void refreshInstalledStats(newId);
+        void refreshIncompatible(newId);
         void refreshPackStatus(newId);
         void refreshPlaytime(newId);
       }
@@ -302,13 +321,18 @@
     // from the Mod browser without bouncing back through this view.
     events.modInstalled.listen(() => {
       void refreshInstalledStats(activeInstance?.id ?? null);
+      void refreshIncompatible(activeInstance?.id ?? null);
       void refreshPackStatus(activeInstance?.id ?? null);
     });
     events.modUninstalled.listen(() => {
       void refreshInstalledStats(activeInstance?.id ?? null);
+      void refreshIncompatible(activeInstance?.id ?? null);
       void refreshPackStatus(activeInstance?.id ?? null);
     });
-    events.modToggle.listen(() => refreshInstalledStats(activeInstance?.id ?? null));
+    events.modToggle.listen(() => {
+      void refreshInstalledStats(activeInstance?.id ?? null);
+      void refreshIncompatible(activeInstance?.id ?? null);
+    });
 
     events.processExited
       .listen(async (event) => {
@@ -781,6 +805,23 @@
                 </span>
                 <span class="text-xs text-warning-text underline"
                   >{$t('page.overview.missingModsView')}</span
+                >
+              </button>
+            {/if}
+
+            {#if incompatibleCount > 0}
+              <button
+                type="button"
+                class="btn-warning-soft btn-sm w-full flex items-center gap-2 text-left"
+                data-testid="overview-incompatible"
+                onclick={() => (modBrowserNav.value = { view: 'installed' })}
+              >
+                <span aria-hidden="true">⚠</span>
+                <span class="flex-1">
+                  {$t('page.overview.incompatibleBtn', { count: incompatibleCount })}
+                </span>
+                <span class="text-xs text-warning-text underline"
+                  >{$t('page.overview.incompatibleView')}</span
                 >
               </button>
             {/if}

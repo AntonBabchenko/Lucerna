@@ -294,7 +294,13 @@
       "filterDisabled": "Отключённые ({count})",
       "filterUpdates": "↑ Обновления ({count})",
       "filterIssues": "⚠ Проблемы ({count})",
+      "filterIncompatible": "⚠ Несовместимые ({count})",
       "badgeMissing": "⚠ {count} отсутствует",
+      "badgeIncompatible": "⚠ Несовместим",
+      "checkCompat": "Проверить совместимость",
+      "checkingCompat": "Проверка…",
+      "incompatHintLoader": "Этот мод для {detected}; профиль использует {loader}",
+      "incompatHintNoRelease": "Нет релиза под {loader} {mc} — отключите или удалите",
       "pickInstanceFirst": "Сначала выберите профиль.",
       "loading": "Загрузка установленных модов…",
       "empty": "В этом профиле пока нет установленных модов.",
@@ -367,7 +373,7 @@
       "or": "или",
       "optifine": "OptiFine",
       "optifineVersion": "OptiFine: скачайте сборку под Minecraft {mc} с optifine.net.",
-      "optifineNoInstance": "OptiFine: выберите инстанс, чтобы узнать нужную сборку."
+      "optifineNoInstance": "OptiFine: выберите профиль, чтобы узнать нужную сборку."
     },
     "installed": {
       "checkUpdates": "Проверить обновления",
@@ -1021,6 +1027,8 @@
       "playtimeLastSession": "Последняя сессия: {duration}, {when}",
       "missingModsBtn": "{count, plural, one {# мод сборки требует} few {# мода сборки требуют} many {# модов сборки требуют} other {# мода сборки требуют}} внимания",
       "missingModsView": "Посмотреть",
+      "incompatibleBtn": "{count, plural, one {# мод может быть несовместим} few {# мода могут быть несовместимы} many {# модов могут быть несовместимы} other {# модов могут быть несовместимы}}",
+      "incompatibleView": "Открыть",
       "statusRunning": "Запущено {versionId} (PID {pid})",
       "statusPickVersion": "Выберите версию Minecraft в",
       "statusPickVersionSuffix": "перед установкой.",

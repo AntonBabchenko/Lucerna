@@ -23,6 +23,8 @@
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
   import { createInstalledSelection } from './installed-selection.svelte';
+  import { createCompatCheck } from './compat-check.svelte';
+  import { displayLoader } from '$lib/instances/loader-display';
   import { modKey } from './row-utils';
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
@@ -41,10 +43,17 @@
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
   const data = createInstalledData(() => instanceId);
   const updates = createUpdateCheck(() => instanceId, data.refresh);
+  const compat = createCompatCheck(
+    () => instanceId,
+    () => mcVersion,
+    () => loader,
+    () => data.rows,
+  );
   const filters = createInstalledFilters(
     () => data.rows,
     () => updates.updatableShas,
     () => deps.missingShas,
+    () => compat.incompatibleShas,
   );
   const deps = createDepGraph(
     () => instanceId,
@@ -66,9 +75,37 @@
     deps.invalidateGraph,
   );
 
+  // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
+  // for interpolation, which the composable does not own).
+  function compatTitle(sha1: string): string | null {
+    const h = compat.hintFor(sha1);
+    if (!h) return null;
+    if (h.key === 'loader')
+      return get(t)('mods.installed.incompatHintLoader', {
+        detected: h.detected,
+        loader: loader ? displayLoader(loader) : '',
+      });
+    return get(t)('mods.installed.incompatHintNoRelease', {
+      loader: loader ? displayLoader(loader) : '',
+      mc: mcVersion ?? '',
+    });
+  }
+
   // Independent per-instance page size, persisted under its own key.
   $effect(() => {
     filters.pageSize = browserPrefs.installedPageSize;
+  });
+
+  // Drive the compat pipeline: re-scan whenever the instance / mc / loader
+  // changes. The composable owns no self-effect (kept directly unit-testable);
+  // this is its single reactive trigger, plus the mod add/remove/toggle handlers
+  // in onMount. The composable's generation guard makes a rapid switch supersede
+  // any in-flight scan from the previous instance.
+  $effect(() => {
+    void instanceId;
+    void mcVersion;
+    void loader;
+    void compat.runOfflineScan();
   });
 
   // Single-row ops (toggle/uninstall/detail install) live in the shell, so they
@@ -158,19 +195,30 @@
     updates.clearChecks();
   }
 
-  // Event listeners (belt-and-suspenders; also call refresh directly).
+  // Event listeners (belt-and-suspenders; also call refresh directly). The
+  // compat composable's effect only re-runs on instance/mc/loader change, so we
+  // also re-scan on mod add/remove/toggle here — otherwise a freshly installed
+  // mod's incompatibility chip would not appear until the next instance switch
+  // (and the Installed view would disagree with the Overview indicator, which
+  // already reacts to these events). The re-scan is cheap (offline) and the
+  // auto-confirm step skips shas already decided this session.
   let unlisteners: Array<() => void> = [];
   onMount(async () => {
     const handlers = [
       events.modInstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
+        void compat.runOfflineScan();
       }),
       events.modUninstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
+        void compat.runOfflineScan();
       }),
-      events.modToggle.listen(() => void data.refresh()),
+      events.modToggle.listen(() => {
+        void data.refresh();
+        void compat.runOfflineScan();
+      }),
     ];
     for (const p of handlers) unlisteners.push(await p);
   });
@@ -182,6 +230,7 @@
     updates.dispose();
     deps.dispose();
     selection.dispose();
+    compat.dispose();
   });
 </script>
 
@@ -198,6 +247,8 @@
     onCheckUpdates={updates.checkUpdates}
     onRecheckDeps={deps.recheckDeps}
     onUpdateAll={updates.updateAll}
+    checkingCompat={compat.checking}
+    onCheckCompat={compat.runLiveCheck}
   />
 
   {#if error}
@@ -252,6 +303,9 @@
           checking={updates.checking}
           packChip={data.packSummary && data.packSummary.mod_shas.includes(row.installed.sha1)
             ? data.packSummary.project_name
+            : null}
+          incompatibleTitle={compat.incompatibleShas.has(row.installed.sha1)
+            ? compatTitle(row.installed.sha1)
             : null}
           selected={selection.selected.has(row.installed.sha1)}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}

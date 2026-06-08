@@ -5,7 +5,7 @@ import { rowDisplayName } from './row-utils';
 // A single mutually-exclusive view filter — exactly one is active at a time, so
 // picking any chip simply shows that subset (no AND-combination to reason about).
 // 'updates' / 'issues' are status views; 'enabled' / 'disabled' are state views.
-export type ViewFilter = 'all' | 'enabled' | 'disabled' | 'updates' | 'issues';
+export type ViewFilter = 'all' | 'enabled' | 'disabled' | 'updates' | 'issues' | 'incompatible';
 export type SortBy = 'name-asc' | 'name-desc' | 'recent' | 'source';
 
 // Owns the filter / sort / pagination math for the installed list. `filtered`
@@ -16,6 +16,7 @@ export function createInstalledFilters(
   getRows: () => Row[],
   getUpdatableShas: () => Set<string>,
   getMissingShas: () => Set<string>,
+  getIncompatibleShas: () => Set<string> = () => new Set<string>(),
 ) {
   let filter = $state('');
   let viewFilter = $state<ViewFilter>('all');
@@ -58,6 +59,8 @@ export function createInstalledFilters(
               return updatable.has(r.installed.sha1);
             case 'issues':
               return missing.has(r.installed.sha1);
+            case 'incompatible':
+              return getIncompatibleShas().has(r.installed.sha1);
             default:
               return true; // 'all'
           }
@@ -82,6 +85,7 @@ export function createInstalledFilters(
       disabled: rows.length - enabled,
       updates: getUpdatableShas().size,
       issues: getMissingShas().size,
+      incompatible: getIncompatibleShas().size,
     };
   });
 
@@ -108,10 +112,11 @@ export function createInstalledFilters(
       $effect(() => {
         const resetUpdates = viewFilter === 'updates' && getUpdatableShas().size === 0;
         const resetIssues = viewFilter === 'issues' && getMissingShas().size === 0;
+        const resetIncompat = viewFilter === 'incompatible' && getIncompatibleShas().size === 0;
         // Wrap the self-referential write so the effect doesn't register
         // `viewFilter` as a dependency of its own assignment (it already depends
         // on it via the reads above; this keeps the update strictly one-shot).
-        if (resetUpdates || resetIssues) untrack(() => (viewFilter = 'all'));
+        if (resetUpdates || resetIssues || resetIncompat) untrack(() => (viewFilter = 'all'));
       });
     });
   } catch {

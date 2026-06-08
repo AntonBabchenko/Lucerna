@@ -381,6 +381,12 @@ export const commands = {
 	 */
 	checkInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModCompat[], Error>(__TAURI_INVOKE("check_instance_mod_compat", { id, mc, loader })),
 	/**
+	 *  Offline loader-compatibility scan of an instance's installed mods
+	 *  (Layer 1). Network-free; reads each jar's descriptor. Returns one
+	 *  `ModLocalCompat` per registered mod.
+	 */
+	scanInstanceModCompat: (id: string, mc: string, loader: LoaderKind) => typedError<ModLocalCompat[], Error>(__TAURI_INVOKE("scan_instance_mod_compat", { id, mc, loader })),
+	/**
 	 *  The instance's modpack origin reduced to chip data: the pack name
 	 *  and the SHA-1s of its bundled `mods/` files. `None` for an instance
 	 *  that was not created from a modpack import.
@@ -1229,6 +1235,32 @@ export type ModInstalled = {
 	sha1: string,
 	filename: string,
 	name: string,
+};
+
+/**
+ *  Offline (descriptor-only) compatibility result for one installed mod.
+ *  Layer 1 of the proactive scan: derived purely from the jar's embedded
+ *  descriptor, no network. Only loader-family mismatch is reported (see the
+ *  design's decision 1 — MC-version mismatch is left to the live layer to
+ *  avoid false positives on version-range declarations).
+ */
+export type ModLocalCompat = {
+	/**  SHA-1 of the installed jar — the registry's primary key. */
+	sha1: string,
+	/**  The jar's loader family differs from the instance's family. */
+	loader_mismatch: boolean,
+	/**
+	 *  Display loader name read from the jar ("Forge"/"Fabric"/…), or `None`
+	 *  when the jar has no recognised descriptor. Used only for the hint text.
+	 */
+	detected_loader: string | null,
+	/**
+	 *  True iff this mod has a platform identity and is not pack-bundled — i.e.
+	 *  it can be authoritatively re-checked against the platform. The frontend
+	 *  auto-runs a live check on platform suspects; manual jars (false) rely on
+	 *  the offline `loader_mismatch` verdict.
+	 */
+	live_checkable: boolean,
 };
 
 export type ModProject = {

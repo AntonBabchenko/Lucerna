@@ -15,6 +15,8 @@
     onCheckUpdates,
     onRecheckDeps,
     onUpdateAll,
+    checkingCompat,
+    onCheckCompat,
   }: {
     counts: {
       total: number;
@@ -22,6 +24,7 @@
       disabled: number;
       updates: number;
       issues: number;
+      incompatible: number;
     };
     filter: string;
     sortBy: SortBy;
@@ -33,6 +36,8 @@
     onCheckUpdates: () => void;
     onRecheckDeps: () => void;
     onUpdateAll: () => void;
+    checkingCompat: boolean;
+    onCheckCompat: () => void;
   } = $props();
 
   const sortOptions = $derived([
@@ -80,6 +85,15 @@
           },
         ]
       : []),
+    ...(counts.incompatible > 0
+      ? [
+          {
+            value: 'incompatible' as const,
+            label: $t('mods.installed.filterIncompatible', { count: counts.incompatible }),
+            activeClass: 'bg-warning-bg text-warning-text font-medium',
+          },
+        ]
+      : []),
   ]);
 
   // WCAG radiogroup keyboard pattern. Arrow / Home / End moves selection within
@@ -87,7 +101,7 @@
   // checked, -1 elsewhere) keeps the whole group as one tab stop.
   function handleFilterKey(e: KeyboardEvent) {
     const values = filterOptions.map((o) => o.value);
-    const i = values.indexOf(viewFilter);
+    const i = values.indexOf(viewFilter as (typeof values)[number]);
     const len = values.length;
     let next: ViewFilter | null = null;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = values[(i + 1) % len];
@@ -145,6 +159,14 @@
       onclick={onCheckUpdates}
     >
       {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
+    </button>
+    <button
+      type="button"
+      class="btn-secondary btn-xs"
+      disabled={busy || checkingCompat || counts.total === 0}
+      onclick={onCheckCompat}
+    >
+      {checkingCompat ? $t('mods.installed.checkingCompat') : $t('mods.installed.checkCompat')}
     </button>
     <button
       type="button"

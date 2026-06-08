@@ -86,6 +86,8 @@ vi.mock('$lib/ipc/bindings', () => ({
         ],
       },
     }),
+    scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

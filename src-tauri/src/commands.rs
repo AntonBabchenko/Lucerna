@@ -1728,6 +1728,21 @@ pub async fn check_instance_mod_compat(
     Ok(out)
 }
 
+/// Offline loader-compatibility scan of an instance's installed mods
+/// (Layer 1). Network-free; reads each jar's descriptor. Returns one
+/// `ModLocalCompat` per registered mod.
+#[tauri::command]
+#[specta::specta]
+pub async fn scan_instance_mod_compat(
+    app: tauri::AppHandle,
+    id: String,
+    mc: String,
+    loader: crate::instances::schema::LoaderKind,
+) -> crate::error::Result<Vec<crate::mods::compat::ModLocalCompat>> {
+    let inst_root = instance_root(&app, &id)?;
+    crate::mods::local::scan_instance(&inst_root, loader, &mc).await
+}
+
 /// The instance's modpack origin reduced to chip data: the pack name
 /// and the SHA-1s of its bundled `mods/` files. `None` for an instance
 /// that was not created from a modpack import.
