@@ -223,15 +223,14 @@ pub fn compat_verdict(
 }
 
 /// Offline loader-family compatibility scan of an instance's installed mods.
-/// Layer 1 of the proactive incompatibility check: judges only hand-dropped
-/// (`source = None`, non-pack-origin) jars by reading their descriptor and
-/// comparing loader families against the instance. Browser-installed mods
-/// (`source = Some(...)`) and modpack-bundled mods were already vetted for
-/// this instance's loader+MC at install time — the fragile offline heuristic
-/// must not second-guess them (it produced false "incompatible" flags on modern
-/// multi-loader jars). The live "Check compatibility" command re-validates
-/// those authoritatively. Network-free. A mod whose jar is
-/// missing/unreadable, or has no recognised descriptor, yields
+/// Layer 1 of the proactive incompatibility check: judges both hand-dropped
+/// (`source = None`) and platform-installed (`source = Some(...)`) mods by
+/// reading their descriptor and comparing loader families against the instance.
+/// Pack-bundled mods are trusted (the pack already vetted them for this
+/// loader+MC) and are never judged. For platform mods the offline verdict is
+/// only a SUSPECT pre-filter — the `live_checkable` flag tells the frontend
+/// to auto-run an authoritative live check on those. Network-free. A mod
+/// whose jar is missing/unreadable, or has no recognised descriptor, yields
 /// `loader_mismatch = false` (conservative — never a false alarm). `mc` is
 /// passed to `compat_verdict` (its signature needs it) but only the loader
 /// outputs are surfaced.
@@ -240,30 +239,30 @@ pub async fn scan_instance(
     instance_loader: LoaderKind,
     mc: &str,
 ) -> Result<Vec<ModLocalCompat>, Error> {
+    use crate::mods::updates::{eligible_identity, is_pack_origin_mod};
     let mods = installed::list(instance_root).await?;
     let pack_origin = installed::get_pack_origin(instance_root).await?;
     let dir = installed::mods_dir(instance_root);
     let mut out = Vec::with_capacity(mods.len());
     for m in &mods {
-        // Only judge hand-dropped jars: a browser-installed mod (source set) or
-        // a modpack-bundled mod was already vetted for this instance's loader+MC,
-        // so the fragile offline descriptor heuristic must not second-guess it
-        // (that produced false "incompatible" flags). The live "Check
-        // compatibility" command re-validates those authoritatively.
-        let is_manual = m.source.is_none()
-            && !crate::mods::updates::is_pack_origin_mod(m, pack_origin.as_ref());
-        let verdict = if is_manual {
+        // Judge loader-family for manual AND platform mods; pack-bundled mods are
+        // trusted (the pack vetted them) and never judged. For platform mods the
+        // offline verdict is only a SUSPECT pre-filter — the frontend auto-runs an
+        // authoritative live check on the platform suspects.
+        let is_pack = is_pack_origin_mod(m, pack_origin.as_ref());
+        let verdict = if is_pack {
+            None
+        } else {
             read_jar_for(&dir, &m.filename)
                 .await
                 .and_then(|bytes| read_jar_meta(&bytes).ok())
                 .map(|meta| compat_verdict(&meta, instance_loader, mc))
-        } else {
-            None
         };
         out.push(ModLocalCompat {
             sha1: m.sha1.clone(),
             loader_mismatch: verdict.as_ref().map(|v| v.loader_mismatch).unwrap_or(false),
             detected_loader: verdict.and_then(|v| v.detected_loader),
+            live_checkable: eligible_identity(m, pack_origin.as_ref()).is_some(),
         });
     }
     Ok(out)
@@ -707,17 +706,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scan_does_not_flag_platform_mods_even_when_descriptor_mismatches() {
+    async fn scan_marks_platform_mod_as_live_checkable_suspect() {
         use crate::mods::installed::{add, mods_dir};
         use crate::mods::platform::{InstalledMod, ModSource};
         let td = tempfile::TempDir::new().unwrap();
         let dir = mods_dir(td.path());
         fs::create_dir_all(&dir).await.unwrap();
-        // A fabric-only jar (would mismatch a Forge instance offline)...
         let bytes = zip_with(&[("fabric.mod.json", br#"{"id":"x","name":"X"}"#)]);
         fs::write(dir.join("x.jar"), &bytes).await.unwrap();
         let sha = hex::encode(Sha1::digest(&bytes));
-        // ...but it's a browser-installed mod (has a platform source), so it must be trusted offline.
         add(
             td.path(),
             InstalledMod {
@@ -744,13 +741,15 @@ mod tests {
             .iter()
             .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
             .unwrap();
+        // Platform mod with a mismatching descriptor is a SUSPECT, and is
+        // live-checkable so the frontend can auto-confirm it.
         assert!(
-            !m.loader_mismatch,
-            "platform mods must never be offline-flagged"
+            m.loader_mismatch,
+            "platform mod with wrong-family descriptor is a suspect"
         );
         assert!(
-            m.detected_loader.is_none(),
-            "no descriptor verdict for trusted mods"
+            m.live_checkable,
+            "platform mod must be marked live-checkable"
         );
     }
 

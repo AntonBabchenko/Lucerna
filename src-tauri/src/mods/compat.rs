@@ -48,6 +48,11 @@ pub struct ModLocalCompat {
     /// Display loader name read from the jar ("Forge"/"Fabric"/…), or `None`
     /// when the jar has no recognised descriptor. Used only for the hint text.
     pub detected_loader: Option<String>,
+    /// True iff this mod has a platform identity and is not pack-bundled — i.e.
+    /// it can be authoritatively re-checked against the platform. The frontend
+    /// auto-runs a live check on platform suspects; manual jars (false) rely on
+    /// the offline `loader_mismatch` verdict.
+    pub live_checkable: bool,
 }
 
 /// Classify a platform `.versions(...)` result for a target (mc, loader).
