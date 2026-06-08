@@ -2,6 +2,7 @@
 //! `.mrpack` (zip with `modrinth.index.json`) and CurseForge `.zip`
 //! (zip with `manifest.json`).
 
+pub mod atl_api;
 pub mod cf_api;
 pub mod curseforge;
 pub mod detect;
