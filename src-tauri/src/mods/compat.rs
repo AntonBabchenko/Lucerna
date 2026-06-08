@@ -34,6 +34,22 @@ pub struct ModCompat {
     pub status: ModCompatStatus,
 }
 
+/// Offline (descriptor-only) compatibility result for one installed mod.
+/// Layer 1 of the proactive scan: derived purely from the jar's embedded
+/// descriptor, no network. Only loader-family mismatch is reported (see the
+/// design's decision 1 — MC-version mismatch is left to the live layer to
+/// avoid false positives on version-range declarations).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ModLocalCompat {
+    /// SHA-1 of the installed jar — the registry's primary key.
+    pub sha1: String,
+    /// The jar's loader family differs from the instance's family.
+    pub loader_mismatch: bool,
+    /// Display loader name read from the jar ("Forge"/"Fabric"/…), or `None`
+    /// when the jar has no recognised descriptor. Used only for the hint text.
+    pub detected_loader: Option<String>,
+}
+
 /// Classify a platform `.versions(...)` result for a target (mc, loader).
 ///
 /// - Non-empty `Ok` → [`ModCompatStatus::Compatible`] with the version
