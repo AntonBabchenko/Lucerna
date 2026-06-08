@@ -79,13 +79,19 @@ pub(crate) async fn fetch_to_cache(
         let tmp = cached_path.with_extension("tmp");
         // download_inner verifies SHA-1 internally, deletes the partial
         // on mismatch, and creates tmp's parent (the cache root).
-        crate::network::download::download_inner(url, &tmp, sha, initiator, |dp| {
-            progress(
-                ModInstallPhase::Downloading,
-                dp.bytes_done as u64,
-                dp.bytes_total.map(|t| t as u64),
-            );
-        })
+        crate::network::download::download_inner(
+            url,
+            &tmp,
+            crate::network::download::Checksum::Sha1(sha.to_string()),
+            initiator,
+            |dp| {
+                progress(
+                    ModInstallPhase::Downloading,
+                    dp.bytes_done as u64,
+                    dp.bytes_total.map(|t| t as u64),
+                );
+            },
+        )
         .await
         .map_err(|e| match e {
             Error::HashMismatch { expected, got, .. } => Error::ModsSha1Mismatch { expected, got },

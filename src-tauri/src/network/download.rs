@@ -8,6 +8,7 @@
 use crate::error::{Error, Result};
 use crate::network::client::http;
 use futures_util::StreamExt;
+use md5::Md5;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
 use specta::Type;
@@ -28,13 +29,22 @@ pub struct DownloadProgress {
     pub bytes_total: Option<f64>,
 }
 
+/// What digest to verify a download against. The download always *also*
+/// computes sha1 (the universal identity anchor) and returns it; for
+/// `Md5` it additionally computes md5 to verify the vendor digest.
+pub enum Checksum {
+    /// Lowercase sha1 hex. Empty string = skip verification (legacy behaviour).
+    Sha1(String),
+    /// Lowercase md5 hex (ATLauncher server/direct mods).
+    Md5(String),
+}
+
 /// Shared streaming-download core used by the `download_with_sha` /
 /// `download_no_emit` wrappers AND directly by callers that need a
 /// progress callback without a Tauri `AppHandle` (e.g. `mods::install`).
-/// Streams the body of `url` to `dest`, hashing SHA-1 as it goes;
-/// verifies against `expected_sha_hex` after the last byte (empty
-/// `expected_sha_hex` skips verification);
-/// calls `emit` once per chunk with cumulative progress.
+/// Streams the body of `url` to `dest`, hashing as it goes;
+/// verifies against `checksum` after the last byte;
+/// always computes and returns sha1 (the universal identity anchor).
 /// `Err(HashMismatch)` deletes the partial file.
 ///
 /// `download_with_sha` / `download_no_emit` are thin wrappers that
@@ -42,10 +52,10 @@ pub struct DownloadProgress {
 pub(crate) async fn download_inner(
     url: &str,
     dest: &Path,
-    expected_sha_hex: &str,
+    checksum: Checksum,
     initiator: &str,
     mut emit: impl FnMut(DownloadProgress),
-) -> Result<()> {
+) -> Result<String> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
     let resp = http()
         .get(url)
@@ -69,12 +79,16 @@ pub(crate) async fn download_inner(
         .await
         .map_err(|e| Error::io(dest.display().to_string(), e))?;
 
-    let mut hasher = Sha1::new();
+    let mut sha1_hasher = Sha1::new();
+    let mut md5_hasher = Md5::new();
     let mut bytes_done: f64 = 0.0;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| Error::network(url, e))?;
-        hasher.update(&chunk);
+        sha1_hasher.update(&chunk);
+        if matches!(checksum, Checksum::Md5(_)) {
+            md5_hasher.update(&chunk);
+        }
         file.write_all(&chunk)
             .await
             .map_err(|e| Error::io(dest.display().to_string(), e))?;
@@ -90,19 +104,23 @@ pub(crate) async fn download_inner(
         .await
         .map_err(|e| Error::io(dest.display().to_string(), e))?;
 
-    let got_hex = hex::encode(hasher.finalize());
+    let got_sha1 = hex::encode(sha1_hasher.finalize());
 
-    if !expected_sha_hex.is_empty() && got_hex != expected_sha_hex {
+    let (expected, got_for_compare) = match &checksum {
+        Checksum::Sha1(h) => (h.as_str(), got_sha1.clone()),
+        Checksum::Md5(h) => (h.as_str(), hex::encode(md5_hasher.finalize())),
+    };
+    if !expected.is_empty() && got_for_compare != expected.to_ascii_lowercase() {
         // Drop the bad file so a retry starts fresh.
         let _ = tokio::fs::remove_file(dest).await;
         return Err(Error::HashMismatch {
             path: dest.display().to_string(),
-            expected: expected_sha_hex.to_string(),
-            got: got_hex,
+            expected: expected.to_string(),
+            got: got_for_compare,
         });
     }
 
-    Ok(())
+    Ok(got_sha1)
 }
 
 /// Download `url` to `dest`, verify SHA-1 equals `expected_sha_hex`,
@@ -117,11 +135,18 @@ pub async fn download_with_sha(
     expected_sha_hex: &str,
     initiator: &str,
 ) -> Result<()> {
-    download_inner(url, dest, expected_sha_hex, initiator, |p| {
-        // Best-effort: if the UI isn't listening, dropping the event is fine.
-        let _ = p.emit(app);
-    })
+    download_inner(
+        url,
+        dest,
+        Checksum::Sha1(expected_sha_hex.to_string()),
+        initiator,
+        |p| {
+            // Best-effort: if the UI isn't listening, dropping the event is fine.
+            let _ = p.emit(app);
+        },
+    )
     .await
+    .map(|_| ())
 }
 
 /// Same as `download_with_sha` but without event emission. Exposed for
@@ -135,7 +160,15 @@ pub async fn download_no_emit(
     expected_sha_hex: &str,
     initiator: &str,
 ) -> Result<()> {
-    download_inner(url, dest, expected_sha_hex, initiator, |_| {}).await
+    download_inner(
+        url,
+        dest,
+        Checksum::Sha1(expected_sha_hex.to_string()),
+        initiator,
+        |_| {},
+    )
+    .await
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -147,6 +180,63 @@ mod tests {
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    #[tokio::test]
+    async fn download_inner_md5_verifies_and_returns_sha1() {
+        let _g = test_lock();
+        let body = b"atlauncher-mod-bytes";
+        let md5_hex = hex::encode(Md5::digest(body));
+        let sha1_hex = hex::encode(Sha1::digest(body));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/mod.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("mod.jar");
+        let got_sha1 = download_inner(
+            &format!("{}/mod.jar", s.uri()),
+            &dest,
+            Checksum::Md5(md5_hex.clone()),
+            "test",
+            |_| {},
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(
+            got_sha1, sha1_hex,
+            "must return the sha1 computed over the bytes"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_inner_md5_mismatch_errors_and_deletes() {
+        let _g = test_lock();
+        let body = b"atlauncher-mod-bytes";
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/mod.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("mod.jar");
+        let r = download_inner(
+            &format!("{}/mod.jar", s.uri()),
+            &dest,
+            Checksum::Md5("00000000000000000000000000000000".into()),
+            "test",
+            |_| {},
+        )
+        .await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert!(matches!(r, Err(Error::HashMismatch { .. })));
+        assert!(!dest.exists(), "partial file must be deleted on mismatch");
     }
 
     #[tokio::test]
