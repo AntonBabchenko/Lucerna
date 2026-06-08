@@ -32,6 +32,67 @@ pub fn repair_kind_for(pattern_id: &str) -> Option<RepairKind> {
     }
 }
 
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+/// Any `*.jar` path/filename token. Captures the whole token incl. an
+/// optional leading path; the caller reduces to the basename.
+static JAR_TOKEN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[^\s\/]*\.jar").expect("jar-token regex compiles"));
+
+/// Markers that indicate a corrupt-jar failure; we search for a jar
+/// token within a window starting at the earliest marker.
+const CORRUPT_MARKERS: &[&str] = &["Invalid or corrupt jarfile", "java.util.zip.ZipException"];
+
+/// Best-effort extraction of the corrupt jar's *basename* from a log.
+/// Strategy: find the earliest corrupt-marker offset, then return the
+/// nearest `*.jar` token within a ±600-char window (preferring a token
+/// after the marker, falling back to one before). `None` when no jar
+/// token is present near a marker.
+pub fn extract_corrupt_jar(log: &str) -> Option<String> {
+    let marker = CORRUPT_MARKERS
+        .iter()
+        .filter_map(|m| log.find(m))
+        .min()?;
+    let win_start = marker.saturating_sub(600);
+    let win_end = (marker + 600).min(log.len());
+    // Snap to char boundaries before slicing (log is &str / UTF-8).
+    let win_start = floor_char_boundary(log, win_start);
+    let win_end = ceil_char_boundary(log, win_end);
+    let window = &log[win_start..win_end];
+
+    // Prefer the jar token closest to the marker. Compute marker offset
+    // relative to the window, then pick the match with the smallest
+    // distance from it.
+    let marker_in_win = marker - win_start;
+    JAR_TOKEN_RE
+        .find_iter(window)
+        .min_by_key(|m| {
+            let mid = (m.start() + m.end()) / 2;
+            mid.abs_diff(marker_in_win)
+        })
+        .map(|m| basename(m.as_str()).to_string())
+        .filter(|s| !s.is_empty() && s != ".jar")
+}
+
+fn basename(token: &str) -> &str {
+    token.rsplit(['/', '\\']).next().unwrap_or(token)
+}
+
+fn floor_char_boundary(s: &str, mut i: usize) -> usize {
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn ceil_char_boundary(s: &str, mut i: usize) -> usize {
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,5 +120,36 @@ mod tests {
         assert_eq!(repair_kind_for("port-already-in-use"), None);
         assert_eq!(repair_kind_for("disk-full"), None);
         assert_eq!(repair_kind_for("nonexistent"), None);
+    }
+
+    #[test]
+    fn corrupt_jar_from_invalid_jarfile_line() {
+        let log = "Error: Invalid or corrupt jarfile C:\\Users\\x\\mods\\sodium-fabric-0.5.3.jar";
+        assert_eq!(
+            extract_corrupt_jar(log).as_deref(),
+            Some("sodium-fabric-0.5.3.jar")
+        );
+    }
+
+    #[test]
+    fn corrupt_jar_from_zip_exception_window() {
+        let log = "[ERROR] Failed to load mod file mods/oldlib-1.2.jar\n\
+                   Caused by: java.util.zip.ZipException: zip END header not found";
+        assert_eq!(extract_corrupt_jar(log).as_deref(), Some("oldlib-1.2.jar"));
+    }
+
+    #[test]
+    fn corrupt_jar_none_when_no_jar_token() {
+        let log = "Caused by: java.util.zip.ZipException: zip END header not found";
+        assert_eq!(extract_corrupt_jar(log), None);
+    }
+
+    #[test]
+    fn corrupt_jar_basename_only_strips_path() {
+        let log = "Invalid or corrupt jarfile /home/u/.local/mods/fabric-api-0.92.jar";
+        assert_eq!(
+            extract_corrupt_jar(log).as_deref(),
+            Some("fabric-api-0.92.jar")
+        );
     }
 }
