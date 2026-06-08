@@ -437,6 +437,13 @@ async fn enrich_swap_targets(
             .await;
         if let Ok(list) = versions {
             if let Some(v) = list.into_iter().next() {
+                // Don't offer a "swap" to the version that's already installed
+                // — that would be a no-op ("Update to <same version>").
+                let already_installed = m.version_id.as_deref() == Some(v.version_id.as_str())
+                    || m.version_number.as_deref() == Some(v.version_number.as_str());
+                if already_installed {
+                    continue;
+                }
                 c.swap_version_label = Some(v.version_number.clone());
                 c.swap_target = Some(VersionRef {
                     source,

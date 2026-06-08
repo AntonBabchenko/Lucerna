@@ -71,6 +71,7 @@
   let repairPlan = $state<RepairPlan | null>(null);
   let repairLoading = $state(false);
   let repairUnavailable = $state(false);
+  let repairApplying = $state(false);
   let contentError = $state<string | null>(null);
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
@@ -221,6 +222,7 @@
     diagnosis = null;
     repairPlan = null;
     repairUnavailable = false;
+    repairApplying = false;
     const result = await commands.readLogFile(path, capBytes);
     loadingContent = false;
     if (result.status === 'ok') {
@@ -266,8 +268,16 @@
 
   async function applyRepair(choice: RepairChoice) {
     if (!instanceId) return;
-    repairPlan = null;
-    await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
+    // Keep the card open with a busy Apply button until the op reaches a
+    // terminal result (enqueueRepair resolves once it has drained), then
+    // close. A success/warning toast is emitted by the repair-ops store.
+    repairApplying = true;
+    try {
+      await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
+    } finally {
+      repairApplying = false;
+      repairPlan = null;
+    }
   }
 
   function cancelRepair() {
@@ -797,6 +807,7 @@
                   {#if repairPlan}
                     <RepairConfirmCard
                       plan={repairPlan}
+                      busy={repairApplying}
                       onConfirm={applyRepair}
                       onCancel={cancelRepair}
                     />

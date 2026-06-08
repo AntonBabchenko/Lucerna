@@ -1,15 +1,18 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import type { RepairPlan, RepairChoice, ConflictCandidate } from '$lib/ipc/bindings';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   let {
     plan,
     onConfirm,
     onCancel,
+    busy = false,
   }: {
     plan: RepairPlan;
     onConfirm: (choice: RepairChoice) => void;
     onCancel: () => void;
+    busy?: boolean;
   } = $props();
 
   // For resolve_conflict: the selected candidate sha1 + mode.
@@ -62,58 +65,66 @@
     <p class="text-sm">{$t('logs.repair.redownloadMod', { file: plan.filename })}</p>
   {:else if plan.kind === 'resolve_conflict'}
     <p class="text-sm font-semibold">{$t('logs.repair.conflictPrompt')}</p>
-    <div class="mt-2 flex flex-col gap-2">
+    <!-- One shared radio group: a conflict is resolved by a single change
+         (disable one mod, or update one to a compatible version), so exactly
+         one option across all candidates is selectable. -->
+    <div class="mt-2 flex flex-col gap-1.5">
       {#each plan.candidates as c (c.sha1)}
-        <div class="rounded border border-border-subtle p-2">
-          <div class="flex items-center gap-2 text-sm">
-            <span class="font-medium">{c.name}</span>
-            {#if c.compat_flagged}
-              <span class="text-xs text-warning-text">{$t('logs.repair.compatHint')}</span>
-            {/if}
-          </div>
-          <div class="mt-1 flex gap-3 text-sm">
-            <label class="flex items-center gap-1">
-              <input
-                type="radio"
-                name="conflict"
-                data-testid={`conflict-disable-${c.sha1}`}
-                checked={selected?.sha1 === c.sha1 && selected?.mode === 'disable'}
-                onchange={() => chooseConflict(c, 'disable')}
-              />
-              {$t('logs.repair.disableThis')}
-            </label>
-            {#if c.swap_target && c.swap_version_label}
-              <label class="flex items-center gap-1">
-                <input
-                  type="radio"
-                  name="conflict"
-                  data-testid={`conflict-swap-${c.sha1}`}
-                  checked={selected?.sha1 === c.sha1 && selected?.mode === 'swap'}
-                  onchange={() => chooseConflict(c, 'swap')}
-                />
-                {$t('logs.repair.swapTo', { version: c.swap_version_label })}
-              </label>
-            {/if}
-          </div>
-        </div>
+        <label class="flex items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="conflict"
+            data-testid={`conflict-disable-${c.sha1}`}
+            checked={selected?.sha1 === c.sha1 && selected?.mode === 'disable'}
+            disabled={busy}
+            onchange={() => chooseConflict(c, 'disable')}
+          />
+          <span>{$t('logs.repair.disableNamed', { name: c.name })}</span>
+          {#if c.compat_flagged}
+            <span class="text-xs text-warning-text">{$t('logs.repair.compatHint')}</span>
+          {/if}
+        </label>
+        {#if c.swap_target && c.swap_version_label}
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="radio"
+              name="conflict"
+              data-testid={`conflict-swap-${c.sha1}`}
+              checked={selected?.sha1 === c.sha1 && selected?.mode === 'swap'}
+              disabled={busy}
+              onchange={() => chooseConflict(c, 'swap')}
+            />
+            <span
+              >{$t('logs.repair.updateNamed', {
+                name: c.name,
+                version: c.swap_version_label,
+              })}</span
+            >
+          </label>
+        {/if}
       {/each}
     </div>
   {/if}
 
-  <div class="mt-3 flex gap-2">
+  <div class="mt-3 flex items-center gap-2">
     <button
       type="button"
       class="btn-primary btn-sm"
       data-testid="repair-confirm"
-      disabled={!canConfirm}
+      disabled={!canConfirm || busy}
       onclick={confirm}
     >
-      {$t('logs.repair.apply')}
+      {#if busy}
+        <Spinner size="sm" label={$t('logs.repair.working')} />
+      {:else}
+        {$t('logs.repair.apply')}
+      {/if}
     </button>
     <button
       type="button"
       class="btn-secondary btn-sm"
       data-testid="repair-cancel"
+      disabled={busy}
       onclick={onCancel}
     >
       {$t('common.cancel')}
