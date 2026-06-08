@@ -12,11 +12,13 @@ use crate::mods::modpack::schema::{
 };
 use crate::mods::platform::{LoaderKind, ModSource};
 
+pub mod atlauncher;
 pub mod curseforge;
 pub mod ftb;
 pub mod modrinth;
 pub(crate) mod stage;
 
+pub use atlauncher::AtlauncherModpackSource;
 pub use curseforge::CurseforgeModpackSource;
 pub use ftb::FtbModpackSource;
 pub use modrinth::ModrinthModpackSource;
@@ -66,8 +68,7 @@ pub fn modpack_source_for(source: ModSource) -> Box<dyn ModpackSource> {
         ModSource::Modrinth => Box::new(ModrinthModpackSource),
         ModSource::Curseforge => Box::new(CurseforgeModpackSource),
         ModSource::Ftb => Box::new(FtbModpackSource),
-        // ATLauncher: handled by a dedicated task; this arm is a placeholder for exhaustiveness.
-        ModSource::Atlauncher => Box::new(FtbModpackSource),
+        ModSource::Atlauncher => Box::new(AtlauncherModpackSource),
     }
 }
 
@@ -95,6 +96,14 @@ mod tests {
         );
         assert_eq!(
             FtbModpackSource.caps(),
+            SourceCaps {
+                needs_api_key: false,
+                supports_server_filter: false,
+                can_export: false
+            }
+        );
+        assert_eq!(
+            AtlauncherModpackSource.caps(),
             SourceCaps {
                 needs_api_key: false,
                 supports_server_filter: false,

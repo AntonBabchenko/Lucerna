@@ -280,7 +280,11 @@ const CF_BASE: &str = "https://api.curseforge.com";
 ///
 /// FTB cf-ref files need a CurseForge API key to resolve; without one they
 /// degrade to manual.
-async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Option<&str>) {
+pub(crate) async fn resolve_cf_refs(
+    summary: &mut ModpackSummary,
+    cf_base: &str,
+    key: Option<&str>,
+) {
     use crate::mods::modpack::cf_api;
 
     // Collect indices of CF-ref placeholder files (source=Curseforge, empty url).
