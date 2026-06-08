@@ -137,8 +137,12 @@ impl ModpackSource for AtlauncherModpackSource {
     ) -> Result<String, Error> {
         let pack = find_pack(ATL_API_BASE, project_id).await?;
         let configs = atl_api::configs(atl_api::nodecdn_base(), project_id, version_id).await?;
-        let mut summary =
-            crate::mods::modpack::atl_map::map_configs(&pack.name, version_id, &configs);
+        let mut summary = crate::mods::modpack::atl_map::map_configs(
+            &pack.name,
+            version_id,
+            atl_api::nodecdn_base(),
+            &configs,
+        );
         let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
         crate::mods::modpack::source::ftb::resolve_cf_refs(
             &mut summary,

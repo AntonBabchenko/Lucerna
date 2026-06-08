@@ -99,6 +99,10 @@ pub struct AtlMod {
     pub cf_project_id: u64,
     #[serde(default, rename = "curseForgeFileId")]
     pub cf_file_id: u64,
+    /// Loader version string (present on legacy loader-as-mod entries, e.g.
+    /// `{ "type": "forge", "version": "10.13.4.1558", ... }`).
+    #[serde(default)]
+    pub version: String,
 }
 
 fn default_true() -> bool {
