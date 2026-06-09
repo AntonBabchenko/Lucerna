@@ -973,8 +973,11 @@
         // we skip the latest-version lookup and install exactly what
         // the user clicked. If a different version is already
         // installed for this project, startInstall handles the swap.
-        // Keep the drawer open and flag the chosen version so its row /
-        // recommended CTA spins; clear the flag when the install settles.
+        //
+        // Keep the drawer open while the install runs so the chosen version's
+        // row / recommended CTA shows its busy spinner; close it when the
+        // install settles (success or error) so the browse list — and any
+        // install-error banner — is visible again underneath.
         installingVersionId = v.version_id;
         void startInstall(
           {
@@ -991,6 +994,7 @@
           v,
         ).finally(() => {
           installingVersionId = null;
+          drawerProject = null;
         });
       }}
     />

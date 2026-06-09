@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // vi.mock is hoisted to the top of the file, so its factory cannot reference
@@ -195,5 +195,102 @@ describe('ModBrowseView install busy state', () => {
     });
     expect(installBtn.hasAttribute('disabled')).toBe(true);
     expect(installBtn.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  it('closes the detail drawer when an install started from it settles', async () => {
+    // Open the detail drawer (ModDetailModal) by clicking the card's title
+    // button, install the recommended version from it (fast path → empty
+    // plan), then resolve the install. The drawer's onInstall finally now
+    // clears installingVersionId AND closes the drawer (drawerProject = null)
+    // so the result — and any install-error banner — is visible in the browse
+    // list underneath instead of hidden behind the open modal.
+    //
+    // clearAllMocks (afterEach) wipes call data but NOT the implementations a
+    // prior test installed (e.g. the dep-plan override). Restore the fast-path
+    // (empty plan) responses this render needs.
+    commands.modsGetCurseforgeKeyStatus.mockResolvedValue({ status: 'ok', data: 'set' });
+    commands.modsSearch.mockResolvedValue({
+      status: 'ok',
+      data: {
+        hits: [
+          {
+            source: 'modrinth',
+            project_id: 'abc',
+            slug: 'sodium',
+            name: 'Sodium',
+            summary: 'Fast rendering',
+            icon_url: null,
+            downloads: 0,
+            author: 'caffeine',
+            updated_at: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        page_size: 20,
+      },
+    });
+    commands.modsListInstalled.mockResolvedValue({ status: 'ok', data: [] });
+    commands.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+    commands.modsProject.mockResolvedValue({
+      status: 'ok',
+      data: { summary: { name: 'Sodium', author: 'caffeine', source: 'modrinth', downloads: 0 } },
+    });
+    commands.modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          source: 'modrinth',
+          project_id: 'abc',
+          version_id: 'v1',
+          name: 'Sodium 0.5',
+          version_number: '0.5',
+          loaders: ['fabric'],
+          mc_versions: ['1.20.1'],
+          primary_file: { distribution_allowed: true },
+        },
+      ],
+    });
+    commands.modsResolveInstallPlan.mockResolvedValue({
+      status: 'ok',
+      data: {
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [],
+        loader_requirements: [],
+      },
+    });
+    commands.modsInstallWithDeps.mockReturnValue(
+      new Promise((res) => {
+        globalThis.__resolveInstall = res as (v: unknown) => void;
+      }),
+    );
+
+    render(ModBrowseView, { props: baseProps as never });
+
+    // The card title button opens the detail modal. It carries the mod name
+    // ("Sodium") plus the author/downloads sub-line.
+    const titleBtn = await screen.findByRole('button', { name: /Sodium/i });
+    await fireEvent.click(titleBtn);
+
+    // Wait for the modal to load and its recommended-install CTA to render.
+    const dialog = await screen.findByRole('dialog');
+    const installCta = await waitFor(() =>
+      within(dialog).getByRole('button', { name: /install/i }),
+    );
+
+    await fireEvent.click(installCta);
+
+    // The drawer stays open while the install runs so its CTA can spin.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeNull();
+    });
+
+    // Settle the install — the finally must close the drawer.
+    globalThis.__resolveInstall?.({ status: 'ok', data: null });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 });
