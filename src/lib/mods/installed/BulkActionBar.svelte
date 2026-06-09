@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let {
     allSelected,
@@ -42,21 +43,21 @@
       >{$t('mods.installed.selectedCount', { count: selectedCount })}</span
     >
     <div data-testid="bulk-bar" class="ml-auto flex items-center gap-1">
-      <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={onEnable}
-        >{$t('mods.card.enable')}</button
+      <BusyButton {busy} class="btn-secondary btn-xs" onclick={onEnable}
+        >{$t('mods.card.enable')}</BusyButton
       >
-      <button type="button" class="btn-secondary btn-xs" disabled={busy} onclick={onDisable}
-        >{$t('mods.card.disable')}</button
+      <BusyButton {busy} class="btn-secondary btn-xs" onclick={onDisable}
+        >{$t('mods.card.disable')}</BusyButton
       >
-      <button
-        type="button"
+      <BusyButton
+        {busy}
         class="btn-secondary btn-xs"
-        disabled={busy || !canUpdate}
+        disabled={!canUpdate}
         title={!canUpdate ? $t('mods.installed.bulkUpdateTitle') : ''}
-        onclick={onUpdate}>{$t('mods.card.update')}</button
+        onclick={onUpdate}>{$t('mods.card.update')}</BusyButton
       >
-      <button type="button" class="btn-ghost-danger btn-xs" disabled={busy} onclick={onUninstall}
-        >{$t('mods.card.uninstall')}</button
+      <BusyButton {busy} class="btn-ghost-danger btn-xs" onclick={onUninstall}
+        >{$t('mods.card.uninstall')}</BusyButton
       >
       <!-- Clear is deliberately not gated on `busy`: deselecting is a local-only
            state reset and is safe to do while a bulk IPC op is in flight. -->
