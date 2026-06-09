@@ -372,13 +372,21 @@
                 <Icon name={i.ready ? 'success' : 'download'} />
                 {i.name}
                 {#if i.integrity && !i.integrity.healthy}
-                  <Icon
-                    name="warning"
-                    label={$t('instance.integrity.statusProblems', {
+                  <!-- Wrapping span keeps the hover tooltip (title) AND the
+                       accessible name; the icon itself stays decorative. -->
+                  <span
+                    class="inline-flex text-warning-text"
+                    title={$t('instance.integrity.statusProblems', {
                       count: i.integrity.problem_count,
                     })}
-                    class="text-warning-text"
-                  />
+                  >
+                    <Icon
+                      name="warning"
+                      label={$t('instance.integrity.statusProblems', {
+                        count: i.integrity.problem_count,
+                      })}
+                    />
+                  </span>
                 {/if}
                 {#if i.id === activeInstance?.id}
                   <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
