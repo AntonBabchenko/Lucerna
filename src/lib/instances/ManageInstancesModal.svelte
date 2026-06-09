@@ -372,8 +372,10 @@
                 <Icon name={i.ready ? 'success' : 'download'} />
                 {i.name}
                 {#if i.integrity && !i.integrity.healthy}
-                  <!-- Wrapping span keeps the hover tooltip (title) AND the
-                       accessible name; the icon itself stays decorative. -->
+                  <!-- The span carries the hover tooltip (title); the icon
+                       carries the accessible name (label → role="img" +
+                       aria-label), so pointer and screen-reader users get
+                       the same "N problems" text. -->
                   <span
                     class="inline-flex text-warning-text"
                     title={$t('instance.integrity.statusProblems', {

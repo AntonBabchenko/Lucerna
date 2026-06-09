@@ -19,7 +19,10 @@ import type { Component } from 'svelte';
 // from @lucide/svelte; every consumer goes through <Icon name="…" />, so
 // swapping an icon or the library is a one-line change here.
 export const ICONS = {
-  caret: ChevronRight, // disclosure caret; rotated via CSS on details[open]
+  // Disclosure caret. Two intentional reveal mechanisms: native <details>
+  // rotate it 90° via the .disclosure-caret CSS rule; manual toggles instead
+  // swap the name between `caret` (collapsed) and `chevronDown` (expanded).
+  caret: ChevronRight,
   chevronDown: ChevronDown,
   chevronUp: ChevronUp,
   close: X,

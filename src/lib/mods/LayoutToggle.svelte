@@ -14,6 +14,7 @@
     class="btn-secondary btn-sm rounded-none"
     class:btn-primary={browserPrefs.layout === 'grid'}
     aria-pressed={browserPrefs.layout === 'grid'}
+    aria-label={$t('mods.layout.grid')}
     title={$t('mods.layout.grid')}
     data-testid="layout-grid"
     onclick={() => (browserPrefs.layout = 'grid')}><Icon name="grid" /></button
@@ -23,6 +24,7 @@
     class="btn-secondary btn-sm rounded-none"
     class:btn-primary={browserPrefs.layout === 'list'}
     aria-pressed={browserPrefs.layout === 'list'}
+    aria-label={$t('mods.layout.list')}
     title={$t('mods.layout.list')}
     data-testid="layout-list"
     onclick={() => (browserPrefs.layout = 'list')}><Icon name="list" /></button
