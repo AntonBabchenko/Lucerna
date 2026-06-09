@@ -14,6 +14,7 @@
     ProgressTick,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import { drawerCache } from './drawer-cache';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
@@ -128,8 +129,6 @@
         !removedPaths.has(f.install_path),
     );
   }
-
-  let configsExpanded = $state(false);
 
   $effect(() => {
     void inst.id;
@@ -427,20 +426,30 @@
     {/if}
 
     <div class="flex-1 overflow-y-auto px-4 pb-4">
-      <h4 class="font-medium text-sm text-primary mt-2 mb-2">
-        {$t('modpacks.imported.detail.modsHeading')}
-      </h4>
-      {#if mods === null}
-        <div class="text-sm text-muted" data-testid="imported-detail-mods-loading">
-          {$t('modpacks.imported.detail.loading')}
-        </div>
-      {:else if mods.length === 0}
-        <div class="text-sm text-muted" data-testid="imported-detail-mods-empty">
-          {$t('modpacks.imported.detail.modsEmpty')}
-        </div>
-      {:else}
-        <ul class="space-y-1" data-testid="imported-detail-mods-list">
-          {#each mods as m (m.sha1)}
+      {#snippet sectionSummary(label: string)}
+        <summary
+          class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-2"
+        >
+          <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+          {label}
+        </summary>
+      {/snippet}
+
+      <details class="mt-2">
+        {@render sectionSummary(
+          $t('modpacks.imported.detail.modsHeading', { count: mods?.length ?? 0 }),
+        )}
+        {#if mods === null}
+          <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-loading">
+            {$t('modpacks.imported.detail.loading')}
+          </div>
+        {:else if mods.length === 0}
+          <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-empty">
+            {$t('modpacks.imported.detail.modsEmpty')}
+          </div>
+        {:else}
+          <ul class="space-y-1 pl-4" data-testid="imported-detail-mods-list">
+            {#each mods as m (m.sha1)}
             {@const prov = provenance(m)}
             <li class="flex items-center gap-2 text-sm py-1">
               <div
@@ -483,9 +492,10 @@
                 </span>
               {/if}
             </li>
-          {/each}
-        </ul>
-      {/if}
+            {/each}
+          </ul>
+        {/if}
+      </details>
 
       {#if status}
         {@const resourcepacks = presentAssets('resourcepacks')}
@@ -493,50 +503,50 @@
         {@const configs = presentAssets('configs')}
 
         {#if resourcepacks.length > 0}
-          <h4 class="font-medium text-sm text-primary mt-5 mb-2">
-            {$t('modpacks.imported.detail.resourcePacksHeading', { count: resourcepacks.length })}
-          </h4>
-          <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
-            {#each resourcepacks as f (f.install_path)}
-              <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1">{f.name}</span>
-              </li>
-            {/each}
-          </ul>
+          <details class="mt-2" data-testid="imported-detail-resourcepacks-section">
+            {@render sectionSummary(
+              $t('modpacks.imported.detail.resourcePacksHeading', { count: resourcepacks.length }),
+            )}
+            <ul class="space-y-1 pl-4" data-testid="imported-detail-resourcepacks">
+              {#each resourcepacks as f (f.install_path)}
+                <li class="flex items-center gap-2 text-sm py-1">
+                  <span class="truncate flex-1">{f.name}</span>
+                  <span class="text-xs text-placeholder flex-shrink-0">{formatSize(f.size)}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
         {/if}
 
         {#if shaderpacks.length > 0}
-          <h4 class="font-medium text-sm text-primary mt-5 mb-2">
-            {$t('modpacks.imported.detail.shaderPacksHeading', { count: shaderpacks.length })}
-          </h4>
-          <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
-            {#each shaderpacks as f (f.install_path)}
-              <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1">{f.name}</span>
-              </li>
-            {/each}
-          </ul>
+          <details class="mt-2" data-testid="imported-detail-shaderpacks-section">
+            {@render sectionSummary(
+              $t('modpacks.imported.detail.shaderPacksHeading', { count: shaderpacks.length }),
+            )}
+            <ul class="space-y-1 pl-4" data-testid="imported-detail-shaderpacks">
+              {#each shaderpacks as f (f.install_path)}
+                <li class="flex items-center gap-2 text-sm py-1">
+                  <span class="truncate flex-1">{f.name}</span>
+                  <span class="text-xs text-placeholder flex-shrink-0">{formatSize(f.size)}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
         {/if}
 
         {#if configs.length > 0}
-          <button
-            type="button"
-            class="font-medium text-sm text-secondary mt-5 mb-2 flex items-center gap-1 hover:text-primary"
-            onclick={() => (configsExpanded = !configsExpanded)}
-            data-testid="imported-detail-configs-toggle"
-          >
-            <span>{configsExpanded ? '▾' : '▸'}</span>
-            {$t('modpacks.imported.detail.configsHeading', { count: configs.length })}
-          </button>
-          {#if configsExpanded}
-            <ul class="space-y-1" data-testid="imported-detail-configs">
+          <details class="mt-2" data-testid="imported-detail-configs-section">
+            {@render sectionSummary(
+              $t('modpacks.imported.detail.configsHeading', { count: configs.length }),
+            )}
+            <ul class="space-y-1 pl-4" data-testid="imported-detail-configs">
               {#each configs as f (f.install_path)}
                 <li class="flex items-center gap-2 text-sm py-1">
                   <span class="truncate flex-1 text-secondary">{f.install_path}</span>
                 </li>
               {/each}
             </ul>
-          {/if}
+          </details>
         {/if}
       {/if}
 
