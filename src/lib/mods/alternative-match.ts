@@ -24,6 +24,26 @@ export function isLikelyMatch(a: string, b: string): boolean {
 }
 
 /**
+ * Decide whether a Modrinth search hit plausibly IS the mod the user searched
+ * for, by comparing the query against the hit's display name AND its slug.
+ * Modrinth's relevance search returns loosely-related hits (e.g. by a
+ * similarly-named author) that are NOT the mod — those must be excluded so the
+ * dialog never offers an unrelated mod as a one-click "alternative". Matching
+ * the slug catches mods whose display name differs from their id (e.g. the
+ * "jei" slug for "Just Enough Items").
+ */
+export function isPlausibleAlternative(
+  query: string,
+  candidateName: string,
+  candidateSlug: string | null,
+): boolean {
+  return (
+    isLikelyMatch(query, candidateName) ||
+    (candidateSlug !== null && isLikelyMatch(query, candidateSlug))
+  );
+}
+
+/**
  * Derive a Modrinth-search-friendly query from a blocked mod's name, which is
  * often a raw jar filename (e.g. `moreoverlays-1.21.5-mc1.19.2.jar`). Strips a
  * trailing archive extension, then keeps the leading run of name tokens up to

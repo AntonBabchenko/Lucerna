@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSearchQuery, isLikelyMatch, normalizeModName } from '$lib/mods/alternative-match';
+import {
+  deriveSearchQuery,
+  isLikelyMatch,
+  isPlausibleAlternative,
+  normalizeModName,
+} from '$lib/mods/alternative-match';
 
 describe('normalizeModName', () => {
   it('lowercases and strips non-alphanumerics', () => {
@@ -47,5 +52,29 @@ describe('deriveSearchQuery', () => {
   it('falls back to the cleaned stem when every token looks like junk', () => {
     // A degenerate loader-ish entry — better to search something than nothing.
     expect(deriveSearchQuery('1.11.1-1.21.1.jar')).toBe('1.11.1 1.21.1');
+  });
+});
+
+describe('isPlausibleAlternative', () => {
+  it('rejects loosely-related results that do not match name or slug', () => {
+    // Searching "hexerei" must NOT match author-"Hexeption" mods.
+    expect(isPlausibleAlternative('hexerei', 'RSInfinityBooster', 'rsinfinitybooster')).toBe(false);
+    expect(isPlausibleAlternative('hexerei', 'Minis', 'minis')).toBe(false);
+  });
+
+  it('matches by slug when the display name differs (e.g. JEI)', () => {
+    expect(isPlausibleAlternative('jei', 'Just Enough Items', 'jei')).toBe(true);
+  });
+
+  it('matches by name/slug for the real mod', () => {
+    expect(isPlausibleAlternative('moreoverlays', 'More Overlays Updated', 'moreoverlays')).toBe(
+      true,
+    );
+    expect(isPlausibleAlternative('hexerei', 'Hexerei', 'hexerei')).toBe(true);
+  });
+
+  it('handles a null slug', () => {
+    expect(isPlausibleAlternative('sodium', 'Sodium', null)).toBe(true);
+    expect(isPlausibleAlternative('hexerei', 'Sodium', null)).toBe(false);
   });
 });

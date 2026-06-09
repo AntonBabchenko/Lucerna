@@ -6,7 +6,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
-  import { deriveSearchQuery, isLikelyMatch } from './alternative-match';
+  import { deriveSearchQuery, isPlausibleAlternative } from './alternative-match';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
 
@@ -48,10 +48,11 @@
     candidates = null;
     searchError = null;
     installError = null;
+    const usedQuery = query.trim();
     const r = await commands.modsSearch({
       source: 'modrinth',
       kind: 'mod',
-      query,
+      query: usedQuery,
       mc_version: mcVersion,
       loader,
       sort: 'relevance',
@@ -62,7 +63,10 @@
       searchError = formatError(r.error);
       return;
     }
-    candidates = r.data.hits;
+    // Show ONLY hits that plausibly ARE the searched mod (by name or slug).
+    // Modrinth relevance search otherwise returns unrelated "close" hits that
+    // must never be offered as a one-click alternative.
+    candidates = r.data.hits.filter((h) => isPlausibleAlternative(usedQuery, h.name, h.slug));
   }
 
   async function install(card: ModSummary) {
@@ -156,23 +160,12 @@
       {:else if candidates}
         <ul class="space-y-2" data-testid="find-alt-results">
           {#each candidates as c (c.project_id)}
-            {@const likely = isLikelyMatch(modName, c.name)}
             <li class="flex items-center gap-3 p-2 rounded border border-subtle">
               {#if c.icon_url}
                 <img src={c.icon_url} alt="" class="w-10 h-10 rounded flex-shrink-0" />
               {/if}
               <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm text-primary truncate">{c.name}</span>
-                  {#if likely}
-                    <span
-                      class="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent flex-shrink-0"
-                      data-testid="find-alt-likely"
-                    >
-                      {$t('mods.findAlt.likelyMatch')}
-                    </span>
-                  {/if}
-                </div>
+                <span class="text-sm text-primary truncate">{c.name}</span>
                 <span class="text-xs text-muted truncate block">{c.author}</span>
               </div>
               <BusyButton

@@ -215,7 +215,7 @@
       "searchLabel": "Search query",
       "searchBtn": "Search",
       "searching": "Searching Modrinth…",
-      "empty": "Nothing found on Modrinth. Refine the search, or open the original project page below.",
+      "empty": "No matching mod found on Modrinth. Refine the search, or open the original on CurseForge below — it may be a CurseForge-only mod.",
       "likelyMatch": "likely match",
       "install": "Install",
       "installed": "Installed {name}",

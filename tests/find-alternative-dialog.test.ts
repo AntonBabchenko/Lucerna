@@ -51,7 +51,7 @@ function renderDialog(onInstalled?: OnInstalled, onClose: () => void = vi.fn()) 
 }
 
 describe('FindAlternativeDialog', () => {
-  it('auto-searches Modrinth on mount and renders candidates with a likely-match badge', async () => {
+  it('auto-searches Modrinth on mount and renders plausible candidates', async () => {
     modsSearch.mockResolvedValue({
       status: 'ok',
       data: { hits: [hit('abc', 'Create Train Parts')], total: 1, offset: 0, page_size: 20 },
@@ -66,7 +66,36 @@ describe('FindAlternativeDialog', () => {
         loader: 'neoforge',
       }),
     );
-    expect(screen.getByTestId('find-alt-likely')).toBeTruthy();
+    const results = screen.getByTestId('find-alt-results');
+    expect(within(results).getByText('Create Train Parts')).toBeTruthy();
+  });
+
+  it('shows the not-found state and no install candidates when only unrelated hits return', async () => {
+    // Searching a specific mod ("hexerei") where Modrinth returns loosely
+    // related hits by name/author — none of these slugs match "hexerei", so
+    // the dialog must offer NO install candidates and show the empty state.
+    modsSearch.mockResolvedValue({
+      status: 'ok',
+      data: {
+        hits: [hit('1', 'RSInfinityBooster'), hit('2', 'Minis')],
+        total: 2,
+        offset: 0,
+        page_size: 20,
+      },
+    });
+    render(FindAlternativeDialog, {
+      props: {
+        modName: 'Hexerei',
+        mcVersion: '1.21.1',
+        loader: 'neoforge',
+        instanceId: 'inst-1',
+        curseForgeUrl: 'https://www.curseforge.com/minecraft/mc-mods/hexerei',
+        onClose: vi.fn(),
+      },
+    });
+    await waitFor(() => expect(screen.getByTestId('find-alt-empty')).toBeTruthy());
+    expect(screen.queryByTestId('find-alt-results')).toBeNull();
+    expect(screen.queryByRole('button', { name: /install/i })).toBeNull();
   });
 
   it('shows the empty state when no hits', async () => {
