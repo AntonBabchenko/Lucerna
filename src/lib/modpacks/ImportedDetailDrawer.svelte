@@ -20,6 +20,7 @@
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { drawerCache } from './drawer-cache';
   import { isUnresolvedMissingState } from './missing-mod';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
@@ -435,7 +436,7 @@
         <summary
           class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-2"
         >
-          <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+          <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
           {label}
         </summary>
       {/snippet}
