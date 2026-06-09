@@ -405,6 +405,7 @@ mod tests {
                 })
                 .collect(),
             missing_mods: vec![],
+            skipped_overrides: vec![],
             resolved_missing: Vec::new(),
         }
     }

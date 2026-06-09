@@ -72,6 +72,21 @@ pub struct ModpackFile {
     pub source: ModSource,
 }
 
+/// A file inside the pack's `overrides/` that the importer chose NOT to
+/// extract because it exceeded the per-file size cap. In practice this is
+/// an inert, non-loadable blob — most often a `.rar`/`.7z`/`.zip` an author
+/// left in `overrides/mods/`, which Minecraft never loads (it scans
+/// `mods/*.jar` only). The import still succeeds; this is surfaced purely
+/// so the user is told what was deliberately left out (transparency).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct SkippedOverride {
+    /// The override-relative path of the skipped entry, e.g. `mods/mods.rar`.
+    pub path: String,
+    /// The entry's declared uncompressed size in bytes. f64 not u64 —
+    /// specta forbids BigInt-style exports.
+    pub size: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModpackUnresolvable {
     pub reason: UnresolvableReason,
@@ -180,6 +195,11 @@ pub enum ModpackProgress {
     Enriching,
     Done {
         instance_id: String,
+        /// Overrides skipped during extraction because they exceeded the
+        /// per-file size cap (non-loadable blobs — see `SkippedOverride`).
+        /// Empty in the common case; non-empty drives a non-fatal "N file(s)
+        /// skipped" note on the import-complete toast.
+        skipped_overrides: Vec<SkippedOverride>,
     },
 }
 

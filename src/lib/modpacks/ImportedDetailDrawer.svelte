@@ -675,6 +675,33 @@
           </ul>
         </div>
       {/if}
+
+      {#if status && (status.origin.skipped_overrides?.length ?? 0) > 0}
+        {@const skipped = status.origin.skipped_overrides ?? []}
+        <div class="mt-5" data-testid="imported-detail-skipped-section">
+          <h4 class="font-medium text-sm text-primary mb-2">
+            {$t('modpacks.imported.detail.skippedHeading', {
+              count: skipped.length,
+            })}
+          </h4>
+          <p class="text-xs text-muted mb-2">
+            {$t('modpacks.imported.detail.skippedBody')}
+          </p>
+          <ul class="space-y-1">
+            {#each skipped as s (s.path)}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
+              >
+                <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
+                <span class="truncate flex-1">{s.path}</span>
+                <span class="text-xs text-muted flex-shrink-0">
+                  {Math.round((s.size ?? 0) / (1024 * 1024))} MB
+                </span>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
     </div>
 
     <footer

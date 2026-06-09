@@ -90,7 +90,7 @@ describe('ImportProgressView', () => {
   it('renders the done label', () => {
     const { getByText } = render(ImportProgressView, {
       props: {
-        phase: { phase: 'done', instance_id: 'inst-123' },
+        phase: { phase: 'done', instance_id: 'inst-123', skipped_overrides: [] },
         modBytes: null,
       },
     });

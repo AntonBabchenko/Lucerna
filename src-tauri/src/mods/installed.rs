@@ -29,7 +29,7 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable};
+use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable, SkippedOverride};
 use crate::mods::platform::{InstalledMod, ModSource};
 
 const FILE_VERSION: u32 = 4;
@@ -86,6 +86,12 @@ pub struct PackOrigin {
     /// registry files written before SF2 load with an empty list.
     #[serde(default)]
     pub missing_mods: Vec<ModpackUnresolvable>,
+    /// Bundled `overrides/` files the import deliberately skipped because
+    /// they exceeded the per-file size cap (inert non-mod blobs — e.g. a
+    /// `.rar` left in `mods/`). `#[serde(default)]` so registry files
+    /// written before this feature load with an empty list.
+    #[serde(default)]
+    pub skipped_overrides: Vec<SkippedOverride>,
     /// User-chosen substitutes for `missing_mods` entries (installed from
     /// another source when the pack's CurseForge file is distribution
     /// disabled). `#[serde(default)]` so registry files written before this
@@ -598,6 +604,7 @@ mod tests {
                 source: ModSource::Modrinth,
             }],
             missing_mods: vec![],
+            skipped_overrides: vec![],
             resolved_missing: Vec::new(),
         }
     }
@@ -699,6 +706,7 @@ mod tests {
                 version: "1".into(),
                 files: vec![mods_file, rp],
                 missing_mods: vec![],
+                skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
             }),
         };
@@ -829,6 +837,7 @@ mod tests {
                 version: "1".into(),
                 files: vec![rp],
                 missing_mods: vec![],
+                skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
             }),
         };
@@ -869,6 +878,9 @@ mod tests {
         fs::write(registry_path(td.path()), legacy).await.unwrap();
         let origin = get_pack_origin(td.path()).await.unwrap().unwrap();
         assert!(origin.missing_mods.is_empty());
+        // skipped_overrides is also #[serde(default)] — a registry written
+        // before this feature must load with an empty list, not fail.
+        assert!(origin.skipped_overrides.is_empty());
     }
 
     #[tokio::test]
