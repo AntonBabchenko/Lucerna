@@ -572,9 +572,7 @@
               >
                 <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
                 <span class="truncate flex-1">{s.path}</span>
-                <span class="text-xs text-muted flex-shrink-0">
-                  {Math.round((s.size ?? 0) / (1024 * 1024))} MB
-                </span>
+                <span class="text-xs text-muted flex-shrink-0">{formatSize(s.size)}</span>
               </li>
             {/each}
           </ul>
