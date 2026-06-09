@@ -73,6 +73,13 @@ pub(crate) async fn fetch_to_cache(
     initiator: &str,
     progress: &ProgressFn,
 ) -> Result<std::path::PathBuf, Error> {
+    // No-TOFU (Principle B.6): refuse to install a file whose integrity we cannot
+    // verify, before any I/O. Mirrors install_asset's guard so the invariant holds
+    // at the sink, not only on the summary-formation path. An empty expected hash
+    // would otherwise skip verification in download_inner.
+    if sha.trim().is_empty() {
+        return Err(Error::ModsSha1Unavailable);
+    }
     let cached = cache::verify_or_evict(data_dir, sha).await?;
     let cached_path = cache::cache_path_for(data_dir, sha);
     if !cached {
@@ -796,6 +803,41 @@ mod tests {
         assert!(
             matches!(r2, Err(Error::ModsSha1Unavailable)),
             "whitespace sha1 must return ModsSha1Unavailable, got {r2:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_to_cache_empty_sha1_rejects_before_io() {
+        // No-TOFU: an empty sha1 must be rejected immediately — before any network
+        // I/O or cache write — so the mod sink is fail-closed, not just the asset sink.
+        let data = TempDir::new().unwrap();
+        let noop: ProgressFn = Box::new(|_, _, _| {});
+        let r = fetch_to_cache(
+            data.path(),
+            "https://edge.forgecdn.net/files/1/2/x.jar",
+            "", // empty sha — must reject
+            100.0,
+            "mods",
+            &noop,
+        )
+        .await;
+        assert!(
+            matches!(r, Err(Error::ModsSha1Unavailable)),
+            "empty sha must be rejected with ModsSha1Unavailable, got {r:?}"
+        );
+        // Guard must also fire for whitespace-only sha1.
+        let r2 = fetch_to_cache(
+            data.path(),
+            "https://edge.forgecdn.net/files/1/2/x.jar",
+            "   ", // whitespace-only sha — must also reject
+            100.0,
+            "mods",
+            &noop,
+        )
+        .await;
+        assert!(
+            matches!(r2, Err(Error::ModsSha1Unavailable)),
+            "whitespace sha must be rejected with ModsSha1Unavailable, got {r2:?}"
         );
     }
 
