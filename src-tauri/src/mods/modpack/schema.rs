@@ -203,7 +203,9 @@ pub enum MissingModState {
 
 /// One `PackOrigin.missing_mods` entry paired with its live
 /// classification — `installed` (the pinned file), `different_version`
-/// (the mod is present, but not the pinned file), or `missing`.
+/// (the mod is present, but not the pinned file), `missing` (no matching
+/// jar), or `substituted` (the user installed an alternative from another
+/// source, recorded in `PackOrigin.resolved_missing`).
 /// Computed by `compute_status`; consumed by the imported-pack drawer
 /// and the Overview indicator.
 #[derive(Debug, Clone, Serialize, Type)]

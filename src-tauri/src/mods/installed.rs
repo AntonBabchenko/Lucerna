@@ -103,6 +103,8 @@ pub struct ResolvedMissing {
     /// Expected jar filename of the closed entry (from the blocked entry).
     pub filename: String,
     /// Display name of the closed entry — disambiguates same-filename entries.
+    /// Copied from the blocked `ModpackUnresolvable.mod_name` at record time so
+    /// it matches the entry the overlay closes.
     pub mod_name: String,
     /// SHA-1 (lowercased) of the installed substitute jar. The entry reverts
     /// to unresolved if this sha1 leaves the registry (self-healing).
