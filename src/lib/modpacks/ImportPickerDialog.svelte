@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
+  import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
 
@@ -55,16 +56,6 @@
       ...optional.filter((f) => optionalSelected.has(f.sha1)).map((f) => f.sha1),
     ]),
   ]);
-
-  // ── Size formatter ──────────────────────────────────────────────────────
-  // Binary (IEC) units. Small files that round to "0.0 MiB" are shown in
-  // KiB or plain bytes instead of a misleading zero.
-  function formatSize(size: number | null): string {
-    if (size == null || size <= 0) return '';
-    if (size < 1024) return `${Math.round(size)} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
-    return `${(size / 1024 / 1024).toFixed(1)} MiB`;
-  }
 
   // ── Category grouping ───────────────────────────────────────────────────
   type CategoryKey =
