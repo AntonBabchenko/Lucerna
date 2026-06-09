@@ -18,8 +18,12 @@ export interface AttentionInputs {
 export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
   const items: AttentionItem[] = [];
   if (input.mcVersionMissing) items.push({ kind: 'pick_version', count: 0 });
-  if (input.missingModsCount > 0) items.push({ kind: 'missing_mods', count: input.missingModsCount });
-  if (input.incompatibleCount > 0) items.push({ kind: 'incompatible', count: input.incompatibleCount });
+  if (input.missingModsCount > 0) {
+    items.push({ kind: 'missing_mods', count: input.missingModsCount });
+  }
+  if (input.incompatibleCount > 0) {
+    items.push({ kind: 'incompatible', count: input.incompatibleCount });
+  }
   if (input.integrityProblemCount > 0) {
     items.push({ kind: 'integrity', count: input.integrityProblemCount });
   }
