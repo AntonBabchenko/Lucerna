@@ -638,6 +638,22 @@
     "diagnosis": {
       "whatToTry": "What to try:"
     },
+    "repair": {
+      "fixThis": "Fix this",
+      "checking": "Checking…",
+      "apply": "Apply fix",
+      "working": "Working…",
+      "unavailable": "This can't be fixed automatically — follow the steps above.",
+      "raiseHeap": "Raise this instance's memory from {from} MB to {to} MB.",
+      "reinstallLoader": "Reinstall the {loader} loader for this instance.",
+      "redownloadMod": "Re-download {file} (replaces the corrupt copy, verified by checksum).",
+      "conflictPrompt": "These two mods conflict — pick one fix:",
+      "compatHint": "may not fit this instance",
+      "disableNamed": "Disable {name}",
+      "updateNamed": "Update {name} to {version}",
+      "toastDone": "Repair applied to {name}.",
+      "toastError": "Couldn't repair {name}: {error}"
+    },
     "empty": {
       "noFile": "Select a file on the left to read it.",
       "noLogs": "No log files yet. Launch Minecraft once.",

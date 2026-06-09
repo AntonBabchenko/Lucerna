@@ -109,6 +109,63 @@ pub fn kill_process_tree(pid: u32) {
     }
 }
 
+/// Total physical RAM in MB, or `None` when it can't be read. Used to
+/// bound the OOM heap suggestion (never propose more than half of RAM).
+/// Three cfg-gated impls; no new crate dependency.
+pub fn total_system_ram_mb() -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        // SAFETY: MEMORYSTATUSEX is a plain-old-data struct; we zero it,
+        // set dwLength as the API requires, and pass a valid pointer.
+        let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+        status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+        if ok == 0 {
+            return None;
+        }
+        return Some(status.ullTotalPhys / (1024 * 1024));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("MemTotal:") {
+                // "MemTotal:       16384256 kB"
+                let kb: u64 = rest.trim().trim_end_matches("kB").trim().parse().ok()?;
+                return Some(kb / 1024);
+            }
+        }
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // sysctl hw.memsize → total bytes via the libc sysctlbyname FFI.
+        // `libc` is already a `cfg(unix)` dependency (used above by
+        // kill_process_tree), and macOS is unix, so it resolves here.
+        let mut size: u64 = 0;
+        let mut len = std::mem::size_of::<u64>();
+        let name = c"hw.memsize";
+        // SAFETY: standard sysctlbyname usage; name is a valid C string,
+        // out buffer + len are correctly sized for a u64.
+        let rc = unsafe {
+            libc::sysctlbyname(
+                name.as_ptr(),
+                &mut size as *mut u64 as *mut libc::c_void,
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if rc != 0 {
+            return None;
+        }
+        return Some(size / (1024 * 1024));
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
 /// Block until the spawned process has created its top-level window (input
 /// message queue ready), or a 30-second cap elapses. Used to delay
 /// hide-to-tray until Minecraft is actually on screen.
@@ -234,6 +291,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = symlink("target", &dir.path().join("alias")).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+    }
+
+    #[test]
+    fn total_system_ram_is_plausible_on_this_host() {
+        // On any real CI/dev host this returns Some(>= 512 MB). We only
+        // assert the lower bound + that the call doesn't panic; the exact
+        // value is host-dependent.
+        if let Some(mb) = super::total_system_ram_mb() {
+            assert!(mb >= 512, "implausibly small RAM reading: {mb} MB");
+        }
+        // None is tolerated (unsupported/locked-down host) — callers treat
+        // it as "unknown" and fall back to a conservative fixed bump.
     }
 
     #[cfg(not(windows))]

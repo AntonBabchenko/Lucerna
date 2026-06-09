@@ -120,7 +120,28 @@ export const commands = {
 	explanation: string,
 	recommendation: string,
 	matched_excerpt: string,
+	/**
+	 *  Repair affordance tag. `Some` iff the matched pattern is in the
+	 *  actionable set — tells the UI to show a Fix button. The concrete
+	 *  plan is fetched lazily via `build_repair_plan`.
+	 */
+	repair: RepairKind | null,
 } | null, Error>(__TAURI_INVOKE("diagnose_log", { instanceId, path })),
+	/**
+	 *  Build a concrete, confirmable repair plan for a diagnosed log, or
+	 *  `None` when no safe fix can be constructed (the UI then keeps the
+	 *  advisory recommendation text). Lazy: called only when the user
+	 *  clicks "Fix this", so the network swap-lookup for conflicts runs
+	 *  only on intent.
+	 */
+	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
+	/**
+	 *  Apply a user-confirmed repair choice by dispatching to the existing
+	 *  mutation commands. No resolution happens here — `build_repair_plan`
+	 *  already produced fully-formed parameters. Re-running a now-stale fix
+	 *  surfaces as a normal error toast in the caller.
+	 */
+	executeRepair: (instanceId: string, choice: RepairChoice) => typedError<null, Error>(__TAURI_INVOKE("execute_repair", { instanceId, choice })),
 	/**
 	 *  Anonymise a log body and upload it to mclo.gs. Returns the
 	 *  shareable URL. Frontend caller is the Logs popover "Share"
@@ -799,6 +820,27 @@ export type CompatVerdict = {
 	mc_mismatch: boolean,
 };
 
+/**  One side of a mod conflict the user can act on. */
+export type ConflictCandidate = {
+	sha1: string,
+	name: string,
+	/**
+	 *  compat-check (PR #54) flagged this mod as mismatching the
+	 *  instance's loader/MC — a *hint*, not a decision.
+	 */
+	compat_flagged: boolean,
+	/**
+	 *  A compatible version to swap to, when one exists. Filled by the
+	 *  async enrichment step in the command; pure mapping leaves `None`.
+	 */
+	swap_target: VersionRef | null,
+	/**
+	 *  Human label for the swap target (e.g. "1.4.0"); paired with
+	 *  `swap_target`.
+	 */
+	swap_version_label: string | null,
+};
+
 /**
  *  What kind of content a search/install targets. `Mod` is the historical
  *  default so payloads that omit it keep working (serde `default`).
@@ -858,6 +900,12 @@ export type Diagnosis = {
 	explanation: string,
 	recommendation: string,
 	matched_excerpt: string,
+	/**
+	 *  Repair affordance tag. `Some` iff the matched pattern is in the
+	 *  actionable set — tells the UI to show a Fix button. The concrete
+	 *  plan is fetched lazily via `build_repair_plan`.
+	 */
+	repair: RepairKind | null,
 };
 
 /**
@@ -1740,6 +1788,30 @@ export type ReleaseAsset = {
 	url: string,
 	size: number | null,
 };
+
+/**  The user's confirmed choice, sent back to `execute_repair`. */
+export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "reinstall_loader" } | 
+/**
+ *  Re-fetch a mod: uninstall `old_sha1`, install `target`. Covers
+ *  both corrupt-redownload (same version) and conflict-swap (new
+ *  version).
+ */
+{ kind: "reinstall"; old_sha1: string; target: VersionRef } | { kind: "disable_mod"; sha1: string };
+
+/**
+ *  Static tag attached to a `Diagnosis` so the UI knows whether to
+ *  offer a Fix button. Membership in the actionable set is the ONLY
+ *  input — no instance I/O. Real precondition gating happens later in
+ *  `build_repair_plan`.
+ */
+export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict";
+
+/**
+ *  The concrete, parameterised fix proposal returned by
+ *  `build_repair_plan`. Every variant carries everything the executor
+ *  needs — the executor itself does no resolution.
+ */
+export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] };
 
 export type ResolvedDep = {
 	project_ref: DepProjectRef,

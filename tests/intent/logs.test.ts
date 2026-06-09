@@ -87,6 +87,7 @@ function makeDiagnosis(over: Partial<Diagnosis> = {}): Diagnosis {
     explanation: 'The Java executable could not be located.',
     recommendation: 'Install Java 21 and point Lucerna at it.',
     matched_excerpt: 'Could not find or load main class',
+    repair: null,
     ...over,
   };
 }

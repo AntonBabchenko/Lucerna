@@ -304,6 +304,223 @@ pub async fn diagnose_log(
     crate::logs::diagnose::diagnose(&path_buf).await
 }
 
+/// Build a concrete, confirmable repair plan for a diagnosed log, or
+/// `None` when no safe fix can be constructed (the UI then keeps the
+/// advisory recommendation text). Lazy: called only when the user
+/// clicks "Fix this", so the network swap-lookup for conflicts runs
+/// only on intent.
+#[tauri::command]
+#[specta::specta]
+pub async fn build_repair_plan(
+    app: tauri::AppHandle,
+    instance_id: String,
+    path: String,
+) -> Result<Option<crate::logs::diagnose::repair::RepairPlan>, crate::error::Error> {
+    use crate::logs::diagnose::repair::{
+        build_conflict_candidates, extract_conflict_mods, extract_corrupt_jar, suggest_heap_mb,
+        RepairKind, RepairPlan,
+    };
+
+    let path_buf = std::path::PathBuf::from(&path);
+    // Reject paths outside this instance's log roots before reading anything
+    // — same guard `diagnose_log`/`read_log_file` apply (the caller supplies
+    // `path`, so an arbitrary filesystem path must not be readable here).
+    let roots = crate::logs::files::allowed_roots(&app, &instance_id)?;
+    crate::logs::files::assert_under_allowed_roots(&path_buf, &roots)?;
+    // Re-run the diagnoser as the single source of truth for the pattern.
+    let Some(diag) = crate::logs::diagnose::diagnose(&path_buf).await? else {
+        return Ok(None);
+    };
+    let Some(kind) = diag.repair else {
+        return Ok(None);
+    };
+
+    // The matched log body, capped (same cap the diagnoser uses).
+    let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
+    let instance = crate::instances::read_instance(&app, &instance_id)?;
+
+    match kind {
+        RepairKind::RaiseHeap => {
+            let ram = crate::platform::total_system_ram_mb();
+            match suggest_heap_mb(instance.max_heap_mb, ram) {
+                Some(to) => Ok(Some(RepairPlan::RaiseHeap {
+                    from_mb: instance.max_heap_mb,
+                    to_mb: to,
+                })),
+                None => Ok(None),
+            }
+        }
+        RepairKind::ReinstallLoader => {
+            if instance.loader == crate::instances::schema::LoaderKind::Vanilla {
+                Ok(None)
+            } else {
+                Ok(Some(RepairPlan::ReinstallLoader {
+                    loader: instance.loader,
+                }))
+            }
+        }
+        RepairKind::RedownloadMod => {
+            let Some(jar) = extract_corrupt_jar(&log) else {
+                return Ok(None);
+            };
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            let hit = installed.iter().find(|m| {
+                m.filename.eq_ignore_ascii_case(&jar)
+                    || m.filename.eq_ignore_ascii_case(&format!("{jar}.disabled"))
+            });
+            // Only platform mods (source+project+version all present) can be
+            // re-downloaded. A hand-dropped jar lacks identity → advisory.
+            if let Some(m) = hit {
+                if let (Some(source), Some(project_id), Some(version_id)) =
+                    (m.source, m.project_id.clone(), m.version_id.clone())
+                {
+                    return Ok(Some(RepairPlan::RedownloadMod {
+                        old_sha1: m.sha1.clone(),
+                        filename: m.filename.clone(),
+                        target: crate::mods::platform::VersionRef {
+                            source,
+                            project_id,
+                            version_id,
+                        },
+                    }));
+                }
+            }
+            Ok(None)
+        }
+        RepairKind::ResolveConflict => {
+            let named = extract_conflict_mods(&log);
+            if named.is_empty() {
+                return Ok(None);
+            }
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            let compat = crate::mods::local::scan_instance(
+                &inst_root,
+                instance.loader,
+                &instance.mc_version,
+            )
+            .await
+            .unwrap_or_default();
+            let flagged: Vec<&str> = compat
+                .iter()
+                .filter(|c| c.loader_mismatch)
+                .map(|c| c.sha1.as_str())
+                .collect();
+            let mut candidates = build_conflict_candidates(&named, &installed, &flagged);
+            if candidates.is_empty() {
+                return Ok(None);
+            }
+            enrich_swap_targets(&mut candidates, &installed, &instance).await;
+            Ok(Some(RepairPlan::ResolveConflict { candidates }))
+        }
+    }
+}
+
+/// For each conflict candidate that has platform identity, query its
+/// newest version for the instance's MC+loader and, if one exists, fill
+/// `swap_target`/`swap_version_label`. Best-effort, sequential, bounded
+/// by the small candidate count.
+async fn enrich_swap_targets(
+    candidates: &mut [crate::logs::diagnose::repair::ConflictCandidate],
+    installed: &[crate::mods::platform::InstalledMod],
+    instance: &crate::instances::schema::InstanceFile,
+) {
+    use crate::mods::platform::VersionRef;
+    for c in candidates.iter_mut() {
+        let Some(m) = installed.iter().find(|m| m.sha1 == c.sha1) else {
+            continue;
+        };
+        let (Some(source), Some(project_id)) = (m.source, m.project_id.as_deref()) else {
+            continue;
+        };
+        let platform = platform_for(source);
+        let versions = platform
+            .versions(
+                project_id,
+                Some(&instance.mc_version),
+                Some(instance.loader),
+            )
+            .await;
+        if let Ok(list) = versions {
+            if let Some(v) = list.into_iter().next() {
+                // Don't offer a "swap" to the version that's already installed
+                // — that would be a no-op ("Update to <same version>").
+                let already_installed = m.version_id.as_deref() == Some(v.version_id.as_str())
+                    || m.version_number.as_deref() == Some(v.version_number.as_str());
+                if already_installed {
+                    continue;
+                }
+                c.swap_version_label = Some(v.version_number.clone());
+                c.swap_target = Some(VersionRef {
+                    source,
+                    project_id: project_id.to_string(),
+                    version_id: v.version_id,
+                });
+            }
+        }
+    }
+}
+
+/// Apply a user-confirmed repair choice by dispatching to the existing
+/// mutation commands. No resolution happens here — `build_repair_plan`
+/// already produced fully-formed parameters. Re-running a now-stale fix
+/// surfaces as a normal error toast in the caller.
+#[tauri::command]
+#[specta::specta]
+pub async fn execute_repair(
+    app: tauri::AppHandle,
+    instance_id: String,
+    choice: crate::logs::diagnose::repair::RepairChoice,
+) -> Result<(), crate::error::Error> {
+    use crate::logs::diagnose::repair::RepairChoice;
+
+    // Reject while a game is running — can't mutate an instance whose files
+    // are in use.
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
+    // Hold the repair guard for the whole rewrite. ReinstallLoader/Reinstall
+    // write into the instance's shared library/jar dirs, so a concurrent
+    // integrity repair must be excluded, and `launch_instance` reads this
+    // flag to block a launch mid-rewrite. Also rejects a second concurrent
+    // repair on any instance. Dropped automatically on return.
+    let _repair_guard =
+        crate::verify::RepairGuard::acquire().ok_or(crate::error::Error::InstanceBusy)?;
+
+    match choice {
+        RepairChoice::RaiseHeap { to_mb } => {
+            crate::instances::set_instance_memory(&app, &instance_id, to_mb)?;
+            Ok(())
+        }
+        RepairChoice::ReinstallLoader => {
+            let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+            crate::versions::install_version(&effective_id, &app).await
+        }
+        RepairChoice::DisableMod { sha1 } => {
+            let inst_root = instance_root(&app, &instance_id)?;
+            crate::mods::install::disable(&inst_root, &sha1).await
+        }
+        RepairChoice::Reinstall { old_sha1, target } => {
+            let inst_root = instance_root(&app, &instance_id)?;
+            // Uninstall the old jar first, then install the target (with its
+            // required deps). install_with_deps re-fetches with SHA verification,
+            // so this self-heals a corrupt download.
+            //
+            // NOT atomic: if the download fails the old jar is already gone. For
+            // the corrupt-jar case that's fine (the jar was unusable anyway); for
+            // a conflict-swap a network failure leaves the mod uninstalled and the
+            // user must reinstall it. The error propagates to a failure toast.
+            // Uninstall-first is required because the corrupt-redownload target
+            // has the same filename as the broken jar — installing first would
+            // collide on disk.
+            crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
+            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
+            Ok(())
+        }
+    }
+}
+
 /// Anonymise a log body and upload it to mclo.gs. Returns the
 /// shareable URL. Frontend caller is the Logs popover "Share"
 /// button. Anonymisation runs server-side so the frontend can't

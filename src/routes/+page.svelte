@@ -899,6 +899,7 @@
     bind:open={logsOpen}
     initialPath={logsInitialPath}
     instanceId={activeInstance?.id ?? null}
+    instanceName={activeInstance?.name ?? null}
   />
 
   <ManageInstancesModal
