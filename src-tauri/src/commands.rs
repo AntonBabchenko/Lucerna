@@ -3465,8 +3465,9 @@ pub async fn window_set_compact(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::window::WindowSizeState>,
     compact: bool,
+    content_height: Option<f64>,
 ) -> Result<(), crate::error::Error> {
-    crate::window::set_compact(&app, compact, &state)
+    crate::window::set_compact(&app, compact, content_height, &state)
 }
 
 #[cfg(test)]

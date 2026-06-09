@@ -36,7 +36,8 @@ describe('compact mode rune module', () => {
   it('setCompact flips the rune, resizes the window, and persists the flag', async () => {
     await setCompact(true);
     expect(compactState.value).toBe(true);
-    expect(windowSetCompact).toHaveBeenCalledWith(true);
+    // Height is null here: jsdom has no rendered sidebar to measure.
+    expect(windowSetCompact).toHaveBeenCalledWith(true, null);
     expect(appSettingsSetGeneral).toHaveBeenCalledTimes(1);
     expect(appSettingsSetGeneral.mock.calls[0][0]).toMatchObject({ compact_mode: true });
   });
@@ -45,20 +46,21 @@ describe('compact mode rune module', () => {
     compactState.value = false;
     await toggleCompact();
     expect(compactState.value).toBe(true);
-    expect(windowSetCompact).toHaveBeenLastCalledWith(true);
+    expect(windowSetCompact).toHaveBeenLastCalledWith(true, null);
   });
 
   it('initCompact applies the persisted mode WITHOUT re-persisting', async () => {
     await initCompact(true);
     expect(compactState.value).toBe(true);
-    expect(windowSetCompact).toHaveBeenCalledWith(true);
+    expect(windowSetCompact).toHaveBeenCalledWith(true, null);
     expect(appSettingsSetGeneral).not.toHaveBeenCalled();
   });
 
-  it('initCompact(false) leaves the window untouched', async () => {
+  it('initCompact(false) applies expanded constraints without persisting', async () => {
     await initCompact(false);
     expect(compactState.value).toBe(false);
-    expect(windowSetCompact).not.toHaveBeenCalled();
+    // Still calls the backend (to apply the min-height floor) but does not persist.
+    expect(windowSetCompact).toHaveBeenCalledWith(false, null);
     expect(appSettingsSetGeneral).not.toHaveBeenCalled();
   });
 

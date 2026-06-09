@@ -306,7 +306,7 @@ export const commands = {
 	 *  launch-pad strip. Pure window-layer op; persisting the choice is the
 	 *  caller's job (the frontend writes GeneralSettings.compact_mode).
 	 */
-	windowSetCompact: (compact: boolean) => typedError<null, Error>(__TAURI_INVOKE("window_set_compact", { compact })),
+	windowSetCompact: (compact: boolean, contentHeight: number | null) => typedError<null, Error>(__TAURI_INVOKE("window_set_compact", { compact, contentHeight })),
 	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),

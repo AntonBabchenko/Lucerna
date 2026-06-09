@@ -86,7 +86,10 @@
   );
 </script>
 
-<aside class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto">
+<aside
+  data-sidebar
+  class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto"
+>
   <div class="flex items-center justify-between">
     <span class="font-bold text-lg text-primary">Lucerna</span>
     <button
