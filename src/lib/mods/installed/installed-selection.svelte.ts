@@ -6,6 +6,10 @@ import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import type { Row } from './installed-data.svelte';
 import { rowDisplayName } from './row-utils';
 
+// Which bulk action is currently in flight, so the bulk bar can spin only the
+// clicked button (not all four). `null` when idle.
+export type BulkAction = 'enable' | 'disable' | 'update' | 'uninstall';
+
 // Owns bulk-action selection state and the bulk operations themselves. The
 // `selected` Set is always reassigned whole (never mutated in place). Selections
 // for rows hidden by a filter/search change are dropped. `getUpdateChecks` lets
@@ -20,6 +24,9 @@ export function createInstalledSelection(
 ) {
   let selected = $state<Set<string>>(new Set());
   let busy = $state(false);
+  // The specific bulk action in flight (drives per-button spinners); `busy`
+  // stays the aggregate gate that disables the whole bar.
+  let busyAction = $state<BulkAction | null>(null);
   let error = $state<string | null>(null);
   let uninstallPrompt = $state<{
     removing: string[];
@@ -92,6 +99,7 @@ export function createInstalledSelection(
     const id = getInstanceId();
     if (!id || selected.size === 0) return;
     busy = true;
+    busyAction = enable ? 'enable' : 'disable';
     error = null;
     let ok = 0;
     let failed = 0;
@@ -107,6 +115,7 @@ export function createInstalledSelection(
       else ok++;
     }
     busy = false;
+    busyAction = null;
     selected = new Set();
     await refresh();
     if (failed === 0) {
@@ -139,6 +148,7 @@ export function createInstalledSelection(
     });
     if (targets.length === 0) return;
     busy = true;
+    busyAction = 'update';
     error = null;
     let ok = 0;
     let failed = 0;
@@ -147,6 +157,7 @@ export function createInstalledSelection(
       else failed++;
     }
     busy = false;
+    busyAction = null;
     selected = new Set();
     await refresh();
     if (failed === 0) pushSuccess(get(t)('mods.installed.toastUpdated', { count: ok }));
@@ -169,6 +180,7 @@ export function createInstalledSelection(
     const all = [...uninstallPrompt.removing, ...alsoRemove];
     uninstallPrompt = null;
     busy = true;
+    busyAction = 'uninstall';
     error = null;
     let ok = 0;
     let failed = 0;
@@ -178,6 +190,7 @@ export function createInstalledSelection(
       else ok++;
     }
     busy = false;
+    busyAction = null;
     selected = new Set();
     // Removed mods would otherwise linger as stale roots in the dep tree.
     onMutated();
@@ -202,6 +215,9 @@ export function createInstalledSelection(
     },
     get busy() {
       return busy;
+    },
+    get busyAction() {
+      return busyAction;
     },
     get error() {
       return error;

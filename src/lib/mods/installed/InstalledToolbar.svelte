@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
@@ -152,22 +153,22 @@
         onChange={(v) => (sortBy = String(v) as SortBy)}
       />
     </div>
-    <button
-      type="button"
+    <BusyButton
+      busy={checking}
+      disabled={busy || counts.total === 0}
       class="btn-secondary btn-xs"
-      disabled={busy || checking || counts.total === 0}
       onclick={onCheckUpdates}
     >
       {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
-    </button>
-    <button
-      type="button"
+    </BusyButton>
+    <BusyButton
+      busy={checkingCompat}
+      disabled={busy || counts.total === 0}
       class="btn-secondary btn-xs"
-      disabled={busy || checkingCompat || counts.total === 0}
       onclick={onCheckCompat}
     >
       {checkingCompat ? $t('mods.installed.checkingCompat') : $t('mods.installed.checkCompat')}
-    </button>
+    </BusyButton>
     <button
       type="button"
       class="btn-secondary btn-xs"
@@ -177,9 +178,9 @@
       {graphLoading ? $t('mods.installed.resolvingDeps') : $t('mods.installed.recheckDeps')}
     </button>
     {#if updateCount > 0}
-      <button type="button" class="btn-warning btn-xs" disabled={busy} onclick={onUpdateAll}>
+      <BusyButton {busy} class="btn-warning btn-xs" onclick={onUpdateAll}>
         {$t('mods.installed.updateAll', { count: updateCount })}
-      </button>
+      </BusyButton>
     {/if}
   </div>
   {#if counts.total > 0}

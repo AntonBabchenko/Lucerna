@@ -15,6 +15,7 @@
   import { assetsChanged } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import { get } from 'svelte/store';
 
   let {
@@ -162,14 +163,15 @@
 
 <div class="p-3">
   <div class="flex items-center justify-end mb-2">
-    <button
+    <BusyButton
       type="button"
       class="btn-secondary btn-sm"
-      disabled={busy || checking || instanceId === null || assets.length === 0}
+      busy={checking}
+      disabled={busy || instanceId === null || assets.length === 0}
       onclick={checkUpdates}
     >
       {$t('addons.installed.checkUpdates')}
-    </button>
+    </BusyButton>
   </div>
 
   {#if error}
@@ -213,23 +215,23 @@
             </span>
           {/if}
           {#if latest}
-            <button
+            <BusyButton
               type="button"
               class="btn-primary btn-sm"
-              disabled={busy}
+              {busy}
               onclick={() => update(asset, latest)}
             >
               {$t('addons.installed.update')}
-            </button>
+            </BusyButton>
           {/if}
-          <button
+          <BusyButton
             type="button"
             class="btn-secondary btn-sm"
-            disabled={busy}
+            {busy}
             onclick={() => remove(asset)}
           >
             {$t('addons.installed.remove')}
-          </button>
+          </BusyButton>
         </div>
       {/each}
     </div>

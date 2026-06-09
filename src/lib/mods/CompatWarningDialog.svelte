@@ -7,15 +7,18 @@
   // `onCancel`  = install only the compatible jars; skip the mismatched.
 
   import { t } from '$lib/i18n';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   type MismatchRow = { filename: string; reason: string };
 
   let {
     rows,
+    busy = false,
     onConfirm,
     onCancel,
   }: {
     rows: MismatchRow[];
+    busy?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
   } = $props();
@@ -42,12 +45,13 @@
       {/each}
     </ul>
     <footer class="p-4 border-t flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>
+      <!-- Skip is blocked while the install runs: cancelling now can't abort the in-flight IPC, so we wait for it to settle. -->
+      <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={onCancel}>
         {$t('instance.compat.skipBtn')}
       </button>
-      <button type="button" class="btn-warning btn-sm" onclick={onConfirm}>
+      <BusyButton {busy} class="btn-warning btn-sm" onclick={onConfirm}>
         {$t('instance.compat.installAnywayBtn')}
-      </button>
+      </BusyButton>
     </footer>
   </div>
 </div>

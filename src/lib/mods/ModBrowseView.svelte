@@ -13,6 +13,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
   import { displayLoader } from '$lib/instances/loader-display';
@@ -127,6 +128,22 @@
   let total = $state(0);
   let error = $state<string | null>(null);
   let loading = $state(false);
+  // Which cards' install/asset flows are currently running, keyed by project_id.
+  // A Set (not a single id) because the UI allows starting an install on card B
+  // while card A is still installing — a scalar would let B's start clobber A's
+  // busy state and prematurely clear A's spinner.
+  const installingProjectIds = new SvelteSet<string>();
+  // The version_id whose install was started from the detail drawer. Threaded
+  // into ModDetailModal so that exact version row / recommended CTA shows a
+  // busy spinner while its install is in flight. Cleared in the install finally.
+  let installingVersionId = $state<string | null>(null);
+  // A card is "busy" while its install runs OR while its dependency dialog is
+  // open — without the latter, the card would briefly re-enable under the
+  // open dialog (the install flow's finally removes it from installingProjectIds
+  // when it hands off to the dialog; onConfirm re-adds it).
+  function isCardBusy(projectId: string): boolean {
+    return installingProjectIds.has(projectId) || depPrompt?.primary.project_id === projectId;
+  }
   let drawerProject = $state<string | null>(null);
   // Dependencies promoted to the dialog carry the project's display name
   // alongside the version (the version's own `name` field is the release
@@ -631,188 +648,213 @@
   // detail modal passes one explicitly; a card "Install" picks the latest
   // version compatible with the instance's MC (no loader facet).
   async function startAssetInstall(card: ModSummary, pinnedVersion?: ModVersion) {
-    if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
-      error = get(t)('mods.browse.errorNoInstance');
-      return;
-    }
-    let version: ModVersion;
-    if (pinnedVersion) {
-      version = pinnedVersion;
-    } else {
-      const versions = await commands.modsVersions(card.source, card.project_id, mcVersion, null);
-      if (versions.status === 'error') {
-        error = formatError(versions.error);
+    // Mark this card busy across the whole flow; the finally clears it on every
+    // exit path (early returns and the happy path alike).
+    installingProjectIds.add(card.project_id);
+    try {
+      if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
+        error = get(t)('mods.browse.errorNoInstance');
         return;
       }
-      if (versions.data.length === 0) {
-        error = get(t)('mods.browse.errorNoCompatibleVersion');
+      let version: ModVersion;
+      if (pinnedVersion) {
+        version = pinnedVersion;
+      } else {
+        const versions = await commands.modsVersions(card.source, card.project_id, mcVersion, null);
+        if (versions.status === 'error') {
+          error = formatError(versions.error);
+          return;
+        }
+        if (versions.data.length === 0) {
+          error = get(t)('mods.browse.errorNoCompatibleVersion');
+          return;
+        }
+        version = versions.data[0]!;
+      }
+      const installed = await commands.assetInstall(instanceId, version, kind);
+      if (installed.status === 'error') {
+        pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
         return;
       }
-      version = versions.data[0]!;
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
+      // Mods refresh their installed-state via Tauri events; assets have no such
+      // events, so refresh the asset list explicitly to flip the card to the
+      // "Installed · vX" + Uninstall state immediately.
+      await refreshInstalledAssets();
+      // Notify the Installed-assets view so it re-lists.
+      assetsChanged.value++;
+    } finally {
+      installingProjectIds.delete(card.project_id);
     }
-    const installed = await commands.assetInstall(instanceId, version, kind);
-    if (installed.status === 'error') {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
-      return;
-    }
-    pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: card.name }), []);
-    // Mods refresh their installed-state via Tauri events; assets have no such
-    // events, so refresh the asset list explicitly to flip the card to the
-    // "Installed · vX" + Uninstall state immediately.
-    await refreshInstalledAssets();
-    // Notify the Installed-assets view so it re-lists.
-    assetsChanged.value++;
   }
 
   async function startInstall(card: ModSummary, pinnedVersion?: ModVersion) {
     // Resource packs and shaders take the asset path; mods keep the
-    // dependency-aware flow below untouched.
+    // dependency-aware flow below untouched. startAssetInstall sets its own
+    // busy flag, so we return before flagging here.
     if (kind !== 'mod') {
       await startAssetInstall(card, pinnedVersion);
       return;
     }
-    if (!instanceId || !mcVersion || !loader) {
-      error = get(t)('mods.browse.errorNoInstance');
-      return;
-    }
-    if (loader === 'vanilla') {
-      error = get(t)('mods.browse.errorVanillaLoader');
-      return;
-    }
-    let primary: ModVersion;
-    if (pinnedVersion) {
-      // Drawer passes the user's explicit choice. Skip the lookup.
-      primary = pinnedVersion;
-    } else {
-      const versions = await commands.modsVersions(card.source, card.project_id, mcVersion, loader);
-      if (versions.status === 'error') {
-        error = formatError(versions.error);
+    // Mark this card busy for the whole mod flow — including the branch that
+    // only opens the dependency dialog. The finally clears it on every exit
+    // path (early returns, the fast-path install, and the dialog-open path).
+    installingProjectIds.add(card.project_id);
+    try {
+      if (!instanceId || !mcVersion || !loader) {
+        error = get(t)('mods.browse.errorNoInstance');
         return;
       }
-      if (versions.data.length === 0) {
-        await reportNoCompatibleVersion(card, loader);
+      if (loader === 'vanilla') {
+        error = get(t)('mods.browse.errorVanillaLoader');
         return;
       }
-      primary = versions.data[0]!;
-    }
-
-    // If a different version of the same project is already installed,
-    // remove it first so the new version replaces it (version switch).
-    const existing = installedFor(card);
-    if (existing && existing.version_id !== primary.version_id) {
-      const removed = await commands.modsUninstall(instanceId, existing.sha1);
-      if (removed.status === 'error') {
-        error = formatError(removed.error);
-        return;
-      }
-    }
-    const plan = await commands.modsResolveInstallPlan(instanceId, primary, mcVersion, loader);
-    if (plan.status === 'error') {
-      if (!reportInstallError(plan.error, card.name, card.source, card.slug ?? card.project_id))
-        error = formatError(plan.error);
-      return;
-    }
-    const p = plan.data;
-
-    // Enrich a ModVersion to a DepItem: look up the project's display name
-    // via modsProject, falling back to the version's own `name` field when
-    // the platform lookup fails (network, deleted project, etc.).
-    const enrichDep = async (v: ModVersion): Promise<DepItem> => {
-      const proj = await commands.modsProject(v.source, v.project_id);
-      return {
-        version: v,
-        projectName: proj.status === 'ok' ? proj.data.summary.name : v.name,
-        projectSource: v.source,
-      };
-    };
-
-    // Look up a human-readable name for a DepProjectRef. Falls back to the
-    // raw project_id / mod_id string when the platform lookup fails.
-    type DepRef = (typeof p.incompatible)[number];
-    const enrichRefName = async (r: DepRef): Promise<string> => {
-      const refSource: ModSource = 'project_id' in r ? 'modrinth' : 'curseforge';
-      const id = 'project_id' in r ? r.project_id : String(r.mod_id);
-      const proj = await commands.modsProject(refSource, id);
-      return proj.status === 'ok' ? proj.data.summary.name : id;
-    };
-
-    // Enrich required deps (plain DepItem list — backend already pruned loaders
-    // and already-installed entries).
-    const requiredEnriched = await Promise.all(p.required.map(enrichDep));
-
-    // Enrich optional deps: each OptionalDep carries a `requires` sub-list
-    // (the optional's own transitive requireds). Enrich both the top-level
-    // version and its requires list so the dialog can reveal sub-deps live.
-    const optionalEnriched: OptionalItem[] = await Promise.all(
-      p.optional.map(async (o): Promise<OptionalItem> => {
-        const top = await enrichDep(o.version);
-        const subReqs = await Promise.all(o.requires.map(enrichDep));
-        return { ...top, requires: subReqs };
-      }),
-    );
-
-    // Enrich incompatible / unresolvable DepProjectRefs to display names.
-    const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
-    const unresolvableNames = await Promise.all(p.unresolvable.map(enrichRefName));
-
-    // Enrich loader_requirements refs to display names (informational).
-    const loaderRequirements = await Promise.all(p.loader_requirements.map(enrichRefName));
-
-    const primaryProject = await commands.modsProject(primary.source, primary.project_id);
-    const primaryProjectName =
-      primaryProject.status === 'ok' ? primaryProject.data.summary.name : primary.name;
-
-    // Loader mismatch detection: if the version reports loaders and the
-    // active instance's loader isn't one of them (or the instance is
-    // vanilla, which has no loader at all), the jar won't load at
-    // runtime. We don't block — the user might be testing — but we
-    // force the dialog open with a red warning.
-    const loaderMismatch =
-      primary.loaders.length > 0 && !primary.loaders.includes(loader)
-        ? { instanceLoader: loader, modLoaders: primary.loaders }
-        : null;
-
-    // Fast path: nothing to show → install directly.
-    if (
-      requiredEnriched.length === 0 &&
-      optionalEnriched.length === 0 &&
-      p.incompatible.length === 0 &&
-      p.unresolvable.length === 0 &&
-      loaderRequirements.length === 0 &&
-      loaderMismatch === null
-    ) {
-      const installed = await commands.modsInstallWithDeps(
-        instanceId,
-        { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
-        [],
-      );
-      if (installed.status === 'error') {
-        if (
-          !reportInstallError(
-            installed.error,
-            primaryProjectName,
-            primary.source,
-            card.slug ?? card.project_id,
-          )
-        )
-          pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+      let primary: ModVersion;
+      if (pinnedVersion) {
+        // Drawer passes the user's explicit choice. Skip the lookup.
+        primary = pinnedVersion;
       } else {
-        // Fast path has no dependencies; use the resolved project name (not
-        // the backend's release-title `primary_name`) for the toast title.
-        pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: primaryProjectName }), []);
-        await refreshInstalled();
+        const versions = await commands.modsVersions(
+          card.source,
+          card.project_id,
+          mcVersion,
+          loader,
+        );
+        if (versions.status === 'error') {
+          error = formatError(versions.error);
+          return;
+        }
+        if (versions.data.length === 0) {
+          await reportNoCompatibleVersion(card, loader);
+          return;
+        }
+        primary = versions.data[0]!;
       }
-    } else {
-      depPrompt = {
-        primary,
-        primaryProjectName,
-        required: requiredEnriched,
-        optional: optionalEnriched,
-        incompatible: incompatibleNames,
-        unresolvable: unresolvableNames,
-        loaderRequirements,
-        loaderMismatch,
+
+      // If a different version of the same project is already installed,
+      // remove it first so the new version replaces it (version switch).
+      const existing = installedFor(card);
+      if (existing && existing.version_id !== primary.version_id) {
+        const removed = await commands.modsUninstall(instanceId, existing.sha1);
+        if (removed.status === 'error') {
+          error = formatError(removed.error);
+          return;
+        }
+      }
+      const plan = await commands.modsResolveInstallPlan(instanceId, primary, mcVersion, loader);
+      if (plan.status === 'error') {
+        if (!reportInstallError(plan.error, card.name, card.source, card.slug ?? card.project_id))
+          error = formatError(plan.error);
+        return;
+      }
+      const p = plan.data;
+
+      // Enrich a ModVersion to a DepItem: look up the project's display name
+      // via modsProject, falling back to the version's own `name` field when
+      // the platform lookup fails (network, deleted project, etc.).
+      const enrichDep = async (v: ModVersion): Promise<DepItem> => {
+        const proj = await commands.modsProject(v.source, v.project_id);
+        return {
+          version: v,
+          projectName: proj.status === 'ok' ? proj.data.summary.name : v.name,
+          projectSource: v.source,
+        };
       };
+
+      // Look up a human-readable name for a DepProjectRef. Falls back to the
+      // raw project_id / mod_id string when the platform lookup fails.
+      type DepRef = (typeof p.incompatible)[number];
+      const enrichRefName = async (r: DepRef): Promise<string> => {
+        const refSource: ModSource = 'project_id' in r ? 'modrinth' : 'curseforge';
+        const id = 'project_id' in r ? r.project_id : String(r.mod_id);
+        const proj = await commands.modsProject(refSource, id);
+        return proj.status === 'ok' ? proj.data.summary.name : id;
+      };
+
+      // Enrich required deps (plain DepItem list — backend already pruned loaders
+      // and already-installed entries).
+      const requiredEnriched = await Promise.all(p.required.map(enrichDep));
+
+      // Enrich optional deps: each OptionalDep carries a `requires` sub-list
+      // (the optional's own transitive requireds). Enrich both the top-level
+      // version and its requires list so the dialog can reveal sub-deps live.
+      const optionalEnriched: OptionalItem[] = await Promise.all(
+        p.optional.map(async (o): Promise<OptionalItem> => {
+          const top = await enrichDep(o.version);
+          const subReqs = await Promise.all(o.requires.map(enrichDep));
+          return { ...top, requires: subReqs };
+        }),
+      );
+
+      // Enrich incompatible / unresolvable DepProjectRefs to display names.
+      const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
+      const unresolvableNames = await Promise.all(p.unresolvable.map(enrichRefName));
+
+      // Enrich loader_requirements refs to display names (informational).
+      const loaderRequirements = await Promise.all(p.loader_requirements.map(enrichRefName));
+
+      const primaryProject = await commands.modsProject(primary.source, primary.project_id);
+      const primaryProjectName =
+        primaryProject.status === 'ok' ? primaryProject.data.summary.name : primary.name;
+
+      // Loader mismatch detection: if the version reports loaders and the
+      // active instance's loader isn't one of them (or the instance is
+      // vanilla, which has no loader at all), the jar won't load at
+      // runtime. We don't block — the user might be testing — but we
+      // force the dialog open with a red warning.
+      const loaderMismatch =
+        primary.loaders.length > 0 && !primary.loaders.includes(loader)
+          ? { instanceLoader: loader, modLoaders: primary.loaders }
+          : null;
+
+      // Fast path: nothing to show → install directly.
+      if (
+        requiredEnriched.length === 0 &&
+        optionalEnriched.length === 0 &&
+        p.incompatible.length === 0 &&
+        p.unresolvable.length === 0 &&
+        loaderRequirements.length === 0 &&
+        loaderMismatch === null
+      ) {
+        const installed = await commands.modsInstallWithDeps(
+          instanceId,
+          {
+            source: primary.source,
+            project_id: primary.project_id,
+            version_id: primary.version_id,
+          },
+          [],
+        );
+        if (installed.status === 'error') {
+          if (
+            !reportInstallError(
+              installed.error,
+              primaryProjectName,
+              primary.source,
+              card.slug ?? card.project_id,
+            )
+          )
+            pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+        } else {
+          // Fast path has no dependencies; use the resolved project name (not
+          // the backend's release-title `primary_name`) for the toast title.
+          pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: primaryProjectName }), []);
+          await refreshInstalled();
+        }
+      } else {
+        depPrompt = {
+          primary,
+          primaryProjectName,
+          required: requiredEnriched,
+          optional: optionalEnriched,
+          incompatible: incompatibleNames,
+          unresolvable: unresolvableNames,
+          loaderRequirements,
+          loaderMismatch,
+        };
+      }
+    } finally {
+      installingProjectIds.delete(card.project_id);
     }
   }
 </script>
@@ -870,6 +912,7 @@
               <ModCard
                 summary={hit}
                 installed={installedFor(hit)}
+                installing={isCardBusy(hit.project_id)}
                 onInstall={() => startInstall(hit)}
                 onOpenDetail={() => (drawerProject = hit.project_id)}
                 onToggle={() => toggleCard(hit)}
@@ -885,6 +928,7 @@
               <ModCard
                 summary={hit}
                 installed={installedFor(hit)}
+                installing={isCardBusy(hit.project_id)}
                 onInstall={() => startInstall(hit)}
                 onOpenDetail={() => (drawerProject = hit.project_id)}
                 onToggle={() => toggleCard(hit)}
@@ -924,6 +968,7 @@
       installedVersionId={installedMods.find(
         (r) => r.installed.source === source && r.installed.project_id === drawerProject,
       )?.installed.version_id ?? null}
+      {installingVersionId}
       onClose={() => (drawerProject = null)}
       onInstall={(v) => {
         // Drawer passes the explicit version the user picked. We
@@ -931,7 +976,12 @@
         // we skip the latest-version lookup and install exactly what
         // the user clicked. If a different version is already
         // installed for this project, startInstall handles the swap.
-        drawerProject = null;
+        //
+        // Keep the drawer open while the install runs so the chosen version's
+        // row / recommended CTA shows its busy spinner; close it when the
+        // install settles (success or error) so the browse list — and any
+        // install-error banner — is visible again underneath.
+        installingVersionId = v.version_id;
         void startInstall(
           {
             source: v.source,
@@ -945,7 +995,10 @@
             updated_at: null,
           },
           v,
-        );
+        ).finally(() => {
+          installingVersionId = null;
+          drawerProject = null;
+        });
       }}
     />
   {/if}
@@ -966,65 +1019,71 @@
           return;
         }
         depPrompt = null;
-        const installed = await commands.modsInstallWithDeps(
-          instanceId,
-          {
-            source: prompt.primary.source,
-            project_id: prompt.primary.project_id,
-            version_id: prompt.primary.version_id,
-          },
-          chosenOptional.map((v) => ({
-            source: v.source,
-            project_id: v.project_id,
-            version_id: v.version_id,
-          })),
-        );
-        if (installed.status === 'error') {
-          if (
-            !reportInstallError(
-              installed.error,
-              prompt.primaryProjectName,
-              prompt.primary.source,
-              prompt.primary.project_id,
-            )
-          )
-            pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
-        } else {
-          // Build the per-mod toast from the dialog's already-resolved project
-          // names (the backend's InstallSummary carries release titles, not mod
-          // names). Lines = every newly-installed dependency: the primary's
-          // requireds + each chosen optional and its transitive requireds,
-          // deduped by project. Matches exactly what the dialog showed.
-          const seen = new Set<string>();
-          const depLines: string[] = [];
-          const pushDep = (name: string, source: string, projectId: string) => {
-            const key = `${source}:${projectId}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              depLines.push(name);
-            }
-          };
-          for (const d of prompt.required) {
-            pushDep(d.projectName, d.version.source, d.version.project_id);
-          }
-          for (const v of chosenOptional) {
-            const o = prompt.optional.find(
-              (x) =>
-                x.version.source === v.source &&
-                x.version.project_id === v.project_id &&
-                x.version.version_id === v.version_id,
-            );
-            if (!o) continue;
-            pushDep(o.projectName, o.version.source, o.version.project_id);
-            for (const r of o.requires) {
-              pushDep(r.projectName, r.version.source, r.version.project_id);
-            }
-          }
-          pushSuccess(
-            get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
-            depLines,
+        // Keep the originating card busy while the confirmed install runs.
+        installingProjectIds.add(prompt.primary.project_id);
+        try {
+          const installed = await commands.modsInstallWithDeps(
+            instanceId,
+            {
+              source: prompt.primary.source,
+              project_id: prompt.primary.project_id,
+              version_id: prompt.primary.version_id,
+            },
+            chosenOptional.map((v) => ({
+              source: v.source,
+              project_id: v.project_id,
+              version_id: v.version_id,
+            })),
           );
-          await refreshInstalled();
+          if (installed.status === 'error') {
+            if (
+              !reportInstallError(
+                installed.error,
+                prompt.primaryProjectName,
+                prompt.primary.source,
+                prompt.primary.project_id,
+              )
+            )
+              pushWarning(get(t)('mods.browse.toastInstallFailed'), [formatError(installed.error)]);
+          } else {
+            // Build the per-mod toast from the dialog's already-resolved project
+            // names (the backend's InstallSummary carries release titles, not mod
+            // names). Lines = every newly-installed dependency: the primary's
+            // requireds + each chosen optional and its transitive requireds,
+            // deduped by project. Matches exactly what the dialog showed.
+            const seen = new Set<string>();
+            const depLines: string[] = [];
+            const pushDep = (name: string, source: string, projectId: string) => {
+              const key = `${source}:${projectId}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                depLines.push(name);
+              }
+            };
+            for (const d of prompt.required) {
+              pushDep(d.projectName, d.version.source, d.version.project_id);
+            }
+            for (const v of chosenOptional) {
+              const o = prompt.optional.find(
+                (x) =>
+                  x.version.source === v.source &&
+                  x.version.project_id === v.project_id &&
+                  x.version.version_id === v.version_id,
+              );
+              if (!o) continue;
+              pushDep(o.projectName, o.version.source, o.version.project_id);
+              for (const r of o.requires) {
+                pushDep(r.projectName, r.version.source, r.version.project_id);
+              }
+            }
+            pushSuccess(
+              get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
+              depLines,
+            );
+            await refreshInstalled();
+          }
+        } finally {
+          installingProjectIds.delete(prompt.primary.project_id);
         }
       }}
     />
