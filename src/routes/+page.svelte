@@ -328,7 +328,10 @@
       settingsOpen.value !== null ||
       exportDialogOpen ||
       msSigningIn;
-    if (anyWideOverlay && compactState.value) {
+    // Read compact state non-reactively (matches the activeInstance effect's
+    // untrack idiom above): we react to overlays opening, not to our own
+    // setCompact(false) flipping the rune.
+    if (anyWideOverlay && untrack(() => compactState.value)) {
       void setCompact(false);
     }
   });
@@ -614,6 +617,10 @@
     />
   </div>
 
+  <!-- Compact mode unmounts the entire right column so the window can shrink to
+       the sidebar strip. Note: this resets MainTabs (active tab / scroll) on
+       re-expand — acceptable because compact is a launch-pad mode, not a rapid
+       toggle-while-browsing-tabs affordance. -->
   {#if !compactState.value}
     <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
       {#if crashReport}
