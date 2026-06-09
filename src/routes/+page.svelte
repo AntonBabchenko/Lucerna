@@ -10,6 +10,7 @@
     type ModpackProgress,
     type PlaytimeStats,
     type ProgressTick,
+    type SkippedOverride,
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import { Channel } from '@tauri-apps/api/core';
@@ -195,10 +196,15 @@
     importPhase = null;
     importBytes = null;
 
+    // Oversized `overrides/` blobs the extractor skipped (e.g. a `.rar` left
+    // in `mods/`). Captured off the `done` event so the success toast can
+    // note them without failing the import.
+    let skippedOverrides: SkippedOverride[] = [];
     const phaseChannel = new Channel<ModpackProgress>();
     phaseChannel.onmessage = (m) => {
       importPhase = m;
       if (m.phase === 'done') {
+        skippedOverrides = m.skipped_overrides;
         // Close the modal (if still open) and land on the new instance. The
         // `modpackImporting` guard is released below, after the command settles,
         // so a second import can't start in the gap between `done` and `Ok`.
@@ -226,7 +232,25 @@
     // (Rust guarantees `done` is emitted before Ok returns).
     const tr = get(t);
     if (r.status === 'ok') {
-      pushSuccess(tr('page.modpackImport.imported', { name: r.data.name }));
+      // A successful import that left out one or more oversized bundled
+      // files (non-loadable blobs) — surface them as a non-fatal note so
+      // the user knows what was skipped, without flagging it as a failure.
+      if (skippedOverrides.length > 0) {
+        pushSuccess(
+          tr('page.modpackImport.importedSkipped', {
+            name: r.data.name,
+            count: skippedOverrides.length,
+          }),
+          skippedOverrides.map((s) =>
+            tr('page.modpackImport.skippedOverrideLine', {
+              name: s.path.split('/').pop() ?? s.path,
+              mb: Math.round((s.size ?? 0) / (1024 * 1024)),
+            }),
+          ),
+        );
+      } else {
+        pushSuccess(tr('page.modpackImport.imported', { name: r.data.name }));
+      }
     } else if (r.error.kind === 'modpack_partial_failure') {
       pushWarning(
         tr('page.modpackImport.partialFailure', { count: r.error.failed.length }),

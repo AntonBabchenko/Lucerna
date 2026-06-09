@@ -473,6 +473,8 @@
         "reimportBtn": "Re-import pack files",
         "missingHeading": "Pack mods needing attention ({count})",
         "missingBody": "The pack author disabled automatic downloads for these. Download each from its source and drop the jar onto the Mods tab.",
+        "skippedHeading": "Bundled files skipped ({count})",
+        "skippedBody": "The pack bundled these files inside it, but they exceed the size limit and aren't loadable mods (Minecraft only loads .jar files). They were left out; the pack's mods installed normally.",
         "differentVersion": "— different version than the pack — may be incompatible",
         "distributionDisabled": "Distribution disabled",
         "hostNotAllowed": "Host not allowed",
@@ -1010,6 +1012,8 @@
       "alreadyInProgress": "A modpack import is already in progress",
       "alreadyInProgressDetail": "Wait for it to finish before starting another.",
       "imported": "Imported {name}",
+      "importedSkipped": "Imported {name} — {count} bundled file(s) skipped",
+      "skippedOverrideLine": "{name} ({mb} MB) — too large to be a loadable mod; skipped",
       "partialFailure": "Modpack imported — {count} mod(s) failed",
       "failed": "Modpack import failed"
     },

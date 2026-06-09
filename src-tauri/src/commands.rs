@@ -2936,6 +2936,8 @@ pub async fn modpack_apply_update(
     )?;
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
+        // A version update never touches `overrides/`, so nothing is skipped.
+        skipped_overrides: vec![],
     });
     Ok(updated_inst)
 }
@@ -2980,7 +2982,7 @@ pub async fn modpack_reimport_overrides(
             path: temp_path.clone(),
             details: e.to_string(),
         })?;
-    crate::mods::modpack::overrides::extract(&bytes, &inst_root, |c, t| {
+    let outcome = crate::mods::modpack::overrides::extract(&bytes, &inst_root, |c, t| {
         let _ = on_progress.send(ModpackProgress::ExtractingOverrides {
             current: c,
             total: t,
@@ -2989,6 +2991,7 @@ pub async fn modpack_reimport_overrides(
     .await?;
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
+        skipped_overrides: outcome.skipped,
     });
     Ok(())
 }

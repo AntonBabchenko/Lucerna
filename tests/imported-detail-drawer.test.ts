@@ -606,6 +606,38 @@ describe('ImportedDetailDrawer', () => {
     });
   });
 
+  it('lists skipped oversized overrides as an informational section', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'All Of Create',
+          version: '1.0.7',
+          files: [],
+          missing_mods: [],
+          // 261361205 bytes = 249 MB — the real "mods.rar bundled in
+          // overrides/mods/" case that used to abort the whole import.
+          skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-skipped-section');
+    expect(section.textContent).toContain('mods/mods.rar');
+    expect(section.textContent).toContain('249 MB');
+    // Heading count reflects the one skipped file.
+    expect(section.textContent).toContain('(1)');
+  });
+
   afterEach(async () => {
     const { drawerCache } = await import('$lib/modpacks/drawer-cache');
     drawerCache.clear();
