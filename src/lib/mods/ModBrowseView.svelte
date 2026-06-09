@@ -13,6 +13,7 @@
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
   import { displayLoader } from '$lib/instances/loader-display';
@@ -127,19 +128,21 @@
   let total = $state(0);
   let error = $state<string | null>(null);
   let loading = $state(false);
-  // Which card's install/asset flow is currently running. Keyed by project_id
-  // because many cards render per page — a single boolean would spin them all.
-  let installingProjectId = $state<string | null>(null);
+  // Which cards' install/asset flows are currently running, keyed by project_id.
+  // A Set (not a single id) because the UI allows starting an install on card B
+  // while card A is still installing — a scalar would let B's start clobber A's
+  // busy state and prematurely clear A's spinner.
+  const installingProjectIds = new SvelteSet<string>();
   // The version_id whose install was started from the detail drawer. Threaded
   // into ModDetailModal so that exact version row / recommended CTA shows a
   // busy spinner while its install is in flight. Cleared in the install finally.
   let installingVersionId = $state<string | null>(null);
   // A card is "busy" while its install runs OR while its dependency dialog is
   // open — without the latter, the card would briefly re-enable under the
-  // open dialog (the install flow's finally clears installingProjectId when it
-  // hands off to the dialog; onConfirm re-sets it).
+  // open dialog (the install flow's finally removes it from installingProjectIds
+  // when it hands off to the dialog; onConfirm re-adds it).
   function isCardBusy(projectId: string): boolean {
-    return installingProjectId === projectId || depPrompt?.primary.project_id === projectId;
+    return installingProjectIds.has(projectId) || depPrompt?.primary.project_id === projectId;
   }
   let drawerProject = $state<string | null>(null);
   // Dependencies promoted to the dialog carry the project's display name
@@ -647,7 +650,7 @@
   async function startAssetInstall(card: ModSummary, pinnedVersion?: ModVersion) {
     // Mark this card busy across the whole flow; the finally clears it on every
     // exit path (early returns and the happy path alike).
-    installingProjectId = card.project_id;
+    installingProjectIds.add(card.project_id);
     try {
       if (!instanceId || !canInstallContent(kind, instanceId, loader)) {
         error = get(t)('mods.browse.errorNoInstance');
@@ -681,7 +684,7 @@
       // Notify the Installed-assets view so it re-lists.
       assetsChanged.value++;
     } finally {
-      installingProjectId = null;
+      installingProjectIds.delete(card.project_id);
     }
   }
 
@@ -696,7 +699,7 @@
     // Mark this card busy for the whole mod flow — including the branch that
     // only opens the dependency dialog. The finally clears it on every exit
     // path (early returns, the fast-path install, and the dialog-open path).
-    installingProjectId = card.project_id;
+    installingProjectIds.add(card.project_id);
     try {
       if (!instanceId || !mcVersion || !loader) {
         error = get(t)('mods.browse.errorNoInstance');
@@ -851,7 +854,7 @@
         };
       }
     } finally {
-      installingProjectId = null;
+      installingProjectIds.delete(card.project_id);
     }
   }
 </script>
@@ -1017,7 +1020,7 @@
         }
         depPrompt = null;
         // Keep the originating card busy while the confirmed install runs.
-        installingProjectId = prompt.primary.project_id;
+        installingProjectIds.add(prompt.primary.project_id);
         try {
           const installed = await commands.modsInstallWithDeps(
             instanceId,
@@ -1080,7 +1083,7 @@
             await refreshInstalled();
           }
         } finally {
-          installingProjectId = null;
+          installingProjectIds.delete(prompt.primary.project_id);
         }
       }}
     />

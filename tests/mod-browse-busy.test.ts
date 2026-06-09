@@ -125,6 +125,86 @@ describe('ModBrowseView install busy state', () => {
     });
   });
 
+  it('tracks concurrent installs independently — starting B does not clear A', async () => {
+    // Regression guard for the scalar→Set change: the UI lets you click Install
+    // on card B while card A is still installing. With a single scalar id, B's
+    // start would overwrite A's and prematurely clear A's spinner. A Set keeps
+    // both busy until each one's own flow settles.
+    const mkHit = (id: string, name: string) => ({
+      source: 'modrinth',
+      project_id: id,
+      slug: name.toLowerCase(),
+      name,
+      summary: '',
+      icon_url: null,
+      downloads: 0,
+      author: 'a',
+      updated_at: null,
+    });
+    commands.modsGetCurseforgeKeyStatus.mockResolvedValue({ status: 'ok', data: 'set' });
+    commands.modsSearch.mockResolvedValue({
+      status: 'ok',
+      data: {
+        hits: [mkHit('abc', 'Sodium'), mkHit('xyz', 'Lithium')],
+        total: 2,
+        offset: 0,
+        page_size: 20,
+      },
+    });
+    commands.modsListInstalled.mockResolvedValue({ status: 'ok', data: [] });
+    commands.assetsList.mockResolvedValue({ status: 'ok', data: [] });
+    commands.modsProject.mockImplementation((_src: string, id: string) =>
+      Promise.resolve({ status: 'ok', data: { summary: mkHit(id, id) } }),
+    );
+    // Echo the requested project_id so each card resolves to its own version.
+    commands.modsVersions.mockImplementation((_src: string, id: string) =>
+      Promise.resolve({
+        status: 'ok',
+        data: [
+          {
+            source: 'modrinth',
+            project_id: id,
+            version_id: `${id}-v1`,
+            name: `${id} 1.0`,
+            version_number: '1.0',
+            loaders: ['fabric'],
+            primary_file: { distribution_allowed: true },
+          },
+        ],
+      }),
+    );
+    commands.modsResolveInstallPlan.mockResolvedValue({
+      status: 'ok',
+      data: {
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [],
+        loader_requirements: [],
+      },
+    });
+    // Both installs hang (distinct never-resolving promises) so both stay busy.
+    commands.modsInstallWithDeps.mockReturnValue(new Promise(() => {}));
+
+    render(ModBrowseView, { props: baseProps as never });
+
+    const installButtons = await screen.findAllByRole('button', { name: /install/i });
+    expect(installButtons.length).toBe(2);
+    const [aBtn, bBtn] = installButtons;
+
+    // Start install on card A → A becomes busy.
+    await fireEvent.click(aBtn!);
+    await waitFor(() => expect(aBtn!.querySelector('[role="status"]')).not.toBeNull());
+
+    // Start install on card B while A is still in flight.
+    await fireEvent.click(bBtn!);
+    await waitFor(() => expect(bBtn!.querySelector('[role="status"]')).not.toBeNull());
+
+    // The key assertion: A is STILL busy — B's start did not clobber it.
+    expect(aBtn!.querySelector('[role="status"]')).not.toBeNull();
+    expect(aBtn!.hasAttribute('disabled')).toBe(true);
+  });
+
   it('keeps the card Install disabled while its dependency dialog is open', async () => {
     // Plan with a required dependency → startInstall opens the dependency
     // dialog instead of installing directly. Its `finally` clears
