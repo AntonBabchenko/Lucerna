@@ -36,7 +36,7 @@ afterEach(() => {
 
 type OnInstalled = (chosen: { source: ModSource; projectId: string }) => void | Promise<void>;
 
-function renderDialog(onInstalled?: OnInstalled) {
+function renderDialog(onInstalled?: OnInstalled, onClose: () => void = vi.fn()) {
   return render(FindAlternativeDialog, {
     props: {
       modName: 'Create Train Parts',
@@ -44,7 +44,7 @@ function renderDialog(onInstalled?: OnInstalled) {
       loader: 'neoforge',
       instanceId: 'inst-1',
       curseForgeUrl: 'https://www.curseforge.com/minecraft/mc-mods/create-train-parts',
-      onClose: vi.fn(),
+      onClose,
       onInstalled,
     },
   });
@@ -92,7 +92,8 @@ describe('FindAlternativeDialog', () => {
       data: { primary_name: 'Create Train Parts', installed_dependencies: [] },
     });
     const onInstalled = vi.fn().mockResolvedValue(undefined);
-    renderDialog(onInstalled);
+    const onClose = vi.fn();
+    renderDialog(onInstalled, onClose);
     await waitFor(() => expect(screen.getByTestId('find-alt-results')).toBeTruthy());
     const results = screen.getByTestId('find-alt-results');
     await fireEvent.click(within(results).getByRole('button'));
@@ -103,5 +104,6 @@ describe('FindAlternativeDialog', () => {
       [],
     );
     expect(onInstalled).toHaveBeenCalledWith({ source: 'modrinth', projectId: 'abc' });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 });

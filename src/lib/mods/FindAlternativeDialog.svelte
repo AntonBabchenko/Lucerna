@@ -47,6 +47,7 @@
   async function search() {
     candidates = null;
     searchError = null;
+    installError = null;
     const r = await commands.modsSearch({
       source: 'modrinth',
       kind: 'mod',
@@ -96,8 +97,9 @@
   }
 
   function openCurseForge() {
-    if (curseForgeUrl) {
-      void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(curseForgeUrl));
+    const url = curseForgeUrl;
+    if (url) {
+      void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
     }
   }
 
