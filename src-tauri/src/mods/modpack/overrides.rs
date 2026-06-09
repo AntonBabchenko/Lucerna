@@ -51,15 +51,19 @@ pub struct ExtractedAsset {
 
 /// Which extracted files the orchestrator should record in pack_origin.
 /// Bundled jars under `mods/`, plus top-level (single-segment) files
-/// directly under `resourcepacks/` / `shaderpacks/`. Folder-form
+/// directly under `resourcepacks/` / `shaderpacks/` that are actually
+/// loadable packs (`.zip` / `.zip.disabled`). A non-`.zip` file in those
+/// dirs (e.g. a `.rar`/`.7z`/`.txt` download note an author bundled) is
+/// extracted to disk but not itemised as that asset type. Folder-form
 /// resourcepacks and bulk config trees are intentionally not itemised.
 fn is_tracked_bundled_path(rel: &str) -> bool {
     if rel.starts_with("mods/") && (rel.ends_with(".jar") || rel.ends_with(".jar.disabled")) {
         return true;
     }
+    let is_zip_pack = rel.ends_with(".zip") || rel.ends_with(".zip.disabled");
     for prefix in ["resourcepacks/", "shaderpacks/"] {
         if let Some(after) = rel.strip_prefix(prefix) {
-            if !after.is_empty() && !after.contains('/') {
+            if !after.is_empty() && !after.contains('/') && is_zip_pack {
                 return true;
             }
         }
@@ -340,6 +344,14 @@ mod tests {
             ("overrides/resourcepacks/Folder/pack.mcmeta", b"{}" as &[u8]),
             ("overrides/config/foo.toml", b"k=v" as &[u8]),
             ("overrides/mods/notes.txt", b"not-a-jar" as &[u8]),
+            // Non-loadable blobs an author left in the asset dirs: a .zip.txt
+            // download note and a stray .txt. Extracted to disk, but NOT
+            // itemised as a resourcepack/shader.
+            (
+                "overrides/shaderpacks/Sh.zip.txt",
+                b"download here" as &[u8],
+            ),
+            ("overrides/resourcepacks/readme.txt", b"notes" as &[u8]),
         ]);
         let inst = TempDir::new().unwrap();
         let out = extract(&zip, inst.path(), |_, _| {}).await.unwrap();

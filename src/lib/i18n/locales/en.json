@@ -468,7 +468,7 @@
         "updating": "Updating…",
         "updateAvailable": "Update available → {version}",
         "updateBtn": "Update",
-        "modsHeading": "Mods",
+        "modsHeading": "Mods ({count})",
         "loading": "Loading…",
         "modsEmpty": "No mods installed.",
         "badgeFromPackTitle": "from pack",

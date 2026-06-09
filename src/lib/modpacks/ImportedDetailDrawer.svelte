@@ -15,6 +15,7 @@
     ProgressTick,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
@@ -105,13 +106,17 @@
     new Set((status?.origin.files ?? []).map((f) => f.sha1.toLowerCase())),
   );
 
-  // A pack file's category, from its install_path prefix. Drives the
-  // per-type drawer sections. Anything that is not mods/resourcepacks/
-  // shaderpacks (config/*, options.txt, …) groups under "configs".
+  // A pack file's category, from its install_path prefix. A resourcepack /
+  // shaderpack is only a loadable `.zip` (or `.zip.disabled`); any other
+  // file in those dirs (a `.zip.txt` download note, a stray `.rar`) is real
+  // bundled content but not a pack of that type — it groups under "configs".
   type AssetCat = 'resourcepacks' | 'shaderpacks' | 'configs';
+  function isZipPack(p: string): boolean {
+    return p.endsWith('.zip') || p.endsWith('.zip.disabled');
+  }
   function assetCat(installPath: string): AssetCat {
-    if (installPath.startsWith('resourcepacks/')) return 'resourcepacks';
-    if (installPath.startsWith('shaderpacks/')) return 'shaderpacks';
+    if (installPath.startsWith('resourcepacks/') && isZipPack(installPath)) return 'resourcepacks';
+    if (installPath.startsWith('shaderpacks/') && isZipPack(installPath)) return 'shaderpacks';
     return 'configs';
   }
 
@@ -129,8 +134,6 @@
         !removedPaths.has(f.install_path),
     );
   }
-
-  let configsExpanded = $state(false);
 
   $effect(() => {
     void inst.id;
@@ -428,189 +431,26 @@
     {/if}
 
     <div class="flex-1 overflow-y-auto px-4 pb-4">
-      <h4 class="font-medium text-sm text-primary mt-2 mb-2">
-        {$t('modpacks.imported.detail.modsHeading')}
-      </h4>
-      {#if mods === null}
-        <div class="text-sm text-muted" data-testid="imported-detail-mods-loading">
-          {$t('modpacks.imported.detail.loading')}
-        </div>
-      {:else if mods.length === 0}
-        <div class="text-sm text-muted" data-testid="imported-detail-mods-empty">
-          {$t('modpacks.imported.detail.modsEmpty')}
-        </div>
-      {:else}
-        <ul class="space-y-1" data-testid="imported-detail-mods-list">
-          {#each mods as m (m.sha1)}
-            {@const prov = provenance(m)}
-            <li class="flex items-center gap-2 text-sm py-1">
-              <div
-                class="w-2 h-2 rounded-full flex-shrink-0"
-                class:bg-accent={m.enabled}
-                class:bg-muted={!m.enabled}
-                aria-hidden="true"
-              ></div>
-              {#if prov === 'pack'}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeFromPackTitle')}
-                  data-testid="mod-badge-pack-{m.sha1}"
-                >
-                  {$t('modpacks.imported.detail.badgeFromPack')}
-                </span>
-              {:else if prov === 'user'}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeUserAddedTitle')}
-                  data-testid="mod-badge-user-{m.sha1}"
-                >
-                  {$t('modpacks.imported.detail.badgeUserAdded')}
-                </span>
-              {:else}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeManualTitle')}
-                  data-testid="mod-badge-manual-{m.sha1}"
-                >
-                  {$t('modpacks.imported.detail.badgeManual')}
-                </span>
-              {/if}
-              <span class="truncate flex-1">{displayName(m)}</span>
-              {#if !m.enabled}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
-                >
-                  {$t('modpacks.imported.detail.disabled')}
-                </span>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      {/if}
-
-      {#if status}
-        {@const resourcepacks = presentAssets('resourcepacks')}
-        {@const shaderpacks = presentAssets('shaderpacks')}
-        {@const configs = presentAssets('configs')}
-
-        {#if resourcepacks.length > 0}
-          <h4 class="font-medium text-sm text-primary mt-5 mb-2">
-            {$t('modpacks.imported.detail.resourcePacksHeading', { count: resourcepacks.length })}
-          </h4>
-          <ul class="space-y-1" data-testid="imported-detail-resourcepacks">
-            {#each resourcepacks as f (f.install_path)}
-              <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1">{f.name}</span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-
-        {#if shaderpacks.length > 0}
-          <h4 class="font-medium text-sm text-primary mt-5 mb-2">
-            {$t('modpacks.imported.detail.shaderPacksHeading', { count: shaderpacks.length })}
-          </h4>
-          <ul class="space-y-1" data-testid="imported-detail-shaderpacks">
-            {#each shaderpacks as f (f.install_path)}
-              <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1">{f.name}</span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-
-        {#if configs.length > 0}
-          <button
-            type="button"
-            class="font-medium text-sm text-secondary mt-5 mb-2 flex items-center gap-1 hover:text-primary"
-            onclick={() => (configsExpanded = !configsExpanded)}
-            data-testid="imported-detail-configs-toggle"
-          >
-            <span>{configsExpanded ? '▾' : '▸'}</span>
-            {$t('modpacks.imported.detail.configsHeading', { count: configs.length })}
-          </button>
-          {#if configsExpanded}
-            <ul class="space-y-1" data-testid="imported-detail-configs">
-              {#each configs as f (f.install_path)}
-                <li class="flex items-center gap-2 text-sm py-1">
-                  <span class="truncate flex-1 text-secondary">{f.install_path}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        {/if}
-      {/if}
-
-      {#if status && status.removed_files.length > 0}
-        <div class="mt-5" data-testid="imported-detail-removed-section">
-          <h4 class="font-medium text-sm text-primary mb-2">
-            {$t('modpacks.imported.detail.removedHeading', { count: status.removed_files.length })}
-          </h4>
-          {#if restoreError}
-            <p class="text-xs text-danger mb-2" data-testid="imported-detail-restore-error">
-              {restoreError}
-            </p>
-          {/if}
-          <ul class="space-y-1">
-            {#each status.removed_files as f (f.sha1)}
-              <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger-bg border border-danger"
-              >
-                <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
-                {#if f.url === ''}
-                  <!-- Bundled mod from overrides/mods/ — no network source
-                     to re-fetch from. Disable Restore and explain why on
-                     hover; the user's only recovery path is re-importing
-                     the .mrpack. -->
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs flex-shrink-0"
-                    disabled
-                    title={$t('modpacks.imported.detail.restoreDisabledTitle')}
-                    data-testid="imported-detail-restore-{f.sha1}"
-                  >
-                    {$t('modpacks.imported.detail.restoreBtn')}
-                  </button>
-                {:else}
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs flex-shrink-0"
-                    onclick={() => void restore(f)}
-                    data-testid="imported-detail-restore-{f.sha1}"
-                  >
-                    {$t('modpacks.imported.detail.restoreBtn')}
-                  </button>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          {#if status.removed_files.some((f) => f.url === '')}
-            <button
-              type="button"
-              class="btn-secondary btn-xs mt-2"
-              onclick={() => void reimportPackFiles()}
-              disabled={reimporting}
-              data-testid="imported-detail-reimport"
-            >
-              {reimporting
-                ? $t('modpacks.imported.detail.reimporting')
-                : $t('modpacks.imported.detail.reimportBtn')}
-            </button>
-          {/if}
-        </div>
-      {/if}
+      {#snippet sectionSummary(label: string)}
+        <summary
+          class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-2"
+        >
+          <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+          {label}
+        </summary>
+      {/snippet}
 
       {#if status && status.missing_mods.length > 0}
-        <div class="mt-5" data-testid="imported-detail-missing-section">
-          <h4 class="font-medium text-sm text-primary mb-2">
-            {$t('modpacks.imported.detail.missingHeading', {
+        <details class="mt-2" open data-testid="imported-detail-missing-section">
+          {@render sectionSummary(
+            $t('modpacks.imported.detail.missingHeading', {
               count: status.missing_mods.filter((m) => isUnresolvedMissingState(m.state)).length,
-            })}
-          </h4>
-          <p class="text-xs text-muted mb-2">
+            }),
+          )}
+          <p class="text-xs text-muted mb-2 pl-4">
             {$t('modpacks.imported.detail.missingBody')}
           </p>
-          <ul class="space-y-1">
+          <ul class="space-y-1 pl-4">
             {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
               {@const isInstalled = m.state === 'installed'}
               {@const isDifferentVersion = m.state === 'different_version'}
@@ -673,34 +513,206 @@
               </li>
             {/each}
           </ul>
-        </div>
+        </details>
+      {/if}
+
+      {#if status && status.removed_files.length > 0}
+        <details class="mt-2" open data-testid="imported-detail-removed-section">
+          {@render sectionSummary(
+            $t('modpacks.imported.detail.removedHeading', { count: status.removed_files.length }),
+          )}
+          {#if restoreError}
+            <p class="text-xs text-danger mb-2 pl-4" data-testid="imported-detail-restore-error">
+              {restoreError}
+            </p>
+          {/if}
+          <ul class="space-y-1 pl-4">
+            {#each status.removed_files as f (f.sha1)}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger-bg border border-danger"
+              >
+                <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
+                {#if f.url === ''}
+                  <!-- Bundled mod from overrides/mods/ — no network source
+                     to re-fetch from. Disable Restore and explain why on
+                     hover; the user's only recovery path is re-importing
+                     the .mrpack. -->
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs flex-shrink-0"
+                    disabled
+                    title={$t('modpacks.imported.detail.restoreDisabledTitle')}
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.restoreBtn')}
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs flex-shrink-0"
+                    onclick={() => void restore(f)}
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.restoreBtn')}
+                  </button>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if status.removed_files.some((f) => f.url === '')}
+            <button
+              type="button"
+              class="btn-secondary btn-xs mt-2 ml-4"
+              onclick={() => void reimportPackFiles()}
+              disabled={reimporting}
+              data-testid="imported-detail-reimport"
+            >
+              {reimporting
+                ? $t('modpacks.imported.detail.reimporting')
+                : $t('modpacks.imported.detail.reimportBtn')}
+            </button>
+          {/if}
+        </details>
       {/if}
 
       {#if status && (status.origin.skipped_overrides?.length ?? 0) > 0}
         {@const skipped = status.origin.skipped_overrides ?? []}
-        <div class="mt-5" data-testid="imported-detail-skipped-section">
-          <h4 class="font-medium text-sm text-primary mb-2">
-            {$t('modpacks.imported.detail.skippedHeading', {
+        <details class="mt-2" open data-testid="imported-detail-skipped-section">
+          {@render sectionSummary(
+            $t('modpacks.imported.detail.skippedHeading', {
               count: skipped.length,
-            })}
-          </h4>
-          <p class="text-xs text-muted mb-2">
+            }),
+          )}
+          <p class="text-xs text-muted mb-2 pl-4">
             {$t('modpacks.imported.detail.skippedBody')}
           </p>
-          <ul class="space-y-1">
+          <ul class="space-y-1 pl-4">
             {#each skipped as s (s.path)}
               <li
                 class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
               >
                 <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
                 <span class="truncate flex-1">{s.path}</span>
-                <span class="text-xs text-muted flex-shrink-0">
-                  {Math.round((s.size ?? 0) / (1024 * 1024))} MB
-                </span>
+                <span class="text-xs text-muted flex-shrink-0">{formatSize(s.size)}</span>
               </li>
             {/each}
           </ul>
-        </div>
+        </details>
+      {/if}
+
+      <details class="mt-2">
+        {@render sectionSummary(
+          $t('modpacks.imported.detail.modsHeading', { count: mods?.length ?? 0 }),
+        )}
+        {#if mods === null}
+          <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-loading">
+            {$t('modpacks.imported.detail.loading')}
+          </div>
+        {:else if mods.length === 0}
+          <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-empty">
+            {$t('modpacks.imported.detail.modsEmpty')}
+          </div>
+        {:else}
+          <ul class="space-y-1 pl-4" data-testid="imported-detail-mods-list">
+            {#each mods as m (m.sha1)}
+              {@const prov = provenance(m)}
+              <li class="flex items-center gap-2 text-sm py-1">
+                <div
+                  class="w-2 h-2 rounded-full flex-shrink-0"
+                  class:bg-accent={m.enabled}
+                  class:bg-muted={!m.enabled}
+                  aria-hidden="true"
+                ></div>
+                {#if prov === 'pack'}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
+                    title={$t('modpacks.imported.detail.badgeFromPackTitle')}
+                    data-testid="mod-badge-pack-{m.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.badgeFromPack')}
+                  </span>
+                {:else if prov === 'user'}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
+                    title={$t('modpacks.imported.detail.badgeUserAddedTitle')}
+                    data-testid="mod-badge-user-{m.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.badgeUserAdded')}
+                  </span>
+                {:else}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
+                    title={$t('modpacks.imported.detail.badgeManualTitle')}
+                    data-testid="mod-badge-manual-{m.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.badgeManual')}
+                  </span>
+                {/if}
+                <span class="truncate flex-1">{displayName(m)}</span>
+                {#if !m.enabled}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
+                  >
+                    {$t('modpacks.imported.detail.disabled')}
+                  </span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </details>
+
+      {#if status}
+        {@const resourcepacks = presentAssets('resourcepacks')}
+        {@const shaderpacks = presentAssets('shaderpacks')}
+        {@const configs = presentAssets('configs')}
+
+        {#if resourcepacks.length > 0}
+          <details class="mt-2" data-testid="imported-detail-resourcepacks-section">
+            {@render sectionSummary(
+              $t('modpacks.imported.detail.resourcePacksHeading', { count: resourcepacks.length }),
+            )}
+            <ul class="space-y-1 pl-4" data-testid="imported-detail-resourcepacks">
+              {#each resourcepacks as f (f.install_path)}
+                <li class="flex items-center gap-2 text-sm py-1">
+                  <span class="truncate flex-1">{f.name}</span>
+                  <span class="text-xs text-placeholder flex-shrink-0">{formatSize(f.size)}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
+
+        {#if shaderpacks.length > 0}
+          <details class="mt-2" data-testid="imported-detail-shaderpacks-section">
+            {@render sectionSummary(
+              $t('modpacks.imported.detail.shaderPacksHeading', { count: shaderpacks.length }),
+            )}
+            <ul class="space-y-1 pl-4" data-testid="imported-detail-shaderpacks">
+              {#each shaderpacks as f (f.install_path)}
+                <li class="flex items-center gap-2 text-sm py-1">
+                  <span class="truncate flex-1">{f.name}</span>
+                  <span class="text-xs text-placeholder flex-shrink-0">{formatSize(f.size)}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
+
+        {#if configs.length > 0}
+          <details class="mt-2" data-testid="imported-detail-configs-section">
+            {@render sectionSummary(
+              $t('modpacks.imported.detail.configsHeading', { count: configs.length }),
+            )}
+            <ul class="space-y-1 pl-4" data-testid="imported-detail-configs">
+              {#each configs as f (f.install_path)}
+                <li class="flex items-center gap-2 text-sm py-1">
+                  <span class="truncate flex-1 text-secondary">{f.install_path}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       {/if}
     </div>
 
