@@ -4,6 +4,7 @@ import {
   ChevronRight,
   ChevronUp,
   Download,
+  Info,
   LayoutGrid,
   List,
   Minus,
@@ -23,6 +24,7 @@ export const ICONS = {
   chevronUp: ChevronUp,
   close: X,
   warning: TriangleAlert,
+  info: Info, // informational marker (e.g. skipped-override notices)
   success: Check,
   download: Download,
   update: RefreshCw, // static "update available" marker

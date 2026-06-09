@@ -590,7 +590,7 @@
               <li
                 class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
               >
-                <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
+                <Icon name="info" class="flex-shrink-0" />
                 <span class="truncate flex-1">{s.path}</span>
                 <span class="text-xs text-muted flex-shrink-0">{formatSize(s.size)}</span>
               </li>
