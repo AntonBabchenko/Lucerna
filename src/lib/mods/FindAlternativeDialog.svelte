@@ -6,7 +6,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
-  import { isLikelyMatch } from './alternative-match';
+  import { deriveSearchQuery, isLikelyMatch } from './alternative-match';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
 
@@ -38,7 +38,7 @@
 
   // Seed the editable query from the initial mod name; later edits are local.
   // svelte-ignore state_referenced_locally
-  let query = $state(modName);
+  let query = $state(deriveSearchQuery(modName));
   let candidates = $state<ModSummary[] | null>(null);
   let searchError = $state<string | null>(null);
   let installError = $state<string | null>(null);
