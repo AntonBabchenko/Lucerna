@@ -221,6 +221,7 @@ mod tests {
                 })
                 .collect(),
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         }
     }
 

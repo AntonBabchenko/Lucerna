@@ -78,6 +78,7 @@ pub fn build_pack_origin(
             })
             .cloned()
             .collect(),
+        resolved_missing: Vec::new(),
     }
 }
 
@@ -1062,6 +1063,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), pack_file("b")],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true), installed("b", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1080,6 +1082,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), pack_file("b")],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
@@ -1099,6 +1102,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a")],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
@@ -1119,6 +1123,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), rp],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1139,6 +1144,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), rp],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1158,6 +1164,7 @@ mod tests {
             version: "1".into(),
             files: vec![f],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
@@ -1250,6 +1257,7 @@ mod tests {
             version: "1.0".into(),
             files,
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         }
     }
 
@@ -1339,6 +1347,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("AbCdEf"), pack_file("zzz")],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let mut wanted = origin.files[0].clone();
         wanted.sha1 = "AbCdEf".into();
@@ -1376,6 +1385,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), zip],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1454,6 +1464,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), nested],
             missing_mods: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
