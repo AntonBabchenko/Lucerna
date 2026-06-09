@@ -809,6 +809,8 @@ export type TranslationKey =
   | 'sidebar.addAccountConfirm'
   | 'sidebar.addOffline'
   | 'sidebar.browseModpacks'
+  | 'sidebar.compactCollapse'
+  | 'sidebar.compactExpand'
   | 'sidebar.createInstance'
   | 'sidebar.install'
   | 'sidebar.instance'

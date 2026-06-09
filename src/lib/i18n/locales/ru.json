@@ -77,7 +77,9 @@
     "working": "Работаю…",
     "install": "↓ Установить",
     "browseModpacks": "📦 Браузер сборок",
-    "logs": "📜 Логи"
+    "logs": "📜 Логи",
+    "compactCollapse": "Свернуть в мини-режим",
+    "compactExpand": "Развернуть на всё окно"
   },
   "instance": {
     "manage": {
