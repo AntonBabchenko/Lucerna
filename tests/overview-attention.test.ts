@@ -37,8 +37,8 @@ describe('buildAttentionItems', () => {
   });
 
   it('omits signals whose count is zero', () => {
-    expect(buildAttentionItems({ ...none, incompatibleCount: 0, integrityProblemCount: 4 })).toEqual(
-      [{ kind: 'integrity', count: 4 }],
-    );
+    expect(
+      buildAttentionItems({ ...none, incompatibleCount: 0, integrityProblemCount: 4 }),
+    ).toEqual([{ kind: 'integrity', count: 4 }]);
   });
 });
