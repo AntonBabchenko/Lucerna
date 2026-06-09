@@ -10,7 +10,9 @@
       "!**/node_modules",
       "!**/build",
       "!**/.svelte-kit",
-      "!**/src-tauri/target"
+      "!**/src-tauri/target",
+      "!**/.claude/**",
+      "!**/.clone/**"
     ]
   },
   "formatter": {
