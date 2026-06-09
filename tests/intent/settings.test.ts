@@ -108,6 +108,19 @@ describe('SettingsModal — dialog structure', () => {
     const backdrop = screen.getByLabelText('Close Settings');
     expect(backdrop).not.toBeNull();
   });
+
+  // Regression: Settings can be opened from *inside* the z-40 modpacks modal
+  // (the CurseForge-key banner). The scrim must sit in the secondary-dialog
+  // layer (z-50) so it overlays that base modal instead of being painted behind
+  // it by DOM order. See ModpacksModal.svelte (z-40).
+  it('scrim sits at z-50 so it overlays the z-40 modpacks modal', () => {
+    settingsOpen.value = { tab: 'curseforge' };
+    render(SettingsModal);
+    // The backdrop button lives directly inside the scrim container.
+    const scrim = screen.getByLabelText('Close Settings').parentElement;
+    expect(scrim?.className).toContain('z-50');
+    expect(scrim?.className).not.toContain('z-40');
+  });
 });
 
 // ── SettingsModal — tab POSITIVE assertions (complement to D's negative) ─────
