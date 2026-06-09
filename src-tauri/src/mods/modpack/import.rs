@@ -132,7 +132,22 @@ fn filename_stem(filename: &str) -> Option<String> {
 fn missing_mod_state(
     m: &ModpackUnresolvable,
     installed: &[crate::mods::platform::InstalledMod],
+    resolved: &[crate::mods::installed::ResolvedMissing],
 ) -> MissingModState {
+    // A user-chosen substitute closes the entry as long as its jar is still
+    // installed. Self-healing: if the sha1 left the registry, fall through to
+    // the normal pinned/different/missing classification below.
+    let substituted = resolved.iter().any(|r| {
+        r.filename.eq_ignore_ascii_case(&m.filename)
+            && r.mod_name == m.mod_name
+            && installed
+                .iter()
+                .any(|i| i.sha1.eq_ignore_ascii_case(&r.sha1))
+    });
+    if substituted {
+        return MissingModState::Substituted;
+    }
+
     let pinned = installed.iter().any(|i| {
         m.sha1
             .as_deref()
@@ -210,7 +225,7 @@ pub fn compute_status(
         .iter()
         .map(|m| MissingModStatus {
             entry: m.clone(),
-            state: missing_mod_state(m, installed),
+            state: missing_mod_state(m, installed, &origin.resolved_missing),
         })
         .collect();
 
@@ -1671,6 +1686,50 @@ mod tests {
         )];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
+    }
+
+    #[test]
+    fn missing_state_substituted_when_resolved_sha_installed() {
+        let mut origin = origin_with_missing(vec![missing_entry(
+            None,
+            "ctp.jar",
+            "Create Train Parts",
+            Some("123"),
+        )]);
+        origin.resolved_missing = vec![crate::mods::installed::ResolvedMissing {
+            filename: "ctp.jar".into(),
+            mod_name: "Create Train Parts".into(),
+            sha1: "deadbeef".into(),
+        }];
+        // The Modrinth substitute is installed under its own filename/name/id.
+        let installed = vec![installed_mod(
+            "DEADBEEF",
+            "create-train-parts-fabric.jar",
+            "Create Train Parts",
+            true,
+            Some("modrinth-abc"),
+        )];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::Substituted);
+    }
+
+    #[test]
+    fn missing_state_reverts_to_missing_when_substitute_removed() {
+        let mut origin = origin_with_missing(vec![missing_entry(
+            None,
+            "ctp.jar",
+            "Create Train Parts",
+            Some("123"),
+        )]);
+        origin.resolved_missing = vec![crate::mods::installed::ResolvedMissing {
+            filename: "ctp.jar".into(),
+            mod_name: "Create Train Parts".into(),
+            sha1: "deadbeef".into(),
+        }];
+        // Substitute jar no longer present -> overlay must not falsely close it.
+        let installed: Vec<crate::mods::platform::InstalledMod> = vec![];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::Missing);
     }
 
     /// ATLauncher md5 files use the md5 as a transient selection token in sha1.
