@@ -28,6 +28,7 @@
   import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
   import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
   import type { ModpackImportRequest } from '$lib/modpacks/import-request';
+  import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
@@ -144,7 +145,9 @@
   // Overview indicator. Empty for non-pack instances and pre-SF2
   // imports (modpack_status returns null or an empty list).
   let packMissingMods = $state<MissingModStatus[]>([]);
-  const unresolvedMissing = $derived(packMissingMods.filter((m) => m.state !== 'installed'));
+  const unresolvedMissing = $derived(
+    packMissingMods.filter((m) => isUnresolvedMissingState(m.state)),
+  );
 
   async function refreshPackStatus(id: string | null) {
     if (!id) {

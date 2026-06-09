@@ -214,11 +214,18 @@ pub enum MissingModState {
     DifferentVersion,
     /// No installed jar matches this mod by any signal.
     Missing,
+    /// No pinned/different file is installed, but the user installed a
+    /// substitute from another source (e.g. Modrinth) and we recorded the
+    /// link in `PackOrigin.resolved_missing`. Treated as resolved, but
+    /// surfaced distinctly so the UI does not claim the pinned file is present.
+    Substituted,
 }
 
 /// One `PackOrigin.missing_mods` entry paired with its live
 /// classification — `installed` (the pinned file), `different_version`
-/// (the mod is present, but not the pinned file), or `missing`.
+/// (the mod is present, but not the pinned file), `missing` (no matching
+/// jar), or `substituted` (the user installed an alternative from another
+/// source, recorded in `PackOrigin.resolved_missing`).
 /// Computed by `compute_status`; consumed by the imported-pack drawer
 /// and the Overview indicator.
 #[derive(Debug, Clone, Serialize, Type)]

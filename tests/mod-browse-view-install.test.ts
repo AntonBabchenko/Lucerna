@@ -280,6 +280,40 @@ describe('ModBrowseView install flow', () => {
     expect(pushWarning).not.toHaveBeenCalled();
   });
 
+  it('offers the in-app find-on-Modrinth path for a CurseForge distribution block', async () => {
+    // CurseForge source + full instance context → the toast action is the
+    // "Find on Modrinth" path (NOT the "Open on CurseForge" manual link), and
+    // invoking it mounts the FindAlternativeDialog.
+    searchReturns([hit({ source: 'curseforge', name: 'Cool Mod', slug: 'cool-mod' })]);
+    modsProject.mockResolvedValue(project('Cool Mod'));
+    modsVersions.mockResolvedValue(ok([version({ source: 'curseforge' })]));
+    modsResolveInstallPlan.mockResolvedValue(ok(emptyPlan));
+    modsInstallWithDeps.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'mods_distribution_disabled', source: 'curseforge', project_id: 'p1' },
+    });
+    render(ModBrowseView, { props: { ...full, source: 'curseforge' } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
+
+    await waitFor(() => expect(pushActionToast).toHaveBeenCalled());
+    const [kind, title, action] = pushActionToast.mock.calls[0];
+    expect(kind).toBe('warning');
+    expect(title).toContain('Cool Mod');
+    // The find-alt action, NOT the "Open on CurseForge" manual fallback.
+    expect(action.label).toBe('Find on Modrinth');
+    expect(action.label).not.toMatch(/Open on CurseForge/);
+    expect(pushWarning).not.toHaveBeenCalled();
+
+    // The dialog auto-searches Modrinth on mount; give it an empty page so it
+    // renders (empty state) rather than crashing the fill loop.
+    modsSearch.mockResolvedValue(ok({ hits: [], total: 0, offset: 0, page_size: 20 }));
+    // Invoking the captured toast action mounts the FindAlternativeDialog from
+    // the instance context captured at toast-creation time.
+    await action.run();
+    expect(await screen.findByTestId('find-alt-dialog')).toBeTruthy();
+  });
+
   it('names the conflicting installed mod on a filename clash', async () => {
     searchReturns([hit()]);
     modsListInstalled.mockResolvedValue(

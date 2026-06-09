@@ -82,6 +82,7 @@ pub fn build_pack_origin(
         // which oversized bundled files it skipped. build_pack_origin is
         // pure (no archive access), so it always starts empty here.
         skipped_overrides: vec![],
+        resolved_missing: Vec::new(),
     }
 }
 
@@ -125,6 +126,7 @@ fn filename_stem(filename: &str) -> Option<String> {
 }
 
 /// Classify a `missing_mods` entry against the installed jars.
+/// `Substituted` = a user-chosen substitute is installed (recorded in `resolved`); it takes priority over all other signals.
 /// `Installed` = the exact pinned file (sha1 or filename match).
 /// `DifferentVersion` = the mod is present but not the pinned file —
 /// matched by any of three signals: platform project id (reliable, but
@@ -135,7 +137,25 @@ fn filename_stem(filename: &str) -> Option<String> {
 fn missing_mod_state(
     m: &ModpackUnresolvable,
     installed: &[crate::mods::platform::InstalledMod],
+    resolved: &[crate::mods::installed::ResolvedMissing],
 ) -> MissingModState {
+    // A user-chosen substitute closes the entry as long as its jar is still
+    // installed. Self-healing: if the sha1 left the registry, fall through to
+    // the normal pinned/different/missing classification below.
+    let substituted = resolved.iter().any(|r| {
+        r.filename.eq_ignore_ascii_case(&m.filename)
+            // Exact (not case-insensitive) by design: the overlay records the
+            // identical `mod_name` string at resolution time, so they match
+            // byte-for-byte. Do not widen this to eq_ignore_ascii_case.
+            && r.mod_name == m.mod_name
+            && installed
+                .iter()
+                .any(|i| i.sha1.eq_ignore_ascii_case(&r.sha1))
+    });
+    if substituted {
+        return MissingModState::Substituted;
+    }
+
     let pinned = installed.iter().any(|i| {
         m.sha1
             .as_deref()
@@ -213,7 +233,7 @@ pub fn compute_status(
         .iter()
         .map(|m| MissingModStatus {
             entry: m.clone(),
-            state: missing_mod_state(m, installed),
+            state: missing_mod_state(m, installed, &origin.resolved_missing),
         })
         .collect();
 
@@ -1077,6 +1097,7 @@ mod tests {
             files: vec![pack_file("a"), pack_file("b")],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true), installed("b", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1096,6 +1117,7 @@ mod tests {
             files: vec![pack_file("a"), pack_file("b")],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
@@ -1116,6 +1138,7 @@ mod tests {
             files: vec![pack_file("a")],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
@@ -1137,6 +1160,7 @@ mod tests {
             files: vec![pack_file("a"), rp],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1158,6 +1182,7 @@ mod tests {
             files: vec![pack_file("a"), rp],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1178,6 +1203,7 @@ mod tests {
             files: vec![f],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
@@ -1271,6 +1297,7 @@ mod tests {
             files,
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         }
     }
 
@@ -1361,6 +1388,7 @@ mod tests {
             files: vec![pack_file("AbCdEf"), pack_file("zzz")],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let mut wanted = origin.files[0].clone();
         wanted.sha1 = "AbCdEf".into();
@@ -1399,6 +1427,7 @@ mod tests {
             files: vec![pack_file("a"), zip],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1478,6 +1507,7 @@ mod tests {
             files: vec![pack_file("a"), nested],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1681,6 +1711,77 @@ mod tests {
             "Scape and Run: Parasites",
             true,
             None,
+        )];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
+    }
+
+    #[test]
+    fn missing_state_substituted_when_resolved_sha_installed() {
+        let mut origin = origin_with_missing(vec![missing_entry(
+            None,
+            "ctp.jar",
+            "Create Train Parts",
+            Some("123"),
+        )]);
+        origin.resolved_missing = vec![crate::mods::installed::ResolvedMissing {
+            filename: "ctp.jar".into(),
+            mod_name: "Create Train Parts".into(),
+            sha1: "deadbeef".into(),
+        }];
+        // The substitute jar has a DISTINCT name/filename/id from the entry, so
+        // it matches ONLY via the recorded overlay sha1 (DEADBEEF == deadbeef).
+        let installed = vec![installed_mod(
+            "DEADBEEF",
+            "create-train-parts-fabric.jar",
+            "Create: Trains & Parts (Modrinth)",
+            true,
+            Some("modrinth-abc"),
+        )];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::Substituted);
+    }
+
+    #[test]
+    fn missing_state_reverts_to_missing_when_substitute_removed() {
+        let mut origin = origin_with_missing(vec![missing_entry(
+            None,
+            "ctp.jar",
+            "Create Train Parts",
+            Some("123"),
+        )]);
+        origin.resolved_missing = vec![crate::mods::installed::ResolvedMissing {
+            filename: "ctp.jar".into(),
+            mod_name: "Create Train Parts".into(),
+            sha1: "deadbeef".into(),
+        }];
+        // Substitute jar no longer present -> overlay must not falsely close it.
+        let installed: Vec<crate::mods::platform::InstalledMod> = vec![];
+        let st = compute_status(origin, &installed, &Default::default());
+        assert_eq!(st.missing_mods[0].state, MissingModState::Missing);
+    }
+
+    #[test]
+    fn missing_state_falls_through_to_different_version_when_substitute_gone() {
+        let mut origin = origin_with_missing(vec![missing_entry(
+            None,
+            "ctp.jar",
+            "Create Train Parts",
+            Some("123"),
+        )]);
+        origin.resolved_missing = vec![crate::mods::installed::ResolvedMissing {
+            filename: "ctp.jar".into(),
+            mod_name: "Create Train Parts".into(),
+            sha1: "deadbeef".into(),
+        }];
+        // The recorded substitute (deadbeef) is NOT installed, but a different
+        // version of the same mod IS present (matches the entry by display name).
+        let installed = vec![installed_mod(
+            "0000",
+            "create-train-parts-1.2.3.jar",
+            "Create Train Parts",
+            true,
+            Some("123"),
         )];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
