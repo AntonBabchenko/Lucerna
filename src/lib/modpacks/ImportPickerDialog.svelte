@@ -248,14 +248,3 @@
     </footer>
   </div>
 </div>
-
-<style>
-  details[open] > summary .disclosure-caret {
-    transform: rotate(90deg);
-  }
-  .disclosure-caret {
-    display: inline-block;
-    font-size: 0.6em;
-    transition: transform 0.15s ease;
-  }
-</style>

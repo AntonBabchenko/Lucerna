@@ -368,3 +368,14 @@ body[data-tour-active] .tour-overlay {
 .bg-highlight {
   background-color: color-mix(in oklab, rgb(var(--warning-text)) 18%, transparent);
 }
+
+/* Rotating disclosure caret for native <details>/<summary> sections
+   (modpack import picker + imported-pack drawer). */
+.disclosure-caret {
+  display: inline-block;
+  font-size: 0.6em;
+  transition: transform 0.15s ease;
+}
+details[open] > summary .disclosure-caret {
+  transform: rotate(90deg);
+}
