@@ -76,6 +76,24 @@ fn resolve_url(cdn_base: &str, url: &str) -> String {
     }
 }
 
+/// CurseForge CDN URLs encode the file id in the path: `/files/3820/040/<name>`
+/// → 3820 * 1000 + 040 = 3820040. Returns the file id for `edge.forgecdn.net`
+/// and `mediafilez.forgecdn.net` hosts, else `None`.
+fn forgecdn_file_id(url: &str) -> Option<u64> {
+    let parsed = url::Url::parse(url).ok()?;
+    let host = parsed.host_str()?;
+    if host != "edge.forgecdn.net" && host != "mediafilez.forgecdn.net" {
+        return None;
+    }
+    let mut segs = parsed.path_segments()?;
+    if segs.next()? != "files" {
+        return None;
+    }
+    let a: u64 = segs.next()?.parse().ok()?;
+    let b: u64 = segs.next()?.parse().ok()?;
+    Some(a * 1000 + b)
+}
+
 /// v1 install path: ATLauncher uses `type: "mods"` for jars; route every
 /// accepted mod to `mods/<file>`. (Rarer asset-extract types are out of scope
 /// for v1 and never reach here as accepted files.)
@@ -189,22 +207,45 @@ pub fn map_configs(
             continue;
         }
 
+        // Resolve relative URLs (legacy server-download mods use relative paths
+        // against the NodeCDN base).
+        let abs_url = resolve_url(cdn_base, &m.url);
+
         if m.md5.trim().is_empty() {
-            let resolved_url = resolve_url(cdn_base, &m.url);
+            // `direct` mods pointing at a CurseForge CDN carry the file id
+            // embedded in the URL path but no md5 in the manifest. Emit them
+            // as an ATLauncher placeholder (sha1="", md5=None, version_id =
+            // CF file id) so `resolve_forgecdn_sha1` can fill the sha1 from
+            // the CF API at stage time. The forgecdn URL is kept as the manual
+            // fallback in case CF resolution fails.
+            if let Some(file_id) = forgecdn_file_id(&abs_url) {
+                files.push(ModpackFile {
+                    project_id: m.file.clone(),
+                    version_id: file_id.to_string(),
+                    name: m.name.clone(),
+                    filename: m.file.clone(),
+                    install_path,
+                    sha1: String::new(), // filled at stage from CF; empty → unresolvable if CF fails
+                    url: abs_url.clone(), // forgecdn URL kept as manual fallback
+                    size: m.filesize,
+                    env_client: EnvSupport::Required,
+                    source: ModSource::Atlauncher,
+                    md5: None, // NOT an md5 file — resolved via CF sha1
+                });
+                continue;
+            }
+            // Non-forgecdn host with no md5 — no safe way to verify; surface
+            // as manual (no-TOFU).
             unresolvable.push(unres(
                 UnresolvableReason::MissingChecksum,
                 &m.name,
-                resolved_url,
+                abs_url,
                 &m.file,
                 m.filesize,
                 None,
             ));
             continue;
         }
-
-        // Resolve relative URLs (legacy server-download mods use relative paths
-        // against the NodeCDN base).
-        let abs_url = resolve_url(cdn_base, &m.url);
 
         let host = url::Url::parse(&abs_url)
             .ok()
@@ -577,6 +618,112 @@ mod tests {
             s.unresolvable[0].reason,
             UnresolvableReason::DistributionDisabled
         ));
+    }
+
+    // ---- forgecdn file-id parser + forgecdn-direct branch tests ---------------
+
+    /// `forgecdn_file_id` parses the encoded file id from both CDN hosts.
+    #[test]
+    fn forgecdn_file_id_parses_cf_id() {
+        // edge.forgecdn.net: /files/3820/040/<name> → 3820 * 1000 + 40 = 3820040
+        assert_eq!(
+            forgecdn_file_id("https://edge.forgecdn.net/files/3820/040/journeymap.jar"),
+            Some(3820040),
+        );
+        // mediafilez.forgecdn.net: same scheme
+        assert_eq!(
+            forgecdn_file_id("https://mediafilez.forgecdn.net/files/1234/567/y.jar"),
+            Some(1234567),
+        );
+        // non-forgecdn host → None
+        assert_eq!(
+            forgecdn_file_id("https://download.nodecdn.net/files/3820/040/x.jar"),
+            None,
+        );
+        // forgecdn url with non-numeric segment → None
+        assert_eq!(
+            forgecdn_file_id("https://edge.forgecdn.net/files/abc/040/x.jar"),
+            None,
+        );
+    }
+
+    /// A `direct`-download mod with a forgecdn URL and no md5 must produce ONE
+    /// file in `files` awaiting CF sha1 resolution (sha1="", md5=None,
+    /// version_id == the file id, url == the forgecdn url). It must NOT appear
+    /// in `unresolvable` and must NOT have MissingChecksum.
+    #[test]
+    fn forgecdn_direct_no_md5_awaits_cf_resolution() {
+        let m = AtlMod {
+            name: "JourneyMap".into(),
+            file: "journeymap-1.18.2-5.8.5-forge.jar".into(),
+            url: "https://edge.forgecdn.net/files/3820/040/journeymap-1.18.2-5.8.5-forge.jar"
+                .into(),
+            md5: String::new(), // no md5 in manifest
+            filesize: 500_000.0,
+            mod_type: "mods".into(),
+            download: "direct".into(),
+            client: true,
+            optional: false,
+            cf_project_id: 0,
+            cf_file_id: 0,
+            version: String::new(),
+        };
+        let s = map_configs("Pack", "1.0", CDN, &forge_configs(vec![m]));
+        assert_eq!(
+            s.files.len(),
+            1,
+            "forgecdn direct mod should be in files awaiting sha1, got unresolvable: {:?}",
+            s.unresolvable
+        );
+        assert!(
+            s.unresolvable.is_empty(),
+            "must NOT be unresolvable yet; got: {:?}",
+            s.unresolvable
+        );
+        let f = &s.files[0];
+        assert_eq!(f.source, ModSource::Atlauncher);
+        assert_eq!(f.sha1, "", "sha1 must be empty (awaiting CF resolution)");
+        assert!(f.md5.is_none(), "md5 must be None (not an md5 file)");
+        assert_eq!(
+            f.version_id, "3820040",
+            "version_id must encode the CF file id"
+        );
+        assert_eq!(
+            f.url, "https://edge.forgecdn.net/files/3820/040/journeymap-1.18.2-5.8.5-forge.jar",
+            "url must be the forgecdn url (kept as manual fallback)"
+        );
+    }
+
+    /// A `direct`-download mod to a NON-forgecdn host with empty md5 must still
+    /// produce `MissingChecksum` (unchanged behavior — the forgecdn branch is
+    /// only for forgecdn hosts).
+    #[test]
+    fn direct_no_md5_non_forgecdn_still_missing_checksum() {
+        let m = AtlMod {
+            name: "SomeMod".into(),
+            file: "somemod.jar".into(),
+            url: "https://example.com/somemod.jar".into(),
+            md5: String::new(),
+            filesize: 100.0,
+            mod_type: "mods".into(),
+            download: "direct".into(),
+            client: true,
+            optional: false,
+            cf_project_id: 0,
+            cf_file_id: 0,
+            version: String::new(),
+        };
+        let s = map_configs("Pack", "1.0", CDN, &forge_configs(vec![m]));
+        assert_eq!(s.files.len(), 0);
+        assert_eq!(s.unresolvable.len(), 1);
+        assert!(
+            matches!(
+                s.unresolvable[0].reason,
+                UnresolvableReason::MissingChecksum
+            ),
+            "non-forgecdn host with no md5 must be MissingChecksum, got: {:?}",
+            s.unresolvable[0].reason
+        );
     }
 
     /// `resolve_url` unit tests.

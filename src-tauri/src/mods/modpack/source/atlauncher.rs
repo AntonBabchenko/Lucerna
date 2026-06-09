@@ -11,6 +11,88 @@ use crate::mods::platform::{LoaderKind, ModSource};
 pub struct AtlauncherModpackSource;
 
 const ATL_API_BASE: &str = "https://api.atlauncher.com";
+const CF_BASE: &str = "https://api.curseforge.com";
+
+/// Resolve sha1 for ATLauncher `direct` mods that point at a CurseForge CDN
+/// but carried no md5 in the pack manifest. The forgecdn URL already encodes
+/// the CF file id (stored in `version_id`); we fetch the file's sha1 from CF
+/// and verify against the existing forgecdn URL at install. Files we cannot
+/// get a checksum for are moved to `unresolvable` (no-TOFU) with the working
+/// forgecdn URL as the manual action — never installed unverified.
+///
+/// Predicate for forgecdn-direct files awaiting resolution:
+///   `source == Atlauncher && sha1.is_empty() && md5.is_none()`
+async fn resolve_forgecdn_sha1(
+    summary: &mut crate::mods::modpack::schema::ModpackSummary,
+    cf_base: &str,
+    key: Option<&str>,
+) {
+    use crate::mods::modpack::cf_api;
+    use crate::mods::modpack::schema::{ModpackUnresolvable, UnresolvableReason};
+    use crate::mods::platform::ModSource;
+
+    // Indices of forgecdn-direct files awaiting sha1 resolution.
+    let idxs: Vec<usize> = summary
+        .files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.source == ModSource::Atlauncher && f.sha1.is_empty() && f.md5.is_none())
+        .map(|(i, _)| i)
+        .collect();
+
+    if idxs.is_empty() {
+        return;
+    }
+
+    let file_ids: Vec<u64> = idxs
+        .iter()
+        .filter_map(|&i| summary.files[i].version_id.parse::<u64>().ok())
+        .collect();
+
+    // No key (or empty id set): degrade all to unresolvable, preserving the
+    // forgecdn url as the manual action.
+    let resolved = match key {
+        Some(_) if !file_ids.is_empty() => {
+            cf_api::resolve_files(cf_base, key, &file_ids).await.ok()
+        }
+        _ => None,
+    };
+
+    let mut to_remove: Vec<usize> = Vec::new();
+    for &i in &idxs {
+        let file_id: u64 = match summary.files[i].version_id.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                to_remove.push(i);
+                continue;
+            }
+        };
+        match resolved
+            .as_ref()
+            .and_then(|m| m.get(&file_id))
+            .and_then(|r| r.sha1.as_deref())
+        {
+            Some(sha1) if !sha1.trim().is_empty() => {
+                summary.files[i].sha1 = sha1.to_ascii_lowercase();
+            }
+            _ => to_remove.push(i),
+        }
+    }
+
+    to_remove.sort_unstable();
+    for &i in to_remove.iter().rev() {
+        let f = summary.files.remove(i);
+        summary.unresolvable.push(ModpackUnresolvable {
+            reason: UnresolvableReason::MissingChecksum,
+            mod_name: f.name,
+            manual_action_url: f.url, // the working forgecdn direct URL
+            filename: f.filename,
+            size: f.size,
+            sha1: None,
+            project_id: None,
+        });
+    }
+}
 
 /// Build a ModpackHit from a public AtlPack.
 fn pack_to_hit(p: &AtlPack) -> ModpackHit {
@@ -146,10 +228,11 @@ impl ModpackSource for AtlauncherModpackSource {
         let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
         crate::mods::modpack::source::ftb::resolve_cf_refs(
             &mut summary,
-            "https://api.curseforge.com",
+            CF_BASE,
             cf_key.as_deref(),
         )
         .await;
+        resolve_forgecdn_sha1(&mut summary, CF_BASE, cf_key.as_deref()).await;
         let json = serde_json::to_vec(&summary).map_err(|e| Error::ModsDecode {
             platform: "atlauncher".into(),
             details: e.to_string(),
@@ -161,11 +244,158 @@ impl ModpackSource for AtlauncherModpackSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mods::modpack::schema::{EnvSupport, ModpackFile, ModpackFormat, ModpackSummary};
+    use crate::mods::platform::{LoaderKind, ModSource};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    /// Build a minimal `ModpackSummary` with one ATLauncher forgecdn-direct
+    /// placeholder file (the state emitted by `map_configs` for a forgecdn mod
+    /// with no md5 — sha1 empty, md5 None, source=Atlauncher).
+    fn summary_with_forgecdn_placeholder(file_id: &str, forgecdn_url: &str) -> ModpackSummary {
+        ModpackSummary {
+            format: ModpackFormat::Atlauncher,
+            name: "Test Pack".into(),
+            version: "1.0".into(),
+            game_version: "1.18.2".into(),
+            loader: LoaderKind::Forge,
+            loader_version: Some("40.2.0".into()),
+            files: vec![ModpackFile {
+                project_id: "journeymap.jar".into(),
+                version_id: file_id.into(),
+                name: "JourneyMap".into(),
+                filename: "journeymap.jar".into(),
+                install_path: "mods/journeymap.jar".into(),
+                sha1: String::new(), // awaiting CF resolution
+                md5: None,           // not an md5-verified file
+                url: forgecdn_url.into(),
+                size: 500_000.0,
+                env_client: EnvSupport::Required,
+                source: ModSource::Atlauncher,
+            }],
+            unresolvable: vec![],
+            has_overrides: false,
+            has_client_overrides: false,
+            has_saves_in_overrides: false,
+        }
+    }
+
+    // ---- resolve_forgecdn_sha1 tests ----------------------------------------
+
+    /// CF returns the sha1 for the file id → file stays in `files` with sha1
+    /// filled in (lowercased), unresolvable stays empty.
+    #[tokio::test]
+    async fn resolve_forgecdn_sha1_fills_sha1_on_success() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let body = serde_json::json!({
+            "data": [{
+                "id": 4499899u64,
+                "downloadUrl": "https://edge.forgecdn.net/files/4499/899/ae2.jar",
+                "hashes": [{ "value": "AABBCCDD", "algo": 1 }]
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let mut summary = summary_with_forgecdn_placeholder(
+            "4499899",
+            "https://edge.forgecdn.net/files/4499/899/ae2.jar",
+        );
+        resolve_forgecdn_sha1(&mut summary, &s.uri(), Some("test-key")).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(
+            summary.files.len(),
+            1,
+            "file must stay in files after sha1 is resolved"
+        );
+        assert!(
+            summary.unresolvable.is_empty(),
+            "nothing should be unresolvable"
+        );
+        assert_eq!(summary.files[0].sha1, "aabbccdd", "sha1 must be lowercased");
+    }
+
+    /// No CF key → all forgecdn-direct files are moved to unresolvable with
+    /// `MissingChecksum` and the forgecdn URL preserved as `manual_action_url`
+    /// (NOT a curseforge.com link).
+    #[tokio::test]
+    async fn resolve_forgecdn_sha1_no_key_degrades_preserving_url() {
+        let forgecdn_url =
+            "https://edge.forgecdn.net/files/3820/040/journeymap-1.18.2-5.8.5-forge.jar";
+        let mut summary = summary_with_forgecdn_placeholder("3820040", forgecdn_url);
+        resolve_forgecdn_sha1(&mut summary, "http://127.0.0.1:1", None).await;
+
+        assert!(
+            summary.files.is_empty(),
+            "no-key path must move forgecdn files out of files"
+        );
+        assert_eq!(summary.unresolvable.len(), 1);
+        let u = &summary.unresolvable[0];
+        assert!(
+            matches!(
+                u.reason,
+                crate::mods::modpack::schema::UnresolvableReason::MissingChecksum
+            ),
+            "expected MissingChecksum, got {:?}",
+            u.reason
+        );
+        assert_eq!(
+            u.manual_action_url, forgecdn_url,
+            "manual_action_url must be the forgecdn URL, not a curseforge.com link"
+        );
+    }
+
+    /// CF returns the file id but with no sha1 in hashes → file moved to
+    /// unresolvable (no-TOFU), forgecdn URL preserved.
+    #[tokio::test]
+    async fn resolve_forgecdn_sha1_missing_sha1_degrades() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        let forgecdn_url = "https://edge.forgecdn.net/files/4499/899/ae2.jar";
+        let body = serde_json::json!({
+            "data": [{
+                "id": 4499899u64,
+                "downloadUrl": "https://edge.forgecdn.net/files/4499/899/ae2.jar",
+                "hashes": []   // no sha1
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let mut summary = summary_with_forgecdn_placeholder("4499899", forgecdn_url);
+        resolve_forgecdn_sha1(&mut summary, &s.uri(), Some("test-key")).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert!(
+            summary.files.is_empty(),
+            "file without sha1 must be moved to unresolvable (no-TOFU)"
+        );
+        assert_eq!(summary.unresolvable.len(), 1);
+        let u = &summary.unresolvable[0];
+        assert!(
+            matches!(
+                u.reason,
+                crate::mods::modpack::schema::UnresolvableReason::MissingChecksum
+            ),
+            "expected MissingChecksum, got {:?}",
+            u.reason
+        );
+        assert_eq!(
+            u.manual_action_url, forgecdn_url,
+            "manual_action_url must be the forgecdn URL"
+        );
     }
 
     fn catalogue() -> serde_json::Value {
