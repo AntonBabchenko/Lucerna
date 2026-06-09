@@ -36,7 +36,7 @@
 
   const PILL_TONE: Record<StatusTone, string> = {
     ok: 'bg-success-bg border-success text-success',
-    warn: 'bg-warning-bg border-warning text-warning-text',
+    warn: 'bg-warning-bg border-warning-text text-warning-text',
     accent: 'bg-accent-soft border-accent text-accent',
   };
 </script>
