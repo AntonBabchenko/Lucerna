@@ -1701,11 +1701,12 @@ mod tests {
             mod_name: "Create Train Parts".into(),
             sha1: "deadbeef".into(),
         }];
-        // The Modrinth substitute is installed under its own filename/name/id.
+        // The substitute jar has a DISTINCT name/filename/id from the entry, so
+        // it matches ONLY via the recorded overlay sha1 (DEADBEEF == deadbeef).
         let installed = vec![installed_mod(
             "DEADBEEF",
             "create-train-parts-fabric.jar",
-            "Create Train Parts",
+            "Create: Trains & Parts (Modrinth)",
             true,
             Some("modrinth-abc"),
         )];
