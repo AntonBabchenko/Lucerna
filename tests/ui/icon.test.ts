@@ -1,7 +1,7 @@
 import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import Icon from '$lib/ui/icons/Icon.svelte';
 import { ICON_NAMES, ICONS, type IconName } from '$lib/ui/icons';
+import Icon from '$lib/ui/icons/Icon.svelte';
 
 describe('icon registry', () => {
   it('resolves a component for every registered name', () => {
@@ -12,8 +12,19 @@ describe('icon registry', () => {
 
   it('exposes the names expected by the UI', () => {
     const expected: IconName[] = [
-      'caret', 'chevronDown', 'chevronUp', 'close', 'warning', 'success',
-      'download', 'update', 'refresh', 'plus', 'minus', 'list', 'grid',
+      'caret',
+      'chevronDown',
+      'chevronUp',
+      'close',
+      'warning',
+      'success',
+      'download',
+      'update',
+      'refresh',
+      'plus',
+      'minus',
+      'list',
+      'grid',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });
