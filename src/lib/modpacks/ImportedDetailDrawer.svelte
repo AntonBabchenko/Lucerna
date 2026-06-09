@@ -100,13 +100,17 @@
     new Set((status?.origin.files ?? []).map((f) => f.sha1.toLowerCase())),
   );
 
-  // A pack file's category, from its install_path prefix. Drives the
-  // per-type drawer sections. Anything that is not mods/resourcepacks/
-  // shaderpacks (config/*, options.txt, …) groups under "configs".
+  // A pack file's category, from its install_path prefix. A resourcepack /
+  // shaderpack is only a loadable `.zip` (or `.zip.disabled`); any other
+  // file in those dirs (a `.zip.txt` download note, a stray `.rar`) is real
+  // bundled content but not a pack of that type — it groups under "configs".
   type AssetCat = 'resourcepacks' | 'shaderpacks' | 'configs';
+  function isZipPack(p: string): boolean {
+    return p.endsWith('.zip') || p.endsWith('.zip.disabled');
+  }
   function assetCat(installPath: string): AssetCat {
-    if (installPath.startsWith('resourcepacks/')) return 'resourcepacks';
-    if (installPath.startsWith('shaderpacks/')) return 'shaderpacks';
+    if (installPath.startsWith('resourcepacks/') && isZipPack(installPath)) return 'resourcepacks';
+    if (installPath.startsWith('shaderpacks/') && isZipPack(installPath)) return 'shaderpacks';
     return 'configs';
   }
 

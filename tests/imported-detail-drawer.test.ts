@@ -638,6 +638,48 @@ describe('ImportedDetailDrawer', () => {
     expect(section.textContent).toContain('(1)');
   });
 
+  it('does not count a .zip.txt under shaderpacks/ as a shaderpack', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'All Of Create',
+          version: '1.0.7',
+          files: [
+            {
+              sha1: 's1', name: 'Complementary r5.7.1', filename: 'Complementary_r5.7.1.zip',
+              install_path: 'shaderpacks/Complementary_r5.7.1.zip', url: '', size: 1000,
+              project_id: '', version_id: '', env_client: 'required', source: 'modrinth',
+            },
+            {
+              sha1: 's2', name: 'Complementary r5.6.1 note', filename: 'Complementary_r5.6.1.zip.txt',
+              install_path: 'shaderpacks/Complementary_r5.6.1.zip.txt', url: '', size: 50,
+              project_id: '', version_id: '', env_client: 'required', source: 'modrinth',
+            },
+          ],
+          missing_mods: [],
+          skipped_overrides: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const shaders = await findByTestId('imported-detail-shaderpacks');
+    // The real shaderpack (.zip) still renders — rows show the display name.
+    expect(shaders.textContent).toContain('Complementary r5.7.1');
+    // The .zip.txt download note is reclassified out of the shaderpacks list.
+    expect(shaders.textContent).not.toContain('note');
+    expect(shaders.textContent).not.toContain('.zip.txt');
+  });
+
   afterEach(async () => {
     const { drawerCache } = await import('$lib/modpacks/drawer-cache');
     drawerCache.clear();
