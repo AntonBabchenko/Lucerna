@@ -18,10 +18,10 @@ describe('CloseButton — full intent coverage', () => {
     expect(btn.getAttribute('aria-label')).toBe('Close');
   });
 
-  it('renders × content', () => {
+  it('renders icon content', () => {
     render(CloseButton, { props: {} });
     const btn = screen.getByRole('button');
-    expect(btn.textContent?.trim()).toBe('×');
+    expect(btn.querySelector('svg')).toBeTruthy();
   });
 
   it('carries btn-icon variant via toHaveBtnVariant matcher', () => {

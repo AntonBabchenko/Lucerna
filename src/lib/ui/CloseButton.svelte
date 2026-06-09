@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   let {
     onClick,
@@ -18,5 +19,5 @@
   type="button"
   class={`btn-icon ${extraClass}`}
   aria-label={resolvedLabel}
-  onclick={() => onClick?.()}>×</button
+  onclick={() => onClick?.()}><Icon name="close" /></button
 >

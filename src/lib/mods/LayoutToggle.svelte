@@ -1,6 +1,7 @@
 <script lang="ts">
   import { browserPrefs } from './browser-prefs.svelte';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 </script>
 
 <div
@@ -15,7 +16,7 @@
     aria-pressed={browserPrefs.layout === 'grid'}
     title={$t('mods.layout.grid')}
     data-testid="layout-grid"
-    onclick={() => (browserPrefs.layout = 'grid')}>▦</button
+    onclick={() => (browserPrefs.layout = 'grid')}><Icon name="grid" /></button
   >
   <button
     type="button"
@@ -24,6 +25,6 @@
     aria-pressed={browserPrefs.layout === 'list'}
     title={$t('mods.layout.list')}
     data-testid="layout-list"
-    onclick={() => (browserPrefs.layout = 'list')}>☰</button
+    onclick={() => (browserPrefs.layout = 'list')}><Icon name="list" /></button
   >
 </div>

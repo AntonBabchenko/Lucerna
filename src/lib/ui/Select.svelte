@@ -265,7 +265,7 @@
     {/if}
     <span class="truncate" class:text-placeholder={isPlaceholder}>{displayLabel}</span>
   </span>
-  <span aria-hidden="true" class="text-muted">▾</span>
+  <Icon name="chevronDown" class="text-muted flex-shrink-0" />
 </button>
 
 {#if open}
