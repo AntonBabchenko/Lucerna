@@ -140,6 +140,7 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
                     filename: f.name.clone(),
                     install_path,
                     sha1,
+                    md5: None,
                     url: String::new(), // placeholder — filled by resolve_cf_refs in stage_impl
                     size: f.size,
                     env_client: EnvSupport::Required,
@@ -188,6 +189,7 @@ pub fn map_version(pack_name: &str, version_name: &str, v: &FtbVersion) -> Modpa
             filename: f.name.clone(),
             install_path,
             sha1,
+            md5: None,
             url: f.url.clone(),
             size: f.size,
             env_client: EnvSupport::Required,

@@ -164,6 +164,7 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
             filename,
             install_path: f.path.clone(),
             sha1: f.hashes.sha1.to_ascii_lowercase(),
+            md5: None,
             url,
             size: f.file_size as f64,
             env_client,

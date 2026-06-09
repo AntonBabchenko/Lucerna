@@ -497,8 +497,8 @@ export const commands = {
 	 *  Read a `.mrpack` / `.zip` from disk and return a parsed summary
 	 *  (resolved mod files, overrides count, loader, mc version). The UI
 	 *  uses this for the picker dialog before the user commits to import.
-	 *  For `.ftbpack.json` sidecar files (written by `FtbModpackSource::stage_version_to_temp`),
-	 *  the summary is deserialised directly — no archive parsing needed.
+	 *  For `.ftbpack.json` / `.atlpack.json` sidecar files the summary is
+	 *  deserialised directly — no archive parsing needed.
 	 */
 	modpackInspect: (path: string) => typedError<ModpackSummary, Error>(__TAURI_INVOKE("modpack_inspect", { path })),
 	/**
@@ -512,10 +512,11 @@ export const commands = {
 	 *    `project_id` — the UI correlates it with the `InstallingFile`
 	 *    phase emitted on `on_progress`.
 	 * 
-	 *  For `.ftbpack.json` sidecar files the summary is deserialised directly
-	 *  and the archive path is skipped entirely (no bytes to read, no overrides).
+	 *  For `.ftbpack.json` / `.atlpack.json` sidecar files the summary is
+	 *  deserialised directly and the archive path is skipped entirely (no bytes
+	 *  to read, no overrides).
 	 */
-	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | "ftb" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
+	modpackImport: (path: string, selectedShas: string[], applyOverrides: boolean, hintProjectId: string | null, hintSource: "modrinth" | "curseforge" | "ftb" | "atlauncher" | null, hintVersionId: string | null, onProgress: Channel<ModpackProgress>, onInstallProgress: Channel<ProgressTick>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("modpack_import", { path, selectedShas, applyOverrides, hintProjectId, hintSource, hintVersionId, onProgress, onInstallProgress })),
 	/**
 	 *  Search a modpack catalogue. `source` selects Modrinth (anonymous)
 	 *  or CurseForge (requires a stored API key — a missing key surfaces
@@ -1344,7 +1345,7 @@ export type ModSearchQuery = {
 
 export type ModSort = "relevance" | "downloads" | "updated";
 
-export type ModSource = "modrinth" | "curseforge" | "ftb";
+export type ModSource = "modrinth" | "curseforge" | "ftb" | "atlauncher";
 
 export type ModSummary = {
 	source: ModSource,
@@ -1432,6 +1433,13 @@ export type ModpackFile = {
 	filename: string,
 	install_path: string,
 	sha1: string,
+	/**
+	 *  ATLauncher server/direct mods ship an md5 (not sha1). When set, the
+	 *  installer verifies md5 on download and records the *computed* sha1 as
+	 *  the file's identity. `None` for all other sources. `#[serde(default)]`
+	 *  keeps pre-existing sidecars/registries loadable.
+	 */
+	md5?: string | null,
 	url: string,
 	size: number | null,
 	env_client: EnvSupport,
@@ -1440,7 +1448,9 @@ export type ModpackFile = {
 
 export type ModpackFormat = "modrinth" | "curseforge" | 
 /**  Feed The Beast — API-only source; no local archive format. */
-"ftb";
+"ftb" | 
+/**  ATLauncher — API + CDN source; no local archive format. */
+"atlauncher";
 
 export type ModpackHit = {
 	project_id: string,

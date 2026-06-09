@@ -967,6 +967,10 @@ fn platform_for(source: ModSource) -> Box<dyn ModPlatform> {
         ModSource::Ftb => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
             source: ModSource::Ftb,
         }),
+        // ATLauncher is a modpack-only source — no per-mod browser.
+        ModSource::Atlauncher => Box::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Atlauncher,
+        }),
     }
 }
 
@@ -1233,6 +1237,7 @@ async fn find_version(
                 ModSource::Modrinth => "modrinth",
                 ModSource::Curseforge => "curseforge",
                 ModSource::Ftb => "ftb", // FTB: pack-managed, not individually resolvable.
+                ModSource::Atlauncher => "atlauncher", // ATLauncher: pack-managed, not individually resolvable.
             }
             .into(),
         })
@@ -1621,6 +1626,13 @@ fn version_to_ref(v: &crate::mods::platform::ModVersion) -> crate::mods::platfor
             project_id: v.project_id.clone(),
             version_id: Some(v.version_id.clone()),
         },
+        // TODO(atlauncher): placeholder — ATLauncher versions are dead in this path today.
+        crate::mods::platform::ModSource::Atlauncher => {
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: v.project_id.clone(),
+                version_id: Some(v.version_id.clone()),
+            }
+        }
     }
 }
 
@@ -2273,9 +2285,25 @@ use crate::mods::modpack::schema::{
 };
 use tauri::ipc::Channel;
 
-/// Read a `.ftbpack.json` sidecar (an FTB-resolved ModpackSummary staged by
-/// FtbModpackSource::stage_version_to_temp) back into a ModpackSummary.
-async fn read_ftbpack_sidecar(path: &str) -> Result<ModpackSummary, crate::error::Error> {
+/// Returns `true` for paths that are pre-staged summary sidecars written by
+/// `FtbModpackSource::stage_version_to_temp` (`.ftbpack.json`) or
+/// `AtlauncherModpackSource::stage_version_to_temp` (`.atlpack.json`).
+/// These files contain a serialised `ModpackSummary` and require no archive
+/// parsing — they are deserialized directly by `read_staged_sidecar`.
+fn is_staged_summary_sidecar(path: &str) -> bool {
+    path.ends_with(".ftbpack.json") || path.ends_with(".atlpack.json")
+}
+
+/// Read a staged-summary sidecar (`.ftbpack.json` or `.atlpack.json`) back
+/// into a `ModpackSummary`.  The format label in any error is derived from
+/// the extension so FTB failures report `"ftb"` and ATLauncher failures
+/// report `"atlauncher"`.
+async fn read_staged_sidecar(path: &str) -> Result<ModpackSummary, crate::error::Error> {
+    let format_label = if path.ends_with(".atlpack.json") {
+        "atlauncher"
+    } else {
+        "ftb"
+    };
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|e| crate::error::Error::Io {
@@ -2283,7 +2311,7 @@ async fn read_ftbpack_sidecar(path: &str) -> Result<ModpackSummary, crate::error
             details: e.to_string(),
         })?;
     serde_json::from_slice(&bytes).map_err(|e| crate::error::Error::ModpackManifestInvalid {
-        format: "ftb".into(),
+        format: format_label.into(),
         details: e.to_string(),
     })
 }
@@ -2291,13 +2319,13 @@ async fn read_ftbpack_sidecar(path: &str) -> Result<ModpackSummary, crate::error
 /// Read a `.mrpack` / `.zip` from disk and return a parsed summary
 /// (resolved mod files, overrides count, loader, mc version). The UI
 /// uses this for the picker dialog before the user commits to import.
-/// For `.ftbpack.json` sidecar files (written by `FtbModpackSource::stage_version_to_temp`),
-/// the summary is deserialised directly — no archive parsing needed.
+/// For `.ftbpack.json` / `.atlpack.json` sidecar files the summary is
+/// deserialised directly — no archive parsing needed.
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::error::Error> {
-    if path.ends_with(".ftbpack.json") {
-        return read_ftbpack_sidecar(&path).await;
+    if is_staged_summary_sidecar(&path) {
+        return read_staged_sidecar(&path).await;
     }
     let bytes = tokio::fs::read(&path)
         .await
@@ -2318,8 +2346,9 @@ pub async fn modpack_inspect(path: String) -> Result<ModpackSummary, crate::erro
 ///   `project_id` — the UI correlates it with the `InstallingFile`
 ///   phase emitted on `on_progress`.
 ///
-/// For `.ftbpack.json` sidecar files the summary is deserialised directly
-/// and the archive path is skipped entirely (no bytes to read, no overrides).
+/// For `.ftbpack.json` / `.atlpack.json` sidecar files the summary is
+/// deserialised directly and the archive path is skipped entirely (no bytes
+/// to read, no overrides).
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -2348,18 +2377,19 @@ pub async fn modpack_import(
             });
         });
 
-    // FTB sidecar path: the `.ftbpack.json` file holds a pre-resolved
-    // `ModpackSummary` serialised by `FtbModpackSource::stage_version_to_temp`.
-    // No archive bytes exist, so overrides extraction is skipped (`archive_bytes = None`).
-    if path.ends_with(".ftbpack.json") {
-        let summary = read_ftbpack_sidecar(&path).await?;
+    // Sidecar path: the `.ftbpack.json` / `.atlpack.json` file holds a
+    // pre-resolved `ModpackSummary` serialised by the source's
+    // `stage_version_to_temp`.  No archive bytes exist, so overrides
+    // extraction is skipped (`archive_bytes = None`).
+    if is_staged_summary_sidecar(&path) {
+        let summary = read_staged_sidecar(&path).await?;
         on_progress.send(ModpackProgress::Inspecting).ok();
         return modpack::import::install_resolved_pack(
             &app,
             summary,
             &selected_shas,
             apply_overrides,
-            None, // FTB: no archive bytes, no overrides
+            None, // no archive bytes, no overrides
             "https://api.curseforge.com",
             hint_project_id,
             hint_source,
@@ -3253,6 +3283,11 @@ pub async fn mods_dependency_graph(
         Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
             source: ModSource::Ftb,
         });
+    // ATLauncher has no per-mod browser; separate stub so error labels name the right source.
+    let atl: Arc<dyn crate::mods::platform::ModPlatform> =
+        Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
+            source: ModSource::Atlauncher,
+        });
     let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
         ProjectKey,
         bool,
@@ -3266,6 +3301,7 @@ pub async fn mods_dependency_graph(
         let mr = mr.clone();
         let cf = cf.clone();
         let ftb = ftb.clone();
+        let atl = atl.clone();
         let loader_cache = loader_cache.clone();
         let mc = mc.clone();
         move |source: ModSource, project_id: String| {
@@ -3274,6 +3310,8 @@ pub async fn mods_dependency_graph(
                 ModSource::Curseforge => cf.clone(),
                 // FTB: pack-managed, not individually dep-resolvable — treat as leaf.
                 ModSource::Ftb => ftb.clone(),
+                // ATLauncher: pack-managed, not individually dep-resolvable — treat as leaf.
+                ModSource::Atlauncher => atl.clone(),
             };
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
@@ -3562,6 +3600,34 @@ mod tests {
     #[test]
     fn latest_newer_none_for_empty_list() {
         assert!(crate::commands::latest_newer(vec![], "id-1.0").is_none());
+    }
+
+    // --- staged-sidecar detection ---
+
+    #[test]
+    fn is_staged_summary_sidecar_accepts_ftbpack() {
+        assert!(is_staged_summary_sidecar("/tmp/abc123.ftbpack.json"));
+    }
+
+    #[test]
+    fn is_staged_summary_sidecar_accepts_atlpack() {
+        // ATLauncher sidecar must also be recognised.
+        assert!(is_staged_summary_sidecar("/tmp/abc123.atlpack.json"));
+    }
+
+    #[test]
+    fn is_staged_summary_sidecar_rejects_mrpack() {
+        assert!(!is_staged_summary_sidecar("/tmp/pack.mrpack"));
+    }
+
+    #[test]
+    fn is_staged_summary_sidecar_rejects_zip() {
+        assert!(!is_staged_summary_sidecar("/tmp/pack.zip"));
+    }
+
+    #[test]
+    fn is_staged_summary_sidecar_rejects_plain_json() {
+        assert!(!is_staged_summary_sidecar("/tmp/pack.json"));
     }
 }
 

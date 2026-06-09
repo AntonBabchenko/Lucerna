@@ -37,6 +37,8 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    | `mediafilez.forgecdn.net` | CurseForge mod jar downloads (alternate CDN) | enabled when user installs from CurseForge |
    | `api.modpacks.ch` | FTB modpack browser (metadata) | requested on first open of modpack browser |
    | `dist.modpacks.ch` | FTB modpack file downloads | enabled when user installs an FTB pack |
+   | `api.atlauncher.com` | ATLauncher modpack catalogue (metadata) | requested on first open of ATLauncher modpack browser |
+   | `download.nodecdn.net` | ATLauncher pack manifest (`Configs.json`) + mod file downloads | enabled when user installs an ATLauncher pack |
    | `meta.fabricmc.net`, `maven.fabricmc.net` | Fabric loader meta + libraries | on when user picks Fabric loader |
    | `meta.quiltmc.org`, `maven.quiltmc.org` | Quilt loader meta + libraries | on when user picks Quilt loader |
    | `maven.minecraftforge.net` | Forge installer JARs + library/processor mavens | on when user picks Forge loader |

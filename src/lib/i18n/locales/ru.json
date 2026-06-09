@@ -517,6 +517,7 @@
       "searchPlaceholderCurseForge": "Поиск сборок на CurseForge...",
       "searchPlaceholderModrinth": "Поиск сборок на Modrinth...",
       "searchPlaceholderFtb": "Поиск сборок на FTB...",
+      "searchPlaceholderAtlauncher": "Поиск сборок на ATLauncher...",
       "ftbClientFilterNote": "Фильтры FTB применяются на стороне клиента — результаты приблизительны.",
       "sortRelevance": "Релевантность",
       "sortDownloads": "Скачивания",

@@ -250,6 +250,7 @@ export type TranslationKey =
   | 'modpacks.browse.ftbClientFilterNote'
   | 'modpacks.browse.noResults'
   | 'modpacks.browse.searchAriaLabel'
+  | 'modpacks.browse.searchPlaceholderAtlauncher'
   | 'modpacks.browse.searchPlaceholderCurseForge'
   | 'modpacks.browse.searchPlaceholderFtb'
   | 'modpacks.browse.searchPlaceholderModrinth'

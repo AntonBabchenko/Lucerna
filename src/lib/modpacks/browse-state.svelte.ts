@@ -8,7 +8,7 @@ import type { LoaderKind, ModpackSort, ModSource } from '$lib/ipc/bindings';
 
 const KEY = 'lucerna.modpackBrowseState';
 
-const MOD_SOURCES: ModSource[] = ['modrinth', 'curseforge', 'ftb'];
+const MOD_SOURCES: ModSource[] = ['modrinth', 'curseforge', 'ftb', 'atlauncher'];
 const MODPACK_SORTS: ModpackSort[] = ['relevance', 'downloads', 'newest', 'updated'];
 // LoaderKind values that are valid modpack loader filters (plus '' for "any").
 const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];

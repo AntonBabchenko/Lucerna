@@ -54,7 +54,13 @@
   const gallery = $derived<GalleryImage[]>(project?.gallery ?? []);
 
   const platformName = $derived(
-    hit.source === 'modrinth' ? 'Modrinth' : hit.source === 'ftb' ? 'FTB' : 'CurseForge',
+    hit.source === 'modrinth'
+      ? 'Modrinth'
+      : hit.source === 'ftb'
+        ? 'FTB'
+        : hit.source === 'atlauncher'
+          ? 'ATLauncher'
+          : 'CurseForge',
   );
   // Canonical project page on the source platform — the "View on …" link
   // under the title and the distribution-blocked "Open on CurseForge"
@@ -66,7 +72,9 @@
       ? `https://modrinth.com/modpack/${hit.slug}`
       : hit.source === 'curseforge'
         ? `https://www.curseforge.com/minecraft/modpacks/${hit.slug}`
-        : `https://www.feed-the-beast.com/modpacks/${hit.project_id}`,
+        : hit.source === 'atlauncher'
+          ? null
+          : `https://www.feed-the-beast.com/modpacks/${hit.project_id}`,
   );
 
   function openExternal(url: string) {

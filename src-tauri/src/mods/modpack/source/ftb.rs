@@ -280,7 +280,11 @@ const CF_BASE: &str = "https://api.curseforge.com";
 ///
 /// FTB cf-ref files need a CurseForge API key to resolve; without one they
 /// degrade to manual.
-async fn resolve_cf_refs(summary: &mut ModpackSummary, cf_base: &str, key: Option<&str>) {
+pub(crate) async fn resolve_cf_refs(
+    summary: &mut ModpackSummary,
+    cf_base: &str,
+    key: Option<&str>,
+) {
     use crate::mods::modpack::cf_api;
 
     // Collect indices of CF-ref placeholder files (source=Curseforge, empty url).
@@ -558,6 +562,7 @@ mod tests {
                 filename: "ae2.jar".into(),
                 install_path: "mods/ae2.jar".into(),
                 sha1: sha1.into(),
+                md5: None,
                 url: String::new(), // placeholder
                 size: 1024.0,
                 env_client: EnvSupport::Required,
@@ -745,6 +750,7 @@ mod tests {
                 filename: "sodium.jar".into(),
                 install_path: "mods/sodium.jar".into(),
                 sha1: "abc".into(),
+                md5: None,
                 url: "https://dist.modpacks.ch/x/sodium.jar".into(),
                 size: 100.0,
                 env_client: EnvSupport::Required,

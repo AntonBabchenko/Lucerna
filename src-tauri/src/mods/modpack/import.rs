@@ -19,6 +19,9 @@ pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Erro
         // sidecar path (not a local archive). This arm is unreachable for
         // drag-drop inspect but required for exhaustiveness.
         ModpackFormat::Ftb => Err(Error::ModpackFormatUnknown),
+        // ATLauncher: pack-managed source — imported via the API path.
+        // Unreachable for drag-drop inspect but required for exhaustiveness.
+        ModpackFormat::Atlauncher => Err(Error::ModpackFormatUnknown),
     }
 }
 
@@ -38,6 +41,8 @@ pub fn build_pack_origin(
         ModpackFormat::Curseforge => ModSource::Curseforge,
         // FTB: pack-managed source — provenance is Ftb.
         ModpackFormat::Ftb => ModSource::Ftb,
+        // ATLauncher: pack-managed source — provenance is Atlauncher.
+        ModpackFormat::Atlauncher => ModSource::Atlauncher,
     };
     let files = selected
         .iter()
@@ -459,6 +464,8 @@ pub async fn install_resolved_pack(
         ModpackFormat::Curseforge => Some(crate::mods::platform::ModSource::Curseforge),
         // FTB: pack-managed source — provenance is Ftb.
         ModpackFormat::Ftb => Some(crate::mods::platform::ModSource::Ftb),
+        // ATLauncher: pack-managed source — provenance is Atlauncher.
+        ModpackFormat::Atlauncher => Some(crate::mods::platform::ModSource::Atlauncher),
     };
     let (mrpack_project_id, pack_meta, mrpack_source) =
         match (hint_project_id.as_deref(), hint_source, summary.format) {
@@ -501,6 +508,9 @@ pub async fn install_resolved_pack(
             // FTB: pack-managed source — project metadata is fetched by the
             // FtbModpackSource adapter before import; nothing to back-fill here.
             (_, _, ModpackFormat::Ftb) => (None, PackMeta::default(), parser_source),
+            // ATLauncher: pack-managed source — project metadata is fetched by the
+            // ATLauncher adapter before import; nothing to back-fill here.
+            (_, _, ModpackFormat::Atlauncher) => (None, PackMeta::default(), parser_source),
         };
     let PackMeta {
         name: platform_name,
@@ -556,6 +566,11 @@ pub async fn install_resolved_pack(
         .collect();
     let total = selected.len() as u32;
     let mut failures: Vec<(String, String)> = vec![];
+    // Accumulate files with their REAL sha1s for the origin snapshot.
+    // ATLauncher md5 files carry md5-in-sha1 as a transient selection token;
+    // the pre-resolve step below replaces it with the real computed sha1.
+    // Non-md5 files are pushed as-is (the selection token IS the real sha1).
+    let mut resolved_for_origin: Vec<ModpackFile> = Vec::with_capacity(selected.len());
 
     for (idx, file) in selected.iter().enumerate() {
         on_progress(ModpackProgress::InstallingFile {
@@ -563,6 +578,39 @@ pub async fn install_resolved_pack(
             total,
             file_name: file.name.clone(),
         });
+
+        // ATLauncher md5 files: the summary's sha1 holds the md5 (selection token).
+        // Pre-resolve the real sha1 by downloading + md5-verifying into the
+        // sha1-keyed cache, then run the normal install path on a clone whose
+        // sha1 is the real one (guaranteed cache hit — no second download).
+        let resolved_owned;
+        let file: &ModpackFile = if let Some(md5) = &file.md5 {
+            match crate::mods::install::fetch_to_cache_md5(
+                &data_dir,
+                &file.url,
+                md5,
+                file.size,
+                "modpacks",
+                &install_progress,
+            )
+            .await
+            {
+                Ok((_, real_sha1)) => {
+                    let mut c = (*file).clone();
+                    c.sha1 = real_sha1;
+                    c.md5 = None;
+                    resolved_owned = c;
+                    &resolved_owned
+                }
+                Err(e) => {
+                    failures.push((file.install_path.clone(), e.to_string()));
+                    continue;
+                }
+            }
+        } else {
+            file
+        };
+
         let res = if file.install_path.starts_with("mods/") {
             let mv = modpack_file_to_mod_version(file, &summary.game_version, summary.loader);
             install_one(&data_dir, &instance_root, mv, &install_progress)
@@ -580,10 +628,22 @@ pub async fn install_resolved_pack(
             )
             .await
         };
-        if let Err(e) = res {
+        if let Err(e) = &res {
             failures.push((file.install_path.clone(), e.to_string()));
         }
+        // Record in the pack origin regardless of install outcome: a file that
+        // failed to install must still appear in the snapshot so it surfaces as
+        // `removed_files` (with a Restore affordance), matching pre-97e2bd3
+        // behaviour. (ATL md5 files whose md5-fetch failed already `continue`d
+        // above and are intentionally excluded — we never persist an md5 token.)
+        resolved_for_origin.push((*file).clone());
     }
+
+    // md5-in-sha1 selection tokens must never reach the persisted PackOrigin.
+    debug_assert!(
+        resolved_for_origin.iter().all(|f| f.md5.is_none()),
+        "md5-in-sha1 selection token must be resolved to a real sha1 before PackOrigin"
+    );
 
     // Bundled assets from overrides/ (mods/*.jar plus top-level
     // resourcepacks/ and shaderpacks/ files) are tracked here so the
@@ -611,9 +671,13 @@ pub async fn install_resolved_pack(
     // is already done at this point; a write failure here only loses
     // the modified/restore affordance, not any installed mod or
     // instance. Log and continue.
+    // Use `resolved_for_origin` (real sha1s, md5 cleared) instead of `selected`
+    // so ATLauncher md5 files are recorded with their real sha1, not the
+    // transient md5-as-selection-token.
+    let resolved_refs: Vec<&ModpackFile> = resolved_for_origin.iter().collect();
     let mut origin = build_pack_origin(
         &summary,
-        &selected,
+        &resolved_refs,
         mrpack_project_id_for_origin,
         &pack_name,
     );
@@ -885,6 +949,7 @@ mod tests {
             filename: format!("{sha}.jar"),
             install_path: format!("mods/{sha}.jar"),
             sha1: sha.into(),
+            md5: None,
             url: format!("https://example.com/{sha}.jar"),
             size: 42.0,
             env_client: EnvSupport::Required,
@@ -1169,6 +1234,7 @@ mod tests {
             filename: format!("{project}.jar"),
             install_path: format!("mods/{project}.jar"),
             sha1: sha.into(),
+            md5: None,
             url: format!("https://cdn.modrinth.com/data/{project}/x/{project}.jar"),
             size: 1.0,
             env_client: EnvSupport::Required,
@@ -1594,5 +1660,159 @@ mod tests {
         )];
         let st = compute_status(origin, &installed, &Default::default());
         assert_eq!(st.missing_mods[0].state, MissingModState::DifferentVersion);
+    }
+
+    /// ATLauncher md5 files use the md5 as a transient selection token in sha1.
+    /// After pre-resolution, the PackOrigin must carry the REAL computed sha1,
+    /// not the md5 token. This test drives the fetch_to_cache_md5 + resolve +
+    /// build_pack_origin pipeline that the install loop executes for such files.
+    #[tokio::test]
+    async fn atl_md5_origin_records_real_sha1_not_md5() {
+        use sha1::Sha1;
+        use tempfile::TempDir;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let _g = crate::test_env_lock();
+
+        let body: &[u8] = b"atl-mod-body-bytes";
+        // Compute expected checksums for the test body.
+        let md5_hex = {
+            use md5::Digest as _;
+            hex::encode(md5::Md5::digest(body))
+        };
+        let real_sha1_hex = {
+            use sha1::Digest as _;
+            hex::encode(Sha1::digest(body))
+        };
+
+        // Serve the file from a mock server.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/m.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(&server)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let data_dir = TempDir::new().unwrap();
+        let noop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+
+        // Build an ATLauncher-style ModpackFile: sha1 holds the md5 (selection token),
+        // md5 field is Some (signals ATL md5 pre-resolve).
+        let atl_file = ModpackFile {
+            project_id: "m.jar".into(),
+            version_id: md5_hex.clone(),
+            name: "TestMod".into(),
+            filename: "m.jar".into(),
+            install_path: "mods/m.jar".into(),
+            sha1: md5_hex.clone(), // transient selection token
+            md5: Some(md5_hex.clone()),
+            url: format!("{}/m.jar", server.uri()),
+            size: body.len() as f64,
+            env_client: EnvSupport::Required,
+            source: crate::mods::platform::ModSource::Atlauncher,
+        };
+
+        // Simulate what the install loop now does for md5 files:
+        // call fetch_to_cache_md5, get real sha1, clone file with real sha1.
+        let (_, got_real_sha1) = crate::mods::install::fetch_to_cache_md5(
+            data_dir.path(),
+            &atl_file.url,
+            &md5_hex,
+            atl_file.size,
+            "modpacks",
+            &noop,
+        )
+        .await
+        .expect("fetch_to_cache_md5 must succeed");
+
+        assert_eq!(
+            got_real_sha1, real_sha1_hex,
+            "fetch_to_cache_md5 must return the real sha1, not the md5"
+        );
+
+        // Build the resolved file (md5 cleared, real sha1 in place) as the loop does.
+        let mut resolved = atl_file.clone();
+        resolved.sha1 = got_real_sha1.clone();
+        resolved.md5 = None;
+
+        // build_pack_origin must record the real sha1, not the md5 token.
+        let summary = sample_summary(ModpackFormat::Atlauncher);
+        let origin = build_pack_origin(&summary, &[&resolved], None, "TestPack");
+
+        assert_eq!(origin.files.len(), 1);
+        assert_eq!(
+            origin.files[0].sha1, real_sha1_hex,
+            "PackOrigin must carry the real sha1, not the md5 selection token"
+        );
+        assert_ne!(
+            origin.files[0].sha1, md5_hex,
+            "PackOrigin must NOT carry the md5 as sha1"
+        );
+    }
+
+    /// Regression test for the bug introduced in 97e2bd3: a non-md5 file whose
+    /// install attempt fails must still be recorded in `resolved_for_origin` so
+    /// that `build_pack_origin` captures it, and `compute_status` later surfaces
+    /// it as a `removed_files` entry (with a Restore affordance). Before 97e2bd3
+    /// `build_pack_origin` received `&selected` = ALL user-selected files; after
+    /// that commit only successfully-installed files were pushed, so a failed
+    /// install silently vanished from the origin.
+    ///
+    /// This test exercises the accumulation logic directly: it calls the same
+    /// `build_pack_origin` helper that the install loop uses, passing a slice
+    /// that includes a "failed" file (a file that would not have been pushed
+    /// under the regressed code). It then asserts that `compute_status` flags
+    /// that file's sha1 as removed — i.e. in the origin but not installed.
+    #[test]
+    fn failed_install_still_recorded_in_origin() {
+        // Two files were selected for install.
+        let good_file = sample_file("aaaa1111");
+        let failed_file = sample_file("bbbb2222"); // this one "failed" to install
+
+        // Pre-97e2bd3 semantics: both files go into resolved_for_origin,
+        // regardless of install success/failure (only ATL md5-fetch failures
+        // skip via `continue` — those files never reach this point). After the
+        // fix, the install loop pushes both; we simulate that here.
+        let resolved_refs: Vec<&ModpackFile> = vec![&good_file, &failed_file];
+
+        let summary = sample_summary(ModpackFormat::Modrinth);
+        let origin = build_pack_origin(&summary, &resolved_refs, None, "Test Pack");
+
+        // Origin must record both files.
+        assert_eq!(origin.files.len(), 2, "both files must be in the origin");
+        let shas: Vec<&str> = origin.files.iter().map(|f| f.sha1.as_str()).collect();
+        assert!(
+            shas.contains(&"aaaa1111"),
+            "good file sha must be in origin"
+        );
+        assert!(
+            shas.contains(&"bbbb2222"),
+            "failed file sha must be in origin even though install failed"
+        );
+
+        // Now simulate a world where only the good file ended up installed on disk.
+        // compute_status must report the failed file as `removed_files` (Restore affordance).
+        let installed_on_disk = vec![installed("aaaa1111", true)];
+        let status = compute_status(
+            origin,
+            &installed_on_disk,
+            &std::collections::HashSet::new(),
+        );
+
+        assert!(
+            status.is_modified,
+            "pack must be flagged as modified when a file is missing from disk"
+        );
+        assert_eq!(
+            status.removed_files.len(),
+            1,
+            "exactly one file must appear in removed_files"
+        );
+        assert_eq!(
+            status.removed_files[0].sha1, "bbbb2222",
+            "the failed-install file must surface as removed_files so Restore is available"
+        );
     }
 }

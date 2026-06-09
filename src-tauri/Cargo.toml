@@ -42,6 +42,8 @@ tokio = { version = "1.52.3", features = ["fs", "io-util", "process", "rt", "rt-
 # url 2.5: RFC 3986 URL parsing for the host-allowlist check on mrpack downloads[]
 url = "2.5"
 uuid = { version = "1.23.1", features = ["v4"] }
+# md5 verification of ATLauncher-supplied mod digests (RustCrypto `Digest`,
+# same trait family as `sha1`). Integrity-matching only — never a security decision.
 md-5 = "0.11.0"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

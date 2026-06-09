@@ -143,7 +143,9 @@
           ? 'Modrinth .mrpack'
           : summary.format === 'ftb'
             ? 'FTB'
-            : 'CurseForge .zip'}
+            : summary.format === 'atlauncher'
+              ? 'ATLauncher'
+              : 'CurseForge .zip'}
         · MC {summary.game_version} · {summary.loader}{summary.loader_version
           ? ` ${summary.loader_version}`
           : ''}

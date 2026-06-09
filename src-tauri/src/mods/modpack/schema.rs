@@ -15,6 +15,8 @@ pub enum ModpackFormat {
     Curseforge,
     /// Feed The Beast — API-only source; no local archive format.
     Ftb,
+    /// ATLauncher — API + CDN source; no local archive format.
+    Atlauncher,
 }
 
 /// Sort order for `/v2/search`. Maps to Modrinth's `index=<value>` query
@@ -58,6 +60,12 @@ pub struct ModpackFile {
     pub filename: String,
     pub install_path: String,
     pub sha1: String,
+    /// ATLauncher server/direct mods ship an md5 (not sha1). When set, the
+    /// installer verifies md5 on download and records the *computed* sha1 as
+    /// the file's identity. `None` for all other sources. `#[serde(default)]`
+    /// keeps pre-existing sidecars/registries loadable.
+    #[serde(default)]
+    pub md5: Option<String>,
     pub url: String,
     pub size: f64,
     pub env_client: EnvSupport,
@@ -276,6 +284,18 @@ pub struct ModpackVersionEntry {
 mod tests {
     use super::*;
     use crate::mods::platform::LoaderKind;
+
+    #[test]
+    fn modpack_file_md5_defaults_to_none_for_legacy_json() {
+        // A sidecar written before the md5 field existed must still deserialize.
+        let legacy = serde_json::json!({
+            "project_id": "1", "version_id": "abc", "name": "n", "filename": "n.jar",
+            "install_path": "mods/n.jar", "sha1": "abc", "url": "https://x/y",
+            "size": 1.0, "env_client": "required", "source": "ftb"
+        });
+        let f: ModpackFile = serde_json::from_value(legacy).unwrap();
+        assert_eq!(f.md5, None);
+    }
 
     #[test]
     fn modpack_summary_round_trips_json() {

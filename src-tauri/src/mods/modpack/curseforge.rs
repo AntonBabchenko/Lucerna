@@ -212,6 +212,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                 detail.file_name
             ),
             sha1,
+            md5: None,
             url,
             size: detail.file_length as f64,
             env_client,
