@@ -130,6 +130,13 @@
   // Which card's install/asset flow is currently running. Keyed by project_id
   // because many cards render per page — a single boolean would spin them all.
   let installingProjectId = $state<string | null>(null);
+  // A card is "busy" while its install runs OR while its dependency dialog is
+  // open — without the latter, the card would briefly re-enable under the
+  // open dialog (the install flow's finally clears installingProjectId when it
+  // hands off to the dialog; onConfirm re-sets it).
+  function isCardBusy(projectId: string): boolean {
+    return installingProjectId === projectId || depPrompt?.primary.project_id === projectId;
+  }
   let drawerProject = $state<string | null>(null);
   // Dependencies promoted to the dialog carry the project's display name
   // alongside the version (the version's own `name` field is the release
@@ -898,7 +905,7 @@
               <ModCard
                 summary={hit}
                 installed={installedFor(hit)}
-                installing={installingProjectId === hit.project_id}
+                installing={isCardBusy(hit.project_id)}
                 onInstall={() => startInstall(hit)}
                 onOpenDetail={() => (drawerProject = hit.project_id)}
                 onToggle={() => toggleCard(hit)}
@@ -914,7 +921,7 @@
               <ModCard
                 summary={hit}
                 installed={installedFor(hit)}
-                installing={installingProjectId === hit.project_id}
+                installing={isCardBusy(hit.project_id)}
                 onInstall={() => startInstall(hit)}
                 onOpenDetail={() => (drawerProject = hit.project_id)}
                 onToggle={() => toggleCard(hit)}
