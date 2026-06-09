@@ -12,6 +12,7 @@
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import { t } from '$lib/i18n';
 
   // Centered detail modal for a modpack. Two tabs: Overview (gallery +
@@ -210,14 +211,13 @@
                       MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
                     </div>
                   </div>
-                  <button
-                    type="button"
+                  <BusyButton
                     class="btn-primary btn-xs ml-2"
-                    disabled={downloading}
+                    busy={downloading}
                     onclick={() => install(v.id)}
                   >
                     {$t('modpacks.detail.install')}
-                  </button>
+                  </BusyButton>
                 </div>
               </li>
             {/each}
@@ -231,14 +231,13 @@
       {#if tab === 'overview' && !loading}
         <div class="shrink-0 border-t border-border-subtle p-4 py-3">
           {#if recommended}
-            <button
-              type="button"
+            <BusyButton
               class="btn-primary w-full"
-              disabled={downloading}
+              busy={downloading}
               onclick={() => install(recommended.id)}
             >
               {$t('modpacks.detail.installVersion', { version: recommended.version_number })}
-            </button>
+            </BusyButton>
           {:else}
             <div class="text-xs text-placeholder text-center">
               {#if mcFilter}
