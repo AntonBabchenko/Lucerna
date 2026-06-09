@@ -461,8 +461,8 @@
                   ? 'bg-success-bg border-success'
                   : 'bg-warning-bg border-warning-text/30'}"
               >
-                <!-- ✓ when the mod is present at all (installed or a
-                   different version); ⚠ only when truly missing — so
+                <!-- success when the mod is present at all (installed or a
+                   different version); warning only when truly missing — so
                    "different version" is not mistaken for "missing". -->
                 <Icon name={m.state === 'missing' ? 'warning' : 'success'} class="flex-shrink-0" />
                 <span class="truncate flex-1" class:text-muted={isInstalled}>
