@@ -2,6 +2,7 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { deriveAvatar, type AvatarTone } from './avatar';
   import { deriveStatus, type StatusKind, type StatusTone } from './status';
 
@@ -26,7 +27,7 @@
     ftb: 'bg-gradient-to-br from-sky-400 to-sky-600 text-sky-950',
   };
 
-  const PILL_LABEL: Record<StatusKind, string> = {
+  const PILL_LABEL: Record<StatusKind, TranslationKey> = {
     running: 'page.overview.pillRunning',
     ready: 'page.overview.pillReady',
     needs_install: 'page.overview.pillNeedsInstall',

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import type { TranslationKey } from '$lib/i18n/keys.generated';
   import type { AttentionItem, AttentionKind } from './attention';
 
   let { items, onAction }: { items: AttentionItem[]; onAction: (kind: AttentionKind) => void } =
     $props();
 
-  const TEXT_KEY: Record<AttentionKind, string> = {
+  const TEXT_KEY: Record<AttentionKind, TranslationKey> = {
     pick_version: 'page.overview.attnPickVersion',
     missing_mods: 'page.overview.attnMissingMods',
     incompatible: 'page.overview.attnIncompatible',
