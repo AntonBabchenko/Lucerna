@@ -162,6 +162,12 @@ pub struct GeneralSettings {
     /// `Basic`, matching the chosen default for upgraders.
     #[serde(default)]
     pub explanation_level: ExplanationLevel,
+    /// When true, the launcher starts in (and is currently in) compact /
+    /// mini launch-pad mode: the right content column is hidden and the OS
+    /// window is shrunk to the sidebar strip. Default false. Updated on
+    /// every compact/expand toggle.
+    #[serde(default)]
+    pub compact_mode: bool,
 }
 
 impl Default for GeneralSettings {
@@ -172,6 +178,7 @@ impl Default for GeneralSettings {
             check_updates_on_startup: true,
             language: default_language(),
             explanation_level: ExplanationLevel::default(),
+            compact_mode: false,
         }
     }
 }
@@ -536,6 +543,34 @@ mod tests {
         let json = serde_json::to_string(&g).unwrap();
         let back: GeneralSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.explanation_level, ExplanationLevel::Advanced);
+    }
+
+    #[test]
+    fn general_settings_default_compact_mode_is_off() {
+        let gs = GeneralSettings::default();
+        assert!(!gs.compact_mode, "compact mode should default off");
+    }
+
+    #[test]
+    fn app_file_round_trips_compact_mode() {
+        let mut app = AppFile::default();
+        app.general.compact_mode = true;
+        let json = serde_json::to_string(&app).unwrap();
+        let back: AppFile = serde_json::from_str(&json).unwrap();
+        assert!(back.general.compact_mode);
+        assert_eq!(back, app);
+    }
+
+    #[test]
+    fn app_file_without_compact_mode_deserializes_to_off() {
+        // app.json written before the field existed (general present, no field).
+        let old_json = r#"{
+            "version": 1,
+            "active_instance": null,
+            "general": { "hide_to_tray_during_game": true }
+        }"#;
+        let parsed: AppFile = serde_json::from_str(old_json).unwrap();
+        assert!(!parsed.general.compact_mode);
     }
 
     #[test]

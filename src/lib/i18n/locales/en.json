@@ -77,7 +77,9 @@
     "working": "Working…",
     "install": "↓ Install",
     "browseModpacks": "📦 Browse modpacks",
-    "logs": "📜 Logs"
+    "logs": "📜 Logs",
+    "compactCollapse": "Collapse to mini mode",
+    "compactExpand": "Expand to full window"
   },
   "instance": {
     "manage": {
@@ -922,6 +924,7 @@
     "backupCorrupt": "Backup \"{filename}\" is unreadable or corrupted: {details}",
     "playtimeIo": "Couldn't read or write playtime stats: {details}",
     "trayIo": "Couldn't show or hide the tray icon: {details}",
+    "windowIo": "Couldn't resize the launcher window: {details}",
     "updateCheckFailed": "Couldn't check for updates: {details}",
     "updateVerificationFailed": "Update verification failed — the download may be corrupt or tampered with. {details}",
     "updateInstallFailed": "Couldn't install the update: {details}"

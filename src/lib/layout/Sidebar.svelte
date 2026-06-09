@@ -29,6 +29,8 @@
     msSigningIn = $bindable(false),
     onMicrosoftSignedIn,
     onMicrosoftError,
+    compact = false,
+    onToggleCompact = () => {},
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -57,6 +59,8 @@
     msSigningIn?: boolean;
     onMicrosoftSignedIn?: (account: unknown) => void;
     onMicrosoftError?: (err: unknown) => void;
+    compact?: boolean;
+    onToggleCompact?: () => void;
   } = $props();
 
   let showAddOfflineInput = $state(false);
@@ -82,8 +86,22 @@
   );
 </script>
 
-<aside class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto">
-  <div class="font-bold text-lg text-primary">Lucerna</div>
+<aside
+  data-sidebar
+  class="h-full bg-base border-r border-border-subtle p-3 flex flex-col gap-3 overflow-y-auto"
+>
+  <div class="flex items-center justify-between">
+    <span class="font-bold text-lg text-primary">Lucerna</span>
+    <button
+      type="button"
+      class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-muted hover:border-accent hover:text-accent"
+      aria-label={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
+      title={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
+      onclick={onToggleCompact}
+    >
+      {compact ? '⤢' : '⤬'}
+    </button>
+  </div>
 
   <div class="flex flex-col gap-1 pt-3 border-t border-border-subtle" data-tour="account-section">
     <div class="text-xs uppercase tracking-wide text-muted">{$t('sidebar.account')}</div>

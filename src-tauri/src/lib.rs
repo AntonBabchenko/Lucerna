@@ -16,6 +16,7 @@ pub mod tray;
 pub mod update;
 pub mod verify;
 pub mod versions;
+pub mod window;
 pub mod worlds;
 
 /// Process-wide lock for tests that mutate `LUCERNA_EXTRA_ALLOWED_HOSTS`.
@@ -89,6 +90,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::verify_instance,
             commands::repair_instance,
             commands::get_playtime,
+            commands::window_set_compact,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,
@@ -238,6 +240,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
+        .manage(window::WindowSizeState::default())
         .setup(move |app| {
             // One-shot instance migration. Non-fatal on error — the UI has
             // an empty-state fallback that lets the user manually recover
