@@ -1059,6 +1059,8 @@
       "playtimeSession": "{count, plural, one {# сессия} few {# сессии} many {# сессий} other {# сессии}}",
       "playtimeLastSession": "Последняя сессия: {duration}, {when}",
       "statusExited": "Завершено (код {code})",
+      "statusStopped": "Остановлено",
+      "statusClean": "Игра закрыта",
       "dismissError": "Закрыть ошибку",
       "noInstanceSelected": "Профиль не выбран. Создайте его через боковую панель.",
       "attentionHeading": "Требует внимания",
