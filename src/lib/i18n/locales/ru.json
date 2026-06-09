@@ -1057,7 +1057,27 @@
       "statusReadySuffix": "на боковой панели.",
       "statusExited": "Завершено (код {code})",
       "dismissError": "Закрыть ошибку",
-      "noInstanceSelected": "Профиль не выбран. Создайте его через боковую панель."
+      "noInstanceSelected": "Профиль не выбран. Создайте его через боковую панель.",
+      "attentionHeading": "Требует внимания",
+      "attnPickVersion": "Версия Minecraft не выбрана",
+      "attnMissingMods": "{count, plural, one {# мод сборки не установлен} few {# мода сборки не установлены} many {# модов сборки не установлены} other {# мода сборки не установлены}}",
+      "attnIncompatible": "{count, plural, one {# несовместимый мод} few {# несовместимых мода} many {# несовместимых модов} other {# несовместимых мода}}",
+      "attnIntegrity": "{count, plural, one {# проблема целостности} few {# проблемы целостности} many {# проблем целостности} other {# проблемы целостности}}",
+      "attentionView": "Открыть →",
+      "pillRunning": "Запущено",
+      "pillReady": "Готово к игре",
+      "pillNeedsInstall": "Требуется установка",
+      "pillPickVersion": "Выберите версию",
+      "pillInstalling": "Установка…",
+      "avatarAlt": "Иконка профиля",
+      "sectionModpack": "Сборка",
+      "modpackOpen": "Открыть сборку →",
+      "modpackCheckUpdate": "Проверить обновление",
+      "modpackChecking": "Проверка…",
+      "modpackUpToDate": "Актуально",
+      "modpackUpdateAvailable": "Обновление: v{version}",
+      "modpackOnlyModrinth": "Авто-проверка обновлений доступна только для сборок Modrinth.",
+      "sectionMods": "Моды"
     },
     "offlineName": {
       "cannotBeEmpty": "Имя не может быть пустым"
