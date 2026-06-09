@@ -78,6 +78,10 @@ pub fn build_pack_origin(
             })
             .cloned()
             .collect(),
+        // Populated by the orchestrator after override extraction reports
+        // which oversized bundled files it skipped. build_pack_origin is
+        // pure (no archive access), so it always starts empty here.
+        skipped_overrides: vec![],
     }
 }
 
@@ -654,16 +658,21 @@ pub async fn install_resolved_pack(
     // FTB packs have no archive and therefore no overrides — `archive_bytes`
     // is `None` for that path and the block is skipped entirely.
     let mut bundled_assets: Vec<crate::mods::modpack::overrides::ExtractedAsset> = vec![];
+    // Oversized `overrides/` blobs the extractor skipped (e.g. a `.rar` left
+    // in `mods/`). Surfaced informationally — the import still succeeds.
+    let mut skipped_overrides: Vec<crate::mods::modpack::schema::SkippedOverride> = vec![];
     if apply_overrides && (summary.has_overrides || summary.has_client_overrides) {
         if let Some(bytes) = archive_bytes {
             let bytes_clone = bytes.to_vec();
-            bundled_assets = overrides::extract(&bytes_clone, &instance_root, |c, t| {
+            let outcome = overrides::extract(&bytes_clone, &instance_root, |c, t| {
                 on_progress(ModpackProgress::ExtractingOverrides {
                     current: c,
                     total: t,
                 });
             })
             .await?;
+            bundled_assets = outcome.extracted;
+            skipped_overrides = outcome.skipped;
         }
     }
 
@@ -705,6 +714,10 @@ pub async fn install_resolved_pack(
             source: bundled_source,
         });
     }
+    // Record the skipped oversized overrides so the Imported drawer can
+    // show the informational "skipped" note after a restart (the Done
+    // event below only reaches the live import toast).
+    origin.skipped_overrides = skipped_overrides.clone();
     if let Err(e) = crate::mods::installed::set_pack_origin(&instance_root, origin).await {
         eprintln!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
     }
@@ -728,6 +741,7 @@ pub async fn install_resolved_pack(
 
     on_progress(ModpackProgress::Done {
         instance_id: inst.id.clone(),
+        skipped_overrides,
     });
 
     if failures.is_empty() {
@@ -1062,6 +1076,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), pack_file("b")],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let installed = vec![installed("a", true), installed("b", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1080,6 +1095,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), pack_file("b")],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
@@ -1099,6 +1115,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a")],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
@@ -1119,6 +1136,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), rp],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1139,6 +1157,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), rp],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let installed = vec![installed("a", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1158,6 +1177,7 @@ mod tests {
             version: "1".into(),
             files: vec![f],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
@@ -1250,6 +1270,7 @@ mod tests {
             version: "1.0".into(),
             files,
             missing_mods: vec![],
+            skipped_overrides: vec![],
         }
     }
 
@@ -1339,6 +1360,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("AbCdEf"), pack_file("zzz")],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let mut wanted = origin.files[0].clone();
         wanted.sha1 = "AbCdEf".into();
@@ -1376,6 +1398,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), zip],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1454,6 +1477,7 @@ mod tests {
             version: "1".into(),
             files: vec![pack_file("a"), nested],
             missing_mods: vec![],
+            skipped_overrides: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =

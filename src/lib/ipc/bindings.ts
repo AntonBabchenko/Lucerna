@@ -1481,7 +1481,14 @@ export type ModpackHit = {
  *  `install_progress` channel from sub-3 so PhaseStatusRow + the
  *  import progress view can both render fine-grained state.
  */
-export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "enriching" } | { phase: "done"; instance_id: string };
+export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_instance"; name: string } | { phase: "installing_file"; current: number; total: number; file_name: string } | { phase: "extracting_overrides"; current: number; total: number } | { phase: "enriching" } | { phase: "done"; instance_id: string; 
+/**
+ *  Overrides skipped during extraction because they exceeded the
+ *  per-file size cap (non-loadable blobs — see `SkippedOverride`).
+ *  Empty in the common case; non-empty drives a non-fatal "N file(s)
+ *  skipped" note on the import-complete toast.
+ */
+skipped_overrides: SkippedOverride[] };
 
 /**
  *  Full detail of a modpack project for the detail modal's Overview tab.
@@ -1701,6 +1708,13 @@ export type PackOrigin = {
 	 *  registry files written before SF2 load with an empty list.
 	 */
 	missing_mods?: ModpackUnresolvable[],
+	/**
+	 *  Bundled `overrides/` files the import deliberately skipped because
+	 *  they exceeded the per-file size cap (inert non-mod blobs — e.g. a
+	 *  `.rar` left in `mods/`). `#[serde(default)]` so registry files
+	 *  written before this feature load with an empty list.
+	 */
+	skipped_overrides?: SkippedOverride[],
 };
 
 export type PackOriginFile = {
@@ -1844,6 +1858,24 @@ export type RestoreMode = "replace" | "as_copy";
  */
 export type RestoredWorld = {
 	final_folder_name: string,
+};
+
+/**
+ *  A file inside the pack's `overrides/` that the importer chose NOT to
+ *  extract because it exceeded the per-file size cap. In practice this is
+ *  an inert, non-loadable blob — most often a `.rar`/`.7z`/`.zip` an author
+ *  left in `overrides/mods/`, which Minecraft never loads (it scans
+ *  `mods/*.jar` only). The import still succeeds; this is surfaced purely
+ *  so the user is told what was deliberately left out (transparency).
+ */
+export type SkippedOverride = {
+	/**  The override-relative path of the skipped entry, e.g. `mods/mods.rar`. */
+	path: string,
+	/**
+	 *  The entry's declared uncompressed size in bytes. f64 not u64 —
+	 *  specta forbids BigInt-style exports.
+	 */
+	size: number | null,
 };
 
 /**

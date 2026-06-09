@@ -9,9 +9,21 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use crate::error::Error;
+use crate::mods::modpack::schema::SkippedOverride;
 
 const PER_FILE_CAP: u64 = 200 * 1024 * 1024;
 const AGGREGATE_CAP: u64 = 2 * 1024 * 1024 * 1024;
+
+/// What `extract` produced: the bundled assets it wrote to disk, plus any
+/// `overrides/` entries it deliberately skipped for exceeding the per-file
+/// cap. Skipping (rather than aborting the whole import) keeps a single
+/// oversized non-mod blob — e.g. a `.rar` an author left in `mods/`, which
+/// Minecraft can't load — from killing an otherwise-valid pack install.
+#[derive(Debug, Default)]
+pub struct ExtractOutcome {
+    pub extracted: Vec<ExtractedAsset>,
+    pub skipped: Vec<SkippedOverride>,
+}
 
 /// What we keep about a zip entry once we've finished inspecting it.
 /// Owns its bytes (or nothing, for a directory), so we can drop the
@@ -19,6 +31,9 @@ const AGGREGATE_CAP: u64 = 2 * 1024 * 1024 * 1024;
 enum EntryKind {
     Dir,
     File(Vec<u8>),
+    /// Over the per-file cap — recorded as skipped and NOT read into
+    /// memory (so a zip-bomb's declared size never forces an allocation).
+    Oversized(u64),
 }
 
 /// A file the extractor placed under a tracked directory (`mods/`,
@@ -56,7 +71,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
     bytes: &[u8],
     instance_root: &Path,
     mut on_progress: F,
-) -> Result<Vec<ExtractedAsset>, Error> {
+) -> Result<ExtractOutcome, Error> {
     let mc_dir = instance_root.join(".minecraft");
     fs::create_dir_all(&mc_dir).await.map_err(|e| Error::Io {
         path: mc_dir.display().to_string(),
@@ -105,6 +120,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
     on_progress(0, total);
     let mut aggregate: u64 = 0;
     let mut extracted: Vec<ExtractedAsset> = vec![];
+    let mut skipped: Vec<SkippedOverride> = vec![];
 
     for (idx, (zip_idx, rel)) in work.into_iter().enumerate() {
         // Pull everything we need out of the `ZipFile` (non-`Send`,
@@ -134,26 +150,28 @@ pub async fn extract<F: FnMut(u32, u32)>(
             } else {
                 let size = entry.size();
                 if size > PER_FILE_CAP {
-                    return Err(Error::ModpackOverridesTooLarge {
-                        entry: rel,
-                        size: size as f64,
-                        cap: PER_FILE_CAP as f64,
-                    });
+                    // Skip — don't read it (so a zip-bomb's declared size
+                    // never triggers an allocation) and don't abort the
+                    // import. An oversized override is an inert non-mod blob
+                    // (MC loads `mods/*.jar` only); the rest of the pack
+                    // installs and the user is told what was left out.
+                    EntryKind::Oversized(size)
+                } else {
+                    aggregate = aggregate.saturating_add(size);
+                    if aggregate > AGGREGATE_CAP {
+                        return Err(Error::ModpackOverridesTooLarge {
+                            entry: "<aggregate>".into(),
+                            size: aggregate as f64,
+                            cap: AGGREGATE_CAP as f64,
+                        });
+                    }
+                    let mut buf = Vec::with_capacity(size as usize);
+                    entry.read_to_end(&mut buf).map_err(|e| Error::Io {
+                        path: rel.clone(),
+                        details: e.to_string(),
+                    })?;
+                    EntryKind::File(buf)
                 }
-                aggregate = aggregate.saturating_add(size);
-                if aggregate > AGGREGATE_CAP {
-                    return Err(Error::ModpackOverridesTooLarge {
-                        entry: "<aggregate>".into(),
-                        size: aggregate as f64,
-                        cap: AGGREGATE_CAP as f64,
-                    });
-                }
-                let mut buf = Vec::with_capacity(size as usize);
-                entry.read_to_end(&mut buf).map_err(|e| Error::Io {
-                    path: rel.clone(),
-                    details: e.to_string(),
-                })?;
-                EntryKind::File(buf)
             }
             // `entry` (ZipFile<'_>) goes out of scope here — no `.await`
             // beyond this point holds it.
@@ -161,6 +179,14 @@ pub async fn extract<F: FnMut(u32, u32)>(
 
         let target = mc_dir.join(&rel);
         match kind {
+            EntryKind::Oversized(size) => {
+                // Nothing written. Record it so the import surfaces a
+                // non-fatal "skipped" note instead of failing.
+                skipped.push(SkippedOverride {
+                    path: rel,
+                    size: size as f64,
+                });
+            }
             EntryKind::Dir => {
                 fs::create_dir_all(&target).await.map_err(|e| Error::Io {
                     path: target.display().to_string(),
@@ -204,7 +230,7 @@ pub async fn extract<F: FnMut(u32, u32)>(
         }
         on_progress(idx as u32 + 1, total);
     }
-    Ok(extracted)
+    Ok(ExtractOutcome { extracted, skipped })
 }
 
 #[cfg(test)]
@@ -316,25 +342,35 @@ mod tests {
             ("overrides/mods/notes.txt", b"not-a-jar" as &[u8]),
         ]);
         let inst = TempDir::new().unwrap();
-        let extracted = extract(&zip, inst.path(), |_, _| {}).await.unwrap();
-        let paths: std::collections::HashSet<&str> =
-            extracted.iter().map(|a| a.install_path.as_str()).collect();
+        let out = extract(&zip, inst.path(), |_, _| {}).await.unwrap();
+        let paths: std::collections::HashSet<&str> = out
+            .extracted
+            .iter()
+            .map(|a| a.install_path.as_str())
+            .collect();
         assert_eq!(
             paths,
             ["mods/foo.jar", "resourcepacks/RP.zip", "shaderpacks/Sh.zip"]
                 .into_iter()
                 .collect(),
-            "got {extracted:?}"
+            "got {:?}",
+            out.extracted
         );
     }
 
     #[tokio::test]
-    async fn per_file_cap_rejected() {
-        // synthesize a zip entry claiming 201 MiB
+    async fn per_file_cap_skips_oversized_does_not_abort() {
+        // A pack with a normal mod jar PLUS one oversized blob (201 MiB,
+        // > PER_FILE_CAP) — exactly the "mods.rar an author left in mods/"
+        // shape. The oversized file must be skipped (recorded, not written)
+        // while the normal file extracts; the import must NOT error.
         let mut buf = Vec::new();
         {
             let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
-            w.start_file("overrides/huge.bin", SimpleFileOptions::default())
+            w.start_file("overrides/mods/real.jar", SimpleFileOptions::default())
+                .unwrap();
+            w.write_all(b"real-mod-bytes").unwrap();
+            w.start_file("overrides/mods/mods.rar", SimpleFileOptions::default())
                 .unwrap();
             let block = vec![0u8; 1024 * 1024];
             for _ in 0..201 {
@@ -343,10 +379,27 @@ mod tests {
             w.finish().unwrap();
         }
         let inst = TempDir::new().unwrap();
-        let r = extract(&buf, inst.path(), |_, _| {}).await;
+        let out = extract(&buf, inst.path(), |_, _| {}).await.unwrap();
+
+        // Normal jar extracted to disk and surfaced as a bundled asset.
+        assert_eq!(
+            tokio::fs::read(inst.path().join(".minecraft/mods/real.jar"))
+                .await
+                .unwrap(),
+            b"real-mod-bytes"
+        );
+        assert!(out
+            .extracted
+            .iter()
+            .any(|a| a.install_path == "mods/real.jar"));
+
+        // Oversized blob skipped: recorded, never written to disk.
+        assert_eq!(out.skipped.len(), 1);
+        assert_eq!(out.skipped[0].path, "mods/mods.rar");
+        assert!(out.skipped[0].size > PER_FILE_CAP as f64);
         assert!(
-            matches!(r, Err(Error::ModpackOverridesTooLarge { .. })),
-            "got: {r:?}"
+            !inst.path().join(".minecraft/mods/mods.rar").exists(),
+            "oversized override must not be written"
         );
     }
 }
