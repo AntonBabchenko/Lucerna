@@ -102,7 +102,10 @@ const baseProps = {
   kind: 'mod',
 };
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  delete globalThis.__resolveInstall;
+});
 
 describe('ModBrowseView install busy state', () => {
   it('disables the card Install + shows a spinner until install resolves', async () => {
@@ -286,6 +289,10 @@ describe('ModBrowseView install busy state', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeNull();
     });
+
+    // The originating CTA is busy mid-flight: disabled + spinner present.
+    await waitFor(() => expect(installCta.hasAttribute('disabled')).toBe(true));
+    expect(installCta.querySelector('[role="status"]')).not.toBeNull();
 
     // Settle the install — the finally must close the drawer.
     globalThis.__resolveInstall?.({ status: 'ok', data: null });
