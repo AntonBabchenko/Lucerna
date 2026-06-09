@@ -270,6 +270,9 @@ pub enum Error {
     #[error("Tray I/O error: {details}")]
     TrayIo { details: String },
 
+    #[error("Window I/O error: {details}")]
+    WindowIo { details: String },
+
     #[error("mclo.gs upload failed: {details}")]
     McLogsUpload { details: String },
 }

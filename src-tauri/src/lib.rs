@@ -16,6 +16,7 @@ pub mod tray;
 pub mod update;
 pub mod verify;
 pub mod versions;
+pub mod window;
 pub mod worlds;
 
 /// Process-wide lock for tests that mutate `LUCERNA_EXTRA_ALLOWED_HOSTS`.
