@@ -183,7 +183,7 @@
     <div class="flex items-center gap-3 flex-wrap">
       <button
         type="button"
-        class="btn-secondary btn-sm"
+        class="btn-secondary btn-sm inline-flex items-center gap-1.5"
         onclick={() => void checkForUpdates()}
         disabled={checking}
         data-testid="check-updates-btn"

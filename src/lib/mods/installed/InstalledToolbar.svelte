@@ -173,7 +173,7 @@
     </BusyButton>
     <button
       type="button"
-      class="btn-secondary btn-xs"
+      class="btn-secondary btn-xs inline-flex items-center gap-1.5"
       disabled={graphLoading}
       onclick={onRecheckDeps}
     >

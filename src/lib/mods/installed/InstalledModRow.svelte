@@ -148,7 +148,7 @@
                mod has its own deps; muted when it is only required-by. -->
           <button
             type="button"
-            class="px-2 py-0.5 rounded {depTotal > 0
+            class="px-2 py-0.5 rounded inline-flex items-center gap-1.5 {depTotal > 0
               ? 'bg-accent-soft text-accent'
               : 'bg-subtle text-secondary'}"
             onclick={onToggleExpand}

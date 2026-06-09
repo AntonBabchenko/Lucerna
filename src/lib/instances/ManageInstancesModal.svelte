@@ -368,7 +368,7 @@
                 selectedId = i.id;
               }}
             >
-              <div class="font-medium">
+              <div class="font-medium flex items-center gap-1.5">
                 <Icon name={i.ready ? 'success' : 'download'} />
                 {i.name}
                 {#if i.integrity && !i.integrity.healthy}

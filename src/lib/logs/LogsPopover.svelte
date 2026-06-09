@@ -587,7 +587,10 @@
                 onChange={(v) => onCapChange(Number(v))}
               />
             </div>
-            <button class="btn-secondary btn-xs" onclick={() => void reloadList()}>
+            <button
+              class="btn-secondary btn-xs inline-flex items-center gap-1.5"
+              onclick={() => void reloadList()}
+            >
               <Icon name="refresh" class="icon-spin-hover" />{$t('logs.toolbar.reload')}
             </button>
 
@@ -888,7 +891,7 @@
                               <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
                                 <button
                                   type="button"
-                                  class="btn-tertiary text-left w-full"
+                                  class="btn-tertiary text-left w-full inline-flex items-center gap-1.5"
                                   onclick={() => toggleFold(foldKey)}
                                 >
                                   <Icon name={isExpanded ? 'chevronDown' : 'caret'} />

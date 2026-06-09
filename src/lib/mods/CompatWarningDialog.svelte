@@ -33,7 +33,7 @@
 >
   <div class="bg-surface rounded-lg shadow-xl max-w-lg w-full">
     <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold text-warning-text">
+      <h2 class="text-lg font-semibold text-warning-text flex items-center gap-1.5">
         <Icon name="warning" class="text-warning-text" />
         {$t('instance.compat.heading', { count: rows.length })}
       </h2>
