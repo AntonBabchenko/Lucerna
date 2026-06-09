@@ -56,6 +56,8 @@ const baseProps = {
   onNavInstalled: () => {},
   onNavBrowse: () => {},
   onDismissError: () => {},
+  onDismissInstallError: () => {},
+  onDismissModsError: () => {},
 };
 
 describe('OverviewTab', () => {
@@ -119,5 +121,20 @@ describe('OverviewTab', () => {
       props: { ...baseProps, activeInstance: unhealthy },
     });
     expect(getByTestId('overview-attention-integrity')).toBeTruthy();
+  });
+
+  it('renders installError with a working dismiss button', async () => {
+    const onDismissInstallError = vi.fn();
+    const { getByText, getByRole } = render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: fabricInst,
+        installError: 'boom',
+        onDismissInstallError,
+      },
+    });
+    expect(getByText('boom')).toBeTruthy();
+    await fireEvent.click(getByRole('button', { name: 'Dismiss error' }));
+    expect(onDismissInstallError).toHaveBeenCalledOnce();
   });
 });

@@ -31,6 +31,8 @@
     onNavInstalled,
     onNavBrowse,
     onDismissError,
+    onDismissInstallError,
+    onDismissModsError,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -49,6 +51,8 @@
     onNavInstalled: () => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
+    onDismissInstallError: () => void;
+    onDismissModsError: () => void;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -245,10 +249,22 @@
     {#if installError || modsError || (exited && !running)}
       <div class="flex flex-col gap-1">
         {#if installError}
-          <span class="text-xs text-danger flex items-center gap-1">{installError}</span>
+          <span class="text-xs text-danger flex items-center gap-1">
+            {installError}
+            <CloseButton
+              onClick={onDismissInstallError}
+              ariaLabel={$t('page.overview.dismissError')}
+            />
+          </span>
         {/if}
         {#if modsError}
-          <span class="text-xs text-danger flex items-center gap-1">{modsError}</span>
+          <span class="text-xs text-danger flex items-center gap-1">
+            {modsError}
+            <CloseButton
+              onClick={onDismissModsError}
+              ariaLabel={$t('page.overview.dismissError')}
+            />
+          </span>
         {/if}
         {#if exited && !running}
           <span class="text-xs text-secondary"

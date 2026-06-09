@@ -627,6 +627,8 @@
             else if (key === 'instances') instancesError = null;
             else if (key === 'versions') versionsError = null;
           }}
+          onDismissInstallError={() => (installError = null)}
+          onDismissModsError={() => (modsError = null)}
         />
       {/snippet}
     </MainTabs>
