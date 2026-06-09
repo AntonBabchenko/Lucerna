@@ -572,6 +572,16 @@ export const commands = {
 	missing_mods: MissingModStatus[],
 } | null, Error>(__TAURI_INVOKE("modpack_status", { instanceId })),
 	/**
+	 *  Record that the user installed a substitute (from `substitute_source` /
+	 *  `substitute_project_id`, typically Modrinth) for a blocked `missing_mods`
+	 *  entry identified by `(entry_filename, entry_mod_name)`. Looks the installed
+	 *  substitute's SHA-1 up in the registry, then upserts a `ResolvedMissing`
+	 *  onto the instance's `PackOrigin` so `modpack_status` reports the entry as
+	 *  `Substituted`. Idempotent. Errors `ModsNotFound` when the substitute jar is
+	 *  not in the registry yet, or the instance has no pack origin.
+	 */
+	modpackResolveMissingWith: (instanceId: string, entryFilename: string, entryModName: string, substituteSource: ModSource, substituteProjectId: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_resolve_missing_with", { instanceId, entryFilename, entryModName, substituteSource, substituteProjectId })),
+	/**
 	 *  Re-install a single file that was part of the original pack but is
 	 *  no longer in the instance (= it shows up in `ModpackStatus.removed_files`).
 	 *  Looks the file up by `sha1` in the frozen origin snapshot,
@@ -1198,12 +1208,21 @@ export type MissingModState =
 /**  The mod is installed, but not the pinned file — a different version. */
 "different_version" | 
 /**  No installed jar matches this mod by any signal. */
-"missing";
+"missing" | 
+/**
+ *  No pinned/different file is installed, but the user installed a
+ *  substitute from another source (e.g. Modrinth) and we recorded the
+ *  link in `PackOrigin.resolved_missing`. Treated as resolved, but
+ *  surfaced distinctly so the UI does not claim the pinned file is present.
+ */
+"substituted";
 
 /**
  *  One `PackOrigin.missing_mods` entry paired with its live
  *  classification — `installed` (the pinned file), `different_version`
- *  (the mod is present, but not the pinned file), or `missing`.
+ *  (the mod is present, but not the pinned file), `missing` (no matching
+ *  jar), or `substituted` (the user installed an alternative from another
+ *  source, recorded in `PackOrigin.resolved_missing`).
  *  Computed by `compute_status`; consumed by the imported-pack drawer
  *  and the Overview indicator.
  */
@@ -1701,6 +1720,13 @@ export type PackOrigin = {
 	 *  registry files written before SF2 load with an empty list.
 	 */
 	missing_mods?: ModpackUnresolvable[],
+	/**
+	 *  User-chosen substitutes for `missing_mods` entries (installed from
+	 *  another source when the pack's CurseForge file is distribution
+	 *  disabled). `#[serde(default)]` so registry files written before this
+	 *  feature load with an empty list.
+	 */
+	resolved_missing?: ResolvedMissing[],
 };
 
 export type PackOriginFile = {
@@ -1833,6 +1859,28 @@ export type ResolvedDeps = {
 	optional: ResolvedDep[],
 	incompatible: DepProjectRef[],
 	unresolvable: DepProjectRef[],
+};
+
+/**
+ *  A user-chosen substitute that closes a `missing_mods` entry the pack
+ *  author blocked from auto-download. Kept on `PackOrigin` as a resolution
+ *  overlay — separate from the frozen import snapshot and from the
+ *  parse-time `ModpackUnresolvable` (which every manifest parser builds).
+ */
+export type ResolvedMissing = {
+	/**  Expected jar filename of the closed entry (from the blocked entry). */
+	filename: string,
+	/**
+	 *  Display name of the closed entry — disambiguates same-filename entries.
+	 *  Copied from the blocked `ModpackUnresolvable.mod_name` at record time so
+	 *  it matches the entry the overlay closes.
+	 */
+	mod_name: string,
+	/**
+	 *  SHA-1 (lowercased) of the installed substitute jar. The entry reverts
+	 *  to unresolved if this sha1 leaves the registry (self-healing).
+	 */
+	sha1: string,
 };
 
 export type RestoreMode = "replace" | "as_copy";
