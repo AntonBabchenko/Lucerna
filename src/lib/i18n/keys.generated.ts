@@ -659,6 +659,8 @@ export type TranslationKey =
   | 'onboarding.tour.welcome.bodyBasic'
   | 'onboarding.tour.welcome.title'
   | 'onboarding.tour.welcome.titleBasic'
+  | 'page.accounts.buyMinecraft'
+  | 'page.accounts.noMinecraftTitle'
   | 'page.accounts.pendingApproval'
   | 'page.accounts.signInFailed'
   | 'page.accounts.signedInMicrosoft'

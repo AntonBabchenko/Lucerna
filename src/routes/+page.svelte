@@ -31,6 +31,7 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import { classifySignInError } from '$lib/accounts/sign-in-error';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
@@ -576,13 +577,24 @@
         pushSuccess(get(t)('page.accounts.signedInMicrosoft'));
       }}
       onMicrosoftError={(err) => {
-        const kind = (err as { kind?: string })?.kind;
         const msg = formatError(err as never);
         const tr = get(t);
-        if (kind === 'auth_pending_approval') {
-          pushInfo(tr('page.accounts.pendingApproval'), [msg]);
+        const toast = classifySignInError(err);
+        if (toast.buyLink) {
+          const url = toast.buyLink;
+          pushActionToast(
+            toast.kind,
+            tr(toast.titleKey),
+            {
+              label: tr('page.accounts.buyMinecraft'),
+              run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+            },
+            [msg],
+          );
+        } else if (toast.kind === 'info') {
+          pushInfo(tr(toast.titleKey), [msg]);
         } else {
-          pushWarning(tr('page.accounts.signInFailed'), [msg]);
+          pushWarning(tr(toast.titleKey), [msg]);
         }
       }}
     />

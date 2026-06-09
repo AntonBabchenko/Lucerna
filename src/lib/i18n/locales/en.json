@@ -848,7 +848,7 @@
     "instanceBusy": "An operation is already in progress, or the game is running.",
     "authCancelled": "Microsoft sign-in cancelled.",
     "authFailed": "Microsoft sign-in failed at {stage}: {details}",
-    "noMinecraftProfile": "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.",
+    "noMinecraftProfile": "You weren't signed in: this Microsoft account doesn't own Minecraft. Buy a copy and sign in again, or use an account that already owns one.",
     "authPendingApproval": "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
     "unknownVersion": "Version {id} not found in manifest",
     "unsupportedPlatform": "Unsupported platform: {os}/{arch}",
@@ -1020,7 +1020,9 @@
     "accounts": {
       "signedInMicrosoft": "Signed in with Microsoft",
       "pendingApproval": "Microsoft sign-in pending approval",
-      "signInFailed": "Microsoft sign-in failed"
+      "signInFailed": "Microsoft sign-in failed",
+      "noMinecraftTitle": "This account doesn't own Minecraft",
+      "buyMinecraft": "Buy Minecraft"
     },
     "overview": {
       "sectionConfiguration": "Configuration",
