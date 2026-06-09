@@ -15,6 +15,7 @@
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import {
@@ -587,7 +588,7 @@
               />
             </div>
             <button class="btn-secondary btn-xs" onclick={() => void reloadList()}>
-              {$t('logs.toolbar.reload')}
+              <Icon name="refresh" class="icon-spin-hover" />{$t('logs.toolbar.reload')}
             </button>
 
             <!-- Open the directory containing the currently-selected log file
@@ -761,7 +762,7 @@
               title={$t('logs.search.prevTitle')}
               onclick={prevMatch}
             >
-              ↑
+              <Icon name="chevronUp" />
             </button>
             <button
               class="btn-icon"
@@ -770,7 +771,7 @@
               title={$t('logs.search.nextTitle')}
               onclick={nextMatch}
             >
-              ↓
+              <Icon name="chevronDown" />
             </button>
           </div>
 
@@ -796,7 +797,9 @@
                 class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
               >
                 <summary class="cursor-pointer font-semibold text-warning-text select-none">
-                  ⚠ {diagnosis.title}
+                  <span class="flex items-center gap-1.5"
+                    ><Icon name="warning" /> {diagnosis.title}</span
+                  >
                 </summary>
                 <p class="mt-2 text-sm text-warning-text selectable">{diagnosis.explanation}</p>
                 <p class="mt-2 text-sm text-warning-text selectable">
@@ -852,7 +855,9 @@
                         class="w-full text-left px-3 py-1.5 bg-subtle hover:bg-accent-soft font-semibold flex items-center gap-1"
                         onclick={() => toggleSection(si)}
                       >
-                        <span class="text-muted">{expanded ? '▾' : '▸'}</span>
+                        <span class="text-muted"
+                          ><Icon name={expanded ? 'chevronDown' : 'caret'} /></span
+                        >
                         {section.title}
                       </button>
                       {#if expanded}
@@ -886,7 +891,7 @@
                                   class="btn-tertiary text-left w-full"
                                   onclick={() => toggleFold(foldKey)}
                                 >
-                                  {isExpanded ? '▾' : '▸'}
+                                  <Icon name={isExpanded ? 'chevronDown' : 'caret'} />
                                   <span
                                     class={wrap
                                       ? 'whitespace-pre-wrap break-words'
@@ -946,7 +951,7 @@
                         >
                           <span class="text-placeholder select-none"
                             >{(ui + 1).toString().padStart(6, ' ')}:
-                          </span>{isExpanded ? '▾' : '▸'}
+                          </span><Icon name={isExpanded ? 'chevronDown' : 'caret'} />
                           <span class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
                             >{unit.firstFrame}</span
                           >
