@@ -26,7 +26,7 @@ export const ICONS = {
   success: Check,
   download: Download,
   update: RefreshCw, // static "update available" marker
-  refresh: RefreshCw, // refresh/recheck action buttons (CSS spin on hover)
+  refresh: RefreshCw, // action variant — same icon as `update`, but spun via CSS on hover
   plus: Plus,
   minus: Minus,
   list: List,
