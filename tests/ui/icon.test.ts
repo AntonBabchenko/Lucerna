@@ -1,4 +1,6 @@
+import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
+import Icon from '$lib/ui/icons/Icon.svelte';
 import { ICON_NAMES, ICONS, type IconName } from '$lib/ui/icons';
 
 describe('icon registry', () => {
@@ -14,5 +16,27 @@ describe('icon registry', () => {
       'download', 'update', 'refresh', 'plus', 'minus', 'list', 'grid',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
+  });
+});
+
+describe('Icon component', () => {
+  it('renders an svg and is decorative (aria-hidden) by default', () => {
+    const { container } = render(Icon, { props: { name: 'success' } });
+    const svg = container.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('exposes an accessible label when one is given', () => {
+    const { container } = render(Icon, { props: { name: 'warning', label: 'Warning' } });
+    const svg = container.querySelector('svg');
+    expect(svg?.getAttribute('aria-hidden')).toBeNull();
+    expect(svg?.getAttribute('aria-label')).toBe('Warning');
+    expect(svg?.getAttribute('role')).toBe('img');
+  });
+
+  it('forwards class for sizing/colour overrides', () => {
+    const { container } = render(Icon, { props: { name: 'close', class: 'size-3 text-muted' } });
+    expect(container.querySelector('svg')?.getAttribute('class')).toContain('size-3');
   });
 });
