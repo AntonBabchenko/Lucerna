@@ -13,8 +13,16 @@ export const compactState = $state<{ value: boolean }>({ value: false });
 
 /** Apply + persist a mode change (user toggle). */
 export async function setCompact(next: boolean): Promise<void> {
+  const prev = compactState.value;
   compactState.value = next;
-  await commands.windowSetCompact(next);
+  // Optimistic flip drives the CSS grid immediately. If the OS-window resize
+  // fails, roll the rune back so the layout and the actual window stay in sync
+  // (and skip persisting a mode we couldn't apply).
+  const resized = await commands.windowSetCompact(next);
+  if (resized.status !== 'ok') {
+    compactState.value = prev;
+    return;
+  }
   const get = await commands.appSettingsGet();
   if (get.status !== 'ok') return;
   await commands.appSettingsSetGeneral({ ...get.data.general, compact_mode: next });
