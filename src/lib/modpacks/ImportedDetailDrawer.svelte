@@ -435,6 +435,152 @@
         </summary>
       {/snippet}
 
+      {#if status && status.missing_mods.length > 0}
+        <details class="mt-2" open data-testid="imported-detail-missing-section">
+          {@render sectionSummary(
+            $t('modpacks.imported.detail.missingHeading', {
+              count: status.missing_mods.filter((m) => m.state !== 'installed').length,
+            }),
+          )}
+          <p class="text-xs text-muted mb-2 pl-4">
+            {$t('modpacks.imported.detail.missingBody')}
+          </p>
+          <ul class="space-y-1 pl-4">
+            {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
+              {@const isInstalled = m.state === 'installed'}
+              {@const isDifferentVersion = m.state === 'different_version'}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded border {isInstalled
+                  ? 'bg-success-bg border-success'
+                  : 'bg-warning-bg border-warning-text/30'}"
+              >
+                <!-- ✓ when the mod is present at all (installed or a
+                   different version); ⚠ only when truly missing — so
+                   "different version" is not mistaken for "missing". -->
+                <span class="flex-shrink-0" aria-hidden="true">
+                  {m.state === 'missing' ? '⚠' : '✓'}
+                </span>
+                <span class="truncate flex-1" class:text-muted={isInstalled}>
+                  {m.entry.mod_name}
+                  {#if isDifferentVersion}
+                    <span class="text-muted text-xs">
+                      {$t('modpacks.imported.detail.differentVersion')}</span
+                    >
+                  {/if}
+                </span>
+                {#if !isInstalled}
+                  <span
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
+                  >
+                    {m.entry.reason === 'distribution_disabled'
+                      ? $t('modpacks.imported.detail.distributionDisabled')
+                      : $t('modpacks.imported.detail.hostNotAllowed')}
+                  </span>
+                {/if}
+                {#if !isInstalled && m.entry.manual_action_url}
+                  <button
+                    type="button"
+                    onclick={() =>
+                      void import('@tauri-apps/plugin-opener').then((opener) =>
+                        opener.openUrl(m.entry.manual_action_url!),
+                      )}
+                    class="text-accent hover:underline text-xs flex-shrink-0"
+                  >
+                    {$t('modpacks.imported.detail.openLink')}
+                  </button>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </details>
+      {/if}
+
+      {#if status && status.removed_files.length > 0}
+        <details class="mt-2" open data-testid="imported-detail-removed-section">
+          {@render sectionSummary(
+            $t('modpacks.imported.detail.removedHeading', { count: status.removed_files.length }),
+          )}
+          {#if restoreError}
+            <p class="text-xs text-danger mb-2 pl-4" data-testid="imported-detail-restore-error">
+              {restoreError}
+            </p>
+          {/if}
+          <ul class="space-y-1 pl-4">
+            {#each status.removed_files as f (f.sha1)}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger-bg border border-danger"
+              >
+                <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
+                {#if f.url === ''}
+                  <!-- Bundled mod from overrides/mods/ — no network source
+                     to re-fetch from. Disable Restore and explain why on
+                     hover; the user's only recovery path is re-importing
+                     the .mrpack. -->
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs flex-shrink-0"
+                    disabled
+                    title={$t('modpacks.imported.detail.restoreDisabledTitle')}
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.restoreBtn')}
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs flex-shrink-0"
+                    onclick={() => void restore(f)}
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.restoreBtn')}
+                  </button>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if status.removed_files.some((f) => f.url === '')}
+            <button
+              type="button"
+              class="btn-secondary btn-xs mt-2 ml-4"
+              onclick={() => void reimportPackFiles()}
+              disabled={reimporting}
+              data-testid="imported-detail-reimport"
+            >
+              {reimporting
+                ? $t('modpacks.imported.detail.reimporting')
+                : $t('modpacks.imported.detail.reimportBtn')}
+            </button>
+          {/if}
+        </details>
+      {/if}
+
+      {#if status && (status.origin.skipped_overrides?.length ?? 0) > 0}
+        {@const skipped = status.origin.skipped_overrides ?? []}
+        <details class="mt-2" open data-testid="imported-detail-skipped-section">
+          {@render sectionSummary(
+            $t('modpacks.imported.detail.skippedHeading', {
+              count: skipped.length,
+            }),
+          )}
+          <p class="text-xs text-muted mb-2 pl-4">
+            {$t('modpacks.imported.detail.skippedBody')}
+          </p>
+          <ul class="space-y-1 pl-4">
+            {#each skipped as s (s.path)}
+              <li
+                class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
+              >
+                <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
+                <span class="truncate flex-1">{s.path}</span>
+                <span class="text-xs text-muted flex-shrink-0">
+                  {Math.round((s.size ?? 0) / (1024 * 1024))} MB
+                </span>
+              </li>
+            {/each}
+          </ul>
+        </details>
+      {/if}
+
       <details class="mt-2">
         {@render sectionSummary(
           $t('modpacks.imported.detail.modsHeading', { count: mods?.length ?? 0 }),
@@ -550,151 +696,6 @@
         {/if}
       {/if}
 
-      {#if status && status.removed_files.length > 0}
-        <div class="mt-5" data-testid="imported-detail-removed-section">
-          <h4 class="font-medium text-sm text-primary mb-2">
-            {$t('modpacks.imported.detail.removedHeading', { count: status.removed_files.length })}
-          </h4>
-          {#if restoreError}
-            <p class="text-xs text-danger mb-2" data-testid="imported-detail-restore-error">
-              {restoreError}
-            </p>
-          {/if}
-          <ul class="space-y-1">
-            {#each status.removed_files as f (f.sha1)}
-              <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger-bg border border-danger"
-              >
-                <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
-                {#if f.url === ''}
-                  <!-- Bundled mod from overrides/mods/ — no network source
-                     to re-fetch from. Disable Restore and explain why on
-                     hover; the user's only recovery path is re-importing
-                     the .mrpack. -->
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs flex-shrink-0"
-                    disabled
-                    title={$t('modpacks.imported.detail.restoreDisabledTitle')}
-                    data-testid="imported-detail-restore-{f.sha1}"
-                  >
-                    {$t('modpacks.imported.detail.restoreBtn')}
-                  </button>
-                {:else}
-                  <button
-                    type="button"
-                    class="btn-secondary btn-xs flex-shrink-0"
-                    onclick={() => void restore(f)}
-                    data-testid="imported-detail-restore-{f.sha1}"
-                  >
-                    {$t('modpacks.imported.detail.restoreBtn')}
-                  </button>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          {#if status.removed_files.some((f) => f.url === '')}
-            <button
-              type="button"
-              class="btn-secondary btn-xs mt-2"
-              onclick={() => void reimportPackFiles()}
-              disabled={reimporting}
-              data-testid="imported-detail-reimport"
-            >
-              {reimporting
-                ? $t('modpacks.imported.detail.reimporting')
-                : $t('modpacks.imported.detail.reimportBtn')}
-            </button>
-          {/if}
-        </div>
-      {/if}
-
-      {#if status && status.missing_mods.length > 0}
-        <div class="mt-5" data-testid="imported-detail-missing-section">
-          <h4 class="font-medium text-sm text-primary mb-2">
-            {$t('modpacks.imported.detail.missingHeading', {
-              count: status.missing_mods.filter((m) => m.state !== 'installed').length,
-            })}
-          </h4>
-          <p class="text-xs text-muted mb-2">
-            {$t('modpacks.imported.detail.missingBody')}
-          </p>
-          <ul class="space-y-1">
-            {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
-              {@const isInstalled = m.state === 'installed'}
-              {@const isDifferentVersion = m.state === 'different_version'}
-              <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded border {isInstalled
-                  ? 'bg-success-bg border-success'
-                  : 'bg-warning-bg border-warning-text/30'}"
-              >
-                <!-- ✓ when the mod is present at all (installed or a
-                   different version); ⚠ only when truly missing — so
-                   "different version" is not mistaken for "missing". -->
-                <span class="flex-shrink-0" aria-hidden="true">
-                  {m.state === 'missing' ? '⚠' : '✓'}
-                </span>
-                <span class="truncate flex-1" class:text-muted={isInstalled}>
-                  {m.entry.mod_name}
-                  {#if isDifferentVersion}
-                    <span class="text-muted text-xs">
-                      {$t('modpacks.imported.detail.differentVersion')}</span
-                    >
-                  {/if}
-                </span>
-                {#if !isInstalled}
-                  <span
-                    class="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
-                  >
-                    {m.entry.reason === 'distribution_disabled'
-                      ? $t('modpacks.imported.detail.distributionDisabled')
-                      : $t('modpacks.imported.detail.hostNotAllowed')}
-                  </span>
-                {/if}
-                {#if !isInstalled && m.entry.manual_action_url}
-                  <button
-                    type="button"
-                    onclick={() =>
-                      void import('@tauri-apps/plugin-opener').then((opener) =>
-                        opener.openUrl(m.entry.manual_action_url!),
-                      )}
-                    class="text-accent hover:underline text-xs flex-shrink-0"
-                  >
-                    {$t('modpacks.imported.detail.openLink')}
-                  </button>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
-
-      {#if status && (status.origin.skipped_overrides?.length ?? 0) > 0}
-        {@const skipped = status.origin.skipped_overrides ?? []}
-        <div class="mt-5" data-testid="imported-detail-skipped-section">
-          <h4 class="font-medium text-sm text-primary mb-2">
-            {$t('modpacks.imported.detail.skippedHeading', {
-              count: skipped.length,
-            })}
-          </h4>
-          <p class="text-xs text-muted mb-2">
-            {$t('modpacks.imported.detail.skippedBody')}
-          </p>
-          <ul class="space-y-1">
-            {#each skipped as s (s.path)}
-              <li
-                class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
-              >
-                <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
-                <span class="truncate flex-1">{s.path}</span>
-                <span class="text-xs text-muted flex-shrink-0">
-                  {Math.round((s.size ?? 0) / (1024 * 1024))} MB
-                </span>
-              </li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
     </div>
 
     <footer
