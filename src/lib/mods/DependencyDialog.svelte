@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModSource, ModVersion } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   // Modal that runs after ModBrowseView's startInstall surfaces deps the
   // user should look at — required mods auto-install (read-only list),
@@ -167,7 +168,8 @@
 
     {#if loaderMismatch}
       <div class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger">
-        ⚠ <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
+        <Icon name="warning" class="text-danger" />
+        <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
         {$t('mods.depDialog.loaderMismatchBody', {
           modLoaders: loaderMismatch.modLoaders.join(' / '),
           instanceLoader: loaderMismatch.instanceLoader,
@@ -177,7 +179,8 @@
 
     {#if loaderRequirements.length > 0}
       <div class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent">
-        ⓘ {$t('mods.depDialog.loaderRequirementsInfo', { loaders: loaderRequirements.join(' / ') })}
+        <Icon name="info" class="text-accent" />
+        {$t('mods.depDialog.loaderRequirementsInfo', { loaders: loaderRequirements.join(' / ') })}
       </div>
     {/if}
 

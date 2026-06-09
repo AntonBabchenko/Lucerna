@@ -8,6 +8,7 @@
     ModUpdateState,
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
@@ -152,7 +153,7 @@
               : 'bg-subtle text-secondary'}"
             onclick={onToggleExpand}
           >
-            {expanded ? '▾' : '▸'}
+            <Icon name={expanded ? 'chevronDown' : 'caret'} />
             {expandLabel}
           </button>
         {/if}
