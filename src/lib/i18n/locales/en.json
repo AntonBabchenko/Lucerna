@@ -1061,6 +1061,8 @@
       "playtimeSession": "{count, plural, one {# session} other {# sessions}}",
       "playtimeLastSession": "Last session: {duration}, {when}",
       "statusExited": "Exited (code {code})",
+      "statusStopped": "Stopped",
+      "statusClean": "Game closed",
       "dismissError": "Dismiss error",
       "noInstanceSelected": "No instance selected. Create one via the sidebar.",
       "attentionHeading": "Needs attention",

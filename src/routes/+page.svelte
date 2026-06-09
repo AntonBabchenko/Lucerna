@@ -162,7 +162,7 @@
   let installing = $state(false);
   let installError = $state<string | null>(null);
   let running = $state<{ pid: number; version_id: string } | null>(null);
-  let exited = $state<{ code: number; log_path: string } | null>(null);
+  let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
 
@@ -362,10 +362,16 @@
     events.processExited
       .listen(async (event) => {
         running = null;
-        exited = { code: event.payload.code, log_path: event.payload.log_path };
+        exited = {
+          code: event.payload.code,
+          user_requested: event.payload.user_requested,
+          log_path: event.payload.log_path,
+        };
         void refreshInstances();
         void refreshPlaytime(activeInstance?.id ?? null);
-        if (event.payload.code !== 0 && activeInstance) {
+        // A user-requested Stop force-kills the process (non-zero exit code),
+        // but it is not a crash — don't surface a crash diagnosis for it.
+        if (event.payload.code !== 0 && !event.payload.user_requested && activeInstance) {
           const result = await commands.latestCrash(activeInstance.id);
           if (result.status === 'ok' && result.data) {
             crashReport = result.data;
