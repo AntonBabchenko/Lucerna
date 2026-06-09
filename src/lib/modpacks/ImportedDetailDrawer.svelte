@@ -596,48 +596,48 @@
         {:else}
           <ul class="space-y-1 pl-4" data-testid="imported-detail-mods-list">
             {#each mods as m (m.sha1)}
-            {@const prov = provenance(m)}
-            <li class="flex items-center gap-2 text-sm py-1">
-              <div
-                class="w-2 h-2 rounded-full flex-shrink-0"
-                class:bg-accent={m.enabled}
-                class:bg-muted={!m.enabled}
-                aria-hidden="true"
-              ></div>
-              {#if prov === 'pack'}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeFromPackTitle')}
-                  data-testid="mod-badge-pack-{m.sha1}"
-                >
-                  {$t('modpacks.imported.detail.badgeFromPack')}
-                </span>
-              {:else if prov === 'user'}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeUserAddedTitle')}
-                  data-testid="mod-badge-user-{m.sha1}"
-                >
-                  {$t('modpacks.imported.detail.badgeUserAdded')}
-                </span>
-              {:else}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeManualTitle')}
-                  data-testid="mod-badge-manual-{m.sha1}"
-                >
-                  {$t('modpacks.imported.detail.badgeManual')}
-                </span>
-              {/if}
-              <span class="truncate flex-1">{displayName(m)}</span>
-              {#if !m.enabled}
-                <span
-                  class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
-                >
-                  {$t('modpacks.imported.detail.disabled')}
-                </span>
-              {/if}
-            </li>
+              {@const prov = provenance(m)}
+              <li class="flex items-center gap-2 text-sm py-1">
+                <div
+                  class="w-2 h-2 rounded-full flex-shrink-0"
+                  class:bg-accent={m.enabled}
+                  class:bg-muted={!m.enabled}
+                  aria-hidden="true"
+                ></div>
+                {#if prov === 'pack'}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
+                    title={$t('modpacks.imported.detail.badgeFromPackTitle')}
+                    data-testid="mod-badge-pack-{m.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.badgeFromPack')}
+                  </span>
+                {:else if prov === 'user'}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
+                    title={$t('modpacks.imported.detail.badgeUserAddedTitle')}
+                    data-testid="mod-badge-user-{m.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.badgeUserAdded')}
+                  </span>
+                {:else}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
+                    title={$t('modpacks.imported.detail.badgeManualTitle')}
+                    data-testid="mod-badge-manual-{m.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.badgeManual')}
+                  </span>
+                {/if}
+                <span class="truncate flex-1">{displayName(m)}</span>
+                {#if !m.enabled}
+                  <span
+                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
+                  >
+                    {$t('modpacks.imported.detail.disabled')}
+                  </span>
+                {/if}
+              </li>
             {/each}
           </ul>
         {/if}
@@ -695,7 +695,6 @@
           </details>
         {/if}
       {/if}
-
     </div>
 
     <footer
