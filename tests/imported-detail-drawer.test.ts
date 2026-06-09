@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const openUrlMock = vi.fn().mockResolvedValue(undefined);
@@ -633,9 +634,127 @@ describe('ImportedDetailDrawer', () => {
     });
     const section = await findByTestId('imported-detail-skipped-section');
     expect(section.textContent).toContain('mods/mods.rar');
-    expect(section.textContent).toContain('249 MB');
+    expect(section.textContent).toContain('249.3 MiB');
     // Heading count reflects the one skipped file.
     expect(section.textContent).toContain('(1)');
+  });
+
+  it('does not count a .zip.txt under shaderpacks/ as a shaderpack', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'All Of Create',
+          version: '1.0.7',
+          files: [
+            {
+              sha1: 's1',
+              name: 'Complementary r5.7.1',
+              filename: 'Complementary_r5.7.1.zip',
+              install_path: 'shaderpacks/Complementary_r5.7.1.zip',
+              url: '',
+              size: 1000,
+              project_id: '',
+              version_id: '',
+              env_client: 'required',
+              source: 'modrinth',
+            },
+            {
+              sha1: 's2',
+              name: 'Complementary r5.6.1 note',
+              filename: 'Complementary_r5.6.1.zip.txt',
+              install_path: 'shaderpacks/Complementary_r5.6.1.zip.txt',
+              url: '',
+              size: 50,
+              project_id: '',
+              version_id: '',
+              env_client: 'required',
+              source: 'modrinth',
+            },
+          ],
+          missing_mods: [],
+          skipped_overrides: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const shaders = await findByTestId('imported-detail-shaderpacks');
+    // The real shaderpack (.zip) still renders — rows show the display name.
+    expect(shaders.textContent).toContain('Complementary r5.7.1');
+    // The .zip.txt download note is reclassified out of the shaderpacks list.
+    expect(shaders.textContent).not.toContain('note');
+    expect(shaders.textContent).not.toContain('.zip.txt');
+
+    // The reclassified .zip.txt file lands in the Configs section instead.
+    // Configs is a collapsed-by-default <details> — expand to read its body.
+    const configsSection = (await findByTestId(
+      'imported-detail-configs-section',
+    )) as HTMLDetailsElement;
+    configsSection.open = true;
+    await tick();
+    const configs = await findByTestId('imported-detail-configs');
+    // Configs rows render the install_path.
+    expect(configs.textContent).toContain('Complementary_r5.6.1.zip.txt');
+  });
+
+  it('opens attention sections and collapses inventory by default, attention first', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'P',
+          version: '1',
+          files: [
+            {
+              sha1: 'r',
+              name: 'RP',
+              filename: 'RP.zip',
+              install_path: 'resourcepacks/RP.zip',
+              url: '',
+              size: 1000,
+              project_id: '',
+              version_id: '',
+              env_client: 'required',
+              source: 'modrinth',
+            },
+          ],
+          missing_mods: [],
+          skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const skipped = (await findByTestId('imported-detail-skipped-section')) as HTMLDetailsElement;
+    const rp = (await findByTestId('imported-detail-resourcepacks-section')) as HTMLDetailsElement;
+    // Attention open, inventory collapsed.
+    expect(skipped.open).toBe(true);
+    expect(rp.open).toBe(false);
+    // Attention renders before inventory in document order.
+    expect(skipped.compareDocumentPosition(rp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Asset size is shown (expand to read the collapsed body).
+    rp.open = true;
+    await tick();
+    expect((await findByTestId('imported-detail-resourcepacks')).textContent).toMatch(
+      /\d+\s?(B|KiB|MiB)/,
+    );
   });
 
   afterEach(async () => {

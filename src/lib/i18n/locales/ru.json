@@ -453,7 +453,7 @@
         "updating": "Обновление…",
         "updateAvailable": "Доступно обновление → {version}",
         "updateBtn": "Обновить",
-        "modsHeading": "Моды",
+        "modsHeading": "Моды ({count})",
         "loading": "Загрузка…",
         "modsEmpty": "Установленных модов нет.",
         "badgeFromPackTitle": "из сборки",
