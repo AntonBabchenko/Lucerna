@@ -25,6 +25,7 @@
     modrinth: 'bg-gradient-to-br from-green-400 to-green-600 text-green-950',
     curseforge: 'bg-gradient-to-br from-orange-500 to-red-600 text-orange-50',
     ftb: 'bg-gradient-to-br from-sky-400 to-sky-600 text-sky-950',
+    atlauncher: 'bg-gradient-to-br from-indigo-400 to-indigo-600 text-indigo-50',
   };
 
   const PILL_LABEL: Record<StatusKind, TranslationKey> = {

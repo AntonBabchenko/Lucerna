@@ -43,7 +43,12 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if settingsOpen.value}
-  <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+  <!-- z-50 (not z-40): Settings can be summoned from *inside* the z-40 modpacks
+       modal (the CurseForge-key banner's "open settings" action). At equal
+       z-index, DOM order would paint the later-mounted modpacks modal on top and
+       hide Settings behind it. Sitting in the secondary-dialog layer (peer of
+       ManageInstancesModal) keeps Settings above any base modal it overlays. -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
     <!-- Backdrop button. Clicking outside the dialog dismisses it. -->
     <button
       type="button"
