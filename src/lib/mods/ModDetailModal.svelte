@@ -10,6 +10,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { modProjectUrl } from '$lib/mods/project-url';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
@@ -30,6 +31,7 @@
     loader,
     kind = 'mod',
     installedVersionId = null,
+    installingVersionId = null,
     onClose,
     onInstall,
   }: {
@@ -44,6 +46,9 @@
     // loader requirement.
     kind?: ContentKind;
     installedVersionId?: string | null;
+    // version_id whose install is currently in flight; parent-owned. The
+    // matching version row / recommended CTA renders as a busy spinner.
+    installingVersionId?: string | null;
     onClose: () => void;
     onInstall: (v: ModVersion) => void;
   } = $props();
@@ -247,8 +252,8 @@
                   </div>
                   <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
                 </div>
-                <button
-                  type="button"
+                <BusyButton
+                  busy={installingVersionId === v.version_id}
                   class="btn-xs {isInstalled
                     ? 'btn-secondary border-success text-success'
                     : !v.primary_file.distribution_allowed
@@ -271,7 +276,7 @@
                   {:else}
                     {$t('mods.detail.btnInstall')}
                   {/if}
-                </button>
+                </BusyButton>
               </div>
             {/each}
           {/if}
@@ -286,8 +291,8 @@
       <div class="shrink-0 border-t border-border-subtle p-4 py-3">
         {#if canInstall && recommended}
           {@const isInstalled = recommended.version_id === installedVersionId}
-          <button
-            type="button"
+          <BusyButton
+            busy={installingVersionId === recommended.version_id}
             class="btn-primary w-full"
             disabled={isInstalled || !recommended.primary_file.distribution_allowed}
             onclick={() => onInstall(recommended)}
@@ -299,7 +304,7 @@
             {:else}
               {$t('mods.detail.footerInstall', { version: recommended.version_number })}
             {/if}
-          </button>
+          </BusyButton>
         {:else}
           <div class="text-xs text-placeholder text-center">
             {#if !canInstall}

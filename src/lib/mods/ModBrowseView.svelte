@@ -130,6 +130,10 @@
   // Which card's install/asset flow is currently running. Keyed by project_id
   // because many cards render per page — a single boolean would spin them all.
   let installingProjectId = $state<string | null>(null);
+  // The version_id whose install was started from the detail drawer. Threaded
+  // into ModDetailModal so that exact version row / recommended CTA shows a
+  // busy spinner while its install is in flight. Cleared in the install finally.
+  let installingVersionId = $state<string | null>(null);
   // A card is "busy" while its install runs OR while its dependency dialog is
   // open — without the latter, the card would briefly re-enable under the
   // open dialog (the install flow's finally clears installingProjectId when it
@@ -961,6 +965,7 @@
       installedVersionId={installedMods.find(
         (r) => r.installed.source === source && r.installed.project_id === drawerProject,
       )?.installed.version_id ?? null}
+      {installingVersionId}
       onClose={() => (drawerProject = null)}
       onInstall={(v) => {
         // Drawer passes the explicit version the user picked. We
@@ -968,7 +973,9 @@
         // we skip the latest-version lookup and install exactly what
         // the user clicked. If a different version is already
         // installed for this project, startInstall handles the swap.
-        drawerProject = null;
+        // Keep the drawer open and flag the chosen version so its row /
+        // recommended CTA spins; clear the flag when the install settles.
+        installingVersionId = v.version_id;
         void startInstall(
           {
             source: v.source,
@@ -982,7 +989,9 @@
             updated_at: null,
           },
           v,
-        );
+        ).finally(() => {
+          installingVersionId = null;
+        });
       }}
     />
   {/if}

@@ -12,6 +12,7 @@
     type?: 'button' | 'submit';
     class?: string;
     spinnerClass?: string;
+    title?: string;
     onclick?: () => void;
     children: Snippet;
   }
@@ -21,6 +22,7 @@
     type = 'button',
     class: klass = '',
     spinnerClass = '',
+    title,
     onclick,
     children,
   }: Props = $props();
@@ -31,6 +33,7 @@
   class={klass}
   disabled={busy || disabled}
   aria-busy={busy ? 'true' : 'false'}
+  {title}
   {onclick}
 >
   <span class="inline-flex items-center justify-center gap-2">
