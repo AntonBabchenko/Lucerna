@@ -20,4 +20,8 @@ describe('isLikelyMatch', () => {
   it('matches when one normalized name contains the other', () => {
     expect(isLikelyMatch('JEI', 'JEI (Just Enough Items)')).toBe(true);
   });
+
+  it('does not match on a too-short (<3 char) substring', () => {
+    expect(isLikelyMatch('AB', 'something AB here')).toBe(false);
+  });
 });
