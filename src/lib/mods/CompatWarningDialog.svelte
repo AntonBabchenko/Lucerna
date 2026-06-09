@@ -45,6 +45,7 @@
       {/each}
     </ul>
     <footer class="p-4 border-t flex justify-end gap-2">
+      <!-- Skip is blocked while the install runs: cancelling now can't abort the in-flight IPC, so we wait for it to settle. -->
       <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={onCancel}>
         {$t('instance.compat.skipBtn')}
       </button>
