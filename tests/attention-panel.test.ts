@@ -22,6 +22,8 @@ describe('AttentionPanel', () => {
     expect(getByTestId('overview-attention-missing_mods')).toBeTruthy();
     expect(getByTestId('overview-attention-integrity')).toBeTruthy();
     expect(queryByTestId('overview-attention-incompatible')).toBeNull();
+    expect(getByTestId('overview-attention-missing_mods').textContent).toContain('3');
+    expect(getByTestId('overview-attention-integrity').textContent).toContain('2');
   });
 
   it('fires onAction with the row kind when clicked', async () => {

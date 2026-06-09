@@ -35,7 +35,7 @@
       >
         <span class="text-warning-text" aria-hidden="true">⚠</span>
         <span class="flex-1 text-sm text-warning-text">
-          {$t(TEXT_KEY[item.kind], { values: { count: item.count } })}
+          {$t(TEXT_KEY[item.kind], { count: item.count })}
         </span>
         <span class="text-xs text-warning-text underline">{$t('page.overview.attentionView')}</span>
       </button>
