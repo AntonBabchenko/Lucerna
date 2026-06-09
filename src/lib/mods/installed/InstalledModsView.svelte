@@ -275,6 +275,7 @@
         selectedCount={selection.selected.size}
         indeterminate={selection.selected.size > 0 && !selection.allSelected}
         {busy}
+        busyAction={selection.busyAction}
         canUpdate={selection.selectedUpdatable.length > 0}
         onToggleAll={selection.toggleSelectAll}
         onEnable={() => selection.bulkSetEnabled(true)}
