@@ -33,6 +33,7 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import { classifySignInError } from '$lib/accounts/sign-in-error';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
@@ -162,7 +163,7 @@
   let installing = $state(false);
   let installError = $state<string | null>(null);
   let running = $state<{ pid: number; version_id: string } | null>(null);
-  let exited = $state<{ code: number; log_path: string } | null>(null);
+  let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
 
@@ -382,10 +383,16 @@
     events.processExited
       .listen(async (event) => {
         running = null;
-        exited = { code: event.payload.code, log_path: event.payload.log_path };
+        exited = {
+          code: event.payload.code,
+          user_requested: event.payload.user_requested,
+          log_path: event.payload.log_path,
+        };
         void refreshInstances();
         void refreshPlaytime(activeInstance?.id ?? null);
-        if (event.payload.code !== 0 && activeInstance) {
+        // A user-requested Stop force-kills the process (non-zero exit code),
+        // but it is not a crash — don't surface a crash diagnosis for it.
+        if (event.payload.code !== 0 && !event.payload.user_requested && activeInstance) {
           const result = await commands.latestCrash(activeInstance.id);
           if (result.status === 'ok' && result.data) {
             crashReport = result.data;
@@ -605,13 +612,24 @@
         pushSuccess(get(t)('page.accounts.signedInMicrosoft'));
       }}
       onMicrosoftError={(err) => {
-        const kind = (err as { kind?: string })?.kind;
         const msg = formatError(err as never);
         const tr = get(t);
-        if (kind === 'auth_pending_approval') {
-          pushInfo(tr('page.accounts.pendingApproval'), [msg]);
+        const toast = classifySignInError(err);
+        if (toast.buyLink) {
+          const url = toast.buyLink;
+          pushActionToast(
+            toast.kind,
+            tr(toast.titleKey),
+            {
+              label: tr('page.accounts.buyMinecraft'),
+              run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+            },
+            [msg],
+          );
+        } else if (toast.kind === 'info') {
+          pushInfo(tr(toast.titleKey), [msg]);
         } else {
-          pushWarning(tr('page.accounts.signInFailed'), [msg]);
+          pushWarning(tr(toast.titleKey), [msg]);
         }
       }}
     />

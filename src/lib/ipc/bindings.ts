@@ -1819,6 +1819,13 @@ export type ProcessExited = {
 	 *  signal (no code available from the OS).
 	 */
 	code: number,
+	/**
+	 *  True when this exit was caused by the user pressing Stop (the
+	 *  launcher killed the process tree itself). Lets the UI show
+	 *  "Stopped" instead of presenting the force-kill exit code as a
+	 *  crash, and suppresses the crash-diagnosis fetch.
+	 */
+	user_requested: boolean,
 	/**  Absolute path to the launch log file for this run. */
 	log_path: string,
 };

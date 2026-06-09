@@ -12,9 +12,13 @@
 //! `LUCERNA_MS_CLIENT_ID` env var (see the const doc below).
 
 use crate::error::{Error, Result};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -80,6 +84,12 @@ pub fn build_authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> 
     url.push_str("&code_challenge_method=S256");
     url.push_str("&state=");
     url.push_str(state);
+    // Always present the account chooser. Without this, Microsoft reuses the
+    // browser's existing login session, which makes adding a *second* account
+    // impossible for a user already signed into one MS account in their
+    // default browser. The launcher supports N accounts, so the chooser is the
+    // correct default.
+    url.push_str("&prompt=select_account");
     url
 }
 
@@ -183,8 +193,65 @@ pub async fn exchange_code_for_token(
         })
 }
 
-const LOOPBACK_RESPONSE_BODY: &str =
-    "<!DOCTYPE html><html><body><h2>You can close this tab.</h2></body></html>";
+// The Lucerna app icon, embedded at compile time. The callback page is served
+// once from a local socket with no network or file access, so the icon is
+// inlined as a base64 data URI rather than referenced by URL.
+const APP_ICON_PNG: &[u8] = include_bytes!("../../../icons/128x128.png");
+
+/// `data:image/png;base64,...` URI for the app icon, built once. ASCII-only
+/// (base64 alphabet + the literal prefix), keeping the page byte-length ==
+/// char-length for `Content-Length`.
+fn icon_data_uri() -> &'static str {
+    static URI: OnceLock<String> = OnceLock::new();
+    URI.get_or_init(|| format!("data:image/png;base64,{}", STANDARD.encode(APP_ICON_PNG)))
+}
+
+/// Build a self-contained callback page. The styling is fully inline (no
+/// external assets — see `APP_ICON_PNG`). The page stays English by design,
+/// like other Rust-served user-facing prose (e.g. log diagnoses). `heading`
+/// and `message` are fixed, caller-controlled literals — no user input is
+/// interpolated, so there is no injection surface.
+fn build_callback_page(heading: &str, message: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Lucerna</title><style>html,body{{height:100%;margin:0}}body{{display:flex;align-items:center;justify-content:center;background:#161719;color:#e8e8ea;font-family:'Segoe UI',system-ui,sans-serif}}main{{text-align:center;padding:2rem;max-width:30rem}}.logo{{width:72px;height:72px;border-radius:16px;margin-bottom:1rem}}.brand{{font-weight:700;font-size:1.1rem;letter-spacing:.04em;color:#9b8cff;margin-bottom:1.5rem}}h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;color:#a0a0a8;line-height:1.5}}</style></head><body><main><img class="logo" width="72" height="72" alt="Lucerna" src="{icon}"><div class="brand">Lucerna</div><h1>{heading}</h1><p>{message}</p></main></body></html>"#,
+        icon = icon_data_uri(),
+    )
+}
+
+/// The success page, built once.
+fn loopback_body_success() -> &'static str {
+    static BODY: OnceLock<String> = OnceLock::new();
+    // Neutral wording on purpose: this page is written the instant the OAuth
+    // code arrives, *before* the launcher verifies the Minecraft profile /
+    // ownership. The definitive result (including the "no Minecraft" case) is
+    // shown back in Lucerna, so the page must not claim the sign-in succeeded.
+    BODY.get_or_init(|| {
+        build_callback_page(
+            "Almost there",
+            "Return to Lucerna to finish signing in. You can close this tab.",
+        )
+    })
+}
+
+/// The OAuth-error page, built once.
+fn loopback_body_error() -> &'static str {
+    static BODY: OnceLock<String> = OnceLock::new();
+    BODY.get_or_init(|| {
+        build_callback_page(
+            "Sign-in didn't complete",
+            "You can close this tab, return to Lucerna, and try signing in again.",
+        )
+    })
+}
+
+/// Pick the callback-page body based on the parsed outcome: a dedicated error
+/// page when the provider returned an OAuth error, otherwise the success page.
+fn loopback_response_body(outcome: &CallbackOutcome) -> &'static str {
+    match outcome {
+        CallbackOutcome::OAuthError { .. } => loopback_body_error(),
+        CallbackOutcome::Code { .. } | CallbackOutcome::UnrelatedPath => loopback_body_success(),
+    }
+}
 
 /// Bind a tokio TcpListener on 127.0.0.1:0 and return the listener and the
 /// concrete `redirect_uri` (with the OS-assigned port) the caller passes to
@@ -238,10 +305,11 @@ pub async fn run_loopback_listener(
     let first_line = head.lines().next().unwrap_or("");
     let outcome = parse_callback_request_line(first_line);
 
+    let body = loopback_response_body(&outcome);
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        LOOPBACK_RESPONSE_BODY.len(),
-        LOOPBACK_RESPONSE_BODY,
+        body.len(),
+        body,
     );
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.shutdown().await;
@@ -292,6 +360,10 @@ mod tests {
         assert!(url.contains("client_id="));
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A12345%2Foauth%2Fcallback"));
         assert!(url.contains("scope=XboxLive.signin%20offline_access"));
+        // Force the account chooser every time so a user can sign into a
+        // *different* Microsoft account instead of silently reusing the
+        // browser's existing session.
+        assert!(url.contains("prompt=select_account"));
     }
 
     #[test]
@@ -379,6 +451,42 @@ mod tests {
             }
             other => panic!("expected Code, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn loopback_body_success_for_code_and_unrelated() {
+        let code = CallbackOutcome::Code {
+            code: "c".into(),
+            state: "s".into(),
+        };
+        assert_eq!(loopback_response_body(&code), loopback_body_success());
+        assert_eq!(
+            loopback_response_body(&CallbackOutcome::UnrelatedPath),
+            loopback_body_success()
+        );
+    }
+
+    #[test]
+    fn loopback_body_error_for_oauth_error() {
+        let err = CallbackOutcome::OAuthError {
+            description: "access_denied".into(),
+        };
+        assert_eq!(loopback_response_body(&err), loopback_body_error());
+    }
+
+    #[test]
+    fn loopback_bodies_are_branded_html_and_ascii() {
+        for body in [loopback_body_success(), loopback_body_error()] {
+            assert!(body.starts_with("<!DOCTYPE html>"));
+            assert!(body.contains("Lucerna"));
+            // The embedded app icon is inlined as a base64 data URI (no network
+            // / file access on the callback socket).
+            assert!(body.contains("src=\"data:image/png;base64,"));
+            // ASCII-only keeps Content-Length (byte length) == character length.
+            assert!(body.is_ascii(), "callback body must be ASCII");
+        }
+        // The two pages say different things.
+        assert_ne!(loopback_body_success(), loopback_body_error());
     }
 
     #[tokio::test]
