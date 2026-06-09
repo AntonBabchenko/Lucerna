@@ -18,6 +18,7 @@
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
 
   let {
@@ -368,15 +369,16 @@
               }}
             >
               <div class="font-medium">
-                {i.ready ? '✓' : '↓'}
+                <Icon name={i.ready ? 'success' : 'download'} />
                 {i.name}
                 {#if i.integrity && !i.integrity.healthy}
-                  <span
-                    class="text-warning-text"
-                    title={$t('instance.integrity.statusProblems', {
+                  <Icon
+                    name="warning"
+                    label={$t('instance.integrity.statusProblems', {
                       count: i.integrity.problem_count,
-                    })}>⚠</span
-                  >
+                    })}
+                    class="text-warning-text"
+                  />
                 {/if}
                 {#if i.id === activeInstance?.id}
                   <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
@@ -510,7 +512,9 @@
               <p
                 class="text-xs text-warning-text bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
               >
-                ⚠ {compatSummary(compatRows)}
+                <span class="flex items-center gap-1.5"
+                  ><Icon name="warning" /> {compatSummary(compatRows)}</span
+                >
               </p>
             {/if}
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { Icon } from '$lib/ui/icons';
   import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
   import { enqueueIntegrity, integrityStatusFor } from '$lib/instances/integrity-ops.svelte';
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
@@ -90,14 +91,17 @@
     </p>
   {:else if effective}
     {#if effective.healthy}
-      <p class="mt-2 text-sm text-success">✓ {$t('instance.integrity.allOk')}</p>
+      <p class="mt-2 text-sm text-success flex items-center gap-1.5">
+        <Icon name="success" />
+        {$t('instance.integrity.allOk')}
+      </p>
     {:else}
       <ul class="mt-2 space-y-1" aria-live="polite">
         {#each effective.categories as cat (cat.category)}
           {@const bad = cat.missing + cat.corrupt}
           <li class="flex items-center justify-between text-xs">
             <span class="flex items-center gap-1.5">
-              <span aria-hidden="true">{bad === 0 ? '✓' : '⚠'}</span>
+              <Icon name={bad === 0 ? 'success' : 'warning'} />
               {$t(catKey[cat.category])}
             </span>
             <span class={bad === 0 ? 'text-muted' : 'text-danger'}>
