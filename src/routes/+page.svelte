@@ -13,21 +13,19 @@
     type VersionEntry,
   } from '$lib/ipc/bindings';
   import { Channel } from '@tauri-apps/api/core';
-  import { relativeTime } from '$lib/format/relative-time';
-  import { formatDuration } from '$lib/format/duration';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
+  import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
   import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
   import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
   import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
-  import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import type { ModpackImportRequest } from '$lib/modpacks/import-request';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
@@ -40,7 +38,6 @@
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
   import { onMount, untrack } from 'svelte';
-  import { displayLoader } from '$lib/instances/loader-display';
   import { formatError } from '$lib/ipc/format-error';
   import { modBrowserNav, modpacksNav, mcVersions } from '$lib/settings/state.svelte';
   import {
@@ -598,295 +595,39 @@
       }}
     >
       {#snippet overview()}
-        <div class="p-6 flex flex-col gap-4">
-          {#if offlineNameError}
-            <p class="text-xs text-danger flex items-center gap-1">
-              {offlineNameError}
-              <CloseButton
-                onClick={() => (offlineNameError = null)}
-                ariaLabel={$t('page.overview.dismissError')}
-              />
-            </p>
-          {/if}
-          {#if listAccountsError}
-            <p class="text-xs text-danger flex items-center gap-1">
-              {listAccountsError}
-              <CloseButton
-                onClick={() => (listAccountsError = null)}
-                ariaLabel={$t('page.overview.dismissError')}
-              />
-            </p>
-          {/if}
-          {#if removeError}
-            <p class="text-xs text-danger flex items-center gap-1">
-              {removeError}
-              <CloseButton
-                onClick={() => (removeError = null)}
-                ariaLabel={$t('page.overview.dismissError')}
-              />
-            </p>
-          {/if}
-          {#if instancesError}
-            <p class="text-xs text-danger">{instancesError}</p>
-          {/if}
-          {#if versionsError}
-            <p class="text-xs text-danger">{versionsError}</p>
-          {/if}
-          {#if activeInstance}
-            <div class="flex flex-col gap-1">
-              <div class="text-xs uppercase tracking-wide text-muted">
-                {$t('page.overview.sectionConfiguration')}
-              </div>
-              <div class="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-                <span class="text-muted">{$t('page.overview.labelMinecraft')}</span>
-                <span class="font-mono"
-                  >{activeInstance.mc_version || $t('page.overview.notSet')}</span
-                >
-                <span class="text-muted">{$t('page.overview.labelLoader')}</span>
-                <span class="font-mono">
-                  {displayLoader(activeInstance.loader)}{#if activeInstance.loader_version}
-                    · {activeInstance.loader_version}
-                  {/if}
-                </span>
-                <span class="text-muted">{$t('page.overview.labelMemory')}</span>
-                <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
-              </div>
-              <p class="text-xs text-muted">
-                {$t('page.overview.editVia')}
-                <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
-                  >{$t('page.overview.manageBtn')}</button
-                >{$t('page.overview.editViaSuffix')}
-              </p>
-            </div>
-
-            <div class="flex flex-col gap-1">
-              <div class="text-xs uppercase tracking-wide text-muted">
-                {$t('page.overview.sectionInstalledMods')}
-              </div>
-              {#if installedStats.total === 0}
-                <p class="text-sm text-muted">
-                  {$t('page.overview.noModsHint')}
-                  <button
-                    type="button"
-                    class="btn-tertiary"
-                    onclick={() => (modBrowserNav.value = { view: 'browse' })}
-                  >
-                    {$t('nav.modBrowser')}
-                  </button>
-                  {$t('page.overview.noModsHintSuffix')}
-                </p>
-              {:else}
-                <div class="text-sm flex gap-3">
-                  <span
-                    >{$t('page.overview.statsTotal')}
-                    <span class="font-medium text-secondary">{installedStats.total}</span></span
-                  >
-                  <span
-                    >{$t('page.overview.statsEnabled')}
-                    <span class="font-medium text-success">{installedStats.enabled}</span></span
-                  >
-                  <span
-                    >{$t('page.overview.statsDisabled')}
-                    <span class="font-medium text-secondary">{installedStats.disabled}</span></span
-                  >
-                </div>
-                <p class="text-xs text-muted">
-                  {$t('page.overview.manageInTab')}
-                  <button
-                    type="button"
-                    class="btn-tertiary"
-                    onclick={() => (modBrowserNav.value = { view: 'installed' })}
-                  >
-                    {$t('page.overview.installedTab')}
-                  </button>
-                  {$t('page.overview.manageInTabSuffix')}
-                </p>
-              {/if}
-              {#if activeInstance && installedStats.enabled >= 1}
-                <div class="mt-2">
-                  <button
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    onclick={() => (exportDialogOpen = true)}
-                  >
-                    {$t('page.overview.exportModpack')}
-                  </button>
-                </div>
-              {/if}
-            </div>
-
-            <div class="flex flex-col gap-1" data-testid="overview-playtime">
-              <div class="text-xs uppercase tracking-wide text-muted">
-                {$t('page.overview.sectionPlaytime')}
-              </div>
-              {#if playtime.last_session_unix_ms == null}
-                <p class="text-sm text-muted">{$t('page.overview.notYetPlayed')}</p>
-              {:else}
-                <div class="text-sm">
-                  {$t('page.overview.playtimeTotal')}
-                  <span class="font-medium text-primary"
-                    >{formatDuration(playtime.total_seconds)}</span
-                  >
-                  ·
-                  <span
-                    >{$t('page.overview.playtimeSession', { count: playtime.session_count })}</span
-                  >
-                </div>
-                <p class="text-xs text-muted">
-                  {$t('page.overview.playtimeLastSession', {
-                    duration: formatDuration(playtime.last_session_seconds),
-                    when: relativeTime(playtime.last_session_unix_ms),
-                  })}
-                </p>
-              {/if}
-            </div>
-
-            <div class="flex flex-col gap-1" data-testid="overview-integrity">
-              <div class="text-xs uppercase tracking-wide text-muted">
-                {$t('instance.integrity.heading')}
-              </div>
-              {#if !activeInstance.integrity || isIntegrityStale(activeInstance.integrity)}
-                <p class="text-sm text-muted">
-                  {$t('instance.integrity.statusNotChecked')} ·
-                  <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
-                    >{$t('instance.integrity.overviewOpenManage')}</button
-                  >
-                </p>
-              {:else if activeInstance.integrity.healthy}
-                {@const status = activeInstance.integrity}
-                <p class="text-sm text-success">
-                  ✓ {$t('instance.integrity.statusOk')}{#if status.checked_unix_ms}
-                    ·
-                    <span class="text-muted"
-                      >{$t('instance.integrity.checkedAt', {
-                        date: new Date(status.checked_unix_ms).toLocaleString(),
-                      })}</span
-                    >{/if}
-                </p>
-              {:else}
-                {@const status = activeInstance.integrity}
-                <p class="text-sm text-warning-text">
-                  ⚠ {$t('instance.integrity.statusProblems', {
-                    count: status.problem_count,
-                  })}{#if status.checked_unix_ms}
-                    ·
-                    <span class="text-muted"
-                      >{$t('instance.integrity.checkedAt', {
-                        date: new Date(status.checked_unix_ms).toLocaleString(),
-                      })}</span
-                    >{/if}
-                </p>
-                <div>
-                  <button
-                    type="button"
-                    class="btn-warning-soft btn-sm"
-                    onclick={() => (manageOpen = true)}
-                  >
-                    {$t('instance.integrity.overviewOpenRepair')}
-                  </button>
-                </div>
-              {/if}
-            </div>
-
-            {#if unresolvedMissing.length > 0}
-              <button
-                type="button"
-                class="btn-warning-soft btn-sm w-full flex items-center gap-2 text-left"
-                onclick={() => {
-                  if (activeInstance) {
-                    modpacksNav.value = { openDrawerForInstance: activeInstance.id };
-                  }
-                }}
-                data-testid="overview-missing-mods"
-              >
-                <span aria-hidden="true">⚠</span>
-                <span class="flex-1">
-                  {$t('page.overview.missingModsBtn', { count: unresolvedMissing.length })}
-                </span>
-                <span class="text-xs text-warning-text underline"
-                  >{$t('page.overview.missingModsView')}</span
-                >
-              </button>
-            {/if}
-
-            {#if incompatibleCount > 0}
-              <button
-                type="button"
-                class="btn-warning-soft btn-sm w-full flex items-center gap-2 text-left"
-                data-testid="overview-incompatible"
-                onclick={() => (modBrowserNav.value = { view: 'installed' })}
-              >
-                <span aria-hidden="true">⚠</span>
-                <span class="flex-1">
-                  {$t('page.overview.incompatibleBtn', { count: incompatibleCount })}
-                </span>
-                <span class="text-xs text-warning-text underline"
-                  >{$t('page.overview.incompatibleView')}</span
-                >
-              </button>
-            {/if}
-
-            <div class="flex items-center gap-4 mt-2">
-              {#if running}
-                <span class="text-sm font-mono"
-                  >{$t('page.overview.statusRunning', {
-                    versionId: running.version_id,
-                    pid: running.pid,
-                  })}</span
-                >
-              {:else if activeInstance.mc_version === ''}
-                <span class="text-sm text-muted"
-                  >{$t('page.overview.statusPickVersion')}
-                  <button type="button" class="btn-tertiary" onclick={() => (manageOpen = true)}
-                    >{$t('page.overview.manageBtn')}</button
-                  >
-                  {$t('page.overview.statusPickVersionSuffix')}</span
-                >
-              {:else if installing}
-                <span class="text-sm text-accent">{$t('page.overview.statusWorking')}</span>
-              {:else if !activeInstance.ready}
-                <span class="text-sm text-muted"
-                  >{$t('page.overview.statusInstallHint')}
-                  <span class="font-semibold text-secondary"
-                    >{$t('page.overview.statusInstallLabel')}</span
-                  >
-                  {$t('page.overview.statusInstallHintSuffix')}</span
-                >
-              {:else}
-                <span class="text-sm text-success"
-                  >{$t('page.overview.statusReady')}
-                  <span class="font-semibold">{$t('page.overview.statusReadyPlayLabel')}</span>
-                  {$t('page.overview.statusReadySuffix')}</span
-                >
-              {/if}
-              {#if installError}
-                <span class="text-xs text-danger flex items-center gap-1">
-                  {installError}
-                  <CloseButton
-                    onClick={() => (installError = null)}
-                    ariaLabel={$t('page.overview.dismissError')}
-                  />
-                </span>
-              {/if}
-              {#if exited && !running}
-                <span class="text-xs text-secondary"
-                  >{$t('page.overview.statusExited', { code: exited.code })}</span
-                >
-              {/if}
-              {#if modsError}
-                <span class="text-xs text-danger flex items-center gap-1">
-                  {modsError}
-                  <CloseButton
-                    onClick={() => (modsError = null)}
-                    ariaLabel={$t('page.overview.dismissError')}
-                  />
-                </span>
-              {/if}
-            </div>
-          {:else}
-            <p class="text-sm text-muted">{$t('page.overview.noInstanceSelected')}</p>
-          {/if}
-        </div>
+        <OverviewTab
+          {activeInstance}
+          {installedStats}
+          {playtime}
+          {incompatibleCount}
+          missingModsCount={unresolvedMissing.length}
+          running={running !== null}
+          {installing}
+          {exited}
+          {installError}
+          {modsError}
+          errors={{
+            offlineName: offlineNameError,
+            listAccounts: listAccountsError,
+            remove: removeError,
+            instances: instancesError,
+            versions: versionsError,
+          }}
+          onManage={() => (manageOpen = true)}
+          onExport={() => (exportDialogOpen = true)}
+          onOpenPackDrawer={() => {
+            if (activeInstance) modpacksNav.value = { openDrawerForInstance: activeInstance.id };
+          }}
+          onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
+          onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
+          onDismissError={(key) => {
+            if (key === 'offlineName') offlineNameError = null;
+            else if (key === 'listAccounts') listAccountsError = null;
+            else if (key === 'remove') removeError = null;
+            else if (key === 'instances') instancesError = null;
+            else if (key === 'versions') versionsError = null;
+          }}
+        />
       {/snippet}
     </MainTabs>
   </div>
