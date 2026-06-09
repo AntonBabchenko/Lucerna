@@ -865,7 +865,7 @@
     "instanceBusy": "Операция уже выполняется или игра запущена.",
     "authCancelled": "Вход через Microsoft отменён.",
     "authFailed": "Ошибка входа через Microsoft на шаге {stage}: {details}",
-    "noMinecraftProfile": "На этом аккаунте Microsoft нет Minecraft. Войдите с аккаунтом, у которого есть купленная копия.",
+    "noMinecraftProfile": "Вход не выполнен: на этом аккаунте Microsoft нет Minecraft. Купите копию и войдите снова — или используйте аккаунт, на котором игра уже есть.",
     "authPendingApproval": "Microsoft ещё не одобрил регистрацию приложения Lucerna. Вход заработает после одобрения. Пока используйте офлайн-аккаунт.",
     "unknownVersion": "Версия {id} не найдена в манифесте",
     "unsupportedPlatform": "Неподдерживаемая платформа: {os}/{arch}",
@@ -1037,7 +1037,9 @@
     "accounts": {
       "signedInMicrosoft": "Выполнен вход через Microsoft",
       "pendingApproval": "Вход через Microsoft ожидает одобрения",
-      "signInFailed": "Не удалось войти через Microsoft"
+      "signInFailed": "Не удалось войти через Microsoft",
+      "noMinecraftTitle": "На этом аккаунте нет Minecraft",
+      "buyMinecraft": "Купить Minecraft"
     },
     "overview": {
       "sectionConfiguration": "Конфигурация",

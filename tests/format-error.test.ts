@@ -145,7 +145,7 @@ describe('formatError', () => {
 
   it('formats no_minecraft_profile', () => {
     expect(formatError({ kind: 'no_minecraft_profile' })).toBe(
-      "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.",
+      "You weren't signed in: this Microsoft account doesn't own Minecraft. Buy a copy and sign in again, or use an account that already owns one.",
     );
   });
 
