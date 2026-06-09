@@ -5,6 +5,7 @@
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
 
   let {
@@ -207,7 +208,10 @@
           </button>
         {:else if installing}
           <button type="button" data-tour="play-btn" class="btn-primary btn-lg" disabled>
-            {$t('sidebar.working')}
+            <span class="inline-flex items-center justify-center gap-2">
+              <Spinner size="sm" />
+              {$t('sidebar.working')}
+            </span>
           </button>
         {:else if !activeInstance.ready}
           <!--

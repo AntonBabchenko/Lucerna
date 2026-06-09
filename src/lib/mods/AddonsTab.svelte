@@ -76,6 +76,10 @@
   let pendingCompatible = $state<PendingJar[]>([]);
   let pendingMismatched = $state<PendingJar[]>([]);
 
+  // True while a local-jar install (modsInstallLocal) is in flight. Drives the
+  // busy state on the compat dialog's install button so the user gets feedback.
+  let installingLocal = $state(false);
+
   // Tracks which kinds the user has explicitly opened the Installed sub-tab
   // for. This is the source of truth for lazy-mount: the Installed pane is
   // only mounted when the user has opened it for the CURRENT kind, which
@@ -229,33 +233,42 @@
 
   async function installJars(jars: PendingJar[]) {
     if (instanceId === null || jars.length === 0) return;
-    let ok = 0;
-    const failed: string[] = [];
-    for (const j of jars) {
-      const r = await commands.modsInstallLocal(instanceId, j.path);
-      if (r.status === 'ok') ok += 1;
-      else failed.push(`${j.filename}: ${formatError(r.error)}`);
+    installingLocal = true;
+    try {
+      let ok = 0;
+      const failed: string[] = [];
+      for (const j of jars) {
+        const r = await commands.modsInstallLocal(instanceId, j.path);
+        if (r.status === 'ok') ok += 1;
+        else failed.push(`${j.filename}: ${formatError(r.error)}`);
+      }
+      if (ok > 0) pushSuccess(get(t)('mods.browse.toastInstalled', { count: ok }));
+      if (failed.length > 0)
+        pushWarning(get(t)('mods.browse.toastFailedToInstall', { count: failed.length }), failed);
+    } finally {
+      installingLocal = false;
     }
-    if (ok > 0) pushSuccess(get(t)('mods.browse.toastInstalled', { count: ok }));
-    if (failed.length > 0)
-      pushWarning(get(t)('mods.browse.toastFailedToInstall', { count: failed.length }), failed);
   }
 
   async function confirmInstallAll() {
+    // Keep the dialog mounted while the install runs so its button can show
+    // the busy state; clear the pending state only once the install resolves.
     const all = [...pendingCompatible, ...pendingMismatched];
+    await installJars(all);
     mismatchRows = [];
     pendingCompatible = [];
     pendingMismatched = [];
-    await installJars(all);
   }
 
   async function cancelMismatched() {
+    // Keep the dialog mounted while the compatible jars install so its button
+    // can show the busy state; clear the pending state once it resolves.
     const compatible = pendingCompatible;
     const skipped = pendingMismatched.map((j) => j.filename);
+    await installJars(compatible);
     mismatchRows = [];
     pendingCompatible = [];
     pendingMismatched = [];
-    await installJars(compatible);
     if (skipped.length > 0)
       pushWarning(get(t)('mods.browse.toastSkipped', { count: skipped.length }), skipped);
   }
@@ -383,6 +396,7 @@
 {#if mismatchRows.length > 0}
   <CompatWarningDialog
     rows={mismatchRows}
+    busy={installingLocal}
     onConfirm={confirmInstallAll}
     onCancel={cancelMismatched}
   />

@@ -92,7 +92,7 @@ describe('Sidebar — launch state buttons', () => {
     expect(btn).toHaveBtnSize('lg');
   });
 
-  it('Installing state: button is btn-primary btn-lg disabled, label Working…', () => {
+  it('Installing state: button is btn-primary btn-lg disabled, label Working…, with spinner', () => {
     render(Sidebar, {
       props: { ...baseProps, activeInstance: instance({ ready: false }), installing: true },
     });
@@ -100,6 +100,10 @@ describe('Sidebar — launch state buttons', () => {
     expect(btn).toHaveBtnVariant('primary');
     expect(btn).toHaveBtnSize('lg');
     expect((btn as HTMLButtonElement).disabled).toBe(true);
+    // The busy button shows a spinner (Spinner renders role="status").
+    expect(btn.querySelector('[role="status"]')).not.toBeNull();
+    // The contextual-tour anchor must be preserved on the busy button.
+    expect(btn.getAttribute('data-tour')).toBe('play-btn');
   });
 
   it('Vanilla-no-version state: button is btn-success btn-lg disabled, label Play', () => {
