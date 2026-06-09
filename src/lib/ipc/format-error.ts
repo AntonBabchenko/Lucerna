@@ -186,6 +186,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.playtimeIo', { details: e.details });
     case 'tray_io':
       return translate('errors.trayIo', { details: e.details });
+    case 'window_io':
+      return translate('errors.windowIo', { details: e.details });
     case 'update_check_failed':
       return translate('errors.updateCheckFailed', { details: e.details });
     case 'update_verification_failed':

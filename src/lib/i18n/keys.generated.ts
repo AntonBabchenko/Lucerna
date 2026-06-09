@@ -102,6 +102,7 @@ export type TranslationKey =
   | 'errors.updateCheckFailed'
   | 'errors.updateInstallFailed'
   | 'errors.updateVerificationFailed'
+  | 'errors.windowIo'
   | 'errors.worldInUse'
   | 'errors.worldNameUnresolvable'
   | 'errors.worldNotFound'
