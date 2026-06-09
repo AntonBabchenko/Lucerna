@@ -18,6 +18,7 @@
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
   import { settingsOpen } from './state.svelte';
+  import { Icon } from '$lib/ui/icons';
 
   // Display label per locale code. New community languages fall back to
   // their raw code until a label is added here.
@@ -182,12 +183,12 @@
     <div class="flex items-center gap-3 flex-wrap">
       <button
         type="button"
-        class="btn-secondary btn-sm"
+        class="btn-secondary btn-sm inline-flex items-center gap-1.5"
         onclick={() => void checkForUpdates()}
         disabled={checking}
         data-testid="check-updates-btn"
       >
-        {checking
+        <Icon name="refresh" class="icon-spin-hover" />{checking
           ? $t('settings.general.updates.checking')
           : $t('settings.general.updates.checkBtn')}
       </button>

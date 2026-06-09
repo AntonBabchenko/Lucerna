@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModSource, ModVersion } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   // Modal that runs after ModBrowseView's startInstall surfaces deps the
   // user should look at — required mods auto-install (read-only list),
@@ -166,18 +167,30 @@
     {/if}
 
     {#if loaderMismatch}
-      <div class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger">
-        ⚠ <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
-        {$t('mods.depDialog.loaderMismatchBody', {
-          modLoaders: loaderMismatch.modLoaders.join(' / '),
-          instanceLoader: loaderMismatch.instanceLoader,
-        })}
+      <div
+        class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger flex items-start gap-1.5"
+      >
+        <Icon name="warning" class="text-danger shrink-0 mt-0.5" />
+        <div>
+          <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
+          {$t('mods.depDialog.loaderMismatchBody', {
+            modLoaders: loaderMismatch.modLoaders.join(' / '),
+            instanceLoader: loaderMismatch.instanceLoader,
+          })}
+        </div>
       </div>
     {/if}
 
     {#if loaderRequirements.length > 0}
-      <div class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent">
-        ⓘ {$t('mods.depDialog.loaderRequirementsInfo', { loaders: loaderRequirements.join(' / ') })}
+      <div
+        class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent flex items-start gap-1.5"
+      >
+        <Icon name="info" class="text-accent shrink-0 mt-0.5" />
+        <span
+          >{$t('mods.depDialog.loaderRequirementsInfo', {
+            loaders: loaderRequirements.join(' / '),
+          })}</span
+        >
       </div>
     {/if}
 

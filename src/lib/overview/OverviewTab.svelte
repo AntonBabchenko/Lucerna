@@ -6,6 +6,7 @@
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import InstanceHeader from './InstanceHeader.svelte';
   import AttentionPanel from './AttentionPanel.svelte';
   import ModpackCard from './ModpackCard.svelte';
@@ -225,7 +226,10 @@
             {$t('instance.integrity.overviewOpenManage')}
           </button>
         {:else if activeInstance.integrity.healthy}
-          <p class="text-sm text-success">✓ {$t('instance.integrity.statusOk')}</p>
+          <p class="text-sm text-success flex items-center gap-1.5">
+            <Icon name="success" />
+            {$t('instance.integrity.statusOk')}
+          </p>
           {#if activeInstance.integrity.checked_unix_ms}
             <p class="text-xs text-muted">
               {$t('instance.integrity.checkedAt', {
@@ -234,8 +238,9 @@
             </p>
           {/if}
         {:else}
-          <p class="text-sm text-warning-text">
-            ⚠ {$t('instance.integrity.statusProblems', {
+          <p class="text-sm text-warning-text flex items-center gap-1.5">
+            <Icon name="warning" class="text-warning-text" />
+            {$t('instance.integrity.statusProblems', {
               count: activeInstance.integrity.problem_count,
             })}
           </p>

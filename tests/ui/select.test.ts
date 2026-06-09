@@ -152,4 +152,19 @@ describe('Select', () => {
       window.removeEventListener('keydown', onWindowKeydown);
     }
   });
+
+  it('renders a per-option icon in the trigger for the selected value', () => {
+    const { container } = render(Select, {
+      props: {
+        value: 'a',
+        options: [
+          { value: 'a', label: 'Alpha', icon: 'success' },
+          { value: 'b', label: 'Beta' },
+        ],
+        onChange: vi.fn(),
+        ariaLabel: 'Pick',
+      },
+    });
+    expect(container.querySelector('svg')).toBeTruthy();
+  });
 });

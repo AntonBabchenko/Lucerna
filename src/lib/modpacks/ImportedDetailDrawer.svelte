@@ -20,6 +20,7 @@
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { drawerCache } from './drawer-cache';
   import { isUnresolvedMissingState } from './missing-mod';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
@@ -435,7 +436,7 @@
         <summary
           class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-2"
         >
-          <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+          <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
           {label}
         </summary>
       {/snippet}
@@ -460,12 +461,10 @@
                   ? 'bg-success-bg border-success'
                   : 'bg-warning-bg border-warning-text/30'}"
               >
-                <!-- ✓ when the mod is present at all (installed or a
-                   different version); ⚠ only when truly missing — so
+                <!-- success when the mod is present at all (installed or a
+                   different version); warning only when truly missing — so
                    "different version" is not mistaken for "missing". -->
-                <span class="flex-shrink-0" aria-hidden="true">
-                  {m.state === 'missing' ? '⚠' : '✓'}
-                </span>
+                <Icon name={m.state === 'missing' ? 'warning' : 'success'} class="flex-shrink-0" />
                 <span class="truncate flex-1" class:text-muted={isInstalled}>
                   {m.entry.mod_name}
                   {#if isDifferentVersion}
@@ -591,7 +590,7 @@
               <li
                 class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
               >
-                <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
+                <Icon name="info" class="flex-shrink-0" />
                 <span class="truncate flex-1">{s.path}</span>
                 <span class="text-xs text-muted flex-shrink-0">{formatSize(s.size)}</span>
               </li>

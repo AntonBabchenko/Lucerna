@@ -431,7 +431,8 @@ describe('LogsPopover — diagnosis card uses bg-warning-bg border-warning-text/
     });
     const titleEl = await screen.findByText(/Java not found/i);
     expect(titleEl).not.toBeNull();
-    expect(titleEl.tagName.toLowerCase()).toBe('summary');
+    // Title text now lives inside a <span> within <summary> (icon+text wrapper)
+    expect(titleEl.closest('summary')).not.toBeNull();
   });
 
   it('diagnosis explanation and recommendation text are visible', async () => {
