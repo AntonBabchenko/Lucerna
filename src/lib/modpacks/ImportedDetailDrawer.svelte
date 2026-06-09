@@ -464,9 +464,7 @@
                 <!-- ✓ when the mod is present at all (installed or a
                    different version); ⚠ only when truly missing — so
                    "different version" is not mistaken for "missing". -->
-                <span class="flex-shrink-0" aria-hidden="true">
-                  {m.state === 'missing' ? '⚠' : '✓'}
-                </span>
+                <Icon name={m.state === 'missing' ? 'warning' : 'success'} class="flex-shrink-0" />
                 <span class="truncate flex-1" class:text-muted={isInstalled}>
                   {m.entry.mod_name}
                   {#if isDifferentVersion}
