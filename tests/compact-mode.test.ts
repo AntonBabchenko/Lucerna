@@ -63,7 +63,10 @@ describe('compact mode rune module', () => {
   });
 
   it('setCompact rolls the rune back and does not persist when the resize fails', async () => {
-    windowSetCompact.mockResolvedValueOnce({ status: 'error', error: { kind: 'window_io', details: 'x' } });
+    windowSetCompact.mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'window_io', details: 'x' },
+    });
     await setCompact(true);
     expect(compactState.value).toBe(false); // rolled back
     expect(appSettingsSetGeneral).not.toHaveBeenCalled();
