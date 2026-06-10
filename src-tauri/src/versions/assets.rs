@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::network::download_with_sha;
 use crate::paths::assets_dir;
 use crate::versions::version_json::AssetIndexRef;
-use futures_util::stream::{self, StreamExt};
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Deserialize;
 
 const ASSET_BASE_URL: &str = "https://resources.download.minecraft.net";
@@ -73,7 +73,7 @@ pub async fn ensure_assets(
     let bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let app = app.clone();
-    let results: Vec<Result<()>> = stream::iter(index.objects.into_iter())
+    stream::iter(index.objects.into_iter())
         .map(|(_logical_path, obj)| {
             let app = app.clone();
             let objects_dir = objects_dir.clone();
@@ -101,16 +101,11 @@ pub async fn ensure_assets(
             }
         })
         .buffer_unordered(CONCURRENCY)
-        .collect::<Vec<Result<()>>>()
-        .await;
-
-    // Bubble the first error if any. Note: `buffer_unordered` + `collect`
-    // does NOT short-circuit on Err — remaining tasks finish first, then we
-    // surface the earliest failure. Acceptable for v0.1.0; per-file
-    // short-circuit + cancellation is a later hardening concern.
-    for res in results {
-        res?;
-    }
+        // Short-circuit on the first error: `try_collect` stops consuming and
+        // drops the remaining in-flight downloads, rather than running every
+        // task to completion before surfacing the earliest failure.
+        .try_collect::<Vec<()>>()
+        .await?;
     Ok(())
 }
 
