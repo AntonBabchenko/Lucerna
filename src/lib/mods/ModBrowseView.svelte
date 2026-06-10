@@ -802,12 +802,7 @@
           const res = await commands.modsVersions(refSource, id, null, null);
           return res.status === 'ok' ? res.data : null;
         },
-        fetchProjectName: async (ref) => {
-          const refSource: ModSource = 'project_id' in ref ? 'modrinth' : 'curseforge';
-          const id = 'project_id' in ref ? ref.project_id : String(ref.mod_id);
-          const proj = await commands.modsProject(refSource, id);
-          return proj.status === 'ok' ? proj.data.summary.name : id;
-        },
+        fetchProjectName: enrichRefName,
         manifestOrder: mcVersions.value.map((v) => v.id),
         displayLoader,
         currentLoader: loader,
