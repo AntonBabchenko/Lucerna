@@ -566,15 +566,21 @@
             >
               <button
                 type="button"
-                class="btn-ghost-danger"
+                class="btn-ghost-danger inline-flex items-center gap-1.5"
                 disabled={instances.length <= 1}
                 title={instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : ''}
                 onclick={() => (deleteConfirmOpen = true)}
               >
+                <Icon name="trash" size={14} />
                 {$t('instance.manage.deleteBtn')}
               </button>
               <div class="flex gap-2">
-                <button type="button" class="btn-secondary btn-sm" onclick={openFolder}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+                  onclick={openFolder}
+                >
+                  <Icon name="folderOpen" size={14} />
                   {$t('instance.manage.openFolderBtn')}
                 </button>
                 <button type="button" class="btn-primary btn-sm" onclick={close}>

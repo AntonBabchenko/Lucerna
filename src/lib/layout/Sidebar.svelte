@@ -6,6 +6,7 @@
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
 
   let {
@@ -103,7 +104,7 @@
       title={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
       onclick={onToggleCompact}
     >
-      {compact ? '⤢' : '⤬'}
+      <Icon name={compact ? 'expand' : 'shrink'} size={14} />
     </button>
   </div>
 
@@ -203,12 +204,18 @@
         <button
           type="button"
           data-tour="manage-btn"
-          class="btn-secondary btn-xs flex-1"
+          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
           onclick={onOpenManage}
         >
+          <Icon name="settings" size={14} />
           {$t('sidebar.manage')}
         </button>
-        <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenMods}>
+        <button
+          type="button"
+          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+          onclick={onOpenMods}
+        >
+          <Icon name="blocks" size={14} />
           {$t('sidebar.mods')}
         </button>
       </div>
@@ -241,7 +248,13 @@
             yet ready. Make it loud so it reads as clickable — Play and
             Install never appear at the same time, so they don't compete.
           -->
-          <button type="button" data-tour="play-btn" class="btn-primary btn-lg" onclick={onInstall}>
+          <button
+            type="button"
+            data-tour="play-btn"
+            class="btn-primary btn-lg flex items-center justify-center gap-1.5"
+            onclick={onInstall}
+          >
+            <Icon name="download" size={16} />
             {$t('sidebar.install')}
           </button>
         {:else}
@@ -271,10 +284,16 @@
       data-testid="sidebar-open-modpacks"
       onclick={onOpenModpacks}
     >
+      <Icon name="package" size={16} />
       {$t('sidebar.browseModpacks')}
     </button>
     <div class="flex gap-1">
-      <button type="button" class="btn-secondary btn-xs flex-1" onclick={onOpenLogs}>
+      <button
+        type="button"
+        class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+        onclick={onOpenLogs}
+      >
+        <Icon name="scrollText" size={14} />
         {$t('sidebar.logs')}
       </button>
       <button

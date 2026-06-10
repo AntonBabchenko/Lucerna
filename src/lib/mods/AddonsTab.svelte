@@ -3,6 +3,7 @@
   import { modBrowseOpenProject, modBrowserNav } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { Icon, type IconName } from '$lib/ui/icons';
   import InstalledModsView from './InstalledModsView.svelte';
   import InstalledAssetsView from './InstalledAssetsView.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
@@ -66,7 +67,14 @@
     resource_pack: 'addons.kindResourcePacks',
     shader: 'addons.kindShaders',
   };
-  const kindOptions = $derived(CONTENT_KINDS.map((k) => ({ value: k, label: $t(kindLabels[k]) })));
+  const kindIcons: Record<ContentKind, IconName> = {
+    mod: 'blocks',
+    resource_pack: 'resourcePack',
+    shader: 'shader',
+  };
+  const kindOptions = $derived(
+    CONTENT_KINDS.map((k) => ({ value: k, label: $t(kindLabels[k]), icon: kindIcons[k] })),
+  );
 
   // Compat-warning dialog state — declared early so the kind-change
   // derived below can reference them.
@@ -280,7 +288,7 @@
        Browse/Installed sub-tab row, not a clashing boxed segmented control. -->
   <div class="px-3 pt-1">
     <TabBar
-      tabs={kindOptions.map((o) => ({ id: o.value, label: o.label }))}
+      tabs={kindOptions.map((o) => ({ id: o.value, label: o.label, icon: o.icon }))}
       active={kind}
       ariaLabel={$t('addons.kindSwitchAria')}
       testid="addons-kind-switch"
@@ -345,10 +353,10 @@
           <span class="text-placeholder">{$t('addons.shaderLoaderHint.or')}</span>
           <button
             type="button"
-            class="font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
+            class="inline-flex items-center gap-1 font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
             onclick={openOptifine}
           >
-            {$t('addons.shaderLoaderHint.optifine')}<span aria-hidden="true">&nbsp;↗</span>
+            {$t('addons.shaderLoaderHint.optifine')}<Icon name="externalLink" size={14} />
           </button>
         </p>
         <p class="text-xs text-muted">

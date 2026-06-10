@@ -88,7 +88,7 @@ describe('ManageInstancesModal — destructive footer pattern', () => {
 
   it('footer Delete instance is btn-ghost-danger (LEFT) and Done is btn-primary (RIGHT)', () => {
     render(ManageInstancesModal, { props: manageProps });
-    // Actual label in template: "🗑 Delete instance" — regex matches the text part
+    // Label is "Delete instance" (a trash <Icon> sits beside it) — match the text part
     const deleteBtn = screen.getByRole('button', { name: /delete instance/i });
     const doneBtn = screen.getByRole('button', { name: /^\s*done\s*$/i });
     expect(deleteBtn).toHaveBtnVariant('ghost-danger');

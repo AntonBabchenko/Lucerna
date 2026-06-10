@@ -10,6 +10,7 @@
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   let { id, steps }: { id: ContextualTourId; steps: ReadonlyArray<TourStep> } = $props();
 
@@ -169,7 +170,13 @@
     </h3>
     <p class="text-sm text-secondary mb-4">{$t(explainKey(step.bodyKey, level))}</p>
     <div class="flex justify-between gap-2">
-      <button type="button" class="btn-secondary btn-sm" disabled={isFirst} onclick={back}>
+      <button
+        type="button"
+        class="btn-secondary btn-sm inline-flex items-center gap-1"
+        disabled={isFirst}
+        onclick={back}
+      >
+        <Icon name="arrowLeft" size={14} />
         {$t('onboarding.controls.back')}
       </button>
       <div class="flex gap-2">
@@ -178,8 +185,19 @@
             {$t('onboarding.controls.skipContextual')}
           </button>
         {/if}
-        <button type="button" data-tour-primary class="btn-primary btn-sm" onclick={next}>
-          {isLast ? $t('onboarding.controls.gotIt') : $t('onboarding.controls.next')}
+        <button
+          type="button"
+          data-tour-primary
+          class="btn-primary btn-sm inline-flex items-center gap-1"
+          onclick={next}
+        >
+          {#if isLast}
+            {$t('onboarding.controls.gotIt')}
+            <Icon name="success" size={14} />
+          {:else}
+            {$t('onboarding.controls.next')}
+            <Icon name="arrowRight" size={14} />
+          {/if}
         </button>
       </div>
     </div>

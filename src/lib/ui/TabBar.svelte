@@ -3,7 +3,9 @@
   // app (detail modals, Browse|Imported / Browse|Installed sub-tabs, and the
   // Add-ons content-kind switch). `ariaLabel` names the tablist for screen
   // readers; `testid` is handy when several tablists coexist.
-  type Tab = { id: string; label: string };
+  import { Icon, type IconName } from '$lib/ui/icons';
+
+  type Tab = { id: string; label: string; icon?: IconName };
   let {
     tabs,
     active,
@@ -25,7 +27,7 @@
       type="button"
       role="tab"
       aria-selected={active === tab.id}
-      class="px-3 py-2 text-sm border-b-2 -mb-px"
+      class="px-3 py-2 text-sm border-b-2 -mb-px inline-flex items-center gap-1.5"
       class:border-accent={active === tab.id}
       class:text-primary={active === tab.id}
       class:font-semibold={active === tab.id}
@@ -33,7 +35,7 @@
       class:text-placeholder={active !== tab.id}
       onclick={() => onChange(tab.id)}
     >
-      {tab.label}
+      {#if tab.icon}<Icon name={tab.icon} size={14} />{/if}{tab.label}
     </button>
   {/each}
 </div>

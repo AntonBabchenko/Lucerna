@@ -34,14 +34,15 @@ vi.mock('$lib/ipc/bindings', () => ({
 
 describe('WorldsTab', () => {
   it('renders worlds with size and backup-count badge', async () => {
-    const { findByText, queryByText } = render(WorldsTab, {
+    const { findByText, container } = render(WorldsTab, {
       props: { instanceId: 'i1', onListChanged: () => {} },
     });
     await waitFor(() => findByText('My World'));
-    // Backup count badge visible for first world (3 backups).
-    expect(queryByText(/📦 3/)).toBeTruthy();
-    // Badge hidden for second world (0 backups).
-    expect(queryByText(/📦 0/)).toBeFalsy();
+    // Exactly one backup-count badge — the 3-backup world; the 0-backup world has none.
+    const badges = container.querySelectorAll('.lucide-package');
+    expect(badges.length).toBe(1);
+    // The count renders next to the icon inside the badge.
+    expect(badges[0].parentElement?.textContent).toContain('3');
   });
 
   it('shows empty state when no worlds', async () => {

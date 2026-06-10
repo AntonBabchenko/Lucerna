@@ -1,15 +1,36 @@
 import {
+  Aperture,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
+  Blocks,
   Check,
   ChevronDown,
+  ChevronFirst,
+  ChevronLast,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleX,
   Download,
+  EllipsisVertical,
+  Expand,
+  ExternalLink,
+  FolderOpen,
+  Image,
   Info,
   LayoutGrid,
   List,
   Minus,
+  Package,
   Plus,
+  Puzzle,
   RefreshCw,
+  ScrollText,
+  Settings,
+  Shrink,
+  Trash2,
   TriangleAlert,
   X,
 } from '@lucide/svelte';
@@ -36,6 +57,31 @@ export const ICONS = {
   minus: Minus,
   list: List,
   grid: LayoutGrid,
+  // Second pass — non-indicator icons.
+  package: Package, // modpack placeholder avatars + "from modpack" chips
+  externalLink: ExternalLink, // opens an external site (e.g. OptiFine hint)
+  moreVertical: EllipsisVertical, // overflow-menu affordance (lucide renamed MoreVertical → EllipsisVertical)
+  chevronLeft: ChevronLeft, // gallery prev / pagination prev
+  chevronRight: ChevronRight, // gallery next / pagination next
+  chevronFirst: ChevronFirst, // pagination first
+  chevronLast: ChevronLast, // pagination last
+  puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
+  arrowLeft: ArrowLeft, // back / prev navigation (tour)
+  arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
+  arrowUpRight: ArrowUpRight, // jump-to-row (dep tree internal navigation)
+  // i18n tier — nav/action + status.
+  settings: Settings, // ⚙ Manage
+  folderOpen: FolderOpen, // 📁 Open folder
+  trash: Trash2, // 🗑 Delete
+  blocks: Blocks, // 📂 Mods
+  scrollText: ScrollText, // 📜 Logs
+  arrowUp: ArrowUp, // ↑ Updates filter
+  circleX: CircleX, // ✕ missing status
+  shrink: Shrink, // collapse window to mini mode
+  expand: Expand, // restore window from mini mode
+  // Content kinds (Add-ons tab): picker options + per-kind placeholder avatars.
+  resourcePack: Image, // resource-pack kind
+  shader: Aperture, // shader kind
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

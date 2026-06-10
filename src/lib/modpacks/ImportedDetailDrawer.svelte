@@ -49,7 +49,7 @@
   // Provenance badges (bundle 2): `modpack_status` returns the frozen
   // pack-origin snapshot. We compute `originShas` once on each refresh
   // and use it to badge each installed row:
-  //   - 📦 pack    — sha1 IS in originShas
+  //   - pack      — sha1 IS in originShas
   //   - + user    — sha1 NOT in originShas, mod has a source (added
   //                 via the Mod browser after import)
   //   - ? manual  — sha1 NOT in originShas, mod has no source (user
@@ -363,7 +363,7 @@
     data-testid="imported-detail-drawer"
   >
     <header class="p-4 border-b flex items-start gap-3">
-      <div class="text-2xl leading-none flex-shrink-0">📦</div>
+      <div class="flex-shrink-0"><Icon name="package" size={24} /></div>
       <div class="flex-1 min-w-0">
         <h3 class="font-semibold truncate">{inst.mrpack_name}</h3>
         <div class="text-xs text-muted truncate">
@@ -392,10 +392,11 @@
         <button
           type="button"
           onclick={() => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url))}
-          class="text-accent hover:underline text-sm"
+          class="text-accent hover:underline text-sm inline-flex items-center gap-1"
           data-testid="imported-detail-source-link"
         >
           {$t('modpacks.imported.detail.openOn', { platform: sourceLabel(inst.mrpack_source) })}
+          <Icon name="externalLink" size={14} />
         </button>
       </div>
     {/if}
@@ -494,9 +495,10 @@
                       void import('@tauri-apps/plugin-opener').then((opener) =>
                         opener.openUrl(m.entry.manual_action_url!),
                       )}
-                    class="text-accent hover:underline text-xs flex-shrink-0"
+                    class="text-accent hover:underline text-xs flex-shrink-0 inline-flex items-center gap-1"
                   >
                     {$t('modpacks.imported.detail.openLink')}
+                    <Icon name="externalLink" size={12} />
                   </button>
                 {/if}
                 {#if isUnresolvedMissingState(m.state)}
@@ -624,10 +626,11 @@
                 ></div>
                 {#if prov === 'pack'}
                   <span
-                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
+                    class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
                     title={$t('modpacks.imported.detail.badgeFromPackTitle')}
                     data-testid="mod-badge-pack-{m.sha1}"
                   >
+                    <Icon name="package" size={11} />
                     {$t('modpacks.imported.detail.badgeFromPack')}
                   </span>
                 {:else if prov === 'user'}

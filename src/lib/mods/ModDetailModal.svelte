@@ -14,6 +14,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
+  import { Icon } from '$lib/ui/icons';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
@@ -165,12 +166,13 @@
         </div>
         <button
           type="button"
-          class="btn-tertiary text-xs mt-0.5"
+          class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
           onclick={() => openExternal(externalUrl)}
         >
           {source === 'modrinth'
             ? $t('mods.detail.viewOnModrinth')
             : $t('mods.detail.viewOnCurseForge')}
+          <Icon name="externalLink" size={14} />
         </button>
       {/if}
 
@@ -268,6 +270,7 @@
                     : undefined}
                 >
                   {#if isInstalled}
+                    <Icon name="success" size={14} />
                     {$t('mods.detail.btnInstalled')}
                   {:else if !v.primary_file.distribution_allowed}
                     {$t('mods.detail.btnRestricted')}
@@ -298,6 +301,7 @@
             onclick={() => onInstall(recommended)}
           >
             {#if isInstalled}
+              <Icon name="success" size={14} />
               {$t('mods.detail.footerInstalled', { version: recommended.version_number })}
             {:else if !recommended.primary_file.distribution_allowed}
               {$t('mods.detail.footerRestricted')}

@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
   import { t, locale } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
   import { get } from 'svelte/store';
 
   let {
@@ -144,15 +145,22 @@
                 <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
                 <div class="text-xs text-muted">{formatBytes(b.size_bytes)}</div>
               </div>
-              <span class="text-placeholder text-sm select-none" aria-hidden="true">⋮</span>
+              <span class="text-placeholder flex-shrink-0" aria-hidden="true"
+                ><Icon name="moreVertical" size={16} /></span
+              >
             </button>
           </li>
         {/each}
       </ul>
       <div class="text-xs text-muted mb-3 flex justify-between">
         <span>{$t('worlds.backups.total', { size: formatBytes(totalSize) })}</span>
-        <button type="button" class="btn-tertiary" onclick={() => void onOpenBackupsFolder()}>
+        <button
+          type="button"
+          class="btn-tertiary inline-flex items-center gap-1"
+          onclick={() => void onOpenBackupsFolder()}
+        >
           {$t('worlds.backups.openBackupsFolder')}
+          <Icon name="folderOpen" size={14} />
         </button>
       </div>
     {/if}

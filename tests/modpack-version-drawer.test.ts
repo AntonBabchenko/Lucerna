@@ -46,7 +46,7 @@ describe('ModpackDetailModal', () => {
     const { findByText } = render(ModpackDetailModal, {
       props: { hit, onClose: () => {}, onInstall: () => {} },
     });
-    expect(await findByText('Open on CurseForge ↗')).toBeTruthy();
+    expect(await findByText('Open on CurseForge')).toBeTruthy();
   });
 
   it('lists versions on the Versions tab for an allowed pack', async () => {
@@ -94,6 +94,6 @@ describe('ModpackDetailModal', () => {
     await fireEvent.click(await findByRole('tab', { name: 'Versions' }));
     const installBtn = await findByText('Install');
     await fireEvent.click(installBtn);
-    expect(await findByText('Open on CurseForge ↗')).toBeTruthy();
+    expect(await findByText('Open on CurseForge')).toBeTruthy();
   });
 });

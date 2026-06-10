@@ -2,10 +2,11 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   // One card in the Imported tab grid. Mirrors ModpackCard's shape so
   // the user sees a consistent grid across Browse and Imported. We
-  // always show the 📦 placeholder icon — fetching real pack icons for
+  // always show the package placeholder icon — fetching real pack icons for
   // imported instances would require another Modrinth/CurseForge call
   // per card on every render of the tab, which isn't worth it in v1.
   //
@@ -48,9 +49,9 @@
 >
   <div class="flex gap-3">
     <div
-      class="w-12 h-12 bg-subtle rounded flex items-center justify-center text-2xl flex-shrink-0"
+      class="w-12 h-12 bg-subtle rounded flex items-center justify-center text-placeholder flex-shrink-0"
     >
-      📦
+      <Icon name="package" size={24} />
     </div>
     <div class="min-w-0 flex-1">
       <div class="font-semibold text-sm truncate">

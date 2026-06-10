@@ -197,38 +197,42 @@
 
     {#if incompatible.length > 0}
       <div
-        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
+        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
       >
-        {$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}
+        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+        <span>{$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}</span>
       </div>
     {/if}
 
     {#if unresolvable.length > 0}
       <div
-        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
+        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
       >
-        <div class="font-medium mb-1">{$t('mods.depDialog.unresolvableHeading')}</div>
-        <ul class="list-disc pl-5 space-y-0.5">
-          {#each unresolvable as u, i (i)}
-            <li>
-              {#if u.kind === 'noMc'}
-                {$t('mods.depDialog.unresolvableRowNoMc', {
-                  name: u.name,
-                  mcVersion: u.mcVersion,
-                  list: u.list,
-                })}
-              {:else if u.kind === 'wrongLoader'}
-                {$t('mods.depDialog.unresolvableRowWrongLoader', {
-                  name: u.name,
-                  loader: u.loader,
-                  list: u.list,
-                })}
-              {:else}
-                {$t('mods.depDialog.unresolvableRowNoVersions', { name: u.name })}
-              {/if}
-            </li>
-          {/each}
-        </ul>
+        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+        <div>
+          <div class="font-medium mb-1">{$t('mods.depDialog.unresolvableHeading')}</div>
+          <ul class="list-disc pl-5 space-y-0.5">
+            {#each unresolvable as u, i (i)}
+              <li>
+                {#if u.kind === 'noMc'}
+                  {$t('mods.depDialog.unresolvableRowNoMc', {
+                    name: u.name,
+                    mcVersion: u.mcVersion,
+                    list: u.list,
+                  })}
+                {:else if u.kind === 'wrongLoader'}
+                  {$t('mods.depDialog.unresolvableRowWrongLoader', {
+                    name: u.name,
+                    loader: u.loader,
+                    list: u.list,
+                  })}
+                {:else}
+                  {$t('mods.depDialog.unresolvableRowNoVersions', { name: u.name })}
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
       </div>
     {/if}
 

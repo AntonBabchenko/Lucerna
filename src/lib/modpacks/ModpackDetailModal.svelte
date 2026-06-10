@@ -10,6 +10,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
+  import { Icon } from '$lib/ui/icons';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -138,10 +139,11 @@
         {#if sourceUrl}
           <button
             type="button"
-            class="btn-tertiary text-xs mt-0.5"
+            class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
             onclick={() => openExternal(sourceUrl)}
           >
             {$t('modpacks.detail.viewOn', { platform: platformName })}
+            <Icon name="externalLink" size={14} />
           </button>
         {/if}
       </div>
@@ -156,10 +158,11 @@
         {#if sourceUrl}
           <button
             type="button"
-            class="btn-secondary btn-sm"
+            class="btn-secondary btn-sm inline-flex items-center gap-1"
             onclick={() => openExternal(sourceUrl)}
           >
             {$t('modpacks.detail.openOnCurseForge')}
+            <Icon name="externalLink" size={14} />
           </button>
         {/if}
       </div>

@@ -201,9 +201,14 @@
           aria-checked={viewFilter === opt.value}
           tabindex={viewFilter === opt.value ? 0 : -1}
           data-value={opt.value}
-          class={`btn-secondary btn-xs ${viewFilter === opt.value ? opt.activeClass : ''}`}
+          class={`btn-secondary btn-xs inline-flex items-center gap-1 ${viewFilter === opt.value ? opt.activeClass : ''}`}
           onclick={() => (viewFilter = opt.value)}
         >
+          {#if opt.value === 'updates'}
+            <Icon name="arrowUp" size={12} />
+          {:else if opt.value === 'issues' || opt.value === 'incompatible'}
+            <Icon name="warning" size={12} />
+          {/if}
           {opt.label}
         </button>
       {/each}

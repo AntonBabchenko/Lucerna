@@ -56,11 +56,11 @@ describe('ImportedCard', () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it('shows 📦 icon when no pack icon URL is stored', () => {
-    const { getByText } = render(ImportedCard, {
+  it('shows a package placeholder icon when no pack icon URL is stored', () => {
+    const { container } = render(ImportedCard, {
       props: { inst: baseInst, onClick: () => {} },
     });
-    expect(getByText('📦')).toBeTruthy();
+    expect(container.querySelector('.lucide-package')).toBeTruthy();
   });
 
   it('renders without loader_version when not set', () => {

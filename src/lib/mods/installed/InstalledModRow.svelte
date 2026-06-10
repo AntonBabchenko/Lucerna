@@ -132,13 +132,16 @@
         {#if incompatibleTitle}
           <span
             data-testid="incompat-badge"
-            class="px-2 py-0.5 rounded bg-warning-bg text-warning-text"
-            title={incompatibleTitle}>{$t('mods.installed.badgeIncompatible')}</span
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-warning-bg text-warning-text"
+            title={incompatibleTitle}
+            ><Icon name="warning" size={12} />{$t('mods.installed.badgeIncompatible')}</span
           >
         {/if}
         {#if badge}
-          <span data-testid="status-badge" class="px-2 py-0.5 rounded bg-danger-bg text-danger"
-            >{badge.text}</span
+          <span
+            data-testid="status-badge"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-danger-bg text-danger"
+            ><Icon name="warning" size={12} />{badge.text}</span
           >
         {/if}
         {#if graphLoading && !root}
