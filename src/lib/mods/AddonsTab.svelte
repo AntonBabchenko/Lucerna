@@ -3,6 +3,7 @@
   import { modBrowseOpenProject, modBrowserNav } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { Icon } from '$lib/ui/icons';
   import InstalledModsView from './InstalledModsView.svelte';
   import InstalledAssetsView from './InstalledAssetsView.svelte';
   import ModBrowseView from './ModBrowseView.svelte';
@@ -345,10 +346,10 @@
           <span class="text-placeholder">{$t('addons.shaderLoaderHint.or')}</span>
           <button
             type="button"
-            class="font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
+            class="inline-flex items-center gap-1 font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
             onclick={openOptifine}
           >
-            {$t('addons.shaderLoaderHint.optifine')}<span aria-hidden="true">&nbsp;↗</span>
+            {$t('addons.shaderLoaderHint.optifine')}<Icon name="externalLink" size={14} />
           </button>
         </p>
         <p class="text-xs text-muted">

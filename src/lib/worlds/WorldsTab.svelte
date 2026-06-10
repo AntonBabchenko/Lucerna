@@ -7,6 +7,7 @@
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { t } from '$lib/i18n';
 
@@ -163,10 +164,11 @@
                 <span class="font-medium truncate">{w.folder_name}</span>
                 {#if w.backup_count > 0}
                   <span
-                    class="text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
+                    class="inline-flex items-center gap-1 text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
                     aria-label={$t('worlds.tab.backupCountAriaLabel', { count: w.backup_count })}
                   >
-                    📦 {w.backup_count}
+                    <Icon name="package" size={12} />
+                    {w.backup_count}
                   </span>
                 {/if}
               </div>
@@ -174,7 +176,9 @@
                 {formatBytes(w.size_bytes)} · {relativeTime(w.modified_unix_ms)}
               </div>
             </div>
-            <span class="text-placeholder text-sm select-none" aria-hidden="true">⋮</span>
+            <span class="text-placeholder flex-shrink-0" aria-hidden="true"
+              ><Icon name="moreVertical" size={16} /></span
+            >
           </button>
         </li>
       {/each}

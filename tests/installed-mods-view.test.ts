@@ -172,14 +172,18 @@ describe('InstalledModsView', () => {
         },
       ],
     });
-    render(InstalledModsView, {
+    const { container } = render(InstalledModsView, {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     await new Promise((r) => setTimeout(r, 0));
     await fireEvent.click(screen.getByRole('button', { name: /Check for updates/ }));
     await new Promise((r) => setTimeout(r, 0));
     expect(mod.commands.modsCheckUpdates).toHaveBeenCalledWith('i');
-    expect(screen.getByText('v15.0 → v16.0')).toBeTruthy();
+    // The update chip shows the version transition as "vOld <arrow-right icon> vNew".
+    const updateArrow = container.querySelector('.lucide-arrow-right');
+    expect(updateArrow).toBeTruthy();
+    expect(updateArrow?.parentElement?.textContent).toContain('v15.0');
+    expect(updateArrow?.parentElement?.textContent).toContain('v16.0');
     expect(screen.getByRole('button', { name: 'Update' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Update all (1)' })).toBeTruthy();
   });
@@ -194,7 +198,8 @@ describe('InstalledModsView', () => {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.getByText(/📦 Cool Pack/)).toBeTruthy();
+    const coolChip = screen.getByText('Cool Pack');
+    expect(coolChip.querySelector('.lucide-package')).toBeTruthy();
   });
 
   it('labels an unresolved pack-origin mod "from modpack" with a chip', async () => {
@@ -226,7 +231,8 @@ describe('InstalledModsView', () => {
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/from modpack/)).toBeTruthy();
-    expect(screen.getByText(/📦 Parasites Reloaded/)).toBeTruthy();
+    const packChip = screen.getByText('Parasites Reloaded');
+    expect(packChip.querySelector('.lucide-package')).toBeTruthy();
   });
 
   it('keeps "manual mod" for a hand-dropped jar not in the pack', async () => {

@@ -49,7 +49,7 @@
   // Provenance badges (bundle 2): `modpack_status` returns the frozen
   // pack-origin snapshot. We compute `originShas` once on each refresh
   // and use it to badge each installed row:
-  //   - 📦 pack    — sha1 IS in originShas
+  //   - pack      — sha1 IS in originShas
   //   - + user    — sha1 NOT in originShas, mod has a source (added
   //                 via the Mod browser after import)
   //   - ? manual  — sha1 NOT in originShas, mod has no source (user
@@ -363,7 +363,7 @@
     data-testid="imported-detail-drawer"
   >
     <header class="p-4 border-b flex items-start gap-3">
-      <div class="text-2xl leading-none flex-shrink-0">📦</div>
+      <div class="flex-shrink-0"><Icon name="package" size={24} /></div>
       <div class="flex-1 min-w-0">
         <h3 class="font-semibold truncate">{inst.mrpack_name}</h3>
         <div class="text-xs text-muted truncate">

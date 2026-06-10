@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModpackHit } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   // One card in the modpack search grid (ModpackBrowseView). The card is
   // a button so the whole tile is clickable and the focus ring is
@@ -32,7 +33,7 @@
         <div
           class="w-12 h-12 bg-subtle rounded flex items-center justify-center text-placeholder flex-shrink-0"
         >
-          📦
+          <Icon name="package" size={24} />
         </div>
       {/if}
       <div class="min-w-0 flex-1">
@@ -64,7 +65,7 @@
       <div
         class="w-8 h-8 bg-subtle rounded flex items-center justify-center text-placeholder text-xs flex-shrink-0"
       >
-        📦
+        <Icon name="package" size={16} />
       </div>
     {/if}
     <span class="font-medium text-sm truncate flex-1">{hit.title}</span>

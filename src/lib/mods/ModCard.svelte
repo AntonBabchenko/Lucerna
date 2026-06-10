@@ -2,6 +2,7 @@
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
 
   // One result card in ModBrowseView. Shows mod metadata plus
   // install-state-aware controls:
@@ -110,19 +111,21 @@
   {#if installed}
     {#if packChip}
       <span
-        class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
+        class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
         title={$t('mods.card.fromModpackTitle', { name: packChip })}
       >
-        📦 {packChip}
+        <Icon name="package" size={12} />
+        {packChip}
       </span>
     {:else if checking}
       <span class="text-xs px-2 py-0.5 text-placeholder">{$t('mods.card.checking')}</span>
     {:else if updateState && updateState.kind === 'update_available'}
       <span
-        class="text-xs px-2 py-0.5 rounded bg-warning-bg text-warning-text"
+        class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-warning-bg text-warning-text"
         title={$t('mods.card.updateAvailableTitle')}
       >
-        v{installed.version_number ?? '?'} → v{updateState.target.version_number}
+        v{installed.version_number ?? '?'}
+        <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
       </span>
       <button type="button" class="btn-warning btn-xs" onclick={onUpdate}
         >{$t('mods.card.update')}</button
@@ -187,10 +190,10 @@
       />
     {/if}
     <div
-      class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0"
+      class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0"
       aria-hidden="true"
     >
-      ◆
+      <Icon name="puzzle" size={16} />
     </div>
     <div class="flex-1 min-w-0">
       <div class="font-medium text-primary truncate">{degradedTitle}</div>
@@ -209,8 +212,9 @@
     <div class="flex items-center gap-1 flex-shrink-0">
       {#if packChip}
         <span
-          class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
-          title={$t('mods.card.fromModpackTitle', { name: packChip })}>📦 {packChip}</span
+          class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
+          title={$t('mods.card.fromModpackTitle', { name: packChip })}
+          ><Icon name="package" size={12} /> {packChip}</span
         >
       {/if}
       {#if installed}
@@ -237,7 +241,7 @@
         <div
           class="w-10 h-10 rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0"
         >
-          ◆
+          <Icon name="puzzle" size={18} />
         </div>
       {/if}
       <span class="min-w-0">
@@ -282,7 +286,7 @@
       <div
         class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0"
       >
-        ◆
+        <Icon name="puzzle" size={16} />
       </div>
     {/if}
 

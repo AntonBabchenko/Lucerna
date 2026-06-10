@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { GalleryImage } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   // Compact screenshot carousel for the detail modals. Single image in
-  // view; ‹/› step through. Renders nothing when there are no images.
+  // view; prev/next arrows step through. Renders nothing when there are no images.
   let { images }: { images: GalleryImage[] } = $props();
 
   let index = $state(0);
@@ -33,14 +34,14 @@
       <button
         type="button"
         aria-label={$t('common.previousImage')}
-        class="absolute left-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 text-sm"
-        onclick={prev}>‹</button
+        class="absolute left-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 flex items-center justify-center"
+        onclick={prev}><Icon name="chevronLeft" size={18} /></button
       >
       <button
         type="button"
         aria-label={$t('common.nextImage')}
-        class="absolute right-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 text-sm"
-        onclick={next}>›</button
+        class="absolute right-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 flex items-center justify-center"
+        onclick={next}><Icon name="chevronRight" size={18} /></button
       >
       <div
         class="absolute bottom-1 right-2 text-xs bg-surface/80 rounded px-1.5 py-0.5 text-secondary"
