@@ -941,7 +941,8 @@
       "general": "Основные",
       "storage": "Хранилище",
       "curseforge": "CurseForge",
-      "about": "О программе"
+      "about": "О программе",
+      "changelog": "Что нового"
     },
     "general": {
       "appearance": {
@@ -996,6 +997,17 @@
       "license": "Распространяется под лицензией GPL-3.0-or-later. Java-среда и файлы Minecraft загружаются с серверов Mojang во время выполнения и никогда не изменяются.",
       "trademark": "Minecraft и Mojang являются торговыми марками Mojang Synergies AB и Microsoft Corporation. Данный лаунчер не аффилирован ни с одной из этих компаний.",
       "keyring": "Токены обновления Microsoft хранятся в защищённом системном хранилище ключей вашей ОС и удаляются при выходе из аккаунта."
+    },
+    "changelog": {
+      "empty": "История изменений недоступна.",
+      "sections": {
+        "added": "Добавлено",
+        "changed": "Изменено",
+        "fixed": "Исправлено",
+        "deprecated": "Устарело",
+        "removed": "Удалено",
+        "security": "Безопасность"
+      }
     },
     "curseforge": {
       "statusLabel": "Статус:",

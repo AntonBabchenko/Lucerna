@@ -941,7 +941,8 @@
       "general": "General",
       "storage": "Storage",
       "curseforge": "CurseForge",
-      "about": "About"
+      "about": "About",
+      "changelog": "What's new"
     },
     "general": {
       "appearance": {
@@ -996,6 +997,17 @@
       "license": "Licensed under GPL-3.0-or-later. The Java runtime and Minecraft files are downloaded from Mojang at runtime and are never modified.",
       "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
       "keyring": "Microsoft refresh tokens are stored in your operating system's secure keyring and removed when you sign out."
+    },
+    "changelog": {
+      "empty": "No changelog available.",
+      "sections": {
+        "added": "Added",
+        "changed": "Changed",
+        "fixed": "Fixed",
+        "deprecated": "Deprecated",
+        "removed": "Removed",
+        "security": "Security"
+      }
     },
     "curseforge": {
       "statusLabel": "Status:",
