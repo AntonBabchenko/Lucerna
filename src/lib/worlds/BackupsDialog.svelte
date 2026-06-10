@@ -160,7 +160,7 @@
           onclick={() => void onOpenBackupsFolder()}
         >
           {$t('worlds.backups.openBackupsFolder')}
-          <Icon name="externalLink" size={14} />
+          <Icon name="folderOpen" size={14} />
         </button>
       </div>
     {/if}

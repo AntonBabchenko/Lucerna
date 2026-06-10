@@ -603,7 +603,7 @@
               onclick={() => void openLogFolder()}
             >
               {$t('logs.toolbar.openFolder')}
-              <Icon name="externalLink" size={14} />
+              <Icon name="folderOpen" size={14} />
             </button>
 
             <!-- Share button -->

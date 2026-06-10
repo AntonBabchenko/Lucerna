@@ -191,7 +191,7 @@
     onclick={() => void onOpenSavesFolder()}
   >
     {$t('worlds.tab.openSavesFolder')}
-    <Icon name="externalLink" size={14} />
+    <Icon name="folderOpen" size={14} />
   </button>
 
   <!-- Tour fires only once worlds exist — most steps point at the

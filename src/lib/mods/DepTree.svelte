@@ -55,7 +55,7 @@
         {#if isInstalled(n)}
           <button
             type="button"
-            class="text-accent"
+            class="text-accent inline-flex items-center justify-center"
             title={$t('mods.deps.jumpToTitle', { name: n.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: n.name })}
             onclick={() => onJump(n)}><Icon name="arrowUpRight" size={12} /></button

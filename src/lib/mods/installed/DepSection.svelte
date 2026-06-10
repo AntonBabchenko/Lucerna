@@ -85,7 +85,7 @@
           >
           <button
             type="button"
-            class="text-accent"
+            class="text-accent inline-flex items-center justify-center"
             title={$t('mods.deps.jumpToTitle', { name: e.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: e.name })}
             onclick={() => onJump({ source: e.source, project_id: e.projectId })}
