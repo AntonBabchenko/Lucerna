@@ -21,8 +21,7 @@
     formatLoaderLatestList,
     latestSupportedPerLoader,
   } from '$lib/mods/latest-supported-version';
-  import { enrichUnresolvable } from '$lib/mods/unresolvable-detail';
-  import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
+  import { enrichUnresolvable, type UnresolvableDetail } from '$lib/mods/unresolvable-detail';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { t } from '$lib/i18n';

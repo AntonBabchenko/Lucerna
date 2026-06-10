@@ -152,4 +152,43 @@ describe('DependencyDialog', () => {
     });
     expect(screen.getByText(/Ghost — no compatible version found/)).toBeTruthy();
   });
+
+  it('shows the unresolvable heading and every row when there are several', () => {
+    render(DependencyDialog, {
+      props: {
+        primary: v('X', 'vx'),
+        primaryProjectName: 'X',
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [
+          { kind: 'noMc', name: 'Jade', mcVersion: '1.20.4', list: 'Forge 1.19.2' },
+          { kind: 'wrongLoader', name: 'Balm', loader: 'Forge', list: 'Fabric 1.21' },
+          { kind: 'noVersions', name: 'Ghost' },
+        ],
+        onCancel: () => {},
+        onConfirm: () => {},
+      },
+    });
+    expect(screen.getByText(/Some required dependencies have no compatible version/)).toBeTruthy();
+    expect(screen.getByText(/Jade — no version for Minecraft 1\.20\.4/)).toBeTruthy();
+    expect(screen.getByText(/Balm — no Forge version/)).toBeTruthy();
+    expect(screen.getByText(/Ghost — no compatible version found/)).toBeTruthy();
+  });
+
+  it('omits the unresolvable heading when there are none', () => {
+    render(DependencyDialog, {
+      props: {
+        primary: v('X', 'vx'),
+        primaryProjectName: 'X',
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [],
+        onCancel: () => {},
+        onConfirm: () => {},
+      },
+    });
+    expect(screen.queryByText(/Some required dependencies have no compatible version/)).toBeNull();
+  });
 });
