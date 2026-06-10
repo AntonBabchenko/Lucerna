@@ -118,6 +118,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.modsDependencyUnresolvable', { projectRef: e.project_ref });
     case 'mods_filename_conflict':
       return translate('errors.modsFilenameConflict', { filename: e.filename });
+    case 'mods_unsafe_filename':
+      return translate('errors.modsUnsafeFilename', { filename: e.filename });
     case 'mods_cache_io':
       return translate('errors.modsCacheIo', { details: e.details });
     case 'mods_instance_path':

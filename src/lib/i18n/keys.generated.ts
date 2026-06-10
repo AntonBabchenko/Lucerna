@@ -92,6 +92,7 @@ export type TranslationKey =
   | 'errors.modsPlatformUnsupported'
   | 'errors.modsSha1Mismatch'
   | 'errors.modsSha1Unavailable'
+  | 'errors.modsUnsafeFilename'
   | 'errors.network'
   | 'errors.noMinecraftProfile'
   | 'errors.noVersionSelected'

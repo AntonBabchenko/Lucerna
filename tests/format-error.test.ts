@@ -107,6 +107,12 @@ describe('formatError', () => {
     expect(msg).toContain('jei.jar');
   });
 
+  it('formats mods_unsafe_filename with the rejected filename', () => {
+    const msg = formatError({ kind: 'mods_unsafe_filename', filename: '../../evil.jar' });
+    expect(msg).toContain('../../evil.jar');
+    expect(msg.toLowerCase()).toContain('unsafe');
+  });
+
   it('formats every Modpack* variant', () => {
     expect(formatError({ kind: 'modpack_format_unknown' } as never)).toBe(
       'This file is not a recognised modpack (.mrpack or CurseForge .zip).',
@@ -232,6 +238,7 @@ describe('formatError', () => {
         existing_sha: '1',
         incoming_sha: '2',
       },
+      mods_unsafe_filename: { kind: 'mods_unsafe_filename', filename: '../../evil.jar' },
       mods_cache_io: { kind: 'mods_cache_io', details: 'd' },
       mods_instance_path: { kind: 'mods_instance_path', path: 'p', details: 'd' },
       modpack_invalid_archive: { kind: 'modpack_invalid_archive', details: 'd' },
@@ -319,7 +326,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(68);
+      expect(Object.keys(samples)).toHaveLength(69);
     });
   });
 

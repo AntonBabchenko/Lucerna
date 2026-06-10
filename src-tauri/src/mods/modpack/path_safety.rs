@@ -37,6 +37,30 @@ pub fn is_safe_relative_path(path: &str) -> bool {
     true
 }
 
+/// `true` iff `name` is a safe **single-segment** filename to join under a
+/// base dir — stricter than [`is_safe_relative_path`], which also accepts
+/// nested relative paths like `config/foo.json`. A mod jar destination is one
+/// filename, never a nested path, so a separator or traversal component is
+/// rejected outright. Used to validate the platform-supplied
+/// `primary_file.filename` before joining it under an instance's `mods/`.
+pub fn is_safe_filename(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    // No directory separators at all — a filename is a single segment.
+    if name.contains('/') || name.contains('\\') {
+        return false;
+    }
+    // Exactly one component, and it must be a plain name — rejects `.`, `..`,
+    // root, drive-letter prefixes, and anything else `Component::Normal`
+    // would not cover.
+    let mut comps = Path::new(name).components();
+    match (comps.next(), comps.next()) {
+        (Some(Component::Normal(_)), None) => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +90,36 @@ mod tests {
             "./leading-dot",
         ] {
             assert!(!is_safe_relative_path(p), "{p} should be unsafe");
+        }
+    }
+
+    #[test]
+    fn safe_filename_accepts_plain_names() {
+        for n in [
+            "sodium-fabric-0.5.3.jar",
+            "REI_1.20.jar",
+            "options.txt",
+            "a.jar",
+        ] {
+            assert!(is_safe_filename(n), "{n} should be a safe filename");
+        }
+    }
+
+    #[test]
+    fn safe_filename_rejects_separators_and_traversal() {
+        for n in [
+            "",
+            ".",
+            "..",
+            "../escape.jar",
+            "../../etc/passwd",
+            "sub/dir.jar",  // nested path is not a single filename
+            "sub\\dir.jar", // Windows separator
+            "/abs.jar",
+            "C:/x.jar",
+            "./leading.jar",
+        ] {
+            assert!(!is_safe_filename(n), "{n} should be rejected");
         }
     }
 }

@@ -176,6 +176,11 @@ pub enum Error {
         incoming_sha: String,
     },
 
+    #[error(
+        "Mod filename {filename} is unsafe (path separator or traversal); refusing to install"
+    )]
+    ModsUnsafeFilename { filename: String },
+
     #[error("Mod cache I/O error: {details}")]
     ModsCacheIo { details: String },
 

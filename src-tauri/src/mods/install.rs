@@ -174,6 +174,16 @@ pub async fn install_one(
     version: ModVersion,
     progress: &ProgressFn,
 ) -> Result<Installed, Error> {
+    // Guard FIRST — before any network or filesystem I/O — that the
+    // platform-supplied filename is a safe single segment. `filename` comes
+    // straight from the Modrinth/CurseForge API; a value like `../../evil.jar`
+    // would otherwise `join` outside the instance `mods/` directory.
+    if !crate::mods::modpack::path_safety::is_safe_filename(&version.primary_file.filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: version.primary_file.filename.clone(),
+        });
+    }
+
     if !version.primary_file.distribution_allowed {
         return Err(Error::ModsDistributionDisabled {
             platform: match version.source {
@@ -641,6 +651,32 @@ mod tests {
             deps: vec![],
             published_at: None,
         }
+    }
+
+    #[tokio::test]
+    async fn install_one_rejects_unsafe_filename_before_io() {
+        let _g = test_lock();
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        // Escaping filename from a hostile API response. No mock server / allowed
+        // hosts are configured: the guard must reject before any network or
+        // filesystem work happens.
+        let v = fake_version(
+            "http://127.0.0.1:1/evil.jar".into(),
+            "0".repeat(40),
+            3,
+            "../../evil.jar",
+        );
+        let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::ModsUnsafeFilename { ref filename } if filename == "../../evil.jar"),
+            "expected ModsUnsafeFilename, got {err:?}"
+        );
+        // Nothing was written: neither an escaped file nor the mods dir itself.
+        assert!(!td_inst.path().join("evil.jar").exists());
+        assert!(!installed::mods_dir(td_inst.path()).exists());
     }
 
     #[tokio::test]
