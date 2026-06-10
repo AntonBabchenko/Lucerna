@@ -17,7 +17,11 @@
   import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { latestSupportedPerLoader } from '$lib/mods/latest-supported-version';
+  import {
+    formatLoaderLatestList,
+    latestSupportedPerLoader,
+  } from '$lib/mods/latest-supported-version';
+  import { enrichUnresolvable, type UnresolvableDetail } from '$lib/mods/unresolvable-detail';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { t } from '$lib/i18n';
@@ -171,7 +175,7 @@
     required: DepItem[];
     optional: OptionalItem[];
     incompatible: string[];
-    unresolvable: string[];
+    unresolvable: UnresolvableDetail[];
     // Loader projects (NeoForge, Fabric, etc.) that the mod declared as
     // dependencies. We don't install them — loaders are managed at the
     // instance level — but we still show them so the user knows "this
@@ -666,7 +670,7 @@
       error = tr('mods.browse.errorNoCompatibleVersion');
       return;
     }
-    const list = perLoader.map((p) => `${displayLoader(p.loader)} ${p.mcVersion}`).join(' · ');
+    const list = formatLoaderLatestList(perLoader, displayLoader);
     if (perLoader.some((p) => p.loader === currentLoader)) {
       error = tr('mods.browse.errorNoVersionForMc', {
         mod: card.name,
@@ -827,9 +831,23 @@
         }),
       );
 
-      // Enrich incompatible / unresolvable DepProjectRefs to display names.
+      // Enrich incompatible DepProjectRefs to display names.
       const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
-      const unresolvableNames = await Promise.all(p.unresolvable.map(enrichRefName));
+      // Classify each unresolvable dep into a detailed UnresolvableDetail shape
+      // (noMc / wrongLoader / noVersions) so the dialog can render a precise row.
+      const unresolvableDetails = await enrichUnresolvable(p.unresolvable, {
+        fetchVersions: async (ref) => {
+          const refSource: ModSource = 'project_id' in ref ? 'modrinth' : 'curseforge';
+          const id = 'project_id' in ref ? ref.project_id : String(ref.mod_id);
+          const res = await commands.modsVersions(refSource, id, null, null);
+          return res.status === 'ok' ? res.data : null;
+        },
+        fetchProjectName: enrichRefName,
+        manifestOrder: mcVersions.value.map((v) => v.id),
+        displayLoader,
+        currentLoader: loader,
+        mcVersion,
+      });
 
       // Enrich loader_requirements refs to display names (informational).
       const loaderRequirements = await Promise.all(p.loader_requirements.map(enrichRefName));
@@ -889,7 +907,7 @@
           required: requiredEnriched,
           optional: optionalEnriched,
           incompatible: incompatibleNames,
-          unresolvable: unresolvableNames,
+          unresolvable: unresolvableDetails,
           loaderRequirements,
           loaderMismatch,
         };

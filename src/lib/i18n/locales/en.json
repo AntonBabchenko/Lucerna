@@ -373,7 +373,10 @@
       "loaderMismatchBody": "This version targets {modLoaders} but your instance uses {instanceLoader}. Installing will leave a jar in the mods folder that Minecraft cannot load. Pick another version or switch your instance's loader.",
       "loaderRequirementsInfo": "This mod targets {loaders}. Make sure your instance uses a compatible loader.",
       "incompatibleWarning": "⚠ Incompatible with: {names}",
-      "unresolvableWarning": "⚠ Could not find compatible versions of: {names} — install anyway?",
+      "unresolvableHeading": "⚠ Some required dependencies have no compatible version — install anyway?",
+      "unresolvableRowNoMc": "{name} — no version for Minecraft {mcVersion}. Latest: {list}",
+      "unresolvableRowWrongLoader": "{name} — no {loader} version. Available: {list}",
+      "unresolvableRowNoVersions": "{name} — no compatible version found",
       "subRequires": "requires: {name}",
       "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
     }
