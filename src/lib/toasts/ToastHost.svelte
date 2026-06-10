@@ -12,7 +12,18 @@
   const dismissLabel = $derived($t('common.dismissNotification'));
 </script>
 
-<div class="fixed top-4 right-4 z-[200] flex flex-col gap-2" data-testid="toast-host">
+<!-- The aria-live region is ALWAYS in the DOM (even with zero toasts) so a
+     screen reader has it registered before the first toast fires — a region
+     inserted at the same moment its first child appears can be missed. Only
+     the individual toast children are conditional. `aria-atomic="false"` so
+     each newly-added toast is announced on its own rather than re-reading the
+     whole stack. -->
+<div
+  class="fixed top-4 right-4 z-[200] flex flex-col gap-2"
+  data-testid="toast-host"
+  aria-live="polite"
+  aria-atomic="false"
+>
   {#each toasts as t (t.id)}
     <div
       class="w-72 rounded-lg border shadow-lg p-3 text-sm {t.kind === 'success'
@@ -22,7 +33,6 @@
           : t.kind === 'info'
             ? 'bg-accent-soft border-accent text-accent'
             : 'bg-surface border-border-emphasis text-primary'}"
-      role="status"
       data-testid={`toast-${t.kind}`}
     >
       <div class="flex items-start gap-2">

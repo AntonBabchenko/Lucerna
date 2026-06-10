@@ -32,27 +32,27 @@
 {#if open}
   <Modal
     ariaLabelledby="modpacks-modal-title"
-    onClose={onClose}
+    {onClose}
     panelClass="w-[92vw] max-w-5xl h-[92vh] flex flex-col"
   >
-      <header
-        class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0"
-        data-testid="modpacks-modal"
-      >
-        <h2 id="modpacks-modal-title" class="font-semibold text-primary">
-          {$t('modpacks.modal.title')}
-        </h2>
-        <HelpPopover
-          body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
-          triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
-          triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
-          closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}
-        />
-        <span class="flex-1"></span>
-        <CloseButton onClick={onClose} ariaLabel={$t('modpacks.modal.closeAriaLabel')} />
-      </header>
-      <div class="flex-1 overflow-hidden flex flex-col min-h-0">
-        {@render children?.()}
-      </div>
+    <header
+      class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0"
+      data-testid="modpacks-modal"
+    >
+      <h2 id="modpacks-modal-title" class="font-semibold text-primary">
+        {$t('modpacks.modal.title')}
+      </h2>
+      <HelpPopover
+        body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
+        triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
+        triggerTitle={$t('onboarding.modpackInstance.triggerTitle')}
+        closeAriaLabel={$t('onboarding.modpackInstance.closeAriaLabel')}
+      />
+      <span class="flex-1"></span>
+      <CloseButton onClick={onClose} ariaLabel={$t('modpacks.modal.closeAriaLabel')} />
+    </header>
+    <div class="flex-1 overflow-hidden flex flex-col min-h-0">
+      {@render children?.()}
+    </div>
   </Modal>
 {/if}

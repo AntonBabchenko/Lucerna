@@ -111,59 +111,59 @@
   const totalSize = $derived(backups.reduce((a, b) => a + (b.size_bytes ?? 0), 0));
 </script>
 
-<Modal ariaLabelledby="backups-dialog-title" onClose={onClose} panelClass="max-w-lg w-full p-4">
-    <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary mb-3">
-      {$t('worlds.backups.title', { world: world.folder_name })}
-    </h3>
-    {#if loading}
-      <p class="text-sm text-muted">{$t('worlds.backups.loading')}</p>
-    {:else if error}
-      <p class="text-sm text-danger mb-2">{error}</p>
-    {:else if backups.length === 0}
-      <p class="text-sm text-muted">
-        {$t('worlds.backups.empty')}
-      </p>
-    {:else}
-      <ul
-        class="border border-border-subtle rounded divide-y divide-border-subtle mb-3 max-h-80 overflow-auto"
-      >
-        {#each backups as b (b.filename)}
-          <li>
-            <button
-              type="button"
-              class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
-              aria-label={$t('worlds.backups.backupActionsAriaLabel', { filename: b.filename })}
-              aria-expanded={openMenuFor === b.filename}
-              onclick={(e) => toggleMenu(b.filename, e)}
+<Modal ariaLabelledby="backups-dialog-title" {onClose} panelClass="max-w-lg w-full p-4">
+  <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary mb-3">
+    {$t('worlds.backups.title', { world: world.folder_name })}
+  </h3>
+  {#if loading}
+    <p class="text-sm text-muted">{$t('worlds.backups.loading')}</p>
+  {:else if error}
+    <p class="text-sm text-danger mb-2">{error}</p>
+  {:else if backups.length === 0}
+    <p class="text-sm text-muted">
+      {$t('worlds.backups.empty')}
+    </p>
+  {:else}
+    <ul
+      class="border border-border-subtle rounded divide-y divide-border-subtle mb-3 max-h-80 overflow-auto"
+    >
+      {#each backups as b (b.filename)}
+        <li>
+          <button
+            type="button"
+            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
+            aria-label={$t('worlds.backups.backupActionsAriaLabel', { filename: b.filename })}
+            aria-expanded={openMenuFor === b.filename}
+            onclick={(e) => toggleMenu(b.filename, e)}
+          >
+            <div class="min-w-0">
+              <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
+              <div class="text-xs text-muted">{formatBytes(b.size_bytes)}</div>
+            </div>
+            <span class="text-placeholder flex-shrink-0" aria-hidden="true"
+              ><Icon name="moreVertical" size={16} /></span
             >
-              <div class="min-w-0">
-                <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
-                <div class="text-xs text-muted">{formatBytes(b.size_bytes)}</div>
-              </div>
-              <span class="text-placeholder flex-shrink-0" aria-hidden="true"
-                ><Icon name="moreVertical" size={16} /></span
-              >
-            </button>
-          </li>
-        {/each}
-      </ul>
-      <div class="text-xs text-muted mb-3 flex justify-between">
-        <span>{$t('worlds.backups.total', { size: formatBytes(totalSize) })}</span>
-        <button
-          type="button"
-          class="btn-tertiary inline-flex items-center gap-1"
-          onclick={() => void onOpenBackupsFolder()}
-        >
-          {$t('worlds.backups.openBackupsFolder')}
-          <Icon name="folderOpen" size={14} />
-        </button>
-      </div>
-    {/if}
-    <div class="flex justify-end">
-      <button type="button" class="btn-secondary btn-sm" onclick={onClose}
-        >{$t('common.close')}</button
+          </button>
+        </li>
+      {/each}
+    </ul>
+    <div class="text-xs text-muted mb-3 flex justify-between">
+      <span>{$t('worlds.backups.total', { size: formatBytes(totalSize) })}</span>
+      <button
+        type="button"
+        class="btn-tertiary inline-flex items-center gap-1"
+        onclick={() => void onOpenBackupsFolder()}
       >
+        {$t('worlds.backups.openBackupsFolder')}
+        <Icon name="folderOpen" size={14} />
+      </button>
     </div>
+  {/if}
+  <div class="flex justify-end">
+    <button type="button" class="btn-secondary btn-sm" onclick={onClose}
+      >{$t('common.close')}</button
+    >
+  </div>
 </Modal>
 
 {#if openMenuFor}

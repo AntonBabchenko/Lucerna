@@ -126,128 +126,128 @@
   onClose={onCancel}
   panelClass="max-w-2xl w-full max-h-[80vh] flex flex-col"
 >
-    <header class="p-4 border-b">
-      <h2 id="import-picker-title" class="text-lg font-semibold text-primary">{summary.name}</h2>
-      <div class="text-sm text-muted">
-        v{summary.version} ·
-        {summary.format === 'modrinth'
-          ? 'Modrinth .mrpack'
-          : summary.format === 'ftb'
-            ? 'FTB'
-            : summary.format === 'atlauncher'
-              ? 'ATLauncher'
-              : 'CurseForge .zip'}
-        · MC {summary.game_version} · {summary.loader}{summary.loader_version
-          ? ` ${summary.loader_version}`
-          : ''}
-      </div>
-    </header>
-
-    {#if summary.has_saves_in_overrides}
-      <div
-        class="m-4 p-3 bg-warning-bg border border-warning-text/30 rounded text-sm text-warning-text flex items-start gap-1.5"
-      >
-        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
-        <span>{$t('modpacks.import.picker.savesWarning')}</span>
-      </div>
-    {/if}
-
-    <div class="flex-1 overflow-y-auto p-4 space-y-2">
-      {#each fileGroups as group (group.key)}
-        {@const sizeStr = formatSize(group.totalSize)}
-        <details open={group.key === 'groupMods'}>
-          <summary
-            class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
-          >
-            <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
-            {#if sizeStr}
-              {$t('modpacks.import.picker.groupHeader', {
-                label: $t(GROUP_LABEL_KEY[group.key]),
-                count: group.files.length,
-                size: sizeStr,
-              })}
-            {:else}
-              {$t('modpacks.import.picker.groupHeaderNoSize', {
-                label: $t(GROUP_LABEL_KEY[group.key]),
-                count: group.files.length,
-              })}
-            {/if}
-          </summary>
-          <ul class="space-y-1 mt-1 mb-2 pl-4">
-            {#each group.files as f (f.install_path)}
-              {@const isRequired = f.env_client === 'required'}
-              <li class="text-sm py-1 flex items-center">
-                {#if isRequired}
-                  <input
-                    type="checkbox"
-                    checked
-                    disabled
-                    class="mr-2"
-                    aria-label={$t('modpacks.import.picker.requiredModAriaLabel', {
-                      name: f.name,
-                    })}
-                  />
-                {:else}
-                  <input
-                    type="checkbox"
-                    checked={optionalSelected.has(f.sha1)}
-                    onchange={() => toggle(f.sha1)}
-                    class="mr-2"
-                    aria-label={$t('modpacks.import.picker.installModAriaLabel', { name: f.name })}
-                  />
-                {/if}
-                <span>{f.name}</span>
-                <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
-              </li>
-            {/each}
-          </ul>
-        </details>
-      {/each}
-
-      {#if unresolvable.length > 0}
-        <details>
-          <summary
-            class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
-          >
-            <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
-            {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
-          </summary>
-          <ul class="space-y-1 mt-1 mb-2 pl-4">
-            {#each unresolvable as u, i (i)}
-              <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
-                <span class="flex-1">{u.mod_name}</span>
-                {#if u.manual_action_url}
-                  <button
-                    type="button"
-                    onclick={() =>
-                      void import('@tauri-apps/plugin-opener').then((m) =>
-                        m.openUrl(u.manual_action_url),
-                      )}
-                    class="text-accent hover:underline text-xs inline-flex items-center gap-1"
-                    >{$t('modpacks.import.picker.openLink')}<Icon
-                      name="externalLink"
-                      size={12}
-                    /></button
-                  >
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        </details>
-      {/if}
+  <header class="p-4 border-b">
+    <h2 id="import-picker-title" class="text-lg font-semibold text-primary">{summary.name}</h2>
+    <div class="text-sm text-muted">
+      v{summary.version} ·
+      {summary.format === 'modrinth'
+        ? 'Modrinth .mrpack'
+        : summary.format === 'ftb'
+          ? 'FTB'
+          : summary.format === 'atlauncher'
+            ? 'ATLauncher'
+            : 'CurseForge .zip'}
+      · MC {summary.game_version} · {summary.loader}{summary.loader_version
+        ? ` ${summary.loader_version}`
+        : ''}
     </div>
+  </header>
 
-    <footer class="p-4 border-t flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
-        >{$t('common.cancel')}</button
-      >
-      <button
-        type="button"
-        class="btn-primary btn-sm"
-        disabled={selectedShas.length === 0}
-        onclick={() => onConfirm(selectedShas)}
-      >
-        {$t('modpacks.import.picker.installBtn', { count: selectedShas.length })}
-      </button>
-    </footer>
+  {#if summary.has_saves_in_overrides}
+    <div
+      class="m-4 p-3 bg-warning-bg border border-warning-text/30 rounded text-sm text-warning-text flex items-start gap-1.5"
+    >
+      <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+      <span>{$t('modpacks.import.picker.savesWarning')}</span>
+    </div>
+  {/if}
+
+  <div class="flex-1 overflow-y-auto p-4 space-y-2">
+    {#each fileGroups as group (group.key)}
+      {@const sizeStr = formatSize(group.totalSize)}
+      <details open={group.key === 'groupMods'}>
+        <summary
+          class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
+        >
+          <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
+          {#if sizeStr}
+            {$t('modpacks.import.picker.groupHeader', {
+              label: $t(GROUP_LABEL_KEY[group.key]),
+              count: group.files.length,
+              size: sizeStr,
+            })}
+          {:else}
+            {$t('modpacks.import.picker.groupHeaderNoSize', {
+              label: $t(GROUP_LABEL_KEY[group.key]),
+              count: group.files.length,
+            })}
+          {/if}
+        </summary>
+        <ul class="space-y-1 mt-1 mb-2 pl-4">
+          {#each group.files as f (f.install_path)}
+            {@const isRequired = f.env_client === 'required'}
+            <li class="text-sm py-1 flex items-center">
+              {#if isRequired}
+                <input
+                  type="checkbox"
+                  checked
+                  disabled
+                  class="mr-2"
+                  aria-label={$t('modpacks.import.picker.requiredModAriaLabel', {
+                    name: f.name,
+                  })}
+                />
+              {:else}
+                <input
+                  type="checkbox"
+                  checked={optionalSelected.has(f.sha1)}
+                  onchange={() => toggle(f.sha1)}
+                  class="mr-2"
+                  aria-label={$t('modpacks.import.picker.installModAriaLabel', { name: f.name })}
+                />
+              {/if}
+              <span>{f.name}</span>
+              <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
+            </li>
+          {/each}
+        </ul>
+      </details>
+    {/each}
+
+    {#if unresolvable.length > 0}
+      <details>
+        <summary
+          class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
+        >
+          <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
+          {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
+        </summary>
+        <ul class="space-y-1 mt-1 mb-2 pl-4">
+          {#each unresolvable as u, i (i)}
+            <li class="text-sm py-1 flex items-center bg-danger-bg px-2 rounded">
+              <span class="flex-1">{u.mod_name}</span>
+              {#if u.manual_action_url}
+                <button
+                  type="button"
+                  onclick={() =>
+                    void import('@tauri-apps/plugin-opener').then((m) =>
+                      m.openUrl(u.manual_action_url),
+                    )}
+                  class="text-accent hover:underline text-xs inline-flex items-center gap-1"
+                  >{$t('modpacks.import.picker.openLink')}<Icon
+                    name="externalLink"
+                    size={12}
+                  /></button
+                >
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </details>
+    {/if}
+  </div>
+
+  <footer class="p-4 border-t flex justify-end gap-2">
+    <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+      >{$t('common.cancel')}</button
+    >
+    <button
+      type="button"
+      class="btn-primary btn-sm"
+      disabled={selectedShas.length === 0}
+      onclick={() => onConfirm(selectedShas)}
+    >
+      {$t('modpacks.import.picker.installBtn', { count: selectedShas.length })}
+    </button>
+  </footer>
 </Modal>

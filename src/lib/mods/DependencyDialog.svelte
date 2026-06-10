@@ -111,133 +111,133 @@
 </script>
 
 <Modal ariaLabelledby="dep-dialog-title" onClose={onCancel} panelClass="w-[480px] max-w-[90vw] p-5">
-    <h2 id="dep-dialog-title" class="text-base font-semibold text-primary mb-3">
-      {$t('mods.depDialog.heading', { name: primaryProjectName, version: primary.version_number })}
-    </h2>
+  <h2 id="dep-dialog-title" class="text-base font-semibold text-primary mb-3">
+    {$t('mods.depDialog.heading', { name: primaryProjectName, version: primary.version_number })}
+  </h2>
 
-    {#if required.length > 0}
-      <div class="mb-3">
-        <div class="text-xs uppercase tracking-wide text-muted mb-1">
-          {$t('mods.depDialog.requiredLabel')}
-        </div>
-        <ul class="text-sm text-primary list-disc pl-5">
-          {#each required as r (r.version.version_id)}
-            <li>
-              {r.projectName}
-              <span class="text-muted">· {r.version.version_number} · {r.projectSource}</span>
-            </li>
-          {/each}
-        </ul>
+  {#if required.length > 0}
+    <div class="mb-3">
+      <div class="text-xs uppercase tracking-wide text-muted mb-1">
+        {$t('mods.depDialog.requiredLabel')}
       </div>
-    {/if}
+      <ul class="text-sm text-primary list-disc pl-5">
+        {#each required as r (r.version.version_id)}
+          <li>
+            {r.projectName}
+            <span class="text-muted">· {r.version.version_number} · {r.projectSource}</span>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
-    {#if optional.length > 0}
-      <div class="mb-3">
-        <div class="text-xs uppercase tracking-wide text-muted mb-1">
-          {$t('mods.depDialog.optionalLabel')}
-        </div>
-        <ul class="text-sm text-primary space-y-1">
-          {#each optional as o, i (o.version.version_id)}
+  {#if optional.length > 0}
+    <div class="mb-3">
+      <div class="text-xs uppercase tracking-wide text-muted mb-1">
+        {$t('mods.depDialog.optionalLabel')}
+      </div>
+      <ul class="text-sm text-primary space-y-1">
+        {#each optional as o, i (o.version.version_id)}
+          <li>
+            <label class="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={optionalChosen[i]}
+                onchange={(e) => {
+                  optionalChosen[i] = (e.currentTarget as HTMLInputElement).checked;
+                }}
+              />
+              {o.projectName}
+              <span class="text-muted">· {o.version.version_number} · {o.projectSource}</span>
+            </label>
+            {#if optionalChosen[i] && o.requires.length > 0}
+              <ul class="pl-6 mt-0.5 space-y-0.5 text-xs text-muted">
+                {#each o.requires as sub (sub.version.version_id)}
+                  <li>{$t('mods.depDialog.subRequires', { name: sub.projectName })}</li>
+                {/each}
+              </ul>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  {#if loaderMismatch}
+    <div
+      class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger flex items-start gap-1.5"
+    >
+      <Icon name="warning" class="text-danger shrink-0 mt-0.5" />
+      <div>
+        <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
+        {$t('mods.depDialog.loaderMismatchBody', {
+          modLoaders: loaderMismatch.modLoaders.join(' / '),
+          instanceLoader: loaderMismatch.instanceLoader,
+        })}
+      </div>
+    </div>
+  {/if}
+
+  {#if loaderRequirements.length > 0}
+    <div
+      class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent flex items-start gap-1.5"
+    >
+      <Icon name="info" class="text-accent shrink-0 mt-0.5" />
+      <span
+        >{$t('mods.depDialog.loaderRequirementsInfo', {
+          loaders: loaderRequirements.join(' / '),
+        })}</span
+      >
+    </div>
+  {/if}
+
+  {#if incompatible.length > 0}
+    <div
+      class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
+    >
+      <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+      <span>{$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}</span>
+    </div>
+  {/if}
+
+  {#if unresolvable.length > 0}
+    <div
+      class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
+    >
+      <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+      <div>
+        <div class="font-medium mb-1">{$t('mods.depDialog.unresolvableHeading')}</div>
+        <ul class="list-disc pl-5 space-y-0.5">
+          {#each unresolvable as u, i (i)}
             <li>
-              <label class="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={optionalChosen[i]}
-                  onchange={(e) => {
-                    optionalChosen[i] = (e.currentTarget as HTMLInputElement).checked;
-                  }}
-                />
-                {o.projectName}
-                <span class="text-muted">· {o.version.version_number} · {o.projectSource}</span>
-              </label>
-              {#if optionalChosen[i] && o.requires.length > 0}
-                <ul class="pl-6 mt-0.5 space-y-0.5 text-xs text-muted">
-                  {#each o.requires as sub (sub.version.version_id)}
-                    <li>{$t('mods.depDialog.subRequires', { name: sub.projectName })}</li>
-                  {/each}
-                </ul>
+              {#if u.kind === 'noMc'}
+                {$t('mods.depDialog.unresolvableRowNoMc', {
+                  name: u.name,
+                  mcVersion: u.mcVersion,
+                  list: u.list,
+                })}
+              {:else if u.kind === 'wrongLoader'}
+                {$t('mods.depDialog.unresolvableRowWrongLoader', {
+                  name: u.name,
+                  loader: u.loader,
+                  list: u.list,
+                })}
+              {:else}
+                {$t('mods.depDialog.unresolvableRowNoVersions', { name: u.name })}
               {/if}
             </li>
           {/each}
         </ul>
       </div>
-    {/if}
-
-    {#if loaderMismatch}
-      <div
-        class="mb-3 bg-danger-bg border border-danger rounded p-2 text-sm text-danger flex items-start gap-1.5"
-      >
-        <Icon name="warning" class="text-danger shrink-0 mt-0.5" />
-        <div>
-          <span class="font-medium">{$t('mods.depDialog.loaderMismatchHeading')}</span>
-          {$t('mods.depDialog.loaderMismatchBody', {
-            modLoaders: loaderMismatch.modLoaders.join(' / '),
-            instanceLoader: loaderMismatch.instanceLoader,
-          })}
-        </div>
-      </div>
-    {/if}
-
-    {#if loaderRequirements.length > 0}
-      <div
-        class="mb-3 bg-accent-soft border border-accent rounded p-2 text-xs text-accent flex items-start gap-1.5"
-      >
-        <Icon name="info" class="text-accent shrink-0 mt-0.5" />
-        <span
-          >{$t('mods.depDialog.loaderRequirementsInfo', {
-            loaders: loaderRequirements.join(' / '),
-          })}</span
-        >
-      </div>
-    {/if}
-
-    {#if incompatible.length > 0}
-      <div
-        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
-      >
-        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
-        <span>{$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}</span>
-      </div>
-    {/if}
-
-    {#if unresolvable.length > 0}
-      <div
-        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
-      >
-        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
-        <div>
-          <div class="font-medium mb-1">{$t('mods.depDialog.unresolvableHeading')}</div>
-          <ul class="list-disc pl-5 space-y-0.5">
-            {#each unresolvable as u, i (i)}
-              <li>
-                {#if u.kind === 'noMc'}
-                  {$t('mods.depDialog.unresolvableRowNoMc', {
-                    name: u.name,
-                    mcVersion: u.mcVersion,
-                    list: u.list,
-                  })}
-                {:else if u.kind === 'wrongLoader'}
-                  {$t('mods.depDialog.unresolvableRowWrongLoader', {
-                    name: u.name,
-                    loader: u.loader,
-                    list: u.list,
-                  })}
-                {:else}
-                  {$t('mods.depDialog.unresolvableRowNoVersions', { name: u.name })}
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        </div>
-      </div>
-    {/if}
-
-    <div class="flex justify-end gap-2 mt-4">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
-        >{$t('common.cancel')}</button
-      >
-      <button type="button" class="btn-primary btn-sm" onclick={confirm}>
-        {$t('mods.depDialog.installBtn', { count: total })}
-      </button>
     </div>
+  {/if}
+
+  <div class="flex justify-end gap-2 mt-4">
+    <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+      >{$t('common.cancel')}</button
+    >
+    <button type="button" class="btn-primary btn-sm" onclick={confirm}>
+      {$t('mods.depDialog.installBtn', { count: total })}
+    </button>
+  </div>
 </Modal>

@@ -143,15 +143,17 @@ describe('SettingsModal — active tab has canonical underline classes', () => {
   });
 });
 
-describe('SettingsModal — inactive tabs have border-transparent text-placeholder', () => {
-  it('inactive Storage/About/General tabs have border-transparent text-placeholder', () => {
+describe('SettingsModal — inactive tabs have border-transparent text-muted', () => {
+  it('inactive Storage/About/General tabs have border-transparent text-muted', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
     for (const name of ['Storage', 'About', 'General']) {
       const tab = screen.getByRole('tab', { name });
       const cls = tab.className;
       expect(cls).toContain('border-transparent');
-      expect(cls).toContain('text-placeholder');
+      // Inactive tabs use text-muted (WCAG-AA legible) rather than the lower-
+      // contrast text-placeholder, which failed 4.5:1 in both themes.
+      expect(cls).toContain('text-muted');
       // Structural shape shared by all tabs.
       expect(cls).toContain('border-b-2');
       expect(cls).toContain('px-3');
@@ -161,13 +163,13 @@ describe('SettingsModal — inactive tabs have border-transparent text-placehold
     }
   });
 
-  it('inactive CurseForge tab has border-transparent text-placeholder when another tab active', () => {
+  it('inactive CurseForge tab has border-transparent text-muted when another tab active', () => {
     settingsOpen.value = { tab: 'storage' };
     render(SettingsModal);
     const tab = screen.getByRole('tab', { name: 'CurseForge' });
     const cls = tab.className;
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 });
 
