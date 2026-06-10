@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ModVersion } from '../src/lib/ipc/bindings';
-import { latestSupportedPerLoader } from '../src/lib/mods/latest-supported-version';
+import type { LoaderKind, ModVersion } from '../src/lib/ipc/bindings';
+import {
+  formatLoaderLatestList,
+  latestSupportedPerLoader,
+} from '../src/lib/mods/latest-supported-version';
 
 // Newest-first manifest order (as listVersions returns it).
 const MANIFEST = ['1.21', '1.20.6', '1.20.4', '1.19.2', '1.7.10'];
@@ -79,5 +82,38 @@ describe('latestSupportedPerLoader', () => {
     expect(latestSupportedPerLoader(versions, MANIFEST)).toEqual([
       { loader: 'fabric', mcVersion: '24w14a' },
     ]);
+  });
+});
+
+describe('formatLoaderLatestList', () => {
+  const NAMES: Record<LoaderKind, string> = {
+    fabric: 'Fabric',
+    forge: 'Forge',
+    neoforge: 'NeoForge',
+    quilt: 'Quilt',
+    vanilla: 'Vanilla',
+  };
+  const display = (k: LoaderKind): string => NAMES[k];
+
+  it('joins per-loader entries with a middot separator', () => {
+    expect(
+      formatLoaderLatestList(
+        [
+          { loader: 'fabric', mcVersion: '1.21' },
+          { loader: 'forge', mcVersion: '1.19.2' },
+        ],
+        display,
+      ),
+    ).toBe('Fabric 1.21 · Forge 1.19.2');
+  });
+
+  it('renders a single entry without a separator', () => {
+    expect(formatLoaderLatestList([{ loader: 'fabric', mcVersion: '1.21' }], display)).toBe(
+      'Fabric 1.21',
+    );
+  });
+
+  it('returns an empty string for no entries', () => {
+    expect(formatLoaderLatestList([], display)).toBe('');
   });
 });

@@ -373,7 +373,10 @@
       "loaderMismatchBody": "Эта версия предназначена для {modLoaders}, но профиль использует {instanceLoader}. Установка добавит jar в папку модов, который Minecraft не сможет загрузить. Выберите другую версию или смените загрузчик профиля.",
       "loaderRequirementsInfo": "Этот мод предназначен для {loaders}. Убедитесь, что профиль использует совместимый загрузчик.",
       "incompatibleWarning": "Несовместим с: {names}",
-      "unresolvableWarning": "Не удалось найти совместимые версии: {names} — установить всё равно?",
+      "unresolvableHeading": "У некоторых обязательных зависимостей нет совместимой версии — всё равно установить?",
+      "unresolvableRowNoMc": "{name} — нет версии для Minecraft {mcVersion}. Последние: {list}",
+      "unresolvableRowWrongLoader": "{name} — нет версии для {loader}. Доступно: {list}",
+      "unresolvableRowNoVersions": "{name} — совместимых версий не найдено",
       "subRequires": "требует: {name}",
       "installBtn": "{count, plural, one {Установить (# мод)} few {Установить (# мода)} many {Установить (# модов)} other {Установить (# мода)}}"
     }
