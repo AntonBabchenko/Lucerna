@@ -146,9 +146,10 @@
 
     {#if summary.has_saves_in_overrides}
       <div
-        class="m-4 p-3 bg-warning-bg border border-warning-text/30 rounded text-sm text-warning-text"
+        class="m-4 p-3 bg-warning-bg border border-warning-text/30 rounded text-sm text-warning-text flex items-start gap-1.5"
       >
-        {$t('modpacks.import.picker.savesWarning')}
+        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+        <span>{$t('modpacks.import.picker.savesWarning')}</span>
       </div>
     {/if}
 

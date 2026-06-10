@@ -417,7 +417,7 @@
     "import": {
       "picker": {
         "dialogAriaLabel": "Modpack import picker",
-        "savesWarning": "⚠ This pack includes saved worlds in its overrides. They will be copied into the new instance.",
+        "savesWarning": "This pack includes saved worlds in its overrides. They will be copied into the new instance.",
         "requiredSection": "Required ({count})",
         "requiredModAriaLabel": "Required: {name}",
         "optionalSection": "Optional ({count})",
@@ -572,7 +572,7 @@
     "update": {
       "dialogAriaLabel": "Modpack update confirmation",
       "title": "Update to {version}",
-      "changeSummary": "+{added} added · −{removed} removed · ⟳{updated} updated",
+      "changeSummary": "+{added} added · −{removed} removed · {updated} updated",
       "versionBump": "Minecraft {oldVersion} → {newVersion}. After updating, click Install to download the new Minecraft version.",
       "noChanges": "No file changes in this version.",
       "cancelBtn": "Cancel",

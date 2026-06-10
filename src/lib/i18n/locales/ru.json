@@ -417,7 +417,7 @@
     "import": {
       "picker": {
         "dialogAriaLabel": "Мастер импорта сборки",
-        "savesWarning": "⚠ Эта сборка содержит сохранения миров в overrides. Они будут скопированы в новый профиль.",
+        "savesWarning": "Эта сборка содержит сохранения миров в overrides. Они будут скопированы в новый профиль.",
         "requiredSection": "Обязательные ({count})",
         "requiredModAriaLabel": "Обязательный: {name}",
         "optionalSection": "Необязательные ({count})",
@@ -572,7 +572,7 @@
     "update": {
       "dialogAriaLabel": "Подтверждение обновления сборки",
       "title": "Обновить до {version}",
-      "changeSummary": "+{added} добавлено · −{removed} удалено · ⟳{updated} обновлено",
+      "changeSummary": "+{added} добавлено · −{removed} удалено · {updated} обновлено",
       "versionBump": "Minecraft {oldVersion} → {newVersion}. После обновления нажмите «Установить», чтобы скачать новую версию Minecraft.",
       "noChanges": "Изменений файлов в этой версии нет.",
       "cancelBtn": "Отмена",
