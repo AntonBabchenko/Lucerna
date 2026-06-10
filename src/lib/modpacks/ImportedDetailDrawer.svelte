@@ -624,10 +624,11 @@
                 ></div>
                 {#if prov === 'pack'}
                   <span
-                    class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
+                    class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
                     title={$t('modpacks.imported.detail.badgeFromPackTitle')}
                     data-testid="mod-badge-pack-{m.sha1}"
                   >
+                    <Icon name="package" size={11} />
                     {$t('modpacks.imported.detail.badgeFromPack')}
                   </span>
                 {:else if prov === 'user'}

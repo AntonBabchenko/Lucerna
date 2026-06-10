@@ -1034,7 +1034,7 @@ describe('ModDetailModal — installed version row button has btn-xs base + succ
       },
     });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
-    const installedBtn = await screen.findByRole('button', { name: /✓ installed/i });
+    const installedBtn = await screen.findByRole('button', { name: /installed/i });
     const cls = installedBtn.className;
     expect(cls).toContain('btn-xs');
     expect(cls).toContain('border-success');

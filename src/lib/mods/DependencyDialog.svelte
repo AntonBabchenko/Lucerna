@@ -196,17 +196,19 @@
 
     {#if incompatible.length > 0}
       <div
-        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
+        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
       >
-        {$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}
+        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+        <span>{$t('mods.depDialog.incompatibleWarning', { names: incompatible.join(', ') })}</span>
       </div>
     {/if}
 
     {#if unresolvable.length > 0}
       <div
-        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
+        class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text flex items-start gap-1.5"
       >
-        {$t('mods.depDialog.unresolvableWarning', { names: unresolvable.join(', ') })}
+        <Icon name="warning" size={14} class="flex-shrink-0 mt-0.5" />
+        <span>{$t('mods.depDialog.unresolvableWarning', { names: unresolvable.join(', ') })}</span>
       </div>
     {/if}
 
