@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { t, locale } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
 
   let {
     instanceId,
@@ -46,51 +47,50 @@
   }
 </script>
 
-<div
-  class="fixed inset-0 z-50 bg-black/30 flex items-center justify-center"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="restore-dialog-title"
+<Modal
+  ariaLabelledby="restore-dialog-title"
+  {onClose}
+  panelClass="max-w-md w-full p-4"
+  closeOnBackdrop={!busy}
+  closeOnEscape={!busy}
 >
-  <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-md w-full p-4">
-    <h3 id="restore-dialog-title" class="font-semibold text-lg text-primary mb-3">
-      {$t('worlds.restore.title', { world: worldFolder, timestamp: formatTs() })}
-    </h3>
-    <label class="flex items-start gap-2 mb-3">
-      <input type="radio" name="restore-mode" value="replace" bind:group={mode} disabled={busy} />
-      <span class="text-sm">
-        <span class="font-medium">{$t('worlds.restore.replaceLabel')}</span>
-        <br />
-        <span class="text-secondary">
-          {$t('worlds.restore.replaceDescription')}
-        </span>
+  <h3 id="restore-dialog-title" class="font-semibold text-lg text-primary mb-3">
+    {$t('worlds.restore.title', { world: worldFolder, timestamp: formatTs() })}
+  </h3>
+  <label class="flex items-start gap-2 mb-3">
+    <input type="radio" name="restore-mode" value="replace" bind:group={mode} disabled={busy} />
+    <span class="text-sm">
+      <span class="font-medium">{$t('worlds.restore.replaceLabel')}</span>
+      <br />
+      <span class="text-secondary">
+        {$t('worlds.restore.replaceDescription')}
       </span>
-    </label>
-    <label class="flex items-start gap-2 mb-4">
-      <input type="radio" name="restore-mode" value="as_copy" bind:group={mode} disabled={busy} />
-      <span class="text-sm">
-        <span class="font-medium">{$t('worlds.restore.asCopyLabel')}</span>
-        <br />
-        <span class="text-secondary">
-          {$t('worlds.restore.asCopyDescription', { world: worldFolder })}
-        </span>
+    </span>
+  </label>
+  <label class="flex items-start gap-2 mb-4">
+    <input type="radio" name="restore-mode" value="as_copy" bind:group={mode} disabled={busy} />
+    <span class="text-sm">
+      <span class="font-medium">{$t('worlds.restore.asCopyLabel')}</span>
+      <br />
+      <span class="text-secondary">
+        {$t('worlds.restore.asCopyDescription', { world: worldFolder })}
       </span>
-    </label>
-    {#if error}
-      <p class="text-xs text-danger mb-2">{error}</p>
-    {/if}
-    <div class="flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
-        {$t('common.cancel')}
-      </button>
-      <button
-        type="button"
-        class="btn-primary btn-sm"
-        onclick={() => void onConfirm()}
-        disabled={busy}
-      >
-        {$t('worlds.restore.restoreBtn')}
-      </button>
-    </div>
+    </span>
+  </label>
+  {#if error}
+    <p class="text-xs text-danger mb-2">{error}</p>
+  {/if}
+  <div class="flex justify-end gap-2">
+    <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
+      {$t('common.cancel')}
+    </button>
+    <button
+      type="button"
+      class="btn-primary btn-sm"
+      onclick={() => void onConfirm()}
+      disabled={busy}
+    >
+      {$t('worlds.restore.restoreBtn')}
+    </button>
   </div>
-</div>
+</Modal>

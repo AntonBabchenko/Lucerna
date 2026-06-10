@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { OrphanRef } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
 
   let {
     removingNames,
@@ -26,49 +27,46 @@
   }
 </script>
 
-<div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-  <div
-    role="dialog"
-    aria-modal="true"
-    aria-label={$t('mods.orphan.confirmUninstallAriaLabel')}
-    class="bg-surface rounded shadow-xl w-[440px] max-w-[90vw] p-5"
-  >
-    <h2 class="text-base font-semibold text-primary mb-3">
-      {$t('mods.orphan.heading', { count: removingNames.length })}
-    </h2>
-    <ul class="text-sm text-secondary list-disc pl-5 mb-3 max-h-32 overflow-auto">
-      {#each removingNames as n}<li>{n}</li>{/each}
-    </ul>
-    {#if orphans.length > 0}
-      <div class="text-xs uppercase tracking-wide text-muted mb-1">
-        {$t('mods.orphan.alsoRemoveLabel')}
-      </div>
-      <ul class="text-sm text-primary space-y-1 mb-3">
-        {#each orphans as o, i (o.sha1)}
-          <li>
-            <label class="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={checked[i]}
-                onchange={(e) => (checked[i] = (e.currentTarget as HTMLInputElement).checked)}
-              />
-              {o.name}
-            </label>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-    <div class="flex justify-end gap-2 mt-4">
-      <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
-        >{$t('common.cancel')}</button
-      >
-      <button type="button" class="btn-danger btn-sm" onclick={confirm}>
-        {$t('mods.orphan.confirmBtn', {
-          count: anyChecked
-            ? removingNames.length + checked.filter(Boolean).length
-            : removingNames.length,
-        })}
-      </button>
+<Modal
+  ariaLabelledby="orphan-dialog-title"
+  onClose={onCancel}
+  panelClass="w-[440px] max-w-[90vw] p-5"
+>
+  <h2 id="orphan-dialog-title" class="text-base font-semibold text-primary mb-3">
+    {$t('mods.orphan.heading', { count: removingNames.length })}
+  </h2>
+  <ul class="text-sm text-secondary list-disc pl-5 mb-3 max-h-32 overflow-auto">
+    {#each removingNames as n}<li>{n}</li>{/each}
+  </ul>
+  {#if orphans.length > 0}
+    <div class="text-xs uppercase tracking-wide text-muted mb-1">
+      {$t('mods.orphan.alsoRemoveLabel')}
     </div>
+    <ul class="text-sm text-primary space-y-1 mb-3">
+      {#each orphans as o, i (o.sha1)}
+        <li>
+          <label class="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={checked[i]}
+              onchange={(e) => (checked[i] = (e.currentTarget as HTMLInputElement).checked)}
+            />
+            {o.name}
+          </label>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+  <div class="flex justify-end gap-2 mt-4">
+    <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
+      >{$t('common.cancel')}</button
+    >
+    <button type="button" class="btn-danger btn-sm" onclick={confirm}>
+      {$t('mods.orphan.confirmBtn', {
+        count: anyChecked
+          ? removingNames.length + checked.filter(Boolean).length
+          : removingNames.length,
+      })}
+    </button>
   </div>
-</div>
+</Modal>

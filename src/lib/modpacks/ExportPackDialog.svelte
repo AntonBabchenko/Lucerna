@@ -11,6 +11,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { defaultExportFilename, unresolvableMods, type ExportModeUi } from '$lib/modpacks/export';
 
@@ -110,160 +111,161 @@
   }
 </script>
 
-<div
-  class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
-  role="dialog"
-  aria-modal="true"
-  aria-label={$t('modpacks.export.dialogAriaLabel')}
+<Modal
+  ariaLabelledby="export-pack-title"
+  {onClose}
+  panelClass="max-w-2xl w-full max-h-[85vh] flex flex-col"
+  closeOnBackdrop={!busy}
+  closeOnEscape={!busy}
 >
-  <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
-    <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold text-primary">{$t('modpacks.export.title')}</h2>
-    </header>
+  <header class="p-4 border-b">
+    <h2 id="export-pack-title" class="text-lg font-semibold text-primary">
+      {$t('modpacks.export.title')}
+    </h2>
+  </header>
 
-    <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-      {#if loadError}
-        <p class="text-sm text-danger">{loadError}</p>
-      {:else if !preview}
-        <p class="text-sm text-muted">{$t('modpacks.export.loading')}</p>
-      {:else}
-        <fieldset class="flex flex-col gap-1">
-          <legend class="text-xs uppercase tracking-wide text-muted"
-            >{$t('modpacks.export.formatLabel')}</legend
-          >
-          <label
-            ><input type="radio" bind:group={format} value="modrinth" />
-            {$t('modpacks.export.formatModrinth')}</label
-          >
-          <label
-            ><input type="radio" bind:group={format} value="curseforge" />
-            {$t('modpacks.export.formatCurseForge')}</label
-          >
-        </fieldset>
+  <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+    {#if loadError}
+      <p class="text-sm text-danger">{loadError}</p>
+    {:else if !preview}
+      <p class="text-sm text-muted">{$t('modpacks.export.loading')}</p>
+    {:else}
+      <fieldset class="flex flex-col gap-1">
+        <legend class="text-xs uppercase tracking-wide text-muted"
+          >{$t('modpacks.export.formatLabel')}</legend
+        >
+        <label
+          ><input type="radio" bind:group={format} value="modrinth" />
+          {$t('modpacks.export.formatModrinth')}</label
+        >
+        <label
+          ><input type="radio" bind:group={format} value="curseforge" />
+          {$t('modpacks.export.formatCurseForge')}</label
+        >
+      </fieldset>
 
-        <fieldset class="flex flex-col gap-1">
-          <legend class="text-xs uppercase tracking-wide text-muted"
-            >{$t('modpacks.export.modeLabel')}</legend
-          >
-          <label
-            ><input type="radio" bind:group={mode} value="lightweight" />
-            {$t('modpacks.export.modeLightweight')}</label
-          >
-          <label
-            ><input type="radio" bind:group={mode} value="full" />
-            {$t('modpacks.export.modeFull')}</label
-          >
-        </fieldset>
+      <fieldset class="flex flex-col gap-1">
+        <legend class="text-xs uppercase tracking-wide text-muted"
+          >{$t('modpacks.export.modeLabel')}</legend
+        >
+        <label
+          ><input type="radio" bind:group={mode} value="lightweight" />
+          {$t('modpacks.export.modeLightweight')}</label
+        >
+        <label
+          ><input type="radio" bind:group={mode} value="full" />
+          {$t('modpacks.export.modeFull')}</label
+        >
+      </fieldset>
 
-        <fieldset class="flex flex-col gap-1">
-          <legend class="text-xs uppercase tracking-wide text-muted"
-            >{$t('modpacks.export.contentLabel')}</legend
-          >
+      <fieldset class="flex flex-col gap-1">
+        <legend class="text-xs uppercase tracking-wide text-muted"
+          >{$t('modpacks.export.contentLabel')}</legend
+        >
+        <label
+          ><input type="checkbox" checked disabled />
+          {$t('modpacks.export.modsCount', { count: preview.mods.length })}</label
+        >
+        {#if preview.has_config}
           <label
-            ><input type="checkbox" checked disabled />
-            {$t('modpacks.export.modsCount', { count: preview.mods.length })}</label
+            ><input type="checkbox" bind:checked={includeConfig} />
+            {$t('modpacks.export.configs')}</label
           >
-          {#if preview.has_config}
-            <label
-              ><input type="checkbox" bind:checked={includeConfig} />
-              {$t('modpacks.export.configs')}</label
-            >
-            <p class="text-xs text-muted">
-              {$t('modpacks.export.configsWarning')}
+          <p class="text-xs text-muted">
+            {$t('modpacks.export.configsWarning')}
+          </p>
+        {/if}
+        {#if preview.has_resourcepacks}
+          <label
+            ><input type="checkbox" bind:checked={includeResourcepacks} />
+            {$t('modpacks.export.resourcePacks')}</label
+          >
+        {/if}
+        {#if preview.has_shaderpacks}
+          <label
+            ><input type="checkbox" bind:checked={includeShaderpacks} />
+            {$t('modpacks.export.shaderPacks')}</label
+          >
+        {/if}
+        {#if preview.has_saves}
+          <label>
+            <input type="checkbox" bind:checked={includeWorlds} />
+            {$t('modpacks.export.worlds')}{preview.saves_size_bytes != null
+              ? ` (${fmtSize(preview.saves_size_bytes)})`
+              : ''}
+          </label>
+          {#if includeWorlds}
+            <p class="text-xs text-danger">
+              {$t('modpacks.export.worldsWarning')}
             </p>
           {/if}
-          {#if preview.has_resourcepacks}
-            <label
-              ><input type="checkbox" bind:checked={includeResourcepacks} />
-              {$t('modpacks.export.resourcePacks')}</label
-            >
-          {/if}
-          {#if preview.has_shaderpacks}
-            <label
-              ><input type="checkbox" bind:checked={includeShaderpacks} />
-              {$t('modpacks.export.shaderPacks')}</label
-            >
-          {/if}
-          {#if preview.has_saves}
+        {/if}
+      </fieldset>
+
+      {#if mode === 'lightweight' && unresolvable.length > 0}
+        <fieldset class="flex flex-col gap-1">
+          <legend class="text-xs uppercase tracking-wide text-muted"
+            >{$t('modpacks.export.unresolvableLabel')}</legend
+          >
+          <p class="text-xs text-muted">
+            {$t('modpacks.export.unresolvableBody')}
+          </p>
+          {#each unresolvable as m (m.sha1)}
             <label>
-              <input type="checkbox" bind:checked={includeWorlds} />
-              {$t('modpacks.export.worlds')}{preview.saves_size_bytes != null
-                ? ` (${fmtSize(preview.saves_size_bytes)})`
-                : ''}
+              <input
+                type="checkbox"
+                checked={bundleSet.has(m.sha1)}
+                onchange={() => toggleBundle(m.sha1)}
+              />
+              {m.name}
             </label>
-            {#if includeWorlds}
-              <p class="text-xs text-danger">
-                {$t('modpacks.export.worldsWarning')}
-              </p>
-            {/if}
-          {/if}
+          {/each}
         </fieldset>
-
-        {#if mode === 'lightweight' && unresolvable.length > 0}
-          <fieldset class="flex flex-col gap-1">
-            <legend class="text-xs uppercase tracking-wide text-muted"
-              >{$t('modpacks.export.unresolvableLabel')}</legend
-            >
-            <p class="text-xs text-muted">
-              {$t('modpacks.export.unresolvableBody')}
-            </p>
-            {#each unresolvable as m (m.sha1)}
-              <label>
-                <input
-                  type="checkbox"
-                  checked={bundleSet.has(m.sha1)}
-                  onchange={() => toggleBundle(m.sha1)}
-                />
-                {m.name}
-              </label>
-            {/each}
-          </fieldset>
-        {/if}
-
-        <fieldset class="flex flex-col gap-2">
-          <legend class="text-xs uppercase tracking-wide text-muted"
-            >{$t('modpacks.export.detailsLabel')}</legend
-          >
-          <input
-            class="border rounded px-2 py-1"
-            bind:value={name}
-            placeholder={$t('modpacks.export.namePlaceholder')}
-          />
-          <input
-            class="border rounded px-2 py-1"
-            bind:value={version}
-            placeholder={$t('modpacks.export.versionPlaceholder')}
-          />
-          <input
-            class="border rounded px-2 py-1"
-            bind:value={author}
-            placeholder={$t('modpacks.export.authorPlaceholder')}
-          />
-          <input
-            class="border rounded px-2 py-1"
-            bind:value={summary}
-            placeholder={$t('modpacks.export.summaryPlaceholder')}
-          />
-        </fieldset>
-
-        {#if phase}
-          <p class="text-sm text-secondary" data-testid="export-phase">{phase.phase}</p>
-        {/if}
       {/if}
-    </div>
 
-    <footer class="p-4 border-t flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}
-        >{$t('common.cancel')}</button
-      >
-      <button
-        type="button"
-        class="btn-primary btn-sm"
-        disabled={busy || !preview || preview.mods.length === 0 || !name.trim() || !version.trim()}
-        onclick={() => void runExport()}
-      >
-        {$t('modpacks.export.exportBtn')}
-      </button>
-    </footer>
+      <fieldset class="flex flex-col gap-2">
+        <legend class="text-xs uppercase tracking-wide text-muted"
+          >{$t('modpacks.export.detailsLabel')}</legend
+        >
+        <input
+          class="border rounded px-2 py-1"
+          bind:value={name}
+          placeholder={$t('modpacks.export.namePlaceholder')}
+        />
+        <input
+          class="border rounded px-2 py-1"
+          bind:value={version}
+          placeholder={$t('modpacks.export.versionPlaceholder')}
+        />
+        <input
+          class="border rounded px-2 py-1"
+          bind:value={author}
+          placeholder={$t('modpacks.export.authorPlaceholder')}
+        />
+        <input
+          class="border rounded px-2 py-1"
+          bind:value={summary}
+          placeholder={$t('modpacks.export.summaryPlaceholder')}
+        />
+      </fieldset>
+
+      {#if phase}
+        <p class="text-sm text-secondary" data-testid="export-phase">{phase.phase}</p>
+      {/if}
+    {/if}
   </div>
-</div>
+
+  <footer class="p-4 border-t flex justify-end gap-2">
+    <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}
+      >{$t('common.cancel')}</button
+    >
+    <button
+      type="button"
+      class="btn-primary btn-sm"
+      disabled={busy || !preview || preview.mods.length === 0 || !name.trim() || !version.trim()}
+      onclick={() => void runExport()}
+    >
+      {$t('modpacks.export.exportBtn')}
+    </button>
+  </footer>
+</Modal>

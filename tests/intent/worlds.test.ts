@@ -641,7 +641,7 @@ describe('DeleteWorldDialog — dialog container classes (beyond D Cancel/Delete
     expect(dialog.getAttribute('aria-labelledby')).toBe('delete-world-title');
   });
 
-  it('dialog inner panel has bg-surface border-border-subtle classes', () => {
+  it('dialog inner panel has the shared Modal surface classes', () => {
     const { container } = render(DeleteWorldDialog, {
       props: {
         instanceId: 'inst-1',
@@ -650,12 +650,14 @@ describe('DeleteWorldDialog — dialog container classes (beyond D Cancel/Delete
         onDeleted: () => {},
       },
     });
+    // The shared Modal primitive now owns the panel surface styling
+    // (bg-surface rounded-lg shadow-xl); the dialog only supplies sizing.
     const panel = container.querySelector('.bg-surface');
     expect(panel).not.toBeNull();
     const cls = panel?.className ?? '';
-    expect(cls).toContain('border-border-subtle');
-    expect(cls).toContain('rounded');
-    expect(cls).toContain('shadow-lg');
+    expect(cls).toContain('rounded-lg');
+    expect(cls).toContain('shadow-xl');
+    expect(cls).toContain('max-w-md');
   });
 });
 

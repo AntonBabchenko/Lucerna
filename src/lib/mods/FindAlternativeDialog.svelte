@@ -9,6 +9,7 @@
   import { deriveSearchQuery, isPlausibleAlternative } from './alternative-match';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
 
   // Reusable "find this mod on Modrinth" dialog for a mod the user cannot
@@ -113,87 +114,85 @@
   });
 </script>
 
-<div
-  class="fixed inset-0 bg-black/50 flex items-center justify-center z-[70]"
-  role="dialog"
-  aria-modal="true"
-  aria-label={$t('mods.findAlt.title', { mod: modName })}
-  data-testid="find-alt-dialog"
+<Modal
+  ariaLabelledby="find-alt-title"
+  {onClose}
+  panelClass="w-[min(40rem,92vw)] max-h-[85vh] flex flex-col"
 >
-  <div class="bg-surface rounded-lg shadow-xl w-[min(40rem,92vw)] max-h-[85vh] flex flex-col">
-    <header class="p-4 border-b flex items-center justify-between">
-      <h3 class="font-medium text-primary">{$t('mods.findAlt.title', { mod: modName })}</h3>
-      <CloseButton onClick={onClose} ariaLabel={$t('mods.findAlt.close')} />
-    </header>
+  <header class="p-4 border-b flex items-center justify-between" data-testid="find-alt-dialog">
+    <h3 id="find-alt-title" class="font-medium text-primary">
+      {$t('mods.findAlt.title', { mod: modName })}
+    </h3>
+    <CloseButton onClick={onClose} ariaLabel={$t('mods.findAlt.close')} />
+  </header>
 
-    <div class="p-4 overflow-y-auto flex-1">
-      <p class="text-xs text-muted mb-3">{$t('mods.findAlt.body')}</p>
+  <div class="p-4 overflow-y-auto flex-1">
+    <p class="text-xs text-muted mb-3">{$t('mods.findAlt.body')}</p>
 
-      <form
-        class="flex gap-2 mb-3"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void search();
-        }}
-      >
-        <input
-          type="text"
-          bind:value={query}
-          class="filter-control flex-1"
-          data-testid="find-alt-query"
-          aria-label={$t('mods.findAlt.searchLabel')}
-        />
-        <button type="submit" class="btn-secondary btn-sm">{$t('mods.findAlt.searchBtn')}</button>
-      </form>
+    <form
+      class="flex gap-2 mb-3"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void search();
+      }}
+    >
+      <input
+        type="text"
+        bind:value={query}
+        class="filter-control flex-1"
+        data-testid="find-alt-query"
+        aria-label={$t('mods.findAlt.searchLabel')}
+      />
+      <button type="submit" class="btn-secondary btn-sm">{$t('mods.findAlt.searchBtn')}</button>
+    </form>
 
-      {#if installError}
-        <p class="text-sm text-danger mb-2" data-testid="find-alt-install-error">{installError}</p>
-      {/if}
+    {#if installError}
+      <p class="text-sm text-danger mb-2" data-testid="find-alt-install-error">{installError}</p>
+    {/if}
 
-      {#if candidates === null && !searchError}
-        <p class="text-sm text-muted" data-testid="find-alt-loading">
-          {$t('mods.findAlt.searching')}
-        </p>
-      {:else if searchError}
-        <p class="text-sm text-danger" data-testid="find-alt-search-error">{searchError}</p>
-      {:else if candidates && candidates.length === 0}
-        <p class="text-sm text-muted" data-testid="find-alt-empty">{$t('mods.findAlt.empty')}</p>
-      {:else if candidates}
-        <ul class="space-y-2" data-testid="find-alt-results">
-          {#each candidates as c (c.project_id)}
-            <li class="flex items-center gap-3 p-2 rounded border border-subtle">
-              {#if c.icon_url}
-                <img src={c.icon_url} alt="" class="w-10 h-10 rounded flex-shrink-0" />
-              {/if}
-              <div class="min-w-0 flex-1">
-                <span class="text-sm text-primary truncate">{c.name}</span>
-                <span class="text-xs text-muted truncate block">{c.author}</span>
-              </div>
-              <BusyButton
-                busy={busyId === c.project_id}
-                disabled={busyId !== null && busyId !== c.project_id}
-                class="btn-primary btn-xs flex-shrink-0"
-                onclick={() => void install(c)}
-              >
-                {$t('mods.findAlt.install')}
-              </BusyButton>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
-
-    {#if curseForgeUrl}
-      <footer class="p-3 border-t text-center">
-        <button
-          type="button"
-          class="text-accent hover:underline text-xs inline-flex items-center gap-1"
-          onclick={openCurseForge}
-        >
-          {$t('mods.findAlt.openCurseForge')}
-          <Icon name="externalLink" size={12} />
-        </button>
-      </footer>
+    {#if candidates === null && !searchError}
+      <p class="text-sm text-muted" data-testid="find-alt-loading">
+        {$t('mods.findAlt.searching')}
+      </p>
+    {:else if searchError}
+      <p class="text-sm text-danger" data-testid="find-alt-search-error">{searchError}</p>
+    {:else if candidates && candidates.length === 0}
+      <p class="text-sm text-muted" data-testid="find-alt-empty">{$t('mods.findAlt.empty')}</p>
+    {:else if candidates}
+      <ul class="space-y-2" data-testid="find-alt-results">
+        {#each candidates as c (c.project_id)}
+          <li class="flex items-center gap-3 p-2 rounded border border-subtle">
+            {#if c.icon_url}
+              <img src={c.icon_url} alt="" class="w-10 h-10 rounded flex-shrink-0" />
+            {/if}
+            <div class="min-w-0 flex-1">
+              <span class="text-sm text-primary truncate">{c.name}</span>
+              <span class="text-xs text-muted truncate block">{c.author}</span>
+            </div>
+            <BusyButton
+              busy={busyId === c.project_id}
+              disabled={busyId !== null && busyId !== c.project_id}
+              class="btn-primary btn-xs flex-shrink-0"
+              onclick={() => void install(c)}
+            >
+              {$t('mods.findAlt.install')}
+            </BusyButton>
+          </li>
+        {/each}
+      </ul>
     {/if}
   </div>
-</div>
+
+  {#if curseForgeUrl}
+    <footer class="p-3 border-t text-center">
+      <button
+        type="button"
+        class="text-accent hover:underline text-xs inline-flex items-center gap-1"
+        onclick={openCurseForge}
+      >
+        {$t('mods.findAlt.openCurseForge')}
+        <Icon name="externalLink" size={12} />
+      </button>
+    </footer>
+  {/if}
+</Modal>

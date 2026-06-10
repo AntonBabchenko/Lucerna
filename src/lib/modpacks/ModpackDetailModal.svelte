@@ -8,6 +8,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -120,146 +121,137 @@
   }
 </script>
 
-<div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button
-    type="button"
-    class="absolute inset-0 bg-black/30"
-    aria-label={$t('modpacks.detail.closeScrimAriaLabel')}
-    onclick={onClose}
-  ></button>
-  <div
-    class="relative bg-surface rounded shadow-lg w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col m-4"
-    role="dialog"
-    aria-modal="true"
-    aria-label={$t('modpacks.detail.dialogAriaLabel')}
-  >
-    <header class="p-4 border-b flex items-start shrink-0">
-      <div class="flex-1 min-w-0">
-        <h3 class="font-semibold text-primary">{hit.title}</h3>
-        {#if sourceUrl}
-          <button
-            type="button"
-            class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
-            onclick={() => openExternal(sourceUrl)}
+<Modal
+  ariaLabelledby="modpack-detail-title"
+  {onClose}
+  panelClass="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col"
+>
+  <header class="p-4 border-b flex items-start shrink-0">
+    <div class="flex-1 min-w-0">
+      <h3 id="modpack-detail-title" class="font-semibold text-primary">{hit.title}</h3>
+      {#if sourceUrl}
+        <button
+          type="button"
+          class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
+          onclick={() => openExternal(sourceUrl)}
+        >
+          {$t('modpacks.detail.viewOn', { platform: platformName })}
+          <Icon name="externalLink" size={14} />
+        </button>
+      {/if}
+    </div>
+    <CloseButton onClick={onClose} ariaLabel={$t('modpacks.detail.closeAriaLabel')} />
+  </header>
+
+  {#if blocked}
+    <div class="p-4 text-sm text-secondary">
+      <p class="mb-3">
+        {$t('modpacks.detail.blockedBody')}
+      </p>
+      {#if sourceUrl}
+        <button
+          type="button"
+          class="btn-secondary btn-sm inline-flex items-center gap-1"
+          onclick={() => openExternal(sourceUrl)}
+        >
+          {$t('modpacks.detail.openOnCurseForge')}
+          <Icon name="externalLink" size={14} />
+        </button>
+      {/if}
+    </div>
+  {:else}
+    <div class="px-4 pt-3 shrink-0">
+      <TabBar
+        tabs={[
+          { id: 'overview', label: $t('modpacks.detail.tabOverview') },
+          { id: 'versions', label: $t('modpacks.detail.tabVersions') },
+        ]}
+        active={tab}
+        onChange={(id) => (tab = id as TabId)}
+      />
+    </div>
+
+    <div class="flex-1 overflow-y-auto min-h-0 p-4">
+      {#if error}
+        <div class="text-sm text-danger mb-3">{error}</div>
+      {/if}
+
+      {#if tab === 'overview'}
+        <div class="space-y-3">
+          {#if project && project.body_html}
+            <p class="text-xs text-placeholder italic">
+              {$t('modpacks.detail.contentDisclaimer', {
+                source: platformName,
+              })}
+            </p>
+          {/if}
+          <ImageGallery images={gallery} />
+          {#if project && project.body_html}
+            <RenderedBody html={project.body_html} />
+          {:else}
+            <p class="text-sm text-secondary">{hit.description}</p>
+          {/if}
+        </div>
+      {:else if loading}
+        <div class="flex justify-center py-8 text-secondary">
+          <Spinner label={$t('modpacks.detail.loadingVersions')} />
+        </div>
+      {:else if visibleVersions.length === 0}
+        <div class="text-sm text-muted">
+          {#if mcFilter}
+            {$t('modpacks.detail.noVersionsForMc', { mc: mcFilter })}
+          {:else}
+            {$t('modpacks.detail.noVersions')}
+          {/if}
+        </div>
+      {:else}
+        <ul class="space-y-2">
+          {#each visibleVersions as v (v.id)}
+            <li class="p-2 border rounded text-sm">
+              <div class="flex items-center">
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate">{v.name}</div>
+                  <div class="text-xs text-muted">
+                    MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
+                  </div>
+                </div>
+                <BusyButton
+                  class="btn-primary btn-xs ml-2"
+                  busy={downloading}
+                  onclick={() => install(v.id)}
+                >
+                  {$t('modpacks.detail.install')}
+                </BusyButton>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+
+    <!-- Sticky footer: the install CTA stays reachable without scrolling
+           past the gallery + description. Overview only — Versions installs
+           per-row. -->
+    {#if tab === 'overview' && !loading}
+      <div class="shrink-0 border-t border-border-subtle p-4 py-3">
+        {#if recommended}
+          <BusyButton
+            class="btn-primary w-full"
+            busy={downloading}
+            onclick={() => install(recommended.id)}
           >
-            {$t('modpacks.detail.viewOn', { platform: platformName })}
-            <Icon name="externalLink" size={14} />
-          </button>
-        {/if}
-      </div>
-      <CloseButton onClick={onClose} ariaLabel={$t('modpacks.detail.closeAriaLabel')} />
-    </header>
-
-    {#if blocked}
-      <div class="p-4 text-sm text-secondary">
-        <p class="mb-3">
-          {$t('modpacks.detail.blockedBody')}
-        </p>
-        {#if sourceUrl}
-          <button
-            type="button"
-            class="btn-secondary btn-sm inline-flex items-center gap-1"
-            onclick={() => openExternal(sourceUrl)}
-          >
-            {$t('modpacks.detail.openOnCurseForge')}
-            <Icon name="externalLink" size={14} />
-          </button>
-        {/if}
-      </div>
-    {:else}
-      <div class="px-4 pt-3 shrink-0">
-        <TabBar
-          tabs={[
-            { id: 'overview', label: $t('modpacks.detail.tabOverview') },
-            { id: 'versions', label: $t('modpacks.detail.tabVersions') },
-          ]}
-          active={tab}
-          onChange={(id) => (tab = id as TabId)}
-        />
-      </div>
-
-      <div class="flex-1 overflow-y-auto min-h-0 p-4">
-        {#if error}
-          <div class="text-sm text-danger mb-3">{error}</div>
-        {/if}
-
-        {#if tab === 'overview'}
-          <div class="space-y-3">
-            {#if project && project.body_html}
-              <p class="text-xs text-placeholder italic">
-                {$t('modpacks.detail.contentDisclaimer', {
-                  source: platformName,
-                })}
-              </p>
-            {/if}
-            <ImageGallery images={gallery} />
-            {#if project && project.body_html}
-              <RenderedBody html={project.body_html} />
-            {:else}
-              <p class="text-sm text-secondary">{hit.description}</p>
-            {/if}
-          </div>
-        {:else if loading}
-          <div class="flex justify-center py-8 text-secondary">
-            <Spinner label={$t('modpacks.detail.loadingVersions')} />
-          </div>
-        {:else if visibleVersions.length === 0}
-          <div class="text-sm text-muted">
+            {$t('modpacks.detail.installVersion', { version: recommended.version_number })}
+          </BusyButton>
+        {:else}
+          <div class="text-xs text-placeholder text-center">
             {#if mcFilter}
               {$t('modpacks.detail.noVersionsForMc', { mc: mcFilter })}
             {:else}
               {$t('modpacks.detail.noVersions')}
             {/if}
           </div>
-        {:else}
-          <ul class="space-y-2">
-            {#each visibleVersions as v (v.id)}
-              <li class="p-2 border rounded text-sm">
-                <div class="flex items-center">
-                  <div class="flex-1 min-w-0">
-                    <div class="font-medium truncate">{v.name}</div>
-                    <div class="text-xs text-muted">
-                      MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
-                    </div>
-                  </div>
-                  <BusyButton
-                    class="btn-primary btn-xs ml-2"
-                    busy={downloading}
-                    onclick={() => install(v.id)}
-                  >
-                    {$t('modpacks.detail.install')}
-                  </BusyButton>
-                </div>
-              </li>
-            {/each}
-          </ul>
         {/if}
       </div>
-
-      <!-- Sticky footer: the install CTA stays reachable without scrolling
-           past the gallery + description. Overview only — Versions installs
-           per-row. -->
-      {#if tab === 'overview' && !loading}
-        <div class="shrink-0 border-t border-border-subtle p-4 py-3">
-          {#if recommended}
-            <BusyButton
-              class="btn-primary w-full"
-              busy={downloading}
-              onclick={() => install(recommended.id)}
-            >
-              {$t('modpacks.detail.installVersion', { version: recommended.version_number })}
-            </BusyButton>
-          {:else}
-            <div class="text-xs text-placeholder text-center">
-              {#if mcFilter}
-                {$t('modpacks.detail.noVersionsForMc', { mc: mcFilter })}
-              {:else}
-                {$t('modpacks.detail.noVersions')}
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {/if}
     {/if}
-  </div>
-</div>
+  {/if}
+</Modal>

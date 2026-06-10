@@ -188,11 +188,19 @@ async fn exchange_refresh_token(
         })
 }
 
-/// Cross-module env-var lock for MS auth tests. Every test in
-/// `oauth`, `xbox`, `mc_services` that mutates `LUCERNA_EXTRA_ALLOWED_HOSTS`
-/// (or any other process-global env var) must take this lock before the
-/// mutation and hold it until the assertion completes. A per-module lock
-/// is not enough — tests across different submodules run in the same
-/// process and clobber each other otherwise.
+/// Env-var lock for MS auth tests. Every test in `oauth`, `xbox`,
+/// `mc_services` that mutates `LUCERNA_EXTRA_ALLOWED_HOSTS` (or any other
+/// process-global env var) must hold this guard from before the mutation
+/// until the assertion completes.
+///
+/// Delegates to the crate-wide [`crate::test_env_lock`]: a per-submodule —
+/// or even per-MS-module — lock is not enough, because
+/// `LUCERNA_EXTRA_ALLOWED_HOSTS` is read by the network allowlist for
+/// *every* wiremock-backed test in the crate (mods/install, network/*,
+/// modpack/*, …). Those tests serialize on the crate lock, so the MS auth
+/// tests must take the same one or they race a `remove_var` into another
+/// module's set-var/fetch window (observed as a spurious `HostNotAllowed`).
 #[cfg(test)]
-pub(super) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(super) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    crate::test_env_lock()
+}

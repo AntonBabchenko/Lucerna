@@ -731,7 +731,6 @@
     isRunning={running !== null}
   />
 
-  <SettingsModal />
   <ModpacksModal open={modpacksModalOpen} onClose={() => (modpacksModalOpen = false)}>
     <ModpacksTab
       {instances}
@@ -747,6 +746,12 @@
       }}
     />
   </ModpacksModal>
+  <!-- SettingsModal renders AFTER ModpacksModal on purpose. Both now use the
+       shared Modal primitive, which fixes the backdrop at z-50, so relative
+       stacking is decided by DOM order. Settings can be summoned from inside
+       the modpacks modal (the CurseForge-key banner), so it must paint on top
+       — keeping it last here guarantees that. -->
+  <SettingsModal />
   <!-- Page-level import progress toast — lives outside the modal so it survives
        the modal being closed mid-import. Renders nothing when no import runs. -->
   <ImportProgressView phase={importPhase} modBytes={importBytes} />

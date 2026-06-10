@@ -149,6 +149,23 @@ body {
   }
 }
 
+/* Respect the OS "reduce motion" setting. Users who set this (vestibular
+   disorders, focus preference) should not see the app's transitions /
+   animations / smooth-scroll. Near-zero (not 0) durations keep
+   transitionend / animationend listeners firing so nothing that waits on
+   them stalls. Scoped to the global pseudo-element selector so it reaches
+   every transition without per-component opt-in. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Opt-in text selection for places where copying IS useful (log lines,
    mod descriptions, About disclaimer, diagnosis details, toast detail
    rows). Without this, the ancestor body's user-select: none cascades. */

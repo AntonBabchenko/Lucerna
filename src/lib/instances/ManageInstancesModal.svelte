@@ -17,6 +17,7 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
@@ -329,175 +330,160 @@
     // instance, not the new active one.
     selectedId = null;
   }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key !== 'Escape') return;
-    // Dismiss overlays in reverse stacking order before closing the modal.
-    if (deleteConfirmOpen) {
-      deleteConfirmOpen = false;
-    } else if (pendingChange !== null) {
-      pendingChange = null;
-    } else {
-      close();
-    }
-  }
 </script>
 
-<svelte:window onkeydown={onKey} />
-
 {#if open}
-  <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-    <div
-      class="bg-surface rounded-lg shadow-xl w-[760px] max-h-[80vh] overflow-hidden flex flex-col"
-    >
-      <header class="flex items-center justify-between px-4 py-2 border-b">
-        <h2 class="font-semibold text-primary">{$t('instance.manage.title')}</h2>
-        <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
-      </header>
-      <div class="flex flex-1 overflow-hidden">
-        <aside
-          class="w-[220px] border-r overflow-y-auto p-2 flex flex-col gap-1"
-          data-tour-ctx="manage-list"
-        >
-          {#each instances as i}
-            <button
-              class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
-              class:bg-accent-soft={i.id === selectedId}
-              onclick={() => {
-                createMode = false;
-                selectedId = i.id;
-              }}
-            >
-              <div class="font-medium flex items-center gap-1.5">
-                <Icon name={i.ready ? 'success' : 'download'} />
-                {i.name}
-                {#if i.integrity && !i.integrity.healthy}
-                  <!-- The span carries the hover tooltip (title); the icon
+  <Modal
+    ariaLabelledby="manage-instances-title"
+    onClose={close}
+    panelClass="w-[760px] max-h-[80vh] overflow-hidden flex flex-col"
+  >
+    <header class="flex items-center justify-between px-4 py-2 border-b">
+      <h2 id="manage-instances-title" class="font-semibold text-primary">
+        {$t('instance.manage.title')}
+      </h2>
+      <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
+    </header>
+    <div class="flex flex-1 overflow-hidden">
+      <aside
+        class="w-[220px] border-r overflow-y-auto p-2 flex flex-col gap-1"
+        data-tour-ctx="manage-list"
+      >
+        {#each instances as i}
+          <button
+            class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
+            class:bg-accent-soft={i.id === selectedId}
+            onclick={() => {
+              createMode = false;
+              selectedId = i.id;
+            }}
+          >
+            <div class="font-medium flex items-center gap-1.5">
+              <Icon name={i.ready ? 'success' : 'download'} />
+              {i.name}
+              {#if i.integrity && !i.integrity.healthy}
+                <!-- The span carries the hover tooltip (title); the icon
                        carries the accessible name (label → role="img" +
                        aria-label), so pointer and screen-reader users get
                        the same "N problems" text. -->
-                  <span
-                    class="inline-flex text-warning-text"
-                    title={$t('instance.integrity.statusProblems', {
+                <span
+                  class="inline-flex text-warning-text"
+                  title={$t('instance.integrity.statusProblems', {
+                    count: i.integrity.problem_count,
+                  })}
+                >
+                  <Icon
+                    name="warning"
+                    label={$t('instance.integrity.statusProblems', {
                       count: i.integrity.problem_count,
                     })}
-                  >
-                    <Icon
-                      name="warning"
-                      label={$t('instance.integrity.statusProblems', {
-                        count: i.integrity.problem_count,
-                      })}
-                    />
-                  </span>
-                {/if}
-                {#if i.id === activeInstance?.id}
-                  <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
-                {/if}
-              </div>
-              <div class="text-xs text-muted">
-                {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
-              </div>
-            </button>
-          {/each}
-          <button type="button" class="mt-2 btn-primary btn-sm w-full" onclick={openCreate}>
-            {$t('instance.manage.newInstanceBtn')}
-          </button>
-        </aside>
-        <section class="flex-1 overflow-y-auto p-4" data-tour-ctx="manage-form">
-          {#if createMode}
-            <h3 class="font-semibold text-primary mb-3">{$t('instance.manage.createHeading')}</h3>
-            <label
-              for="create-name"
-              class="block text-xs uppercase text-secondary mb-1 flex justify-between"
-            >
-              <span>{$t('instance.manage.nameLabel')}</span>
-              <span class="text-placeholder normal-case font-normal">{draftName.length}/32</span>
-            </label>
-            <input
-              id="create-name"
-              class="border rounded px-2 py-1 w-full mb-3"
-              maxlength="32"
-              bind:value={draftName}
-            />
-
-            <label for="create-mc-version" class="block text-xs uppercase text-secondary mb-1"
-              >{$t('instance.manage.mcVersionLabel')}</label
-            >
-            <Select
-              id="create-mc-version"
-              class="w-full mb-1"
-              value={draftMc}
-              options={mcVersionOptions}
-              onChange={(v) => (draftMc = String(v))}
-            />
-            <label class="text-xs flex items-center gap-1 mb-3">
-              <input type="checkbox" bind:checked={showSnapshots} />
-              {$t('instance.manage.showSnapshots')}
-            </label>
-
-            <LoaderPicker
-              mc={draftMc}
-              bind:loader={draftLoader}
-              bind:loaderVersion={draftLoaderVersion}
-            />
-
-            <div class="flex justify-end gap-2 mt-4">
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
-                onclick={() => (createMode = false)}
-              >
-                {$t('instance.manage.cancelBtn')}
-              </button>
-              <button
-                type="button"
-                class="btn-primary btn-sm"
-                disabled={!!createDisabledReason}
-                title={createDisabledReason}
-                onclick={submitCreate}
-              >
-                {$t('instance.manage.createBtn')}
-              </button>
+                  />
+                </span>
+              {/if}
+              {#if i.id === activeInstance?.id}
+                <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
+              {/if}
             </div>
-          {:else if selected}
-            <h3 class="font-semibold text-primary mb-3">
-              {selected.name}
-              {#if selected.id === activeInstance?.id}<span class="text-xs text-muted"
-                  >{$t('instance.manage.activeLabel')}</span
-                >{/if}
-            </h3>
+            <div class="text-xs text-muted">
+              {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
+            </div>
+          </button>
+        {/each}
+        <button type="button" class="mt-2 btn-primary btn-sm w-full" onclick={openCreate}>
+          {$t('instance.manage.newInstanceBtn')}
+        </button>
+      </aside>
+      <section class="flex-1 overflow-y-auto p-4" data-tour-ctx="manage-form">
+        {#if createMode}
+          <h3 class="font-semibold text-primary mb-3">{$t('instance.manage.createHeading')}</h3>
+          <label
+            for="create-name"
+            class="block text-xs uppercase text-secondary mb-1 flex justify-between"
+          >
+            <span>{$t('instance.manage.nameLabel')}</span>
+            <span class="text-placeholder normal-case font-normal">{draftName.length}/32</span>
+          </label>
+          <input
+            id="create-name"
+            class="border rounded px-2 py-1 w-full mb-3"
+            maxlength="32"
+            bind:value={draftName}
+          />
 
-            <label
-              for="detail-name"
-              class="block text-xs uppercase text-secondary mb-1 flex justify-between"
+          <label for="create-mc-version" class="block text-xs uppercase text-secondary mb-1"
+            >{$t('instance.manage.mcVersionLabel')}</label
+          >
+          <Select
+            id="create-mc-version"
+            class="w-full mb-1"
+            value={draftMc}
+            options={mcVersionOptions}
+            onChange={(v) => (draftMc = String(v))}
+          />
+          <label class="text-xs flex items-center gap-1 mb-3">
+            <input type="checkbox" bind:checked={showSnapshots} />
+            {$t('instance.manage.showSnapshots')}
+          </label>
+
+          <LoaderPicker
+            mc={draftMc}
+            bind:loader={draftLoader}
+            bind:loaderVersion={draftLoaderVersion}
+          />
+
+          <div class="flex justify-end gap-2 mt-4">
+            <button type="button" class="btn-secondary btn-sm" onclick={() => (createMode = false)}>
+              {$t('instance.manage.cancelBtn')}
+            </button>
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              disabled={!!createDisabledReason}
+              title={createDisabledReason}
+              onclick={submitCreate}
             >
-              <span>{$t('instance.manage.nameLabel')}</span>
-              <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
-            </label>
-            <input
-              id="detail-name"
-              class="border rounded px-2 py-1 w-full mb-3"
-              maxlength="32"
-              bind:value={nameDraft}
-              onblur={commitName}
-            />
+              {$t('instance.manage.createBtn')}
+            </button>
+          </div>
+        {:else if selected}
+          <h3 class="font-semibold text-primary mb-3">
+            {selected.name}
+            {#if selected.id === activeInstance?.id}<span class="text-xs text-muted"
+                >{$t('instance.manage.activeLabel')}</span
+              >{/if}
+          </h3>
 
-            <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
-              >{$t('instance.manage.mcVersionLabel')}</label
-            >
-            <Select
-              id="detail-mc-version"
-              class="w-full mb-1"
-              value={selected.mc_version}
-              options={mcVersionOptions}
-              onChange={(v) => setMc(String(v))}
-            />
-            <label class="text-xs flex items-center gap-1 mb-3">
-              <input type="checkbox" bind:checked={showSnapshots} />
-              {$t('instance.manage.showSnapshots')}
-            </label>
+          <label
+            for="detail-name"
+            class="block text-xs uppercase text-secondary mb-1 flex justify-between"
+          >
+            <span>{$t('instance.manage.nameLabel')}</span>
+            <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
+          </label>
+          <input
+            id="detail-name"
+            class="border rounded px-2 py-1 w-full mb-3"
+            maxlength="32"
+            bind:value={nameDraft}
+            onblur={commitName}
+          />
 
-            <!--
+          <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
+            >{$t('instance.manage.mcVersionLabel')}</label
+          >
+          <Select
+            id="detail-mc-version"
+            class="w-full mb-1"
+            value={selected.mc_version}
+            options={mcVersionOptions}
+            onChange={(v) => setMc(String(v))}
+          />
+          <label class="text-xs flex items-center gap-1 mb-3">
+            <input type="checkbox" bind:checked={showSnapshots} />
+            {$t('instance.manage.showSnapshots')}
+          </label>
+
+          <!--
               Keyed on the instance id so the picker REMOUNTS when the user
               switches the selected instance. LoaderPicker tracks the previous
               loader in a non-reactive `prevLoader` to tell a user-driven loader
@@ -505,156 +491,163 @@
               across instances, so swapping to a modpack instance was mis-read as
               a loader change and falsely raised the pack-detach prompt.
             -->
-            {#key selected.id}
-              <LoaderPicker
-                mc={selected.mc_version}
-                loader={selected.loader}
-                loaderVersion={selected.loader_version}
-                onchange={async (l, v) => {
-                  if (l !== selected!.loader || v !== selected!.loader_version) {
-                    await commitLoader(l, v);
-                  }
-                }}
-              />
-            {/key}
+          {#key selected.id}
+            <LoaderPicker
+              mc={selected.mc_version}
+              loader={selected.loader}
+              loaderVersion={selected.loader_version}
+              onchange={async (l, v) => {
+                if (l !== selected!.loader || v !== selected!.loader_version) {
+                  await commitLoader(l, v);
+                }
+              }}
+            />
+          {/key}
 
-            {#if compatRows !== null && compatSummary(compatRows) !== null}
-              <p
-                class="text-xs text-warning-text bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
+          {#if compatRows !== null && compatSummary(compatRows) !== null}
+            <p
+              class="text-xs text-warning-text bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
+            >
+              <span class="flex items-center gap-1.5"
+                ><Icon name="warning" /> {compatSummary(compatRows)}</span
               >
-                <span class="flex items-center gap-1.5"
-                  ><Icon name="warning" /> {compatSummary(compatRows)}</span
-                >
-              </p>
-            {/if}
+            </p>
+          {/if}
 
-            <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
-              {$t('instance.manage.memoryLabel', { mb: selected.max_heap_mb })}
-            </label>
-            <input
-              id="detail-memory"
-              type="range"
-              min="1024"
-              max="8192"
-              step="256"
-              value={selected.max_heap_mb}
-              oninput={(e) => setMemory(parseInt((e.currentTarget as HTMLInputElement).value, 10))}
-              class="w-full mb-3"
-            />
+          <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
+            {$t('instance.manage.memoryLabel', { mb: selected.max_heap_mb })}
+          </label>
+          <input
+            id="detail-memory"
+            type="range"
+            min="1024"
+            max="8192"
+            step="256"
+            value={selected.max_heap_mb}
+            oninput={(e) => setMemory(parseInt((e.currentTarget as HTMLInputElement).value, 10))}
+            class="w-full mb-3"
+          />
 
-            <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
-              >{$t('instance.manage.jvmArgsLabel')}</label
+          <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
+            >{$t('instance.manage.jvmArgsLabel')}</label
+          >
+          <input
+            id="detail-jvm-args"
+            class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
+            placeholder={$t('instance.manage.jvmArgsPlaceholder')}
+            value={selected.extra_jvm_args}
+            onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
+          />
+
+          <IntegritySection
+            instanceId={selected.id}
+            {isRunning}
+            name={selected.name}
+            status={selected.integrity}
+          />
+
+          <div
+            class="flex items-center justify-between pt-3 border-t"
+            data-tour-ctx="manage-actions"
+          >
+            <button
+              type="button"
+              class="btn-ghost-danger inline-flex items-center gap-1.5"
+              disabled={instances.length <= 1}
+              title={instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : ''}
+              onclick={() => (deleteConfirmOpen = true)}
             >
-            <input
-              id="detail-jvm-args"
-              class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
-              placeholder={$t('instance.manage.jvmArgsPlaceholder')}
-              value={selected.extra_jvm_args}
-              onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
-            />
-
-            <IntegritySection
-              instanceId={selected.id}
-              {isRunning}
-              name={selected.name}
-              status={selected.integrity}
-            />
-
-            <div
-              class="flex items-center justify-between pt-3 border-t"
-              data-tour-ctx="manage-actions"
-            >
+              <Icon name="trash" size={14} />
+              {$t('instance.manage.deleteBtn')}
+            </button>
+            <div class="flex gap-2">
               <button
                 type="button"
-                class="btn-ghost-danger inline-flex items-center gap-1.5"
-                disabled={instances.length <= 1}
-                title={instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : ''}
-                onclick={() => (deleteConfirmOpen = true)}
+                class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+                onclick={openFolder}
               >
-                <Icon name="trash" size={14} />
-                {$t('instance.manage.deleteBtn')}
+                <Icon name="folderOpen" size={14} />
+                {$t('instance.manage.openFolderBtn')}
               </button>
-              <div class="flex gap-2">
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm inline-flex items-center gap-1.5"
-                  onclick={openFolder}
-                >
-                  <Icon name="folderOpen" size={14} />
-                  {$t('instance.manage.openFolderBtn')}
-                </button>
-                <button type="button" class="btn-primary btn-sm" onclick={close}>
-                  {$t('instance.manage.doneBtn')}
-                </button>
-              </div>
+              <button type="button" class="btn-primary btn-sm" onclick={close}>
+                {$t('instance.manage.doneBtn')}
+              </button>
             </div>
-          {:else}
-            <p class="text-muted text-sm">{$t('instance.manage.emptyState')}</p>
-          {/if}
+          </div>
+        {:else}
+          <p class="text-muted text-sm">{$t('instance.manage.emptyState')}</p>
+        {/if}
 
-          {#if modalError}
-            <p class="text-xs text-danger mt-3">{modalError}</p>
-          {/if}
-        </section>
-      </div>
+        {#if modalError}
+          <p class="text-xs text-danger mt-3">{modalError}</p>
+        {/if}
+      </section>
     </div>
-    <ContextualTour id="manage" steps={MANAGE_STEPS} />
-  </div>
+  </Modal>
+  <ContextualTour id="manage" steps={MANAGE_STEPS} />
 
   {#if deleteConfirmOpen && selected}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-      <div class="bg-surface rounded-lg shadow-xl w-[440px] p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-primary text-base">{$t('instance.delete.title')}</h3>
-        <p class="text-sm text-secondary">
-          {$t('instance.delete.question', { name: selected.name })}
-        </p>
-        <p class="text-sm text-secondary">
-          {$t('instance.delete.description')}
-        </p>
-        <div class="flex justify-end gap-2 mt-2">
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
-            onclick={() => (deleteConfirmOpen = false)}
-          >
-            {$t('instance.manage.cancelBtn')}
-          </button>
-          <button
-            type="button"
-            class="btn-danger btn-sm"
-            onclick={async () => {
-              deleteConfirmOpen = false;
-              await deleteSelected();
-            }}
-          >
-            {$t('instance.delete.confirmBtn')}
-          </button>
-        </div>
+    <Modal
+      ariaLabelledby="instance-delete-confirm-title"
+      onClose={() => (deleteConfirmOpen = false)}
+      panelClass="w-[440px] p-5 flex flex-col gap-3"
+    >
+      <h3 id="instance-delete-confirm-title" class="font-semibold text-primary text-base">
+        {$t('instance.delete.title')}
+      </h3>
+      <p class="text-sm text-secondary">
+        {$t('instance.delete.question', { name: selected.name })}
+      </p>
+      <p class="text-sm text-secondary">
+        {$t('instance.delete.description')}
+      </p>
+      <div class="flex justify-end gap-2 mt-2">
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          onclick={() => (deleteConfirmOpen = false)}
+        >
+          {$t('instance.manage.cancelBtn')}
+        </button>
+        <button
+          type="button"
+          class="btn-danger btn-sm"
+          onclick={async () => {
+            deleteConfirmOpen = false;
+            await deleteSelected();
+          }}
+        >
+          {$t('instance.delete.confirmBtn')}
+        </button>
       </div>
-    </div>
+    </Modal>
   {/if}
 
   {#if pendingChange !== null && selected}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-      <div class="bg-surface rounded-lg shadow-xl w-[460px] p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-primary text-base">{$t('instance.packDetach.title')}</h3>
-        <p class="text-sm text-secondary">
-          {pendingChange.kind === 'mc'
-            ? $t('instance.packDetach.descriptionMc', { pack: selected.mrpack_name ?? '' })
-            : $t('instance.packDetach.descriptionLoader', { pack: selected.mrpack_name ?? '' })}
-        </p>
-        <div class="flex justify-end gap-2 mt-2">
-          <button type="button" class="btn-secondary btn-sm" onclick={cancelPending}>
-            {$t('instance.manage.cancelBtn')}
-          </button>
-          <button type="button" class="btn-secondary btn-sm" onclick={keepAndContinue}>
-            {$t('instance.packDetach.keepBtn')}
-          </button>
-          <button type="button" class="btn-primary btn-sm" onclick={confirmDetachAndContinue}>
-            {$t('instance.packDetach.detachBtn')}
-          </button>
-        </div>
+    <Modal
+      ariaLabelledby="instance-pack-detach-title"
+      onClose={cancelPending}
+      panelClass="w-[460px] p-5 flex flex-col gap-3"
+    >
+      <h3 id="instance-pack-detach-title" class="font-semibold text-primary text-base">
+        {$t('instance.packDetach.title')}
+      </h3>
+      <p class="text-sm text-secondary">
+        {pendingChange.kind === 'mc'
+          ? $t('instance.packDetach.descriptionMc', { pack: selected.mrpack_name ?? '' })
+          : $t('instance.packDetach.descriptionLoader', { pack: selected.mrpack_name ?? '' })}
+      </p>
+      <div class="flex justify-end gap-2 mt-2">
+        <button type="button" class="btn-secondary btn-sm" onclick={cancelPending}>
+          {$t('instance.manage.cancelBtn')}
+        </button>
+        <button type="button" class="btn-secondary btn-sm" onclick={keepAndContinue}>
+          {$t('instance.packDetach.keepBtn')}
+        </button>
+        <button type="button" class="btn-primary btn-sm" onclick={confirmDetachAndContinue}>
+          {$t('instance.packDetach.detachBtn')}
+        </button>
       </div>
-    </div>
+    </Modal>
   {/if}
 {/if}

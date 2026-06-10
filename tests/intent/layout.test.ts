@@ -216,24 +216,26 @@ describe('MainTabs — active and inactive tab state classes', () => {
     expect(cls).toContain('-mb-px');
   });
 
-  it('inactive Mod browser tab has border-transparent text-placeholder', () => {
+  it('inactive Mod browser tab has border-transparent text-muted', () => {
     render(MainTabs, { props: {} });
     const modsTab = screen.getByRole('tab', { name: 'Add-ons' });
     const cls = modsTab.className;
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    // Inactive tabs use text-muted (WCAG-AA legible) rather than the lower-
+    // contrast text-placeholder, which failed 4.5:1 in both themes.
+    expect(cls).toContain('text-muted');
     // Structural classes shared by all tabs.
     expect(cls).toContain('border-b-2');
     expect(cls).toContain('px-3');
     expect(cls).toContain('py-2');
   });
 
-  it('inactive Worlds tab has border-transparent text-placeholder', () => {
+  it('inactive Worlds tab has border-transparent text-muted', () => {
     render(MainTabs, { props: {} });
     const worldsTab = screen.getByRole('tab', { name: 'Worlds' });
     const cls = worldsTab.className;
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 });
 

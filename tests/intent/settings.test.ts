@@ -85,39 +85,33 @@ describe('SettingsModal — dialog structure', () => {
     expect(screen.getByRole('dialog')).not.toBeNull();
   });
 
-  it('dialog has aria-modal="true" and aria-label="Settings"', () => {
+  it('dialog has aria-modal="true" and is labelled "Settings"', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
-    const dialog = screen.getByRole('dialog');
+    // The shared Modal labels the dialog via aria-labelledby pointing at the
+    // "Settings" heading, so the accessible name is "Settings".
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-label')).toBe('Settings');
   });
 
   it('CloseButton in header has btn-icon class', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
-    // aria-label is "Close settings" (lowercase s) on the CloseButton prop;
-    // "Close Settings" (capital S) is on the backdrop button.
+    // The header's × CloseButton is labelled "Close settings" (lowercase s).
     const closeBtn = screen.getByLabelText('Close settings');
     expect(closeBtn).toHaveBtnVariant('icon');
   });
 
-  it('backdrop button has aria-label="Close Settings"', () => {
+  // Regression: Settings can be opened from *inside* the modpacks modal (the
+  // CurseForge-key banner). Both now use the shared Modal primitive, whose
+  // backdrop is fixed at z-50; relative stacking is decided by DOM order
+  // (SettingsModal renders after ModpacksModal in +page.svelte). The scrim
+  // must sit at z-50 so it isn't painted behind a base modal.
+  it('scrim sits at z-50', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
-    const backdrop = screen.getByLabelText('Close Settings');
-    expect(backdrop).not.toBeNull();
-  });
-
-  // Regression: Settings can be opened from *inside* the z-40 modpacks modal
-  // (the CurseForge-key banner). The scrim must sit in the secondary-dialog
-  // layer (z-50) so it overlays that base modal instead of being painted behind
-  // it by DOM order. See ModpacksModal.svelte (z-40).
-  it('scrim sits at z-50 so it overlays the z-40 modpacks modal', () => {
-    settingsOpen.value = { tab: 'curseforge' };
-    render(SettingsModal);
-    // The backdrop button lives directly inside the scrim container.
-    const scrim = screen.getByLabelText('Close Settings').parentElement;
+    // The shared Modal renders the scrim as the dialog's parent backdrop div.
+    const scrim = screen.getByRole('dialog', { name: 'Settings' }).parentElement;
     expect(scrim?.className).toContain('z-50');
     expect(scrim?.className).not.toContain('z-40');
   });
@@ -149,15 +143,17 @@ describe('SettingsModal — active tab has canonical underline classes', () => {
   });
 });
 
-describe('SettingsModal — inactive tabs have border-transparent text-placeholder', () => {
-  it('inactive Storage/About/General tabs have border-transparent text-placeholder', () => {
+describe('SettingsModal — inactive tabs have border-transparent text-muted', () => {
+  it('inactive Storage/About/General tabs have border-transparent text-muted', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
     for (const name of ['Storage', 'About', 'General']) {
       const tab = screen.getByRole('tab', { name });
       const cls = tab.className;
       expect(cls).toContain('border-transparent');
-      expect(cls).toContain('text-placeholder');
+      // Inactive tabs use text-muted (WCAG-AA legible) rather than the lower-
+      // contrast text-placeholder, which failed 4.5:1 in both themes.
+      expect(cls).toContain('text-muted');
       // Structural shape shared by all tabs.
       expect(cls).toContain('border-b-2');
       expect(cls).toContain('px-3');
@@ -167,13 +163,13 @@ describe('SettingsModal — inactive tabs have border-transparent text-placehold
     }
   });
 
-  it('inactive CurseForge tab has border-transparent text-placeholder when another tab active', () => {
+  it('inactive CurseForge tab has border-transparent text-muted when another tab active', () => {
     settingsOpen.value = { tab: 'storage' };
     render(SettingsModal);
     const tab = screen.getByRole('tab', { name: 'CurseForge' });
     const cls = tab.className;
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 });
 

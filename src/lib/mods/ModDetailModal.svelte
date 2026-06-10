@@ -12,6 +12,7 @@
   import { modProjectUrl } from '$lib/mods/project-url';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -136,195 +137,187 @@
   }
 </script>
 
-<div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button
-    type="button"
-    class="absolute inset-0 bg-black/30"
-    aria-label={$t('mods.detail.closeBackdropAriaLabel')}
-    onclick={onClose}
-  ></button>
-  <div
-    role="dialog"
-    aria-modal="true"
-    class="relative bg-surface rounded shadow-lg w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col m-4"
-  >
-    <!-- Fixed header: title, source link, tabs stay put while the body scrolls. -->
-    <div class="p-4 pb-0 shrink-0">
-      <div class="flex items-start justify-between">
-        <h2 class="text-base font-semibold text-primary flex-1">
-          {project?.summary.name ?? $t('mods.detail.loading')}
-        </h2>
-        <CloseButton onClick={onClose} ariaLabel={$t('mods.detail.closeAriaLabel')} />
-      </div>
-      {#if project}
-        <div class="text-xs text-muted mt-1">
-          {$t('mods.detail.byAuthorSourceDownloads', {
-            author: project.summary.author,
-            source: project.summary.source,
-            downloads: (project.summary.downloads ?? 0).toLocaleString(),
-          })}
-        </div>
-        <button
-          type="button"
-          class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
-          onclick={() => openExternal(externalUrl)}
-        >
-          {source === 'modrinth'
-            ? $t('mods.detail.viewOnModrinth')
-            : $t('mods.detail.viewOnCurseForge')}
-          <Icon name="externalLink" size={14} />
-        </button>
-      {/if}
-
-      <div class="mt-3">
-        <TabBar
-          tabs={[
-            { id: 'overview', label: $t('mods.detail.tabOverview') },
-            { id: 'versions', label: $t('mods.detail.tabVersions') },
-          ]}
-          active={tab}
-          onChange={(id) => (tab = id as TabId)}
-        />
-      </div>
+<Modal
+  ariaLabelledby="mod-detail-title"
+  {onClose}
+  panelClass="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col"
+>
+  <!-- Fixed header: title, source link, tabs stay put while the body scrolls. -->
+  <div class="p-4 pb-0 shrink-0">
+    <div class="flex items-start justify-between">
+      <h2 id="mod-detail-title" class="text-base font-semibold text-primary flex-1">
+        {project?.summary.name ?? $t('mods.detail.loading')}
+      </h2>
+      <CloseButton onClick={onClose} ariaLabel={$t('mods.detail.closeAriaLabel')} />
     </div>
+    {#if project}
+      <div class="text-xs text-muted mt-1">
+        {$t('mods.detail.byAuthorSourceDownloads', {
+          author: project.summary.author,
+          source: project.summary.source,
+          downloads: (project.summary.downloads ?? 0).toLocaleString(),
+        })}
+      </div>
+      <button
+        type="button"
+        class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
+        onclick={() => openExternal(externalUrl)}
+      >
+        {source === 'modrinth'
+          ? $t('mods.detail.viewOnModrinth')
+          : $t('mods.detail.viewOnCurseForge')}
+        <Icon name="externalLink" size={14} />
+      </button>
+    {/if}
 
-    <!-- Scrollable body. -->
-    <div class="flex-1 overflow-y-auto min-h-0 p-4 pt-3">
-      {#if error}
-        <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-3">
-          {error}
-        </div>
-      {/if}
-
-      {#if tab === 'overview'}
-        <div class="space-y-3">
-          {#if project && project.body_html}
-            <p class="text-xs text-placeholder italic">
-              {$t('mods.detail.contentDisclaimer', {
-                source: source === 'modrinth' ? 'Modrinth' : 'CurseForge',
-              })}
-            </p>
-          {/if}
-          <ImageGallery images={gallery} />
-          {#if project && project.body_html}
-            <RenderedBody html={project.body_html} />
-          {:else if project}
-            <p class="text-sm text-secondary whitespace-pre-line selectable">
-              {project.summary.summary}
-            </p>
-          {:else}
-            <div class="flex justify-center py-8 text-secondary">
-              <Spinner size="lg" label={$t('mods.detail.loadingDescription')} />
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <div>
-          <div class="flex items-center justify-end mb-2">
-            <label class="inline-flex items-center gap-1 text-xs text-secondary">
-              <input type="checkbox" bind:checked={showAll} data-testid="mod-detail-show-all" />
-              {$t('mods.detail.showAllVersions')}
-            </label>
-          </div>
-          {#if versionList === null}
-            <div class="flex justify-center py-8 text-secondary">
-              <Spinner label={$t('mods.detail.loadingVersions')} />
-            </div>
-          {:else if versionList.length === 0}
-            <div class="text-sm text-placeholder">
-              {#if showAll}
-                {$t('mods.detail.noVersionsPlatform')}
-              {:else}
-                {$t('mods.detail.noVersionsCompat')}
-              {/if}
-            </div>
-          {:else}
-            {#each versionList as v (v.version_id)}
-              {@const isInstalled = v.version_id === installedVersionId}
-              {@const hasOtherInstalled =
-                installedVersionId !== null && installedVersionId !== v.version_id}
-              <div
-                class="border-t py-2 flex items-center gap-2 text-sm {isInstalled
-                  ? 'bg-success-bg'
-                  : ''}"
-              >
-                <div class="flex-1 min-w-0">
-                  <div class="truncate font-medium">
-                    {v.version_number}{isInstalled ? $t('mods.detail.versionInstalled') : ''}
-                  </div>
-                  <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
-                </div>
-                <BusyButton
-                  busy={installingVersionId === v.version_id}
-                  class="btn-xs {isInstalled
-                    ? 'btn-secondary border-success text-success'
-                    : !v.primary_file.distribution_allowed
-                      ? 'btn-secondary text-muted'
-                      : 'btn-primary'}"
-                  disabled={!v.primary_file.distribution_allowed || isInstalled}
-                  onclick={() => onInstall(v)}
-                  title={hasOtherInstalled
-                    ? $t('mods.detail.switchVersionTitle', {
-                        installedId: installedVersionId ?? '',
-                      })
-                    : undefined}
-                >
-                  {#if isInstalled}
-                    <Icon name="success" size={14} />
-                    {$t('mods.detail.btnInstalled')}
-                  {:else if !v.primary_file.distribution_allowed}
-                    {$t('mods.detail.btnRestricted')}
-                  {:else if hasOtherInstalled}
-                    {$t('mods.detail.btnSwitch')}
-                  {:else}
-                    {$t('mods.detail.btnInstall')}
-                  {/if}
-                </BusyButton>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      {/if}
+    <div class="mt-3">
+      <TabBar
+        tabs={[
+          { id: 'overview', label: $t('mods.detail.tabOverview') },
+          { id: 'versions', label: $t('mods.detail.tabVersions') },
+        ]}
+        active={tab}
+        onChange={(id) => (tab = id as TabId)}
+      />
     </div>
+  </div>
 
-    <!-- Sticky footer: the recommended-install CTA stays reachable without
-         scrolling to the bottom of a long description. Overview only — the
-         Versions tab installs per-row. -->
-    {#if tab === 'overview' && compatibleVersions !== null}
-      <div class="shrink-0 border-t border-border-subtle p-4 py-3">
-        {#if canInstall && recommended}
-          {@const isInstalled = recommended.version_id === installedVersionId}
-          <BusyButton
-            busy={installingVersionId === recommended.version_id}
-            class="btn-primary w-full"
-            disabled={isInstalled || !recommended.primary_file.distribution_allowed}
-            onclick={() => onInstall(recommended)}
-          >
-            {#if isInstalled}
-              <Icon name="success" size={14} />
-              {$t('mods.detail.footerInstalled', { version: recommended.version_number })}
-            {:else if !recommended.primary_file.distribution_allowed}
-              {$t('mods.detail.footerRestricted')}
-            {:else}
-              {$t('mods.detail.footerInstall', { version: recommended.version_number })}
-            {/if}
-          </BusyButton>
+  <!-- Scrollable body. -->
+  <div class="flex-1 overflow-y-auto min-h-0 p-4 pt-3">
+    {#if error}
+      <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mb-3">
+        {error}
+      </div>
+    {/if}
+
+    {#if tab === 'overview'}
+      <div class="space-y-3">
+        {#if project && project.body_html}
+          <p class="text-xs text-placeholder italic">
+            {$t('mods.detail.contentDisclaimer', {
+              source: source === 'modrinth' ? 'Modrinth' : 'CurseForge',
+            })}
+          </p>
+        {/if}
+        <ImageGallery images={gallery} />
+        {#if project && project.body_html}
+          <RenderedBody html={project.body_html} />
+        {:else if project}
+          <p class="text-sm text-secondary whitespace-pre-line selectable">
+            {project.summary.summary}
+          </p>
         {:else}
-          <div class="text-xs text-placeholder text-center">
-            {#if !canInstall}
-              {#if kind !== 'mod'}
-                {$t('mods.browse.errorNoInstance')}
-              {:else}
-                {$t('mods.detail.selectInstanceHint')}
-              {/if}
-            {:else if kind !== 'mod'}
-              {$t('mods.detail.noCompatVersionAsset', { mc: mcVersion ?? '' })}
+          <div class="flex justify-center py-8 text-secondary">
+            <Spinner size="lg" label={$t('mods.detail.loadingDescription')} />
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <div>
+        <div class="flex items-center justify-end mb-2">
+          <label class="inline-flex items-center gap-1 text-xs text-secondary">
+            <input type="checkbox" bind:checked={showAll} data-testid="mod-detail-show-all" />
+            {$t('mods.detail.showAllVersions')}
+          </label>
+        </div>
+        {#if versionList === null}
+          <div class="flex justify-center py-8 text-secondary">
+            <Spinner label={$t('mods.detail.loadingVersions')} />
+          </div>
+        {:else if versionList.length === 0}
+          <div class="text-sm text-placeholder">
+            {#if showAll}
+              {$t('mods.detail.noVersionsPlatform')}
             {:else}
-              {$t('mods.detail.noCompatVersion', { mc: mcVersion ?? '', loader: loader ?? '' })}
+              {$t('mods.detail.noVersionsCompat')}
             {/if}
           </div>
+        {:else}
+          {#each versionList as v (v.version_id)}
+            {@const isInstalled = v.version_id === installedVersionId}
+            {@const hasOtherInstalled =
+              installedVersionId !== null && installedVersionId !== v.version_id}
+            <div
+              class="border-t py-2 flex items-center gap-2 text-sm {isInstalled
+                ? 'bg-success-bg'
+                : ''}"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="truncate font-medium">
+                  {v.version_number}{isInstalled ? $t('mods.detail.versionInstalled') : ''}
+                </div>
+                <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
+              </div>
+              <BusyButton
+                busy={installingVersionId === v.version_id}
+                class="btn-xs {isInstalled
+                  ? 'btn-secondary border-success text-success'
+                  : !v.primary_file.distribution_allowed
+                    ? 'btn-secondary text-muted'
+                    : 'btn-primary'}"
+                disabled={!v.primary_file.distribution_allowed || isInstalled}
+                onclick={() => onInstall(v)}
+                title={hasOtherInstalled
+                  ? $t('mods.detail.switchVersionTitle', {
+                      installedId: installedVersionId ?? '',
+                    })
+                  : undefined}
+              >
+                {#if isInstalled}
+                  <Icon name="success" size={14} />
+                  {$t('mods.detail.btnInstalled')}
+                {:else if !v.primary_file.distribution_allowed}
+                  {$t('mods.detail.btnRestricted')}
+                {:else if hasOtherInstalled}
+                  {$t('mods.detail.btnSwitch')}
+                {:else}
+                  {$t('mods.detail.btnInstall')}
+                {/if}
+              </BusyButton>
+            </div>
+          {/each}
         {/if}
       </div>
     {/if}
   </div>
-</div>
+
+  <!-- Sticky footer: the recommended-install CTA stays reachable without
+         scrolling to the bottom of a long description. Overview only — the
+         Versions tab installs per-row. -->
+  {#if tab === 'overview' && compatibleVersions !== null}
+    <div class="shrink-0 border-t border-border-subtle p-4 py-3">
+      {#if canInstall && recommended}
+        {@const isInstalled = recommended.version_id === installedVersionId}
+        <BusyButton
+          busy={installingVersionId === recommended.version_id}
+          class="btn-primary w-full"
+          disabled={isInstalled || !recommended.primary_file.distribution_allowed}
+          onclick={() => onInstall(recommended)}
+        >
+          {#if isInstalled}
+            <Icon name="success" size={14} />
+            {$t('mods.detail.footerInstalled', { version: recommended.version_number })}
+          {:else if !recommended.primary_file.distribution_allowed}
+            {$t('mods.detail.footerRestricted')}
+          {:else}
+            {$t('mods.detail.footerInstall', { version: recommended.version_number })}
+          {/if}
+        </BusyButton>
+      {:else}
+        <div class="text-xs text-placeholder text-center">
+          {#if !canInstall}
+            {#if kind !== 'mod'}
+              {$t('mods.browse.errorNoInstance')}
+            {:else}
+              {$t('mods.detail.selectInstanceHint')}
+            {/if}
+          {:else if kind !== 'mod'}
+            {$t('mods.detail.noCompatVersionAsset', { mc: mcVersion ?? '' })}
+          {:else}
+            {$t('mods.detail.noCompatVersion', { mc: mcVersion ?? '', loader: loader ?? '' })}
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
+</Modal>
