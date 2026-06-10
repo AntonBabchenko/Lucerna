@@ -6,9 +6,7 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
-    type MissingModStatus,
     type ModpackProgress,
-    type PlaytimeStats,
     type ProgressTick,
     type SkippedOverride,
     type VersionEntry,
@@ -28,8 +26,8 @@
   import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
   import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
   import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
+  import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
   import type { ModpackImportRequest } from '$lib/modpacks/import-request';
-  import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
@@ -78,87 +76,11 @@
   let msSigningIn = $state(false);
   let exportDialogOpen = $state(false);
 
-  // Lightweight installed-mods stats for the Overview pane. Re-fetched
-  // on instance change and whenever the launcher emits an install /
-  // uninstall / toggle event from the mod browser.
-  let installedStats = $state<{ total: number; enabled: number; disabled: number }>({
-    total: 0,
-    enabled: 0,
-    disabled: 0,
-  });
-
-  async function refreshInstalledStats(id: string | null) {
-    if (!id) {
-      installedStats = { total: 0, enabled: 0, disabled: 0 };
-      return;
-    }
-    const r = await commands.modsListInstalled(id);
-    if (r.status !== 'ok') return;
-    const total = r.data.length;
-    const enabled = r.data.filter((m) => m.enabled).length;
-    installedStats = { total, enabled, disabled: total - enabled };
-  }
-
-  // Offline incompatible-mod count for the Overview indicator (network-free).
-  // Counts ONLY manual jars whose loader family mismatches (`!live_checkable`) —
-  // those are the definitive offline verdicts. Platform suspects need the live
-  // auto-confirm the Installed tab performs (the Overview makes no network call),
-  // so counting their raw offline suspicion here would re-introduce false
-  // positives. Empty for vanilla / version-less instances.
-  let incompatibleCount = $state(0);
-  async function refreshIncompatible(id: string | null) {
-    const inst = id ? instances.find((i) => i.id === id) : null;
-    if (!inst || !inst.mc_version || inst.loader === 'vanilla') {
-      incompatibleCount = 0;
-      return;
-    }
-    const r = await commands.scanInstanceModCompat(inst.id, inst.mc_version, inst.loader);
-    incompatibleCount =
-      r.status === 'ok' ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length : 0;
-  }
-
-  // Per-instance playtime stats — refreshed on instance switch and
-  // after every game exit (via the existing processExited handler).
-  // last_session_unix_ms === null is the canonical "never played"
-  // signal; the other fields can read null from the f64-via-specta
-  // quirk and are coerced to 0 with ??.
-  let playtime = $state<PlaytimeStats>({
-    total_seconds: 0,
-    session_count: 0,
-    last_session_seconds: 0,
-    last_session_unix_ms: null,
-  });
-
-  async function refreshPlaytime(id: string | null) {
-    if (!id) {
-      playtime = {
-        total_seconds: 0,
-        session_count: 0,
-        last_session_seconds: 0,
-        last_session_unix_ms: null,
-      };
-      return;
-    }
-    const r = await commands.getPlaytime(id);
-    if (r.status === 'ok') playtime = r.data;
-  }
-
-  // Missing mods for the active pack-origin instance — drives the
-  // Overview indicator. Empty for non-pack instances and pre-SF2
-  // imports (modpack_status returns null or an empty list).
-  let packMissingMods = $state<MissingModStatus[]>([]);
-  const unresolvedMissing = $derived(
-    packMissingMods.filter((m) => isUnresolvedMissingState(m.state)),
-  );
-
-  async function refreshPackStatus(id: string | null) {
-    if (!id) {
-      packMissingMods = [];
-      return;
-    }
-    const r = await commands.modpackStatus(id);
-    packMissingMods = r.status === 'ok' && r.data ? r.data.missing_mods : [];
-  }
+  // Per-instance Overview stats (installed-mod counts, incompatible count,
+  // playtime, pack-missing mods) live in a dedicated rune composable. The page
+  // drives its refreshers from the activeInstance effect, the mod
+  // install/uninstall/toggle listeners, and the processExited handler.
+  const stats = createInstanceStats();
 
   let installing = $state(false);
   let installError = $state<string | null>(null);
@@ -294,10 +216,10 @@
         modsError = null;
         exited = null;
         crashReport = null;
-        void refreshInstalledStats(newId);
-        void refreshIncompatible(newId);
-        void refreshPackStatus(newId);
-        void refreshPlaytime(newId);
+        void stats.refreshInstalledStats(newId);
+        void stats.refreshIncompatible(newId, instances);
+        void stats.refreshPackStatus(newId);
+        void stats.refreshPlaytime(newId);
       }
     });
   });
@@ -366,18 +288,18 @@
     // see the Total / Enabled / Disabled numbers tick up after install
     // from the Mod browser without bouncing back through this view.
     events.modInstalled.listen(() => {
-      void refreshInstalledStats(activeInstance?.id ?? null);
-      void refreshIncompatible(activeInstance?.id ?? null);
-      void refreshPackStatus(activeInstance?.id ?? null);
+      void stats.refreshInstalledStats(activeInstance?.id ?? null);
+      void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+      void stats.refreshPackStatus(activeInstance?.id ?? null);
     });
     events.modUninstalled.listen(() => {
-      void refreshInstalledStats(activeInstance?.id ?? null);
-      void refreshIncompatible(activeInstance?.id ?? null);
-      void refreshPackStatus(activeInstance?.id ?? null);
+      void stats.refreshInstalledStats(activeInstance?.id ?? null);
+      void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+      void stats.refreshPackStatus(activeInstance?.id ?? null);
     });
     events.modToggle.listen(() => {
-      void refreshInstalledStats(activeInstance?.id ?? null);
-      void refreshIncompatible(activeInstance?.id ?? null);
+      void stats.refreshInstalledStats(activeInstance?.id ?? null);
+      void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
     });
 
     events.processExited
@@ -389,7 +311,7 @@
           log_path: event.payload.log_path,
         };
         void refreshInstances();
-        void refreshPlaytime(activeInstance?.id ?? null);
+        void stats.refreshPlaytime(activeInstance?.id ?? null);
         // A user-requested Stop force-kills the process (non-zero exit code),
         // but it is not a crash — don't surface a crash diagnosis for it.
         if (event.payload.code !== 0 && !event.payload.user_requested && activeInstance) {
@@ -673,10 +595,10 @@
         {#snippet overview()}
           <OverviewTab
             {activeInstance}
-            {installedStats}
-            {playtime}
-            {incompatibleCount}
-            missingModsCount={unresolvedMissing.length}
+            installedStats={stats.installedStats}
+            playtime={stats.playtime}
+            incompatibleCount={stats.incompatibleCount}
+            missingModsCount={stats.unresolvedMissing.length}
             running={running !== null}
             {installing}
             {exited}
