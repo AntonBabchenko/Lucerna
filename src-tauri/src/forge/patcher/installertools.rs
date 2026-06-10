@@ -281,7 +281,7 @@ fn require_mapping_sha1<'a>(dl: &'a serde_json::Value, key: &str) -> Result<&'a 
             patcher_fail(
                 "installertools::DOWNLOAD_MOJMAPS",
                 &format!(
-                    "downloads.{key}.sha1 missing — refusing to install an unverified Mojang mapping (B.6)"
+                    "downloads.{key}.sha1 missing or empty — refusing to install an unverified Mojang mapping (B.6)"
                 ),
             )
         })
