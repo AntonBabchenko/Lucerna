@@ -105,6 +105,21 @@ describe('enrichUnresolvable', () => {
     expect(res[0]).toEqual({ kind: 'noVersions', name: 'Jade' });
   });
 
+  it('falls back to noVersions when the re-fetch contradicts the backend (current loader covers the instance MC)', async () => {
+    // Backend flagged this dep unresolvable, but the FE re-fetch finds a forge
+    // build at the exact instance MC. Must NOT render "no version for 1.20.4.
+    // Latest: Forge 1.20.4" — fall back to the neutral row.
+    const res = await enrichUnresolvable(
+      [ref],
+      deps({
+        fetchVersions: async () => [ver(['forge'], ['1.20.4'])],
+        currentLoader: 'forge',
+        mcVersion: '1.20.4',
+      }),
+    );
+    expect(res[0]).toEqual({ kind: 'noVersions', name: 'Jade' });
+  });
+
   it('uses the resolved project name for the row', async () => {
     const res = await enrichUnresolvable(
       [ref],

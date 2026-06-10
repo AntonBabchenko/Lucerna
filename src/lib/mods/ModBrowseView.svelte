@@ -835,7 +835,7 @@
       const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
       // Classify each unresolvable dep into a detailed UnresolvableDetail shape
       // (noMc / wrongLoader / noVersions) so the dialog can render a precise row.
-      const unresolvableNames = await enrichUnresolvable(p.unresolvable, {
+      const unresolvableDetails = await enrichUnresolvable(p.unresolvable, {
         fetchVersions: async (ref) => {
           const refSource: ModSource = 'project_id' in ref ? 'modrinth' : 'curseforge';
           const id = 'project_id' in ref ? ref.project_id : String(ref.mod_id);
@@ -907,7 +907,7 @@
           required: requiredEnriched,
           optional: optionalEnriched,
           incompatible: incompatibleNames,
-          unresolvable: unresolvableNames,
+          unresolvable: unresolvableDetails,
           loaderRequirements,
           loaderMismatch,
         };

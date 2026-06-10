@@ -45,7 +45,14 @@ export async function enrichUnresolvable(
       const perLoader = latestSupportedPerLoader(all, deps.manifestOrder);
       if (perLoader.length === 0) return { kind: 'noVersions', name };
       const list = formatLoaderLatestList(perLoader, deps.displayLoader);
-      if (perLoader.some((p) => p.loader === deps.currentLoader)) {
+      const mine = perLoader.find((p) => p.loader === deps.currentLoader);
+      if (mine) {
+        // The backend flagged this dep unresolvable for the instance's MC + loader,
+        // but the FE re-fetch found a version for the current loader at the
+        // instance's exact MC (a backend/FE disagreement from paging, cache, or
+        // timing). Don't render the self-contradicting "no version for X. Latest:
+        // X"; fall back to the neutral row.
+        if (mine.mcVersion === deps.mcVersion) return { kind: 'noVersions', name };
         return { kind: 'noMc', name, mcVersion: deps.mcVersion, list };
       }
       return { kind: 'wrongLoader', name, loader: deps.displayLoader(deps.currentLoader), list };
