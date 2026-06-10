@@ -56,7 +56,13 @@ export function parseChangelog(md: string): Changelog {
     const v = VERSION_RE.exec(line);
     if (v) {
       flushVersion();
-      version = { version: v[1].trim(), date: v[2] ? v[2].trim() : null, url: null, sections: [] };
+      const label = v[1].trim();
+      version = {
+        version: label,
+        date: v[2] ? v[2].trim() : null,
+        url: urls.get(label) ?? null,
+        sections: [],
+      };
       continue;
     }
     if (!version) continue; // skip intro before the first version heading
@@ -92,7 +98,5 @@ export function parseChangelog(md: string): Changelog {
     }
   }
   flushVersion();
-
-  for (const ver of versions) ver.url = urls.get(ver.version) ?? null;
   return versions;
 }

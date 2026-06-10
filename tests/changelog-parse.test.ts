@@ -17,8 +17,23 @@ describe('parseChangelog', () => {
     expect(log[0].sections[0].kind).toBe('fixed');
   });
 
+  it('parses a version heading with an en-dash date', () => {
+    const log = parseChangelog('## [2.0.0] – 2026-03-03\n\n### Changed\n- C\n');
+    expect(log[0].version).toBe('2.0.0');
+    expect(log[0].date).toBe('2026-03-03');
+    expect(log[0].sections[0].kind).toBe('changed');
+  });
+
+  it('silently drops bullets that appear before any section heading', () => {
+    const log = parseChangelog('## [0.1.0] — 2026-01-01\n- orphan bullet\n\n### Added\n- real\n');
+    expect(log[0].sections).toHaveLength(1);
+    expect(log[0].sections[0].items).toEqual(['real']);
+  });
+
   it('gives a dateless version (Unreleased) a null date and no sections', () => {
-    const log = parseChangelog('## [Unreleased]\n\n## [0.1.0] — 2026-05-13\n\n### Added\n- First\n');
+    const log = parseChangelog(
+      '## [Unreleased]\n\n## [0.1.0] — 2026-05-13\n\n### Added\n- First\n',
+    );
     const unreleased = log.find((v) => v.version === 'Unreleased');
     expect(unreleased).toBeDefined();
     expect(unreleased?.date).toBeNull();
@@ -54,7 +69,8 @@ describe('parseChangelog', () => {
   });
 
   it('ignores intro content before the first version heading', () => {
-    const md = '# Changelog\n\nSome intro paragraph.\n\n## [0.1.0] — 2026-01-01\n\n### Added\n- x\n';
+    const md =
+      '# Changelog\n\nSome intro paragraph.\n\n## [0.1.0] — 2026-01-01\n\n### Added\n- x\n';
     const log = parseChangelog(md);
     expect(log).toHaveLength(1);
     expect(log[0].version).toBe('0.1.0');
