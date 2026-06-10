@@ -102,4 +102,54 @@ describe('DependencyDialog', () => {
     // Count is 1 (primary only) — loader requirements do NOT bump it.
     expect(screen.getByRole('button', { name: /Install \(1 mod\)/ })).toBeTruthy();
   });
+
+  it('renders a noMc unresolvable row with the per-loader list', () => {
+    render(DependencyDialog, {
+      props: {
+        primary: v('X', 'vx'),
+        primaryProjectName: 'X',
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [{ kind: 'noMc', name: 'Jade', mcVersion: '1.20.4', list: 'Forge 1.19.2' }],
+        onCancel: () => {},
+        onConfirm: () => {},
+      },
+    });
+    expect(
+      screen.getByText(/Jade — no version for Minecraft 1\.20\.4\. Latest: Forge 1\.19\.2/),
+    ).toBeTruthy();
+  });
+
+  it('renders a wrongLoader unresolvable row naming the instance loader', () => {
+    render(DependencyDialog, {
+      props: {
+        primary: v('X', 'vx'),
+        primaryProjectName: 'X',
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [{ kind: 'wrongLoader', name: 'Balm', loader: 'Forge', list: 'Fabric 1.21' }],
+        onCancel: () => {},
+        onConfirm: () => {},
+      },
+    });
+    expect(screen.getByText(/Balm — no Forge version\. Available: Fabric 1\.21/)).toBeTruthy();
+  });
+
+  it('renders a noVersions unresolvable row with just the name', () => {
+    render(DependencyDialog, {
+      props: {
+        primary: v('X', 'vx'),
+        primaryProjectName: 'X',
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [{ kind: 'noVersions', name: 'Ghost' }],
+        onCancel: () => {},
+        onConfirm: () => {},
+      },
+    });
+    expect(screen.getByText(/Ghost — no compatible version found/)).toBeTruthy();
+  });
 });

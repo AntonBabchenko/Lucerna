@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModSource, ModVersion } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
 
   // Modal that runs after ModBrowseView's startInstall surfaces deps the
   // user should look at — required mods auto-install (read-only list),
@@ -51,7 +52,7 @@
     required: DepItem[];
     optional: OptionalItem[];
     incompatible: string[];
-    unresolvable: string[];
+    unresolvable: UnresolvableDetail[];
     // Mod loaders the mod declared as dependencies (NeoForge, Fabric, …).
     // Informational only — loaders are managed at the instance level.
     loaderRequirements?: string[];
@@ -193,7 +194,28 @@
       <div
         class="mb-3 bg-warning-bg border border-warning-text/30 rounded p-2 text-sm text-warning-text"
       >
-        {$t('mods.depDialog.unresolvableWarning', { names: unresolvable.join(', ') })}
+        <div class="font-medium mb-1">{$t('mods.depDialog.unresolvableHeading')}</div>
+        <ul class="list-disc pl-5 space-y-0.5">
+          {#each unresolvable as u, i (i)}
+            <li>
+              {#if u.kind === 'noMc'}
+                {$t('mods.depDialog.unresolvableRowNoMc', {
+                  name: u.name,
+                  mcVersion: u.mcVersion,
+                  list: u.list,
+                })}
+              {:else if u.kind === 'wrongLoader'}
+                {$t('mods.depDialog.unresolvableRowWrongLoader', {
+                  name: u.name,
+                  loader: u.loader,
+                  list: u.list,
+                })}
+              {:else}
+                {$t('mods.depDialog.unresolvableRowNoVersions', { name: u.name })}
+              {/if}
+            </li>
+          {/each}
+        </ul>
       </div>
     {/if}
 

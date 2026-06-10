@@ -21,6 +21,8 @@
     formatLoaderLatestList,
     latestSupportedPerLoader,
   } from '$lib/mods/latest-supported-version';
+  import { enrichUnresolvable } from '$lib/mods/unresolvable-detail';
+  import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { t } from '$lib/i18n';
@@ -163,7 +165,7 @@
     required: DepItem[];
     optional: OptionalItem[];
     incompatible: string[];
-    unresolvable: string[];
+    unresolvable: UnresolvableDetail[];
     // Loader projects (NeoForge, Fabric, etc.) that the mod declared as
     // dependencies. We don't install them — loaders are managed at the
     // instance level — but we still show them so the user knows "this
@@ -789,9 +791,28 @@
         }),
       );
 
-      // Enrich incompatible / unresolvable DepProjectRefs to display names.
+      // Enrich incompatible DepProjectRefs to display names.
       const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
-      const unresolvableNames = await Promise.all(p.unresolvable.map(enrichRefName));
+      // Classify each unresolvable dep into a detailed UnresolvableDetail shape
+      // (noMc / wrongLoader / noVersions) so the dialog can render a precise row.
+      const unresolvableNames = await enrichUnresolvable(p.unresolvable, {
+        fetchVersions: async (ref) => {
+          const refSource: ModSource = 'project_id' in ref ? 'modrinth' : 'curseforge';
+          const id = 'project_id' in ref ? ref.project_id : String(ref.mod_id);
+          const res = await commands.modsVersions(refSource, id, null, null);
+          return res.status === 'ok' ? res.data : null;
+        },
+        fetchProjectName: async (ref) => {
+          const refSource: ModSource = 'project_id' in ref ? 'modrinth' : 'curseforge';
+          const id = 'project_id' in ref ? ref.project_id : String(ref.mod_id);
+          const proj = await commands.modsProject(refSource, id);
+          return proj.status === 'ok' ? proj.data.summary.name : id;
+        },
+        manifestOrder: mcVersions.value.map((v) => v.id),
+        displayLoader,
+        currentLoader: loader,
+        mcVersion,
+      });
 
       // Enrich loader_requirements refs to display names (informational).
       const loaderRequirements = await Promise.all(p.loader_requirements.map(enrichRefName));
