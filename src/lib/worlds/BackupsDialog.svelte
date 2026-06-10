@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
   import { t, locale } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { get } from 'svelte/store';
 
@@ -110,13 +111,7 @@
   const totalSize = $derived(backups.reduce((a, b) => a + (b.size_bytes ?? 0), 0));
 </script>
 
-<div
-  class="fixed inset-0 z-50 bg-black/30 flex items-center justify-center"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="backups-dialog-title"
->
-  <div class="bg-surface border border-border-subtle rounded shadow-lg max-w-lg w-full p-4">
+<Modal ariaLabelledby="backups-dialog-title" onClose={onClose} panelClass="max-w-lg w-full p-4">
     <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary mb-3">
       {$t('worlds.backups.title', { world: world.folder_name })}
     </h3>
@@ -169,8 +164,7 @@
         >{$t('common.close')}</button
       >
     </div>
-  </div>
-</div>
+</Modal>
 
 {#if openMenuFor}
   {@const activeBackup = backups.find((b) => b.filename === openMenuFor)}

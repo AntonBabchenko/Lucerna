@@ -8,6 +8,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -120,22 +121,14 @@
   }
 </script>
 
-<div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button
-    type="button"
-    class="absolute inset-0 bg-black/30"
-    aria-label={$t('modpacks.detail.closeScrimAriaLabel')}
-    onclick={onClose}
-  ></button>
-  <div
-    class="relative bg-surface rounded shadow-lg w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col m-4"
-    role="dialog"
-    aria-modal="true"
-    aria-label={$t('modpacks.detail.dialogAriaLabel')}
-  >
+<Modal
+  ariaLabelledby="modpack-detail-title"
+  onClose={onClose}
+  panelClass="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col"
+>
     <header class="p-4 border-b flex items-start shrink-0">
       <div class="flex-1 min-w-0">
-        <h3 class="font-semibold text-primary">{hit.title}</h3>
+        <h3 id="modpack-detail-title" class="font-semibold text-primary">{hit.title}</h3>
         {#if sourceUrl}
           <button
             type="button"
@@ -261,5 +254,4 @@
         </div>
       {/if}
     {/if}
-  </div>
-</div>
+</Modal>

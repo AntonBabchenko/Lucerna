@@ -2,6 +2,7 @@
   import type { ModSource, ModVersion } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
 
   // Modal that runs after ModBrowseView's startInstall surfaces deps the
@@ -109,13 +110,8 @@
   }
 </script>
 
-<div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-  <div
-    role="dialog"
-    aria-modal="true"
-    class="bg-surface rounded shadow-xl w-[480px] max-w-[90vw] p-5"
-  >
-    <h2 class="text-base font-semibold text-primary mb-3">
+<Modal ariaLabelledby="dep-dialog-title" onClose={onCancel} panelClass="w-[480px] max-w-[90vw] p-5">
+    <h2 id="dep-dialog-title" class="text-base font-semibold text-primary mb-3">
       {$t('mods.depDialog.heading', { name: primaryProjectName, version: primary.version_number })}
     </h2>
 
@@ -244,5 +240,4 @@
         {$t('mods.depDialog.installBtn', { count: total })}
       </button>
     </div>
-  </div>
-</div>
+</Modal>

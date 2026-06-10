@@ -16,6 +16,7 @@
   import StoragePanel from './StoragePanel.svelte';
   import { settingsOpen, type SettingsTab } from './state.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import { t } from '$lib/i18n';
 
   let active = $state<SettingsTab>('general');
@@ -32,38 +33,18 @@
   function close() {
     settingsOpen.value = null;
   }
-
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && settingsOpen.value) {
-      close();
-    }
-  }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
-
 {#if settingsOpen.value}
-  <!-- z-50 (not z-40): Settings can be summoned from *inside* the z-40 modpacks
-       modal (the CurseForge-key banner's "open settings" action). At equal
-       z-index, DOM order would paint the later-mounted modpacks modal on top and
-       hide Settings behind it. Sitting in the secondary-dialog layer (peer of
-       ManageInstancesModal) keeps Settings above any base modal it overlays. -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-    <!-- Backdrop button. Clicking outside the dialog dismisses it. -->
-    <button
-      type="button"
-      class="absolute inset-0"
-      aria-label={$t('settings.closeBackdropLabel')}
-      onclick={close}
-    ></button>
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={$t('settings.title')}
-      class="relative bg-surface rounded shadow-xl w-[640px] max-w-[95vw] h-[min(80vh,600px)] flex flex-col"
-    >
+  <Modal
+    ariaLabelledby="settings-title"
+    onClose={close}
+    panelClass="w-[640px] max-w-[95vw] h-[min(80vh,600px)] flex flex-col"
+  >
       <header class="flex items-center justify-between px-4 py-3 border-b shrink-0">
-        <h2 class="text-base font-semibold text-primary">{$t('settings.title')}</h2>
+        <h2 id="settings-title" class="text-base font-semibold text-primary">
+          {$t('settings.title')}
+        </h2>
         <CloseButton onClick={close} ariaLabel={$t('settings.closeLabel')} />
       </header>
       <div role="tablist" class="px-4 pt-2 border-b flex gap-1 shrink-0">
@@ -135,6 +116,5 @@
           <AboutPanel />
         {/if}
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}

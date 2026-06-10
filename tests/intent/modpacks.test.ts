@@ -497,7 +497,7 @@ describe('ImportedCard — modified badge has bg-warning-bg text-warning-text', 
 // ── ImportedDetailDrawer — dialog structure (NOT covered by D) ────────────────
 
 describe('ImportedDetailDrawer — role=dialog aria-modal aria-label', () => {
-  it('drawer panel has role="dialog" aria-modal="true" and aria-label="Imported pack details"', () => {
+  it('drawer panel has role="dialog" aria-modal="true" and is labelled by the pack name', () => {
     render(ImportedDetailDrawer, {
       props: {
         inst: makeInstance(),
@@ -506,7 +506,9 @@ describe('ImportedDetailDrawer — role=dialog aria-modal aria-label', () => {
         onDeleted: () => {},
       },
     });
-    const dialog = screen.getByRole('dialog', { name: /imported pack details/i });
+    // The shared Modal labels the dialog via aria-labelledby pointing at the
+    // pack-name heading (more descriptive than the old generic aria-label).
+    const dialog = screen.getByRole('dialog', { name: /cool pack/i });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(dialog.getAttribute('data-testid')).toBe('imported-detail-drawer');
   });
@@ -960,7 +962,9 @@ describe('ImportPickerDialog — role=dialog aria-modal aria-label', () => {
         onConfirm: () => {},
       },
     });
-    const dialog = screen.getByRole('dialog', { name: /modpack import picker/i });
+    // The shared Modal labels the dialog via aria-labelledby pointing at the
+    // pack-name heading, so the accessible name is the pack name.
+    const dialog = screen.getByRole('dialog', { name: /test pack/i });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 });
@@ -1046,7 +1050,9 @@ describe('ModpackDetailModal — role=dialog aria-modal aria-label', () => {
     render(ModpackDetailModal, {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
-    const dialog = screen.getByRole('dialog', { name: /modpack details/i });
+    // The shared Modal labels the dialog via aria-labelledby pointing at the
+    // pack-title heading, so the accessible name is the pack title.
+    const dialog = screen.getByRole('dialog', { name: /cool pack/i });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 
@@ -1123,7 +1129,9 @@ describe('ModpackUpdateDialog — role=dialog aria-modal', () => {
     render(ModpackUpdateDialog, {
       props: { diff: makeUpdateDiff(), onCancel: () => {}, onConfirm: () => {} },
     });
-    const dialog = screen.getByRole('dialog', { name: /modpack update confirmation/i });
+    // The shared Modal labels the dialog via aria-labelledby pointing at the
+    // "Update to {version}" heading.
+    const dialog = screen.getByRole('dialog', { name: /update to 2\.0\.0/i });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 });

@@ -2,6 +2,7 @@
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
 
@@ -120,15 +121,13 @@
   });
 </script>
 
-<div
-  class="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-  role="dialog"
-  aria-modal="true"
-  aria-label={$t('modpacks.import.picker.dialogAriaLabel')}
+<Modal
+  ariaLabelledby="import-picker-title"
+  onClose={onCancel}
+  panelClass="max-w-2xl w-full max-h-[80vh] flex flex-col"
 >
-  <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
     <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold text-primary">{summary.name}</h2>
+      <h2 id="import-picker-title" class="text-lg font-semibold text-primary">{summary.name}</h2>
       <div class="text-sm text-muted">
         v{summary.version} ·
         {summary.format === 'modrinth'
@@ -251,5 +250,4 @@
         {$t('modpacks.import.picker.installBtn', { count: selectedShas.length })}
       </button>
     </footer>
-  </div>
-</div>
+</Modal>

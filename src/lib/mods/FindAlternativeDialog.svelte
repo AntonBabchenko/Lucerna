@@ -9,6 +9,7 @@
   import { deriveSearchQuery, isPlausibleAlternative } from './alternative-match';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
 
   // Reusable "find this mod on Modrinth" dialog for a mod the user cannot
@@ -113,16 +114,18 @@
   });
 </script>
 
-<div
-  class="fixed inset-0 bg-black/50 flex items-center justify-center z-[70]"
-  role="dialog"
-  aria-modal="true"
-  aria-label={$t('mods.findAlt.title', { mod: modName })}
-  data-testid="find-alt-dialog"
+<Modal
+  ariaLabelledby="find-alt-title"
+  onClose={onClose}
+  panelClass="w-[min(40rem,92vw)] max-h-[85vh] flex flex-col"
 >
-  <div class="bg-surface rounded-lg shadow-xl w-[min(40rem,92vw)] max-h-[85vh] flex flex-col">
-    <header class="p-4 border-b flex items-center justify-between">
-      <h3 class="font-medium text-primary">{$t('mods.findAlt.title', { mod: modName })}</h3>
+    <header
+      class="p-4 border-b flex items-center justify-between"
+      data-testid="find-alt-dialog"
+    >
+      <h3 id="find-alt-title" class="font-medium text-primary">
+        {$t('mods.findAlt.title', { mod: modName })}
+      </h3>
       <CloseButton onClick={onClose} ariaLabel={$t('mods.findAlt.close')} />
     </header>
 
@@ -195,5 +198,4 @@
         </button>
       </footer>
     {/if}
-  </div>
-</div>
+</Modal>

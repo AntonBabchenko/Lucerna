@@ -12,6 +12,7 @@
   import { modProjectUrl } from '$lib/mods/project-url';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -136,22 +137,15 @@
   }
 </script>
 
-<div class="fixed inset-0 z-30 flex items-center justify-center">
-  <button
-    type="button"
-    class="absolute inset-0 bg-black/30"
-    aria-label={$t('mods.detail.closeBackdropAriaLabel')}
-    onclick={onClose}
-  ></button>
-  <div
-    role="dialog"
-    aria-modal="true"
-    class="relative bg-surface rounded shadow-lg w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col m-4"
-  >
+<Modal
+  ariaLabelledby="mod-detail-title"
+  onClose={onClose}
+  panelClass="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl 2xl:max-w-5xl max-h-[90vh] flex flex-col"
+>
     <!-- Fixed header: title, source link, tabs stay put while the body scrolls. -->
     <div class="p-4 pb-0 shrink-0">
       <div class="flex items-start justify-between">
-        <h2 class="text-base font-semibold text-primary flex-1">
+        <h2 id="mod-detail-title" class="text-base font-semibold text-primary flex-1">
           {project?.summary.name ?? $t('mods.detail.loading')}
         </h2>
         <CloseButton onClick={onClose} ariaLabel={$t('mods.detail.closeAriaLabel')} />
@@ -326,5 +320,4 @@
         {/if}
       </div>
     {/if}
-  </div>
-</div>
+</Modal>

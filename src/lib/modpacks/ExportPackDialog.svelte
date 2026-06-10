@@ -11,6 +11,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { defaultExportFilename, unresolvableMods, type ExportModeUi } from '$lib/modpacks/export';
 
@@ -110,15 +111,17 @@
   }
 </script>
 
-<div
-  class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
-  role="dialog"
-  aria-modal="true"
-  aria-label={$t('modpacks.export.dialogAriaLabel')}
+<Modal
+  ariaLabelledby="export-pack-title"
+  onClose={onClose}
+  panelClass="max-w-2xl w-full max-h-[85vh] flex flex-col"
+  closeOnBackdrop={!busy}
+  closeOnEscape={!busy}
 >
-  <div class="bg-surface rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
     <header class="p-4 border-b">
-      <h2 class="text-lg font-semibold text-primary">{$t('modpacks.export.title')}</h2>
+      <h2 id="export-pack-title" class="text-lg font-semibold text-primary">
+        {$t('modpacks.export.title')}
+      </h2>
     </header>
 
     <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
@@ -265,5 +268,4 @@
         {$t('modpacks.export.exportBtn')}
       </button>
     </footer>
-  </div>
-</div>
+</Modal>

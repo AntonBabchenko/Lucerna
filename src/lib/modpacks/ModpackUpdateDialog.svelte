@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModpackUpdateDiff } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
 
   let {
@@ -14,14 +15,12 @@
   } = $props();
 </script>
 
-<div
-  class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]"
-  role="dialog"
-  aria-modal="true"
-  aria-label={$t('modpacks.update.dialogAriaLabel')}
+<Modal
+  ariaLabelledby="modpack-update-title"
+  onClose={onCancel}
+  panelClass="w-[480px] max-h-[80vh] p-5 flex flex-col gap-3"
 >
-  <div class="bg-surface rounded-lg shadow-xl w-[480px] max-h-[80vh] p-5 flex flex-col gap-3">
-    <h3 class="font-semibold text-base text-primary">
+    <h3 id="modpack-update-title" class="font-semibold text-base text-primary">
       {$t('modpacks.update.title', { version: diff.new_version_number })}
     </h3>
 
@@ -84,5 +83,4 @@
         {$t('modpacks.update.updateBtn')}
       </button>
     </div>
-  </div>
-</div>
+</Modal>

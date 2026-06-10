@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import HelpPopover from '$lib/ui/HelpPopover.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
   import { explainKey } from '$lib/onboarding/explanation-keys';
   import { t } from '$lib/i18n';
@@ -28,28 +29,19 @@
   } = $props();
 </script>
 
-<svelte:window
-  onkeydown={(e) => {
-    if (open && e.key === 'Escape') onClose();
-  }}
-/>
-
 {#if open}
-  <div class="fixed inset-0 z-40 flex items-center justify-center" data-testid="modpacks-modal">
-    <button
-      type="button"
-      class="absolute inset-0 bg-black/40"
-      aria-label={$t('modpacks.modal.closeScrimAriaLabel')}
-      onclick={onClose}
-    ></button>
-    <div
-      class="relative bg-surface rounded shadow-lg w-[92vw] max-w-5xl h-[92vh] flex flex-col m-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={$t('modpacks.modal.title')}
-    >
-      <header class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0">
-        <h2 class="font-semibold text-primary">{$t('modpacks.modal.title')}</h2>
+  <Modal
+    ariaLabelledby="modpacks-modal-title"
+    onClose={onClose}
+    panelClass="w-[92vw] max-w-5xl h-[92vh] flex flex-col"
+  >
+      <header
+        class="p-4 border-b border-border-subtle flex items-center gap-1 shrink-0"
+        data-testid="modpacks-modal"
+      >
+        <h2 id="modpacks-modal-title" class="font-semibold text-primary">
+          {$t('modpacks.modal.title')}
+        </h2>
         <HelpPopover
           body={$t(explainKey('onboarding.modpackInstance.body', explanationState.level))}
           triggerAriaLabel={$t('onboarding.modpackInstance.triggerAriaLabel')}
@@ -62,6 +54,5 @@
       <div class="flex-1 overflow-hidden flex flex-col min-h-0">
         {@render children?.()}
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}

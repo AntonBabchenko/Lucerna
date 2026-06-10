@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { OrphanRef } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
 
   let {
     removingNames,
@@ -26,14 +27,12 @@
   }
 </script>
 
-<div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-  <div
-    role="dialog"
-    aria-modal="true"
-    aria-label={$t('mods.orphan.confirmUninstallAriaLabel')}
-    class="bg-surface rounded shadow-xl w-[440px] max-w-[90vw] p-5"
-  >
-    <h2 class="text-base font-semibold text-primary mb-3">
+<Modal
+  ariaLabelledby="orphan-dialog-title"
+  onClose={onCancel}
+  panelClass="w-[440px] max-w-[90vw] p-5"
+>
+    <h2 id="orphan-dialog-title" class="text-base font-semibold text-primary mb-3">
       {$t('mods.orphan.heading', { count: removingNames.length })}
     </h2>
     <ul class="text-sm text-secondary list-disc pl-5 mb-3 max-h-32 overflow-auto">
@@ -70,5 +69,4 @@
         })}
       </button>
     </div>
-  </div>
-</div>
+</Modal>
