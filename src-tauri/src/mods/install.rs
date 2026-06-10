@@ -564,9 +564,17 @@ pub async fn update_one(
         .map(|m| m.enabled)
         .unwrap_or(true);
 
-    // Phase 1 — warm the cache. Distribution-check then fetch each file;
-    // nothing on the instance is touched, so any failure aborts cleanly.
+    // Phase 1 — warm the cache. Filename- and distribution-check then fetch
+    // each file; nothing on the instance is touched, so any failure aborts
+    // cleanly. The filename guard runs before `fetch_to_cache` so a hostile
+    // API filename is rejected before any network I/O — mirroring the
+    // guard-first ordering in `install_one`.
     for v in std::iter::once(&target).chain(required_deps.iter()) {
+        if !crate::mods::modpack::path_safety::is_safe_filename(&v.primary_file.filename) {
+            return Err(Error::ModsUnsafeFilename {
+                filename: v.primary_file.filename.clone(),
+            });
+        }
         if !v.primary_file.distribution_allowed {
             return Err(Error::ModsDistributionDisabled {
                 platform: match v.source {
@@ -1203,6 +1211,35 @@ mod tests {
         )
         .await;
         assert!(matches!(r, Err(Error::ModsDistributionDisabled { .. })));
+    }
+
+    #[tokio::test]
+    async fn update_one_rejects_unsafe_target_filename_before_io() {
+        let _g = test_lock();
+        let td_data = TempDir::new().unwrap();
+        let td_inst = TempDir::new().unwrap();
+        // Hostile filename on the update target. No mock server / allowed hosts:
+        // the Phase-1 guard must reject before any cache-warming network I/O.
+        let v = fake_version(
+            "http://127.0.0.1:1/evil.jar".into(),
+            "0".repeat(40),
+            0,
+            "../../evil.jar",
+        );
+        let r = update_one(
+            td_data.path(),
+            td_inst.path(),
+            "nonexistent",
+            v,
+            vec![],
+            &nop_progress(),
+        )
+        .await;
+        assert!(
+            matches!(&r, Err(Error::ModsUnsafeFilename { filename }) if filename == "../../evil.jar"),
+            "expected ModsUnsafeFilename, got {r:?}"
+        );
+        assert!(!installed::mods_dir(td_inst.path()).exists());
     }
 
     #[tokio::test]

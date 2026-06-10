@@ -293,6 +293,16 @@ pub async fn install_local(
     bytes: &[u8],
     display_name: Option<&str>,
 ) -> Result<InstalledMod, Error> {
+    // Guard FIRST — before any filesystem I/O — that the filename is a safe
+    // single segment. Today's only caller derives this from `Path::file_name()`
+    // (which strips parent components), but this `pub` function must be safe by
+    // construction regardless of caller, mirroring `install::install_one`.
+    if !crate::mods::modpack::path_safety::is_safe_filename(filename) {
+        return Err(Error::ModsUnsafeFilename {
+            filename: filename.to_string(),
+        });
+    }
+
     let sha = hex::encode(Sha1::digest(bytes));
 
     let dest_dir = installed::mods_dir(instance_root);
@@ -773,6 +783,21 @@ mod tests {
         assert_eq!(list[0].source, None); // manual mod
         assert_eq!(list[0].name, "Sodium");
         assert_eq!(list[0].sha1, installed.sha1);
+    }
+
+    #[tokio::test]
+    async fn install_local_rejects_unsafe_filename_before_io() {
+        let td_inst = TempDir::new().unwrap();
+        let err = install_local(td_inst.path(), "../../evil.jar", b"x", None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::ModsUnsafeFilename { ref filename } if filename == "../../evil.jar"),
+            "expected ModsUnsafeFilename, got {err:?}"
+        );
+        // No directory was created and nothing escaped.
+        assert!(!crate::mods::installed::mods_dir(td_inst.path()).exists());
+        assert!(!td_inst.path().join("evil.jar").exists());
     }
 
     #[tokio::test]
