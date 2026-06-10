@@ -901,6 +901,7 @@
     "modsSha1Mismatch": "This mod wasn’t installed: the download didn’t match the published checksum, so it may be corrupted or tampered with.",
     "modsDependencyUnresolvable": "Required dependency {projectRef} is not available for this MC + loader",
     "modsFilenameConflict": "A different file named \"{filename}\" already exists in this instance — uninstall it first",
+    "modsUnsafeFilename": "Refused to install \"{filename}\": the file name is unsafe (contains a path separator or \"..\")",
     "modsCacheIo": "Couldn't write to mod cache: {details}",
     "modsInstancePath": "Couldn't write to instance at {path}: {details}",
     "modpackInvalidArchive": "Modpack archive is invalid: {details}",
