@@ -300,15 +300,29 @@ pub(crate) fn clamp_heap_mb(requested: u32, total_ram_mb: Option<u64>) -> u32 {
 pub(crate) fn sanitize_jvm_args(raw: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut total = 0usize;
+    let mut dropped = 0usize;
     for tok in raw.split_whitespace() {
+        // Control chars (NUL, ESC, …) are never valid in a JVM flag — a token
+        // carrying one is a paste error or injection attempt; drop it.
         if tok.chars().any(|c| c.is_control()) {
+            dropped += 1;
+            continue;
+        }
+        // Check before pushing so `out` never exceeds the cap. Skip (not
+        // break) an over-cap token so smaller later tokens can still fit.
+        if total + tok.len() + 1 > MAX_JVM_ARGS_LEN {
+            dropped += 1;
             continue;
         }
         total += tok.len() + 1;
-        if total > MAX_JVM_ARGS_LEN {
-            break;
-        }
         out.push(tok.to_string());
+    }
+    // Dropping is silent in the argv, so surface it in the launcher log —
+    // otherwise a user whose flags vanished has no way to tell why.
+    if dropped > 0 {
+        eprintln!(
+            "launch: dropped {dropped} extra_jvm_args token(s) (control chars or {MAX_JVM_ARGS_LEN}-byte cap)"
+        );
     }
     out
 }
@@ -687,7 +701,12 @@ mod tests {
             "expected truncation, got {} tokens",
             out.len()
         );
+        // The cap check runs before each push, so the emitted total never
+        // exceeds MAX_JVM_ARGS_LEN.
         let total: usize = out.iter().map(|t| t.len() + 1).sum();
-        assert!(total <= 4096 + 16);
+        assert!(
+            total <= MAX_JVM_ARGS_LEN,
+            "emitted {total} bytes, cap {MAX_JVM_ARGS_LEN}"
+        );
     }
 }
