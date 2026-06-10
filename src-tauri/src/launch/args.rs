@@ -317,8 +317,10 @@ pub(crate) fn sanitize_jvm_args(raw: &str) -> Vec<String> {
         total += tok.len() + 1;
         out.push(tok.to_string());
     }
-    // Dropping is silent in the argv, so surface it in the launcher log —
-    // otherwise a user whose flags vanished has no way to tell why.
+    // Dropping is silent in the argv. Emit a launcher diagnostic to stderr so
+    // the reason is recoverable when running from a console / dev build —
+    // matching the eprintln! diagnostics used elsewhere in the launch path.
+    // (This is a developer/console signal, not the in-app log viewer.)
     if dropped > 0 {
         eprintln!(
             "launch: dropped {dropped} extra_jvm_args token(s) (control chars or {MAX_JVM_ARGS_LEN}-byte cap)"
