@@ -104,7 +104,7 @@
       title={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
       onclick={onToggleCompact}
     >
-      {compact ? '⤢' : '⤬'}
+      <Icon name={compact ? 'expand' : 'shrink'} size={14} />
     </button>
   </div>
 

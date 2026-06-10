@@ -39,6 +39,8 @@ describe('icon registry', () => {
       'scrollText',
       'arrowUp',
       'circleX',
+      'shrink',
+      'expand',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });

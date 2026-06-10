@@ -10,6 +10,7 @@ import {
   CircleX,
   Download,
   EllipsisVertical,
+  Expand,
   ExternalLink,
   FolderOpen,
   Info,
@@ -22,6 +23,7 @@ import {
   RefreshCw,
   ScrollText,
   Settings,
+  Shrink,
   Trash2,
   TriangleAlert,
   X,
@@ -65,6 +67,8 @@ export const ICONS = {
   scrollText: ScrollText, // 📜 Logs
   arrowUp: ArrowUp, // ↑ Updates filter
   circleX: CircleX, // ✕ missing status
+  shrink: Shrink, // collapse window to mini mode
+  expand: Expand, // restore window from mini mode
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;
