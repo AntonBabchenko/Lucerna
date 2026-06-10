@@ -5,6 +5,8 @@ import {
   Blocks,
   Check,
   ChevronDown,
+  ChevronFirst,
+  ChevronLast,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
@@ -57,8 +59,10 @@ export const ICONS = {
   package: Package, // modpack placeholder avatars + "from modpack" chips
   externalLink: ExternalLink, // opens an external site (e.g. OptiFine hint)
   moreVertical: EllipsisVertical, // overflow-menu affordance (lucide renamed MoreVertical → EllipsisVertical)
-  chevronLeft: ChevronLeft, // gallery prev
-  chevronRight: ChevronRight, // gallery next
+  chevronLeft: ChevronLeft, // gallery prev / pagination prev
+  chevronRight: ChevronRight, // gallery next / pagination next
+  chevronFirst: ChevronFirst, // pagination first
+  chevronLast: ChevronLast, // pagination last
   puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
   arrowRight: ArrowRight, // version-transition marker (v1 → v2)
   // i18n tier — nav/action + status.

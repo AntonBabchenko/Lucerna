@@ -374,8 +374,8 @@ describe('ModBrowseView — pagination buttons are btn-secondary btn-sm', () => 
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    const prevBtn = await screen.findByRole('button', { name: /‹ prev/i });
-    const nextBtn = screen.getByRole('button', { name: /next ›/i });
+    const prevBtn = await screen.findByRole('button', { name: /prev/i });
+    const nextBtn = screen.getByRole('button', { name: /next/i });
     expect(prevBtn).toHaveBtnVariant('secondary');
     expect(prevBtn).toHaveBtnSize('sm');
     expect(nextBtn).toHaveBtnVariant('secondary');
@@ -394,7 +394,7 @@ describe('ModBrowseView — pagination buttons are btn-secondary btn-sm', () => 
     render(ModBrowseView, {
       props: { source: 'modrinth', instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    const prevBtn = await screen.findByRole('button', { name: /‹ prev/i });
+    const prevBtn = await screen.findByRole('button', { name: /prev/i });
     expect((prevBtn as HTMLButtonElement).disabled).toBe(true);
   });
 });

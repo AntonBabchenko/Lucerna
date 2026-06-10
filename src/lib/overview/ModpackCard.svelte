@@ -3,6 +3,7 @@
   import type { Error as IpcError } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   let { instance, onOpenPack }: { instance: InstanceWithStatus; onOpenPack: () => void } = $props();
 
@@ -66,8 +67,13 @@
         {$t('page.overview.modpackUpdateAvailable', { version: check.entry.version_number })}
       </span>
     {/if}
-    <button type="button" class="btn-tertiary ml-auto" onclick={onOpenPack}>
+    <button
+      type="button"
+      class="btn-tertiary ml-auto inline-flex items-center gap-1"
+      onclick={onOpenPack}
+    >
       {$t('page.overview.modpackOpen')}
+      <Icon name="arrowRight" size={14} />
     </button>
   </div>
 

@@ -9,10 +9,10 @@
     "nextImage": "Следующее изображение"
   },
   "pagination": {
-    "first": "« Первая",
-    "prev": "‹ Назад",
-    "next": "Вперёд ›",
-    "last": "Последняя »",
+    "first": "Первая",
+    "prev": "Назад",
+    "next": "Вперёд",
+    "last": "Последняя",
     "pageOf": "Страница {page} из {total}"
   },
   "accounts": {
@@ -96,8 +96,8 @@
       "cancelBtn": "Отмена",
       "createBtn": "Создать",
       "doneBtn": "Готово",
-      "openFolderBtn": "📁 Открыть папку",
-      "deleteBtn": "🗑 Удалить профиль",
+      "openFolderBtn": "Открыть папку",
+      "deleteBtn": "Удалить профиль",
       "emptyState": "Выберите профиль слева или нажмите + Новый профиль.",
       "memoryLabel": "Память (макс. heap): {mb} МБ",
       "jvmArgsLabel": "Дополнительные аргументы JVM",
@@ -1073,7 +1073,7 @@
       "attnMissingMods": "{count, plural, one {# мод сборки не установлен} few {# мода сборки не установлены} many {# модов сборки не установлены} other {# мода сборки не установлены}}",
       "attnIncompatible": "{count, plural, one {# несовместимый мод} few {# несовместимых мода} many {# несовместимых модов} other {# несовместимых мода}}",
       "attnIntegrity": "{count, plural, one {# проблема целостности} few {# проблемы целостности} many {# проблем целостности} other {# проблемы целостности}}",
-      "attentionView": "Открыть →",
+      "attentionView": "Открыть",
       "pillRunning": "Запущено",
       "pillReady": "Готово к игре",
       "pillNeedsInstall": "Требуется установка",
@@ -1081,7 +1081,7 @@
       "pillInstalling": "Установка…",
       "avatarAlt": "Иконка профиля",
       "sectionModpack": "Сборка",
-      "modpackOpen": "Открыть сборку →",
+      "modpackOpen": "Открыть сборку",
       "modpackCheckUpdate": "Проверить обновление",
       "modpackChecking": "Проверка…",
       "modpackUpToDate": "Актуально",

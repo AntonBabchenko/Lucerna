@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   // Shared pagination control for every browser (mods / RP / shaders, modpacks,
   // installed). Index-based and presentational: `page` is 0-based, the component
@@ -32,20 +33,22 @@
   <span class="flex-1"></span>
   <button
     type="button"
-    class="btn-secondary btn-sm"
+    class="btn-secondary btn-sm inline-flex items-center gap-1"
     data-testid="pg-first"
     disabled={atFirst}
     onclick={() => onPage(0)}
   >
+    <Icon name="chevronFirst" size={16} />
     {$t('pagination.first')}
   </button>
   <button
     type="button"
-    class="btn-secondary btn-sm"
+    class="btn-secondary btn-sm inline-flex items-center gap-1"
     data-testid="pg-prev"
     disabled={atFirst}
     onclick={() => onPage(page - 1)}
   >
+    <Icon name="chevronLeft" size={16} />
     {$t('pagination.prev')}
   </button>
   <span data-testid="pg-label">
@@ -53,21 +56,23 @@
   </span>
   <button
     type="button"
-    class="btn-secondary btn-sm"
+    class="btn-secondary btn-sm inline-flex items-center gap-1"
     data-testid="pg-next"
     disabled={atLast}
     onclick={() => onPage(page + 1)}
   >
     {$t('pagination.next')}
+    <Icon name="chevronRight" size={16} />
   </button>
   <button
     type="button"
-    class="btn-secondary btn-sm"
+    class="btn-secondary btn-sm inline-flex items-center gap-1"
     data-testid="pg-last"
     disabled={atLast}
     onclick={() => onPage(lastIndex)}
   >
     {$t('pagination.last')}
+    <Icon name="chevronLast" size={16} />
   </button>
   <span class="flex-1 flex justify-end">
     {@render end?.()}

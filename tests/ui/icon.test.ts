@@ -43,6 +43,8 @@ describe('icon registry', () => {
       'expand',
       'resourcePack',
       'shader',
+      'chevronFirst',
+      'chevronLast',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });

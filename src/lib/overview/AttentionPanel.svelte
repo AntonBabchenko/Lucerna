@@ -39,7 +39,10 @@
         <span class="flex-1 text-sm text-warning-text">
           {$t(TEXT_KEY[item.kind], { count: item.count })}
         </span>
-        <span class="text-xs text-warning-text underline">{$t('page.overview.attentionView')}</span>
+        <span class="inline-flex items-center gap-1 text-xs text-warning-text underline">
+          {$t('page.overview.attentionView')}
+          <Icon name="arrowRight" size={12} />
+        </span>
       </button>
     {/each}
   </div>

@@ -9,10 +9,10 @@
     "nextImage": "Next image"
   },
   "pagination": {
-    "first": "« First",
-    "prev": "‹ Prev",
-    "next": "Next ›",
-    "last": "Last »",
+    "first": "First",
+    "prev": "Prev",
+    "next": "Next",
+    "last": "Last",
     "pageOf": "Page {page} of {total}"
   },
   "accounts": {
@@ -96,8 +96,8 @@
       "cancelBtn": "Cancel",
       "createBtn": "Create",
       "doneBtn": "Done",
-      "openFolderBtn": "📁 Open folder",
-      "deleteBtn": "🗑 Delete instance",
+      "openFolderBtn": "Open folder",
+      "deleteBtn": "Delete instance",
       "emptyState": "Pick an instance on the left, or click + New instance.",
       "memoryLabel": "Memory (max heap): {mb} MB",
       "jvmArgsLabel": "Extra JVM args",
@@ -1073,7 +1073,7 @@
       "attnMissingMods": "{count, plural, one {# pack mod not installed} other {# pack mods not installed}}",
       "attnIncompatible": "{count, plural, one {# incompatible mod} other {# incompatible mods}}",
       "attnIntegrity": "{count, plural, one {# integrity problem} other {# integrity problems}}",
-      "attentionView": "View →",
+      "attentionView": "View",
       "pillRunning": "Running",
       "pillReady": "Ready to play",
       "pillNeedsInstall": "Install required",
@@ -1081,7 +1081,7 @@
       "pillInstalling": "Installing…",
       "avatarAlt": "Instance icon",
       "sectionModpack": "Modpack",
-      "modpackOpen": "Open pack →",
+      "modpackOpen": "Open pack",
       "modpackCheckUpdate": "Check for update",
       "modpackChecking": "Checking…",
       "modpackUpToDate": "Up to date",
