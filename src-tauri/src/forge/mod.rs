@@ -9,7 +9,6 @@
 
 pub mod flavor;
 pub mod installer;
-pub mod mappings;
 pub mod meta;
 pub mod patcher;
 pub mod profile;
