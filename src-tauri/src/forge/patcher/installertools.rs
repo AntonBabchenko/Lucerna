@@ -267,6 +267,26 @@ async fn process_minecraft_jar_via_java(args: &[String], ctx: &ProcessorContext)
     .await
 }
 
+/// Extract a required, non-empty SHA-1 hex from a Mojang
+/// `downloads.<side>_mappings` object. Vanilla Mojang artifacts have no
+/// TOFU exception (Principle B.6 — "always SHA-1-verified, no exception"),
+/// so a missing, empty, or non-string `sha1` is a hard error rather than the
+/// old `unwrap_or("")`, which fed an empty expected hash to the downloader
+/// and silently skipped verification.
+fn require_mapping_sha1<'a>(dl: &'a serde_json::Value, key: &str) -> Result<&'a str> {
+    dl.get("sha1")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            patcher_fail(
+                "installertools::DOWNLOAD_MOJMAPS",
+                &format!(
+                    "downloads.{key}.sha1 missing — refusing to install an unverified Mojang mapping (B.6)"
+                ),
+            )
+        })
+}
+
 async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()> {
     use tokio::fs;
     let version = read_flag(args, "--version")
@@ -315,7 +335,7 @@ async fn download_mojmaps(args: &[String], _ctx: &ProcessorContext) -> Result<()
             &format!("downloads.{key}.url missing or not a string"),
         )
     })?;
-    let sha1 = dl.get("sha1").and_then(|v| v.as_str()).unwrap_or("");
+    let sha1 = require_mapping_sha1(dl, &key)?;
 
     // 3. Download.
     if let Some(parent) = std::path::Path::new(&output).parent() {
@@ -1145,6 +1165,39 @@ com.example.Baz -> c:\n\
                 assert!(details.contains("bogus"));
             }
             other => panic!("got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn require_mapping_sha1_accepts_present_hex() {
+        let dl = serde_json::json!({
+            "url": "https://example/mappings.txt",
+            "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        });
+        assert_eq!(
+            require_mapping_sha1(&dl, "client_mappings").unwrap(),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
+    }
+
+    #[test]
+    fn require_mapping_sha1_rejects_missing_empty_or_nonstring() {
+        // B.6: a Mojang artifact with no sha1 must be a hard error, never a
+        // silent verification skip.
+        for dl in [
+            serde_json::json!({ "url": "u" }),               // missing
+            serde_json::json!({ "url": "u", "sha1": "" }),   // empty
+            serde_json::json!({ "url": "u", "sha1": 123 }),  // non-string
+            serde_json::json!({ "url": "u", "sha1": null }), // null
+        ] {
+            let err = require_mapping_sha1(&dl, "client_mappings").unwrap_err();
+            match err {
+                crate::error::Error::ForgePatcherFailed { processor, details } => {
+                    assert_eq!(processor, "installertools::DOWNLOAD_MOJMAPS");
+                    assert!(details.contains("sha1 missing"), "details: {details}");
+                }
+                other => panic!("got {other:?}"),
+            }
         }
     }
 
