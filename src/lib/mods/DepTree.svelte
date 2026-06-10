@@ -58,7 +58,7 @@
             class="text-accent"
             title={$t('mods.deps.jumpToTitle', { name: n.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: n.name })}
-            onclick={() => onJump(n)}>↗</button
+            onclick={() => onJump(n)}><Icon name="arrowUpRight" size={12} /></button
           >
         {/if}
         {#if n.status === 'satisfied' || n.status === 'optional_present'}

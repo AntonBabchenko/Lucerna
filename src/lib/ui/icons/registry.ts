@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ArrowUpRight,
   Blocks,
   Check,
   ChevronDown,
@@ -67,6 +68,7 @@ export const ICONS = {
   puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
   arrowLeft: ArrowLeft, // back / prev navigation (tour)
   arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
+  arrowUpRight: ArrowUpRight, // jump-to-row (dep tree internal navigation)
   // i18n tier — nav/action + status.
   settings: Settings, // ⚙ Manage
   folderOpen: FolderOpen, // 📁 Open folder

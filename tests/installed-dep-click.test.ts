@@ -59,7 +59,7 @@ describe('dep-tree node name opens the mod detail modal', () => {
     const nameBtn = screen.getByRole('button', { name: 'Bravo' });
     const arrow = screen.getByRole('button', { name: 'Show Bravo in the list' });
     expect(arrow).not.toBe(nameBtn);
-    expect(arrow.textContent).toContain('↗');
+    expect(arrow.querySelector('.lucide-arrow-up-right')).toBeTruthy();
 
     await fireEvent.click(arrow);
     expect(onJump).toHaveBeenCalledWith(installedNode);
@@ -123,7 +123,7 @@ describe('"required by" entries are interactive', () => {
     });
 
     const arrow = screen.getByRole('button', { name: 'Show Alpha in the list' });
-    expect(arrow.textContent).toContain('↗');
+    expect(arrow.querySelector('.lucide-arrow-up-right')).toBeTruthy();
 
     await fireEvent.click(arrow);
     expect(onJump).toHaveBeenCalledWith({ source: 'modrinth', project_id: 'PA' });
