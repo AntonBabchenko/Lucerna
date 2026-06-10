@@ -54,6 +54,7 @@
               type="button"
               class="btn-tertiary font-medium text-primary"
               title={href}
+              aria-label={$t('settings.changelog.openReleaseLabel', { version: ver.version })}
               onclick={() => openUrl(href)}
             >
               v{ver.version}

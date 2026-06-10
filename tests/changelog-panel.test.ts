@@ -21,7 +21,7 @@ const SAMPLE: Changelog = [
     date: '2026-02-02',
     url: 'https://example.test/v0.2.0',
     sections: [
-      { kind: 'added', heading: 'Added', items: ['New thing'] },
+      { kind: 'added', heading: 'WRONG_HEADING', items: ['New thing'] },
       { kind: 'other', heading: 'Notes', items: ['A note'] },
     ],
   },
@@ -34,6 +34,8 @@ describe('ChangelogPanel', () => {
     expect(screen.getByText('2026-02-02')).toBeTruthy();
     expect(screen.getByText('Added')).toBeTruthy();
     expect(screen.getByText('New thing')).toBeTruthy();
+    // The localized label (from i18n), not the raw heading, must be shown.
+    expect(screen.queryByText('WRONG_HEADING')).toBeNull();
   });
 
   it('renders the verbatim heading for an unknown (other) section kind', () => {
@@ -50,6 +52,7 @@ describe('ChangelogPanel', () => {
   it('opens the version URL via tauri-plugin-opener when the version is clicked', async () => {
     render(ChangelogPanel, { props: { entries: SAMPLE } });
     const link = screen.getByRole('button', { name: /v0\.2\.0/ });
+    expect(screen.getByRole('button', { name: /release notes on GitHub/i })).toBeTruthy();
     await fireEvent.click(link);
     await vi.waitFor(() => {
       expect(openUrlMock).toHaveBeenCalledWith('https://example.test/v0.2.0');

@@ -1000,6 +1000,7 @@
     },
     "changelog": {
       "empty": "No changelog available.",
+      "openReleaseLabel": "Open the v{version} release notes on GitHub",
       "sections": {
         "added": "Added",
         "changed": "Changed",

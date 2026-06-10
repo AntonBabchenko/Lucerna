@@ -1000,6 +1000,7 @@
     },
     "changelog": {
       "empty": "История изменений недоступна.",
+      "openReleaseLabel": "Открыть примечания к выпуску v{version} на GitHub",
       "sections": {
         "added": "Добавлено",
         "changed": "Изменено",

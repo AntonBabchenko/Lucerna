@@ -754,6 +754,7 @@ export type TranslationKey =
   | 'settings.about.trademark'
   | 'settings.about.viewOnGitHub'
   | 'settings.changelog.empty'
+  | 'settings.changelog.openReleaseLabel'
   | 'settings.changelog.sections.added'
   | 'settings.changelog.sections.changed'
   | 'settings.changelog.sections.deprecated'
