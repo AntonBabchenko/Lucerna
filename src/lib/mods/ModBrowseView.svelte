@@ -17,7 +17,10 @@
   import { mapLimit } from './concurrency';
   import { formatError } from '$lib/ipc/format-error';
   import { displayLoader } from '$lib/instances/loader-display';
-  import { latestSupportedPerLoader } from '$lib/mods/latest-supported-version';
+  import {
+    formatLoaderLatestList,
+    latestSupportedPerLoader,
+  } from '$lib/mods/latest-supported-version';
   import { modProjectUrl } from '$lib/mods/project-url';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { t } from '$lib/i18n';
@@ -625,7 +628,7 @@
       error = tr('mods.browse.errorNoCompatibleVersion');
       return;
     }
-    const list = perLoader.map((p) => `${displayLoader(p.loader)} ${p.mcVersion}`).join(' · ');
+    const list = formatLoaderLatestList(perLoader, displayLoader);
     if (perLoader.some((p) => p.loader === currentLoader)) {
       error = tr('mods.browse.errorNoVersionForMc', {
         mod: card.name,

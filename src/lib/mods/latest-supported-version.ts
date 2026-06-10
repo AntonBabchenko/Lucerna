@@ -45,3 +45,16 @@ export function latestSupportedPerLoader(
     mcVersion: (best.get(loader) as { mc: string }).mc,
   }));
 }
+
+/**
+ * Render a per-loader latest list as a brand-neutral, locale-independent string:
+ * `"Fabric 1.21 · Forge 1.19.2"`. Empty input → `''`. The surrounding sentence
+ * (which locale, what label) is i18n at the call site; only this inner list is
+ * built in code so it reads identically in every language.
+ */
+export function formatLoaderLatestList(
+  perLoader: LoaderLatest[],
+  displayLoader: (k: LoaderKind) => string,
+): string {
+  return perLoader.map((p) => `${displayLoader(p.loader)} ${p.mcVersion}`).join(' · ');
+}
