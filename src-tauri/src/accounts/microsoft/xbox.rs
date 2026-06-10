@@ -181,9 +181,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(XBL_FIXTURE))
             .mount(&server)
             .await;
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
             "LUCERNA_XBL_URL_OVERRIDE",
@@ -206,9 +204,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(XSTS_FIXTURE))
             .mount(&server)
             .await;
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
             "LUCERNA_XSTS_URL_OVERRIDE",
@@ -231,9 +227,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(401).set_body_string(XSTS_CHILD_ERROR))
             .mount(&server)
             .await;
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
             "LUCERNA_XSTS_URL_OVERRIDE",
@@ -261,9 +255,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(401).set_body_string(XSTS_NO_XBOX_ERROR))
             .mount(&server)
             .await;
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         std::env::set_var(
             "LUCERNA_XSTS_URL_OVERRIDE",

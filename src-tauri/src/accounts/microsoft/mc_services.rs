@@ -140,9 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn login_with_xbox_happy_path() {
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/authentication/login_with_xbox"))
@@ -168,9 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_profile_happy_path_no_dashes_id() {
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/minecraft/profile"))
@@ -198,9 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_profile_404_no_minecraft_profile() {
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/minecraft/profile"))
@@ -229,9 +223,7 @@ mod variant_a_tests {
 
     #[tokio::test]
     async fn login_with_xbox_403_invalid_app_registration_maps_to_pending_approval() {
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/authentication/login_with_xbox"))
@@ -269,9 +261,7 @@ mod variant_a_tests {
 
     #[tokio::test]
     async fn login_with_xbox_403_other_body_falls_through_to_auth_failed() {
-        let _guard = super::super::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/authentication/login_with_xbox"))
