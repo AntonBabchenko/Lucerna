@@ -77,6 +77,12 @@
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
   let search = $state('');
+  // Debounced mirror of `search`. The input stays bound to `search` for
+  // responsive typing, but the expensive O(N) match scan + full-body
+  // re-highlight key off `debouncedSearch`, so they run once the user pauses
+  // rather than on every keystroke (jank-free on multi-thousand-line logs).
+  let debouncedSearch = $state('');
+  const SEARCH_DEBOUNCE_MS = 120;
 
   // ---------------------------------------------------------------------------
   // Toolbar display preferences (persisted)
@@ -413,10 +419,21 @@
     charEnd: number;
   }
 
+  // Mirror `search` into `debouncedSearch` after a short pause. Re-running on
+  // each keystroke clears the previous timer, so only the last keystroke in a
+  // burst commits — classic trailing debounce.
+  $effect(() => {
+    const s = search;
+    const id = setTimeout(() => {
+      debouncedSearch = s;
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  });
+
   // Collect all match locations from the renderModel
   const allMatches = $derived.by((): MatchLocation[] => {
-    if (!search) return [];
-    const needle = search.toLowerCase();
+    if (!debouncedSearch) return [];
+    const needle = debouncedSearch.toLowerCase();
     const locs: MatchLocation[] = [];
     for (let ui = 0; ui < renderModel.length; ui++) {
       const unit = renderModel[ui];
@@ -436,10 +453,10 @@
   let currentMatchIndex = $state(0);
   const totalMatches = $derived(allMatches.length);
 
-  // Reset current index when search or content changes
+  // Reset current index when the committed search or content changes
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    search;
+    debouncedSearch;
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     selectedContent;
     currentMatchIndex = 0;
@@ -469,6 +486,9 @@
     if (e.key === 'Escape') {
       search = '';
     } else if (e.key === 'Enter') {
+      // Flush the debounce so Enter navigates the matches for exactly what is
+      // typed, even if pressed within the debounce window.
+      debouncedSearch = search;
       if (e.shiftKey) {
         prevMatch();
       } else {
@@ -488,7 +508,7 @@
    * Returns HTML string.
    */
   function highlightLine(text: string, unitIndex: number, matchesForUnit: MatchLocation[]): string {
-    if (!search || matchesForUnit.length === 0) return escapeHtml(text);
+    if (!debouncedSearch || matchesForUnit.length === 0) return escapeHtml(text);
     let result = '';
     let pos = 0;
     for (const loc of matchesForUnit) {
@@ -748,14 +768,14 @@
               disabled={!selectedPath}
               onkeydown={onSearchKeydown}
             />
-            {#if search && totalMatches > 0}
+            {#if debouncedSearch && totalMatches > 0}
               <span class="text-xs text-muted whitespace-nowrap">
                 {$t('logs.search.matchCounter', {
                   current: currentMatchIndex + 1,
                   total: totalMatches,
                 })}
               </span>
-            {:else if search && totalMatches === 0}
+            {:else if debouncedSearch && totalMatches === 0}
               <span class="text-xs text-muted whitespace-nowrap">{$t('logs.search.noMatches')}</span
               >
             {/if}
@@ -933,7 +953,7 @@
                 <div class="px-3 py-2">
                   {#each renderModel as unit, ui}
                     {#if unit.kind === 'line'}
-                      <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                      <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
                         <span class="text-placeholder select-none"
                           >{(ui + 1).toString().padStart(6, ' ')}:
                         </span><span
@@ -947,7 +967,7 @@
                       </div>
                     {:else}
                       {@const isExpanded = foldExpanded.get(ui) ?? false}
-                      <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                      <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
                         <button
                           type="button"
                           class="btn-tertiary text-left w-full"
@@ -990,3 +1010,21 @@
     </aside>
   </div>
 {/if}
+
+<style>
+  /*
+   * Native windowing for the standard line view: the browser skips layout +
+   * paint for rows outside (and near) the viewport, so a multi-thousand-line
+   * log scrolls smoothly without us virtualizing the list by hand. The rows
+   * stay in the DOM, so search highlighting, match counts, and
+   * `scrollIntoView` on the active match all keep working unchanged. The
+   * `auto` keyword remembers each row's last rendered size, so estimates stay
+   * accurate even with line wrapping. Browsers without content-visibility
+   * support (older WebKitGTK) simply ignore this and render every row — graceful
+   * degradation, no behavioural change.
+   */
+  .log-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 1.25em;
+  }
+</style>
