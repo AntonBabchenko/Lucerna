@@ -231,13 +231,84 @@ fn rule_matches_one(rule: &Rule, os: &str, arch: &str) -> bool {
     true
 }
 
+/// Resolve `${name}` placeholders in `s` from `subs` with a single
+/// left-to-right pass. Each placeholder is resolved exactly once: a value
+/// substituted in is appended verbatim and never re-scanned, so a value that
+/// happens to contain `${other}` (e.g. a player named `${classpath}`) is not
+/// re-expanded. Unknown placeholders are left literal. Deterministic
+/// regardless of `subs` iteration order.
 fn substitute(s: &str, subs: &HashMap<&'static str, String>) -> String {
-    let mut out = s.to_string();
-    for (key, value) in subs {
-        let needle = format!("${{{key}}}");
-        if out.contains(&needle) {
-            out = out.replace(&needle, value);
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        match after.find('}') {
+            Some(end) => {
+                let name = &after[..end];
+                match subs.get(name) {
+                    // Resolve once — do NOT re-scan the substituted value.
+                    Some(value) => out.push_str(value),
+                    // Unknown placeholder: leave it literal.
+                    None => {
+                        out.push_str("${");
+                        out.push_str(name);
+                        out.push('}');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            // No closing brace: emit the rest verbatim and stop.
+            None => {
+                out.push_str("${");
+                rest = after;
+            }
         }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Floor for the JVM max-heap (MB). Below this, the JVM may refuse to start;
+/// `0` or an absurd `u32::MAX` from a stale/hostile instance file would
+/// otherwise produce a cryptic launch failure.
+const MIN_HEAP_MB: u32 = 512;
+
+/// Upper bound (bytes) on the user's `extra_jvm_args` blob passed to the JVM.
+const MAX_JVM_ARGS_LEN: usize = 4096;
+
+/// Clamp a requested max-heap (MB) into a launchable range: at least
+/// [`MIN_HEAP_MB`], and never above physical RAM when it is known. Applied at
+/// the spawn site so it also covers values persisted before this guard
+/// existed. `requested.max(MIN).min(ram)` (not `clamp`) so a tiny-RAM system
+/// where `ram < MIN` does not panic on inverted bounds.
+pub(crate) fn clamp_heap_mb(requested: u32, total_ram_mb: Option<u64>) -> u32 {
+    let floored = requested.max(MIN_HEAP_MB);
+    match total_ram_mb {
+        Some(ram) => floored.min(ram.min(u32::MAX as u64) as u32),
+        None => floored,
+    }
+}
+
+/// Split the user's `extra_jvm_args` into argv tokens, dropping any token that
+/// contains a control character (never legitimate in a JVM flag) and capping
+/// the total length so an unbounded blob cannot be passed to the process.
+///
+/// Limitation: this splits on whitespace and does NOT honour shell-style
+/// quoting, so a path containing spaces cannot be expressed as a single arg.
+/// That is a documented constraint of the free-text field, not fixed here.
+pub(crate) fn sanitize_jvm_args(raw: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut total = 0usize;
+    for tok in raw.split_whitespace() {
+        if tok.chars().any(|c| c.is_control()) {
+            continue;
+        }
+        total += tok.len() + 1;
+        if total > MAX_JVM_ARGS_LEN {
+            break;
+        }
+        out.push(tok.to_string());
     }
     out
 }
@@ -531,5 +602,92 @@ mod tests {
             "expected AuthFailed{{stage=launch}}, got {:?}",
             result
         );
+    }
+
+    // ---- substitute: single-pass, no re-expansion ---------------------------
+
+    fn subs(pairs: &[(&'static str, &str)]) -> HashMap<&'static str, String> {
+        pairs.iter().map(|(k, v)| (*k, v.to_string())).collect()
+    }
+
+    #[test]
+    fn substitute_resolves_known_and_leaves_unknown_literal() {
+        let m = subs(&[("auth_player_name", "Steve")]);
+        assert_eq!(substitute("hi ${auth_player_name}", &m), "hi Steve");
+        // Unknown placeholder stays verbatim.
+        assert_eq!(substitute("x ${nope} y", &m), "x ${nope} y");
+    }
+
+    #[test]
+    fn substitute_does_not_reexpand_injected_placeholder() {
+        // A player literally named "${classpath}" must NOT cause the classpath
+        // to be expanded into the resolved value.
+        let m = subs(&[
+            ("auth_player_name", "${classpath}"),
+            ("classpath", "/secret/cp"),
+        ]);
+        assert_eq!(substitute("${auth_player_name}", &m), "${classpath}");
+    }
+
+    #[test]
+    fn substitute_is_deterministic_and_handles_unclosed() {
+        let m = subs(&[("a", "1"), ("b", "2")]);
+        assert_eq!(substitute("${a}-${b}-${a}", &m), "1-2-1");
+        // Unclosed `${` is emitted verbatim.
+        assert_eq!(substitute("pre ${unclosed", &m), "pre ${unclosed");
+        assert_eq!(substitute("none", &m), "none");
+    }
+
+    // ---- clamp_heap_mb ------------------------------------------------------
+
+    #[test]
+    fn clamp_heap_mb_floors_and_caps() {
+        // Zero / below floor → floor.
+        assert_eq!(clamp_heap_mb(0, Some(8192)), 512);
+        assert_eq!(clamp_heap_mb(256, Some(8192)), 512);
+        // In range → unchanged.
+        assert_eq!(clamp_heap_mb(4096, Some(8192)), 4096);
+        // Above RAM → RAM.
+        assert_eq!(clamp_heap_mb(u32::MAX, Some(8192)), 8192);
+        // Unknown RAM → floor only, no upper cap.
+        assert_eq!(clamp_heap_mb(0, None), 512);
+        assert_eq!(clamp_heap_mb(16384, None), 16384);
+        // Tiny system where RAM < floor → RAM (no panic on inverted bounds).
+        assert_eq!(clamp_heap_mb(2048, Some(256)), 256);
+    }
+
+    // ---- sanitize_jvm_args --------------------------------------------------
+
+    #[test]
+    fn sanitize_jvm_args_keeps_plain_and_drops_control_chars() {
+        assert_eq!(
+            sanitize_jvm_args("-XX:+UseG1GC -Xss512k"),
+            vec!["-XX:+UseG1GC".to_string(), "-Xss512k".to_string()]
+        );
+        // A token with an embedded control char (e.g. NUL) is dropped.
+        assert_eq!(
+            sanitize_jvm_args("-Dgood=1 -Dbad=\u{0}x -Dok=2"),
+            vec!["-Dgood=1".to_string(), "-Dok=2".to_string()]
+        );
+        assert!(sanitize_jvm_args("").is_empty());
+        assert!(sanitize_jvm_args("   \t  ").is_empty());
+    }
+
+    #[test]
+    fn sanitize_jvm_args_caps_total_length() {
+        // Many tokens whose cumulative length exceeds the 4096-byte cap are
+        // truncated rather than passed through unbounded.
+        let blob = (0..1000)
+            .map(|i| format!("-Dk{i}=v"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let out = sanitize_jvm_args(&blob);
+        assert!(
+            out.len() < 1000,
+            "expected truncation, got {} tokens",
+            out.len()
+        );
+        let total: usize = out.iter().map(|t| t.len() + 1).sum();
+        assert!(total <= 4096 + 16);
     }
 }

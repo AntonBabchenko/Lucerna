@@ -294,12 +294,21 @@ pub async fn start(
         arch,
     })?;
 
-    // Prepend custom JVM args: `-Xmx<max_heap_mb>m` plus whitespace-
-    // split `extra_jvm_args`. Both go in BEFORE the manifest's JVM
-    // args, so a manifest-supplied flag can override the user's
-    // setting if it needs to (spec decision).
-    let mut argv: Vec<String> = vec![format!("-Xmx{}m", instance.max_heap_mb)];
-    argv.extend(instance.extra_jvm_args.split_whitespace().map(String::from));
+    // Prepend custom JVM args: `-Xmx<heap>m` plus the sanitised
+    // `extra_jvm_args`. Both go in BEFORE the manifest's JVM args, so a
+    // manifest-supplied flag can override the user's setting if it needs to
+    // (spec decision). The heap is clamped into a launchable range and the
+    // extra args are sanitised here, at the point of use, so a stale or
+    // hostile instance file cannot produce a JVM that refuses to start or an
+    // unbounded/control-char arg blob.
+    let heap_mb = crate::launch::args::clamp_heap_mb(
+        instance.max_heap_mb,
+        crate::platform::total_system_ram_mb(),
+    );
+    let mut argv: Vec<String> = vec![format!("-Xmx{heap_mb}m")];
+    argv.extend(crate::launch::args::sanitize_jvm_args(
+        &instance.extra_jvm_args,
+    ));
     argv.extend(argv_from_manifest);
 
     let log_path = logs_dir.join(format!("{}-launch.log", local_iso_stamp()));
