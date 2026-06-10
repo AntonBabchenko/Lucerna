@@ -11,7 +11,7 @@ use crate::jre::manifest::{
 };
 use crate::network::download_with_sha;
 use crate::paths::jres_dir;
-use futures_util::stream::{self, StreamExt};
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -188,7 +188,7 @@ async fn download_files(
     // On Windows `set_executable` is a no-op (extensions decide); on Unix it
     // chmods 0o755 so `bin/java` is runnable. Applied on both the freshly
     // downloaded and the SHA-matched-skip paths (idempotent).
-    let results: Vec<Result<()>> = stream::iter(file_entries.into_iter())
+    stream::iter(file_entries.into_iter())
         .map(|(rel, executable, raw)| {
             let app = app.clone();
             let comp_root = comp_root_owned.clone();
@@ -215,12 +215,11 @@ async fn download_files(
             }
         })
         .buffer_unordered(CONCURRENCY)
-        .collect::<Vec<Result<()>>>()
-        .await;
-
-    for res in results {
-        res?;
-    }
+        // Short-circuit on the first error: stop consuming and drop the
+        // remaining in-flight downloads rather than running them all to
+        // completion before surfacing the failure.
+        .try_collect::<Vec<()>>()
+        .await?;
     Ok(())
 }
 
