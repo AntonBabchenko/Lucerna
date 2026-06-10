@@ -23,7 +23,7 @@ export type UnresolvableDetail =
 export interface UnresolvableDeps {
   /** All of the dep's versions across every loader/MC, or null if the lookup failed. */
   fetchVersions: (ref: DepProjectRef) => Promise<ModVersion[] | null>;
-  /** Human-readable project name (falls back to the raw id at the call site). */
+  /** Human-readable project name. The caller is responsible for falling back to the raw id if the lookup fails. */
   fetchProjectName: (ref: DepProjectRef) => Promise<string>;
   /** MC version manifest, newest-first (index 0 = newest). */
   manifestOrder: string[];
@@ -40,8 +40,7 @@ export async function enrichUnresolvable(
 ): Promise<UnresolvableDetail[]> {
   return Promise.all(
     refs.map(async (ref): Promise<UnresolvableDetail> => {
-      const name = await deps.fetchProjectName(ref);
-      const all = await deps.fetchVersions(ref);
+      const [name, all] = await Promise.all([deps.fetchProjectName(ref), deps.fetchVersions(ref)]);
       if (!all) return { kind: 'noVersions', name };
       const perLoader = latestSupportedPerLoader(all, deps.manifestOrder);
       if (perLoader.length === 0) return { kind: 'noVersions', name };

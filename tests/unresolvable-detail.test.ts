@@ -117,4 +117,22 @@ describe('enrichUnresolvable', () => {
     );
     expect(res[0]).toMatchObject({ name: 'Balm' });
   });
+
+  it('classifies multiple refs independently and preserves order', async () => {
+    const refA: DepProjectRef = { source: 'modrinth', project_id: 'a', version_id: null };
+    const refB: DepProjectRef = { source: 'curseforge', mod_id: 42, file_id: null };
+    const res = await enrichUnresolvable([refA, refB], {
+      fetchProjectName: async (r) => (r.source === 'modrinth' ? 'Alpha' : 'Beta'),
+      fetchVersions: async (r) =>
+        r.source === 'modrinth' ? [ver(['forge'], ['1.19.2'])] : [ver(['fabric'], ['1.21'])],
+      manifestOrder: MANIFEST,
+      displayLoader,
+      currentLoader: 'forge',
+      mcVersion: '1.20.4',
+    });
+    expect(res).toEqual([
+      { kind: 'noMc', name: 'Alpha', mcVersion: '1.20.4', list: 'Forge 1.19.2' },
+      { kind: 'wrongLoader', name: 'Beta', loader: 'Forge', list: 'Fabric 1.21' },
+    ]);
+  });
 });
