@@ -90,6 +90,11 @@
   // the shader-specific facets (iris/optifine/canvas). For both non-mod
   // kinds we omit the loader filter entirely and never send a loader facet.
   const isMod = $derived(kind === 'mod');
+  // Placeholder avatar icon for hits with no icon_url — kind-specific so a
+  // resource pack / shader doesn't render the mod (puzzle) glyph.
+  const placeholderIcon = $derived(
+    kind === 'resource_pack' ? 'resourcePack' : kind === 'shader' ? 'shader' : 'puzzle',
+  );
 
   let query = $state('');
   // Filters mirror the active instance's MC + loader. They re-sync
@@ -959,6 +964,7 @@
                 onToggle={() => toggleCard(hit)}
                 onUninstall={() => uninstallCard(hit)}
                 canToggle={isMod}
+                {placeholderIcon}
                 layout="grid"
               />
             {/each}
@@ -975,6 +981,7 @@
                 onToggle={() => toggleCard(hit)}
                 onUninstall={() => uninstallCard(hit)}
                 canToggle={isMod}
+                {placeholderIcon}
                 layout="list"
               />
             {/each}

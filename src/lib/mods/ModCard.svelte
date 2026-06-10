@@ -2,7 +2,7 @@
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
-  import { Icon } from '$lib/ui/icons';
+  import { Icon, type IconName } from '$lib/ui/icons';
 
   // One result card in ModBrowseView. Shows mod metadata plus
   // install-state-aware controls:
@@ -36,6 +36,7 @@
     onSelectChange = (_checked: boolean) => {},
     canToggle = true,
     installing = false,
+    placeholderIcon = 'puzzle',
   }: {
     summary: ModSummary | null;
     installed: InstalledMod | null;
@@ -64,6 +65,10 @@
     // True while the parent is running this card's install flow — disables the
     // Install button and shows a spinner from click to terminal result.
     installing?: boolean;
+    // Placeholder avatar icon for items with no icon_url. Defaults to the mod
+    // metaphor (puzzle); ModBrowseView passes a kind-specific icon for resource
+    // packs / shaders so a non-mod doesn't render the mod glyph.
+    placeholderIcon?: IconName;
   } = $props();
 
   // True when the installed record came from a different platform than
@@ -193,7 +198,7 @@
       class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0"
       aria-hidden="true"
     >
-      <Icon name="puzzle" size={16} />
+      <Icon name={placeholderIcon} size={16} />
     </div>
     <div class="flex-1 min-w-0">
       <div class="font-medium text-primary truncate">{degradedTitle}</div>
@@ -241,7 +246,7 @@
         <div
           class="w-10 h-10 rounded bg-subtle flex items-center justify-center text-placeholder flex-shrink-0"
         >
-          <Icon name="puzzle" size={18} />
+          <Icon name={placeholderIcon} size={18} />
         </div>
       {/if}
       <span class="min-w-0">
@@ -286,7 +291,7 @@
       <div
         class="w-8 h-8 rounded bg-subtle flex items-center justify-center text-placeholder text-xs flex-shrink-0"
       >
-        <Icon name="puzzle" size={16} />
+        <Icon name={placeholderIcon} size={16} />
       </div>
     {/if}
 

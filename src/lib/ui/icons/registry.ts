@@ -1,4 +1,5 @@
 import {
+  Aperture,
   ArrowRight,
   ArrowUp,
   Blocks,
@@ -13,6 +14,7 @@ import {
   Expand,
   ExternalLink,
   FolderOpen,
+  Image,
   Info,
   LayoutGrid,
   List,
@@ -69,6 +71,9 @@ export const ICONS = {
   circleX: CircleX, // ✕ missing status
   shrink: Shrink, // collapse window to mini mode
   expand: Expand, // restore window from mini mode
+  // Content kinds (Add-ons tab): picker options + per-kind placeholder avatars.
+  resourcePack: Image, // resource-pack kind
+  shader: Aperture, // shader kind
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

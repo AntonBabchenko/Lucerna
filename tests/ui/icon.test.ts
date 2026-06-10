@@ -41,6 +41,8 @@ describe('icon registry', () => {
       'circleX',
       'shrink',
       'expand',
+      'resourcePack',
+      'shader',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });
