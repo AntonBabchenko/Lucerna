@@ -1,7 +1,15 @@
 <script module lang="ts">
-  // Stack of currently-open modals. Only the topmost responds to Escape, so a
-  // nested modal (e.g. a delete-confirm opened on top of a detail modal) does
-  // not close every layer with one keypress.
+  // Stack of currently-open modals, in mount order. Only the topmost responds
+  // to Escape, so a nested modal (e.g. a delete-confirm opened on top of a
+  // detail modal) does not close every layer with one keypress.
+  //
+  // Invariant: mount order == paint (DOM) order. All modals share one z-index
+  // (z-50) and stack purely by DOM order, so the last-mounted modal is also the
+  // visually-topmost one. This holds because stacked modals are always rendered
+  // *after* their predecessors (a nested confirm sits after its parent in the
+  // template; cross-component modals are ordered in +page.svelte). If a future
+  // modal is placed earlier in the DOM but mounts later, Escape would close the
+  // visually-lower one — keep new stacked modals after the ones they cover.
   let openStack: symbol[] = [];
 </script>
 
@@ -54,15 +62,22 @@
 
   function onWindowKeydown(e: KeyboardEvent) {
     if (closeOnEscape && e.key === 'Escape' && isTopmost()) {
-      e.stopPropagation();
       onClose();
     }
   }
 
   function onBackdropClick(e: MouseEvent) {
-    // Only a click directly on the backdrop (not one bubbling up from the
-    // panel) closes — so selecting text and releasing outside won't close.
-    if (closeOnBackdrop && e.target === e.currentTarget) onClose();
+    if (!closeOnBackdrop) return;
+    // Only a click landing directly on the backdrop (not one bubbling up from
+    // the panel) closes.
+    if (e.target !== e.currentTarget) return;
+    // Guard the drag-select case: a text selection that starts inside the panel
+    // and ends on the backdrop dispatches `click` with the backdrop as target.
+    // Closing there would discard the user's selection, so bail if a non-empty
+    // selection exists. A null/absent selection API falls through to close.
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    onClose();
   }
 </script>
 

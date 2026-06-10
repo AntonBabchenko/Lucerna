@@ -95,6 +95,10 @@
   let restoreError = $state<string | null>(null);
   let findAltEntry = $state<ModpackUnresolvable | null>(null);
   let deleting = $state(false);
+  // True only while the delete IPC is in flight — gates the confirm dialog's
+  // backdrop/Escape close and disables its buttons so the destructive op
+  // can't be re-fired or dismissed mid-flight.
+  let deleteInFlight = $state(false);
   let deleteError = $state<string | null>(null);
 
   let updateAvailable = $state<ModpackVersionEntry | null>(null);
@@ -337,13 +341,19 @@
   }
 
   async function confirmDelete() {
+    if (deleteInFlight) return;
     deleteError = null;
-    const r = await commands.deleteInstance(inst.id);
-    if (r.status === 'ok') {
-      deleting = false;
-      onDeleted();
-    } else {
-      deleteError = formatError(r.error);
+    deleteInFlight = true;
+    try {
+      const r = await commands.deleteInstance(inst.id);
+      if (r.status === 'ok') {
+        deleting = false;
+        onDeleted();
+      } else {
+        deleteError = formatError(r.error);
+      }
+    } finally {
+      deleteInFlight = false;
     }
   }
 </script>
@@ -774,6 +784,8 @@
       deleting = false;
       deleteError = null;
     }}
+    closeOnBackdrop={!deleteInFlight}
+    closeOnEscape={!deleteInFlight}
     panelClass="w-[440px] p-5 flex flex-col gap-3"
   >
     <h3 id="imported-delete-confirm-title" class="font-semibold text-base">
@@ -791,6 +803,7 @@
       <button
         type="button"
         class="btn-secondary btn-sm"
+        disabled={deleteInFlight}
         onclick={() => {
           deleting = false;
           deleteError = null;
@@ -802,6 +815,7 @@
       <button
         type="button"
         class="btn-danger btn-sm"
+        disabled={deleteInFlight}
         onclick={confirmDelete}
         data-testid="imported-detail-delete-confirm"
       >
