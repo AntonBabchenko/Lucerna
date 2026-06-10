@@ -2,13 +2,18 @@
 //! → extract overrides. Emits typed progress events at each phase.
 
 use crate::error::Error;
-use crate::mods::install::{install_asset, install_one, ProgressFn};
+use crate::mods::install::{fetch_to_cache, install_asset, install_one, ProgressFn};
 use crate::mods::installed::{PackOrigin, PackOriginFile};
 use crate::mods::modpack::detect::detect_format;
 use crate::mods::modpack::overrides;
 use crate::mods::modpack::schema::*;
 use crate::mods::modpack::{curseforge as cf_parse, modrinth as mr_parse};
 use crate::mods::platform::{ModFile, ModSource, ModVersion};
+use futures_util::stream::{self, StreamExt};
+
+/// Concurrent download fan-out width for the modpack pre-warm pass. Matches
+/// `assets`/`jre`/`libraries` so the network saturates the same way.
+const MODPACK_PREWARM_CONCURRENCY: usize = 8;
 
 pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Error> {
     let fmt = detect_format(bytes)?;
@@ -444,6 +449,39 @@ pub fn resolve_name(desired: &str, existing: &[String]) -> Result<String, Error>
 /// and therefore no overrides to extract; the overrides block is guarded
 /// by this option. All other behaviour is identical for every format.
 #[allow(clippy::too_many_arguments)]
+/// Selected files eligible for the concurrent pre-warm pass: sha1-keyed
+/// (no `md5`), non-empty sha1, deduplicated by lowercased sha1. Returns
+/// `(url, sha1_lower, size)` ready to feed straight to `fetch_to_cache`.
+///
+/// - **md5 files are excluded** — ATLauncher's `fetch_to_cache_md5` keys the
+///   cache on the *computed* sha1 (unknown up front), so it cannot cache-hit
+///   and pre-warming would double-download. They stay on the serial path.
+/// - **empty-sha files are excluded** — the serial path rejects them anyway
+///   (no-TOFU), so there is nothing to warm.
+/// - **deduplicated by sha1** so no two concurrent tasks race on the same
+///   `<sha>.tmp` (the cache miss-path writes a sha-keyed temp file).
+///
+/// The lowercasing mirrors `install_one`/`install_asset`, which both
+/// `sha.to_ascii_lowercase()` before `fetch_to_cache` — matching the key
+/// guarantees the serial loop's fetch is an instant cache hit.
+fn prewarm_targets(selected: &[&ModpackFile]) -> Vec<(String, String, f64)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for f in selected {
+        if f.md5.is_some() {
+            continue;
+        }
+        let sha = f.sha1.trim().to_ascii_lowercase();
+        if sha.is_empty() {
+            continue;
+        }
+        if seen.insert(sha.clone()) {
+            out.push((f.url.clone(), sha, f.size));
+        }
+    }
+    out
+}
+
 pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
     summary: ModpackSummary,
@@ -595,6 +633,33 @@ pub async fn install_resolved_pack(
     // the pre-resolve step below replaces it with the real computed sha1.
     // Non-md5 files are pushed as-is (the selection token IS the real sha1).
     let mut resolved_for_origin: Vec<ModpackFile> = Vec::with_capacity(selected.len());
+
+    // Concurrent pre-warm (HIGH-5): download every sha1-keyed selected file
+    // into the shared content cache, up to MODPACK_PREWARM_CONCURRENCY at a
+    // time, BEFORE the serial install loop below. The loop is otherwise
+    // unchanged — each per-file `fetch_to_cache` then becomes an instant cache
+    // hit, so total wall-clock collapses from sum(per-file network latency) to
+    // roughly one concurrent batch of network time plus the sum of local
+    // copies. Errors are deliberately swallowed here: the serial loop stays the
+    // single source of truth for per-file success/failure, ordering, and the
+    // origin snapshot — a pre-warm miss just means that file's serial fetch
+    // re-attempts (and fails identically). The install-time guards (filename
+    // safety, distribution, path-escape) also stay in the serial loop;
+    // pre-warm only populates the SHA-verified, content-addressed cache, never
+    // the instance. (ATLauncher md5 files are excluded — see `prewarm_targets`.)
+    let prewarm = prewarm_targets(&selected);
+    if !prewarm.is_empty() {
+        let data_dir_ref = &data_dir;
+        let progress_ref = &install_progress;
+        stream::iter(prewarm)
+            .map(|(url, sha, size)| async move {
+                let _ =
+                    fetch_to_cache(data_dir_ref, &url, &sha, size, "modpacks", progress_ref).await;
+            })
+            .buffer_unordered(MODPACK_PREWARM_CONCURRENCY)
+            .collect::<Vec<()>>()
+            .await;
+    }
 
     for (idx, file) in selected.iter().enumerate() {
         on_progress(ModpackProgress::InstallingFile {
@@ -989,6 +1054,37 @@ mod tests {
             env_client: EnvSupport::Required,
             source: ModSource::Modrinth,
         }
+    }
+
+    #[test]
+    fn prewarm_targets_dedups_lowercases_and_excludes_md5_and_empty() {
+        let a = sample_file("aaa");
+        let a_dup = sample_file("aaa"); // same sha1 — must dedup to one entry
+        let a_upper = sample_file("AAA"); // same content id after lowercasing — dedup
+        let b = sample_file("bbb");
+        let mut md5_file = sample_file("ccc");
+        md5_file.md5 = Some("deadbeef".into()); // ATLauncher md5 — excluded
+        let mut empty = sample_file("ddd");
+        empty.sha1 = "   ".into(); // whitespace-only — excluded (no-TOFU)
+
+        let selected: Vec<&ModpackFile> = vec![&a, &a_dup, &a_upper, &b, &md5_file, &empty];
+        let targets = prewarm_targets(&selected);
+
+        // Surviving content ids: "aaa" (once, lowercased) + "bbb".
+        let shas: Vec<&str> = targets.iter().map(|(_, s, _)| s.as_str()).collect();
+        assert_eq!(targets.len(), 2, "got {shas:?}");
+        assert!(shas.contains(&"aaa"));
+        assert!(shas.contains(&"bbb"));
+        assert!(!shas.contains(&"ccc"), "md5 files must be excluded");
+        assert!(
+            !shas.contains(&"AAA"),
+            "sha must be lowercased before dedup"
+        );
+
+        // url + size are carried through for a surviving target.
+        let (url, _, size) = targets.iter().find(|(_, s, _)| s == "bbb").unwrap();
+        assert_eq!(url, "https://example.com/bbb.jar");
+        assert_eq!(*size, 42.0);
     }
 
     #[test]
