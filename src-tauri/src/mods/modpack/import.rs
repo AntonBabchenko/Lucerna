@@ -440,15 +440,6 @@ pub fn resolve_name(desired: &str, existing: &[String]) -> Result<String, Error>
     })
 }
 
-/// Shared install pipeline for a pack whose manifest has already been
-/// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
-/// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
-/// sidecar path in `commands.rs` (passes `archive_bytes = None`).
-///
-/// `archive_bytes` is `None` for FTB packs — they have no local archive
-/// and therefore no overrides to extract; the overrides block is guarded
-/// by this option. All other behaviour is identical for every format.
-#[allow(clippy::too_many_arguments)]
 /// Selected files eligible for the concurrent pre-warm pass: sha1-keyed
 /// (no `md5`), non-empty sha1, deduplicated by lowercased sha1. Returns
 /// `(url, sha1_lower, size)` ready to feed straight to `fetch_to_cache`.
@@ -482,6 +473,15 @@ fn prewarm_targets(selected: &[&ModpackFile]) -> Vec<(String, String, f64)> {
     out
 }
 
+/// Shared install pipeline for a pack whose manifest has already been
+/// resolved into a `ModpackSummary`. Called by `import()` (Modrinth/CF
+/// archive path, passes `archive_bytes = Some(bytes)`) and by the FTB
+/// sidecar path in `commands.rs` (passes `archive_bytes = None`).
+///
+/// `archive_bytes` is `None` for FTB packs — they have no local archive
+/// and therefore no overrides to extract; the overrides block is guarded
+/// by this option. All other behaviour is identical for every format.
+#[allow(clippy::too_many_arguments)]
 pub async fn install_resolved_pack(
     app: &tauri::AppHandle,
     summary: ModpackSummary,

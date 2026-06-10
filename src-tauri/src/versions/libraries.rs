@@ -217,8 +217,16 @@ pub(crate) fn collect_library_downloads(
     os: &str,
     arch: &str,
 ) -> Vec<(String, String, String, u64)> {
+    // Deduplicate by `rel_path` (the content-addressed maven dest). The
+    // resolved list is already path-unique in practice — `dedupe_by_maven_coord`
+    // collapses parent/child duplicates upstream — but enforcing it here makes
+    // the concurrent direct-to-dest downloads in `ensure_libraries` race-free
+    // for ANY caller: two tasks can never target the same file. A maven-coord
+    // collision resolves to identical bytes, so keeping the first is correct.
+    let mut seen = std::collections::HashSet::new();
     libs.iter()
         .flat_map(|lib| artifacts_to_install(lib, os, arch))
+        .filter(|(rel_path, _, _, _)| seen.insert(rel_path.clone()))
         .collect()
 }
 
@@ -452,6 +460,22 @@ mod tests {
         assert_eq!(got, expected);
         // Sanity: vanilla (1) + fabric (1) + excluded (0) = 2.
         assert_eq!(got.len(), 2);
+    }
+
+    #[test]
+    fn collect_library_downloads_dedups_identical_rel_paths() {
+        // Two libraries resolving to the SAME content-addressed dest must
+        // collapse to a single download work-item, so the concurrent fan-out
+        // never points two tasks at one file. `lib_no_rules` resolves to
+        // `test/lib/1/lib-1.jar`; two of them must yield exactly one item.
+        let dup_a = lib_no_rules();
+        let dup_b = lib_no_rules();
+        let libs = vec![dup_a, dup_b];
+
+        let got = collect_library_downloads(&libs, "windows", "x64");
+
+        assert_eq!(got.len(), 1, "duplicate rel_paths must be deduplicated");
+        assert_eq!(got[0].0, "test/lib/1/lib-1.jar");
     }
 
     #[test]

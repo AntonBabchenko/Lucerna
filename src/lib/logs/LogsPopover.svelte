@@ -485,6 +485,9 @@
   function onSearchKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       search = '';
+      // Flush the debounce so highlights and the match counter clear at once,
+      // rather than lingering for the debounce window after the input blanks.
+      debouncedSearch = '';
     } else if (e.key === 'Enter') {
       // Flush the debounce so Enter navigates the matches for exactly what is
       // typed, even if pressed within the debounce window.
