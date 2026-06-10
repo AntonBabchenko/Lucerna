@@ -1,13 +1,17 @@
 import {
   ArrowRight,
+  ArrowUp,
+  Blocks,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleX,
   Download,
   EllipsisVertical,
   ExternalLink,
+  FolderOpen,
   Info,
   LayoutGrid,
   List,
@@ -16,6 +20,9 @@ import {
   Plus,
   Puzzle,
   RefreshCw,
+  ScrollText,
+  Settings,
+  Trash2,
   TriangleAlert,
   X,
 } from '@lucide/svelte';
@@ -50,6 +57,14 @@ export const ICONS = {
   chevronRight: ChevronRight, // gallery next
   puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
   arrowRight: ArrowRight, // version-transition marker (v1 → v2)
+  // i18n tier — nav/action + status.
+  settings: Settings, // ⚙ Manage
+  folderOpen: FolderOpen, // 📁 Open folder
+  trash: Trash2, // 🗑 Delete
+  blocks: Blocks, // 📂 Mods
+  scrollText: ScrollText, // 📜 Logs
+  arrowUp: ArrowUp, // ↑ Updates filter
+  circleX: CircleX, // ✕ missing status
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

@@ -32,6 +32,13 @@ describe('icon registry', () => {
       'chevronRight',
       'puzzle',
       'arrowRight',
+      'settings',
+      'folderOpen',
+      'trash',
+      'blocks',
+      'scrollText',
+      'arrowUp',
+      'circleX',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });
