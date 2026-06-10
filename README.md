@@ -170,8 +170,9 @@ fork that motivated Lucerna in the first place.
 
 ## Translations
 
-Lucerna is available in English and Russian, and is open for community
-translation via [Weblate](https://weblate.org/). See
+Lucerna ships in English and Russian, and is open for community translation on
+[Hosted Weblate](https://hosted.weblate.org/engage/lucerna/) — no coding
+required, everything happens in the browser. See
 [`docs/TRANSLATING.md`](docs/TRANSLATING.md) to add or improve a language.
 
 ## Contributing

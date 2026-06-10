@@ -9,8 +9,7 @@ need to write any code.
 Lucerna uses [Weblate](https://weblate.org/) for community translation (the
 same platform Prism Launcher uses). Everything happens in your browser:
 
-1. Open the Lucerna project on Hosted Weblate. *(Link added once the project
-   is approved — see "Status" below.)*
+1. Open the [Lucerna project on Hosted Weblate](https://hosted.weblate.org/engage/lucerna/).
 2. Sign in (one click via GitHub).
 3. Pick your language, or "Start new translation" to add one.
 4. Translate strings. You see the English source plus context; Weblate checks
@@ -34,5 +33,7 @@ Partial translations are fine — any untranslated string falls back to English.
 
 ## Status
 
-The Hosted Weblate instance is not connected yet. Until then, use the manual
-JSON + PR route above.
+Lucerna is live on
+[Hosted Weblate](https://hosted.weblate.org/projects/lucerna/) — both the
+Weblate route and the manual JSON + PR route work. Translations submitted via
+Weblate reach the repository as pull requests for a maintainer to review.
