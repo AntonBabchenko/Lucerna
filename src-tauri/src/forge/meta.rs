@@ -5,6 +5,7 @@
 use crate::error::{Error, Result};
 use quick_xml::de::from_str as xml_from_str;
 use serde::Deserialize;
+use sha1::{Digest, Sha1};
 
 // ---- maven-metadata.xml parsing ----------------------------------
 
@@ -470,6 +471,20 @@ fn installer_cache_path(app_data_dir: &std::path::Path, mc: &str, fv: &str) -> P
         .join(format!("{mc}-{fv}.jar"))
 }
 
+/// Parse a maven `.sha1` sidecar body into a validated lowercase hex
+/// digest. Maven serves the bare 40-char hex, sometimes followed by
+/// whitespace and the filename; we take the first token and require it to
+/// be exactly 40 hex chars. Returns `None` for anything else (empty,
+/// truncated, non-hex) so the caller can hard-error rather than trust it.
+fn parse_maven_sha1(body: &str) -> Option<String> {
+    let token = body.split_whitespace().next()?;
+    if token.len() == 40 && token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(token.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
 /// Fetch (or load from disk cache) the installer JAR bytes for
 /// `(flavor, mc, fv)`. On a fresh download, writes to
 /// `<app_data>/forge/installers/<mc>-<fv>.jar`; subsequent calls
@@ -481,8 +496,25 @@ pub async fn fetch_installer_bytes(
     app: &tauri::AppHandle,
 ) -> Result<Vec<u8>> {
     let app_data = crate::paths::app_dir(app).map_err(|e| Error::io("<app_data>", e))?;
-    let path = installer_cache_path(&app_data, mc, fv);
+    fetch_installer_bytes_in(&app_data, flavor, mc, fv).await
+}
 
+/// Testable core of [`fetch_installer_bytes`]: takes the resolved app-data
+/// directory directly instead of a `tauri::AppHandle`, so the SHA-1
+/// verification path can be exercised with a mock server and a `TempDir`.
+pub async fn fetch_installer_bytes_in(
+    app_data: &std::path::Path,
+    flavor: ForgeFlavor,
+    mc: &str,
+    fv: &str,
+) -> Result<Vec<u8>> {
+    let path = installer_cache_path(app_data, mc, fv);
+
+    // Cache hit: trusted without re-verification. The invariant is that a file
+    // only reaches this path via the SHA-1-guarded write at the end of this
+    // function, so anything on disk was verified when it was written. (Files
+    // cached by pre-SHA1-check builds predate that guarantee but came from the
+    // same maven host; clearing the installer cache re-verifies on next fetch.)
     if path.exists() {
         return tokio::fs::read(&path)
             .await
@@ -549,9 +581,38 @@ pub async fn fetch_installer_bytes(
         flavor.installer_url(mc, fv, raw.as_deref())
     };
 
+    // No-TOFU (Principle B.6): fetch the maven `.sha1` sidecar and verify the
+    // installer before it is written to disk. The installer's
+    // `install_profile.json` drives subprocess invocation and bytecode
+    // patching, so a missing or unparseable sidecar is a hard error, not a
+    // skip. Both Forge and NeoForge maven publish `<artifact>.sha1`.
+    let sha1_url = format!("{url}.sha1");
+    let sidecar = crate::network::get_text(&sha1_url, "forge/installer-sha1")
+        .await
+        .map_err(|e| Error::ForgeInstallerCorrupted {
+            mc: mc.to_string(),
+            fv: fv.to_string(),
+            details: format!("could not fetch SHA-1 sidecar {sha1_url}: {e:?}"),
+        })?;
+    let expected_sha1 =
+        parse_maven_sha1(&sidecar).ok_or_else(|| Error::ForgeInstallerCorrupted {
+            mc: mc.to_string(),
+            fv: fv.to_string(),
+            details: format!("SHA-1 sidecar {sha1_url} is not a valid digest"),
+        })?;
+
     let bytes = crate::network::get_bytes(&url, "forge/installer")
         .await
         .map_err(|e| Error::network(url.clone(), format!("{e:?}")))?;
+
+    let got_sha1 = hex::encode(Sha1::digest(&bytes));
+    if got_sha1 != expected_sha1 {
+        return Err(Error::ForgeInstallerCorrupted {
+            mc: mc.to_string(),
+            fv: fv.to_string(),
+            details: format!("SHA-1 mismatch: expected {expected_sha1}, got {got_sha1}"),
+        });
+    }
 
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -997,5 +1058,133 @@ mod tests {
             }
             other => panic!("expected ForgeNoBuildFor, got {other:?}"),
         }
+    }
+
+    // ---- parse_maven_sha1 ----------------------------------------------------
+
+    #[test]
+    fn parse_maven_sha1_accepts_plain_and_suffixed() {
+        let h = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+        assert_eq!(parse_maven_sha1(h).as_deref(), Some(h));
+        assert_eq!(parse_maven_sha1(&format!("{h}\n")).as_deref(), Some(h));
+        // Maven sometimes appends the filename after the hex.
+        assert_eq!(
+            parse_maven_sha1(&format!("{h}  forge-installer.jar")).as_deref(),
+            Some(h)
+        );
+        // Uppercase normalises to lowercase.
+        assert_eq!(parse_maven_sha1(&h.to_uppercase()).as_deref(), Some(h));
+    }
+
+    #[test]
+    fn parse_maven_sha1_rejects_invalid() {
+        assert!(parse_maven_sha1("").is_none());
+        assert!(parse_maven_sha1("   ").is_none());
+        assert!(parse_maven_sha1("deadbeef").is_none()); // too short
+        assert!(parse_maven_sha1(&"z".repeat(40)).is_none()); // non-hex
+        assert!(parse_maven_sha1(&"a".repeat(41)).is_none()); // too long
+    }
+
+    // ---- fetch_installer_bytes_in: SHA-1 verification ------------------------
+
+    use tempfile::TempDir;
+    use wiremock::matchers::{method, path as wpath};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    // NeoForge is used throughout so the Forge maven-metadata build-exists
+    // guard (which only runs for `ForgeFlavor::Forge`) is skipped, keeping
+    // each test to two mocked requests: the installer and its `.sha1`.
+    fn set_neoforge_override(uri: &str) {
+        std::env::set_var("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", uri);
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    }
+    fn clear_neoforge_override() {
+        std::env::remove_var("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+    }
+
+    #[tokio::test]
+    async fn installer_fetch_verifies_sha1_and_caches() {
+        let _g = crate::test_env_lock();
+        let installer = b"neoforge-installer-bytes";
+        let sha = hex::encode(Sha1::digest(installer));
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(installer.to_vec()))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar.sha1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(format!("{sha}  forge-1.21.1-21.1.0-installer.jar")),
+            )
+            .mount(&s)
+            .await;
+        let td = TempDir::new().unwrap();
+        set_neoforge_override(&s.uri());
+        // Clear the process-global override env BEFORE asserting, so a panic
+        // on a failed assertion cannot leak it into later (lock-serialised)
+        // tests.
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
+        clear_neoforge_override();
+        let bytes = result.expect("a verified installer must be returned");
+        assert_eq!(bytes, installer);
+        assert!(installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
+    }
+
+    #[tokio::test]
+    async fn installer_fetch_rejects_sha1_mismatch_and_writes_nothing() {
+        let _g = crate::test_env_lock();
+        let installer = b"neoforge-installer-bytes";
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(installer.to_vec()))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar.sha1"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("0".repeat(40)))
+            .mount(&s)
+            .await;
+        let td = TempDir::new().unwrap();
+        set_neoforge_override(&s.uri());
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
+        clear_neoforge_override();
+        let err = result.expect_err("a SHA-1 mismatch must be rejected");
+        assert!(
+            matches!(err, Error::ForgeInstallerCorrupted { .. }),
+            "expected ForgeInstallerCorrupted, got {err:?}"
+        );
+        // The unverified installer must never reach the on-disk cache.
+        assert!(!installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
+    }
+
+    #[tokio::test]
+    async fn installer_fetch_rejects_missing_sidecar() {
+        let _g = crate::test_env_lock();
+        let installer = b"neoforge-installer-bytes";
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(wpath("/forge-1.21.1-21.1.0-installer.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(installer.to_vec()))
+            .mount(&s)
+            .await;
+        // No `.sha1` mock → the sidecar request 404s. No-TOFU: hard error.
+        let td = TempDir::new().unwrap();
+        set_neoforge_override(&s.uri());
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
+        clear_neoforge_override();
+        let err = result.expect_err("a missing sidecar must be a hard error");
+        assert!(
+            matches!(err, Error::ForgeInstallerCorrupted { .. }),
+            "expected ForgeInstallerCorrupted, got {err:?}"
+        );
+        assert!(!installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
     }
 }
