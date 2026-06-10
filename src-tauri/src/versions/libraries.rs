@@ -8,6 +8,11 @@ use crate::error::Result;
 use crate::network::download_with_sha;
 use crate::paths::libraries_dir;
 use crate::versions::version_json::{Library, Rule, RuleAction};
+use futures_util::stream::{self, StreamExt, TryStreamExt};
+
+/// Concurrent download fan-out width. Matches `assets`/`jre` so the three
+/// install phases saturate the network the same way.
+const CONCURRENCY: usize = 8;
 
 /// Evaluate the `rules` array for a library against a (os, arch) pair.
 ///
@@ -200,9 +205,27 @@ fn strip_at_ext(s: &str) -> (&str, &str) {
     }
 }
 
-/// Download all libraries that should install on the current platform.
-/// Reuses `network::download_with_sha`. Idempotent — files that exist
-/// with matching SHA-1 are skipped.
+/// Flatten the libraries that should install on the current platform into a
+/// single list of `(rel_path, url, sha1, size)` download work-items. Pure —
+/// the resolution of rules / artifacts / natives / maven fallback all lives in
+/// `artifacts_to_install`; this just concatenates the per-library results so
+/// `ensure_libraries` can fan them out concurrently. Each work-item has a
+/// distinct `rel_path` (its content-addressed maven path), which is the
+/// invariant that makes concurrent direct-to-dest downloads safe.
+pub(crate) fn collect_library_downloads(
+    libs: &[Library],
+    os: &str,
+    arch: &str,
+) -> Vec<(String, String, String, u64)> {
+    libs.iter()
+        .flat_map(|lib| artifacts_to_install(lib, os, arch))
+        .collect()
+}
+
+/// Download all libraries that should install on the current platform,
+/// up to `CONCURRENCY` at a time. Reuses `network::download_with_sha`.
+/// Idempotent — files that exist with matching SHA-1 are skipped. Short-
+/// circuits on the first error (in-flight downloads are dropped).
 pub async fn ensure_libraries(
     libs: &[Library],
     os: &str,
@@ -210,36 +233,50 @@ pub async fn ensure_libraries(
     app: &tauri::AppHandle,
 ) -> Result<()> {
     let root = libraries_dir(app).map_err(|e| crate::error::Error::io("<libraries_dir>", e))?;
-    for lib in libs {
-        for (rel_path, url, sha1, _size) in artifacts_to_install(lib, os, arch) {
-            let dest = root.join(&rel_path);
-            if url.is_empty() {
-                // Locally-produced artifact (e.g. modern-era Forge's `{PATCHED}`
-                // client jar = `net.minecraftforge:forge:<mc>-<fv>:client`).
-                // The published SHA1 in version.json refers to Forge's
-                // reference installer's exact JAR output; our local Java
-                // binarypatcher produces semantically-identical class bytes
-                // but JAR packing (entry order, deflate parameters, zip
-                // timestamps) is non-deterministic across JVMs / runs, so
-                // the file SHA1 won't bytewise-match the reference. Trust
-                // by existence (TOFU) — the install pipeline made it.
-                if tokio::fs::metadata(&dest).await.is_ok() {
-                    continue;
+    let downloads = collect_library_downloads(libs, os, arch);
+
+    let app = app.clone();
+    let root = std::sync::Arc::new(root);
+    stream::iter(downloads)
+        .map(|(rel_path, url, sha1, _size)| {
+            let app = app.clone();
+            let root = std::sync::Arc::clone(&root);
+            async move {
+                let dest = root.join(&rel_path);
+                if url.is_empty() {
+                    // Locally-produced artifact (e.g. modern-era Forge's
+                    // `{PATCHED}` client jar =
+                    // `net.minecraftforge:forge:<mc>-<fv>:client`). The
+                    // published SHA1 in version.json refers to Forge's
+                    // reference installer's exact JAR output; our local Java
+                    // binarypatcher produces semantically-identical class bytes
+                    // but JAR packing (entry order, deflate parameters, zip
+                    // timestamps) is non-deterministic across JVMs / runs, so
+                    // the file SHA1 won't bytewise-match the reference. Trust
+                    // by existence (TOFU) — the install pipeline made it.
+                    if tokio::fs::metadata(&dest).await.is_ok() {
+                        return Ok(());
+                    }
+                    return Err(crate::error::Error::io(
+                        dest.display().to_string(),
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "locally-produced library missing — Forge install may not have completed",
+                        ),
+                    ));
                 }
-                return Err(crate::error::Error::io(
-                    dest.display().to_string(),
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "locally-produced library missing — Forge install may not have completed",
-                    ),
-                ));
+                if file_matches_sha(&dest, &sha1).await {
+                    return Ok(());
+                }
+                download_with_sha(&app, &url, &dest, &sha1, "libraries").await
             }
-            if file_matches_sha(&dest, &sha1).await {
-                continue;
-            }
-            download_with_sha(app, &url, &dest, &sha1, "libraries").await?;
-        }
-    }
+        })
+        .buffer_unordered(CONCURRENCY)
+        // `try_collect` stops consuming on the first `Err` and drops the
+        // remaining in-flight futures (short-circuit), unlike a plain
+        // `collect` that would run every download to completion first.
+        .try_collect::<Vec<()>>()
+        .await?;
     Ok(())
 }
 
@@ -377,6 +414,44 @@ mod tests {
         }]);
         assert!(artifacts_to_install(&lib, "windows", "x64").is_empty());
         assert_eq!(artifacts_to_install(&lib, "linux", "x64").len(), 1);
+    }
+
+    #[test]
+    fn collect_library_downloads_flattens_all_per_library_artifacts() {
+        // A representative mix: a plain vanilla artifact, a fabric-style maven
+        // synthesise, and a rule-excluded library (contributes nothing). The
+        // flattened list must equal the per-library `artifacts_to_install`
+        // concatenation in order — the concurrent fan-out downloads exactly
+        // this set, no more, no less.
+        let vanilla = lib_no_rules();
+        let fabric = Library {
+            name: "net.fabricmc:fabric-loader:0.15.7".into(),
+            downloads: None,
+            url: Some("https://maven.fabricmc.net/".into()),
+            rules: None,
+            natives: None,
+        };
+        let excluded = lib_with_rules(vec![Rule {
+            action: RuleAction::Allow,
+            os: Some(OsRule {
+                name: Some("linux".into()),
+                version: None,
+                arch: None,
+            }),
+            features: None,
+        }]);
+        let libs = vec![vanilla.clone(), fabric.clone(), excluded.clone()];
+
+        let got = collect_library_downloads(&libs, "windows", "x64");
+
+        let mut expected = Vec::new();
+        expected.extend(artifacts_to_install(&vanilla, "windows", "x64"));
+        expected.extend(artifacts_to_install(&fabric, "windows", "x64"));
+        expected.extend(artifacts_to_install(&excluded, "windows", "x64"));
+
+        assert_eq!(got, expected);
+        // Sanity: vanilla (1) + fabric (1) + excluded (0) = 2.
+        assert_eq!(got.len(), 2);
     }
 
     #[test]
