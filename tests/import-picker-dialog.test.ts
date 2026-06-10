@@ -274,7 +274,7 @@ describe('ImportPickerDialog selection', () => {
     // The "Open ↗" control is now a <button> that routes through the Tauri
     // opener plugin — not an <a href> — to prevent javascript: injection from
     // upstream-controlled URLs.
-    const btn = getByText('Open ↗') as HTMLButtonElement;
+    const btn = getByText('Open') as HTMLButtonElement;
     expect(btn.tagName).toBe('BUTTON');
     expect(btn.getAttribute('href')).toBeNull();
     // Clicking must invoke openUrl via the plugin, not navigate the browser.

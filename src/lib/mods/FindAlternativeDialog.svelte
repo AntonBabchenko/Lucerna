@@ -9,6 +9,7 @@
   import { deriveSearchQuery, isPlausibleAlternative } from './alternative-match';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
 
   // Reusable "find this mod on Modrinth" dialog for a mod the user cannot
   // auto-download (a modpack author disabled CurseForge distribution, or a
@@ -184,8 +185,13 @@
 
     {#if curseForgeUrl}
       <footer class="p-3 border-t text-center">
-        <button type="button" class="text-accent hover:underline text-xs" onclick={openCurseForge}>
+        <button
+          type="button"
+          class="text-accent hover:underline text-xs inline-flex items-center gap-1"
+          onclick={openCurseForge}
+        >
           {$t('mods.findAlt.openCurseForge')}
+          <Icon name="externalLink" size={12} />
         </button>
       </footer>
     {/if}

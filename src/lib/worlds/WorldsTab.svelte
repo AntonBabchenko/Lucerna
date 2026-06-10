@@ -186,11 +186,12 @@
   {/if}
   <button
     type="button"
-    class="btn-tertiary self-start"
+    class="btn-tertiary self-start inline-flex items-center gap-1"
     data-tour-ctx="worlds-open-folder"
     onclick={() => void onOpenSavesFolder()}
   >
     {$t('worlds.tab.openSavesFolder')}
+    <Icon name="externalLink" size={14} />
   </button>
 
   <!-- Tour fires only once worlds exist — most steps point at the

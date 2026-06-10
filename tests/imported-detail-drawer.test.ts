@@ -589,7 +589,7 @@ describe('ImportedDetailDrawer', () => {
 
     // The "Open ↗" controls are now <button>s routing through the Tauri opener
     // plugin — not <a href> — to prevent javascript: injection.
-    const links = within(section).getAllByText('Open ↗') as HTMLButtonElement[];
+    const links = within(section).getAllByText('Open') as HTMLButtonElement[];
     expect(links[0].tagName).toBe('BUTTON');
     expect(links[0].getAttribute('href')).toBeNull();
     // Clicking each button must invoke openUrl with the correct manual_action_url.

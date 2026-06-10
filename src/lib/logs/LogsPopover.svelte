@@ -597,12 +597,13 @@
             <!-- Open the directory containing the currently-selected log file
                  in the OS file manager. Disabled when no file is selected. -->
             <button
-              class="btn-tertiary text-xs"
+              class="btn-tertiary text-xs inline-flex items-center gap-1"
               data-tour-ctx="logs-open-folder"
               disabled={!selectedPath}
               onclick={() => void openLogFolder()}
             >
               {$t('logs.toolbar.openFolder')}
+              <Icon name="externalLink" size={14} />
             </button>
 
             <!-- Share button -->

@@ -166,12 +166,13 @@
         </div>
         <button
           type="button"
-          class="btn-tertiary text-xs mt-0.5"
+          class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
           onclick={() => openExternal(externalUrl)}
         >
           {source === 'modrinth'
             ? $t('mods.detail.viewOnModrinth')
             : $t('mods.detail.viewOnCurseForge')}
+          <Icon name="externalLink" size={14} />
         </button>
       {/if}
 

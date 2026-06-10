@@ -15,6 +15,7 @@
   import { commands, type KeyStatus } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
   import { cfKeyVersion } from './state.svelte';
 
   let status = $state<KeyStatus | 'loading'>('loading');
@@ -102,15 +103,25 @@
     <ol class="text-sm text-secondary list-decimal pl-5 space-y-1 mb-3">
       <li>
         {$t('settings.curseforge.step1Before')}
-        <button type="button" class="btn-tertiary font-mono" onclick={openConsoleHome}>
-          console.curseforge.com ↗
+        <button
+          type="button"
+          class="btn-tertiary font-mono inline-flex items-center gap-1"
+          onclick={openConsoleHome}
+        >
+          console.curseforge.com
+          <Icon name="externalLink" size={12} />
         </button>
         {$t('settings.curseforge.step1After')}
       </li>
       <li>
         {$t('settings.curseforge.step2Before')}
-        <button type="button" class="btn-tertiary font-mono" onclick={openApiKeysPage}>
-          API Keys ↗
+        <button
+          type="button"
+          class="btn-tertiary font-mono inline-flex items-center gap-1"
+          onclick={openApiKeysPage}
+        >
+          API Keys
+          <Icon name="externalLink" size={12} />
         </button>
         {$t('settings.curseforge.step2After')}
       </li>
@@ -123,8 +134,13 @@
       <span class="font-medium">{$t('settings.curseforge.replaceAction')}</span>{$t(
         'settings.curseforge.replaceHintAfter',
       )}
-      <button type="button" class="btn-tertiary font-mono" onclick={openApiKeysPage}>
-        console.curseforge.com → API Keys ↗
+      <button
+        type="button"
+        class="btn-tertiary font-mono inline-flex items-center gap-1"
+        onclick={openApiKeysPage}
+      >
+        console.curseforge.com → API Keys
+        <Icon name="externalLink" size={12} />
       </button>.
     </p>
   {/if}

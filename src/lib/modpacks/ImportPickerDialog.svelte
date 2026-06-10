@@ -223,8 +223,11 @@
                       void import('@tauri-apps/plugin-opener').then((m) =>
                         m.openUrl(u.manual_action_url),
                       )}
-                    class="text-accent hover:underline text-xs"
-                    >{$t('modpacks.import.picker.openLink')}</button
+                    class="text-accent hover:underline text-xs inline-flex items-center gap-1"
+                    >{$t('modpacks.import.picker.openLink')}<Icon
+                      name="externalLink"
+                      size={12}
+                    /></button
                   >
                 {/if}
               </li>

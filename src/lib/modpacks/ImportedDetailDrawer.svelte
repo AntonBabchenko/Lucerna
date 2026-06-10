@@ -392,10 +392,11 @@
         <button
           type="button"
           onclick={() => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url))}
-          class="text-accent hover:underline text-sm"
+          class="text-accent hover:underline text-sm inline-flex items-center gap-1"
           data-testid="imported-detail-source-link"
         >
           {$t('modpacks.imported.detail.openOn', { platform: sourceLabel(inst.mrpack_source) })}
+          <Icon name="externalLink" size={14} />
         </button>
       </div>
     {/if}
@@ -494,9 +495,10 @@
                       void import('@tauri-apps/plugin-opener').then((opener) =>
                         opener.openUrl(m.entry.manual_action_url!),
                       )}
-                    class="text-accent hover:underline text-xs flex-shrink-0"
+                    class="text-accent hover:underline text-xs flex-shrink-0 inline-flex items-center gap-1"
                   >
                     {$t('modpacks.imported.detail.openLink')}
+                    <Icon name="externalLink" size={12} />
                   </button>
                 {/if}
                 {#if isUnresolvedMissingState(m.state)}

@@ -154,8 +154,13 @@
       </ul>
       <div class="text-xs text-muted mb-3 flex justify-between">
         <span>{$t('worlds.backups.total', { size: formatBytes(totalSize) })}</span>
-        <button type="button" class="btn-tertiary" onclick={() => void onOpenBackupsFolder()}>
+        <button
+          type="button"
+          class="btn-tertiary inline-flex items-center gap-1"
+          onclick={() => void onOpenBackupsFolder()}
+        >
           {$t('worlds.backups.openBackupsFolder')}
+          <Icon name="externalLink" size={14} />
         </button>
       </div>
     {/if}
