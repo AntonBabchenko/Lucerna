@@ -301,6 +301,12 @@ export const commands = {
 	 *  Returns zeros when no sessions have been recorded yet.
 	 */
 	getPlaytime: (instanceId: string) => typedError<PlaytimeStats, Error>(__TAURI_INVOKE("get_playtime", { instanceId })),
+	/**
+	 *  Resize the main window between the full launcher and the compact
+	 *  launch-pad strip. Pure window-layer op; persisting the choice is the
+	 *  caller's job (the frontend writes GeneralSettings.compact_mode).
+	 */
+	windowSetCompact: (compact: boolean, contentHeight: number | null) => typedError<null, Error>(__TAURI_INVOKE("window_set_compact", { compact, contentHeight })),
 	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
@@ -571,6 +577,16 @@ export const commands = {
 	 */
 	missing_mods: MissingModStatus[],
 } | null, Error>(__TAURI_INVOKE("modpack_status", { instanceId })),
+	/**
+	 *  Record that the user installed a substitute (from `substitute_source` /
+	 *  `substitute_project_id`, typically Modrinth) for a blocked `missing_mods`
+	 *  entry identified by `(entry_filename, entry_mod_name)`. Looks the installed
+	 *  substitute's SHA-1 up in the registry, then upserts a `ResolvedMissing`
+	 *  onto the instance's `PackOrigin` so `modpack_status` reports the entry as
+	 *  `Substituted`. Idempotent. Errors `ModsNotFound` when the substitute jar is
+	 *  not in the registry yet, or the instance has no pack origin.
+	 */
+	modpackResolveMissingWith: (instanceId: string, entryFilename: string, entryModName: string, substituteSource: ModSource, substituteProjectId: string) => typedError<null, Error>(__TAURI_INVOKE("modpack_resolve_missing_with", { instanceId, entryFilename, entryModName, substituteSource, substituteProjectId })),
 	/**
 	 *  Re-install a single file that was part of the original pack but is
 	 *  no longer in the instance (= it shows up in `ModpackStatus.removed_files`).
@@ -926,7 +942,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "mc_logs_upload"; details: string };
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -1031,6 +1047,13 @@ export type GeneralSettings = {
 	 *  `Basic`, matching the chosen default for upgraders.
 	 */
 	explanation_level?: ExplanationLevel,
+	/**
+	 *  When true, the launcher starts in (and is currently in) compact /
+	 *  mini launch-pad mode: the right content column is hidden and the OS
+	 *  window is shrunk to the sidebar strip. Default false. Updated on
+	 *  every compact/expand toggle.
+	 */
+	compact_mode?: boolean,
 };
 
 export type Greeting = {
@@ -1198,12 +1221,21 @@ export type MissingModState =
 /**  The mod is installed, but not the pinned file — a different version. */
 "different_version" | 
 /**  No installed jar matches this mod by any signal. */
-"missing";
+"missing" | 
+/**
+ *  No pinned/different file is installed, but the user installed a
+ *  substitute from another source (e.g. Modrinth) and we recorded the
+ *  link in `PackOrigin.resolved_missing`. Treated as resolved, but
+ *  surfaced distinctly so the UI does not claim the pinned file is present.
+ */
+"substituted";
 
 /**
  *  One `PackOrigin.missing_mods` entry paired with its live
  *  classification — `installed` (the pinned file), `different_version`
- *  (the mod is present, but not the pinned file), or `missing`.
+ *  (the mod is present, but not the pinned file), `missing` (no matching
+ *  jar), or `substituted` (the user installed an alternative from another
+ *  source, recorded in `PackOrigin.resolved_missing`).
  *  Computed by `compute_status`; consumed by the imported-pack drawer
  *  and the Overview indicator.
  */
@@ -1715,6 +1747,13 @@ export type PackOrigin = {
 	 *  written before this feature load with an empty list.
 	 */
 	skipped_overrides?: SkippedOverride[],
+	/**
+	 *  User-chosen substitutes for `missing_mods` entries (installed from
+	 *  another source when the pack's CurseForge file is distribution
+	 *  disabled). `#[serde(default)]` so registry files written before this
+	 *  feature load with an empty list.
+	 */
+	resolved_missing?: ResolvedMissing[],
 };
 
 export type PackOriginFile = {
@@ -1780,6 +1819,13 @@ export type ProcessExited = {
 	 *  signal (no code available from the OS).
 	 */
 	code: number,
+	/**
+	 *  True when this exit was caused by the user pressing Stop (the
+	 *  launcher killed the process tree itself). Lets the UI show
+	 *  "Stopped" instead of presenting the force-kill exit code as a
+	 *  crash, and suppresses the crash-diagnosis fetch.
+	 */
+	user_requested: boolean,
 	/**  Absolute path to the launch log file for this run. */
 	log_path: string,
 };
@@ -1847,6 +1893,28 @@ export type ResolvedDeps = {
 	optional: ResolvedDep[],
 	incompatible: DepProjectRef[],
 	unresolvable: DepProjectRef[],
+};
+
+/**
+ *  A user-chosen substitute that closes a `missing_mods` entry the pack
+ *  author blocked from auto-download. Kept on `PackOrigin` as a resolution
+ *  overlay — separate from the frozen import snapshot and from the
+ *  parse-time `ModpackUnresolvable` (which every manifest parser builds).
+ */
+export type ResolvedMissing = {
+	/**  Expected jar filename of the closed entry (from the blocked entry). */
+	filename: string,
+	/**
+	 *  Display name of the closed entry — disambiguates same-filename entries.
+	 *  Copied from the blocked `ModpackUnresolvable.mod_name` at record time so
+	 *  it matches the entry the overlay closes.
+	 */
+	mod_name: string,
+	/**
+	 *  SHA-1 (lowercased) of the installed substitute jar. The entry reverts
+	 *  to unresolved if this sha1 leaves the registry (self-healing).
+	 */
+	sha1: string,
 };
 
 export type RestoreMode = "replace" | "as_copy";

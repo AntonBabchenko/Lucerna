@@ -145,7 +145,7 @@ describe('formatError', () => {
 
   it('formats no_minecraft_profile', () => {
     expect(formatError({ kind: 'no_minecraft_profile' })).toBe(
-      "This Microsoft account doesn't own Minecraft. Sign in with an account that owns a copy.",
+      "You weren't signed in: this Microsoft account doesn't own Minecraft. Buy a copy and sign in again, or use an account that already owns one.",
     );
   });
 
@@ -298,6 +298,7 @@ describe('formatError', () => {
       backup_corrupt: { kind: 'backup_corrupt', filename: 'b.zip', details: 'd' },
       playtime_io: { kind: 'playtime_io', details: 'd' },
       tray_io: { kind: 'tray_io', details: 'd' },
+      window_io: { kind: 'window_io', details: 'd' },
       mc_logs_upload: { kind: 'mc_logs_upload', details: 'd' },
     };
 
@@ -318,7 +319,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(67);
+      expect(Object.keys(samples)).toHaveLength(68);
     });
   });
 

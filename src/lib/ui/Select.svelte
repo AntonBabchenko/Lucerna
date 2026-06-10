@@ -14,8 +14,10 @@
   // the trigger button and the active option is tracked via
   // aria-activedescendant (never moves DOM focus into the list).
 
+  import { Icon, type IconName } from '$lib/ui/icons';
+
   type Primitive = string | number;
-  type Option = { value: Primitive; label: string; disabled?: boolean };
+  type Option = { value: Primitive; label: string; disabled?: boolean; icon?: IconName };
 
   let {
     value,
@@ -59,6 +61,7 @@
 
   const selectedIndex = $derived(options.findIndex((o) => o.value === value));
   const selectedLabel = $derived(selectedIndex >= 0 ? options[selectedIndex].label : null);
+  const selectedOption = $derived(selectedIndex >= 0 ? options[selectedIndex] : undefined);
   const displayLabel = $derived(selectedLabel ?? placeholder ?? '');
   // Grey the trigger when nothing meaningful is chosen: no matching option,
   // or an explicit empty value (the "Any…" / "Choose…" rows filters keep).
@@ -256,8 +259,13 @@
   onclick={() => (open ? closeList() : openList())}
   onkeydown={onKeyDown}
 >
-  <span class="truncate" class:text-placeholder={isPlaceholder}>{displayLabel}</span>
-  <span aria-hidden="true" class="text-muted">▾</span>
+  <span class="inline-flex items-center gap-2 min-w-0">
+    {#if selectedOption?.icon}
+      <Icon name={selectedOption.icon} class="flex-shrink-0" />
+    {/if}
+    <span class="truncate" class:text-placeholder={isPlaceholder}>{displayLabel}</span>
+  </span>
+  <Icon name="chevronDown" class="text-muted flex-shrink-0" />
 </button>
 
 {#if open}
@@ -291,7 +299,12 @@
           if (!opt.disabled) activeIndex = i;
         }}
       >
-        {opt.label}
+        <span class="inline-flex items-center gap-2">
+          {#if opt.icon}
+            <Icon name={opt.icon} class="flex-shrink-0" />
+          {/if}
+          {opt.label}
+        </span>
       </li>
     {/each}
   </ul>

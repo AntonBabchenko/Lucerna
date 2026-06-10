@@ -16,6 +16,7 @@
   import { t } from '$lib/i18n';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { get } from 'svelte/store';
 
   let {
@@ -170,6 +171,7 @@
       disabled={busy || instanceId === null || assets.length === 0}
       onclick={checkUpdates}
     >
+      <Icon name="refresh" class="icon-spin-hover" />
       {$t('addons.installed.checkUpdates')}
     </BusyButton>
   </div>
@@ -211,7 +213,7 @@
               aria-label={$t('addons.installed.checkFailed')}
               role="img"
             >
-              ⚠
+              <Icon name="warning" />
             </span>
           {/if}
           {#if latest}

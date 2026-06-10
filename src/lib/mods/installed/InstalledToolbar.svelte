@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import { Icon } from '$lib/ui/icons';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
   let {
@@ -159,6 +160,7 @@
       class="btn-secondary btn-xs"
       onclick={onCheckUpdates}
     >
+      <Icon name="refresh" class="icon-spin-hover" />
       {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
     </BusyButton>
     <BusyButton
@@ -171,10 +173,11 @@
     </BusyButton>
     <button
       type="button"
-      class="btn-secondary btn-xs"
+      class="btn-secondary btn-xs inline-flex items-center gap-1.5"
       disabled={graphLoading}
       onclick={onRecheckDeps}
     >
+      <Icon name="refresh" class="icon-spin-hover" />
       {graphLoading ? $t('mods.installed.resolvingDeps') : $t('mods.installed.recheckDeps')}
     </button>
     {#if updateCount > 0}

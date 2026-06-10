@@ -2503,6 +2503,58 @@ pub async fn modpack_status(
     )))
 }
 
+/// Record that the user installed a substitute (from `substitute_source` /
+/// `substitute_project_id`, typically Modrinth) for a blocked `missing_mods`
+/// entry identified by `(entry_filename, entry_mod_name)`. Looks the installed
+/// substitute's SHA-1 up in the registry, then upserts a `ResolvedMissing`
+/// onto the instance's `PackOrigin` so `modpack_status` reports the entry as
+/// `Substituted`. Idempotent. Errors `ModsNotFound` when the substitute jar is
+/// not in the registry yet, or the instance has no pack origin.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_resolve_missing_with(
+    app: tauri::AppHandle,
+    instance_id: String,
+    entry_filename: String,
+    entry_mod_name: String,
+    substitute_source: ModSource,
+    substitute_project_id: String,
+) -> crate::error::Result<()> {
+    let inst_root = instance_root(&app, &instance_id)?;
+    let installed = crate::mods::installed::list(&inst_root).await?;
+    let sha1 = installed
+        .iter()
+        .find(|m| {
+            m.source == Some(substitute_source)
+                && m.project_id.as_deref() == Some(substitute_project_id.as_str())
+        })
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "substitute".into(),
+        })?;
+
+    let mut origin = crate::mods::installed::get_pack_origin(&inst_root)
+        .await?
+        .ok_or_else(|| crate::error::Error::ModsNotFound {
+            platform: "pack_origin".into(),
+        })?;
+
+    // Upsert: one overlay row per (filename, mod_name).
+    origin.resolved_missing.retain(|r| {
+        !(r.filename.eq_ignore_ascii_case(&entry_filename) && r.mod_name == entry_mod_name)
+    });
+    origin
+        .resolved_missing
+        .push(crate::mods::installed::ResolvedMissing {
+            filename: entry_filename,
+            mod_name: entry_mod_name,
+            sha1,
+        });
+
+    crate::mods::installed::set_pack_origin(&inst_root, origin).await?;
+    Ok(())
+}
+
 /// Re-install a single file that was part of the original pack but is
 /// no longer in the instance (= it shows up in `ModpackStatus.removed_files`).
 /// Looks the file up by `sha1` in the frozen origin snapshot,
@@ -3402,6 +3454,20 @@ pub async fn refresh_microsoft_account(
     id: String,
 ) -> crate::error::Result<crate::accounts::store::Account> {
     crate::accounts::microsoft::refresh(&app, &id).await
+}
+
+/// Resize the main window between the full launcher and the compact
+/// launch-pad strip. Pure window-layer op; persisting the choice is the
+/// caller's job (the frontend writes GeneralSettings.compact_mode).
+#[tauri::command]
+#[specta::specta]
+pub async fn window_set_compact(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::window::WindowSizeState>,
+    compact: bool,
+    content_height: Option<f64>,
+) -> Result<(), crate::error::Error> {
+    crate::window::set_compact(&app, compact, content_height, &state)
 }
 
 #[cfg(test)]

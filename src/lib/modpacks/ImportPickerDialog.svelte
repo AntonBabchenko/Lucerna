@@ -2,6 +2,7 @@
   import type { ModpackFile, ModpackSummary, ModpackUnresolvable } from '$lib/ipc/bindings';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
 
   // Modal that shows the parsed `ModpackSummary` to the user and lets them
@@ -158,7 +159,7 @@
           <summary
             class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
           >
-            <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+            <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
             {#if sizeStr}
               {$t('modpacks.import.picker.groupHeader', {
                 label: $t(GROUP_LABEL_KEY[group.key]),
@@ -208,7 +209,7 @@
           <summary
             class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
           >
-            <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+            <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
             {$t('modpacks.import.picker.cannotAutoInstall', { count: unresolvable.length })}
           </summary>
           <ul class="space-y-1 mt-1 mb-2 pl-4">

@@ -19,6 +19,7 @@
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
+  import { compactState, initCompact, setCompact, toggleCompact } from '$lib/layout/compact.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
@@ -28,9 +29,11 @@
   import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
   import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
   import type { ModpackImportRequest } from '$lib/modpacks/import-request';
+  import { isUnresolvedMissingState } from '$lib/modpacks/missing-mod';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import { classifySignInError } from '$lib/accounts/sign-in-error';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
@@ -40,7 +43,7 @@
   import { get } from 'svelte/store';
   import { onMount, untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
-  import { modBrowserNav, modpacksNav, mcVersions } from '$lib/settings/state.svelte';
+  import { modBrowserNav, modpacksNav, mcVersions, settingsOpen } from '$lib/settings/state.svelte';
   import {
     dismiss,
     pushActionToast,
@@ -144,7 +147,9 @@
   // Overview indicator. Empty for non-pack instances and pre-SF2
   // imports (modpack_status returns null or an empty list).
   let packMissingMods = $state<MissingModStatus[]>([]);
-  const unresolvedMissing = $derived(packMissingMods.filter((m) => m.state !== 'installed'));
+  const unresolvedMissing = $derived(
+    packMissingMods.filter((m) => isUnresolvedMissingState(m.state)),
+  );
 
   async function refreshPackStatus(id: string | null) {
     if (!id) {
@@ -158,7 +163,7 @@
   let installing = $state(false);
   let installError = $state<string | null>(null);
   let running = $state<{ pid: number; version_id: string } | null>(null);
-  let exited = $state<{ code: number; log_path: string } | null>(null);
+  let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
 
@@ -312,6 +317,26 @@
     }
   });
 
+  // Any wide overlay opened while compact would be cramped in the strip-width
+  // window, so auto-expand first. Covers the Settings button too (it sets
+  // settingsOpen.value directly inside Sidebar). This is a real expand — it
+  // persists compact_mode=false; the user re-collapses with the toggle.
+  $effect(() => {
+    const anyWideOverlay =
+      manageOpen ||
+      modpacksModalOpen ||
+      logsOpen ||
+      settingsOpen.value !== null ||
+      exportDialogOpen ||
+      msSigningIn;
+    // Read compact state non-reactively (matches the activeInstance effect's
+    // untrack idiom above): we react to overlays opening, not to our own
+    // setCompact(false) flipping the rune.
+    if (anyWideOverlay && untrack(() => compactState.value)) {
+      void setCompact(false);
+    }
+  });
+
   async function refreshAccounts() {
     const list = await commands.listAccounts();
     if (list.status === 'ok') {
@@ -358,10 +383,16 @@
     events.processExited
       .listen(async (event) => {
         running = null;
-        exited = { code: event.payload.code, log_path: event.payload.log_path };
+        exited = {
+          code: event.payload.code,
+          user_requested: event.payload.user_requested,
+          log_path: event.payload.log_path,
+        };
         void refreshInstances();
         void refreshPlaytime(activeInstance?.id ?? null);
-        if (event.payload.code !== 0 && activeInstance) {
+        // A user-requested Stop force-kills the process (non-zero exit code),
+        // but it is not a crash — don't surface a crash diagnosis for it.
+        if (event.payload.code !== 0 && !event.payload.user_requested && activeInstance) {
           const result = await commands.latestCrash(activeInstance.id);
           if (result.status === 'ok' && result.data) {
             crashReport = result.data;
@@ -379,6 +410,7 @@
       initTheme(settingsResult.data.general.theme ?? 'system');
       initLocale(settingsResult.data.general.language ?? 'system');
       explanationState.level = settingsResult.data.general.explanation_level ?? 'basic';
+      void initCompact(settingsResult.data.general.compact_mode ?? false);
     }
 
     // Fire-and-forget: this is a best-effort, error-swallowing check, so it
@@ -536,7 +568,9 @@
 
 <main
   class="grid h-screen overflow-hidden"
-  style="grid-template-columns: 240px 1fr; grid-template-rows: 1fr auto;"
+  style="grid-template-columns: {compactState.value
+    ? '1fr'
+    : '240px 1fr'}; grid-template-rows: 1fr auto;"
 >
   <div class="col-start-1 row-start-1 overflow-hidden">
     <Sidebar
@@ -544,6 +578,8 @@
       {activeAccount}
       {instances}
       {activeInstance}
+      compact={compactState.value}
+      onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
       {onSelectAccount}
       onRemoveAccount={onRemoveActive}
@@ -576,89 +612,106 @@
         pushSuccess(get(t)('page.accounts.signedInMicrosoft'));
       }}
       onMicrosoftError={(err) => {
-        const kind = (err as { kind?: string })?.kind;
         const msg = formatError(err as never);
         const tr = get(t);
-        if (kind === 'auth_pending_approval') {
-          pushInfo(tr('page.accounts.pendingApproval'), [msg]);
+        const toast = classifySignInError(err);
+        if (toast.buyLink) {
+          const url = toast.buyLink;
+          pushActionToast(
+            toast.kind,
+            tr(toast.titleKey),
+            {
+              label: tr('page.accounts.buyMinecraft'),
+              run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+            },
+            [msg],
+          );
+        } else if (toast.kind === 'info') {
+          pushInfo(tr(toast.titleKey), [msg]);
         } else {
-          pushWarning(tr('page.accounts.signInFailed'), [msg]);
+          pushWarning(tr(toast.titleKey), [msg]);
         }
       }}
     />
   </div>
 
-  <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
-    {#if crashReport}
-      <div
-        class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
-      >
-        <span class="text-sm">
-          {$t('page.crash.banner')}
-          <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
-        </span>
-        <div class="flex items-center gap-2">
-          <button class="btn-secondary btn-sm" onclick={openCrashInLogs}>
-            {$t('page.crash.viewReport')}
-          </button>
-          <CloseButton
-            onClick={() => (crashReport = null)}
-            ariaLabel={$t('page.crash.dismissAriaLabel')}
-          />
+  <!-- Compact mode unmounts the entire right column so the window can shrink to
+       the sidebar strip. Note: this resets MainTabs (active tab / scroll) on
+       re-expand — acceptable because compact is a launch-pad mode, not a rapid
+       toggle-while-browsing-tabs affordance. -->
+  {#if !compactState.value}
+    <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
+      {#if crashReport}
+        <div
+          class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"
+        >
+          <span class="text-sm">
+            {$t('page.crash.banner')}
+            <span class="font-mono text-xs">{crashReport.path.split(/[\\/]/).pop()}</span>
+          </span>
+          <div class="flex items-center gap-2">
+            <button class="btn-secondary btn-sm" onclick={openCrashInLogs}>
+              {$t('page.crash.viewReport')}
+            </button>
+            <CloseButton
+              onClick={() => (crashReport = null)}
+              ariaLabel={$t('page.crash.dismissAriaLabel')}
+            />
+          </div>
         </div>
-      </div>
-    {/if}
+      {/if}
 
-    <MainTabs
-      instanceId={activeInstance?.id ?? null}
-      instanceName={activeInstance?.name ?? null}
-      mcVersion={activeInstance?.mc_version ?? null}
-      loader={activeInstance?.loader ?? null}
-      onListChanged={() => {
-        void refreshInstances();
-      }}
-    >
-      {#snippet overview()}
-        <OverviewTab
-          {activeInstance}
-          {installedStats}
-          {playtime}
-          {incompatibleCount}
-          missingModsCount={unresolvedMissing.length}
-          running={running !== null}
-          {installing}
-          {exited}
-          {installError}
-          {modsError}
-          errors={{
-            offlineName: offlineNameError,
-            listAccounts: listAccountsError,
-            remove: removeError,
-            instances: instancesError,
-            versions: versionsError,
-          }}
-          onManage={() => (manageOpen = true)}
-          onExport={() => (exportDialogOpen = true)}
-          onOpenPackDrawer={() => {
-            if (activeInstance) modpacksNav.value = { openDrawerForInstance: activeInstance.id };
-          }}
-          onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
-          onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
-          onDismissError={(key) => {
-            if (key === 'offlineName') offlineNameError = null;
-            else if (key === 'listAccounts') listAccountsError = null;
-            else if (key === 'remove') removeError = null;
-            else if (key === 'instances') instancesError = null;
-            else if (key === 'versions') versionsError = null;
-          }}
-          onDismissInstallError={() => (installError = null)}
-          onDismissModsError={() => (modsError = null)}
-        />
-      {/snippet}
-    </MainTabs>
-  </div>
+      <MainTabs
+        instanceId={activeInstance?.id ?? null}
+        instanceName={activeInstance?.name ?? null}
+        mcVersion={activeInstance?.mc_version ?? null}
+        loader={activeInstance?.loader ?? null}
+        onListChanged={() => {
+          void refreshInstances();
+        }}
+      >
+        {#snippet overview()}
+          <OverviewTab
+            {activeInstance}
+            {installedStats}
+            {playtime}
+            {incompatibleCount}
+            missingModsCount={unresolvedMissing.length}
+            running={running !== null}
+            {installing}
+            {exited}
+            {installError}
+            {modsError}
+            errors={{
+              offlineName: offlineNameError,
+              listAccounts: listAccountsError,
+              remove: removeError,
+              instances: instancesError,
+              versions: versionsError,
+            }}
+            onManage={() => (manageOpen = true)}
+            onExport={() => (exportDialogOpen = true)}
+            onOpenPackDrawer={() => {
+              if (activeInstance) modpacksNav.value = { openDrawerForInstance: activeInstance.id };
+            }}
+            onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
+            onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
+            onDismissError={(key) => {
+              if (key === 'offlineName') offlineNameError = null;
+              else if (key === 'listAccounts') listAccountsError = null;
+              else if (key === 'remove') removeError = null;
+              else if (key === 'instances') instancesError = null;
+              else if (key === 'versions') versionsError = null;
+            }}
+            onDismissInstallError={() => (installError = null)}
+            onDismissModsError={() => (modsError = null)}
+          />
+        {/snippet}
+      </MainTabs>
+    </div>
+  {/if}
 
-  <div class="col-start-1 col-end-3 row-start-2">
+  <div class="row-start-2" style="grid-column: 1 / -1;">
     <PhaseStatusRow />
   </div>
 

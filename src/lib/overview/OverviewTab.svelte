@@ -6,10 +6,12 @@
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import InstanceHeader from './InstanceHeader.svelte';
   import AttentionPanel from './AttentionPanel.svelte';
   import ModpackCard from './ModpackCard.svelte';
   import { buildAttentionItems, type AttentionKind } from './attention';
+  import { classifyExit } from './exit-status';
 
   type ErrorKey = 'offlineName' | 'listAccounts' | 'remove' | 'instances' | 'versions';
 
@@ -41,7 +43,7 @@
     missingModsCount: number;
     running: boolean;
     installing: boolean;
-    exited: { code: number; log_path: string } | null;
+    exited: { code: number; user_requested: boolean; log_path: string } | null;
     installError: string | null;
     modsError: string | null;
     errors: Record<ErrorKey, string | null>;
@@ -224,7 +226,10 @@
             {$t('instance.integrity.overviewOpenManage')}
           </button>
         {:else if activeInstance.integrity.healthy}
-          <p class="text-sm text-success">✓ {$t('instance.integrity.statusOk')}</p>
+          <p class="text-sm text-success flex items-center gap-1.5">
+            <Icon name="success" />
+            {$t('instance.integrity.statusOk')}
+          </p>
           {#if activeInstance.integrity.checked_unix_ms}
             <p class="text-xs text-muted">
               {$t('instance.integrity.checkedAt', {
@@ -233,8 +238,9 @@
             </p>
           {/if}
         {:else}
-          <p class="text-sm text-warning-text">
-            ⚠ {$t('instance.integrity.statusProblems', {
+          <p class="text-sm text-warning-text flex items-center gap-1.5">
+            <Icon name="warning" class="text-warning-text" />
+            {$t('instance.integrity.statusProblems', {
               count: activeInstance.integrity.problem_count,
             })}
           </p>
@@ -267,9 +273,16 @@
           </span>
         {/if}
         {#if exited && !running}
-          <span class="text-xs text-secondary"
-            >{$t('page.overview.statusExited', { code: exited.code })}</span
-          >
+          {@const status = classifyExit(exited)}
+          <span class="text-xs text-secondary">
+            {#if status.kind === 'stopped'}
+              {$t('page.overview.statusStopped')}
+            {:else if status.kind === 'clean'}
+              {$t('page.overview.statusClean')}
+            {:else}
+              {$t('page.overview.statusExited', { code: status.code })}
+            {/if}
+          </span>
         {/if}
       </div>
     {/if}

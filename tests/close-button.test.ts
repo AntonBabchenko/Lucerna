@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import CloseButton from '$lib/ui/CloseButton.svelte';
 
 describe('CloseButton', () => {
-  it('renders a × button with the default aria-label', () => {
+  it('renders a close button with the default aria-label', () => {
     render(CloseButton);
     const btn = screen.getByRole('button', { name: 'Close' });
     expect(btn.tagName).toBe('BUTTON');
-    expect(btn.textContent?.trim()).toBe('×');
+    expect(btn.querySelector('svg')).toBeTruthy();
     expect(btn.getAttribute('type')).toBe('button');
   });
 

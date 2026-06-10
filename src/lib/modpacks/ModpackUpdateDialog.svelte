@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ModpackUpdateDiff } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import { Icon } from '$lib/ui/icons';
 
   let {
     diff,
@@ -48,13 +49,22 @@
       data-testid="update-diff-list"
     >
       {#each diff.added as f (f.install_path)}
-        <div class="px-2 py-1 text-success">+ {f.name}</div>
+        <div class="px-2 py-1 text-success flex items-center gap-1.5">
+          <Icon name="plus" />
+          {f.name}
+        </div>
       {/each}
       {#each diff.updated as e (e.new.install_path)}
-        <div class="px-2 py-1 text-accent">⟳ {e.new.name}</div>
+        <div class="px-2 py-1 text-accent flex items-center gap-1.5">
+          <Icon name="update" />
+          {e.new.name}
+        </div>
       {/each}
       {#each diff.removed as f (f.install_path)}
-        <div class="px-2 py-1 text-danger line-through">− {f.name}</div>
+        <div class="px-2 py-1 text-danger line-through flex items-center gap-1.5">
+          <Icon name="minus" />
+          {f.name}
+        </div>
       {/each}
       {#if diff.added.length + diff.updated.length + diff.removed.length === 0}
         <div class="px-2 py-3 text-muted text-center">{$t('modpacks.update.noChanges')}</div>

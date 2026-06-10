@@ -20,6 +20,7 @@ use crate::versions::version_json::{parse, VersionDetails};
 use serde::Serialize;
 use specta::Type;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::AppHandle;
 use tauri_specta::Event;
@@ -36,6 +37,11 @@ pub struct ProcessExited {
     /// Process exit code. `-1` when the process was terminated by a
     /// signal (no code available from the OS).
     pub code: i32,
+    /// True when this exit was caused by the user pressing Stop (the
+    /// launcher killed the process tree itself). Lets the UI show
+    /// "Stopped" instead of presenting the force-kill exit code as a
+    /// crash, and suppresses the crash-diagnosis fetch.
+    pub user_requested: bool,
     /// Absolute path to the launch log file for this run.
     pub log_path: String,
 }
@@ -48,6 +54,39 @@ struct RunningState {
 fn state() -> &'static Mutex<Option<RunningState>> {
     static STATE: OnceLock<Mutex<Option<RunningState>>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(None))
+}
+
+// ---------------------------------------------------------------------------
+// User-initiated stop tracking
+// ---------------------------------------------------------------------------
+//
+// `stop()` force-kills the process tree, which the OS reports as a non-zero
+// exit code (Windows) or a signal-termination / `-1` (Unix) — indistinguishable
+// from a crash at the exit-watcher. This flag carries the "the user asked for
+// this" intent from `stop()` through to the `ProcessExited` event. Only one
+// process runs at a time (`start()` guards on `AlreadyRunning`), so a single
+// process-wide flag is unambiguous.
+
+fn stop_flag() -> &'static AtomicBool {
+    static FLAG: OnceLock<AtomicBool> = OnceLock::new();
+    FLAG.get_or_init(|| AtomicBool::new(false))
+}
+
+/// Reset the stop flag for a fresh launch.
+fn clear_stop_requested() {
+    stop_flag().store(false, Ordering::SeqCst);
+}
+
+/// Record that the user requested the current process be stopped.
+fn mark_stop_requested() {
+    stop_flag().store(true, Ordering::SeqCst);
+}
+
+/// Read and reset the stop flag — true iff a stop was requested since the
+/// last clear. Consuming (swap-to-false) keeps the flag from leaking into a
+/// subsequent run that exits on its own.
+fn take_stop_requested() -> bool {
+    stop_flag().swap(false, Ordering::SeqCst)
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +205,9 @@ pub async fn start(
             return Err(Error::AlreadyRunning);
         }
     }
+
+    // Fresh run: clear any stale stop request from a previous session.
+    clear_stop_requested();
 
     let versions = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let libraries = libraries_dir(app).map_err(|e| Error::io("<libraries_dir>", e))?;
@@ -310,9 +352,12 @@ pub async fn start(
             let prev = guard.take();
             prev.map(|s| s.log_path).unwrap_or(log_path_owned)
         };
+        // Consume the stop flag: did this exit come from the user pressing Stop?
+        let user_requested = take_stop_requested();
         let _ = ProcessExited {
             version_id: version_id_owned,
             code: exit_code,
+            user_requested,
             log_path: log_path_to_emit.to_string_lossy().into_owned(),
         }
         .emit(&app_clone);
@@ -355,6 +400,9 @@ pub fn stop() -> Result<()> {
     let Some(pid) = pid_opt else {
         return Ok(());
     };
+    // Mark before the kill so the exit-watcher (which wakes on `.wait()`
+    // returning) sees the intent and labels the exit as user-requested.
+    mark_stop_requested();
     crate::platform::kill_process_tree(pid);
     Ok(())
 }
@@ -504,4 +552,23 @@ mod tests {
     // `is_running()` / `stop()` share process-wide state; behavioural
     // tests live in the manual e2e step. Pure helpers above are the
     // unit-test surface here.
+
+    // The stop-flag helpers share a process-wide static; this test owns
+    // that state start-to-finish (clears first, consumes at the end), and
+    // no other test touches the flag.
+    #[test]
+    fn stop_flag_clear_mark_take_round_trip() {
+        clear_stop_requested();
+        assert!(!take_stop_requested(), "cleared flag must read false");
+
+        mark_stop_requested();
+        assert!(take_stop_requested(), "marked flag must read true");
+        assert!(
+            !take_stop_requested(),
+            "take must consume the flag (swap to false)"
+        );
+
+        // Leave the static clean for any later reader.
+        clear_stop_requested();
+    }
 }

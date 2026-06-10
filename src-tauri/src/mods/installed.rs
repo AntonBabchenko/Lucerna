@@ -92,6 +92,29 @@ pub struct PackOrigin {
     /// written before this feature load with an empty list.
     #[serde(default)]
     pub skipped_overrides: Vec<SkippedOverride>,
+    /// User-chosen substitutes for `missing_mods` entries (installed from
+    /// another source when the pack's CurseForge file is distribution
+    /// disabled). `#[serde(default)]` so registry files written before this
+    /// feature load with an empty list.
+    #[serde(default)]
+    pub resolved_missing: Vec<ResolvedMissing>,
+}
+
+/// A user-chosen substitute that closes a `missing_mods` entry the pack
+/// author blocked from auto-download. Kept on `PackOrigin` as a resolution
+/// overlay — separate from the frozen import snapshot and from the
+/// parse-time `ModpackUnresolvable` (which every manifest parser builds).
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+pub struct ResolvedMissing {
+    /// Expected jar filename of the closed entry (from the blocked entry).
+    pub filename: String,
+    /// Display name of the closed entry — disambiguates same-filename entries.
+    /// Copied from the blocked `ModpackUnresolvable.mod_name` at record time so
+    /// it matches the entry the overlay closes.
+    pub mod_name: String,
+    /// SHA-1 (lowercased) of the installed substitute jar. The entry reverts
+    /// to unresolved if this sha1 leaves the registry (self-healing).
+    pub sha1: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
@@ -456,6 +479,14 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    #[test]
+    fn pack_origin_without_resolved_missing_field_loads_as_empty() {
+        // A sidecar written before this feature has no `resolved_missing` key.
+        let json = r#"{"project_id":null,"source":"modrinth","project_name":"P","version":"1","files":[],"missing_mods":[]}"#;
+        let o: PackOrigin = serde_json::from_str(json).expect("legacy PackOrigin must load");
+        assert!(o.resolved_missing.is_empty());
+    }
+
     async fn place_jar(dir: &Path, name: &str, body: &[u8]) -> String {
         fs::create_dir_all(dir).await.unwrap();
         fs::write(dir.join(name), body).await.unwrap();
@@ -574,6 +605,7 @@ mod tests {
             }],
             missing_mods: vec![],
             skipped_overrides: vec![],
+            resolved_missing: Vec::new(),
         }
     }
 
@@ -675,6 +707,7 @@ mod tests {
                 files: vec![mods_file, rp],
                 missing_mods: vec![],
                 skipped_overrides: vec![],
+                resolved_missing: Vec::new(),
             }),
         };
         write(td.path(), &v1).await.unwrap();
@@ -805,6 +838,7 @@ mod tests {
                 files: vec![rp],
                 missing_mods: vec![],
                 skipped_overrides: vec![],
+                resolved_missing: Vec::new(),
             }),
         };
         write(td.path(), &v2).await.unwrap();

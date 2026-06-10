@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { Icon } from '$lib/ui/icons';
   import type { AttentionItem, AttentionKind } from './attention';
 
   let { items, onAction }: { items: AttentionItem[]; onAction: (kind: AttentionKind) => void } =
@@ -23,7 +24,7 @@
       class="px-4 py-2.5 font-semibold text-warning-text border-b border-warning-text
         flex items-center gap-2"
     >
-      <span aria-hidden="true">⚠</span>
+      <Icon name="warning" class="text-warning-text" />
       {$t('page.overview.attentionHeading')}
     </div>
     {#each items as item (item.kind)}
@@ -34,7 +35,7 @@
         data-testid="overview-attention-{item.kind}"
         onclick={() => onAction(item.kind)}
       >
-        <span class="text-warning-text" aria-hidden="true">⚠</span>
+        <Icon name="warning" class="text-warning-text" />
         <span class="flex-1 text-sm text-warning-text">
           {$t(TEXT_KEY[item.kind], { count: item.count })}
         </span>

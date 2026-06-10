@@ -7,6 +7,7 @@
     InstanceWithStatus,
     ModpackProgress,
     ModpackStatus,
+    ModpackUnresolvable,
     ModpackUpdateDiff,
     ModpackVersionEntry,
     ModSource,
@@ -16,9 +17,13 @@
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
-  import { drawerCache } from './drawer-cache';
-  import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
+  import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
+  import { pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import { Icon } from '$lib/ui/icons';
+  import { drawerCache } from './drawer-cache';
+  import { isUnresolvedMissingState } from './missing-mod';
+  import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
 
   // Right-side drawer that surfaces the metadata captured at import time
   // for a pack-originated instance. Mirrors ModpackVersionDrawer's
@@ -88,6 +93,7 @@
   let status = $state<ModpackStatus | null>(null);
   let nameMap = $state<Map<string, string>>(new Map());
   let restoreError = $state<string | null>(null);
+  let findAltEntry = $state<ModpackUnresolvable | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
 
@@ -430,7 +436,7 @@
         <summary
           class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-2"
         >
-          <span class="disclosure-caret mr-1" aria-hidden="true">▶</span>
+          <span class="disclosure-caret mr-1"><Icon name="caret" size={12} /></span>
           {label}
         </summary>
       {/snippet}
@@ -439,7 +445,7 @@
         <details class="mt-2" open data-testid="imported-detail-missing-section">
           {@render sectionSummary(
             $t('modpacks.imported.detail.missingHeading', {
-              count: status.missing_mods.filter((m) => m.state !== 'installed').length,
+              count: status.missing_mods.filter((m) => isUnresolvedMissingState(m.state)).length,
             }),
           )}
           <p class="text-xs text-muted mb-2 pl-4">
@@ -449,22 +455,26 @@
             {#each status.missing_mods as m (m.entry.mod_name + '|' + m.entry.filename)}
               {@const isInstalled = m.state === 'installed'}
               {@const isDifferentVersion = m.state === 'different_version'}
+              {@const isSubstituted = m.state === 'substituted'}
               <li
                 class="flex items-center gap-2 text-sm py-1 px-2 rounded border {isInstalled
                   ? 'bg-success-bg border-success'
                   : 'bg-warning-bg border-warning-text/30'}"
               >
-                <!-- ✓ when the mod is present at all (installed or a
-                   different version); ⚠ only when truly missing — so
+                <!-- success when the mod is present at all (installed or a
+                   different version); warning only when truly missing — so
                    "different version" is not mistaken for "missing". -->
-                <span class="flex-shrink-0" aria-hidden="true">
-                  {m.state === 'missing' ? '⚠' : '✓'}
-                </span>
+                <Icon name={m.state === 'missing' ? 'warning' : 'success'} class="flex-shrink-0" />
                 <span class="truncate flex-1" class:text-muted={isInstalled}>
                   {m.entry.mod_name}
                   {#if isDifferentVersion}
                     <span class="text-muted text-xs">
                       {$t('modpacks.imported.detail.differentVersion')}</span
+                    >
+                  {/if}
+                  {#if isSubstituted}
+                    <span class="text-muted text-xs"
+                      >{$t('modpacks.imported.detail.substituted')}</span
                     >
                   {/if}
                 </span>
@@ -487,6 +497,16 @@
                     class="text-accent hover:underline text-xs flex-shrink-0"
                   >
                     {$t('modpacks.imported.detail.openLink')}
+                  </button>
+                {/if}
+                {#if isUnresolvedMissingState(m.state)}
+                  <button
+                    type="button"
+                    class="text-accent hover:underline text-xs flex-shrink-0"
+                    data-testid="find-alt-open"
+                    onclick={() => (findAltEntry = m.entry)}
+                  >
+                    {$t('modpacks.imported.detail.findAlternative')}
                   </button>
                 {/if}
               </li>
@@ -570,7 +590,7 @@
               <li
                 class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
               >
-                <span class="flex-shrink-0" aria-hidden="true">ℹ</span>
+                <Icon name="info" class="flex-shrink-0" />
                 <span class="truncate flex-1">{s.path}</span>
                 <span class="text-xs text-muted flex-shrink-0">{formatSize(s.size)}</span>
               </li>
@@ -726,6 +746,32 @@
       updateTempPath = null;
     }}
     onConfirm={() => void applyUpdate()}
+  />
+{/if}
+
+{#if findAltEntry}
+  <FindAlternativeDialog
+    modName={findAltEntry.mod_name}
+    mcVersion={inst.mc_version}
+    loader={inst.loader}
+    instanceId={inst.id}
+    curseForgeUrl={findAltEntry.manual_action_url || null}
+    onClose={() => (findAltEntry = null)}
+    onInstalled={async ({ source, projectId }) => {
+      const entry = findAltEntry;
+      if (!entry) return;
+      const r = await commands.modpackResolveMissingWith(
+        inst.id,
+        entry.filename,
+        entry.mod_name,
+        source,
+        projectId,
+      );
+      if (r.status === 'error') {
+        pushWarning($t('modpacks.imported.detail.findAlternative'), [formatError(r.error)]);
+      }
+      await load(true);
+    }}
   />
 {/if}
 

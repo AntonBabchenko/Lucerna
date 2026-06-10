@@ -38,6 +38,7 @@
   } from '$lib/settings/state.svelte';
   import CurseForgeKeyBanner from './CurseForgeKeyBanner.svelte';
   import DependencyDialog from './DependencyDialog.svelte';
+  import FindAlternativeDialog from './FindAlternativeDialog.svelte';
   import PageSizePicker from './PageSizePicker.svelte';
   import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
@@ -149,6 +150,16 @@
     return installingProjectIds.has(projectId) || depPrompt?.primary.project_id === projectId;
   }
   let drawerProject = $state<string | null>(null);
+  // When set, opens the in-app "find this mod in another source" dialog.
+  // Only used for CurseForge distribution blocks (Modrinth blocks keep the
+  // direct open-project-page action — there's no alternative source to offer).
+  let findAlt = $state<{
+    modName: string;
+    curseForgeUrl: string;
+    instanceId: string;
+    mcVersion: string;
+    loader: LoaderKind;
+  } | null>(null);
   // Dependencies promoted to the dialog carry the project's display name
   // alongside the version (the version's own `name` field is the release
   // title, not the mod name — distinct on Modrinth and confusing in the
@@ -579,19 +590,49 @@
   ): boolean {
     const tr = get(t);
     if (err.kind === 'mods_distribution_disabled') {
-      // The generic message only names the platform. Name the mod and offer a
-      // one-click jump to the project page so the user can download manually.
+      // Distribution is disabled on the source platform. When it's CurseForge
+      // (and we have instance context), offer an in-app "find on Modrinth" path
+      // — the dialog keeps the manual CurseForge link as a fallback. A Modrinth
+      // distribution block has no alternative source to offer, so keep the
+      // manual link there.
       const platform = modSource === 'modrinth' ? 'Modrinth' : 'CurseForge';
       const url = modProjectUrl(modSource, slugOrId);
-      pushActionToast(
-        'warning',
-        tr('mods.browse.distributionDisabledTitle', { mod: modName }),
-        {
-          label: tr('mods.browse.distributionDisabledAction', { platform }),
-          run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
-        },
-        [tr('mods.browse.distributionDisabledBody', { platform })],
-      );
+      if (modSource === 'curseforge' && instanceId && mcVersion && loader) {
+        // Capture the instance context now (it's guaranteed non-null inside this
+        // branch). TypeScript won't narrow these inside the toast's run callback,
+        // and the live props could become null between the toast appearing and
+        // the user clicking it — so the dialog renders from these captured values.
+        const ctxInstanceId = instanceId;
+        const ctxMcVersion = mcVersion;
+        const ctxLoader = loader;
+        pushActionToast(
+          'warning',
+          tr('mods.browse.distributionDisabledTitle', { mod: modName }),
+          {
+            label: tr('mods.findAlt.toastAction'),
+            run: () => {
+              findAlt = {
+                modName,
+                curseForgeUrl: url,
+                instanceId: ctxInstanceId,
+                mcVersion: ctxMcVersion,
+                loader: ctxLoader,
+              };
+            },
+          },
+          [tr('mods.browse.distributionDisabledBody', { platform })],
+        );
+      } else {
+        pushActionToast(
+          'warning',
+          tr('mods.browse.distributionDisabledTitle', { mod: modName }),
+          {
+            label: tr('mods.browse.distributionDisabledAction', { platform }),
+            run: () => void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url)),
+          },
+          [tr('mods.browse.distributionDisabledBody', { platform })],
+        );
+      }
       return true;
     }
     if (err.kind === 'mods_filename_conflict') {
@@ -1104,6 +1145,16 @@
           installingProjectIds.delete(prompt.primary.project_id);
         }
       }}
+    />
+  {/if}
+  {#if findAlt}
+    <FindAlternativeDialog
+      modName={findAlt.modName}
+      mcVersion={findAlt.mcVersion}
+      loader={findAlt.loader}
+      instanceId={findAlt.instanceId}
+      curseForgeUrl={findAlt.curseForgeUrl}
+      onClose={() => (findAlt = null)}
     />
   {/if}
 {/if}

@@ -224,4 +224,34 @@ describe('Sidebar', () => {
     });
     expect(screen.getByRole('button', { name: /sign in with microsoft/i })).toBeTruthy();
   });
+
+  it('renders the compact toggle and emits on click', async () => {
+    const onToggleCompact = vi.fn();
+    const { getByLabelText } = render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+        compact: false,
+        onToggleCompact,
+      },
+    });
+    const toggle = getByLabelText('Collapse to mini mode');
+    toggle.click();
+    expect(onToggleCompact).toHaveBeenCalledTimes(1);
+  });
 });
