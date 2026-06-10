@@ -25,6 +25,13 @@ describe('icon registry', () => {
       'minus',
       'list',
       'grid',
+      'package',
+      'externalLink',
+      'moreVertical',
+      'chevronLeft',
+      'chevronRight',
+      'puzzle',
+      'arrowRight',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });

@@ -1,14 +1,20 @@
 import {
+  ArrowRight,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   Download,
+  EllipsisVertical,
+  ExternalLink,
   Info,
   LayoutGrid,
   List,
   Minus,
+  Package,
   Plus,
+  Puzzle,
   RefreshCw,
   TriangleAlert,
   X,
@@ -36,6 +42,14 @@ export const ICONS = {
   minus: Minus,
   list: List,
   grid: LayoutGrid,
+  // Second pass — non-indicator icons.
+  package: Package, // modpack placeholder avatars + "from modpack" chips
+  externalLink: ExternalLink, // opens an external site (e.g. OptiFine hint)
+  moreVertical: EllipsisVertical, // overflow-menu affordance (lucide renamed MoreVertical → EllipsisVertical)
+  chevronLeft: ChevronLeft, // gallery prev
+  chevronRight: ChevronRight, // gallery next
+  puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
+  arrowRight: ArrowRight, // version-transition marker (v1 → v2)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;
