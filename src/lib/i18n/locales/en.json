@@ -694,11 +694,11 @@
   },
   "onboarding": {
     "controls": {
-      "back": "← Back",
-      "next": "Next →",
+      "back": "Back",
+      "next": "Next",
       "skip": "Skip tour",
-      "finish": "Finish ✓",
-      "gotIt": "Got it ✓",
+      "finish": "Finish",
+      "gotIt": "Got it",
       "skipContextual": "Skip",
       "stepOf": "Step {current} of {total}"
     },
@@ -723,9 +723,9 @@
       },
       "manageInstances": {
         "title": "Manage your instances",
-        "body": "⚙ Manage is where you set an instance's Minecraft version and loader, tweak memory and JVM arguments, and create, rename or delete instances. A new instance starts with no version — pick one here before you can play.",
+        "body": "Manage is where you set an instance's Minecraft version and loader, tweak memory and JVM arguments, and create, rename or delete instances. A new instance starts with no version — pick one here before you can play.",
         "titleBasic": "Set up your instances",
-        "bodyBasic": "⚙ Manage is where you choose an instance's Minecraft version and its mod system, change how much memory it uses, and create, rename, or delete instances. A brand-new instance has no version yet — pick one here before you can play."
+        "bodyBasic": "Manage is where you choose an instance's Minecraft version and its mod system, change how much memory it uses, and create, rename, or delete instances. A brand-new instance has no version yet — pick one here before you can play."
       },
       "installPlay": {
         "title": "Install, then Play",
@@ -822,9 +822,9 @@
       "worlds": {
         "worldsWithBackups": {
           "title": "Your worlds, with backups",
-          "body": "Each row is one singleplayer save. The 📦 N badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world.",
+          "body": "Each row is one singleplayer save. The backup-count badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world.",
           "titleBasic": "Your worlds and backups",
-          "bodyBasic": "Each row is one single-player world. The 📦 N badge shows how many backups it has. Click a row to see what you can do — make a backup now, open past backups (and restore them, either replacing the world or as a copy), or delete the world."
+          "bodyBasic": "Each row is one single-player world. The backup-count badge shows how many backups it has. Click a row to see what you can do — make a backup now, open past backups (and restore them, either replacing the world or as a copy), or delete the world."
         },
         "openSavesFolder": {
           "title": "Open saves folder",

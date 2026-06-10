@@ -1,5 +1,6 @@
 import {
   Aperture,
+  ArrowLeft,
   ArrowRight,
   ArrowUp,
   Blocks,
@@ -64,7 +65,8 @@ export const ICONS = {
   chevronFirst: ChevronFirst, // pagination first
   chevronLast: ChevronLast, // pagination last
   puzzle: Puzzle, // single-mod placeholder avatar (distinct from package = modpack)
-  arrowRight: ArrowRight, // version-transition marker (v1 → v2)
+  arrowLeft: ArrowLeft, // back / prev navigation (tour)
+  arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
   // i18n tier — nav/action + status.
   settings: Settings, // ⚙ Manage
   folderOpen: FolderOpen, // 📁 Open folder

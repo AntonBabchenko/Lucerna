@@ -11,6 +11,7 @@
   import { STEPS } from './steps';
   import { explanationState, setExplanationLevel } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
+  import { Icon } from '$lib/ui/icons';
   import type { ExplanationLevel } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
 
@@ -237,18 +238,25 @@
       {:else if tourState.contextual}
         <!-- On-demand account hint: no tour navigation, just acknowledge. -->
         <div class="flex justify-end">
-          <button type="button" data-tour-primary class="btn-primary btn-sm" onclick={closeHint}>
+          <button
+            type="button"
+            data-tour-primary
+            class="btn-primary btn-sm inline-flex items-center gap-1"
+            onclick={closeHint}
+          >
             {$t('onboarding.controls.gotIt')}
+            <Icon name="success" size={14} />
           </button>
         </div>
       {:else}
         <div class="flex justify-between gap-2">
           <button
             type="button"
-            class="btn-secondary btn-sm"
+            class="btn-secondary btn-sm inline-flex items-center gap-1"
             disabled={isFirst}
             onclick={() => back()}
           >
+            <Icon name="arrowLeft" size={14} />
             {$t('onboarding.controls.back')}
           </button>
           <div class="flex gap-2">
@@ -260,10 +268,16 @@
             <button
               type="button"
               data-tour-primary
-              class="btn-primary btn-sm"
+              class="btn-primary btn-sm inline-flex items-center gap-1"
               onclick={() => (isLast ? void finishOrSkip() : next())}
             >
-              {isLast ? $t('onboarding.controls.finish') : $t('onboarding.controls.next')}
+              {#if isLast}
+                {$t('onboarding.controls.finish')}
+                <Icon name="success" size={14} />
+              {:else}
+                {$t('onboarding.controls.next')}
+                <Icon name="arrowRight" size={14} />
+              {/if}
             </button>
           </div>
         </div>
