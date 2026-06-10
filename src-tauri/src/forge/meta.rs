@@ -510,6 +510,11 @@ pub async fn fetch_installer_bytes_in(
 ) -> Result<Vec<u8>> {
     let path = installer_cache_path(app_data, mc, fv);
 
+    // Cache hit: trusted without re-verification. The invariant is that a file
+    // only reaches this path via the SHA-1-guarded write at the end of this
+    // function, so anything on disk was verified when it was written. (Files
+    // cached by pre-SHA1-check builds predate that guarantee but came from the
+    // same maven host; clearing the installer cache re-verifies on next fetch.)
     if path.exists() {
         return tokio::fs::read(&path)
             .await
@@ -1119,10 +1124,13 @@ mod tests {
             .await;
         let td = TempDir::new().unwrap();
         set_neoforge_override(&s.uri());
-        let bytes = fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0")
-            .await
-            .expect("a verified installer must be returned");
+        // Clear the process-global override env BEFORE asserting, so a panic
+        // on a failed assertion cannot leak it into later (lock-serialised)
+        // tests.
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
         clear_neoforge_override();
+        let bytes = result.expect("a verified installer must be returned");
         assert_eq!(bytes, installer);
         assert!(installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
     }
@@ -1144,10 +1152,10 @@ mod tests {
             .await;
         let td = TempDir::new().unwrap();
         set_neoforge_override(&s.uri());
-        let err = fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0")
-            .await
-            .expect_err("a SHA-1 mismatch must be rejected");
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
         clear_neoforge_override();
+        let err = result.expect_err("a SHA-1 mismatch must be rejected");
         assert!(
             matches!(err, Error::ForgeInstallerCorrupted { .. }),
             "expected ForgeInstallerCorrupted, got {err:?}"
@@ -1169,10 +1177,10 @@ mod tests {
         // No `.sha1` mock → the sidecar request 404s. No-TOFU: hard error.
         let td = TempDir::new().unwrap();
         set_neoforge_override(&s.uri());
-        let err = fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0")
-            .await
-            .expect_err("a missing sidecar must be a hard error");
+        let result =
+            fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
         clear_neoforge_override();
+        let err = result.expect_err("a missing sidecar must be a hard error");
         assert!(
             matches!(err, Error::ForgeInstallerCorrupted { .. }),
             "expected ForgeInstallerCorrupted, got {err:?}"
