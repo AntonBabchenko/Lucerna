@@ -52,7 +52,10 @@ export function trapFocus(node: HTMLElement) {
     const first = items[0];
     const last = items[items.length - 1];
 
-    // Focus escaped the panel entirely — pull it back to the edge.
+    // Defensive: the active element is somehow outside the panel. This should
+    // not occur with a node-level listener (Tab only bubbles here while focus
+    // is inside), but if focus is ever moved out programmatically, pull it
+    // back to the edge rather than letting Tab escape.
     if (!active || !node.contains(active)) {
       e.preventDefault();
       (e.shiftKey ? last : first).focus();
