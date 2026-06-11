@@ -3,7 +3,7 @@
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
   import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
-  import { enqueueIntegrity, integrityStatusFor } from '$lib/instances/integrity-ops.svelte';
+  import { enqueueIntegrity, opStatusFor } from '$lib/ops/op-queue.svelte';
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
 
   // Observer view: the verify/repair op is owned by the page-level
@@ -25,7 +25,7 @@
     status?: IntegrityStatus | null;
   } = $props();
 
-  const op = $derived(integrityStatusFor(instanceId));
+  const op = $derived(opStatusFor(instanceId));
   // A persisted "healthy" result from a previous launcher session is treated as
   // not-checked (session-scoped confidence); problem results persist. See
   // integrity-freshness.ts. The live op branches below take precedence over this.
