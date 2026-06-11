@@ -41,26 +41,28 @@ pub struct ModpackInstanceUpdate {
 /// Pure precondition check. Returns `Ok((source, project_id, version_id))`
 /// when a network check should proceed, or `Err(status)` carrying the
 /// terminal `NotCheckable` status when it should not.
+// Err is boxed to keep precheck's Result small (clippy::result_large_err); the
+// unboxed status is recovered at the call site.
 pub fn precheck(
     source: Option<ModSource>,
     project_id: Option<&str>,
     version_id: Option<&str>,
     cf_key_present: bool,
-) -> Result<(ModSource, String, String), ModpackUpdateStatus> {
+) -> Result<(ModSource, String, String), Box<ModpackUpdateStatus>> {
     let Some(source) = source else {
-        return Err(ModpackUpdateStatus::NotCheckable {
+        return Err(Box::new(ModpackUpdateStatus::NotCheckable {
             reason: NotCheckableReason::NotAPack,
-        });
+        }));
     };
     let (Some(pid), Some(vid)) = (project_id, version_id) else {
-        return Err(ModpackUpdateStatus::NotCheckable {
+        return Err(Box::new(ModpackUpdateStatus::NotCheckable {
             reason: NotCheckableReason::NoProvenance,
-        });
+        }));
     };
     if source == ModSource::Curseforge && !cf_key_present {
-        return Err(ModpackUpdateStatus::NotCheckable {
+        return Err(Box::new(ModpackUpdateStatus::NotCheckable {
             reason: NotCheckableReason::NeedsCurseforgeKey,
-        });
+        }));
     }
     Ok((source, pid.to_string(), vid.to_string()))
 }
@@ -96,7 +98,7 @@ mod tests {
     fn precheck_not_a_pack_when_source_missing() {
         let r = precheck(None, Some("p"), Some("v"), false);
         assert_eq!(
-            r.unwrap_err(),
+            *r.unwrap_err(),
             ModpackUpdateStatus::NotCheckable {
                 reason: NotCheckableReason::NotAPack
             }
@@ -107,7 +109,7 @@ mod tests {
     fn precheck_no_provenance_when_version_id_missing() {
         let r = precheck(Some(ModSource::Modrinth), Some("p"), None, false);
         assert_eq!(
-            r.unwrap_err(),
+            *r.unwrap_err(),
             ModpackUpdateStatus::NotCheckable {
                 reason: NotCheckableReason::NoProvenance
             }
@@ -118,7 +120,7 @@ mod tests {
     fn precheck_no_provenance_when_project_id_missing() {
         let r = precheck(Some(ModSource::Modrinth), None, Some("v"), false);
         assert_eq!(
-            r.unwrap_err(),
+            *r.unwrap_err(),
             ModpackUpdateStatus::NotCheckable {
                 reason: NotCheckableReason::NoProvenance
             }
@@ -129,7 +131,7 @@ mod tests {
     fn precheck_needs_cf_key_when_curseforge_and_no_key() {
         let r = precheck(Some(ModSource::Curseforge), Some("p"), Some("v"), false);
         assert_eq!(
-            r.unwrap_err(),
+            *r.unwrap_err(),
             ModpackUpdateStatus::NotCheckable {
                 reason: NotCheckableReason::NeedsCurseforgeKey
             }
@@ -143,7 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn precheck_modrinth_proceeds_ignoring_cf_key() {
+    fn precheck_non_cf_proceeds_ignoring_cf_key() {
         // Non-CF sources never require a key, regardless of the flag.
         let r = precheck(Some(ModSource::Ftb), Some("p"), Some("v"), false);
         assert_eq!(r.unwrap(), (ModSource::Ftb, "p".into(), "v".into()));
