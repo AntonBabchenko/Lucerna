@@ -70,14 +70,14 @@ describe('SettingsModal', () => {
     ).toBeTruthy();
   });
 
-  it("exposes a What's new tab that mounts the ChangelogPanel", async () => {
+  it('tucks the changelog into a disclosure on the About tab', async () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
-    const tab = screen.getByRole('tab', { name: "What's new" });
-    await fireEvent.click(tab);
-    expect(tab.getAttribute('aria-selected')).toBe('true');
-    // The panel renders the embedded changelog: the 0.1.0 first release is
-    // always present in CHANGELOG.md.
+    await fireEvent.click(screen.getByRole('tab', { name: 'About' }));
+    // The changelog lives in a <details> disclosure inside About; its summary
+    // and content (the 0.1.0 first release, always present in CHANGELOG.md)
+    // are in the DOM even while collapsed.
+    expect(screen.getByText("What's new")).toBeTruthy();
     expect(screen.getByText('v0.1.0')).toBeTruthy();
   });
 });

@@ -941,8 +941,7 @@
       "general": "Основные",
       "storage": "Хранилище",
       "curseforge": "CurseForge",
-      "about": "О программе",
-      "changelog": "Что нового"
+      "about": "О программе"
     },
     "general": {
       "appearance": {
@@ -999,6 +998,7 @@
       "keyring": "Токены обновления Microsoft хранятся в защищённом системном хранилище ключей вашей ОС и удаляются при выходе из аккаунта."
     },
     "changelog": {
+      "title": "Что нового",
       "empty": "История изменений недоступна.",
       "openReleaseLabel": "Открыть примечания к выпуску v{version} на GitHub",
       "sections": {

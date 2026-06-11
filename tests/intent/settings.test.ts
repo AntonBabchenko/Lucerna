@@ -174,11 +174,11 @@ describe('SettingsModal — inactive tabs have border-transparent text-muted', (
 });
 
 describe('SettingsModal — all tabs have aria-selected', () => {
-  it('each of the 5 tabs has aria-selected attribute', () => {
+  it('each of the 4 tabs has aria-selected attribute', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(4);
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-selected')).not.toBeNull();
     }

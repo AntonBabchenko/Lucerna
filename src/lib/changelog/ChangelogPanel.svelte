@@ -41,8 +41,6 @@
 </script>
 
 <section class="space-y-6 text-sm selectable">
-  <h3 class="text-base font-semibold text-primary">{$t('settings.tabs.changelog')}</h3>
-
   {#if visible.length === 0}
     <p class="text-muted">{$t('settings.changelog.empty')}</p>
   {:else}

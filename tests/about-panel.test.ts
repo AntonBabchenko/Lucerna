@@ -23,7 +23,10 @@ describe('AboutPanel', () => {
 
   it('opens the repo URL via tauri-plugin-opener when the repo button is clicked', async () => {
     render(AboutPanel);
-    const link = screen.getByRole('button', { name: /github/i });
+    // Scope to the repo button specifically — the embedded changelog adds
+    // version buttons whose labels also mention GitHub ("release notes on
+    // GitHub"), so a bare /github/i would now be ambiguous.
+    const link = screen.getByRole('button', { name: /repository on GitHub/i });
     await fireEvent.click(link);
     // The opener is dynamic-imported and called inside an awaited promise —
     // wait for the module load + then-chain to flush.
@@ -35,5 +38,13 @@ describe('AboutPanel', () => {
   it('renders the Mojang/Microsoft trademark attribution', () => {
     render(AboutPanel);
     expect(screen.getByText(/Minecraft and Mojang are trademarks/)).toBeTruthy();
+  });
+
+  it('tucks the changelog into a "What\'s new" disclosure', () => {
+    render(AboutPanel);
+    // The disclosure summary, and the embedded changelog content (the 0.1.0
+    // first release is always present in CHANGELOG.md), are in the DOM.
+    expect(screen.getByText("What's new")).toBeTruthy();
+    expect(screen.getByText('v0.1.0')).toBeTruthy();
   });
 });

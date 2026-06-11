@@ -9,7 +9,7 @@ import type { ModSource } from '$lib/ipc/bindings';
 // (lands in a later task) reads the same value to know whether to mount
 // and which tab to focus.
 
-export type SettingsTab = 'curseforge' | 'storage' | 'about' | 'general' | 'changelog';
+export type SettingsTab = 'curseforge' | 'storage' | 'about' | 'general';
 
 export const settingsOpen = $state<{ value: { tab: SettingsTab } | null }>({
   value: null,

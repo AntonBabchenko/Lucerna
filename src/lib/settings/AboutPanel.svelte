@@ -5,6 +5,8 @@
   // the panel never disagree on the exact string.
   import pkg from '../../../package.json' with { type: 'json' };
   import { REPO_URL } from './disclaimer';
+  import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
+  import { CHANGELOG } from '$lib/changelog/source';
   import { t } from '$lib/i18n';
 
   const version = pkg.version;
@@ -40,4 +42,13 @@
   <p class="text-xs text-muted">
     {$t('settings.about.keyring')}
   </p>
+
+  <details class="border-t pt-3">
+    <summary class="cursor-pointer font-medium text-primary">
+      {$t('settings.changelog.title')}
+    </summary>
+    <div class="mt-3">
+      <ChangelogPanel entries={CHANGELOG} />
+    </div>
+  </details>
 </section>

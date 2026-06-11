@@ -941,8 +941,7 @@
       "general": "General",
       "storage": "Storage",
       "curseforge": "CurseForge",
-      "about": "About",
-      "changelog": "What's new"
+      "about": "About"
     },
     "general": {
       "appearance": {
@@ -999,6 +998,7 @@
       "keyring": "Microsoft refresh tokens are stored in your operating system's secure keyring and removed when you sign out."
     },
     "changelog": {
+      "title": "What's new",
       "empty": "No changelog available.",
       "openReleaseLabel": "Open the v{version} release notes on GitHub",
       "sections": {
