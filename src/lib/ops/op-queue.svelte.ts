@@ -95,7 +95,7 @@ async function processNext(): Promise<void> {
   running = { op, progress: initialProgress(op) };
 
   if (op.kind === 'import') {
-    await runIntegrityOrImport_import(op);
+    await runImportOp(op);
   } else {
     await runIntegrity(op);
   }
@@ -136,10 +136,58 @@ async function runIntegrity(
   }
 }
 
-// Import branch is filled in Task 4. Placeholder kept tiny + typed so Task 1
-// compiles and its tests run; replaced wholesale in Task 4.
-async function runIntegrityOrImport_import(_op: Extract<QueuedOp, { kind: 'import' }>): Promise<void> {
-  // Implemented in Task 4.
+function importKey(r: ModpackImportRequest): string {
+  return r.path || `${r.source}:${r.projectId}:${r.versionId}`;
+}
+
+export function enqueueImport(name: string, request: ModpackImportRequest): void {
+  ensureListener();
+  const key = importKey(request);
+  if (running && running.op.kind === 'import' && importKey(running.op.request) === key) return;
+  if (queue.some((q) => q.kind === 'import' && importKey(q.request) === key)) return;
+  queue = [...queue, { id: newId(), kind: 'import', name, request }];
+  void processNext();
+}
+
+async function selectInstance(id: string): Promise<void> {
+  if (!id) return;
+  await commands.setActiveInstance(id);
+  completionTick += 1; // page effect re-reads the active instance
+}
+
+async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<void> {
+  const outcome = await runImport(op.request, (phase, bytes) => {
+    if (running && running.op.id === op.id) {
+      running = { op, progress: { kind: 'import', phase, bytes } };
+    }
+  });
+  const tr = get(t);
+  if (outcome.status === 'ok') {
+    const lines =
+      outcome.skipped.length > 0
+        ? outcome.skipped.map((s) =>
+            tr('page.modpackImport.skippedOverrideLine', {
+              name: s.path.split('/').pop() ?? s.path,
+              mb: Math.round((s.size ?? 0) / (1024 * 1024)),
+            }),
+          )
+        : [];
+    const title =
+      outcome.skipped.length > 0
+        ? tr('page.modpackImport.importedSkipped', { name: outcome.name, count: outcome.skipped.length })
+        : tr('page.modpackImport.imported', { name: outcome.name });
+    const id = outcome.instanceId;
+    pushActionToast(
+      'success',
+      title,
+      { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
+      lines,
+    );
+  } else if (outcome.status === 'partial') {
+    pushWarning(tr('page.modpackImport.partialFailure', { count: outcome.failed.length }), outcome.failed);
+  } else {
+    pushWarning(tr('page.modpackImport.failed'), [outcome.message]);
+  }
 }
 
 /** Cancel a QUEUED op by id (no-op if it is the running op or unknown). */

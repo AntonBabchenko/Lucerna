@@ -60,9 +60,9 @@ export function pushInfo(title: string, lines: string[] = []): number {
   return id;
 }
 
-/** Show a sticky toast (info or warning) with an action button. */
+/** Show a sticky toast (any kind) with an action button. */
 export function pushActionToast(
-  kind: 'info' | 'warning',
+  kind: ToastKind,
   title: string,
   action: ToastAction,
   lines: string[] = [],

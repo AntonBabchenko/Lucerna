@@ -1,4 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { pushActionToast } from '$lib/toasts/toasts.svelte';
+import { enqueueImport } from '$lib/ops/op-queue.svelte';
+
+vi.mock('@tauri-apps/api/core', () => ({
+  Channel: class {
+    onmessage: ((m: unknown) => void) | null = null;
+  },
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -242,5 +250,73 @@ describe('op-queue store', () => {
     d.resolve({ status: 'ok', data: healthyReport });
     await d.promise;
     await Promise.resolve();
+  });
+
+  const importReq = (path: string) => ({
+    path,
+    selectedShas: [],
+    projectId: null,
+    source: null,
+    versionId: null,
+  });
+
+  it('runs an import after a verify finishes — strict serial across kinds', async () => {
+    const dv = deferred<{ status: 'ok'; data: typeof healthyReport }>();
+    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(dv.promise);
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
+      async (...args: unknown[]) => {
+        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
+          phase: 'done',
+          instance_id: 'i1',
+          skipped_overrides: [],
+        });
+        return { status: 'ok', data: { name: 'Pack' } };
+      },
+    );
+
+    enqueueIntegrity('a', 'Alpha', 'verify'); // running
+    enqueueImport('Pack', importReq('/tmp/p.mrpack')); // queued
+
+    expect(commands.modpackImport).not.toHaveBeenCalled();
+    dv.resolve({ status: 'ok', data: healthyReport });
+    await vi.waitFor(() => expect(commands.modpackImport).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  it('dedupes a second import of the same path', async () => {
+    const d = deferred<{ status: 'ok'; data: { name: string } }>();
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+    enqueueImport('Pack', importReq('/tmp/p.mrpack'));
+    enqueueImport('Pack', importReq('/tmp/p.mrpack')); // same path → ignored
+    expect(opQueue().length).toBe(0); // first is running, second dropped
+    d.resolve({ status: 'ok', data: { name: 'Pack' } });
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  it('import success pushes an action toast whose Open runs setActiveInstance', async () => {
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
+      async (...args: unknown[]) => {
+        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
+          phase: 'done',
+          instance_id: 'i9',
+          skipped_overrides: [],
+        });
+        return { status: 'ok', data: { name: 'Pack' } };
+      },
+    );
+    (commands.setActiveInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: null,
+    });
+
+    enqueueImport('Pack', importReq('/tmp/p.mrpack'));
+    await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
+
+    // The action's run() switches the active instance.
+    const action = (pushActionToast as ReturnType<typeof vi.fn>).mock.calls[0][2] as {
+      run: () => void;
+    };
+    action.run();
+    await vi.waitFor(() => expect(commands.setActiveInstance).toHaveBeenCalledWith('i9'));
   });
 });
