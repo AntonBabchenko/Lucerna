@@ -14,10 +14,12 @@
   // it as a modal over a scrim signals "separate context, not the current
   // instance" — the spatial fix for the modpack/mod confusion.
   //
-  // Closing is unconditional (× / scrim / Esc). The import pipeline lives at the
-  // PAGE level (the channels + ImportProgressView), so closing mid-import is
-  // safe — the corner progress toast keeps running and the page still lands the
-  // user on the new instance when the import finishes.
+  // Closing is unconditional and user-driven (× / scrim / Esc) — an import
+  // finishing does NOT close the modal, so a mid-browse session isn't
+  // interrupted. The import pipeline lives at the PAGE level (the channels +
+  // ImportProgressView), so closing mid-import is also safe: the corner progress
+  // toast keeps running and the page lands the user on the new instance (which
+  // takes visible effect once they close the modal themselves).
   let {
     open = false,
     onClose,

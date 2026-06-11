@@ -109,8 +109,9 @@
   let importBytes = $state<ProgressTick | null>(null);
 
   // Run a modpack import handed up from ModpacksTab's picker. Owns the two
-  // progress channels; on `done` it closes the modal (if still open) and lands
-  // the user on the freshly created instance.
+  // progress channels; on `done` it lands the user on the freshly created
+  // instance (in the background — it deliberately leaves the modpacks browser
+  // open so an in-progress browse isn't interrupted).
   async function runModpackImport(req: ModpackImportRequest) {
     if (modpackImporting) {
       const tr = get(t);
@@ -132,10 +133,14 @@
       importPhase = m;
       if (m.phase === 'done') {
         skippedOverrides = m.skipped_overrides;
-        // Close the modal (if still open) and land on the new instance. The
+        // Land on the new instance in the background, but DON'T close the
+        // modpacks browser — the user may still be browsing (queuing another
+        // pack), and yanking the modal shut mid-task is jarring. The success
+        // toast (pushSuccess below) is the completion signal; the instance
+        // switch is invisible behind the scrim and takes visible effect when
+        // the user closes the modal themselves (×/scrim/Esc). The
         // `modpackImporting` guard is released below, after the command settles,
         // so a second import can't start in the gap between `done` and `Ok`.
-        modpacksModalOpen = false;
         void onSelectInstance(m.instance_id);
       }
     };
