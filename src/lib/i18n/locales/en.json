@@ -1034,6 +1034,17 @@
       "aboutBody": "CurseForge is one of the biggest websites for Minecraft mods and modpacks. To download from it, CurseForge requires a free personal API key — a code that lets Lucerna fetch files through their service. Get one with the steps below; it stays on your computer."
     }
   },
+  "ops": {
+    "heading": "Operations",
+    "inQueue": "{count, plural, one {# in queue} other {# in queue}}",
+    "openInstance": "Open",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "cancel": "Cancel",
+    "queueItemVerify": "Verify “{name}”",
+    "queueItemRepair": "Repair “{name}”",
+    "queueItemImport": "Import “{name}”"
+  },
   "page": {
     "update": {
       "available": "Lucerna {version} is available",
