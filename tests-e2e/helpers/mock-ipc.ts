@@ -50,6 +50,35 @@ export type MockInstance = {
   mrpack_version_id: string | null;
 };
 
+// A mod search hit (ModSummary subset the browse cards read).
+export type MockModSummary = {
+  source: 'modrinth' | 'curseforge';
+  project_id: string;
+  slug: string | null;
+  name: string;
+  summary: string;
+  icon_url: string | null;
+  downloads: number | null;
+  author: string;
+  updated_at: string | null;
+};
+
+// An installed-mod row (InstalledMod subset). mods_install_with_deps appends
+// one here so a later mods_list_installed flips the browse card to "Installed".
+export type MockInstalledMod = {
+  filename: string;
+  sha1: string;
+  source: 'modrinth' | 'curseforge' | null;
+  project_id: string | null;
+  version_id: string | null;
+  name: string;
+  version_number: string | null;
+  installed_at: number;
+  enabled: boolean;
+  requires: string[];
+  enrich_attempted: boolean;
+};
+
 export type MockState = {
   /** Stored accounts; defaults to empty. */
   accounts?: MockAccount[];
@@ -65,6 +94,14 @@ export type MockState = {
   installing?: boolean;
   /** Override for app_settings_get.general.theme; defaults to 'system'. */
   theme?: 'system' | 'light' | 'dark';
+  /** Hits returned by mods_search; defaults to empty. */
+  mod_hits?: MockModSummary[];
+  /**
+   * Installed mods returned by mods_list_installed. Seeded empty and APPENDED
+   * to by mods_install_with_deps so the browse flow's post-install refresh sees
+   * the new install. Defaults to empty.
+   */
+  installed_mods?: MockInstalledMod[];
 };
 
 /**
@@ -84,6 +121,8 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
       running: null,
       installing: false,
       theme: 'system',
+      mod_hits: [],
+      installed_mods: [],
     };
     const m = { ...defaults, ...s };
 
@@ -126,8 +165,73 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
       list_versions: () => [],
 
       // Per-instance commands that fire immediately on instance switch.
-      mods_list_installed: () => [],
+      // Reflects installs recorded by mods_install_with_deps (defaults []).
+      mods_list_installed: () => m.installed_mods,
       modpack_status: () => null,
+
+      // Mod browser — search + dependency-free fast-path install. Lets an e2e
+      // drive the "find a mod → install it → card shows Installed" core flow.
+      mods_search: () => ({ hits: m.mod_hits, total: m.mod_hits.length }),
+      // A card "Install" (no pinned version) first fetches the project's
+      // versions and installs the newest. Return one fabric-compatible version
+      // per requested project so the fast-path (no deps, no loader mismatch)
+      // applies.
+      mods_versions: (args) => {
+        const a = args as { source?: 'modrinth' | 'curseforge'; projectId?: string };
+        const pid = a.projectId ?? 'mod';
+        return [
+          {
+            source: a.source ?? 'modrinth',
+            project_id: pid,
+            version_id: `${pid}-v1`,
+            name: `${pid} 1.0.0`,
+            version_number: '1.0.0',
+            game_versions: ['1.20.4'],
+            loaders: ['fabric'],
+            primary_file: { filename: `${pid}.jar`, url: '', sha1: '', size: 0 },
+            dependencies: [],
+          },
+        ];
+      },
+      mods_resolve_install_plan: () => ({
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [],
+        loader_requirements: [],
+      }),
+      mods_install_with_deps: (args) => {
+        const primary = (args?.primary ?? {}) as {
+          source?: 'modrinth' | 'curseforge';
+          project_id?: string;
+          version_id?: string;
+        };
+        const hit = m.mod_hits.find(
+          (h) => h.source === primary.source && h.project_id === primary.project_id,
+        );
+        const name = hit?.name ?? 'Installed mod';
+        m.installed_mods.push({
+          filename: `${primary.project_id ?? 'mod'}.jar`,
+          sha1: `sha-${primary.project_id ?? 'mod'}`,
+          source: primary.source ?? null,
+          project_id: primary.project_id ?? null,
+          version_id: primary.version_id ?? null,
+          name,
+          version_number: '1.0.0',
+          installed_at: 0,
+          enabled: true,
+          requires: [],
+          enrich_attempted: false,
+        });
+        return { primary_name: name, installed_dependencies: [] };
+      },
+      // refreshInstalled() looks up each installed mod's display name.
+      mods_project: (args) => ({
+        summary: {
+          name: `Project ${(args as { project_id?: string })?.project_id ?? ''}`,
+          slug: null,
+        },
+      }),
       get_playtime: () => ({
         total_seconds: 0,
         session_count: 0,
