@@ -79,7 +79,8 @@
     "browseModpacks": "Браузер сборок",
     "logs": "Логи",
     "compactCollapse": "Свернуть в мини-режим",
-    "compactExpand": "Развернуть на всё окно"
+    "compactExpand": "Развернуть на всё окно",
+    "modpackUpdatesBadge": "Доступно обновлений сборок: {count}"
   },
   "instance": {
     "manage": {

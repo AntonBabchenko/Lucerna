@@ -866,6 +866,7 @@ export type TranslationKey =
   | 'sidebar.instance'
   | 'sidebar.logs'
   | 'sidebar.manage'
+  | 'sidebar.modpackUpdatesBadge'
   | 'sidebar.mods'
   | 'sidebar.noAccounts'
   | 'sidebar.noInstances'

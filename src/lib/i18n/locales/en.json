@@ -79,7 +79,8 @@
     "browseModpacks": "Browse modpacks",
     "logs": "Logs",
     "compactCollapse": "Collapse to mini mode",
-    "compactExpand": "Expand to full window"
+    "compactExpand": "Expand to full window",
+    "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}"
   },
   "instance": {
     "manage": {

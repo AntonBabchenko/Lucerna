@@ -287,8 +287,19 @@
       data-testid="sidebar-open-modpacks"
       onclick={onOpenModpacks}
     >
-      <Icon name="package" size={16} />
-      {$t('sidebar.browseModpacks')}
+      <span class="relative inline-flex items-center gap-1.5">
+        <Icon name="package" size={16} />
+        {$t('sidebar.browseModpacks')}
+        {#if modpackUpdates.updateCount > 0}
+          <span
+            class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+            title={$t('sidebar.modpackUpdatesBadge', { count: modpackUpdates.updateCount })}
+            data-testid="sidebar-modpack-updates-badge"
+          >
+            {modpackUpdates.updateCount}
+          </span>
+        {/if}
+      </span>
     </button>
     <div class="flex gap-1">
       <button
