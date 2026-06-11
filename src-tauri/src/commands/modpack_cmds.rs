@@ -415,10 +415,9 @@ pub(crate) async fn compute_modpack_update_status(
     }
 }
 
-/// Per-instance modpack update check across all four sources. Replaces the
-/// Modrinth-only `modpack_check_update` (which the Overview card migrates to
-/// in a later change). Returns an explicit status that distinguishes
-/// "up to date" from "not checkable".
+/// Per-instance modpack update check across all four sources. Returns an
+/// explicit status that distinguishes "up to date" from "not checkable"
+/// (the former Modrinth-only `modpack_check_update` has been removed).
 #[tauri::command]
 #[specta::specta]
 pub async fn modpack_update_status(
