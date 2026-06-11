@@ -14,9 +14,9 @@
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
   import GeneralPanel from './GeneralPanel.svelte';
   import StoragePanel from './StoragePanel.svelte';
+  import { settingsOpen, type SettingsTab } from './state.svelte';
   import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
   import { CHANGELOG } from '$lib/changelog/source';
-  import { settingsOpen, type SettingsTab } from './state.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { t } from '$lib/i18n';
