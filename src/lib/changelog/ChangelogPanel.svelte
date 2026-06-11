@@ -65,7 +65,7 @@
           {#if ver.date}<span class="text-xs text-muted">{ver.date}</span>{/if}
         </header>
 
-        {#each ver.sections as sec (sec.heading)}
+        {#each ver.sections as sec, si (si)}
           <div class="space-y-1">
             <h4 class="text-xs font-semibold uppercase tracking-wide text-secondary">
               {sec.label}
