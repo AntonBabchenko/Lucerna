@@ -462,6 +462,8 @@
       "card": {
         "modifiedTitle": "установленные моды отличаются от импортированной сборки",
         "modifiedTag": "изменена",
+        "updateTag": "Обновление {version}",
+        "updateTitle": "Доступна новая версия этой сборки",
         "instanceLabel": "Профиль: {name}",
         "importedAt": "импортировано {when}"
       },

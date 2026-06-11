@@ -462,6 +462,8 @@
       "card": {
         "modifiedTitle": "installed mods differ from the imported pack",
         "modifiedTag": "modified",
+        "updateTag": "Update {version}",
+        "updateTitle": "A newer version of this modpack is available",
         "instanceLabel": "Instance: {name}",
         "importedAt": "imported {when}"
       },

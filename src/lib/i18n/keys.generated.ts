@@ -351,6 +351,8 @@ export type TranslationKey =
   | 'modpacks.imported.card.instanceLabel'
   | 'modpacks.imported.card.modifiedTag'
   | 'modpacks.imported.card.modifiedTitle'
+  | 'modpacks.imported.card.updateTag'
+  | 'modpacks.imported.card.updateTitle'
   | 'modpacks.imported.detail.ariaLabel'
   | 'modpacks.imported.detail.badgeFromPack'
   | 'modpacks.imported.detail.badgeFromPackTitle'
