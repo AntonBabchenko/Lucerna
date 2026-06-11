@@ -452,6 +452,42 @@ pub async fn modpack_update_status(
     compute_modpack_update_status(&app, &instance_id).await
 }
 
+/// Batch update-check for many pack instances at once. Bounds concurrency so
+/// a large library doesn't fan out dozens of simultaneous requests (per-IP
+/// rate-limit safety). A per-instance failure is captured as `CheckFailed`
+/// in that entry's status — it never aborts the whole sweep.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpacks_check_updates(
+    app: tauri::AppHandle,
+    instance_ids: Vec<String>,
+) -> crate::error::Result<Vec<crate::mods::modpack::update_status::ModpackInstanceUpdate>> {
+    use crate::mods::modpack::update_status::{ModpackInstanceUpdate, ModpackUpdateStatus};
+    use futures_util::stream::{self, StreamExt};
+
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
+
+    let out: Vec<ModpackInstanceUpdate> = stream::iter(instance_ids)
+        .map(|instance_id| {
+            let app = app.clone();
+            async move {
+                let status = compute_modpack_update_status(&app, &instance_id)
+                    .await
+                    .unwrap_or_else(|e| ModpackUpdateStatus::CheckFailed {
+                        message: e.to_string(),
+                    });
+                ModpackInstanceUpdate {
+                    instance_id,
+                    status,
+                }
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    Ok(out)
+}
+
 /// Diff a downloaded new-version `.mrpack` (already fetched to
 /// `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
 /// current `pack_origin`. Returns the diff for the confirm dialog.
