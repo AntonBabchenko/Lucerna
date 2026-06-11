@@ -400,6 +400,58 @@ pub async fn modpack_check_update(
     Ok(latest_newer(versions, &current_id))
 }
 
+/// Resolve the update status of one pack instance for all sources. Pure
+/// preconditions live in `update_status::precheck`; the network list comes
+/// from the per-source `get_versions`; a transient error becomes
+/// `CheckFailed` so a single offline pack never poisons a batch sweep.
+pub(crate) async fn compute_modpack_update_status(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> crate::error::Result<crate::mods::modpack::update_status::ModpackUpdateStatus> {
+    use crate::mods::modpack::update_status::{precheck, status_from_versions};
+
+    let inst = crate::instances::read_instance(app, instance_id)?;
+    let cf_key_present = crate::mods::curseforge::keyring::get()
+        .ok()
+        .flatten()
+        .is_some();
+    let (source, project_id, version_id) = match precheck(
+        inst.mrpack_source,
+        inst.mrpack_project_id.as_deref(),
+        inst.mrpack_version_id.as_deref(),
+        cf_key_present,
+    ) {
+        Ok(provenance) => provenance,
+        // precheck's Err is Box<ModpackUpdateStatus>; deref to return the status.
+        Err(status) => return Ok(*status),
+    };
+
+    match modpack::source::modpack_source_for(source)
+        .get_versions(&project_id)
+        .await
+    {
+        Ok(versions) => Ok(status_from_versions(versions, &version_id)),
+        Err(e) => Ok(
+            crate::mods::modpack::update_status::ModpackUpdateStatus::CheckFailed {
+                message: e.to_string(),
+            },
+        ),
+    }
+}
+
+/// Per-instance modpack update check across all four sources. Replaces the
+/// Modrinth-only `modpack_check_update` (which the Overview card migrates to
+/// in a later change). Returns an explicit status that distinguishes
+/// "up to date" from "not checkable".
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_update_status(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::mods::modpack::update_status::ModpackUpdateStatus> {
+    compute_modpack_update_status(&app, &instance_id).await
+}
+
 /// Diff a downloaded new-version `.mrpack` (already fetched to
 /// `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
 /// current `pack_origin`. Returns the diff for the confirm dialog.
