@@ -997,6 +997,19 @@
       "trademark": "Minecraft and Mojang are trademarks of Mojang Synergies AB and Microsoft Corporation. This launcher is not affiliated with either.",
       "keyring": "Microsoft refresh tokens are stored in your operating system's secure keyring and removed when you sign out."
     },
+    "changelog": {
+      "title": "What's new",
+      "empty": "No changelog available.",
+      "openReleaseLabel": "Open the v{version} release notes on GitHub",
+      "sections": {
+        "added": "Added",
+        "changed": "Changed",
+        "fixed": "Fixed",
+        "deprecated": "Deprecated",
+        "removed": "Removed",
+        "security": "Security"
+      }
+    },
     "curseforge": {
       "statusLabel": "Status:",
       "statusOk": "OK — key is set",

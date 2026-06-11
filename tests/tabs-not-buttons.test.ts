@@ -100,7 +100,7 @@ afterEach(() => {
 });
 
 describe('SettingsModal tabs are not .btn-*', () => {
-  it('all 4 tabs (CurseForge, Storage, About, General) use underlined-tab style, not .btn-*', () => {
+  it('all 4 tabs (General, Storage, CurseForge, About) use underlined-tab style, not .btn-*', () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
 

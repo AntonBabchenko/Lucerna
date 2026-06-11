@@ -997,6 +997,19 @@
       "trademark": "Minecraft и Mojang являются торговыми марками Mojang Synergies AB и Microsoft Corporation. Данный лаунчер не аффилирован ни с одной из этих компаний.",
       "keyring": "Токены обновления Microsoft хранятся в защищённом системном хранилище ключей вашей ОС и удаляются при выходе из аккаунта."
     },
+    "changelog": {
+      "title": "Что нового",
+      "empty": "История изменений недоступна.",
+      "openReleaseLabel": "Открыть примечания к выпуску v{version} на GitHub",
+      "sections": {
+        "added": "Добавлено",
+        "changed": "Изменено",
+        "fixed": "Исправлено",
+        "deprecated": "Устарело",
+        "removed": "Удалено",
+        "security": "Безопасность"
+      }
+    },
     "curseforge": {
       "statusLabel": "Статус:",
       "statusOk": "OK — ключ установлен",
