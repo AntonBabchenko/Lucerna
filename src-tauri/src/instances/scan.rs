@@ -61,7 +61,6 @@ mod tests {
 
     fn make(id: &str, name: &str, created_unix_ms: f64) -> InstanceFile {
         InstanceFile {
-            version: 1,
             id: id.into(),
             name: name.into(),
             mc_version: "1.20.4".into(),

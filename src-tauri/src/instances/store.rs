@@ -58,7 +58,6 @@ mod tests {
 
     fn sample_instance() -> InstanceFile {
         InstanceFile {
-            version: 1,
             id: "3f4a-bbbb".into(),
             name: "Default".into(),
             mc_version: "1.20.4".into(),
@@ -142,7 +141,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("app.json");
         let value = AppFile {
-            version: 1,
             active_instance: Some("3f4a-bbbb".into()),
             ..AppFile::default()
         };
@@ -156,7 +154,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("app.json");
         let value = AppFile {
-            version: 1,
             active_instance: Some("3f4a-bbbb".into()),
             onboarding: crate::instances::schema::OnboardingState {
                 tour_completed_version: Some("0.5.0".into()),
@@ -203,7 +200,6 @@ mod tests {
         let path = dir.path().join("app.json");
         // Seed: user completed the tour and has an active instance.
         let initial = AppFile {
-            version: 1,
             active_instance: Some("old-instance".into()),
             onboarding: crate::instances::schema::OnboardingState {
                 tour_completed_version: Some("0.5.0".into()),

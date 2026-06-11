@@ -15,7 +15,6 @@ use tempfile::tempdir;
 
 fn make(id: &str, name: &str, mc: &str, created_unix_ms: f64) -> InstanceFile {
     InstanceFile {
-        version: 1,
         id: id.into(),
         name: name.into(),
         mc_version: mc.into(),
@@ -67,7 +66,6 @@ fn create_set_active_set_version_set_memory_then_delete_roundtrip() {
     write_app_json(
         &app_path,
         &AppFile {
-            version: 1,
             active_instance: Some(id_b.clone()),
             ..AppFile::default()
         },
@@ -113,7 +111,6 @@ fn create_set_active_set_version_set_memory_then_delete_roundtrip() {
     write_app_json(
         &app_path,
         &AppFile {
-            version: 1,
             active_instance: new_active.clone(),
             ..AppFile::default()
         },

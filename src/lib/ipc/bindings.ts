@@ -745,7 +745,6 @@ export type AccountKind = "offline" | "microsoft";
 export type AppFile = AppFile_Serialize | AppFile_Deserialize;
 
 export type AppFile_Deserialize = {
-	version: number,
 	active_instance?: string | null,
 	onboarding?: OnboardingState_Deserialize,
 	general?: GeneralSettings,
@@ -758,7 +757,6 @@ export type AppFile_Deserialize = {
 };
 
 export type AppFile_Serialize = {
-	version: number,
 	active_instance?: string | null,
 	onboarding: OnboardingState_Serialize,
 	general: GeneralSettings,
