@@ -27,11 +27,11 @@ const req = {
 beforeEach(() => vi.clearAllMocks());
 
 describe('runImport', () => {
-  it('returns ok with the instance id captured from the done event', async () => {
+  it('returns ok with the instance id from r.data.id', async () => {
     modpackImport.mockImplementation(async (...args: unknown[]) => {
       const phaseCh = args[6] as { onmessage: (m: unknown) => void };
-      phaseCh.onmessage({ phase: 'done', instance_id: 'i1', skipped_overrides: [] });
-      return { status: 'ok', data: { name: 'My Pack' } };
+      phaseCh.onmessage({ phase: 'done', skipped_overrides: [] });
+      return { status: 'ok', data: { name: 'My Pack', id: 'i1' } };
     });
     const out = await runImport(req, () => {});
     expect(out).toEqual({ status: 'ok', name: 'My Pack', instanceId: 'i1', skipped: [] });

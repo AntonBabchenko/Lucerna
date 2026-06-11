@@ -6,11 +6,11 @@
 
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
-import { commands, events } from '$lib/ipc/bindings';
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
+import { commands, events } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
+import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { runImport } from './import-runner';
 
 export type IntegrityKind = 'verify' | 'repair';
@@ -105,9 +105,7 @@ async function processNext(): Promise<void> {
   void processNext();
 }
 
-async function runIntegrity(
-  op: Extract<QueuedOp, { kind: IntegrityKind }>,
-): Promise<void> {
+async function runIntegrity(op: Extract<QueuedOp, { kind: IntegrityKind }>): Promise<void> {
   const res =
     op.kind === 'verify'
       ? await commands.verifyInstance(op.instanceId)
@@ -121,18 +119,26 @@ async function runIntegrity(
         pushSuccess(tr('instance.integrity.toastVerifyOk', { name: op.name }));
       } else {
         pushWarning(
-          tr('instance.integrity.toastVerifyProblems', { name: op.name, count: report.problems.length }),
+          tr('instance.integrity.toastVerifyProblems', {
+            name: op.name,
+            count: report.problems.length,
+          }),
         );
       }
     } else if (report.healthy) {
       pushSuccess(tr('instance.integrity.toastRepaired', { name: op.name }));
     } else {
       pushWarning(
-        tr('instance.integrity.toastRepairPartial', { name: op.name, count: report.problems.length }),
+        tr('instance.integrity.toastRepairPartial', {
+          name: op.name,
+          count: report.problems.length,
+        }),
       );
     }
   } else {
-    pushWarning(tr('instance.integrity.toastError', { name: op.name, error: formatError(res.error) }));
+    pushWarning(
+      tr('instance.integrity.toastError', { name: op.name, error: formatError(res.error) }),
+    );
   }
 }
 
@@ -174,7 +180,10 @@ async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<v
         : [];
     const title =
       outcome.skipped.length > 0
-        ? tr('page.modpackImport.importedSkipped', { name: outcome.name, count: outcome.skipped.length })
+        ? tr('page.modpackImport.importedSkipped', {
+            name: outcome.name,
+            count: outcome.skipped.length,
+          })
         : tr('page.modpackImport.imported', { name: outcome.name });
     const id = outcome.instanceId;
     pushActionToast(
@@ -184,7 +193,10 @@ async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<v
       lines,
     );
   } else if (outcome.status === 'partial') {
-    pushWarning(tr('page.modpackImport.partialFailure', { count: outcome.failed.length }), outcome.failed);
+    pushWarning(
+      tr('page.modpackImport.partialFailure', { count: outcome.failed.length }),
+      outcome.failed,
+    );
   } else {
     pushWarning(tr('page.modpackImport.failed'), [outcome.message]);
   }

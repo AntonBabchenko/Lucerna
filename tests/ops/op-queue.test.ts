@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { pushActionToast } from '$lib/toasts/toasts.svelte';
 import { enqueueImport } from '$lib/ops/op-queue.svelte';
+import { pushActionToast } from '$lib/toasts/toasts.svelte';
 
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
@@ -28,9 +28,15 @@ vi.mock('$lib/ipc/format-error', () => ({
   formatError: vi.fn((e: { kind: string }) => `formatted:${e.kind}`),
 }));
 vi.mock('$lib/i18n', () => ({
-  t: { subscribe: (run: (v: unknown) => void) => { run(() => 'tr'); return () => {}; } },
+  t: {
+    subscribe: (run: (v: unknown) => void) => {
+      run(() => 'tr');
+      return () => {};
+    },
+  },
 }));
 
+import { commands } from '$lib/ipc/bindings';
 import {
   __resetOpQueueForTest,
   cancelQueued,
@@ -41,7 +47,6 @@ import {
   opRunning,
   opStatusFor,
 } from '$lib/ops/op-queue.svelte';
-import { commands } from '$lib/ipc/bindings';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 
 const healthyReport = {
@@ -218,13 +223,15 @@ describe('op-queue store', () => {
     enqueueIntegrity('b', 'Bravo', 'verify'); // queued
     enqueueIntegrity('c', 'Charlie', 'verify'); // queued
 
-    const bId = opQueue().find((q) => q.kind !== 'import' && q.instanceId === 'b')!.id;
-    cancelQueued(bId);
+    const bOp = opQueue().find((q) => q.kind !== 'import' && q.instanceId === 'b');
+    if (!bOp) throw new Error('b not queued');
+    cancelQueued(bOp.id);
     expect(opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''))).toEqual(['c']);
 
     // Cancelling the running op's id is a no-op (it isn't in the queue array).
-    const runningId = opRunning()!.op.id;
-    cancelQueued(runningId);
+    const running = opRunning();
+    if (!running) throw new Error('expected a running op');
+    cancelQueued(running.op.id);
     expect(opRunning()).not.toBeNull();
 
     d.resolve({ status: 'ok', data: healthyReport });
@@ -267,10 +274,9 @@ describe('op-queue store', () => {
       async (...args: unknown[]) => {
         (args[6] as { onmessage: (m: unknown) => void }).onmessage({
           phase: 'done',
-          instance_id: 'i1',
           skipped_overrides: [],
         });
-        return { status: 'ok', data: { name: 'Pack' } };
+        return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
       },
     );
 
@@ -298,10 +304,9 @@ describe('op-queue store', () => {
       async (...args: unknown[]) => {
         (args[6] as { onmessage: (m: unknown) => void }).onmessage({
           phase: 'done',
-          instance_id: 'i9',
           skipped_overrides: [],
         });
-        return { status: 'ok', data: { name: 'Pack' } };
+        return { status: 'ok', data: { name: 'Pack', id: 'i9' } };
       },
     );
     (commands.setActiveInstance as ReturnType<typeof vi.fn>).mockResolvedValue({

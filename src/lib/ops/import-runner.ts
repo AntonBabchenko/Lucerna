@@ -4,15 +4,12 @@
 // owns completionTick), so this stays pure (and unit-testable).
 
 import { Channel } from '@tauri-apps/api/core';
-import { commands } from '$lib/ipc/bindings';
 import type { ModpackProgress, ProgressTick, SkippedOverride } from '$lib/ipc/bindings';
+import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
 
-export type ImportProgressCb = (
-  phase: ModpackProgress | null,
-  bytes: ProgressTick | null,
-) => void;
+export type ImportProgressCb = (phase: ModpackProgress | null, bytes: ProgressTick | null) => void;
 
 export type ImportOutcome =
   | { status: 'ok'; name: string; instanceId: string; skipped: SkippedOverride[] }
@@ -26,7 +23,6 @@ export async function runImport(
   let latestPhase: ModpackProgress | null = null;
   let latestBytes: ProgressTick | null = null;
   let skipped: SkippedOverride[] = [];
-  let instanceId = '';
   onProgress(null, null);
 
   const phaseChannel = new Channel<ModpackProgress>();
@@ -34,7 +30,6 @@ export async function runImport(
     latestPhase = m;
     if (m.phase === 'done') {
       skipped = m.skipped_overrides;
-      instanceId = m.instance_id;
     }
     onProgress(latestPhase, latestBytes);
   };
@@ -56,7 +51,7 @@ export async function runImport(
   );
 
   if (r.status === 'ok') {
-    return { status: 'ok', name: r.data.name, instanceId, skipped };
+    return { status: 'ok', name: r.data.name, instanceId: r.data.id, skipped };
   }
   if (r.error.kind === 'modpack_partial_failure') {
     return { status: 'partial', failed: r.error.failed.map(([p]) => p.split('/').pop() ?? p) };
