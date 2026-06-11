@@ -7,7 +7,7 @@
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
 
   // Observer view: the verify/repair op is owned by the page-level
-  // integrity-ops store, not this section. The section reads the live op phase
+  // op-queue store, not this section. The section reads the live op phase
   // (running/queued) for this instance, and otherwise renders the persisted
   // `status` passed reactively from `selected.integrity` — which the page
   // refreshes when an op completes (completionTick effect). No local state

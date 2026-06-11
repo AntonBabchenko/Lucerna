@@ -1,5 +1,5 @@
 // Page-level singleton store for one-click crash auto-repair execution.
-// Same module-singleton rune idiom as `$lib/instances/integrity-ops.svelte`:
+// Same module-singleton rune idiom as `$lib/ops/op-queue.svelte`:
 // module-level `$state`, read in templates via exported getter functions.
 //
 // Unlike integrity ops, a repair is a single discrete action (raise heap /

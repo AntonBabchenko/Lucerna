@@ -16,10 +16,10 @@
   //
   // Closing is unconditional and user-driven (× / scrim / Esc) — an import
   // finishing does NOT close the modal, so a mid-browse session isn't
-  // interrupted. The import pipeline lives at the PAGE level (the channels +
-  // ImportProgressView), so closing mid-import is also safe: the corner progress
-  // toast keeps running and the page lands the user on the new instance (which
-  // takes visible effect once they close the modal themselves).
+  // interrupted. The import pipeline lives at the PAGE level (via the op-queue
+  // store + OperationsView widget), so closing mid-import is also safe: the
+  // corner widget keeps running and the page lands the user on the new instance
+  // (which takes visible effect once they close the modal themselves).
   let {
     open = false,
     onClose,

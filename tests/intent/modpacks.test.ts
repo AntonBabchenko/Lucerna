@@ -1,6 +1,6 @@
 // Modpacks group intent coverage: ModpacksTab (positive sub-tabs), ModpackBrowseView,
 // ModpackCard, ImportedCard, ImportedDetailDrawer (rows NOT covered by D destructive-footer),
-// ImportPickerDialog, ModpackDetailModal, ModpackUpdateDialog, ImportProgressView.
+// ImportPickerDialog, ModpackDetailModal, ModpackUpdateDialog.
 //
 // Cluster D covers:
 //   - tabs-not-buttons: ModpacksTab negative (Browse/Imported sub-tabs are NOT .btn-*)
@@ -63,8 +63,6 @@
 //     diff list added (text-success), updated (text-accent), removed (text-danger line-through)
 //     Cancel → btn-secondary btn-sm
 //     Update → btn-primary btn-sm
-//   ImportProgressView:
-//     role="status" aria-label
 
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -133,7 +131,6 @@ vi.mock('@tauri-apps/api/webview', () => ({
 import ImportedCard from '$lib/modpacks/ImportedCard.svelte';
 import ImportedDetailDrawer from '$lib/modpacks/ImportedDetailDrawer.svelte';
 import ImportPickerDialog from '$lib/modpacks/ImportPickerDialog.svelte';
-import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
 import ModpackBrowseView from '$lib/modpacks/ModpackBrowseView.svelte';
 import ModpackCard from '$lib/modpacks/ModpackCard.svelte';
 import ModpackDetailModal from '$lib/modpacks/ModpackDetailModal.svelte';
@@ -1218,41 +1215,6 @@ describe('ModpackUpdateDialog — Cancel and Update buttons', () => {
     const btn = screen.getByRole('button', { name: /^update$/i });
     expect(btn).toHaveBtnVariant('primary');
     expect(btn).toHaveBtnSize('sm');
-  });
-});
-
-// ── ImportProgressView — role=status ─────────────────────────────────────────
-
-describe('ImportProgressView — role=status aria-label', () => {
-  it('progress panel has role="status" and aria-label="Modpack import progress"', () => {
-    render(ImportProgressView, {
-      props: {
-        phase: { phase: 'inspecting' },
-        modBytes: null,
-      },
-    });
-    const panel = screen.getByRole('status', { name: /modpack import progress/i });
-    expect(panel).not.toBeNull();
-    expect(panel.getAttribute('data-testid')).toBe('import-progress-view');
-  });
-
-  it('shows label text for inspecting phase', () => {
-    render(ImportProgressView, {
-      props: {
-        phase: { phase: 'inspecting' },
-        modBytes: null,
-      },
-    });
-    const label = screen.getByText(/Inspecting pack…/i);
-    expect(label.className).toContain('text-secondary');
-  });
-
-  it('renders nothing when phase is null', () => {
-    const { container } = render(ImportProgressView, {
-      props: { phase: null, modBytes: null },
-    });
-    const panel = container.querySelector('[data-testid="import-progress-view"]');
-    expect(panel).toBeNull();
   });
 });
 
