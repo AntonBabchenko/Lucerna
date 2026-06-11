@@ -25,7 +25,9 @@ vi.mock('$lib/i18n', () => ({
 
 import {
   __resetOpQueueForTest,
+  cancelQueued,
   enqueueIntegrity,
+  moveQueued,
   opCompletionTick,
   opQueue,
   opRunning,
@@ -194,6 +196,48 @@ describe('op-queue store', () => {
       filesTotal: 0,
     });
     expect(opStatusFor('c')).toBeNull();
+
+    d.resolve({ status: 'ok', data: healthyReport });
+    await d.promise;
+    await Promise.resolve();
+  });
+
+  it('cancelQueued removes a pending op but never the running one', async () => {
+    const d = deferred<{ status: 'ok'; data: typeof healthyReport }>();
+    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+
+    enqueueIntegrity('a', 'Alpha', 'verify'); // runs
+    enqueueIntegrity('b', 'Bravo', 'verify'); // queued
+    enqueueIntegrity('c', 'Charlie', 'verify'); // queued
+
+    const bId = opQueue().find((q) => q.kind !== 'import' && q.instanceId === 'b')!.id;
+    cancelQueued(bId);
+    expect(opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''))).toEqual(['c']);
+
+    // Cancelling the running op's id is a no-op (it isn't in the queue array).
+    const runningId = opRunning()!.op.id;
+    cancelQueued(runningId);
+    expect(opRunning()).not.toBeNull();
+
+    d.resolve({ status: 'ok', data: healthyReport });
+    await d.promise;
+    await Promise.resolve();
+  });
+
+  it('moveQueued swaps neighbours and is a no-op at the ends', async () => {
+    const d = deferred<{ status: 'ok'; data: typeof healthyReport }>();
+    (commands.verifyInstance as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+
+    enqueueIntegrity('a', 'Alpha', 'verify'); // runs
+    enqueueIntegrity('b', 'Bravo', 'verify'); // queue[0]
+    enqueueIntegrity('c', 'Charlie', 'verify'); // queue[1]
+
+    const ids = () => opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''));
+    const cId = opQueue()[1].id;
+    moveQueued(cId, 'up');
+    expect(ids()).toEqual(['c', 'b']);
+    moveQueued(cId, 'up'); // already at top — no-op
+    expect(ids()).toEqual(['c', 'b']);
 
     d.resolve({ status: 'ok', data: healthyReport });
     await d.promise;
