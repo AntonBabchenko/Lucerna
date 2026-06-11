@@ -129,7 +129,7 @@
         </div>
         <div class="flex justify-between text-sm">
           <span class="text-muted">{$t('page.overview.labelMemory')}</span>
-          <span class="font-mono">{activeInstance.max_heap_mb} MB</span>
+          <span class="font-mono">{activeInstance.max_heap_mb} {$t('format.unit.megabyte')}</span>
         </div>
         <button type="button" class="btn-tertiary self-start text-xs" onclick={onManage}>
           {$t('page.overview.manageBtn')}
@@ -200,13 +200,15 @@
         {:else}
           <div class="text-sm">
             {$t('page.overview.playtimeTotal')}
-            <span class="font-medium text-primary">{formatDuration(playtime.total_seconds)}</span>
+            <span class="font-medium text-primary"
+              >{formatDuration($t, playtime.total_seconds)}</span
+            >
             · <span>{$t('page.overview.playtimeSession', { count: playtime.session_count })}</span>
           </div>
           <p class="text-xs text-muted">
             {$t('page.overview.playtimeLastSession', {
-              duration: formatDuration(playtime.last_session_seconds),
-              when: relativeTime(playtime.last_session_unix_ms),
+              duration: formatDuration($t, playtime.last_session_seconds),
+              when: relativeTime($t, playtime.last_session_unix_ms),
             })}
           </p>
         {/if}

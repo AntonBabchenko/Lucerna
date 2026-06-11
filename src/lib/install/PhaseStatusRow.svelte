@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { formatSize } from '$lib/format/size';
   import {
     events,
     type InstallPhase,
@@ -108,13 +109,6 @@
     if (total === 0) return 0;
     return Math.round((done / total) * 100);
   }
-
-  function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  }
 </script>
 
 {#if modProgress}
@@ -138,7 +132,7 @@
     <span class="text-secondary font-mono">
       {progress.files_done}/{progress.files_total}
       {#if progress.bytes_done && progress.bytes_done > 0}
-        · {formatBytes(progress.bytes_done)}
+        · {formatSize($t, progress.bytes_done)}
       {/if}
     </span>
     {#if progress.phase !== 'complete'}

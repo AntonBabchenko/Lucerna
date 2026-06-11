@@ -594,7 +594,7 @@
             >
               <Icon name="info" class="flex-shrink-0" />
               <span class="truncate flex-1">{s.path}</span>
-              <span class="text-xs text-muted flex-shrink-0">{formatSize(s.size)}</span>
+              <span class="text-xs text-muted flex-shrink-0">{formatSize($t, s.size)}</span>
             </li>
           {/each}
         </ul>
@@ -678,7 +678,7 @@
             {#each resourcepacks as f (f.install_path)}
               <li class="flex items-center gap-2 text-sm py-1">
                 <span class="truncate flex-1">{f.name}</span>
-                <span class="text-xs text-placeholder flex-shrink-0">{formatSize(f.size)}</span>
+                <span class="text-xs text-placeholder flex-shrink-0">{formatSize($t, f.size)}</span>
               </li>
             {/each}
           </ul>
@@ -694,7 +694,7 @@
             {#each shaderpacks as f (f.install_path)}
               <li class="flex items-center gap-2 text-sm py-1">
                 <span class="truncate flex-1">{f.name}</span>
-                <span class="text-xs text-placeholder flex-shrink-0">{formatSize(f.size)}</span>
+                <span class="text-xs text-placeholder flex-shrink-0">{formatSize($t, f.size)}</span>
               </li>
             {/each}
           </ul>

@@ -8,6 +8,9 @@ import type { TranslationKey } from './keys.generated';
 // Mirrors svelte-i18n's InterpolationValues (not publicly exported by the package).
 type InterpolationValues = Record<string, string | number | boolean | Date | null | undefined>;
 
+/** The type of the translator function returned by the `$t` store. */
+export type Translate = (key: TranslationKey, values?: InterpolationValues) => string;
+
 export const t = derived(
   _,
   (format) =>

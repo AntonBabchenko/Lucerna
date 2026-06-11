@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import RestoreBackupDialog from '$lib/worlds/RestoreBackupDialog.svelte';
   import { t, locale } from '$lib/i18n';
+  import { formatSize } from '$lib/format/size';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { get } from 'svelte/store';
@@ -89,13 +90,6 @@
     if (r.status !== 'ok') error = formatError(r.error);
   }
 
-  function formatBytes(n: number | null | undefined): string {
-    if (n == null) return '';
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  }
-
   function formatBackupTimestamp(b: Backup): string {
     if (!b.created_unix_ms) return b.filename;
     return new Date(b.created_unix_ms).toLocaleString($locale ?? undefined, {
@@ -138,7 +132,7 @@
           >
             <div class="min-w-0">
               <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
-              <div class="text-xs text-muted">{formatBytes(b.size_bytes)}</div>
+              <div class="text-xs text-muted">{formatSize($t, b.size_bytes)}</div>
             </div>
             <span class="text-placeholder flex-shrink-0" aria-hidden="true"
               ><Icon name="moreVertical" size={16} /></span
@@ -148,7 +142,7 @@
       {/each}
     </ul>
     <div class="text-xs text-muted mb-3 flex justify-between">
-      <span>{$t('worlds.backups.total', { size: formatBytes(totalSize) })}</span>
+      <span>{$t('worlds.backups.total', { size: formatSize($t, totalSize) })}</span>
       <button
         type="button"
         class="btn-tertiary inline-flex items-center gap-1"

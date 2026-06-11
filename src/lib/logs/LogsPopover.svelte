@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { formatSize } from '$lib/format/size';
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -314,14 +315,6 @@
       case 'launcher':
         return $t('logs.severity.launcher');
     }
-  }
-
-  function formatBytes(n: number | null | undefined): string {
-    if (n == null) return '';
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 
   function formatMtime(ms: number | null | undefined): string {
@@ -749,7 +742,7 @@
                       >
                         <div class="font-mono text-xs truncate">{f.name}</div>
                         <div class="text-[10px] text-muted">
-                          {formatBytes(f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
+                          {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
                         </div>
                       </button>
                     </li>
@@ -813,7 +806,7 @@
           {:else}
             {#if isTruncated}
               <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
-                {$t('logs.empty.truncated', { cap: formatBytes(capBytes) })}
+                {$t('logs.empty.truncated', { cap: formatSize($t, capBytes) })}
               </div>
             {/if}
 

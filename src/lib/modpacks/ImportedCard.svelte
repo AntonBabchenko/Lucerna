@@ -2,6 +2,7 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
+  import { relativeDate } from '$lib/format/relative-time';
   import { Icon } from '$lib/ui/icons';
 
   // One card in the Imported tab grid. Mirrors ModpackCard's shape so
@@ -26,19 +27,6 @@
     onClick,
     isModified = false,
   }: { inst: InstanceWithStatus; onClick: () => void; isModified?: boolean } = $props();
-
-  function relativeTime(ms: number | null): string {
-    if (ms == null) return '';
-    const diff = Date.now() - ms;
-    const day = 1000 * 60 * 60 * 24;
-    if (diff < day) return 'today';
-    if (diff < 2 * day) return 'yesterday';
-    const days = Math.floor(diff / day);
-    if (days < 30) return `${days}d ago`;
-    const months = Math.floor(days / 30);
-    if (months < 12) return `${months}mo ago`;
-    return `${Math.floor(months / 12)}y ago`;
-  }
 </script>
 
 <button
@@ -74,7 +62,9 @@
           ? ' ' + inst.loader_version
           : ''}{inst.created_unix_ms != null
           ? ' · ' +
-            $t('modpacks.imported.card.importedAt', { when: relativeTime(inst.created_unix_ms) })
+            $t('modpacks.imported.card.importedAt', {
+              when: relativeDate($t, inst.created_unix_ms),
+            })
           : ''}
       </div>
     </div>

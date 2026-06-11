@@ -2,6 +2,7 @@
   import { commands, events, type World } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { relativeTime } from '$lib/format/relative-time';
+  import { formatSize } from '$lib/format/size';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
@@ -110,7 +111,7 @@
       pushSuccess(
         $t('worlds.tab.toastBackedUp', {
           name: w.folder_name,
-          size: formatBytes(r.data.size_bytes),
+          size: formatSize($t, r.data.size_bytes),
         }),
       );
       await reload();
@@ -123,14 +124,6 @@
     if (!instanceId) return;
     const r = await commands.openSavesFolder(instanceId);
     if (r.status !== 'ok') pushWarning(formatError(r.error));
-  }
-
-  function formatBytes(n: number | null | undefined): string {
-    if (n == null) return '';
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 </script>
 
@@ -173,7 +166,7 @@
                 {/if}
               </div>
               <div class="text-xs text-muted">
-                {formatBytes(w.size_bytes)} · {relativeTime(w.modified_unix_ms)}
+                {formatSize($t, w.size_bytes)} · {relativeTime($t, w.modified_unix_ms)}
               </div>
             </div>
             <span class="text-placeholder flex-shrink-0" aria-hidden="true"
