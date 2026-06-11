@@ -16,6 +16,10 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackRestoreFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // ImportedView's mount sweep drives the shared modpackUpdates store,
+    // which calls this command once per pack-instance batch. Return an
+    // empty rows array so the sweep resolves without touching badge state.
+    modpacksCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
@@ -26,6 +30,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import type { LoaderKind } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import ImportedView from '$lib/modpacks/ImportedView.svelte';
+import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
 
 // The filters are now custom <Select> listboxes (a themeable
 // button[role=combobox] → ul[role=listbox] of li[role=option]) rather
@@ -74,6 +79,10 @@ const inst = (
   }) as const;
 
 describe('ImportedView', () => {
+  // The mount sweep drives the shared modpackUpdates store (module state),
+  // so clear it between cases to keep update-badge state from leaking.
+  afterEach(() => modpackUpdates.reset());
+
   it('filters out non-modpack instances', () => {
     const { queryAllByTestId } = render(ImportedView, {
       props: {

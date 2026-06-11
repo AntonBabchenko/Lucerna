@@ -457,7 +457,10 @@
         "sortNewest": "Newest first",
         "sortOldest": "Oldest first",
         "sortName": "Name (A–Z)",
-        "noResults": "No packs match the filter."
+        "noResults": "No packs match the filter.",
+        "updatesAvailable": "{count} {count, plural, one {pack has an update} other {packs have updates}}",
+        "checkUpdates": "Check for updates",
+        "checkingUpdates": "Checking…"
       },
       "card": {
         "modifiedTitle": "installed mods differ from the imported pack",

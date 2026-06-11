@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { commands } from '$lib/ipc/bindings';
   import type { InstanceWithStatus, LoaderKind, ModpackStatus } from '$lib/ipc/bindings';
   import { modpacksNav } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import ImportedCard from './ImportedCard.svelte';
   import ImportedDetailDrawer from './ImportedDetailDrawer.svelte';
+  import { modpackUpdates } from './modpack-updates.svelte';
   import Select from '$lib/ui/Select.svelte';
 
   // Filtered grid of instances that originated from a modpack import
@@ -100,6 +102,26 @@
 
   const allPacks = $derived(instances.filter((i) => i.mrpack_name != null));
 
+  let checkingUpdates = $state(false);
+
+  // Sweep pack instances for updates when the list shape changes. Cheap and
+  // TTL-guarded inside the store, so reopening the tab won't re-hit the network.
+  // `untrack` the sweep call so its synchronous prefix (which reads then writes
+  // the store's `statuses`) doesn't register that state as a dependency of this
+  // effect — otherwise the read-then-write would self-trigger an update loop.
+  // We still depend on `instances` (read outside untrack) to re-sweep on change.
+  $effect(() => {
+    const packIds = instances.filter((i) => i.mrpack_name != null).map((i) => i.id);
+    untrack(() => void modpackUpdates.sweep(packIds));
+  });
+
+  async function forceCheckUpdates() {
+    const packIds = allPacks.map((i) => i.id);
+    checkingUpdates = true;
+    await modpackUpdates.sweep(packIds, { force: true });
+    checkingUpdates = false;
+  }
+
   const packs = $derived(
     allPacks
       .filter((i) => {
@@ -153,6 +175,25 @@
     </div>
   </div>
 {:else}
+  <div class="px-4 pt-3 flex items-center gap-3" data-testid="imported-updates-strip">
+    {#if modpackUpdates.updateCount > 0}
+      <span class="text-sm text-success font-medium">
+        {$t('modpacks.imported.view.updatesAvailable', { count: modpackUpdates.updateCount })}
+      </span>
+    {/if}
+    <button
+      type="button"
+      class="btn-tertiary btn-xs ml-auto"
+      disabled={checkingUpdates}
+      onclick={forceCheckUpdates}
+      data-testid="imported-check-updates"
+    >
+      {checkingUpdates
+        ? $t('modpacks.imported.view.checkingUpdates')
+        : $t('modpacks.imported.view.checkUpdates')}
+    </button>
+  </div>
+
   <div class="p-4 pb-2 flex flex-wrap gap-2">
     <input
       type="search"
@@ -212,6 +253,9 @@
       drawerInstId = null;
       onListChanged?.();
     }}
-    onUpdated={() => onListChanged?.()}
+    onUpdated={() => {
+      if (drawerInstId) modpackUpdates.invalidate(drawerInstId);
+      onListChanged?.();
+    }}
   />
 {/if}
