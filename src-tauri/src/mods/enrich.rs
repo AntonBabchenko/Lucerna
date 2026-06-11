@@ -573,6 +573,10 @@ mod tests {
     #[tokio::test]
     async fn resolve_modrinth_transport_failure_is_succeeded_false() {
         // Port 1 is unreachable — connection fails before any status.
+        // Hold the shared lock: this still mutates the process-global
+        // LUCERNA_EXTRA_ALLOWED_HOSTS, so it must serialise with every
+        // other allowlist/wiremock test or its remove_var clobbers theirs.
+        let _g = test_lock();
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_modrinth("http://127.0.0.1:1", &["abc123".to_string()]).await;
@@ -706,6 +710,11 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_curseforge_transport_failure_is_succeeded_false() {
+        // Port 1 is unreachable — connection fails before any status.
+        // Hold the shared lock: this still mutates the process-global
+        // LUCERNA_EXTRA_ALLOWED_HOSTS, so it must serialise with every
+        // other allowlist/wiremock test or its remove_var clobbers theirs.
+        let _g = test_lock();
         std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let (got, succeeded) =
             resolve_curseforge("http://127.0.0.1:1", "k", &[(111u32, "sha-a".to_string())]).await;
