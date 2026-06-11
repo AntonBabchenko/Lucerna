@@ -26,7 +26,7 @@
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
   import OperationsView from '$lib/ops/OperationsView.svelte';
-  import { enqueueImport, opCompletionTick } from '$lib/ops/op-queue.svelte';
+  import { enqueueImport, opCompletionTick, opImportCompletionTick } from '$lib/ops/op-queue.svelte';
   import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
@@ -50,6 +50,7 @@
     pushWarning,
   } from '$lib/toasts/toasts.svelte';
   import { updateState, runUpdate, dismissUpdate } from '$lib/update/state.svelte';
+  import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
 
   // How long the startup "new version available" toast stays before it
   // auto-hides. It only hides (reappears next launch); the durable path
@@ -71,6 +72,19 @@
   let instances = $state<InstanceWithStatus[]>([]);
   let activeInstance = $state<InstanceWithStatus | null>(null);
   let instancesError = $state<string | null>(null);
+
+  // Mirrors `general.check_updates_on_startup`: when off, no background modpack
+  // update sweeps run (offline-first / privacy). Set once settings load.
+  let modpackSweepEnabled = $state(false);
+
+  // Best-effort background sweep of imported packs for available updates.
+  // Gated by the same setting as the app self-update check. Errors are
+  // swallowed inside the store; the store's TTL dedups repeated calls.
+  function sweepModpackUpdates(force = false) {
+    if (!modpackSweepEnabled) return;
+    const packIds = instances.filter((i) => i.mrpack_name != null).map((i) => i.id);
+    void modpackUpdates.sweep(packIds, { force });
+  }
 
   let manageOpen = $state(false);
   let msSigningIn = $state(false);
@@ -143,6 +157,20 @@
       void refreshInstances();
     } else {
       integritySettled = true;
+    }
+  });
+
+  // A queued modpack import just landed a new instance. Refresh so the pack is
+  // in `instances`, then FORCE a modpack-update sweep — the store dedups by a
+  // single global TTL, so a freshly-imported pack would otherwise be skipped if
+  // a sweep already ran this session. Skip the mount run (tick starts at 0).
+  let importSettled = false;
+  $effect(() => {
+    void opImportCompletionTick();
+    if (importSettled) {
+      void refreshInstances().then(() => sweepModpackUpdates(true));
+    } else {
+      importSettled = true;
     }
   });
 
@@ -245,6 +273,8 @@
       initLocale(settingsResult.data.general.language ?? 'system');
       explanationState.level = settingsResult.data.general.explanation_level ?? 'basic';
       void initCompact(settingsResult.data.general.compact_mode ?? false);
+      modpackSweepEnabled = settingsResult.data.general.check_updates_on_startup ?? true;
+      sweepModpackUpdates();
     }
 
     // Fire-and-forget: this is a best-effort, error-swallowing check, so it
@@ -327,6 +357,7 @@
     } else {
       activeInstance = null;
     }
+    sweepModpackUpdates();
   }
 
   async function onSelectInstance(id: string) {
