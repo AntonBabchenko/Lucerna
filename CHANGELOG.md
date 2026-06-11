@@ -10,6 +10,53 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-06-11
+
+### Added
+- **Auto-Repair.** The crash-log diagnoser now goes one step further: detected
+  problems (out-of-memory, missing loader, corrupt jar, file conflicts) come
+  with a one-click preview → confirm → apply fix.
+- **Multi-account sign-in.** Sign in to several Microsoft accounts and switch
+  between them, with a clearer sign-in flow and a "Buy Minecraft" hint when an
+  account has no Minecraft profile.
+- **ATLauncher modpacks.** A fourth modpack source alongside Modrinth,
+  CurseForge, and Feed The Beast.
+- **Compact launcher mode.** A sidebar toggle shrinks the window down to a
+  compact strip for a minimal footprint.
+- **Find a blocked mod elsewhere.** When a mod is blocked for download, Lucerna
+  can now look it up on Modrinth and offer a working substitute.
+- **Proactive incompatible-mod tracking.** An offline pre-scan flags mods that
+  likely don't match the instance's loader/version, then auto-confirms suspects
+  against the live API.
+- **What's new in-app.** Settings → About now shows a collapsible changelog.
+
+### Changed
+- **Overview tab redesign.** The Overview is now a structured instance dashboard
+  with a status pill, an attention panel, and an update check.
+- **Imported-pack detail drawer.** Reworked into collapsible, attention-first
+  sections with asset fixes.
+- **Iconography.** Unicode glyph indicators across the UI replaced with a
+  consistent lucide icon set.
+- **Accessibility.** A shared modal primitive with focus-trapping and focus
+  restore now backs every dialog, plus assorted a11y fixes.
+- **Consistent busy states.** Install / update / uninstall buttons share one
+  controlled spinner treatment.
+- **Faster installs.** Install-time downloads now run in parallel, and the log
+  viewer renders large logs via windowing.
+- **Units.** Byte and memory sizes are now formatted consistently and localised.
+
+### Fixed
+- A user-requested Stop is no longer reported as a crash on the Overview.
+- Oversized modpack overrides are skipped instead of aborting the whole import.
+- The Settings modal now layers correctly above the modpacks modal.
+
+### Security
+- Reject path-traversal in API-supplied mod filenames.
+- SHA-1-verify the Forge installer JAR before caching it, and hard-error on a
+  missing Mojmaps SHA-1.
+- Harden launch-argument handling (`substitute()`, `max_heap_mb`,
+  `extra_jvm_args`).
+
 ## [0.11.0] — 2026-06-05
 
 ### Added
@@ -152,7 +199,8 @@ release is **0.9.0**.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.11.0...main
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.12.0...main
+[0.12.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.1
