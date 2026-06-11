@@ -2,14 +2,7 @@
   import { get } from 'svelte/store';
   import { t } from '$lib/i18n';
   import type { ModpackProgress } from '$lib/ipc/bindings';
-  import {
-    cancelQueued,
-    moveQueued,
-    opQueue,
-    opRunning,
-    type QueuedOp,
-    type RunningProgress,
-  } from './op-queue.svelte';
+  import { cancelQueued, moveQueued, opQueue, opRunning, type QueuedOp } from './op-queue.svelte';
 
   // Unified page-level "Operations" widget. Replaces IntegrityProgressView +
   // ImportProgressView: one corner card showing the running op's progress plus
@@ -25,7 +18,7 @@
     return Math.min(100, Math.round((done / total) * 100));
   }
 
-  function runningLabel(op: QueuedOp, p: RunningProgress): string {
+  function runningLabel(op: QueuedOp): string {
     if (op.kind === 'import') return $t('modpacks.import.progress.heading');
     return op.kind === 'verify'
       ? $t('instance.integrity.opVerifying', { name: op.name })
@@ -76,7 +69,7 @@
 
     {#if running}
       <div class="text-sm text-secondary truncate">
-        {runningLabel(running.op, running.progress)}
+        {runningLabel(running.op)}
       </div>
       {#if running.progress.kind !== 'import'}
         <div class="text-xs text-muted">
