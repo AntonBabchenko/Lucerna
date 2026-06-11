@@ -14,6 +14,8 @@
   import CurseForgeKeyForm from './CurseForgeKeyForm.svelte';
   import GeneralPanel from './GeneralPanel.svelte';
   import StoragePanel from './StoragePanel.svelte';
+  import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
+  import { CHANGELOG } from '$lib/changelog/source';
   import { settingsOpen, type SettingsTab } from './state.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
@@ -23,7 +25,7 @@
 
   // Tab order for roving-tabindex arrow-key navigation (WAI-ARIA tabs
   // pattern), in render order.
-  const TAB_ORDER: SettingsTab[] = ['general', 'storage', 'curseforge', 'about'];
+  const TAB_ORDER: SettingsTab[] = ['general', 'changelog', 'storage', 'curseforge', 'about'];
   let tabEls = $state<(HTMLButtonElement | null)[]>([]);
 
   function onTablistKeydown(e: KeyboardEvent) {
@@ -92,6 +94,22 @@
         bind:this={tabEls[1]}
         type="button"
         role="tab"
+        aria-selected={active === 'changelog'}
+        tabindex={active === 'changelog' ? 0 : -1}
+        class="px-3 py-1 text-sm border-b-2 -mb-px"
+        class:border-accent={active === 'changelog'}
+        class:text-primary={active === 'changelog'}
+        class:font-medium={active === 'changelog'}
+        class:border-transparent={active !== 'changelog'}
+        class:text-muted={active !== 'changelog'}
+        onclick={() => (active = 'changelog')}
+      >
+        {$t('settings.tabs.changelog')}
+      </button>
+      <button
+        bind:this={tabEls[2]}
+        type="button"
+        role="tab"
         aria-selected={active === 'storage'}
         tabindex={active === 'storage' ? 0 : -1}
         class="px-3 py-1 text-sm border-b-2 -mb-px"
@@ -105,7 +123,7 @@
         {$t('settings.tabs.storage')}
       </button>
       <button
-        bind:this={tabEls[2]}
+        bind:this={tabEls[3]}
         type="button"
         role="tab"
         aria-selected={active === 'curseforge'}
@@ -121,7 +139,7 @@
         {$t('settings.tabs.curseforge')}
       </button>
       <button
-        bind:this={tabEls[3]}
+        bind:this={tabEls[4]}
         type="button"
         role="tab"
         aria-selected={active === 'about'}
@@ -140,6 +158,8 @@
     <div class="p-4 overflow-y-auto flex-1">
       {#if active === 'general'}
         <GeneralPanel />
+      {:else if active === 'changelog'}
+        <ChangelogPanel entries={CHANGELOG} />
       {:else if active === 'storage'}
         <StoragePanel />
       {:else if active === 'curseforge'}

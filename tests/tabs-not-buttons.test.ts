@@ -100,12 +100,12 @@ afterEach(() => {
 });
 
 describe('SettingsModal tabs are not .btn-*', () => {
-  it('all 4 tabs (CurseForge, Storage, About, General) use underlined-tab style, not .btn-*', () => {
+  it("all 5 tabs (General, What's new, Storage, CurseForge, About) use underlined-tab style, not .btn-*", () => {
     settingsOpen.value = { tab: 'curseforge' };
     render(SettingsModal);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(5);
     for (const tab of tabs) {
       assertNotBtnVariant(tab);
     }
