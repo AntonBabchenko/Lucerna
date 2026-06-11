@@ -6,12 +6,8 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
-    type ModpackProgress,
-    type ProgressTick,
-    type SkippedOverride,
     type VersionEntry,
   } from '$lib/ipc/bindings';
-  import { Channel } from '@tauri-apps/api/core';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
@@ -29,11 +25,9 @@
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
-  import ImportProgressView from '$lib/modpacks/ImportProgressView.svelte';
-  import IntegrityProgressView from '$lib/instances/IntegrityProgressView.svelte';
-  import { integrityCompletionTick } from '$lib/instances/integrity-ops.svelte';
+  import OperationsView from '$lib/ops/OperationsView.svelte';
+  import { enqueueImport, opCompletionTick } from '$lib/ops/op-queue.svelte';
   import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
-  import type { ModpackImportRequest } from '$lib/modpacks/import-request';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
@@ -106,104 +100,6 @@
   // context, not the current instance".
   let modpacksModalOpen = $state(false);
 
-  // Modpack import runs at the PAGE level (not inside ModpacksTab) so the modal
-  // can be closed mid-import: the progress toast (ImportProgressView) lives here
-  // and survives the modal unmounting. `modpackImporting` guards against a
-  // second concurrent import; `importPhase` / `importBytes` drive the toast.
-  let modpackImporting = $state(false);
-  let importPhase = $state<ModpackProgress | null>(null);
-  let importBytes = $state<ProgressTick | null>(null);
-
-  // Run a modpack import handed up from ModpacksTab's picker. Owns the two
-  // progress channels; on `done` it lands the user on the freshly created
-  // instance (in the background — it deliberately leaves the modpacks browser
-  // open so an in-progress browse isn't interrupted).
-  async function runModpackImport(req: ModpackImportRequest) {
-    if (modpackImporting) {
-      const tr = get(t);
-      pushWarning(tr('page.modpackImport.alreadyInProgress'), [
-        tr('page.modpackImport.alreadyInProgressDetail'),
-      ]);
-      return;
-    }
-    modpackImporting = true;
-    importPhase = null;
-    importBytes = null;
-
-    // Oversized `overrides/` blobs the extractor skipped (e.g. a `.rar` left
-    // in `mods/`). Captured off the `done` event so the success toast can
-    // note them without failing the import.
-    let skippedOverrides: SkippedOverride[] = [];
-    const phaseChannel = new Channel<ModpackProgress>();
-    phaseChannel.onmessage = (m) => {
-      importPhase = m;
-      if (m.phase === 'done') {
-        skippedOverrides = m.skipped_overrides;
-        // Land on the new instance in the background, but DON'T close the
-        // modpacks browser — the user may still be browsing (queuing another
-        // pack), and yanking the modal shut mid-task is jarring. The success
-        // toast (pushSuccess below) is the completion signal; the instance
-        // switch is invisible behind the scrim and takes visible effect when
-        // the user closes the modal themselves (×/scrim/Esc). The
-        // `modpackImporting` guard is released below, after the command settles,
-        // so a second import can't start in the gap between `done` and `Ok`.
-        void onSelectInstance(m.instance_id);
-      }
-    };
-    const tickChannel = new Channel<ProgressTick>();
-    tickChannel.onmessage = (t) => {
-      importBytes = t;
-    };
-
-    const r = await commands.modpackImport(
-      req.path,
-      req.selectedShas,
-      true,
-      req.projectId,
-      req.source,
-      req.versionId,
-      phaseChannel,
-      tickChannel,
-    );
-    // The phase channel emits `{ phase: 'done', instance_id }` and fires the
-    // close + select above; the return value is only read for the error branch
-    // (Rust guarantees `done` is emitted before Ok returns).
-    const tr = get(t);
-    if (r.status === 'ok') {
-      // A successful import that left out one or more oversized bundled
-      // files (non-loadable blobs) — surface them as a non-fatal note so
-      // the user knows what was skipped, without flagging it as a failure.
-      if (skippedOverrides.length > 0) {
-        pushSuccess(
-          tr('page.modpackImport.importedSkipped', {
-            name: r.data.name,
-            count: skippedOverrides.length,
-          }),
-          skippedOverrides.map((s) =>
-            tr('page.modpackImport.skippedOverrideLine', {
-              name: s.path.split('/').pop() ?? s.path,
-              mb: Math.round((s.size ?? 0) / (1024 * 1024)),
-            }),
-          ),
-        );
-      } else {
-        pushSuccess(tr('page.modpackImport.imported', { name: r.data.name }));
-      }
-    } else if (r.error.kind === 'modpack_partial_failure') {
-      pushWarning(
-        tr('page.modpackImport.partialFailure', { count: r.error.failed.length }),
-        r.error.failed.map(([p]) => p.split('/').pop() ?? p),
-      );
-    } else {
-      pushWarning(tr('page.modpackImport.failed'), [formatError(r.error)]);
-    }
-    // Reset in a single place once the run settles: holds the re-entrancy guard
-    // for the whole import and clears the corner toast (on done or error).
-    modpackImporting = false;
-    importPhase = null;
-    importBytes = null;
-  }
-
   // The Overview missing-mods indicator and any other deep-link that
   // sets modpacksNav expects the Modpacks view to come up. ModpacksTab
   // itself reads the same rune to flip to the Imported sub-tab.
@@ -242,7 +138,7 @@
   // (mount) so this doesn't double-fetch alongside onMount's refresh.
   let integritySettled = false;
   $effect(() => {
-    void integrityCompletionTick();
+    void opCompletionTick();
     if (integritySettled) {
       void refreshInstances();
     } else {
@@ -672,7 +568,8 @@
   <ModpacksModal open={modpacksModalOpen} onClose={() => (modpacksModalOpen = false)}>
     <ModpacksTab
       {instances}
-      onImport={runModpackImport}
+      onImport={(req) =>
+        enqueueImport(req.projectId ?? req.path.split(/[\\/]/).pop() ?? 'modpack', req)}
       onInstanceCreated={(id) => {
         // Opening an imported pack's instance from the Imported tab: close the
         // modal and land on it.
@@ -690,12 +587,9 @@
        the modpacks modal (the CurseForge-key banner), so it must paint on top
        — keeping it last here guarantees that. -->
   <SettingsModal />
-  <!-- Page-level import progress toast — lives outside the modal so it survives
-       the modal being closed mid-import. Renders nothing when no import runs. -->
-  <ImportProgressView phase={importPhase} modBytes={importBytes} />
-  <!-- Page-level integrity verify/repair progress — like the import view, lives
-       outside the Manage modal so a background op stays visible after close. -->
-  <IntegrityProgressView />
+  <!-- Page-level operations widget — shows running op + queued ops. Lives outside
+       all modals so it survives modal close mid-operation. Renders nothing when idle. -->
+  <OperationsView />
   <TourOverlay />
   {#if exportDialogOpen && activeInstance}
     <ExportPackDialog

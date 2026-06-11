@@ -1034,6 +1034,17 @@
       "aboutBody": "CurseForge — один из крупнейших сайтов с модами и модпаками для Minecraft. Чтобы скачивать с него, CurseForge требует бесплатный персональный API-ключ — код, который позволяет Lucerna получать файлы через их сервис. Получите ключ по шагам ниже; он хранится на вашем компьютере."
     }
   },
+  "ops": {
+    "heading": "Операции",
+    "inQueue": "{count, plural, one {# в очереди} few {# в очереди} many {# в очереди} other {# в очереди}}",
+    "openInstance": "Открыть",
+    "moveUp": "Вверх",
+    "moveDown": "Вниз",
+    "cancel": "Отменить",
+    "queueItemVerify": "Проверка «{name}»",
+    "queueItemRepair": "Ремонт «{name}»",
+    "queueItemImport": "Импорт «{name}»"
+  },
   "page": {
     "update": {
       "available": "Доступна Lucerna {version}",
