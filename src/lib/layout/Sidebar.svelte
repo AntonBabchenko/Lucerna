@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
@@ -83,9 +84,11 @@
       icon:
         i.integrity && !i.integrity.healthy
           ? ('warning' as const)
-          : i.ready
-            ? ('success' as const)
-            : ('download' as const),
+          : modpackUpdates.hasUpdate(i.id)
+            ? ('update' as const)
+            : i.ready
+              ? ('success' as const)
+              : ('download' as const),
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
