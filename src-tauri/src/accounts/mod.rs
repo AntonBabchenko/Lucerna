@@ -6,11 +6,11 @@
 pub mod keychain;
 pub mod microsoft;
 pub mod offline;
+pub mod ops;
 pub mod store;
 
 use crate::error::{Error, Result};
 use crate::paths::account_file;
-use offline::derive_offline_uuid;
 use store::{read_account_file, write_account_file};
 
 pub use store::{upsert_microsoft_account, Account, AccountKind};
@@ -37,10 +37,7 @@ pub fn get_active_account(app: &tauri::AppHandle) -> Result<Option<Account>> {
 pub fn set_active_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
-    if !file.accounts.iter().any(|a| a.id == id) {
-        return Err(Error::AccountNotSet);
-    }
-    file.active_id = Some(id.to_string());
+    ops::set_active(&mut file, id)?;
     write_account_file(&path, &file)
 }
 
@@ -50,11 +47,7 @@ pub fn set_active_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
 pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
-    let was_active = file.active_id.as_deref() == Some(id);
-    file.accounts.retain(|a| a.id != id);
-    if was_active {
-        file.active_id = file.accounts.first().map(|a| a.id.clone());
-    }
+    ops::remove(&mut file, id);
     write_account_file(&path, &file)?;
 
     // Best-effort keychain cleanup for Microsoft accounts. Don't surface
@@ -72,21 +65,7 @@ pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
 pub fn add_offline_account(app: &tauri::AppHandle, name: &str) -> Result<Account> {
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
-    let uuid = derive_offline_uuid(name).to_string();
-    if let Some(existing) = file.accounts.iter().find(|a| a.uuid == uuid).cloned() {
-        return Ok(existing);
-    }
-    let account = Account {
-        id: format!("of-{}", uuid::Uuid::new_v4()),
-        kind: AccountKind::Offline,
-        name: name.to_string(),
-        uuid,
-        expires_at: None,
-    };
-    file.accounts.push(account.clone());
-    if file.active_id.is_none() {
-        file.active_id = Some(account.id.clone());
-    }
+    let account = ops::add_offline(&mut file, name);
     write_account_file(&path, &file)?;
     Ok(account)
 }
