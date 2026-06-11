@@ -88,7 +88,6 @@ mod tests {
 
     fn make(mc: &str, loader: LoaderKind, lv: Option<&str>) -> InstanceFile {
         InstanceFile {
-            version: 1,
             id: "x".into(),
             name: "x".into(),
             mc_version: mc.into(),

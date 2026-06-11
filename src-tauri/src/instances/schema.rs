@@ -26,7 +26,6 @@ pub enum LoaderKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstanceFile {
-    pub version: u32,
     pub id: String,
     pub name: String,
     pub mc_version: String,
@@ -74,7 +73,6 @@ pub struct InstanceFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct AppFile {
-    pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_instance: Option<String>,
     #[serde(default)]
@@ -91,7 +89,6 @@ pub struct AppFile {
 impl Default for AppFile {
     fn default() -> Self {
         Self {
-            version: 1,
             active_instance: None,
             onboarding: OnboardingState::default(),
             general: GeneralSettings::default(),
@@ -234,7 +231,6 @@ mod tests {
 
     fn sample() -> InstanceFile {
         InstanceFile {
-            version: 1,
             id: "3f4a-bbbb-cccc-dddd-eeeeffffaaaa".into(),
             name: "Default".into(),
             mc_version: "1.20.4".into(),
@@ -293,9 +289,8 @@ mod tests {
     }
 
     #[test]
-    fn app_file_default_is_v1_with_no_active() {
+    fn app_file_default_has_no_active_and_roundtrips() {
         let app = AppFile::default();
-        assert_eq!(app.version, 1);
         assert_eq!(app.active_instance, None);
         let json = serde_json::to_string(&app).unwrap();
         let back: AppFile = serde_json::from_str(&json).unwrap();

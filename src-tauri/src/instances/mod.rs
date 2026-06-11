@@ -137,7 +137,6 @@ pub fn create_instance(
         None => (None, None),
     };
     let inst = InstanceFile {
-        version: 1,
         id: id.clone(),
         name,
         mc_version,
@@ -390,7 +389,6 @@ mod tests {
 
     fn pack_instance() -> schema::InstanceFile {
         schema::InstanceFile {
-            version: 1,
             id: "aaaa-bbbb-cccc-dddd-eeeeffffaaaa".into(),
             name: "Pack Instance".into(),
             mc_version: "1.20.1".into(),
@@ -411,7 +409,6 @@ mod tests {
 
     fn plain_instance() -> schema::InstanceFile {
         schema::InstanceFile {
-            version: 1,
             id: "1111-2222-3333-4444-555566667777".into(),
             name: "Plain".into(),
             mc_version: "1.20.4".into(),

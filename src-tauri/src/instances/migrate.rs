@@ -72,7 +72,6 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
     }
 
     let inst = InstanceFile {
-        version: 1,
         id: id.clone(),
         name: "Default".into(),
         mc_version,
@@ -96,7 +95,6 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
     write_app_json(
         &app_file_path,
         &AppFile {
-            version: 1,
             active_instance: Some(id),
             onboarding: OnboardingState::default(),
             general: GeneralSettings::default(),
