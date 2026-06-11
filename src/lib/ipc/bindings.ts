@@ -616,19 +616,6 @@ export const commands = {
 	 */
 	modpackSourceCaps: (source: ModSource) => typedError<SourceCaps, Error>(__TAURI_INVOKE("modpack_source_caps", { source })),
 	/**
-	 *  Check whether a newer version of an imported Modrinth modpack exists.
-	 *  Returns `None` for non-Modrinth pack instances and when the instance
-	 *  already has the latest version.
-	 */
-	modpackCheckUpdate: (instanceId: string) => typedError<{
-	id: string,
-	name: string,
-	version_number: string,
-	game_versions: string[],
-	loaders: string[],
-	date_published: string,
-} | null, Error>(__TAURI_INVOKE("modpack_check_update", { instanceId })),
-	/**
 	 *  Per-instance modpack update check across all four sources. Replaces the
 	 *  Modrinth-only `modpack_check_update` (which the Overview card migrates to
 	 *  in a later change). Returns an explicit status that distinguishes

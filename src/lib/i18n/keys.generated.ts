@@ -746,7 +746,6 @@ export type TranslationKey =
   | 'page.overview.modpackChecking'
   | 'page.overview.modpackNotCheckableNeedsKey'
   | 'page.overview.modpackNotCheckableNoProvenance'
-  | 'page.overview.modpackOnlyModrinth'
   | 'page.overview.modpackOpen'
   | 'page.overview.modpackUpToDate'
   | 'page.overview.modpackUpdateAvailable'

@@ -87,7 +87,9 @@
         >{$t('page.overview.modpackUpToDate')}</span
       >
     {:else if status?.kind === 'check_failed'}
-      <span class="text-xs text-danger" data-testid="modpack-update-error">{status.message}</span>
+      <span class="text-xs text-danger" data-testid="modpack-update-error"
+        >{$t('page.overview.modpackCheckFailed')}</span
+      >
     {:else if status?.kind === 'not_checkable'}
       <span class="text-xs text-muted" data-testid="modpack-not-checkable">
         {#if status.reason === 'needs_curseforge_key'}

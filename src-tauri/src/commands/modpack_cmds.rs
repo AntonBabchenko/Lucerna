@@ -376,30 +376,6 @@ pub async fn modpack_source_caps(
     Ok(modpack::source::modpack_source_for(source).caps())
 }
 
-/// Check whether a newer version of an imported Modrinth modpack exists.
-/// Returns `None` for non-Modrinth pack instances and when the instance
-/// already has the latest version.
-#[tauri::command]
-#[specta::specta]
-pub async fn modpack_check_update(
-    app: tauri::AppHandle,
-    instance_id: String,
-) -> crate::error::Result<Option<crate::mods::modpack::schema::ModpackVersionEntry>> {
-    let inst = crate::instances::read_instance(&app, &instance_id)?;
-    let (project_id, current_id) = match (
-        inst.mrpack_source,
-        inst.mrpack_project_id.as_deref(),
-        inst.mrpack_version_id.as_deref(),
-    ) {
-        (Some(crate::mods::platform::ModSource::Modrinth), Some(pid), Some(vid)) => {
-            (pid.to_string(), vid.to_string())
-        }
-        _ => return Ok(None),
-    };
-    let versions = fetch_modpack_versions("https://api.modrinth.com", &project_id).await?;
-    Ok(latest_newer(versions, &current_id))
-}
-
 /// Resolve the update status of one pack instance for all sources. Pure
 /// preconditions live in `update_status::precheck`; the network list comes
 /// from the per-source `get_versions`; a transient error becomes

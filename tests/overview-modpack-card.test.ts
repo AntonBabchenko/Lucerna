@@ -123,9 +123,7 @@ describe('ModpackCard', () => {
       props: { instance: modrinthInst, onOpenPack: () => {} },
     });
     await fireEvent.click(getByTestId('modpack-check-update'));
-    await waitFor(() =>
-      expect(getByTestId('modpack-update-error').textContent).toContain('offline'),
-    );
+    await waitFor(() => expect(getByTestId('modpack-update-error')).toBeTruthy());
   });
 
   it('shows a not-checkable note for a CF pack without an API key', async () => {
