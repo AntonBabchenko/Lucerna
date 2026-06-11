@@ -21,8 +21,12 @@
     formatLoaderLatestList,
     latestSupportedPerLoader,
   } from '$lib/mods/latest-supported-version';
-  import { enrichUnresolvable, type UnresolvableDetail } from '$lib/mods/unresolvable-detail';
+  import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
+  import { decideModInstall, type DepItem, type OptionalItem } from '$lib/mods/dep-prompt';
+  import { buildInstalledDepLines } from '$lib/mods/install-summary';
+  import type { IconName } from '$lib/ui/icons';
   import { modProjectUrl } from '$lib/mods/project-url';
+  import { nameKey } from '$lib/mods/name-match';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
@@ -40,8 +44,8 @@
   import DependencyDialog from './DependencyDialog.svelte';
   import FindAlternativeDialog from './FindAlternativeDialog.svelte';
   import PageSizePicker from './PageSizePicker.svelte';
-  import ModCard from './ModCard.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
+  import ModResultsGrid from './ModResultsGrid.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
@@ -96,7 +100,7 @@
   const isMod = $derived(kind === 'mod');
   // Placeholder avatar icon for hits with no icon_url — kind-specific so a
   // resource pack / shader doesn't render the mod (puzzle) glyph.
-  const placeholderIcon = $derived(
+  const placeholderIcon = $derived<IconName>(
     kind === 'resource_pack' ? 'resourcePack' : kind === 'shader' ? 'shader' : 'puzzle',
   );
 
@@ -165,15 +169,6 @@
     mcVersion: string;
     loader: LoaderKind;
   } | null>(null);
-  // Dependencies promoted to the dialog carry the project's display name
-  // alongside the version (the version's own `name` field is the release
-  // title, not the mod name — distinct on Modrinth and confusing in the
-  // dialog).
-  type DepItem = { version: ModVersion; projectName: string; projectSource: ModSource };
-  // OptionalItem extends DepItem with the optional's own transitive required
-  // sub-deps (enriched to DepItem). The dialog renders these indented under
-  // the checkbox so the user can see what gets pulled in when they opt-in.
-  type OptionalItem = DepItem & { requires: DepItem[] };
   let depPrompt = $state<{
     primary: ModVersion;
     primaryProjectName: string;
@@ -307,20 +302,6 @@
     for (const u of installedUnlisteners) u();
     installedUnlisteners = [];
   });
-
-  // Reduce a mod's display name to a comparison key. Platforms often
-  // append loader/edition suffixes ("Cloth Config API (Forge)",
-  // "Sodium Fabric Mod", …) inconsistently, so we strip those words
-  // before comparing. Falls through to a lowercased alphanumeric-only
-  // string. Returns '' for names that collapse to nothing (extremely
-  // rare and harmless — they just won't cross-platform-match).
-  const NAME_NOISE = /\b(api|fabric|forge|neoforge|quilt|mod|edition|for)\b/g;
-  function nameKey(s: string): string {
-    return s
-      .toLowerCase()
-      .replace(NAME_NOISE, '')
-      .replace(/[^a-z0-9]+/g, '');
-  }
 
   function installedFor(card: ModSummary): InstalledMod | null {
     // Resource packs / shaders: match purely by source + project_id against the
@@ -797,89 +778,22 @@
           error = formatError(plan.error);
         return;
       }
-      const p = plan.data;
-
-      // Enrich a ModVersion to a DepItem: look up the project's display name
-      // via modsProject, falling back to the version's own `name` field when
-      // the platform lookup fails (network, deleted project, etc.).
-      const enrichDep = async (v: ModVersion): Promise<DepItem> => {
-        const proj = await commands.modsProject(v.source, v.project_id);
-        return {
-          version: v,
-          projectName: proj.status === 'ok' ? proj.data.summary.name : v.name,
-          projectSource: v.source,
-        };
-      };
-
-      // Look up a human-readable name for a DepProjectRef. Falls back to the
-      // raw project_id / mod_id string when the platform lookup fails.
-      type DepRef = (typeof p.incompatible)[number];
-      const enrichRefName = async (r: DepRef): Promise<string> => {
-        const refSource: ModSource = 'project_id' in r ? 'modrinth' : 'curseforge';
-        const id = 'project_id' in r ? r.project_id : String(r.mod_id);
-        const proj = await commands.modsProject(refSource, id);
-        return proj.status === 'ok' ? proj.data.summary.name : id;
-      };
-
-      // Enrich required deps (plain DepItem list — backend already pruned loaders
-      // and already-installed entries).
-      const requiredEnriched = await Promise.all(p.required.map(enrichDep));
-
-      // Enrich optional deps: each OptionalDep carries a `requires` sub-list
-      // (the optional's own transitive requireds). Enrich both the top-level
-      // version and its requires list so the dialog can reveal sub-deps live.
-      const optionalEnriched: OptionalItem[] = await Promise.all(
-        p.optional.map(async (o): Promise<OptionalItem> => {
-          const top = await enrichDep(o.version);
-          const subReqs = await Promise.all(o.requires.map(enrichDep));
-          return { ...top, requires: subReqs };
-        }),
-      );
-
-      // Enrich incompatible DepProjectRefs to display names.
-      const incompatibleNames = await Promise.all(p.incompatible.map(enrichRefName));
-      // Classify each unresolvable dep into a detailed UnresolvableDetail shape
-      // (noMc / wrongLoader / noVersions) so the dialog can render a precise row.
-      const unresolvableDetails = await enrichUnresolvable(p.unresolvable, {
-        fetchVersions: async (ref) => {
-          const refSource: ModSource = 'project_id' in ref ? 'modrinth' : 'curseforge';
-          const id = 'project_id' in ref ? ref.project_id : String(ref.mod_id);
-          const res = await commands.modsVersions(refSource, id, null, null);
-          return res.status === 'ok' ? res.data : null;
-        },
-        fetchProjectName: enrichRefName,
+      const decision = await decideModInstall(plan.data, primary, {
+        loader,
+        mcVersion,
         manifestOrder: mcVersions.value.map((v) => v.id),
         displayLoader,
-        currentLoader: loader,
-        mcVersion,
+        fetchProjectName: async (s, id) => {
+          const proj = await commands.modsProject(s, id);
+          return proj.status === 'ok' ? proj.data.summary.name : null;
+        },
+        fetchVersions: async (s, id) => {
+          const res = await commands.modsVersions(s, id, null, null);
+          return res.status === 'ok' ? res.data : null;
+        },
       });
-
-      // Enrich loader_requirements refs to display names (informational).
-      const loaderRequirements = await Promise.all(p.loader_requirements.map(enrichRefName));
-
-      const primaryProject = await commands.modsProject(primary.source, primary.project_id);
-      const primaryProjectName =
-        primaryProject.status === 'ok' ? primaryProject.data.summary.name : primary.name;
-
-      // Loader mismatch detection: if the version reports loaders and the
-      // active instance's loader isn't one of them (or the instance is
-      // vanilla, which has no loader at all), the jar won't load at
-      // runtime. We don't block — the user might be testing — but we
-      // force the dialog open with a red warning.
-      const loaderMismatch =
-        primary.loaders.length > 0 && !primary.loaders.includes(loader)
-          ? { instanceLoader: loader, modLoaders: primary.loaders }
-          : null;
-
-      // Fast path: nothing to show → install directly.
-      if (
-        requiredEnriched.length === 0 &&
-        optionalEnriched.length === 0 &&
-        p.incompatible.length === 0 &&
-        p.unresolvable.length === 0 &&
-        loaderRequirements.length === 0 &&
-        loaderMismatch === null
-      ) {
+      if (decision.kind === 'install') {
+        const { primaryProjectName } = decision;
         const installed = await commands.modsInstallWithDeps(
           instanceId,
           {
@@ -906,16 +820,7 @@
           await refreshInstalled();
         }
       } else {
-        depPrompt = {
-          primary,
-          primaryProjectName,
-          required: requiredEnriched,
-          optional: optionalEnriched,
-          incompatible: incompatibleNames,
-          unresolvable: unresolvableDetails,
-          loaderRequirements,
-          loaderMismatch,
-        };
+        depPrompt = decision.prompt;
       }
     } finally {
       installingProjectIds.delete(card.project_id);
@@ -970,41 +875,18 @@
       </div>
     {:else if hits.length > 0}
       {#if pageHits.length > 0}
-        {#if browserPrefs.layout === 'grid'}
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-stretch">
-            {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
-              <ModCard
-                summary={hit}
-                installed={installedFor(hit)}
-                installing={isCardBusy(hit.project_id)}
-                onInstall={() => startInstall(hit)}
-                onOpenDetail={() => (drawerProject = hit.project_id)}
-                onToggle={() => toggleCard(hit)}
-                onUninstall={() => uninstallCard(hit)}
-                canToggle={isMod}
-                {placeholderIcon}
-                layout="grid"
-              />
-            {/each}
-          </div>
-        {:else}
-          <div class="mt-1 flex flex-col border border-border-subtle rounded overflow-hidden">
-            {#each pageHits as hit (`${hit.source}:${hit.project_id}`)}
-              <ModCard
-                summary={hit}
-                installed={installedFor(hit)}
-                installing={isCardBusy(hit.project_id)}
-                onInstall={() => startInstall(hit)}
-                onOpenDetail={() => (drawerProject = hit.project_id)}
-                onToggle={() => toggleCard(hit)}
-                onUninstall={() => uninstallCard(hit)}
-                canToggle={isMod}
-                {placeholderIcon}
-                layout="list"
-              />
-            {/each}
-          </div>
-        {/if}
+        <ModResultsGrid
+          hits={pageHits}
+          layout={browserPrefs.layout === 'grid' ? 'grid' : 'list'}
+          {isMod}
+          {placeholderIcon}
+          {installedFor}
+          {isCardBusy}
+          onInstall={(hit) => startInstall(hit)}
+          onOpenDetail={(hit) => (drawerProject = hit.project_id)}
+          onToggle={(hit) => toggleCard(hit)}
+          onUninstall={(hit) => uninstallCard(hit)}
+        />
       {:else}
         <!-- Hide-installed removed every card on this page. The page still
              exists in the server total, so keep the pager available rather than
@@ -1117,31 +999,7 @@
             // names). Lines = every newly-installed dependency: the primary's
             // requireds + each chosen optional and its transitive requireds,
             // deduped by project. Matches exactly what the dialog showed.
-            const seen = new Set<string>();
-            const depLines: string[] = [];
-            const pushDep = (name: string, source: string, projectId: string) => {
-              const key = `${source}:${projectId}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                depLines.push(name);
-              }
-            };
-            for (const d of prompt.required) {
-              pushDep(d.projectName, d.version.source, d.version.project_id);
-            }
-            for (const v of chosenOptional) {
-              const o = prompt.optional.find(
-                (x) =>
-                  x.version.source === v.source &&
-                  x.version.project_id === v.project_id &&
-                  x.version.version_id === v.version_id,
-              );
-              if (!o) continue;
-              pushDep(o.projectName, o.version.source, o.version.project_id);
-              for (const r of o.requires) {
-                pushDep(r.projectName, r.version.source, r.version.project_id);
-              }
-            }
+            const depLines = buildInstalledDepLines(prompt, chosenOptional);
             pushSuccess(
               get(t)('mods.browse.toastInstalledMod', { name: prompt.primaryProjectName }),
               depLines,
