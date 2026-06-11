@@ -1096,5 +1096,35 @@
     "offlineName": {
       "cannotBeEmpty": "Name cannot be empty"
     }
+  },
+  "format": {
+    "relativeTime": {
+      "never": "never",
+      "secondsAgo": "{n}s ago",
+      "minutesAgo": "{n}m ago",
+      "hoursAgo": "{n}h ago",
+      "daysAgo": "{n}d ago"
+    },
+    "relativeDate": {
+      "today": "today",
+      "yesterday": "yesterday",
+      "daysAgo": "{n}d ago",
+      "monthsAgo": "{n}mo ago",
+      "yearsAgo": "{n}y ago"
+    },
+    "size": {
+      "bytes": "{n} B",
+      "kilobytes": "{n} KB",
+      "megabytes": "{n} MB",
+      "gigabytes": "{n} GB"
+    },
+    "duration": {
+      "lessThanMinute": "< 1m",
+      "minutes": "{m}m",
+      "hoursMinutes": "{h}h {m}m"
+    },
+    "unit": {
+      "megabyte": "MB"
+    }
   }
 }

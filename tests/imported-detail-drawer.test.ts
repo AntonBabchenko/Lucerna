@@ -634,7 +634,7 @@ describe('ImportedDetailDrawer', () => {
     });
     const section = await findByTestId('imported-detail-skipped-section');
     expect(section.textContent).toContain('mods/mods.rar');
-    expect(section.textContent).toContain('249.3 MiB');
+    expect(section.textContent).toContain('249.3 MB');
     // Heading count reflects the one skipped file.
     expect(section.textContent).toContain('(1)');
   });
@@ -753,7 +753,7 @@ describe('ImportedDetailDrawer', () => {
     rp.open = true;
     await tick();
     expect((await findByTestId('imported-detail-resourcepacks')).textContent).toMatch(
-      /\d+\s?(B|KiB|MiB)/,
+      /\d+\s?(B|KB|MB)/,
     );
   });
 

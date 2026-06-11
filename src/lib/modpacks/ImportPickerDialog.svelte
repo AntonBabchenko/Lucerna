@@ -154,7 +154,7 @@
 
   <div class="flex-1 overflow-y-auto p-4 space-y-2">
     {#each fileGroups as group (group.key)}
-      {@const sizeStr = formatSize(group.totalSize)}
+      {@const sizeStr = formatSize($t, group.totalSize)}
       <details open={group.key === 'groupMods'}>
         <summary
           class="font-medium text-sm text-primary cursor-pointer select-none list-none flex items-center gap-1 py-1"
@@ -197,7 +197,7 @@
                 />
               {/if}
               <span>{f.name}</span>
-              <span class="ml-auto text-placeholder text-xs">{formatSize(f.size)}</span>
+              <span class="ml-auto text-placeholder text-xs">{formatSize($t, f.size)}</span>
             </li>
           {/each}
         </ul>

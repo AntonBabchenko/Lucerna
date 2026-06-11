@@ -399,9 +399,9 @@
       "checkUpdates": "Проверить обновления",
       "update": "Обновить",
       "remove": "Удалить",
-      "empty": "В этом экземпляре пока ничего не установлено.",
+      "empty": "В этом профиле пока ничего не установлено.",
       "loading": "Загрузка…",
-      "pickInstance": "Сначала выберите экземпляр.",
+      "pickInstance": "Сначала выберите профиль.",
       "upToDateToast": "Всё обновлено.",
       "checkFailed": "Не удалось проверить обновления"
     }
@@ -1095,6 +1095,36 @@
     },
     "offlineName": {
       "cannotBeEmpty": "Имя не может быть пустым"
+    }
+  },
+  "format": {
+    "relativeTime": {
+      "never": "никогда",
+      "secondsAgo": "{n} с назад",
+      "minutesAgo": "{n} мин назад",
+      "hoursAgo": "{n} ч назад",
+      "daysAgo": "{n} д назад"
+    },
+    "relativeDate": {
+      "today": "сегодня",
+      "yesterday": "вчера",
+      "daysAgo": "{n} д назад",
+      "monthsAgo": "{n} мес назад",
+      "yearsAgo": "{n} г назад"
+    },
+    "size": {
+      "bytes": "{n} Б",
+      "kilobytes": "{n} КБ",
+      "megabytes": "{n} МБ",
+      "gigabytes": "{n} ГБ"
+    },
+    "duration": {
+      "lessThanMinute": "< 1 мин",
+      "minutes": "{m} мин",
+      "hoursMinutes": "{h} ч {m} мин"
+    },
+    "unit": {
+      "megabyte": "МБ"
     }
   }
 }

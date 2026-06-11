@@ -67,7 +67,8 @@
           {' '}{instance.loader_version}{/if}
       </span>
       <span class="rounded-full border border-border-subtle bg-base px-2.5 py-0.5 text-secondary">
-        {instance.max_heap_mb} MB
+        {instance.max_heap_mb}
+        {$t('format.unit.megabyte')}
       </span>
     </div>
   </div>

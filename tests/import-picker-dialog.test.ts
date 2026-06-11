@@ -142,7 +142,7 @@ describe('formatSize (ImportPickerDialog internal)', () => {
     expect(getByText('500 B')).toBeTruthy();
   });
 
-  it('renders 2048 bytes as "2.0 KiB"', () => {
+  it('renders 2048 bytes as "2.0 KB"', () => {
     const summary = {
       ...baseSummary,
       files: [
@@ -156,10 +156,10 @@ describe('formatSize (ImportPickerDialog internal)', () => {
     const { getByText } = render(ImportPickerDialog, {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
-    expect(getByText('2.0 KiB')).toBeTruthy();
+    expect(getByText('2.0 KB')).toBeTruthy();
   });
 
-  it('renders 2*1024*1024 bytes as "2.0 MiB"', () => {
+  it('renders 2*1024*1024 bytes as "2.0 MB"', () => {
     const summary = {
       ...baseSummary,
       files: [
@@ -173,7 +173,7 @@ describe('formatSize (ImportPickerDialog internal)', () => {
     const { getByText } = render(ImportPickerDialog, {
       props: { summary, onCancel: () => {}, onConfirm: () => {} },
     });
-    expect(getByText('2.0 MiB')).toBeTruthy();
+    expect(getByText('2.0 MB')).toBeTruthy();
   });
 });
 
