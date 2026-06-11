@@ -44,6 +44,24 @@ describe('ChangelogPanel', () => {
     expect(screen.getByText('A note')).toBeTruthy();
   });
 
+  it('renders inline bold/code markup instead of literal markers', () => {
+    const log: Changelog = [
+      {
+        version: '0.3.0',
+        date: '2026-03-03',
+        url: null,
+        sections: [{ kind: 'added', heading: 'Added', items: ['**Bold lead.** and `code` here'] }],
+      },
+    ];
+    render(ChangelogPanel, { props: { entries: log } });
+    const strong = screen.getByText('Bold lead.');
+    expect(strong.tagName).toBe('STRONG');
+    const code = screen.getByText('code');
+    expect(code.tagName).toBe('CODE');
+    // No literal Markdown markers leak through.
+    expect(screen.queryByText(/\*\*/)).toBeNull();
+  });
+
   it('hides versions that have no sections (empty Unreleased)', () => {
     render(ChangelogPanel, { props: { entries: SAMPLE } });
     expect(screen.queryByText('vUnreleased')).toBeNull();

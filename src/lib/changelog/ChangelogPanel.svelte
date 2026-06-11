@@ -4,6 +4,7 @@
   // layout, heading localization, and opening a version's GitHub link.
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { t } from '$lib/i18n';
+  import { parseInline } from './inline';
   import type { Changelog, SectionKind } from './types';
 
   let { entries }: { entries: Changelog } = $props();
@@ -72,7 +73,17 @@
             </h4>
             <ul class="list-disc space-y-1 pl-5 text-secondary">
               {#each sec.items as item, i (i)}
-                <li>{item}</li>
+                <li>
+                  {#each parseInline(item) as seg, k (k)}
+                    {#if seg.bold && seg.code}
+                      <strong><code class="font-mono text-[0.9em]">{seg.value}</code></strong>
+                    {:else if seg.bold}
+                      <strong class="font-medium text-primary">{seg.value}</strong>
+                    {:else if seg.code}
+                      <code class="font-mono text-[0.9em]">{seg.value}</code>
+                    {:else}{seg.value}{/if}
+                  {/each}
+                </li>
               {/each}
             </ul>
           </div>
