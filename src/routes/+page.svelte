@@ -17,7 +17,13 @@
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
-  import { compactState, initCompact, setCompact, toggleCompact } from '$lib/layout/compact.svelte';
+  import {
+    compactState,
+    initCompact,
+    observeCompactContent,
+    setCompact,
+    toggleCompact,
+  } from '$lib/layout/compact.svelte';
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
@@ -276,6 +282,11 @@
       activeAccount = active.data;
     }
   }
+
+  // Keep the compact strip's height synced to its live content (status row
+  // appearing/disappearing, etc.). Separate from the async onMount below so
+  // Svelte actually uses the returned disposer for cleanup.
+  onMount(() => observeCompactContent());
 
   onMount(async () => {
     void refreshInstances();
@@ -638,7 +649,7 @@
     </div>
   {/if}
 
-  <div class="row-start-2" style="grid-column: 1 / -1;">
+  <div class="row-start-2" style="grid-column: 1 / -1;" data-phase-row>
     <PhaseStatusRow />
   </div>
 
