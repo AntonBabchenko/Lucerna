@@ -3,11 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    modpackCheckUpdate: vi.fn(),
+    modpacksCheckUpdates: vi.fn(),
   },
 }));
 
+import type { ModpackInstanceUpdate } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
+import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
 import ModpackCard from '$lib/overview/ModpackCard.svelte';
 
 const modrinthInst = {
@@ -29,7 +31,14 @@ const modrinthInst = {
   integrity: null,
 };
 
-afterEach(() => vi.clearAllMocks());
+function okData(data: ModpackInstanceUpdate[]) {
+  return { status: 'ok' as const, data };
+}
+
+afterEach(() => {
+  vi.clearAllMocks();
+  modpackUpdates.reset();
+});
 
 describe('ModpackCard', () => {
   it('renders pack name, version and source', () => {
@@ -41,18 +50,51 @@ describe('ModpackCard', () => {
     expect(getByText('Modrinth')).toBeTruthy();
   });
 
-  it('shows an update chip when a newer version is found', async () => {
-    vi.mocked(commands.modpackCheckUpdate).mockResolvedValue({
-      status: 'ok',
-      data: {
-        id: 'v64',
-        name: 'ATM9 0.2.64',
-        version_number: '0.2.64',
-        game_versions: ['1.20.1'],
-        loaders: ['forge'],
-        date_published: '',
-      },
+  it('reflects an available update from the store without a manual click', async () => {
+    vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+      okData([
+        {
+          instance_id: 'i1',
+          status: {
+            kind: 'update_available',
+            entry: {
+              id: 'v64',
+              name: 'ATM9 0.2.64',
+              version_number: '0.2.64',
+              game_versions: ['1.20.1'],
+              loaders: ['forge'],
+              date_published: '',
+            },
+          },
+        },
+      ]),
+    );
+    await modpackUpdates.sweep(['i1'], { force: true });
+    const { getByTestId } = render(ModpackCard, {
+      props: { instance: modrinthInst, onOpenPack: () => {} },
     });
+    expect(getByTestId('modpack-update-available').textContent).toContain('0.2.64');
+  });
+
+  it('shows an update chip after clicking check', async () => {
+    vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+      okData([
+        {
+          instance_id: 'i1',
+          status: {
+            kind: 'update_available',
+            entry: {
+              id: 'v64',
+              name: 'ATM9 0.2.64',
+              version_number: '0.2.64',
+              game_versions: ['1.20.1'],
+              loaders: ['forge'],
+              date_published: '',
+            },
+          },
+        },
+      ]),
+    );
     const { getByTestId } = render(ModpackCard, {
       props: { instance: modrinthInst, onOpenPack: () => {} },
     });
@@ -63,7 +105,9 @@ describe('ModpackCard', () => {
   });
 
   it('shows up-to-date when no newer version exists', async () => {
-    vi.mocked(commands.modpackCheckUpdate).mockResolvedValue({ status: 'ok', data: null });
+    vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+      okData([{ instance_id: 'i1', status: { kind: 'up_to_date' } }]),
+    );
     const { getByTestId } = render(ModpackCard, {
       props: { instance: modrinthInst, onOpenPack: () => {} },
     });
@@ -72,23 +116,31 @@ describe('ModpackCard', () => {
   });
 
   it('shows an inline error when the check fails', async () => {
-    vi.mocked(commands.modpackCheckUpdate).mockResolvedValue({
-      status: 'error',
-      error: { kind: 'network', message: 'offline' } as never,
-    });
+    vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+      okData([{ instance_id: 'i1', status: { kind: 'check_failed', message: 'offline' } }]),
+    );
     const { getByTestId } = render(ModpackCard, {
       props: { instance: modrinthInst, onOpenPack: () => {} },
     });
     await fireEvent.click(getByTestId('modpack-check-update'));
-    await waitFor(() => expect(getByTestId('modpack-update-error')).toBeTruthy());
+    await waitFor(() =>
+      expect(getByTestId('modpack-update-error').textContent).toContain('offline'),
+    );
   });
 
-  it('hides the check button and shows the Modrinth-only note for CF packs', () => {
+  it('shows a not-checkable note for a CF pack without an API key', async () => {
     const cf = { ...modrinthInst, mrpack_source: 'curseforge' as const };
-    const { queryByTestId, getByTestId } = render(ModpackCard, {
+    vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
+      okData([
+        { instance_id: 'i1', status: { kind: 'not_checkable', reason: 'needs_curseforge_key' } },
+      ]),
+    );
+    const { getByTestId, queryByTestId } = render(ModpackCard, {
       props: { instance: cf, onOpenPack: () => {} },
     });
-    expect(queryByTestId('modpack-check-update')).toBeNull();
-    expect(getByTestId('modpack-only-modrinth')).toBeTruthy();
+    await fireEvent.click(getByTestId('modpack-check-update'));
+    await waitFor(() => expect(getByTestId('modpack-not-checkable')).toBeTruthy());
+    // The check button is available for all sources now (no Modrinth-only gate).
+    expect(queryByTestId('modpack-check-update')).not.toBeNull();
   });
 });

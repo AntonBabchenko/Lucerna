@@ -1121,6 +1121,9 @@
       "modpackUpToDate": "Up to date",
       "modpackUpdateAvailable": "Update: v{version}",
       "modpackOnlyModrinth": "Auto update-check is available for Modrinth packs only.",
+      "modpackNotCheckableNeedsKey": "Update check needs a CurseForge API key.",
+      "modpackNotCheckableNoProvenance": "Update check isn't available for this import.",
+      "modpackCheckFailed": "Couldn't check for updates.",
       "sectionMods": "Mods"
     },
     "offlineName": {

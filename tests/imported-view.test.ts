@@ -15,7 +15,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsProject: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackRestoreFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
     // ImportedView's mount sweep drives the shared modpackUpdates store,
     // which calls this command once per pack-instance batch. Return an
     // empty rows array so the sweep resolves without touching badge state.

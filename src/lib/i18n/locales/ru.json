@@ -1121,6 +1121,9 @@
       "modpackUpToDate": "Актуально",
       "modpackUpdateAvailable": "Обновление: v{version}",
       "modpackOnlyModrinth": "Авто-проверка обновлений доступна только для сборок Modrinth.",
+      "modpackNotCheckableNeedsKey": "Для проверки обновлений нужен ключ API CurseForge.",
+      "modpackNotCheckableNoProvenance": "Проверка обновлений недоступна для этого импорта.",
+      "modpackCheckFailed": "Не удалось проверить обновления.",
       "sectionMods": "Моды"
     },
     "offlineName": {

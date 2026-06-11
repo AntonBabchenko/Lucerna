@@ -1,7 +1,7 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('$lib/ipc/bindings', () => ({ commands: { modpackCheckUpdate: vi.fn() } }));
+vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
 

@@ -105,7 +105,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { summary: { name: 'x' }, description: '', website_url: null },
     }),
     modpackStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
     // ModpacksTab (host component) also calls these
     modpackInspect: vi.fn().mockResolvedValue({
       status: 'error',
@@ -566,15 +566,18 @@ describe('ImportedDetailDrawer — mods empty state', () => {
 describe('ImportedDetailDrawer — update-available banner has bg-accent-soft border-accent', () => {
   it('update banner shows with bg-accent-soft border-accent when update is available', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.modpackCheckUpdate).mockResolvedValueOnce({
+    vi.mocked(commands.modpackUpdateStatus).mockResolvedValueOnce({
       status: 'ok',
       data: {
-        id: 'ver-2',
-        name: '2.0',
-        version_number: '2.0.0',
-        game_versions: ['1.20.1'],
-        loaders: ['fabric'],
-        date_published: '2026-01-01T00:00:00Z',
+        kind: 'update_available',
+        entry: {
+          id: 'ver-2',
+          name: '2.0',
+          version_number: '2.0.0',
+          game_versions: ['1.20.1'],
+          loaders: ['fabric'],
+          date_published: '2026-01-01T00:00:00Z',
+        },
       },
     });
     const { container } = render(ImportedDetailDrawer, {
@@ -604,15 +607,18 @@ describe('ImportedDetailDrawer — update-available banner has bg-accent-soft bo
 
   it('Update button is btn-primary btn-xs when update is available', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.modpackCheckUpdate).mockResolvedValueOnce({
+    vi.mocked(commands.modpackUpdateStatus).mockResolvedValueOnce({
       status: 'ok',
       data: {
-        id: 'ver-2',
-        name: '2.0',
-        version_number: '2.0.0',
-        game_versions: ['1.20.1'],
-        loaders: ['fabric'],
-        date_published: '2026-01-01T00:00:00Z',
+        kind: 'update_available',
+        entry: {
+          id: 'ver-2',
+          name: '2.0',
+          version_number: '2.0.0',
+          game_versions: ['1.20.1'],
+          loaders: ['fabric'],
+          date_published: '2026-01-01T00:00:00Z',
+        },
       },
     });
     render(ImportedDetailDrawer, {
