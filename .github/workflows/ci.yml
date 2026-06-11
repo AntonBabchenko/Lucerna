@@ -202,17 +202,13 @@ jobs:
 
   # Coverage gate. Enforces the ratchet floors. Frontend thresholds
   # live in vitest.config.ts; the Rust floor is passed explicitly below.
-  # Rust coverage runs single-threaded (`--test-threads=1`) to defeat the
-  # process-global env-var race (audit finding F2) — see backlog E6-env-race.
-  coverage:
-    name: coverage
+  # Frontend coverage is cheap (vitest, ~2 min) so it runs on every push/PR as
+  # a real per-PR gate — `pnpm test:coverage` fails under the vitest.config.ts
+  # thresholds. This is the half of the old manual `coverage` job that has no
+  # build cost, promoted to a per-PR check (review: "coverage gate off-PR").
+  coverage-frontend:
+    name: coverage (frontend)
     runs-on: ubuntu-latest
-    # Manual-only. This job is heavy (Tauri build under llvm-cov + single-
-    # threaded test run, ~15-20 min), so it must NOT auto-attach to every
-    # push/PR when the triggers above are re-enabled. To promote it to a
-    # blocking per-PR gate, remove this `if:` AND add it to branch-protection
-    # required checks — a deliberate decision, not an accident of re-enabling.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -227,6 +223,21 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Frontend coverage (gated by vitest.config.ts thresholds)
         run: pnpm test:coverage
+
+  # Rust coverage stays heavy (Tauri build under llvm-cov + single-threaded test
+  # run, ~15-20 min — single-threaded to defeat the process-global env-var race,
+  # audit finding F2 / backlog E6-env-race). Running it on EVERY PR would add
+  # ~20 min to each, so it runs on push-to-main and manual dispatch but NOT on
+  # PRs. To make it a blocking per-PR gate, drop the `if:` below AND add
+  # "coverage (rust)" to branch-protection required checks (a repo-settings
+  # change, deliberate — not an accident of editing this file).
+  coverage-rust:
+    name: coverage (rust)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - name: Install Tauri Linux deps
         run: |
           sudo apt-get update
@@ -255,3 +266,30 @@ jobs:
         run: >-
           cargo llvm-cov --manifest-path src-tauri/Cargo.toml
           --summary-only --fail-under-lines 70 -- --test-threads=1
+
+  # Supply-chain gate: advisories (RustSec DB — the cargo-audit equivalent),
+  # banned/duplicate crates, license policy, and source allowlist. Runs on every
+  # push/PR (cheap — metadata + advisory DB, no project build). Enforces the
+  # CLAUDE.md "no new crate without cargo-deny justification" rule mechanically.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9  # stable @ 2026-05-23
+        with:
+          toolchain: stable
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@82a92a6e8fbeee089604da2575dc567ae9ddeaab  # v2.7.5
+        with:
+          workspaces: src-tauri
+      - name: Install cargo-deny
+        # Plain version-pinned `cargo install` — same SHA-pinning-friendly
+        # policy as cargo-llvm-cov above (no new unpinned marketplace action).
+        # 0.19.x is required: older releases fail to PARSE the current RustSec
+        # advisory DB (newer entries carry CVSS 4.0 vectors).
+        run: cargo install cargo-deny --version 0.19.8 --locked
+      - name: cargo deny check
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check
