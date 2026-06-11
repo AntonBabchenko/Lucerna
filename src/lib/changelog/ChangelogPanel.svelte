@@ -36,6 +36,10 @@
   );
 
   function openUrl(url: string): void {
+    // Defense-in-depth: only hand an https URL to the OS opener. The changelog
+    // is our own build-time artifact, but a crafted scheme (file:, a custom
+    // protocol handler) must never reach the shell from a parsed link.
+    if (!url.startsWith('https://')) return;
     void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
   }
 </script>

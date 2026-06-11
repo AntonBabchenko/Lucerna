@@ -77,6 +77,23 @@ describe('ChangelogPanel', () => {
     });
   });
 
+  it('refuses to open a non-https version URL (defense-in-depth)', async () => {
+    const log: Changelog = [
+      {
+        version: '0.4.0',
+        date: '2026-04-04',
+        url: 'file:///etc/passwd',
+        sections: [{ kind: 'added', heading: 'Added', items: ['x'] }],
+      },
+    ];
+    openUrlMock.mockClear(); // module-level mock accumulates across tests
+    render(ChangelogPanel, { props: { entries: log } });
+    await fireEvent.click(screen.getByRole('button', { name: /v0\.4\.0/ }));
+    // The opener is never handed a non-https scheme.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
   it('shows the empty-state message when there are no visible versions', () => {
     render(ChangelogPanel, { props: { entries: [] } });
     expect(screen.getByText('No changelog available.')).toBeTruthy();
