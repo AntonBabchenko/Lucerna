@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
-  import { Icon } from '$lib/ui/icons';
+  import { Icon, type IconName } from '$lib/ui/icons';
   import type { AttentionItem, AttentionKind } from './attention';
 
   let { items, onAction }: { items: AttentionItem[]; onAction: (kind: AttentionKind) => void } =
@@ -12,6 +12,15 @@
     missing_mods: 'page.overview.attnMissingMods',
     incompatible: 'page.overview.attnIncompatible',
     integrity: 'page.overview.attnIntegrity',
+    modpack_update: 'page.overview.attnModpackUpdate',
+  };
+
+  const ICON_KEY: Record<AttentionKind, IconName> = {
+    pick_version: 'warning',
+    missing_mods: 'warning',
+    incompatible: 'warning',
+    integrity: 'warning',
+    modpack_update: 'update',
   };
 </script>
 
@@ -35,7 +44,7 @@
         data-testid="overview-attention-{item.kind}"
         onclick={() => onAction(item.kind)}
       >
-        <Icon name="warning" class="text-warning-text" />
+        <Icon name={ICON_KEY[item.kind]} class="text-warning-text" />
         <span class="flex-1 text-sm text-warning-text">
           {$t(TEXT_KEY[item.kind], { count: item.count })}
         </span>

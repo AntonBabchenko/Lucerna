@@ -732,6 +732,7 @@ export type TranslationKey =
   | 'page.overview.attnIncompatible'
   | 'page.overview.attnIntegrity'
   | 'page.overview.attnMissingMods'
+  | 'page.overview.attnModpackUpdate'
   | 'page.overview.attnPickVersion'
   | 'page.overview.avatarAlt'
   | 'page.overview.dismissError'

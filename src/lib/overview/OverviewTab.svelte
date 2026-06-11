@@ -4,6 +4,7 @@
   import { formatDuration } from '$lib/format/duration';
   import { relativeTime } from '$lib/format/relative-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
+  import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -73,12 +74,13 @@
           missingModsCount,
           incompatibleCount,
           integrityProblemCount,
+          hasModpackUpdate: modpackUpdates.hasUpdate(activeInstance.id),
         })
       : [],
   );
 
   function onAttention(kind: AttentionKind) {
-    if (kind === 'missing_mods') onOpenPackDrawer();
+    if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
     else if (kind === 'incompatible') onNavInstalled();
     else onManage(); // pick_version + integrity
   }
