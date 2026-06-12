@@ -59,7 +59,8 @@ pub async fn launch_instance(
 /// Honest signal: parses the effective version JSON and checks for a
 /// quick-play feature-gated game arg (robust across release/snapshot/loader).
 /// Returns `false` (not an error) when the version JSON is absent (instance
-/// not yet installed) or unparseable — the UI simply hides the entry points.
+/// not yet installed, or merged profile not yet written) or unparseable —
+/// the UI simply hides the entry points.
 #[tauri::command]
 #[specta::specta]
 pub async fn instance_quick_play_support(
