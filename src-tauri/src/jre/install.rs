@@ -128,6 +128,35 @@ pub async fn ensure_jre(
         .await
         .map_err(|e| Error::io(marker_p.display().to_string(), e))?;
 
+    // Stamp the just-installed runtime with the user's GPU preference and
+    // notify once. Best-effort; only when non-Auto (Auto = nothing changed).
+    {
+        use tauri_specta::Event;
+        let pref = crate::paths::app_file(app)
+            .ok()
+            .and_then(|p| crate::instances::store::read_app_json(&p).ok())
+            .map(|f| f.general.gpu_preference)
+            .unwrap_or_default();
+        if pref != crate::instances::schema::GpuPreference::Auto {
+            if let Ok(exe) = java_executable_path(component, app) {
+                let _ = crate::platform::gpu::sync_for_exe(&exe, pref);
+            }
+            let gpu_name = match crate::platform::gpu::capability() {
+                crate::platform::gpu::GpuCapability::Available { high, low, .. } => match pref {
+                    crate::instances::schema::GpuPreference::HighPerformance => high,
+                    crate::instances::schema::GpuPreference::PowerSaving => low,
+                    crate::instances::schema::GpuPreference::Auto => None,
+                },
+                _ => None,
+            };
+            let _ = crate::commands::GpuPrefApplied {
+                preference: pref,
+                gpu_name,
+            }
+            .emit(app);
+        }
+    }
+
     Ok(())
 }
 

@@ -161,6 +161,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::ModUninstalled,
             commands::ModToggle,
             commands::ModInstallFailed,
+            commands::GpuPrefApplied,
         ])
 }
 
