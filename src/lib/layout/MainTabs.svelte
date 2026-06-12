@@ -17,6 +17,8 @@
     mcVersion = null,
     loader = null,
     onListChanged = () => {},
+    onQuickPlayWorld = () => {},
+    quickPlayDisabledReason = null,
   }: {
     overview?: Snippet;
     instanceId?: string | null;
@@ -24,6 +26,8 @@
     mcVersion?: string | null;
     loader?: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
     onListChanged?: () => void;
+    onQuickPlayWorld?: (folderName: string) => void;
+    quickPlayDisabledReason?: string | null;
   } = $props();
 
   let active = $state<Tab>('overview');
@@ -162,7 +166,7 @@
     {:else if active === 'mod_browser'}
       <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} />
     {:else if active === 'worlds'}
-      <WorldsTab {instanceId} {onListChanged} />
+      <WorldsTab {instanceId} {onListChanged} {onQuickPlayWorld} {quickPlayDisabledReason} />
     {/if}
   </div>
 </div>
