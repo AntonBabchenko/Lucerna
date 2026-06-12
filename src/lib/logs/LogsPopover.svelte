@@ -10,6 +10,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
+  import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -827,7 +828,13 @@
                   {diagnosis.recommendation}
                 </p>
                 {#if diagnosis.repair && instanceId}
-                  {#if repairPlan}
+                  {#if repairPlan && repairPlan.kind === 'install_missing_mods'}
+                    <MissingModsRepairCard
+                      plan={repairPlan}
+                      instanceId={instanceId ?? ''}
+                      onClose={() => (repairPlan = null)}
+                    />
+                  {:else if repairPlan}
                     <RepairConfirmCard
                       plan={repairPlan}
                       busy={repairApplying}
