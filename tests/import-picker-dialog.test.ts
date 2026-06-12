@@ -230,19 +230,39 @@ describe('ImportPickerDialog category groups', () => {
 
 // ── Selection logic tests ────────────────────────────────────────────────
 describe('ImportPickerDialog selection', () => {
-  it('Install button counts required mods even when no optional is selected', () => {
+  it('checks every file by default (required + optional) in the counter', () => {
     const { getByText } = render(ImportPickerDialog, {
       props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
     });
-    expect(getByText(/Install 1 selected/)).toBeTruthy();
+    // Sodium (required) + Iris (optional) both start checked.
+    expect(getByText(/Install 2 selected/)).toBeTruthy();
   });
 
-  it('toggling an optional updates the counter', async () => {
+  it('unchecking a file decrements the counter', async () => {
     const { getByText, getByLabelText } = render(ImportPickerDialog, {
       props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
     });
-    await fireEvent.click(getByLabelText(/Install Iris/));
-    expect(getByText(/Install 2 selected/)).toBeTruthy();
+    await fireEvent.click(getByLabelText(/Install Iris/)); // was checked → off
+    expect(getByText(/Install 1 selected/)).toBeTruthy();
+  });
+
+  it('fires onConfirm with all shas by default', async () => {
+    const onConfirm = vi.fn();
+    const { getByText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm },
+    });
+    await fireEvent.click(getByText(/Install 2 selected/));
+    expect(onConfirm).toHaveBeenCalledWith(['abc', 'def']);
+  });
+
+  it('omits an unchecked file from onConfirm', async () => {
+    const onConfirm = vi.fn();
+    const { getByText, getByLabelText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm },
+    });
+    await fireEvent.click(getByLabelText(/Install Iris/)); // uncheck optional
+    await fireEvent.click(getByText(/Install 1 selected/));
+    expect(onConfirm).toHaveBeenCalledWith(['abc']);
   });
 
   it('shows the saves-in-overrides warning when the flag is set', () => {
@@ -308,18 +328,6 @@ describe('ImportPickerDialog selection', () => {
     expect(last.hasAttribute('open')).toBe(false);
   });
 
-  it('fires onConfirm with the required + selected optional shas', async () => {
-    const onConfirm = vi.fn();
-    const { getByText, getByLabelText } = render(ImportPickerDialog, {
-      props: { summary: baseSummary, onCancel: () => {}, onConfirm },
-    });
-    // Tick the optional so we exercise the [required, ...optional] order
-    // the parent depends on for the modpack_import call.
-    await fireEvent.click(getByLabelText(/Install Iris/));
-    await fireEvent.click(getByText(/Install 2 selected/));
-    expect(onConfirm).toHaveBeenCalledWith(['abc', 'def']);
-  });
-
   it('fires onCancel when the Cancel button is clicked', async () => {
     const onCancel = vi.fn();
     const { getByText } = render(ImportPickerDialog, {
@@ -365,5 +373,55 @@ describe('ImportPickerDialog selection', () => {
     expect(getByText(/Install 1 selected/)).toBeTruthy();
     await fireEvent.click(getByText(/Install 1 selected/));
     expect(onConfirm).toHaveBeenCalledWith(['dupe']);
+  });
+
+  it('an optional resource pack is selected by default', async () => {
+    const summary = {
+      ...baseSummary,
+      files: [
+        ...baseSummary.files,
+        {
+          project_id: 'rp',
+          version_id: 'rpv',
+          name: 'Faithful',
+          filename: 'Faithful.zip',
+          install_path: 'resourcepacks/Faithful.zip',
+          sha1: 'rpsha',
+          url: 'https://cdn.modrinth.com/Faithful.zip',
+          size: 2048,
+          env_client: 'optional' as const,
+          source: 'modrinth' as const,
+        },
+      ],
+    };
+    const onConfirm = vi.fn();
+    const { getByText } = render(ImportPickerDialog, {
+      props: { summary, onCancel: () => {}, onConfirm },
+    });
+    // 3 files, all checked → resource pack sha present in the payload.
+    await fireEvent.click(getByText(/Install 3 selected/));
+    expect(onConfirm).toHaveBeenCalledWith(['abc', 'def', 'rpsha']);
+  });
+
+  it('header toggle deselects all then reselects all', async () => {
+    const { getByText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    // Default = all selected → control offers "Deselect all".
+    await fireEvent.click(getByText('Deselect all'));
+    const installBtn = getByText(/Install 0 selected/) as HTMLButtonElement;
+    expect(installBtn.disabled).toBe(true);
+    // Now offers "Select all" → restores everything.
+    await fireEvent.click(getByText('Select all'));
+    expect(getByText(/Install 2 selected/)).toBeTruthy();
+  });
+
+  it('shows a soft warning when a required file is unchecked', async () => {
+    const { getByText, getByLabelText, queryByText } = render(ImportPickerDialog, {
+      props: { summary: baseSummary, onCancel: () => {}, onConfirm: () => {} },
+    });
+    expect(queryByText(/Required files unchecked/)).toBeNull();
+    await fireEvent.click(getByLabelText(/Install Sodium/)); // Sodium is required
+    expect(getByText(/Required files unchecked: 1/)).toBeTruthy();
   });
 });
