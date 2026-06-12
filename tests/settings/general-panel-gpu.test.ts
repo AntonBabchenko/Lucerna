@@ -4,10 +4,12 @@ import type { GpuCapability } from '$lib/ipc/bindings';
 
 // Hoisted so they're available before vi.mock factory runs.
 const { gpuCapability } = vi.hoisted(() => ({
-  gpuCapability: vi.fn(async (): Promise<{ status: 'ok'; data: GpuCapability }> => ({
-    status: 'ok',
-    data: { kind: 'unsupported' },
-  })),
+  gpuCapability: vi.fn(
+    async (): Promise<{ status: 'ok'; data: GpuCapability }> => ({
+      status: 'ok',
+      data: { kind: 'unsupported' },
+    }),
+  ),
 }));
 
 vi.mock('$lib/ipc/bindings', () => ({

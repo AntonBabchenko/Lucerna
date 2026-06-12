@@ -593,14 +593,26 @@ mod tests {
 
     #[test]
     fn gpu_preference_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&GpuPreference::HighPerformance).unwrap(), r#""high_performance""#);
-        assert_eq!(serde_json::to_string(&GpuPreference::PowerSaving).unwrap(), r#""power_saving""#);
-        assert_eq!(serde_json::to_string(&GpuPreference::Auto).unwrap(), r#""auto""#);
+        assert_eq!(
+            serde_json::to_string(&GpuPreference::HighPerformance).unwrap(),
+            r#""high_performance""#
+        );
+        assert_eq!(
+            serde_json::to_string(&GpuPreference::PowerSaving).unwrap(),
+            r#""power_saving""#
+        );
+        assert_eq!(
+            serde_json::to_string(&GpuPreference::Auto).unwrap(),
+            r#""auto""#
+        );
     }
 
     #[test]
     fn general_settings_default_gpu_pref_is_auto() {
-        assert_eq!(GeneralSettings::default().gpu_preference, GpuPreference::Auto);
+        assert_eq!(
+            GeneralSettings::default().gpu_preference,
+            GpuPreference::Auto
+        );
     }
 
     #[test]
@@ -614,7 +626,8 @@ mod tests {
     fn general_settings_roundtrips_gpu_pref() {
         let mut g = GeneralSettings::default();
         g.gpu_preference = GpuPreference::HighPerformance;
-        let back: GeneralSettings = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        let back: GeneralSettings =
+            serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
         assert_eq!(back.gpu_preference, GpuPreference::HighPerformance);
     }
 
