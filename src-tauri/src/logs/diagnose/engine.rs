@@ -438,8 +438,7 @@ mod tests {
 
     #[test]
     fn pattern_server_missing_mods_matches_forge_reject_block() {
-        let content = "[12:00:03] [Render thread/ERROR]: Missing or unsupported mods:\n\
-                       \tjei (Just Enough Items) 15.2.0.27 [required, missing]";
+        let content = "[Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
         assert_diag(content, LogSource::Game, "server-missing-mods");
     }
 

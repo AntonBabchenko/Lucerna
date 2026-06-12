@@ -128,10 +128,11 @@ pub const PATTERNS: &[Pattern] = &[
     },
     Pattern {
         id: "server-missing-mods",
-        // PROVISIONAL anchor: documented modern-FML header. Must be confirmed
-        // against a real captured latest.log in the Phase 0 spike; widen to a
-        // Regex alternation if other loaders use a different header.
-        matcher: Matcher::Substring("Missing or unsupported mods"),
+        // Anchor confirmed in the Phase 0 spike against a real modern-Forge
+        // (47.4.10) client log: FML terminates a mod-mismatched join with this
+        // line. server_mods.rs extracts the mod-ids from the paired
+        // "Channels [...] rejected ..." lines.
+        matcher: Matcher::Substring("mismatched mod list"),
         title: "The server needs mods you don't have",
         explanation:
             "The server rejected the connection because your client is missing mods it \
