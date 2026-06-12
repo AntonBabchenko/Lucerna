@@ -78,6 +78,39 @@ pub fn gpu_pref_value(pref: GpuPreference) -> Option<&'static str> {
     }
 }
 
+/// Env vars to inject into the Minecraft child for `pref`, given whether the
+/// proprietary NVIDIA stack is present. Pure → unit-tested on every OS. Only
+/// `HighPerformance` offloads; `Auto`/`PowerSaving` keep the default (iGPU).
+pub fn gpu_launch_env(pref: GpuPreference, nvidia_present: bool) -> Vec<(String, String)> {
+    if pref != GpuPreference::HighPerformance {
+        return Vec::new();
+    }
+    if nvidia_present {
+        vec![
+            ("__NV_PRIME_RENDER_OFFLOAD".into(), "1".into()),
+            ("__GLX_VENDOR_LIBRARY_NAME".into(), "nvidia".into()),
+            ("__VK_LAYER_NV_optimus".into(), "NVIDIA_only".into()),
+        ]
+    } else {
+        vec![("DRI_PRIME".into(), "1".into())]
+    }
+}
+
+/// OS wrapper the launch path calls. Linux computes `nvidia_present` from
+/// `/proc/driver/nvidia`; every other OS returns no env.
+pub fn launch_env(pref: GpuPreference) -> Vec<(String, String)> {
+    #[cfg(target_os = "linux")]
+    {
+        let nvidia = std::path::Path::new("/proc/driver/nvidia").exists();
+        gpu_launch_env(pref, nvidia)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pref;
+        Vec::new()
+    }
+}
+
 /// Apply `pref` to `exe` in `HKCU\…\UserGpuPreferences` (Windows). Idempotent;
 /// `Auto` deletes our value. Best-effort — returns the IO error so callers can
 /// log; never panics. No-op (`Ok`) off Windows.
@@ -279,6 +312,30 @@ mod tests {
             gpu_pref_value(GpuPreference::PowerSaving),
             Some("GpuPreference=1;")
         );
+    }
+
+    #[test]
+    fn launch_env_empty_unless_high_performance() {
+        assert!(gpu_launch_env(GpuPreference::Auto, true).is_empty());
+        assert!(gpu_launch_env(GpuPreference::PowerSaving, true).is_empty());
+    }
+
+    #[test]
+    fn launch_env_high_nvidia_sets_prime_vars() {
+        let env = gpu_launch_env(GpuPreference::HighPerformance, true);
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "__NV_PRIME_RENDER_OFFLOAD" && v == "1"));
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "__GLX_VENDOR_LIBRARY_NAME" && v == "nvidia"));
+        assert!(env.iter().any(|(k, _)| k == "__VK_LAYER_NV_optimus"));
+    }
+
+    #[test]
+    fn launch_env_high_mesa_sets_dri_prime() {
+        let env = gpu_launch_env(GpuPreference::HighPerformance, false);
+        assert_eq!(env, vec![("DRI_PRIME".to_string(), "1".to_string())]);
     }
 
     #[cfg(windows)]
