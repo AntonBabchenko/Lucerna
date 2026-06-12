@@ -6,6 +6,7 @@
 pub mod engine;
 pub mod patterns;
 pub mod repair;
+pub mod server_mods;
 
 use crate::error::Result;
 use crate::logs::files::LogSource;
