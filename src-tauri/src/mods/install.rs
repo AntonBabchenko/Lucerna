@@ -362,6 +362,23 @@ pub fn asset_subpath(kind: crate::mods::platform::ContentKind, filename: &str) -
     format!("{}/{}", asset_dir(kind), filename)
 }
 
+/// Inverse of `asset_dir`: map an install path to the asset kind it lands in,
+/// or `None` for non-asset paths (`mods/`, `config/`, `scripts/`, …). Used by
+/// the modpack importer to decide which staged files also belong in the
+/// per-instance assets registry.
+pub fn content_kind_for_install_path(
+    install_path: &str,
+) -> Option<crate::mods::platform::ContentKind> {
+    use crate::mods::platform::ContentKind;
+    if install_path.starts_with("resourcepacks/") {
+        Some(ContentKind::ResourcePack)
+    } else if install_path.starts_with("shaderpacks/") {
+        Some(ContentKind::Shader)
+    } else {
+        None
+    }
+}
+
 /// Resolve the on-disk path for an asset removal, rejecting any filename that
 /// would escape the instance's `.minecraft/` directory.
 ///
@@ -659,6 +676,22 @@ mod tests {
             deps: vec![],
             published_at: None,
         }
+    }
+
+    #[test]
+    fn content_kind_maps_asset_paths_only() {
+        use crate::mods::platform::ContentKind;
+        assert_eq!(
+            content_kind_for_install_path("resourcepacks/Faithful.zip"),
+            Some(ContentKind::ResourcePack)
+        );
+        assert_eq!(
+            content_kind_for_install_path("shaderpacks/BSL.zip"),
+            Some(ContentKind::Shader)
+        );
+        assert_eq!(content_kind_for_install_path("mods/sodium.jar"), None);
+        assert_eq!(content_kind_for_install_path("config/sodium.toml"), None);
+        assert_eq!(content_kind_for_install_path("options.txt"), None);
     }
 
     #[tokio::test]

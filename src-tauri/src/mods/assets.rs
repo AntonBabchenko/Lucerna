@@ -7,7 +7,7 @@ use std::path::Path;
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::platform::{ContentKind, InstalledAsset};
+use crate::mods::platform::{ContentKind, InstalledAsset, ModSource};
 
 fn registry_path(instance_root: &Path) -> std::path::PathBuf {
     instance_root.join("installed-assets.json")
@@ -87,10 +87,82 @@ pub async fn remove(instance_root: &Path, kind: ContentKind, filename: &str) -> 
     write_all(instance_root, &items).await
 }
 
+/// Build an `InstalledAsset` for a file discovered during modpack import or the
+/// backfill. `installed_at` is supplied by the caller (tests pass a fixed
+/// value; production passes `chrono::Utc::now().to_rfc3339()`). `sha1` is
+/// lowercased here so registry lookups stay case-insensitive.
+#[allow(clippy::too_many_arguments)]
+pub fn make_asset(
+    kind: ContentKind,
+    filename: &str,
+    sha1: &str,
+    source: Option<ModSource>,
+    project_id: Option<String>,
+    version_id: Option<String>,
+    name: &str,
+    installed_at: String,
+) -> InstalledAsset {
+    InstalledAsset {
+        kind,
+        filename: filename.to_string(),
+        sha1: sha1.to_ascii_lowercase(),
+        source,
+        project_id,
+        version_id,
+        name: name.to_string(),
+        version_number: None,
+        installed_at,
+    }
+}
+
+/// Seed `installed-assets.json` from the instance's `pack_origin` resource-pack
+/// / shader files — but ONLY when the registry file does not yet exist. This
+/// retro-fits instances imported before assets were tracked: their packs are on
+/// disk and recorded in `pack_origin`, just never registered. Guarded on
+/// "file absent" so it never resurrects assets the user later uninstalled (that
+/// leaves a present-but-shorter registry, which this skips). Best-effort and
+/// idempotent: after the first run the file exists and this no-ops.
+///
+/// Note: `installed_at` is stamped at backfill time, not the original import
+/// time — `PackOrigin` carries no per-import timestamp, so retro-fitted assets
+/// read as "installed now". Acceptable: the field only drives display/sort for
+/// these older instances, not correctness.
+pub async fn backfill_from_pack_origin_if_missing(instance_root: &Path) -> Result<(), Error> {
+    let path = registry_path(instance_root);
+    match fs::metadata(&path).await {
+        Ok(_) => return Ok(()), // registry already exists — leave it untouched
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(io_err(&path, e)),
+    }
+    let Some(origin) = crate::mods::installed::get_pack_origin(instance_root).await? else {
+        return Ok(()); // not a pack-imported instance
+    };
+    let mut items: Vec<InstalledAsset> = Vec::new();
+    for f in &origin.files {
+        let Some(kind) = crate::mods::install::content_kind_for_install_path(&f.install_path)
+        else {
+            continue;
+        };
+        items.push(make_asset(
+            kind,
+            &f.filename,
+            &f.sha1,
+            Some(f.source),
+            (!f.project_id.is_empty()).then(|| f.project_id.clone()),
+            (!f.version_id.is_empty()).then(|| f.version_id.clone()),
+            &f.name,
+            chrono::Utc::now().to_rfc3339(),
+        ));
+    }
+    if items.is_empty() {
+        return Ok(()); // nothing to seed — avoid writing an empty registry
+    }
+    write_all(instance_root, &items).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mods::platform::ModSource;
 
     fn sample(kind: ContentKind, filename: &str) -> InstalledAsset {
         InstalledAsset {
@@ -160,5 +232,78 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn make_asset_lowercases_sha_and_clears_version() {
+        let a = make_asset(
+            ContentKind::ResourcePack,
+            "RP.zip",
+            "AABBCC",
+            Some(ModSource::Modrinth),
+            Some("pid".into()),
+            Some("vid".into()),
+            "RP",
+            "2026-06-12T00:00:00+00:00".into(),
+        );
+        assert_eq!(a.kind, ContentKind::ResourcePack);
+        assert_eq!(a.sha1, "aabbcc");
+        assert_eq!(a.version_number, None);
+        assert_eq!(a.project_id.as_deref(), Some("pid"));
+    }
+
+    #[tokio::test]
+    async fn backfill_seeds_assets_from_pack_origin_when_registry_absent() {
+        use crate::mods::installed::{set_pack_origin, PackOrigin, PackOriginFile};
+        use crate::mods::modpack::schema::EnvSupport;
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+
+        let rp = PackOriginFile {
+            sha1: "AABB".into(),
+            name: "Faithful.zip".into(),
+            filename: "Faithful.zip".into(),
+            install_path: "resourcepacks/Faithful.zip".into(),
+            url: "https://cdn.modrinth.com/Faithful.zip".into(),
+            size: 2048.0,
+            project_id: "pid".into(),
+            version_id: "vid".into(),
+            env_client: EnvSupport::Required,
+            source: ModSource::Modrinth,
+        };
+        let a_jar = PackOriginFile {
+            install_path: "mods/sodium.jar".into(),
+            filename: "sodium.jar".into(),
+            name: "Sodium".into(),
+            ..rp.clone()
+        };
+        set_pack_origin(
+            root,
+            PackOrigin {
+                project_id: None,
+                source: ModSource::Modrinth,
+                project_name: "Pack".into(),
+                version: "1.0".into(),
+                files: vec![rp, a_jar],
+                missing_mods: vec![],
+                skipped_overrides: vec![],
+                resolved_missing: vec![],
+            },
+        )
+        .await
+        .unwrap();
+
+        // Registry absent → backfill seeds only the resource pack.
+        backfill_from_pack_origin_if_missing(root).await.unwrap();
+        let rps = list(root, ContentKind::ResourcePack).await.unwrap();
+        assert_eq!(rps.len(), 1);
+        assert_eq!(rps[0].filename, "Faithful.zip");
+
+        // Second run is a no-op (file now exists) and does not duplicate.
+        backfill_from_pack_origin_if_missing(root).await.unwrap();
+        assert_eq!(
+            list(root, ContentKind::ResourcePack).await.unwrap().len(),
+            1
+        );
     }
 }
