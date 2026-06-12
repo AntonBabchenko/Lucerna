@@ -52,6 +52,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::install_version,
             commands::install_instance,
             commands::launch_instance,
+            commands::instance_quick_play_support,
             commands::stop_minecraft,
             commands::list_log_files,
             commands::read_log_file,

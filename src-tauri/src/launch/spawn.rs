@@ -11,6 +11,7 @@ use crate::instances::schema::InstanceFile;
 use crate::jre::java_executable_path;
 use crate::launch::args::{build_argv, ArgvInput};
 use crate::launch::natives::extract_natives;
+use crate::launch::quick_play::QuickPlay;
 use crate::paths::{
     assets_dir, instance_dir, instance_logs_dir, instance_natives_dir, libraries_dir,
     minecraft_dir, versions_dir,
@@ -198,6 +199,7 @@ pub async fn start(
     effective_version_id: &str,
     account: &Account,
     app: &AppHandle,
+    quick_play: Option<&QuickPlay>,
 ) -> Result<u32> {
     {
         let guard = state().lock().expect("launch state mutex poisoned");
@@ -292,7 +294,7 @@ pub async fn start(
         client_jar,
         os,
         arch,
-        quick_play: None,
+        quick_play,
     })?;
 
     // Prepend custom JVM args: `-Xmx<heap>m` plus the sanitised
