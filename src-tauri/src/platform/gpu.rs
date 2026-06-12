@@ -111,6 +111,71 @@ pub fn launch_env(pref: GpuPreference) -> Vec<(String, String)> {
     }
 }
 
+/// Probe the machine and classify GPU-selection capability.
+/// macOS → `Unsupported`; Linux reads `/sys/class/drm`; Windows enumerates the
+/// display-adapter registry class key. Best-effort: a probe failure yields an
+/// empty adapter list → `SingleGpu` (control hidden), never a panic.
+pub fn capability() -> GpuCapability {
+    #[cfg(target_os = "macos")]
+    {
+        GpuCapability::Unsupported
+    }
+    #[cfg(target_os = "linux")]
+    {
+        classify(&linux_adapters())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        classify(&win::adapters())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        GpuCapability::Unsupported
+    }
+}
+
+/// Enumerate GPU adapters from `/sys/class/drm` on Linux.
+/// Each `card<N>` directory represents one GPU; vendor IDs and `boot_vga`
+/// determine whether it is integrated.
+#[cfg(target_os = "linux")]
+fn linux_adapters() -> Vec<GpuAdapter> {
+    // Each /sys/class/drm/card<N>/device/{vendor,boot_vga}. vendor is the PCI
+    // vendor id; boot_vga==1 marks the integrated/primary GPU.
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir("/sys/class/drm") else {
+        return out;
+    };
+    for e in entries.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        // cardN only (skip cardN-eDP-1 connector dirs).
+        if !(name.starts_with("card")
+            && name.len() > 4
+            && name[4..].chars().all(|c| c.is_ascii_digit()))
+        {
+            continue;
+        }
+        let dev = e.path().join("device");
+        let vendor = std::fs::read_to_string(dev.join("vendor")).unwrap_or_default();
+        let vendor = vendor.trim();
+        let integrated = std::fs::read_to_string(dev.join("boot_vga"))
+            .map(|s| s.trim() == "1")
+            .unwrap_or(false)
+            || vendor.eq_ignore_ascii_case("0x8086");
+        let label = match vendor {
+            "0x10de" => "NVIDIA GPU",
+            "0x1002" => "AMD GPU",
+            "0x8086" => "Intel GPU",
+            other => other,
+        };
+        out.push(GpuAdapter {
+            name: label.to_string(),
+            integrated,
+        });
+    }
+    out
+}
+
 /// Apply `pref` to `exe` in `HKCU\…\UserGpuPreferences` (Windows). Idempotent;
 /// `Auto` deletes our value. Best-effort — returns the IO error so callers can
 /// log; never panics. No-op (`Ok`) off Windows.
@@ -131,10 +196,11 @@ mod win {
     use std::io;
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, FILETIME};
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
-        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_SZ,
+        RegCloseKey, RegCreateKeyW, RegDeleteValueW, RegEnumKeyExW, RegOpenKeyExW,
+        RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ,
+        KEY_WRITE, REG_SZ,
     };
 
     const SUBKEY: &str = "Software\\Microsoft\\DirectX\\UserGpuPreferences";
@@ -250,6 +316,104 @@ mod win {
         let s = String::from_utf16_lossy(&buf[..chars]);
         s == v
     }
+
+    const DISPLAY_CLASS: &str =
+        "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}";
+
+    /// Enumerate installed display adapters from the registry class key. Lists
+    /// ALL adapters (including a display-less discrete GPU on Optimus), unlike
+    /// EnumDisplayDevices. Best-effort; returns whatever it can read.
+    pub fn adapters() -> Vec<super::GpuAdapter> {
+        let mut out: Vec<super::GpuAdapter> = Vec::new();
+        // SAFETY: standard registry enumeration. Buffers are sized per the API
+        // (char counts for key names); all pointers are to locals that outlive
+        // each call; every opened key is closed before the function returns.
+        unsafe {
+            let class = wide(DISPLAY_CLASS);
+            let mut hkey: HKEY = std::ptr::null_mut();
+            if RegOpenKeyExW(HKEY_LOCAL_MACHINE, class.as_ptr(), 0, KEY_READ, &mut hkey)
+                != ERROR_SUCCESS
+            {
+                return out;
+            }
+            let mut idx = 0u32;
+            loop {
+                let mut name_buf = [0u16; 256];
+                let mut name_len = name_buf.len() as u32; // in CHARS
+                                                          // lpftLastWriteTime accepts NULL — pass a null pointer via FILETIME.
+                let rc = RegEnumKeyExW(
+                    hkey,
+                    idx,
+                    name_buf.as_mut_ptr(),
+                    &mut name_len,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut::<FILETIME>(),
+                );
+                if rc != ERROR_SUCCESS {
+                    break; // ERROR_NO_MORE_ITEMS or other terminal error
+                }
+                idx += 1;
+                let sub = String::from_utf16_lossy(&name_buf[..name_len as usize]);
+                // Adapters are 4-digit numeric subkeys (0000, 0001, …)
+                if sub.len() != 4 || !sub.chars().all(|c| c.is_ascii_digit()) {
+                    continue;
+                }
+                let subpath = wide(&format!("{DISPLAY_CLASS}\\{sub}"));
+                let mut subkey: HKEY = std::ptr::null_mut();
+                if RegOpenKeyExW(
+                    HKEY_LOCAL_MACHINE,
+                    subpath.as_ptr(),
+                    0,
+                    KEY_READ,
+                    &mut subkey,
+                ) != ERROR_SUCCESS
+                {
+                    continue;
+                }
+                let matching = read_sz(subkey, "MatchingDeviceId").unwrap_or_default();
+                let desc = read_sz(subkey, "DriverDesc").unwrap_or_default();
+                RegCloseKey(subkey);
+                let mu = matching.to_ascii_uppercase();
+                // Real PCI GPUs only (filters software/virtual/mirror adapters).
+                if !mu.contains("PCI") || desc.is_empty() {
+                    continue;
+                }
+                let integrated =
+                    mu.contains("VEN_8086") || desc.to_ascii_lowercase().contains("intel");
+                if !out.iter().any(|g| g.name == desc) {
+                    out.push(super::GpuAdapter {
+                        name: desc,
+                        integrated,
+                    });
+                }
+            }
+            RegCloseKey(hkey);
+        }
+        out
+    }
+
+    /// Read a REG_SZ value as `String`. Returns `None` on any error or non-string type.
+    unsafe fn read_sz(hkey: HKEY, value: &str) -> Option<String> {
+        let name = wide(value);
+        let mut buf = [0u16; 512];
+        let mut len = (buf.len() * 2) as u32; // bytes
+        let rc = RegQueryValueExW(
+            hkey,
+            name.as_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            buf.as_mut_ptr() as *mut u8,
+            &mut len,
+        );
+        if rc != ERROR_SUCCESS {
+            return None;
+        }
+        // `len` is byte count including the NUL terminator; drop the terminator.
+        let chars = (len as usize / 2).saturating_sub(1);
+        Some(String::from_utf16_lossy(&buf[..chars]))
+    }
 }
 
 #[cfg(test)]
@@ -336,6 +500,24 @@ mod tests {
     fn launch_env_high_mesa_sets_dri_prime() {
         let env = gpu_launch_env(GpuPreference::HighPerformance, false);
         assert_eq!(env, vec![("DRI_PRIME".to_string(), "1".to_string())]);
+    }
+
+    #[test]
+    fn capability_returns_a_valid_variant() {
+        let cap = capability();
+        // Must be one of the known variants; on Windows/Linux it is Single/Available,
+        // on macOS Unsupported. Just assert it doesn't panic and is constructible.
+        match cap {
+            GpuCapability::Unsupported
+            | GpuCapability::SingleGpu
+            | GpuCapability::Available { .. } => {}
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn capability_on_windows_is_not_unsupported() {
+        assert!(!matches!(capability(), GpuCapability::Unsupported));
     }
 
     #[cfg(windows)]
