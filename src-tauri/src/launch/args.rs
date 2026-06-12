@@ -9,6 +9,7 @@
 
 use crate::accounts::{Account, AccountKind};
 use crate::error::Result;
+use crate::launch::quick_play::QuickPlay;
 use crate::versions::libraries::artifacts_to_install;
 use crate::versions::version_json::{
     Argument, ArgumentValue, Library, Rule, RuleAction, VersionDetails,
@@ -35,6 +36,10 @@ pub struct ArgvInput<'a> {
     pub client_jar: Option<PathBuf>,
     pub os: &'static str,
     pub arch: &'static str,
+    /// Optional direct-launch target. When set, the matching quick-play
+    /// feature args are enabled and `${quickPlaySingleplayer}` / `${quickPlayMultiplayer}`
+    /// are substituted. `None` = launch to the main menu (default).
+    pub quick_play: Option<&'a QuickPlay>,
 }
 
 /// Build the full argv. Returns `[..jvm_args, main_class, ..game_args]`.
@@ -48,10 +53,12 @@ pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
     );
     let subs = substitution_map(input, &classpath)?;
 
+    let features = enabled_features(input.quick_play);
+
     let (jvm, game) = match (&input.details.arguments, &input.details.minecraft_arguments) {
         (Some(args), _) => {
-            let jvm = walk_arguments(&args.jvm, &subs, input.os, input.arch);
-            let game = walk_arguments(&args.game, &subs, input.os, input.arch);
+            let jvm = walk_arguments(&args.jvm, &subs, input.os, input.arch, features);
+            let game = walk_arguments(&args.game, &subs, input.os, input.arch, features);
             (jvm, game)
         }
         (None, Some(mc_args)) => legacy_argv(mc_args, &subs),
@@ -132,6 +139,15 @@ fn substitution_map<'a>(
         "library_directory",
         input.libraries_dir.to_string_lossy().into_owned(),
     );
+    match input.quick_play {
+        Some(QuickPlay::Singleplayer { world }) => {
+            m.insert("quickPlaySingleplayer", world.clone());
+        }
+        Some(QuickPlay::Multiplayer { address }) => {
+            m.insert("quickPlayMultiplayer", address.clone());
+        }
+        None => {}
+    }
     Ok(m)
 }
 
@@ -168,18 +184,49 @@ pub fn build_classpath(
     parts.join(sep)
 }
 
+/// The quick-play feature keys to enable for a given target. We enable ONLY
+/// these — every other feature (`is_demo_user`, …) stays unmatched, so the
+/// existing "features rules are dropped" behavior holds for everything else.
+fn enabled_features(quick_play: Option<&QuickPlay>) -> &'static [&'static str] {
+    match quick_play {
+        Some(QuickPlay::Singleplayer { .. }) => &["is_quick_play_singleplayer"],
+        Some(QuickPlay::Multiplayer { .. }) => &["is_quick_play_multiplayer"],
+        None => &[],
+    }
+}
+
+/// Whether `details` carries any quick-play feature-gated game arg. The
+/// honest "does this version support Quick Play" signal — robust across
+/// `1.20.4`, `26.1.2`, snapshots, and all loaders (which inherit the vanilla
+/// game args). Used by the `instance_quick_play_support` command.
+pub fn details_has_quick_play(details: &VersionDetails) -> bool {
+    let Some(args) = details.arguments.as_ref() else {
+        return false;
+    };
+    args.game.iter().any(|arg| match arg {
+        Argument::Conditional { rules, .. } => rules.iter().any(|r| {
+            r.features.as_ref().is_some_and(|f| {
+                f.contains_key("is_quick_play_singleplayer")
+                    || f.contains_key("is_quick_play_multiplayer")
+            })
+        }),
+        Argument::Plain(_) => false,
+    })
+}
+
 fn walk_arguments(
     args: &[Argument],
     subs: &HashMap<&'static str, String>,
     os: &str,
     arch: &str,
+    features: &[&str],
 ) -> Vec<String> {
     let mut out = Vec::with_capacity(args.len());
     for arg in args {
         match arg {
             Argument::Plain(s) => out.push(substitute(s, subs)),
             Argument::Conditional { rules, value } => {
-                if rules_match(rules, os, arch) {
+                if rules_match(rules, os, arch, features) {
                     match value {
                         ArgumentValue::Single(s) => out.push(substitute(s, subs)),
                         ArgumentValue::Multiple(ss) => {
@@ -193,23 +240,30 @@ fn walk_arguments(
     out
 }
 
-/// Evaluate the conditional `rules` array. Mojang's semantics: walk
-/// in order, each matching rule's action becomes the state. Default
-/// state is false. `features` rules NEVER match (we don't set them).
-pub fn rules_match(rules: &[Rule], os: &str, arch: &str) -> bool {
+/// Evaluate the conditional `rules` array. Mojang's semantics: walk in
+/// order, each matching rule's action becomes the state. Default state is
+/// false. `features` rules match only when every `(key, true)` they request
+/// is in `enabled_features` — we pass only quick-play keys, so all other
+/// feature rules stay unmatched.
+pub fn rules_match(rules: &[Rule], os: &str, arch: &str, enabled_features: &[&str]) -> bool {
     let mut allowed = false;
     for rule in rules {
-        if rule_matches_one(rule, os, arch) {
+        if rule_matches_one(rule, os, arch, enabled_features) {
             allowed = matches!(rule.action, RuleAction::Allow);
         }
     }
     allowed
 }
 
-fn rule_matches_one(rule: &Rule, os: &str, arch: &str) -> bool {
-    // Features rules → never match (we never set is_demo_user etc.).
-    if rule.features.is_some() {
-        return false;
+fn rule_matches_one(rule: &Rule, os: &str, arch: &str, enabled_features: &[&str]) -> bool {
+    // A features rule is decided solely on features: it matches iff every
+    // `(key, true)` it requests is enabled. Mojang's quick-play / demo rules
+    // carry only a `features` map (no `os`), so returning here is correct;
+    // we never enable `is_demo_user`, so `--demo` stays dropped.
+    if let Some(feats) = rule.features.as_ref() {
+        return feats
+            .iter()
+            .all(|(key, &want)| want && enabled_features.contains(&key.as_str()));
     }
     let Some(os_rule) = rule.os.as_ref() else {
         return true;
@@ -395,7 +449,9 @@ mod tests {
           "--userType", "${user_type}",
           "--assetsDir", "${assets_root}",
           "--assetIndex", "${assets_index_name}",
-          {"rules": [{"action": "allow", "features": {"is_demo_user": true}}], "value": "--demo"}
+          {"rules": [{"action": "allow", "features": {"is_demo_user": true}}], "value": "--demo"},
+          {"rules": [{"action": "allow", "features": {"is_quick_play_singleplayer": true}}], "value": ["--quickPlaySingleplayer", "${quickPlaySingleplayer}"]},
+          {"rules": [{"action": "allow", "features": {"is_quick_play_multiplayer": true}}], "value": ["--quickPlayMultiplayer", "${quickPlayMultiplayer}"]}
         ]
       }
     }"#;
@@ -422,6 +478,18 @@ mod tests {
             client_jar: Some(PathBuf::from("C:/versions/1.20.4/1.20.4.jar")),
             os: "windows",
             arch: "x64",
+            quick_play: None,
+        }
+    }
+
+    fn input_qp<'a>(
+        details: &'a VersionDetails,
+        account: &'a Account,
+        quick_play: Option<&'a QuickPlay>,
+    ) -> ArgvInput<'a> {
+        ArgvInput {
+            quick_play,
+            ..input(details, account)
         }
     }
 
@@ -497,6 +565,62 @@ mod tests {
     }
 
     #[test]
+    fn quick_play_singleplayer_emits_world_arg() {
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        let acct = account();
+        let qp = QuickPlay::Singleplayer {
+            world: "My World".into(),
+        };
+        let argv = build_argv(&input_qp(&details, &acct, Some(&qp))).expect("build");
+        let idx = argv
+            .iter()
+            .position(|a| a == "--quickPlaySingleplayer")
+            .expect("--quickPlaySingleplayer present");
+        assert_eq!(argv[idx + 1], "My World");
+        assert!(!argv.iter().any(|a| a == "--quickPlayMultiplayer"));
+        assert!(!argv.iter().any(|a| a == "--demo"));
+    }
+
+    #[test]
+    fn quick_play_multiplayer_emits_address_arg() {
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        let acct = account();
+        let qp = QuickPlay::Multiplayer {
+            address: "mc.example.net:25566".into(),
+        };
+        let argv = build_argv(&input_qp(&details, &acct, Some(&qp))).expect("build");
+        let idx = argv
+            .iter()
+            .position(|a| a == "--quickPlayMultiplayer")
+            .expect("--quickPlayMultiplayer present");
+        assert_eq!(argv[idx + 1], "mc.example.net:25566");
+        assert!(!argv.iter().any(|a| a == "--quickPlaySingleplayer"));
+        assert!(!argv.iter().any(|a| a == "--demo"));
+    }
+
+    #[test]
+    fn no_quick_play_target_emits_no_quick_play_args() {
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        let acct = account();
+        let argv = build_argv(&input_qp(&details, &acct, None)).expect("build");
+        assert!(!argv.iter().any(|a| a == "--quickPlaySingleplayer"));
+        assert!(!argv.iter().any(|a| a == "--quickPlayMultiplayer"));
+        assert!(!argv.iter().any(|a| a == "--demo"));
+    }
+
+    #[test]
+    fn details_has_quick_play_true_for_120_fixture() {
+        let details = parse(FIXTURE_1_20_4).expect("parse");
+        assert!(details_has_quick_play(&details));
+    }
+
+    #[test]
+    fn details_has_quick_play_false_for_legacy_fixture() {
+        let details = parse(FIXTURE_1_7_10).expect("parse");
+        assert!(!details_has_quick_play(&details));
+    }
+
+    #[test]
     fn build_argv_legacy_synthesises_jvm_and_splits_game_args() {
         let details = parse(FIXTURE_1_7_10).expect("parse");
         let acct = account();
@@ -510,7 +634,7 @@ mod tests {
 
     #[test]
     fn rules_match_no_rules_returns_false() {
-        assert!(!rules_match(&[], "windows", "x64"));
+        assert!(!rules_match(&[], "windows", "x64", &[]));
     }
 
     #[test]
@@ -523,7 +647,7 @@ mod tests {
                 true,
             )])),
         };
-        assert!(!rules_match(&[rule], "windows", "x64"));
+        assert!(!rules_match(&[rule], "windows", "x64", &[]));
     }
 
     #[test]

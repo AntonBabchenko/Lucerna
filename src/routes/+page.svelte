@@ -35,7 +35,9 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
+  import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
@@ -107,6 +109,10 @@
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
 
+  let quickPlaySupported = $state(false);
+  let quickJoinOpen = $state(false);
+  let quickJoinBusy = $state(false);
+
   let logsOpen = $state(false);
   let logsInitialPath = $state<string | null>(null);
   let crashReport = $state<CrashReport | null>(null);
@@ -146,6 +152,22 @@
         void stats.refreshPackStatus(newId);
         void stats.refreshPlaytime(newId);
       }
+    });
+  });
+
+  // Refresh quickPlaySupported whenever the active instance changes or becomes
+  // ready. The effect tracks activeInstance reactively; the async callback
+  // guards against stale results by checking the id hasn't changed.
+  $effect(() => {
+    const id = activeInstance?.id;
+    const ready = activeInstance?.ready ?? false;
+    if (!id || !ready) {
+      quickPlaySupported = false;
+      return;
+    }
+    void commands.instanceQuickPlaySupport(id).then((r) => {
+      if (activeInstance?.id !== id) return; // ignore stale async result
+      quickPlaySupported = r.status === 'ok' ? r.data : false;
     });
   });
 
@@ -196,6 +218,15 @@
     if (anyWideOverlay && untrack(() => compactState.value)) {
       void setCompact(false);
     }
+  });
+
+  const quickPlayDisabledReason = $derived.by(() => {
+    const key = quickPlayDisabledKey({
+      ready: activeInstance?.ready ?? false,
+      running: running !== null,
+      supported: quickPlaySupported,
+    });
+    return key === null ? null : get(t)(key);
   });
 
   async function refreshAccounts() {
@@ -404,12 +435,50 @@
     if (activeInstance.mc_version === '') return;
     if (!activeInstance.ready) return;
     installError = null;
-    const result = await commands.launchInstance(activeInstance.id);
+    const result = await commands.launchInstance(activeInstance.id, null);
     if (result.status === 'error') {
       installError = formatError(result.error);
     }
     // processSpawned event sets `running` once MC starts; processExited
     // clears it. No need to refresh state here.
+  }
+
+  async function onQuickPlayWorld(folderName: string) {
+    if (!activeInstance) return;
+    if (!activeAccount) {
+      showAccountHint();
+      return;
+    }
+    if (quickPlayDisabledReason !== null) return;
+    installError = null;
+    const result = await commands.launchInstance(activeInstance.id, {
+      kind: 'singleplayer',
+      world: folderName,
+    });
+    if (result.status === 'error') {
+      installError = formatError(result.error);
+    }
+  }
+
+  async function onQuickJoin(address: string) {
+    if (!activeInstance) return;
+    if (!activeAccount) {
+      showAccountHint();
+      return;
+    }
+    if (quickPlayDisabledReason !== null) return;
+    quickJoinBusy = true;
+    installError = null;
+    const result = await commands.launchInstance(activeInstance.id, {
+      kind: 'multiplayer',
+      address,
+    });
+    quickJoinBusy = false;
+    if (result.status === 'error') {
+      installError = formatError(result.error);
+    } else {
+      quickJoinOpen = false;
+    }
   }
 
   async function onStop() {
@@ -450,6 +519,8 @@
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
+      {quickPlaySupported}
+      onOpenQuickJoin={() => (quickJoinOpen = true)}
       {onSelectAccount}
       onRemoveAccount={onRemoveActive}
       onAddOffline={async (name) => {
@@ -538,6 +609,8 @@
         onListChanged={() => {
           void refreshInstances();
         }}
+        {onQuickPlayWorld}
+        {quickPlayDisabledReason}
       >
         {#snippet overview()}
           <OverviewTab
@@ -626,6 +699,13 @@
        all modals so it survives modal close mid-operation. Renders nothing when idle. -->
   <OperationsView />
   <TourOverlay />
+  <QuickJoinDialog
+    open={quickJoinOpen}
+    busy={quickJoinBusy}
+    showOfflineHint={activeAccount?.kind === 'offline'}
+    onJoin={onQuickJoin}
+    onClose={() => (quickJoinOpen = false)}
+  />
   {#if exportDialogOpen && activeInstance}
     <ExportPackDialog
       instanceId={activeInstance.id}

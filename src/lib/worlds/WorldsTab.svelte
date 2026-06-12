@@ -15,9 +15,13 @@
   let {
     instanceId,
     onListChanged,
+    onQuickPlayWorld = () => {},
+    quickPlayDisabledReason = null,
   }: {
     instanceId: string | null;
     onListChanged: () => void;
+    onQuickPlayWorld?: (folderName: string) => void;
+    quickPlayDisabledReason?: string | null;
   } = $props();
 
   let worlds = $state<World[]>([]);
@@ -144,35 +148,45 @@
       data-tour-ctx="worlds-list"
     >
       {#each worlds as w (w.folder_name)}
-        <li>
-          <button
-            type="button"
-            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
-            aria-label={$t('worlds.tab.worldActionsAriaLabel', { name: w.folder_name })}
-            aria-expanded={openMenuFor === w.folder_name}
-            onclick={(e) => toggleMenu(w.folder_name, e)}
-          >
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="font-medium truncate">{w.folder_name}</span>
-                {#if w.backup_count > 0}
-                  <span
-                    class="inline-flex items-center gap-1 text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
-                    aria-label={$t('worlds.tab.backupCountAriaLabel', { count: w.backup_count })}
-                  >
-                    <Icon name="package" size={12} />
-                    {w.backup_count}
-                  </span>
-                {/if}
-              </div>
-              <div class="text-xs text-muted">
-                {formatSize($t, w.size_bytes)} · {relativeTime($t, w.modified_unix_ms)}
-              </div>
+        <li class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="font-medium truncate">{w.folder_name}</span>
+              {#if w.backup_count > 0}
+                <span
+                  class="inline-flex items-center gap-1 text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
+                  aria-label={$t('worlds.tab.backupCountAriaLabel', { count: w.backup_count })}
+                >
+                  <Icon name="package" size={12} />
+                  {w.backup_count}
+                </span>
+              {/if}
             </div>
-            <span class="text-placeholder flex-shrink-0" aria-hidden="true"
-              ><Icon name="moreVertical" size={16} /></span
+            <div class="text-xs text-muted">
+              {formatSize($t, w.size_bytes)} · {relativeTime($t, w.modified_unix_ms)}
+            </div>
+          </div>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button
+              type="button"
+              class="rounded p-1 text-placeholder hover:bg-subtle hover:text-success disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-placeholder"
+              disabled={quickPlayDisabledReason !== null}
+              title={quickPlayDisabledReason ?? $t('worlds.quickPlay.playWorld')}
+              aria-label={$t('worlds.quickPlay.playWorld')}
+              onclick={() => onQuickPlayWorld(w.folder_name)}
             >
-          </button>
+              <Icon name="play" size={16} />
+            </button>
+            <button
+              type="button"
+              class="rounded p-1 text-placeholder hover:bg-subtle"
+              aria-label={$t('worlds.tab.worldActionsAriaLabel', { name: w.folder_name })}
+              aria-expanded={openMenuFor === w.folder_name}
+              onclick={(e) => toggleMenu(w.folder_name, e)}
+            >
+              <Icon name="moreVertical" size={16} />
+            </button>
+          </div>
         </li>
       {/each}
     </ul>

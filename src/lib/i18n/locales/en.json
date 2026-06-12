@@ -80,7 +80,8 @@
     "logs": "Logs",
     "compactCollapse": "Collapse to mini mode",
     "compactExpand": "Expand to full window",
-    "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}"
+    "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
+    "joinServer": "Join a server"
   },
   "instance": {
     "manage": {
@@ -589,6 +590,12 @@
     }
   },
   "worlds": {
+    "quickPlay": {
+      "playWorld": "Play this world",
+      "disabledNotReady": "Install the instance first",
+      "disabledRunning": "Minecraft is already running",
+      "disabledUnsupported": "Requires Minecraft 1.20 or newer"
+    },
     "tab": {
       "noInstance": "Select an instance to view its worlds.",
       "loading": "Loading worlds…",
@@ -937,7 +944,8 @@
     "windowIo": "Couldn't resize the launcher window: {details}",
     "updateCheckFailed": "Couldn't check for updates: {details}",
     "updateVerificationFailed": "Update verification failed — the download may be corrupt or tampered with. {details}",
-    "updateInstallFailed": "Couldn't install the update: {details}"
+    "updateInstallFailed": "Couldn't install the update: {details}",
+    "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}"
   },
   "settings": {
     "title": "Settings",
@@ -1138,6 +1146,15 @@
     "offlineName": {
       "cannotBeEmpty": "Name cannot be empty"
     }
+  },
+  "quickJoin": {
+    "title": "Join a server",
+    "addressLabel": "Server address",
+    "addressPlaceholder": "host or host:port",
+    "join": "Join",
+    "cancel": "Cancel",
+    "invalidAddress": "Enter a valid server address (host or host:port).",
+    "offlineHint": "Online servers usually reject offline accounts."
   },
   "format": {
     "relativeTime": {

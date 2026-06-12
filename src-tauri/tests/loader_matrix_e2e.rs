@@ -1041,6 +1041,7 @@ async fn launch_and_watch(
         client_jar,
         os,
         arch,
+        quick_play: None,
     };
     let manifest_argv = match lucerna_lib::launch::args::build_argv(&argv_input) {
         Ok(a) => a,

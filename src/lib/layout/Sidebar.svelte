@@ -33,6 +33,8 @@
     onMicrosoftError,
     compact = false,
     onToggleCompact = () => {},
+    quickPlaySupported = false,
+    onOpenQuickJoin = () => {},
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -63,6 +65,8 @@
     onMicrosoftError?: (err: unknown) => void;
     compact?: boolean;
     onToggleCompact?: () => void;
+    quickPlaySupported?: boolean;
+    onOpenQuickJoin?: () => void;
   } = $props();
 
   let showAddOfflineInput = $state(false);
@@ -261,9 +265,27 @@
             {$t('sidebar.install')}
           </button>
         {:else}
-          <button type="button" data-tour="play-btn" class="btn-success btn-lg" onclick={onPlay}>
-            {$t('sidebar.play')}
-          </button>
+          <div class="flex gap-1.5">
+            <button
+              type="button"
+              data-tour="play-btn"
+              class="btn-success btn-lg flex-1"
+              onclick={onPlay}
+            >
+              {$t('sidebar.play')}
+            </button>
+            {#if quickPlaySupported}
+              <button
+                type="button"
+                class="btn-success btn-lg px-3"
+                title={$t('sidebar.joinServer')}
+                aria-label={$t('sidebar.joinServer')}
+                onclick={onOpenQuickJoin}
+              >
+                <Icon name="globe" size={18} />
+              </button>
+            {/if}
+          </div>
         {/if}
       {/if}
     {/if}

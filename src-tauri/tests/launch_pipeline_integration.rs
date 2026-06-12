@@ -62,6 +62,7 @@ fn full_argv_for_1_20_4_has_all_required_pieces() {
         )),
         os: "windows",
         arch: "x64",
+        quick_play: None,
     };
     let argv = build_argv(&input).expect("build_argv");
 

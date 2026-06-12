@@ -27,11 +27,17 @@ pub async fn install_instance(
 pub async fn launch_instance(
     app: tauri::AppHandle,
     instance_id: String,
+    quick_play: Option<crate::launch::QuickPlay>,
 ) -> Result<u32, crate::error::Error> {
     // Don't launch on top of a repair that's rewriting this instance's shared
     // library/client jars — the JVM could read a half-written file and crash.
     if crate::verify::repair_in_progress() {
         return Err(crate::error::Error::InstanceBusy);
+    }
+    // Boundary-validate the quick-play target (path segment / address) before
+    // doing any launch work.
+    if let Some(qp) = &quick_play {
+        qp.validate()?;
     }
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     let json_path = crate::paths::instance_json(&app, &instance_id)
@@ -39,7 +45,41 @@ pub async fn launch_instance(
     let instance = crate::instances::store::read_instance_json(&json_path)?;
     let account =
         crate::accounts::get_active_account(&app)?.ok_or(crate::error::Error::AccountNotSet)?;
-    crate::launch::start(&instance, &effective_id, &account, &app).await
+    crate::launch::start(
+        &instance,
+        &effective_id,
+        &account,
+        &app,
+        quick_play.as_ref(),
+    )
+    .await
+}
+
+/// Whether this instance's installed version supports MC 1.20+ Quick Play.
+/// Honest signal: parses the effective version JSON and checks for a
+/// quick-play feature-gated game arg (robust across release/snapshot/loader).
+/// Returns `false` (not an error) when the version JSON is absent (instance
+/// not yet installed, or merged profile not yet written) or unparseable —
+/// the UI simply hides the entry points.
+#[tauri::command]
+#[specta::specta]
+pub async fn instance_quick_play_support(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<bool, crate::error::Error> {
+    let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
+    let versions = crate::paths::versions_dir(&app)
+        .map_err(|e| crate::error::Error::io("<versions_dir>", e))?;
+    let json_path = versions
+        .join(&effective_id)
+        .join(format!("{effective_id}.json"));
+    let Ok(json) = std::fs::read_to_string(&json_path) else {
+        return Ok(false);
+    };
+    let Ok(details) = crate::versions::version_json::parse(&json) else {
+        return Ok(false);
+    };
+    Ok(crate::launch::args::details_has_quick_play(&details))
 }
 
 /// Integrity verification of an instance's installed files. The hashing pass is

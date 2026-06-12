@@ -80,7 +80,8 @@
     "logs": "Логи",
     "compactCollapse": "Свернуть в мини-режим",
     "compactExpand": "Развернуть на всё окно",
-    "modpackUpdatesBadge": "Доступно обновлений сборок: {count}"
+    "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
+    "joinServer": "Подключиться к серверу"
   },
   "instance": {
     "manage": {
@@ -589,6 +590,12 @@
     }
   },
   "worlds": {
+    "quickPlay": {
+      "playWorld": "Играть в этот мир",
+      "disabledNotReady": "Сначала установите инстанс",
+      "disabledRunning": "Minecraft уже запущен",
+      "disabledUnsupported": "Нужен Minecraft 1.20 или новее"
+    },
     "tab": {
       "noInstance": "Выберите профиль, чтобы увидеть его миры.",
       "loading": "Загрузка миров…",
@@ -937,7 +944,8 @@
     "windowIo": "Не удалось изменить размер окна лаунчера: {details}",
     "updateCheckFailed": "Не удалось проверить обновления: {details}",
     "updateVerificationFailed": "Проверка обновления не пройдена — загрузка может быть повреждена или подделана. {details}",
-    "updateInstallFailed": "Не удалось установить обновление: {details}"
+    "updateInstallFailed": "Не удалось установить обновление: {details}",
+    "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}"
   },
   "settings": {
     "title": "Настройки",
@@ -1138,6 +1146,15 @@
     "offlineName": {
       "cannotBeEmpty": "Имя не может быть пустым"
     }
+  },
+  "quickJoin": {
+    "title": "Подключиться к серверу",
+    "addressLabel": "Адрес сервера",
+    "addressPlaceholder": "хост или хост:порт",
+    "join": "Подключиться",
+    "cancel": "Отмена",
+    "invalidAddress": "Введите корректный адрес сервера (хост или хост:порт).",
+    "offlineHint": "Онлайн-серверы обычно отклоняют offline-аккаунты."
   },
   "format": {
     "relativeTime": {
