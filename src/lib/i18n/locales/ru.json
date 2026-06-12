@@ -1131,6 +1131,15 @@
       "cannotBeEmpty": "Имя не может быть пустым"
     }
   },
+  "quickJoin": {
+    "title": "Подключиться к серверу",
+    "addressLabel": "Адрес сервера",
+    "addressPlaceholder": "хост или хост:порт",
+    "join": "Подключиться",
+    "cancel": "Отмена",
+    "invalidAddress": "Введите корректный адрес сервера (хост или хост:порт).",
+    "offlineHint": "Онлайн-серверы обычно отклоняют offline-аккаунты."
+  },
   "format": {
     "relativeTime": {
       "never": "никогда",

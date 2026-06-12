@@ -1131,6 +1131,15 @@
       "cannotBeEmpty": "Name cannot be empty"
     }
   },
+  "quickJoin": {
+    "title": "Join a server",
+    "addressLabel": "Server address",
+    "addressPlaceholder": "host or host:port",
+    "join": "Join",
+    "cancel": "Cancel",
+    "invalidAddress": "Enter a valid server address (host or host:port).",
+    "offlineHint": "Online servers usually reject offline accounts."
+  },
   "format": {
     "relativeTime": {
       "never": "never",
