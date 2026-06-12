@@ -698,7 +698,20 @@
       "disableNamed": "Disable {name}",
       "updateNamed": "Update {name} to {version}",
       "toastDone": "Repair applied to {name}.",
-      "toastError": "Couldn't repair {name}: {error}"
+      "toastError": "Couldn't repair {name}: {error}",
+      "missingMods": {
+        "title": "Install missing mods",
+        "intro": "The server needs these mods. Confirmed matches are checked; pick from suggestions where the match is unsure.",
+        "exactHeading": "Ready to install",
+        "fuzzyHeading": "Choose the right one",
+        "unresolvedHeading": "Couldn't identify — find these yourself",
+        "serverWants": "server wants {version}",
+        "findInBrowser": "Find in Add-ons",
+        "install": "Install {count} selected",
+        "none": "Found the problem, but couldn't identify any of the mods automatically. Use the names above to find them in the Add-ons browser.",
+        "installedToast": "Installed {name}",
+        "failedToast": "Couldn't install {name}: {error}"
+      }
     },
     "empty": {
       "noFile": "Select a file on the left to read it.",
