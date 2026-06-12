@@ -26,7 +26,11 @@
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
   import OperationsView from '$lib/ops/OperationsView.svelte';
-  import { enqueueImport, opCompletionTick, opImportCompletionTick } from '$lib/ops/op-queue.svelte';
+  import {
+    enqueueImport,
+    opCompletionTick,
+    opImportCompletionTick,
+  } from '$lib/ops/op-queue.svelte';
   import { createInstanceStats } from '$lib/instances/instance-stats.svelte';
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
