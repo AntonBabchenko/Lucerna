@@ -1,6 +1,7 @@
 //! Structural guard: OS-divergent primitives are confined to `platform::`.
-//! `PermissionsExt` (exec bits), `WaitForInputIdle` (window detect), and
-//! `libc::kill` (process signal) must not appear outside `src/platform/`, so
+//! `PermissionsExt` (exec bits), `WaitForInputIdle` (window detect),
+//! `libc::kill` (process signal), and the registry-mutating `Reg*W` calls
+//! (GPU-preference writes) must not appear outside `src/platform/`, so
 //! adding macOS later means editing one module — not hunting the codebase.
 //! Subprocess spawning is governed separately by structural_no_raw_spawn.rs.
 
@@ -22,7 +23,14 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 fn platform_primitives_confined_to_platform_module() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let platform_dir = src.join("platform");
-    let needles = ["PermissionsExt", "WaitForInputIdle", "libc::kill"];
+    let needles = [
+        "PermissionsExt",
+        "WaitForInputIdle",
+        "libc::kill",
+        "RegSetValueExW",
+        "RegDeleteValueW",
+        "RegCreateKeyW",
+    ];
 
     let mut files = Vec::new();
     rust_files(&src, &mut files);

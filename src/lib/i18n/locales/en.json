@@ -993,7 +993,7 @@
         "auto": "Automatic (let the system decide)",
         "high": "High performance",
         "power": "Power saving",
-        "note": "Sets a Windows GPU preference for Lucerna's Java runtime. Default is automatic.",
+        "note": "Tells Lucerna's Java runtime which GPU to prefer. Default is automatic.",
         "appliedToast": "Applied GPU preference to the new Java runtime: {name}"
       }
     },
