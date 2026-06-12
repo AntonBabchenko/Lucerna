@@ -6,6 +6,7 @@
 
 pub mod assets;
 pub mod cache;
+pub mod cited_resolve;
 pub mod compat;
 pub mod curseforge;
 pub mod depgraph;
