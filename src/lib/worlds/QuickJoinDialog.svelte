@@ -84,11 +84,24 @@
       <p class="text-xs text-secondary mb-3">{$t('quickJoin.offlineHint')}</p>
     {/if}
 
-    <div class="flex justify-end gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
+    <!-- Compact mode shrinks the window to ~240px; stack the actions full-width
+         there so the long "Connect" label can't overflow the panel. At the sm
+         breakpoint (normal-size window) revert to a right-aligned row. -->
+    <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <button
+        type="button"
+        class="btn-secondary btn-sm w-full sm:w-auto"
+        onclick={onClose}
+        disabled={busy}
+      >
         {$t('quickJoin.cancel')}
       </button>
-      <BusyButton class="btn-primary btn-sm" {busy} disabled={touched && !valid} onclick={submit}>
+      <BusyButton
+        class="btn-primary btn-sm w-full sm:w-auto"
+        {busy}
+        disabled={touched && !valid}
+        onclick={submit}
+      >
         {$t('quickJoin.join')}
       </BusyButton>
     </div>
