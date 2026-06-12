@@ -433,4 +433,21 @@ mod tests {
             LogSource::Game,
         );
     }
+
+    // 8. server-missing-mods
+
+    #[test]
+    fn pattern_server_missing_mods_matches_forge_reject_block() {
+        let content = "[12:00:03] [Render thread/ERROR]: Missing or unsupported mods:\n\
+                       \tjei (Just Enough Items) 15.2.0.27 [required, missing]";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
+
+    #[test]
+    fn pattern_server_missing_mods_does_not_match_generic_disconnect() {
+        assert_no_diag(
+            "[12:00:03] [Render thread/INFO]: Disconnected: Connection closed",
+            LogSource::Game,
+        );
+    }
 }

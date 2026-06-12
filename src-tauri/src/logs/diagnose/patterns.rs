@@ -127,6 +127,23 @@ pub const PATTERNS: &[Pattern] = &[
         source_hint: SourceHint::Any,
     },
     Pattern {
+        id: "server-missing-mods",
+        // PROVISIONAL anchor: documented modern-FML header. Must be confirmed
+        // against a real captured latest.log in the Phase 0 spike; widen to a
+        // Regex alternation if other loaders use a different header.
+        matcher: Matcher::Substring("Missing or unsupported mods"),
+        title: "The server needs mods you don't have",
+        explanation:
+            "The server rejected the connection because your client is missing mods it \
+             requires, or has them at the wrong version. Minecraft listed them before \
+             disconnecting.",
+        recommendation:
+            "Open this log and use \"Install missing mods\" to add them to this instance, \
+             then reconnect. Mods the launcher can't identify automatically are listed so \
+             you can find them in the Add-ons browser.",
+        source_hint: SourceHint::GameLog,
+    },
+    Pattern {
         id: "out-of-memory",
         matcher: Matcher::Substring("OutOfMemoryError: Java heap space"),
         title: "Minecraft ran out of memory",
@@ -216,10 +233,8 @@ mod tests {
     }
 
     #[test]
-    fn v1_ships_exactly_seven_patterns() {
-        // Sentinel against accidental drift. If you intentionally add
-        // (or remove) a pattern, bump this number and document in
-        // the commit. The spec's §4 lists the v1 set explicitly.
-        assert_eq!(PATTERNS.len(), 7);
+    fn v1_ships_exactly_eight_patterns() {
+        // Bumped 7 → 8 for `server-missing-mods` (server missing-mods repair feature).
+        assert_eq!(PATTERNS.len(), 8);
     }
 }
