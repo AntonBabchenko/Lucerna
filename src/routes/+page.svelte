@@ -37,6 +37,7 @@
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
+  import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
@@ -220,11 +221,12 @@
   });
 
   const quickPlayDisabledReason = $derived.by(() => {
-    const tr = get(t);
-    if (!activeInstance?.ready) return tr('worlds.quickPlay.disabledNotReady');
-    if (running !== null) return tr('worlds.quickPlay.disabledRunning');
-    if (!quickPlaySupported) return tr('worlds.quickPlay.disabledUnsupported');
-    return null;
+    const key = quickPlayDisabledKey({
+      ready: activeInstance?.ready ?? false,
+      running: running !== null,
+      supported: quickPlaySupported,
+    });
+    return key === null ? null : get(t)(key);
   });
 
   async function refreshAccounts() {
