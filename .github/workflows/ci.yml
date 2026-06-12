@@ -3,6 +3,13 @@ name: CI
 # Runs on every push and PR to main. GitHub-hosted Actions minutes are free on
 # public repositories. `workflow_dispatch` is kept for manual runs (e.g. the
 # gated coverage job below).
+#
+# Per-PR cost control: a `changes` job classifies the diff (rust / frontend /
+# bundle) and the heavy jobs are guarded with `if:` so a single-sided PR skips
+# the irrelevant half. A push to main (or a manual dispatch) always runs the
+# full matrix. The `ci-gate` aggregator at the bottom is the ONLY required
+# status check — it passes when every upstream job either succeeded or was
+# skipped, so path-filtered skips never wedge a "required check" as pending.
 on:
   workflow_dispatch:
   push:
@@ -15,9 +22,59 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Classify the PR diff so the heavy jobs below can skip the irrelevant half.
+  # Native git diff against the PR base — no third-party action, keeping the
+  # SHA-pinning supply-chain policy intact. On push/dispatch everything is
+  # forced true (full matrix post-merge + on demand).
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.classify.outputs.rust }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+      bundle: ${{ steps.classify.outputs.bundle }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: classify
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Non-PR event (${{ github.event_name }}) — running the full matrix."
+            echo "rust=true" >>"$GITHUB_OUTPUT"
+            echo "frontend=true" >>"$GITHUB_OUTPUT"
+            echo "bundle=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base='${{ github.event.pull_request.base.sha }}'
+          files=$(git diff --name-only "$base" HEAD)
+          echo "Changed files:"; echo "$files"
+          rust=false
+          frontend=false
+          # A workflow change re-runs everything (both flags) so CI can't drift.
+          if echo "$files" | grep -qE '^(src-tauri/|Cargo\.(toml|lock)|deny\.toml|\.github/workflows/ci\.yml)'; then
+            rust=true
+          fi
+          if echo "$files" | grep -qE '^(src/|tests/|tests-e2e/|static/|tools/|package\.json|pnpm-lock\.yaml|vitest\.config\.|.*\.config\.(ts|js|mjs)|\.github/workflows/ci\.yml)'; then
+            frontend=true
+          fi
+          # The bundle smoke builds the whole app, so any code change can break
+          # it — run it when either half changed.
+          bundle=false
+          if [ "$rust" = true ] || [ "$frontend" = true ]; then bundle=true; fi
+          echo "rust=$rust frontend=$frontend bundle=$bundle"
+          echo "rust=$rust" >>"$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >>"$GITHUB_OUTPUT"
+          echo "bundle=$bundle" >>"$GITHUB_OUTPUT"
+
   rust-ubuntu:
     name: rust (ubuntu)
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -48,6 +105,8 @@ jobs:
   rust-windows:
     name: rust (windows)
     runs-on: windows-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -65,6 +124,9 @@ jobs:
   rust-macos:
     name: rust (macos)
     runs-on: macos-latest
+    needs: changes
+    # cargo test + the macOS bundle smoke — run on any code change (bundle).
+    if: ${{ needs.changes.outputs.bundle == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -109,6 +171,8 @@ jobs:
   linux-bundle:
     name: linux bundle (smoke)
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.bundle == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -156,6 +220,8 @@ jobs:
   frontend:
     name: frontend
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -185,6 +251,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    # Cheap (~20s) and cross-cutting — left ungated so it runs on every PR.
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -209,6 +276,8 @@ jobs:
   coverage-frontend:
     name: coverage (frontend)
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -228,9 +297,8 @@ jobs:
   # run, ~15-20 min — single-threaded to defeat the process-global env-var race,
   # audit finding F2 / backlog E6-env-race). Running it on EVERY PR would add
   # ~20 min to each, so it runs on push-to-main and manual dispatch but NOT on
-  # PRs. To make it a blocking per-PR gate, drop the `if:` below AND add
-  # "coverage (rust)" to branch-protection required checks (a repo-settings
-  # change, deliberate — not an accident of editing this file).
+  # PRs. It is intentionally NOT part of the ci-gate (which gates PR merge), so
+  # the long run never blocks a merge — it's a post-merge signal on main.
   coverage-rust:
     name: coverage (rust)
     runs-on: ubuntu-latest
@@ -268,9 +336,11 @@ jobs:
           --summary-only --fail-under-lines 70 -- --test-threads=1
 
   # Supply-chain gate: advisories (RustSec DB — the cargo-audit equivalent),
-  # banned/duplicate crates, license policy, and source allowlist. Runs on every
-  # push/PR (cheap — metadata + advisory DB, no project build). Enforces the
-  # CLAUDE.md "no new crate without cargo-deny justification" rule mechanically.
+  # banned/duplicate crates, license policy, and source allowlist. Cheap
+  # (metadata + advisory DB, no project build) and left ungated so it runs on
+  # every PR — the advisory DB drifts even when Cargo.lock does not, so a stale
+  # dep can newly trip it. Enforces the CLAUDE.md "no new crate without
+  # cargo-deny justification" rule mechanically.
   cargo-deny:
     name: cargo-deny
     runs-on: ubuntu-latest
@@ -293,3 +363,35 @@ jobs:
         run: cargo install cargo-deny --version 0.19.8 --locked
       - name: cargo deny check
         run: cargo deny --manifest-path src-tauri/Cargo.toml check
+
+  # The single required status check (set in the repo ruleset). Always runs,
+  # depends on every PR-relevant job, and fails iff one of them FAILED or was
+  # CANCELLED. A `skipped` upstream (path-filtered out) counts as OK, so
+  # single-sided PRs are not wedged on a forever-pending required check. Auto-
+  # merge waits on this one check, then merges with no human in the loop.
+  ci-gate:
+    name: ci-gate
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - rust-ubuntu
+      - rust-windows
+      - rust-macos
+      - linux-bundle
+      - frontend
+      - lint
+      - coverage-frontend
+      - cargo-deny
+    steps:
+      - name: Verify no required job failed
+        run: |
+          set -eu
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "Upstream job results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A required CI job did not pass (result: $r)."
+              exit 1
+            fi
+          done
+          echo "All required jobs succeeded or were skipped — gate green."
