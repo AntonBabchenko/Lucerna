@@ -292,6 +292,7 @@ pub async fn start(
         client_jar,
         os,
         arch,
+        quick_play: None,
     })?;
 
     // Prepend custom JVM args: `-Xmx<heap>m` plus the sanitised
