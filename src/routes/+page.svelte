@@ -466,6 +466,7 @@
       showAccountHint();
       return;
     }
+    if (quickPlayDisabledReason !== null) return;
     quickJoinBusy = true;
     installError = null;
     const result = await commands.launchInstance(activeInstance.id, {
