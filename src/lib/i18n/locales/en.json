@@ -720,7 +720,7 @@
       },
       "signIn": {
         "title": "Choose an account",
-        "body": "You need an account to launch the game. Sign in with Microsoft for your real account, or add an offline account for single-player and LAN. Tokens are stored in your OS keychain; offline accounts can't join servers that require a Microsoft login.",
+        "body": "You need an account to launch the game. Sign in with Microsoft for your real account, or add an offline account for single-player and LAN. Lucerna stores tokens in your OS keychain; offline accounts can't join servers that require a Microsoft login.",
         "titleBasic": "Choose an account",
         "bodyBasic": "You need an account to start the game. Sign in with Microsoft to use your real Minecraft account, or add an offline account to play on your own or with friends on the same network."
       },
@@ -738,13 +738,13 @@
       },
       "installPlay": {
         "title": "Install, then Play",
-        "body": "First click downloads Minecraft and your chosen loader (one-time per version). Downloaded assets and libraries are checked against Mojang's hashes. The button then switches to Play. While Minecraft is running it becomes Stop.",
+        "body": "First click downloads Minecraft and your chosen loader (one-time per version). Lucerna checks downloaded assets and libraries against Mojang's hashes. The button then switches to Play. While Minecraft is running it becomes Stop.",
         "titleBasic": "Install, then Play",
         "bodyBasic": "The first click downloads Minecraft and the mod system you picked. You only wait for this once per version. After that the button turns into Play. While the game is open it turns into Stop."
       },
       "browseMods": {
         "title": "Browse mods",
-        "body": "Search Modrinth or CurseForge and install mods directly into the active instance's mods folder. Dependencies are pulled in automatically. SHA-verified, listed in the Installed sub-tab.",
+        "body": "Search Modrinth or CurseForge and install mods into the active instance's mods folder. It pulls in dependencies for you. Each file is SHA-verified and listed in the Installed sub-tab.",
         "titleBasic": "Find mods",
         "bodyBasic": "Search Modrinth or CurseForge — two big mod websites — and add mods straight into the instance you're using. Lucerna checks each file is safe, and you'll see them in the Installed list."
       },
