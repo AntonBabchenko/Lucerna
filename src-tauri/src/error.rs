@@ -53,6 +53,9 @@ pub enum Error {
     #[error("an instance operation is already in progress or the game is running")]
     InstanceBusy,
 
+    #[error("Invalid server address '{address}': {reason}")]
+    QuickPlayAddressInvalid { address: String, reason: String },
+
     #[error("Microsoft sign-in cancelled")]
     AuthCancelled,
 

@@ -1,0 +1,148 @@
+//! The Quick Play launch target + its boundary validation.
+//!
+//! `QuickPlay` crosses the IPC boundary (specta-exported) and is threaded
+//! through `launch::start` into `args::build_argv`, where it selectively
+//! enables the MC 1.20+ quick-play feature args.
+
+use crate::error::Error;
+use serde::Deserialize;
+use specta::Type;
+
+/// A direct-launch target. Singleplayer carries the world's save-folder
+/// name (the `saves/<folder>` segment); Multiplayer carries a server
+/// address (`host` or `host:port`).
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum QuickPlay {
+    Singleplayer { world: String },
+    Multiplayer { address: String },
+}
+
+impl QuickPlay {
+    /// Boundary validation. Singleplayer reuses the worlds path-segment
+    /// gate; Multiplayer uses [`validate_server_address`].
+    pub fn validate(&self) -> Result<(), Error> {
+        match self {
+            QuickPlay::Singleplayer { world } => crate::worlds::fs::validate_segment(world),
+            QuickPlay::Multiplayer { address } => validate_server_address(address),
+        }
+    }
+}
+
+/// Max length for a server address. Hostnames cap at 253; allow room for
+/// `:port`.
+const MAX_ADDRESS_LEN: usize = 260;
+
+/// Validate a `host` or `host:port` server address. The value is passed as
+/// a single argv token (no shell), so this is hygiene + clear UX, not
+/// shell-injection defense. Rules: non-empty, no ASCII whitespace, no
+/// control chars, length <= [`MAX_ADDRESS_LEN`], and if a single `:` is
+/// present the suffix must parse as a `u16` port.
+pub fn validate_server_address(address: &str) -> Result<(), Error> {
+    let invalid = |reason: &str| Error::QuickPlayAddressInvalid {
+        address: address.to_string(),
+        reason: reason.to_string(),
+    };
+
+    if address.is_empty() {
+        return Err(invalid("empty address"));
+    }
+    if address.len() > MAX_ADDRESS_LEN {
+        return Err(invalid("address too long"));
+    }
+    if address.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(invalid("contains whitespace or control characters"));
+    }
+    // Optional single `:port`. Reject multiple colons (IPv6 literals are
+    // not supported in v1 — keep the validator simple and explicit).
+    if let Some((host, port)) = address.split_once(':') {
+        if host.is_empty() {
+            return Err(invalid("missing host before ':'"));
+        }
+        if port.contains(':') {
+            return Err(invalid("multiple ':' separators (IPv6 not supported)"));
+        }
+        if port.parse::<u16>().is_err() {
+            return Err(invalid("port must be a number 0-65535"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_plain_host() {
+        assert!(validate_server_address("mc.example.net").is_ok());
+    }
+
+    #[test]
+    fn accepts_host_with_port() {
+        assert!(validate_server_address("mc.example.net:25566").is_ok());
+        assert!(validate_server_address("192.168.1.10:25565").is_ok());
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(matches!(
+            validate_server_address(""),
+            Err(Error::QuickPlayAddressInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_whitespace_and_control() {
+        assert!(validate_server_address("mc example.net").is_err());
+        assert!(validate_server_address("mc\texample.net").is_err());
+        assert!(validate_server_address("mc\u{0}.net").is_err());
+    }
+
+    #[test]
+    fn rejects_bad_port() {
+        assert!(validate_server_address("host:abc").is_err());
+        assert!(validate_server_address("host:99999").is_err()); // > u16::MAX
+        assert!(validate_server_address("host:").is_err());
+    }
+
+    #[test]
+    fn rejects_missing_host() {
+        assert!(validate_server_address(":25565").is_err());
+    }
+
+    #[test]
+    fn rejects_multiple_colons() {
+        assert!(validate_server_address("a:b:c").is_err());
+    }
+
+    #[test]
+    fn rejects_overlong() {
+        let long = format!("{}.net", "x".repeat(300));
+        assert!(validate_server_address(&long).is_err());
+    }
+
+    #[test]
+    fn validate_dispatches_singleplayer_through_segment_gate() {
+        let bad = QuickPlay::Singleplayer {
+            world: "../escape".into(),
+        };
+        assert!(bad.validate().is_err());
+        let ok = QuickPlay::Singleplayer {
+            world: "My World".into(),
+        };
+        assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_dispatches_multiplayer_through_address_gate() {
+        let bad = QuickPlay::Multiplayer {
+            address: "bad host".into(),
+        };
+        assert!(bad.validate().is_err());
+        let ok = QuickPlay::Multiplayer {
+            address: "mc.example.net".into(),
+        };
+        assert!(ok.validate().is_ok());
+    }
+}
