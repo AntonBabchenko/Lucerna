@@ -37,15 +37,23 @@
   // Unique sha1s across all files (FTB packs can repeat a sha1 across files).
   const allShas = $derived([...new Set(summary.files.map((f) => f.sha1))]);
 
-  // Selection — Set keyed by sha1, seeded with every file (all checked).
-  let selected = $state<Set<string>>(new Set(summary.files.map((f) => f.sha1)));
+  // Selection — Set keyed by sha1. Seeded (and re-seeded on pack change) below;
+  // the initializer reads no reactive state, so it stays an empty set here.
+  let selected = $state<Set<string>>(new Set());
 
-  // Re-seed to "all" whenever a different pack is shown. The dialog can be
-  // reused without unmounting (parent swaps `summary`); without this a prior
-  // pack's selection would leak into the next. Reads only `summary`, so user
-  // toggles (which write `selected`) never retrigger it.
-  $effect(() => {
-    selected = new Set(summary.files.map((f) => f.sha1));
+  // Seed to "all checked" for the current pack, re-seeding whenever a different
+  // pack is shown — the dialog can be reused without unmounting (parent swaps
+  // `summary`), and a prior pack's selection must not leak in. `$effect.pre`
+  // runs before paint, so the first render already shows everything checked (no
+  // empty-then-fill flash). It reads only `summary`, so user toggles (which
+  // write `selected`) never retrigger it; `seededFor` is a plain closure var
+  // (not $state) gating the reseed without being reactive itself.
+  let seededFor: ModpackSummary | null = null;
+  $effect.pre(() => {
+    if (seededFor !== summary) {
+      seededFor = summary;
+      selected = new Set(summary.files.map((f) => f.sha1));
+    }
   });
 
   function toggle(sha: string) {
