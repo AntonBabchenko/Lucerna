@@ -30,6 +30,40 @@ pub async fn inspect(bytes: &[u8], cf_base: &str) -> Result<ModpackSummary, Erro
     }
 }
 
+/// Best-effort: if `install_path` lands in `resourcepacks/` or `shaderpacks/`,
+/// record the file in the per-instance assets registry so it shows in the
+/// Add-ons → Installed view. Non-asset paths (mods/, config/, …) are ignored —
+/// they have no Installed tab. A registry-write failure is logged, never fatal:
+/// the file is already on disk and tracked in `pack_origin`.
+#[allow(clippy::too_many_arguments)]
+async fn register_asset_if_applicable(
+    instance_root: &std::path::Path,
+    install_path: &str,
+    filename: &str,
+    sha1: &str,
+    name: &str,
+    source: Option<ModSource>,
+    project_id: Option<String>,
+    version_id: Option<String>,
+) {
+    let Some(kind) = crate::mods::install::content_kind_for_install_path(install_path) else {
+        return;
+    };
+    let asset = crate::mods::assets::make_asset(
+        kind,
+        filename,
+        sha1,
+        source,
+        project_id,
+        version_id,
+        name,
+        chrono::Utc::now().to_rfc3339(),
+    );
+    if let Err(e) = crate::mods::assets::add(instance_root, asset).await {
+        eprintln!("[modpack::import] asset registry add failed (non-fatal): {e}");
+    }
+}
+
 /// Build the immutable origin snapshot from the resolved summary and
 /// the user-selected file slice. Pure: no I/O, easy to unit-test. Called
 /// once at the end of a successful import; the snapshot lives in
@@ -706,7 +740,7 @@ pub async fn install_resolved_pack(
                 .await
                 .map(|_| ())
         } else {
-            install_asset(
+            let r = install_asset(
                 &data_dir,
                 &instance_root,
                 &file.url,
@@ -715,7 +749,21 @@ pub async fn install_resolved_pack(
                 &file.install_path,
                 &install_progress,
             )
-            .await
+            .await;
+            if r.is_ok() {
+                register_asset_if_applicable(
+                    &instance_root,
+                    &file.install_path,
+                    &file.filename,
+                    &file.sha1,
+                    &file.name,
+                    Some(file.source),
+                    (!file.project_id.is_empty()).then(|| file.project_id.clone()),
+                    (!file.version_id.is_empty()).then(|| file.version_id.clone()),
+                )
+                .await;
+            }
+            r
         };
         if let Err(e) = &res {
             failures.push((file.install_path.clone(), e.to_string()));
@@ -798,6 +846,22 @@ pub async fn install_resolved_pack(
             env_client: crate::mods::modpack::schema::EnvSupport::Required,
             source: bundled_source,
         });
+    }
+    // Bundled resource packs / shaders from overrides/ also belong in the
+    // assets registry so they show under Add-ons → Installed. Bundled mods and
+    // other files are skipped (content_kind_for_install_path returns None).
+    for m in &bundled_assets {
+        register_asset_if_applicable(
+            &instance_root,
+            &m.install_path,
+            &m.filename,
+            &m.sha1,
+            &m.filename,
+            None,
+            None,
+            None,
+        )
+        .await;
     }
     // Record the skipped oversized overrides so the Imported drawer can
     // show the informational "skipped" note after a restart (the Done
@@ -963,6 +1027,51 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn register_asset_tracks_resourcepacks_skips_mods() {
+        use crate::mods::platform::{ContentKind, ModSource};
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+
+        // A resource pack → tracked.
+        register_asset_if_applicable(
+            root,
+            "resourcepacks/Faithful.zip",
+            "Faithful.zip",
+            "AABB",
+            "Faithful",
+            Some(ModSource::Modrinth),
+            Some("pid".into()),
+            Some("vid".into()),
+        )
+        .await;
+        // A mod → ignored.
+        register_asset_if_applicable(
+            root,
+            "mods/sodium.jar",
+            "sodium.jar",
+            "CCDD",
+            "Sodium",
+            Some(ModSource::Modrinth),
+            None,
+            None,
+        )
+        .await;
+
+        let rps = crate::mods::assets::list(root, ContentKind::ResourcePack)
+            .await
+            .unwrap();
+        assert_eq!(rps.len(), 1);
+        assert_eq!(rps[0].filename, "Faithful.zip");
+        assert_eq!(rps[0].sha1, "aabb");
+        assert_eq!(rps[0].project_id.as_deref(), Some("pid"));
+        // No mod leaked into the asset registry.
+        assert!(crate::mods::assets::list(root, ContentKind::Shader)
+            .await
+            .unwrap()
+            .is_empty());
+    }
 
     #[test]
     fn resolve_name_returns_desired_when_free() {

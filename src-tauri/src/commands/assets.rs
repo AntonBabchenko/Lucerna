@@ -15,6 +15,12 @@ pub async fn assets_list(
 ) -> crate::error::Result<Vec<crate::mods::platform::InstalledAsset>> {
     crate::mods::assets::require_asset_kind(kind)?;
     let inst_root = instance_root(&app, &instance_id)?;
+    // Retro-fit instances imported before assets were tracked (no-op once the
+    // registry file exists). Best-effort: a backfill error must not block the
+    // list, so log and continue.
+    if let Err(e) = crate::mods::assets::backfill_from_pack_origin_if_missing(&inst_root).await {
+        eprintln!("[assets_list] backfill failed (non-fatal): {e}");
+    }
     crate::mods::assets::list(&inst_root, kind).await
 }
 
