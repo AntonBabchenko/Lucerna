@@ -616,18 +616,19 @@ export const commands = {
 	 */
 	modpackSourceCaps: (source: ModSource) => typedError<SourceCaps, Error>(__TAURI_INVOKE("modpack_source_caps", { source })),
 	/**
-	 *  Check whether a newer version of an imported Modrinth modpack exists.
-	 *  Returns `None` for non-Modrinth pack instances and when the instance
-	 *  already has the latest version.
+	 *  Per-instance modpack update check across all four sources. Replaces the
+	 *  Modrinth-only `modpack_check_update` (which the Overview card migrates to
+	 *  in a later change). Returns an explicit status that distinguishes
+	 *  "up to date" from "not checkable".
 	 */
-	modpackCheckUpdate: (instanceId: string) => typedError<{
-	id: string,
-	name: string,
-	version_number: string,
-	game_versions: string[],
-	loaders: string[],
-	date_published: string,
-} | null, Error>(__TAURI_INVOKE("modpack_check_update", { instanceId })),
+	modpackUpdateStatus: (instanceId: string) => typedError<ModpackUpdateStatus, Error>(__TAURI_INVOKE("modpack_update_status", { instanceId })),
+	/**
+	 *  Batch update-check for many pack instances at once. Bounds concurrency so
+	 *  a large library doesn't fan out dozens of simultaneous requests (per-IP
+	 *  rate-limit safety). A per-instance failure is captured as `CheckFailed`
+	 *  in that entry's status — it never aborts the whole sweep.
+	 */
+	modpacksCheckUpdates: (instanceIds: string[]) => typedError<ModpackInstanceUpdate[], Error>(__TAURI_INVOKE("modpacks_check_updates", { instanceIds })),
 	/**
 	 *  Diff a downloaded new-version `.mrpack` (already fetched to
 	 *  `mrpack_path` via `modpack_fetch_to_temp`) against the instance's
@@ -1505,6 +1506,12 @@ export type ModpackHit = {
 	distribution_allowed: boolean | null,
 };
 
+/**  One batch entry: an instance id paired with its resolved status. */
+export type ModpackInstanceUpdate = {
+	instance_id: string,
+	status: ModpackUpdateStatus,
+};
+
 /**
  *  Coarse-grained phase emitted on the `modpack_progress` channel.
  *  Per-mod download/verify/copy ticks continue on the existing
@@ -1664,6 +1671,9 @@ export type ModpackUpdateEntry = {
 	new: ModpackFile,
 };
 
+/**  The resolved update state for one pack instance. */
+export type ModpackUpdateStatus = { kind: "up_to_date" } | { kind: "update_available"; entry: ModpackVersionEntry } | { kind: "not_checkable"; reason: NotCheckableReason } | { kind: "check_failed"; message: string };
+
 /**
  *  A Minecraft / loader version change between the installed pack and
  *  the new version.
@@ -1690,6 +1700,15 @@ export type ModpackVersionEntry = {
 };
 
 export type ModsAuthKind = "missing" | "invalid";
+
+/**  Why a pack instance cannot be update-checked (structural, not transient). */
+export type NotCheckableReason = 
+/**  Manually-created instance — never had a modpack source. */
+"not_a_pack" | 
+/**  Drag-drop import: no recorded project_id / version_id to compare against. */
+"no_provenance" | 
+/**  CurseForge pack but no API key is stored, so versions can't be listed. */
+"needs_curseforge_key";
 
 export type OnboardingState = OnboardingState_Serialize | OnboardingState_Deserialize;
 

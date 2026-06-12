@@ -17,6 +17,7 @@ pub mod path_safety;
 pub mod schema;
 pub mod search;
 pub mod source;
+pub mod update_status;
 
 pub use detect::detect_format;
 pub use export::{

@@ -376,28 +376,91 @@ pub async fn modpack_source_caps(
     Ok(modpack::source::modpack_source_for(source).caps())
 }
 
-/// Check whether a newer version of an imported Modrinth modpack exists.
-/// Returns `None` for non-Modrinth pack instances and when the instance
-/// already has the latest version.
-#[tauri::command]
-#[specta::specta]
-pub async fn modpack_check_update(
-    app: tauri::AppHandle,
-    instance_id: String,
-) -> crate::error::Result<Option<crate::mods::modpack::schema::ModpackVersionEntry>> {
-    let inst = crate::instances::read_instance(&app, &instance_id)?;
-    let (project_id, current_id) = match (
+/// Resolve the update status of one pack instance for all sources. Pure
+/// preconditions live in `update_status::precheck`; the network list comes
+/// from the per-source `get_versions`; a transient error becomes
+/// `CheckFailed` so a single offline pack never poisons a batch sweep.
+pub(crate) async fn compute_modpack_update_status(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> crate::error::Result<crate::mods::modpack::update_status::ModpackUpdateStatus> {
+    use crate::mods::modpack::update_status::{precheck, status_from_versions};
+
+    let inst = crate::instances::read_instance(app, instance_id)?;
+    let cf_key_present = crate::mods::curseforge::keyring::get()
+        .ok()
+        .flatten()
+        .is_some();
+    let (source, project_id, version_id) = match precheck(
         inst.mrpack_source,
         inst.mrpack_project_id.as_deref(),
         inst.mrpack_version_id.as_deref(),
+        cf_key_present,
     ) {
-        (Some(crate::mods::platform::ModSource::Modrinth), Some(pid), Some(vid)) => {
-            (pid.to_string(), vid.to_string())
-        }
-        _ => return Ok(None),
+        Ok(provenance) => provenance,
+        // precheck's Err is Box<ModpackUpdateStatus>; deref to return the status.
+        Err(status) => return Ok(*status),
     };
-    let versions = fetch_modpack_versions("https://api.modrinth.com", &project_id).await?;
-    Ok(latest_newer(versions, &current_id))
+
+    match modpack::source::modpack_source_for(source)
+        .get_versions(&project_id)
+        .await
+    {
+        Ok(versions) => Ok(status_from_versions(versions, &version_id)),
+        Err(e) => Ok(
+            crate::mods::modpack::update_status::ModpackUpdateStatus::CheckFailed {
+                message: e.to_string(),
+            },
+        ),
+    }
+}
+
+/// Per-instance modpack update check across all four sources. Returns an
+/// explicit status that distinguishes "up to date" from "not checkable"
+/// (the former Modrinth-only `modpack_check_update` has been removed).
+#[tauri::command]
+#[specta::specta]
+pub async fn modpack_update_status(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::mods::modpack::update_status::ModpackUpdateStatus> {
+    compute_modpack_update_status(&app, &instance_id).await
+}
+
+/// Batch update-check for many pack instances at once. Bounds concurrency so
+/// a large library doesn't fan out dozens of simultaneous requests (per-IP
+/// rate-limit safety). A per-instance failure is captured as `CheckFailed`
+/// in that entry's status — it never aborts the whole sweep.
+#[tauri::command]
+#[specta::specta]
+pub async fn modpacks_check_updates(
+    app: tauri::AppHandle,
+    instance_ids: Vec<String>,
+) -> crate::error::Result<Vec<crate::mods::modpack::update_status::ModpackInstanceUpdate>> {
+    use crate::mods::modpack::update_status::{ModpackInstanceUpdate, ModpackUpdateStatus};
+    use futures_util::stream::{self, StreamExt};
+
+    const CHECK_UPDATES_CONCURRENCY: usize = 6;
+
+    let out: Vec<ModpackInstanceUpdate> = stream::iter(instance_ids)
+        .map(|instance_id| {
+            let app = app.clone();
+            async move {
+                let status = compute_modpack_update_status(&app, &instance_id)
+                    .await
+                    .unwrap_or_else(|e| ModpackUpdateStatus::CheckFailed {
+                        message: e.to_string(),
+                    });
+                ModpackInstanceUpdate {
+                    instance_id,
+                    status,
+                }
+            }
+        })
+        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+        .collect()
+        .await;
+    Ok(out)
 }
 
 /// Diff a downloaded new-version `.mrpack` (already fetched to

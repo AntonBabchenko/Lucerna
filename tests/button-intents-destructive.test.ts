@@ -14,7 +14,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       data: { summary: { name: 'x' }, description: '', website_url: null },
     }),
     modpackStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
     // ManageInstancesModal calls these on user interaction only; mocked
     // here so imports don't throw at resolve time.
     createInstance: vi.fn(),

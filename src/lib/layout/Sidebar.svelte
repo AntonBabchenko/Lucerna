@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
@@ -83,9 +84,11 @@
       icon:
         i.integrity && !i.integrity.healthy
           ? ('warning' as const)
-          : i.ready
-            ? ('success' as const)
-            : ('download' as const),
+          : modpackUpdates.hasUpdate(i.id)
+            ? ('update' as const)
+            : i.ready
+              ? ('success' as const)
+              : ('download' as const),
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
@@ -284,8 +287,19 @@
       data-testid="sidebar-open-modpacks"
       onclick={onOpenModpacks}
     >
-      <Icon name="package" size={16} />
-      {$t('sidebar.browseModpacks')}
+      <span class="relative inline-flex items-center gap-1.5">
+        <Icon name="package" size={16} />
+        {$t('sidebar.browseModpacks')}
+        {#if modpackUpdates.updateCount > 0}
+          <span
+            class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
+            title={$t('sidebar.modpackUpdatesBadge', { count: modpackUpdates.updateCount })}
+            data-testid="sidebar-modpack-updates-badge"
+          >
+            {modpackUpdates.updateCount}
+          </span>
+        {/if}
+      </span>
     </button>
     <div class="flex gap-1">
       <button

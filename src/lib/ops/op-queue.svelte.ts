@@ -29,6 +29,10 @@ export type RunningOp = { op: QueuedOp; progress: RunningProgress };
 let running = $state<RunningOp | null>(null);
 let queue = $state<QueuedOp[]>([]);
 let completionTick = $state(0);
+// Bumped only when an import lands a new instance (ok/partial), so the page can
+// force a modpack-update sweep for the freshly-imported pack without forcing one
+// on every integrity op. Kept distinct from `completionTick` to avoid that over-fire.
+let importCompletionTick = $state(0);
 
 // Monotonic id for stable keying (reorder/cancel). Imports have no instance id,
 // so the queue is keyed by `id`, not `instanceId`.
@@ -192,11 +196,13 @@ async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<v
       { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
       lines,
     );
+    importCompletionTick += 1;
   } else if (outcome.status === 'partial') {
     pushWarning(
       tr('page.modpackImport.partialFailure', { count: outcome.failed.length }),
       outcome.failed,
     );
+    importCompletionTick += 1;
   } else {
     pushWarning(tr('page.modpackImport.failed'), [outcome.message]);
   }
@@ -251,12 +257,18 @@ export function opQueue(): QueuedOp[] {
 export function opCompletionTick(): number {
   return completionTick;
 }
+/** Bumps when an import lands a new instance (ok/partial); drives the page's
+ *  forced post-import modpack-update sweep. */
+export function opImportCompletionTick(): number {
+  return importCompletionTick;
+}
 
 /** Test-only reset of the module singleton. */
 export function __resetOpQueueForTest(): void {
   running = null;
   queue = [];
   completionTick = 0;
+  importCompletionTick = 0;
   nextId = 0;
   unlisten?.();
   unlisten = null;

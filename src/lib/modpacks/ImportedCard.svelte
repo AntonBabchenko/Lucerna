@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n';
   import { relativeDate } from '$lib/format/relative-time';
   import { Icon } from '$lib/ui/icons';
+  import { modpackUpdates } from './modpack-updates.svelte';
 
   // One card in the Imported tab grid. Mirrors ModpackCard's shape so
   // the user sees a consistent grid across Browse and Imported. We
@@ -27,6 +28,11 @@
     onClick,
     isModified = false,
   }: { inst: InstanceWithStatus; onClick: () => void; isModified?: boolean } = $props();
+
+  const updateEntry = $derived.by(() => {
+    const s = modpackUpdates.statusFor(inst.id);
+    return s?.kind === 'update_available' ? s.entry : null;
+  });
 </script>
 
 <button
@@ -51,6 +57,15 @@
             data-testid="imported-card-modified-tag"
           >
             {$t('modpacks.imported.card.modifiedTag')}
+          </span>
+        {/if}
+        {#if updateEntry}
+          <span
+            class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success align-middle"
+            title={$t('modpacks.imported.card.updateTitle')}
+            data-testid="imported-card-update-tag"
+          >
+            {$t('modpacks.imported.card.updateTag', { version: updateEntry.version_number })}
           </span>
         {/if}
       </div>

@@ -79,7 +79,8 @@
     "browseModpacks": "Browse modpacks",
     "logs": "Logs",
     "compactCollapse": "Collapse to mini mode",
-    "compactExpand": "Expand to full window"
+    "compactExpand": "Expand to full window",
+    "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}"
   },
   "instance": {
     "manage": {
@@ -457,11 +458,16 @@
         "sortNewest": "Newest first",
         "sortOldest": "Oldest first",
         "sortName": "Name (A–Z)",
-        "noResults": "No packs match the filter."
+        "noResults": "No packs match the filter.",
+        "updatesAvailable": "{count} {count, plural, one {pack has an update} other {packs have updates}}",
+        "checkUpdates": "Check for updates",
+        "checkingUpdates": "Checking…"
       },
       "card": {
         "modifiedTitle": "installed mods differ from the imported pack",
         "modifiedTag": "modified",
+        "updateTag": "Update {version}",
+        "updateTitle": "A newer version of this modpack is available",
         "instanceLabel": "Instance: {name}",
         "importedAt": "imported {when}"
       },
@@ -1101,6 +1107,7 @@
       "attnMissingMods": "{count, plural, one {# pack mod not installed} other {# pack mods not installed}}",
       "attnIncompatible": "{count, plural, one {# incompatible mod} other {# incompatible mods}}",
       "attnIntegrity": "{count, plural, one {# integrity problem} other {# integrity problems}}",
+      "attnModpackUpdate": "A modpack update is available",
       "attentionView": "View",
       "pillRunning": "Running",
       "pillReady": "Ready to play",
@@ -1114,7 +1121,9 @@
       "modpackChecking": "Checking…",
       "modpackUpToDate": "Up to date",
       "modpackUpdateAvailable": "Update: v{version}",
-      "modpackOnlyModrinth": "Auto update-check is available for Modrinth packs only.",
+      "modpackNotCheckableNeedsKey": "Update check needs a CurseForge API key.",
+      "modpackNotCheckableNoProvenance": "Update check isn't available for this import.",
+      "modpackCheckFailed": "Couldn't check for updates.",
       "sectionMods": "Mods"
     },
     "offlineName": {

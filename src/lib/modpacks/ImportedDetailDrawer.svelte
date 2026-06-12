@@ -220,11 +220,20 @@
 
   async function checkForUpdates() {
     updateError = null;
-    const r = await commands.modpackCheckUpdate(inst.id);
-    if (r.status === 'ok') {
-      updateAvailable = r.data;
-    } else {
+    const r = await commands.modpackUpdateStatus(inst.id);
+    if (r.status === 'error') {
       updateError = formatError(r.error);
+      return;
+    }
+    // The drawer's apply flow needs the concrete version entry. A newer
+    // version → keep the entry; anything else (up to date / not checkable /
+    // transient failure) → no actionable update. Surface a transient failure.
+    const s = r.data;
+    if (s.kind === 'update_available') {
+      updateAvailable = s.entry;
+    } else {
+      updateAvailable = null;
+      if (s.kind === 'check_failed') updateError = s.message;
     }
   }
 

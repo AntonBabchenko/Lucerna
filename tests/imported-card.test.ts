@@ -1,6 +1,9 @@
 import { fireEvent, render } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { InstanceWithStatus } from '$lib/ipc/bindings';
+import { commands } from '$lib/ipc/bindings';
 import ImportedCard from '$lib/modpacks/ImportedCard.svelte';
+import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
 
 const baseInst = {
   id: 'i1',
@@ -94,5 +97,58 @@ describe('ImportedCard', () => {
       props: { inst: baseInst, onClick: () => {} },
     });
     expect(queryByTestId('imported-card-modified-tag')).toBeNull();
+  });
+});
+
+const inst: InstanceWithStatus = {
+  id: 'a',
+  name: 'My Pack',
+  mc_version: '1.20.1',
+  loader: 'fabric',
+  loader_version: '0.16.5',
+  max_heap_mb: 4096,
+  extra_jvm_args: '',
+  created_unix_ms: 1_700_000_000_000,
+  ready: true,
+  mrpack_name: 'All The Mods 10',
+  mrpack_version: '1.4.7',
+  mrpack_project_id: 'p',
+  mrpack_source: 'modrinth',
+  mrpack_summary: null,
+  mrpack_version_id: 'v1',
+  integrity: null,
+};
+
+afterEach(() => modpackUpdates.reset());
+
+describe('ImportedCard update badge', () => {
+  it('shows the update badge when the store reports update_available', async () => {
+    vi.spyOn(commands, 'modpacksCheckUpdates').mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          instance_id: 'a',
+          status: {
+            kind: 'update_available',
+            entry: {
+              id: 'v2',
+              name: 'P',
+              version_number: '1.5.0',
+              game_versions: [],
+              loaders: [],
+              date_published: '',
+            },
+          },
+        },
+      ],
+    });
+    await modpackUpdates.sweep(['a'], { force: true });
+    const { getByTestId } = render(ImportedCard, { props: { inst, onClick: () => {} } });
+    expect(getByTestId('imported-card-update-tag').textContent).toContain('1.5.0');
+  });
+
+  it('renders no update badge when up to date', () => {
+    const { queryByTestId } = render(ImportedCard, { props: { inst, onClick: () => {} } });
+    expect(queryByTestId('imported-card-update-tag')).toBeNull();
   });
 });

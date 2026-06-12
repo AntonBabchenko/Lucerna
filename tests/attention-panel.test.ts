@@ -26,6 +26,16 @@ describe('AttentionPanel', () => {
     expect(getByTestId('overview-attention-integrity').textContent).toContain('2');
   });
 
+  it('renders a modpack_update row', () => {
+    const { getByTestId } = render(AttentionPanel, {
+      props: {
+        items: [{ kind: 'modpack_update', count: 0 }] as AttentionItem[],
+        onAction: () => {},
+      },
+    });
+    expect(getByTestId('overview-attention-modpack_update')).toBeTruthy();
+  });
+
   it('fires onAction with the row kind when clicked', async () => {
     const onAction = vi.fn();
     const { getByTestId } = render(AttentionPanel, {

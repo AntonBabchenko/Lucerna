@@ -297,7 +297,7 @@ pub struct ModpackUpdateDiff {
 /// One entry in a modpack project's version list, as shown in the
 /// modpack version drawer. Mirrors the subset of the Modrinth
 /// `/v2/project/<id>/version` response the UI consumes.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModpackVersionEntry {
     pub id: String,
     pub name: String,

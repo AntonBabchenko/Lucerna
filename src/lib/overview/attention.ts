@@ -1,4 +1,9 @@
-export type AttentionKind = 'pick_version' | 'missing_mods' | 'incompatible' | 'integrity';
+export type AttentionKind =
+  | 'pick_version'
+  | 'missing_mods'
+  | 'incompatible'
+  | 'integrity'
+  | 'modpack_update';
 
 export interface AttentionItem {
   kind: AttentionKind;
@@ -12,6 +17,8 @@ export interface AttentionInputs {
   /** Integrity problems to surface. Callers MUST pass 0 when integrity is
    *  healthy, absent, or stale (stale → shown as "not checked", not a problem). */
   integrityProblemCount: number;
+  /** Whether the active instance's modpack has an update available. */
+  hasModpackUpdate: boolean;
 }
 
 /** Build the ordered "needs attention" list from instance signals. */
@@ -27,5 +34,6 @@ export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
   if (input.integrityProblemCount > 0) {
     items.push({ kind: 'integrity', count: input.integrityProblemCount });
   }
+  if (input.hasModpackUpdate) items.push({ kind: 'modpack_update', count: 0 });
   return items;
 }

@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { commands, type InstanceWithStatus, type ModpackVersionEntry } from '$lib/ipc/bindings';
-  import type { Error as IpcError } from '$lib/ipc/bindings';
-  import { formatError } from '$lib/ipc/format-error';
+  import type { InstanceWithStatus } from '$lib/ipc/bindings';
+  import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
 
@@ -12,31 +11,23 @@
     modrinth: 'Modrinth',
     curseforge: 'CurseForge',
     ftb: 'FTB',
+    atlauncher: 'ATLauncher',
   };
 
   const sourceLabel = $derived(
     instance.mrpack_source ? (SOURCE_LABEL[instance.mrpack_source] ?? instance.mrpack_source) : '',
   );
 
-  const isModrinth = $derived(instance.mrpack_source === 'modrinth');
-
-  type CheckState =
-    | { phase: 'idle' }
-    | { phase: 'checking' }
-    | { phase: 'available'; entry: ModpackVersionEntry }
-    | { phase: 'up_to_date' }
-    | { phase: 'error'; message: string };
-
-  let check = $state<CheckState>({ phase: 'idle' });
+  // Reads the shared store: a background sweep (startup / Imported tab) may
+  // already have resolved this instance's status, so the card reflects it
+  // without a manual click. The button below force-refreshes via the store.
+  const status = $derived(modpackUpdates.statusFor(instance.id));
+  let checking = $state(false);
 
   async function onCheck() {
-    check = { phase: 'checking' };
-    const r = await commands.modpackCheckUpdate(instance.id);
-    if (r.status === 'error') {
-      check = { phase: 'error', message: formatError(r.error as IpcError) };
-      return;
-    }
-    check = r.data ? { phase: 'available', entry: r.data } : { phase: 'up_to_date' };
+    checking = true;
+    await modpackUpdates.sweep([instance.id], { force: true });
+    checking = false;
   }
 </script>
 
@@ -59,12 +50,12 @@
         >{sourceLabel}</span
       >
     {/if}
-    {#if check.phase === 'available'}
+    {#if status?.kind === 'update_available'}
       <span
         class="rounded-full border border-success bg-success-bg px-2 py-0.5 text-xs text-success"
         data-testid="modpack-update-available"
       >
-        {$t('page.overview.modpackUpdateAvailable', { version: check.entry.version_number })}
+        {$t('page.overview.modpackUpdateAvailable', { version: status.entry.version_number })}
       </span>
     {/if}
     <button
@@ -81,30 +72,32 @@
     <p class="text-xs text-muted">{instance.mrpack_summary}</p>
   {/if}
 
-  {#if isModrinth}
-    <div class="flex items-center gap-3">
-      <button
-        type="button"
-        class="btn-secondary btn-sm"
-        data-testid="modpack-check-update"
-        disabled={check.phase === 'checking'}
-        onclick={onCheck}
+  <div class="flex items-center gap-3">
+    <button
+      type="button"
+      class="btn-secondary btn-sm"
+      data-testid="modpack-check-update"
+      disabled={checking}
+      onclick={onCheck}
+    >
+      {checking ? $t('page.overview.modpackChecking') : $t('page.overview.modpackCheckUpdate')}
+    </button>
+    {#if status?.kind === 'up_to_date'}
+      <span class="text-xs text-success" data-testid="modpack-up-to-date"
+        >{$t('page.overview.modpackUpToDate')}</span
       >
-        {check.phase === 'checking'
-          ? $t('page.overview.modpackChecking')
-          : $t('page.overview.modpackCheckUpdate')}
-      </button>
-      {#if check.phase === 'up_to_date'}
-        <span class="text-xs text-success" data-testid="modpack-up-to-date"
-          >{$t('page.overview.modpackUpToDate')}</span
-        >
-      {:else if check.phase === 'error'}
-        <span class="text-xs text-danger" data-testid="modpack-update-error">{check.message}</span>
-      {/if}
-    </div>
-  {:else}
-    <p class="text-xs text-muted" data-testid="modpack-only-modrinth">
-      {$t('page.overview.modpackOnlyModrinth')}
-    </p>
-  {/if}
+    {:else if status?.kind === 'check_failed'}
+      <span class="text-xs text-danger" data-testid="modpack-update-error"
+        >{$t('page.overview.modpackCheckFailed')}</span
+      >
+    {:else if status?.kind === 'not_checkable'}
+      <span class="text-xs text-muted" data-testid="modpack-not-checkable">
+        {#if status.reason === 'needs_curseforge_key'}
+          {$t('page.overview.modpackNotCheckableNeedsKey')}
+        {:else}
+          {$t('page.overview.modpackNotCheckableNoProvenance')}
+        {/if}
+      </span>
+    {/if}
+  </div>
 </div>

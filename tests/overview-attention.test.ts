@@ -6,6 +6,7 @@ const none = {
   missingModsCount: 0,
   incompatibleCount: 0,
   integrityProblemCount: 0,
+  hasModpackUpdate: false,
 };
 
 describe('buildAttentionItems', () => {
@@ -19,13 +20,25 @@ describe('buildAttentionItems', () => {
       missingModsCount: 3,
       incompatibleCount: 1,
       integrityProblemCount: 2,
+      hasModpackUpdate: true,
     });
     expect(items.map((i) => i.kind)).toEqual([
       'pick_version',
       'missing_mods',
       'incompatible',
       'integrity',
+      'modpack_update',
     ]);
+  });
+
+  it('appends a modpack_update item (count 0) last when an update is available', () => {
+    const items = buildAttentionItems({ ...none, hasModpackUpdate: true });
+    expect(items).toEqual([{ kind: 'modpack_update', count: 0 }]);
+  });
+
+  it('omits modpack_update when no update is available', () => {
+    const items = buildAttentionItems({ ...none, integrityProblemCount: 4 });
+    expect(items.some((i) => i.kind === 'modpack_update')).toBe(false);
   });
 
   it('carries the count on counted items and 0 on pick_version', () => {

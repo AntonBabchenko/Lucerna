@@ -79,7 +79,8 @@
     "browseModpacks": "Браузер сборок",
     "logs": "Логи",
     "compactCollapse": "Свернуть в мини-режим",
-    "compactExpand": "Развернуть на всё окно"
+    "compactExpand": "Развернуть на всё окно",
+    "modpackUpdatesBadge": "Доступно обновлений сборок: {count}"
   },
   "instance": {
     "manage": {
@@ -457,11 +458,16 @@
         "sortNewest": "Сначала новые",
         "sortOldest": "Сначала старые",
         "sortName": "Имя (A–Z)",
-        "noResults": "Сборки по фильтру не найдены."
+        "noResults": "Сборки по фильтру не найдены.",
+        "updatesAvailable": "{count} {count, plural, one {сборка с обновлением} few {сборки с обновлениями} many {сборок с обновлениями} other {сборок с обновлениями}}",
+        "checkUpdates": "Проверить обновления",
+        "checkingUpdates": "Проверка…"
       },
       "card": {
         "modifiedTitle": "установленные моды отличаются от импортированной сборки",
         "modifiedTag": "изменена",
+        "updateTag": "Обновление {version}",
+        "updateTitle": "Доступна новая версия этой сборки",
         "instanceLabel": "Профиль: {name}",
         "importedAt": "импортировано {when}"
       },
@@ -1101,6 +1107,7 @@
       "attnMissingMods": "{count, plural, one {# мод сборки не установлен} few {# мода сборки не установлены} many {# модов сборки не установлены} other {# мода сборки не установлены}}",
       "attnIncompatible": "{count, plural, one {# несовместимый мод} few {# несовместимых мода} many {# несовместимых модов} other {# несовместимых мода}}",
       "attnIntegrity": "{count, plural, one {# проблема целостности} few {# проблемы целостности} many {# проблем целостности} other {# проблемы целостности}}",
+      "attnModpackUpdate": "Доступно обновление сборки",
       "attentionView": "Открыть",
       "pillRunning": "Запущено",
       "pillReady": "Готово к игре",
@@ -1114,7 +1121,9 @@
       "modpackChecking": "Проверка…",
       "modpackUpToDate": "Актуально",
       "modpackUpdateAvailable": "Обновление: v{version}",
-      "modpackOnlyModrinth": "Авто-проверка обновлений доступна только для сборок Modrinth.",
+      "modpackNotCheckableNeedsKey": "Для проверки обновлений нужен ключ API CurseForge.",
+      "modpackNotCheckableNoProvenance": "Проверка обновлений недоступна для этого импорта.",
+      "modpackCheckFailed": "Не удалось проверить обновления.",
       "sectionMods": "Моды"
     },
     "offlineName": {

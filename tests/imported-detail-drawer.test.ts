@@ -77,7 +77,7 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     deleteInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    modpackCheckUpdate: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
