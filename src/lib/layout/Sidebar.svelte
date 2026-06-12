@@ -266,7 +266,12 @@
           </button>
         {:else}
           <div class="flex gap-1.5">
-            <button type="button" data-tour="play-btn" class="btn-success btn-lg flex-1" onclick={onPlay}>
+            <button
+              type="button"
+              data-tour="play-btn"
+              class="btn-success btn-lg flex-1"
+              onclick={onPlay}
+            >
               {$t('sidebar.play')}
             </button>
             {#if quickPlaySupported}

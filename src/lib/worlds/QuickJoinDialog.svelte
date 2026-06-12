@@ -88,12 +88,7 @@
       <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
         {$t('quickJoin.cancel')}
       </button>
-      <BusyButton
-        class="btn-primary btn-sm"
-        {busy}
-        disabled={touched && !valid}
-        onclick={submit}
-      >
+      <BusyButton class="btn-primary btn-sm" {busy} disabled={touched && !valid} onclick={submit}>
         {$t('quickJoin.join')}
       </BusyButton>
     </div>
