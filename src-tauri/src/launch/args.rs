@@ -57,8 +57,8 @@ pub fn build_argv(input: &ArgvInput) -> Result<Vec<String>> {
 
     let (jvm, game) = match (&input.details.arguments, &input.details.minecraft_arguments) {
         (Some(args), _) => {
-            let jvm = walk_arguments(&args.jvm, &subs, input.os, input.arch, &features);
-            let game = walk_arguments(&args.game, &subs, input.os, input.arch, &features);
+            let jvm = walk_arguments(&args.jvm, &subs, input.os, input.arch, features);
+            let game = walk_arguments(&args.game, &subs, input.os, input.arch, features);
             (jvm, game)
         }
         (None, Some(mc_args)) => legacy_argv(mc_args, &subs),
@@ -187,11 +187,11 @@ pub fn build_classpath(
 /// The quick-play feature keys to enable for a given target. We enable ONLY
 /// these — every other feature (`is_demo_user`, …) stays unmatched, so the
 /// existing "features rules are dropped" behavior holds for everything else.
-fn enabled_features(quick_play: Option<&QuickPlay>) -> Vec<&'static str> {
+fn enabled_features(quick_play: Option<&QuickPlay>) -> &'static [&'static str] {
     match quick_play {
-        Some(QuickPlay::Singleplayer { .. }) => vec!["is_quick_play_singleplayer"],
-        Some(QuickPlay::Multiplayer { .. }) => vec!["is_quick_play_multiplayer"],
-        None => vec![],
+        Some(QuickPlay::Singleplayer { .. }) => &["is_quick_play_singleplayer"],
+        Some(QuickPlay::Multiplayer { .. }) => &["is_quick_play_multiplayer"],
+        None => &[],
     }
 }
 
@@ -595,6 +595,7 @@ mod tests {
             .expect("--quickPlayMultiplayer present");
         assert_eq!(argv[idx + 1], "mc.example.net:25566");
         assert!(!argv.iter().any(|a| a == "--quickPlaySingleplayer"));
+        assert!(!argv.iter().any(|a| a == "--demo"));
     }
 
     #[test]
