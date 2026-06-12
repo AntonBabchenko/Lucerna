@@ -37,7 +37,7 @@ pub struct ArgvInput<'a> {
     pub os: &'static str,
     pub arch: &'static str,
     /// Optional direct-launch target. When set, the matching quick-play
-    /// feature args are enabled and `${quickPlayName}` / `${quickPlayMultiplayer}`
+    /// feature args are enabled and `${quickPlaySingleplayer}` / `${quickPlayMultiplayer}`
     /// are substituted. `None` = launch to the main menu (default).
     pub quick_play: Option<&'a QuickPlay>,
 }
@@ -141,7 +141,7 @@ fn substitution_map<'a>(
     );
     match input.quick_play {
         Some(QuickPlay::Singleplayer { world }) => {
-            m.insert("quickPlayName", world.clone());
+            m.insert("quickPlaySingleplayer", world.clone());
         }
         Some(QuickPlay::Multiplayer { address }) => {
             m.insert("quickPlayMultiplayer", address.clone());
@@ -450,7 +450,7 @@ mod tests {
           "--assetsDir", "${assets_root}",
           "--assetIndex", "${assets_index_name}",
           {"rules": [{"action": "allow", "features": {"is_demo_user": true}}], "value": "--demo"},
-          {"rules": [{"action": "allow", "features": {"is_quick_play_singleplayer": true}}], "value": ["--quickPlaySingleplayer", "${quickPlayName}"]},
+          {"rules": [{"action": "allow", "features": {"is_quick_play_singleplayer": true}}], "value": ["--quickPlaySingleplayer", "${quickPlaySingleplayer}"]},
           {"rules": [{"action": "allow", "features": {"is_quick_play_multiplayer": true}}], "value": ["--quickPlayMultiplayer", "${quickPlayMultiplayer}"]}
         ]
       }
