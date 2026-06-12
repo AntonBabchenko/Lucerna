@@ -61,17 +61,22 @@ pub async fn run_java_processor(
 /// Spawn the Minecraft client (`javaw`/`java`). Returns the `Child` so
 /// the caller owns lifecycle and the exit watcher. stdout+stderr are
 /// redirected to the launch-log file handles supplied by the caller;
-/// stdin is closed.
+/// stdin is closed. `extra_env` adds environment variables injected on
+/// top of the inherited environment (e.g. GPU offload vars on Linux such
+/// as `DRI_PRIME=1`); pass `&[]` on Windows/macOS where no override is
+/// needed.
 pub fn spawn_minecraft(
     java_path: &Path,
     argv: &[String],
     game_dir: &Path,
+    extra_env: &[(String, String)],
     log_stdout: std::fs::File,
     log_stderr: std::fs::File,
 ) -> Result<tokio::process::Child> {
     let mut cmd = tokio::process::Command::new(java_path);
     cmd.args(argv)
         .current_dir(game_dir)
+        .envs(extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log_stdout))
         .stderr(std::process::Stdio::from(log_stderr));
@@ -153,6 +158,23 @@ mod tests {
             Path::new("nonexistent-javaw-binary-xyz"),
             &[],
             dir.path(),
+            &[], // extra_env
+            out,
+            err,
+        );
+        assert!(matches!(r, Err(Error::JavaSpawn { .. })), "got: {r:?}");
+    }
+
+    #[test]
+    fn spawn_minecraft_accepts_extra_env() {
+        let dir = tempdir().unwrap();
+        let out = std::fs::File::create(dir.path().join("o.log")).unwrap();
+        let err = std::fs::File::create(dir.path().join("e.log")).unwrap();
+        let r = spawn_minecraft(
+            Path::new("nonexistent-javaw-binary-xyz"),
+            &[],
+            dir.path(),
+            &[("DRI_PRIME".to_string(), "1".to_string())],
             out,
             err,
         );
