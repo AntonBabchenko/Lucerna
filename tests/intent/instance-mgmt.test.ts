@@ -41,6 +41,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
     modUninstalled: { listen: () => Promise.resolve(() => {}) },
+      gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
 

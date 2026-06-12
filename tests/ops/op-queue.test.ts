@@ -17,6 +17,7 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
   events: {
     verifyProgress: { listen: vi.fn().mockResolvedValue(() => {}) },
+      gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
 vi.mock('$lib/toasts/toasts.svelte', () => ({
