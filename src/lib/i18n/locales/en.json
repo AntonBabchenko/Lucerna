@@ -937,7 +937,8 @@
     "windowIo": "Couldn't resize the launcher window: {details}",
     "updateCheckFailed": "Couldn't check for updates: {details}",
     "updateVerificationFailed": "Update verification failed — the download may be corrupt or tampered with. {details}",
-    "updateInstallFailed": "Couldn't install the update: {details}"
+    "updateInstallFailed": "Couldn't install the update: {details}",
+    "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}"
   },
   "settings": {
     "title": "Settings",

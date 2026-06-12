@@ -97,6 +97,7 @@ export type TranslationKey =
   | 'errors.noMinecraftProfile'
   | 'errors.noVersionSelected'
   | 'errors.playtimeIo'
+  | 'errors.quickPlayAddressInvalid'
   | 'errors.trayIo'
   | 'errors.unknownVersion'
   | 'errors.unsupportedPlatform'

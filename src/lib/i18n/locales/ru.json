@@ -937,7 +937,8 @@
     "windowIo": "Не удалось изменить размер окна лаунчера: {details}",
     "updateCheckFailed": "Не удалось проверить обновления: {details}",
     "updateVerificationFailed": "Проверка обновления не пройдена — загрузка может быть повреждена или подделана. {details}",
-    "updateInstallFailed": "Не удалось установить обновление: {details}"
+    "updateInstallFailed": "Не удалось установить обновление: {details}",
+    "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}"
   },
   "settings": {
     "title": "Настройки",

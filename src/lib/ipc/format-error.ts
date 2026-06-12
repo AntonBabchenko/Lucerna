@@ -196,6 +196,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.updateVerificationFailed', { details: e.details });
     case 'update_install_failed':
       return translate('errors.updateInstallFailed', { details: e.details });
+    case 'quick_play_address_invalid':
+      return translate('errors.quickPlayAddressInvalid', {
+        address: e.address,
+        reason: e.reason,
+      });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

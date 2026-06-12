@@ -307,6 +307,11 @@ describe('formatError', () => {
       tray_io: { kind: 'tray_io', details: 'd' },
       window_io: { kind: 'window_io', details: 'd' },
       mc_logs_upload: { kind: 'mc_logs_upload', details: 'd' },
+      quick_play_address_invalid: {
+        kind: 'quick_play_address_invalid',
+        address: 'bad host',
+        reason: 'contains whitespace or control characters',
+      },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
@@ -326,7 +331,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(69);
+      expect(Object.keys(samples)).toHaveLength(70);
     });
   });
 
