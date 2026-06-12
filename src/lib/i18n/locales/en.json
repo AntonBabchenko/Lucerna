@@ -436,7 +436,12 @@
         "groupScripts": "Scripts",
         "groupOther": "Other",
         "groupHeader": "{label} ({count} · {size})",
-        "groupHeaderNoSize": "{label} ({count})"
+        "groupHeaderNoSize": "{label} ({count})",
+        "selectAll": "Select all",
+        "deselectAll": "Deselect all",
+        "selectionCount": "{selected} of {total} selected",
+        "requiredBadge": "Required",
+        "requiredUncheckedWarning": "Required files unchecked: {count} — the pack may not launch."
       },
       "progress": {
         "ariaLabel": "Modpack import progress",

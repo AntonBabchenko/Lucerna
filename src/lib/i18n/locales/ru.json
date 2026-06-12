@@ -436,7 +436,12 @@
         "groupScripts": "Скрипты",
         "groupOther": "Прочее",
         "groupHeader": "{label} ({count} · {size})",
-        "groupHeaderNoSize": "{label} ({count})"
+        "groupHeaderNoSize": "{label} ({count})",
+        "selectAll": "Выбрать всё",
+        "deselectAll": "Снять всё",
+        "selectionCount": "Выбрано {selected} из {total}",
+        "requiredBadge": "обязательный",
+        "requiredUncheckedWarning": "Снято обязательных: {count} — сборка может не запуститься."
       },
       "progress": {
         "ariaLabel": "Прогресс импорта сборки",
