@@ -177,6 +177,11 @@ pub async fn build_repair_plan(
             enrich_swap_targets(&mut candidates, &installed, &instance).await;
             Ok(Some(RepairPlan::ResolveConflict { candidates }))
         }
+        RepairKind::InstallMissingMods => {
+            // Handled by a dedicated command added alongside the
+            // server-missing-mods diagnoser pattern.
+            Ok(None)
+        }
     }
 }
 

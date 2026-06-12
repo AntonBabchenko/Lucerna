@@ -17,6 +17,7 @@ pub enum RepairKind {
     ReinstallLoader,
     RedownloadMod,
     ResolveConflict,
+    InstallMissingMods,
 }
 
 /// Map a diagnoser `pattern_id` to its repair kind, or `None` for the
@@ -28,6 +29,7 @@ pub fn repair_kind_for(pattern_id: &str) -> Option<RepairKind> {
         "fabric-loader-missing-main" => Some(RepairKind::ReinstallLoader),
         "corrupt-mod-jar" => Some(RepairKind::RedownloadMod),
         "mod-resolution-conflict" => Some(RepairKind::ResolveConflict),
+        "server-missing-mods" => Some(RepairKind::InstallMissingMods),
         _ => None,
     }
 }
@@ -304,6 +306,14 @@ mod tests {
         assert_eq!(
             repair_kind_for("mod-resolution-conflict"),
             Some(RepairKind::ResolveConflict)
+        );
+    }
+
+    #[test]
+    fn repair_kind_maps_server_missing_mods() {
+        assert_eq!(
+            repair_kind_for("server-missing-mods"),
+            Some(RepairKind::InstallMissingMods)
         );
     }
 
