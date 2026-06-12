@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { isValidServerAddress } from '$lib/worlds/quick-join';
 
 describe('isValidServerAddress', () => {
@@ -21,5 +21,12 @@ describe('isValidServerAddress', () => {
   it('rejects missing host and multiple colons', () => {
     expect(isValidServerAddress(':25565')).toBe(false);
     expect(isValidServerAddress('a:b:c')).toBe(false);
+  });
+  it('rejects overlong addresses', () => {
+    expect(isValidServerAddress('x'.repeat(300) + '.net')).toBe(false);
+  });
+  it('rejects C1 control characters', () => {
+    expect(isValidServerAddress('mc.net')).toBe(false); // NEL (U+0085)
+    expect(isValidServerAddress('mc.net')).toBe(false); // APC (U+009F)
   });
 });

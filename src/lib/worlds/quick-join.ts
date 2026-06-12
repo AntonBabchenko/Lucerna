@@ -9,7 +9,7 @@ export function isValidServerAddress(address: string): boolean {
   if (address.length === 0 || address.length > MAX_ADDRESS_LEN) return false;
   if (/\s/.test(address)) return false;
   // biome-ignore lint/suspicious/noControlCharactersInRegex: server-address sanitization
-  if (/[\x00-\x1f\x7f]/.test(address)) return false;
+  if (/[\x00-\x1f\x7f-\x9f]/.test(address)) return false;
   const colon = address.indexOf(':');
   if (colon === -1) return true;
   if (colon !== address.lastIndexOf(':')) return false; // multiple colons

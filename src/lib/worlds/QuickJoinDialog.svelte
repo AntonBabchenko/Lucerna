@@ -24,7 +24,9 @@
   const trimmed = $derived(address.trim());
   const valid = $derived(isValidServerAddress(trimmed));
 
-  // Reset state whenever the dialog opens.
+  // Reset state each time the dialog opens. The parent mounts this component
+  // persistently and toggles `open`, so the component is not remounted between
+  // opens — without this, a previously-typed address/error would linger.
   $effect(() => {
     if (open) {
       address = '';
@@ -68,15 +70,15 @@
       disabled={busy}
       placeholder={$t('quickJoin.addressPlaceholder')}
       autocomplete="off"
+      aria-invalid={touched && !valid}
+      aria-describedby="quick-join-error"
       onkeydown={onKeydown}
       onblur={() => (touched = true)}
     />
 
-    {#if touched && !valid}
-      <p class="text-xs text-danger mb-2">{$t('quickJoin.invalidAddress')}</p>
-    {:else}
-      <div class="mb-2"></div>
-    {/if}
+    <p id="quick-join-error" class="text-xs text-danger mb-2 min-h-4" role="alert">
+      {#if touched && !valid}{$t('quickJoin.invalidAddress')}{/if}
+    </p>
 
     {#if showOfflineHint}
       <p class="text-xs text-secondary mb-3">{$t('quickJoin.offlineHint')}</p>
