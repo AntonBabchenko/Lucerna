@@ -29,8 +29,7 @@ impl QuickPlay {
     }
 }
 
-/// Max length for a server address. Hostnames cap at 253; allow room for
-/// `:port`.
+/// 253 (max hostname per RFC 1123) + 1 (`:`) + 5 (max port digits) + 1 slack.
 const MAX_ADDRESS_LEN: usize = 260;
 
 /// Validate a `host` or `host:port` server address. The value is passed as
@@ -61,6 +60,9 @@ pub fn validate_server_address(address: &str) -> Result<(), Error> {
         }
         if port.contains(':') {
             return Err(invalid("multiple ':' separators (IPv6 not supported)"));
+        }
+        if port.is_empty() {
+            return Err(invalid("missing port after ':'"));
         }
         if port.parse::<u16>().is_err() {
             return Err(invalid("port must be a number 0-65535"));
@@ -113,7 +115,11 @@ mod tests {
 
     #[test]
     fn rejects_multiple_colons() {
-        assert!(validate_server_address("a:b:c").is_err());
+        assert!(matches!(
+            validate_server_address("a:b:c"),
+            Err(Error::QuickPlayAddressInvalid { ref reason, .. })
+                if reason.contains("multiple")
+        ));
     }
 
     #[test]
