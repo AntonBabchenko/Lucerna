@@ -589,6 +589,12 @@
     }
   },
   "worlds": {
+    "quickPlay": {
+      "playWorld": "Play this world",
+      "disabledNotReady": "Install the instance first",
+      "disabledRunning": "Minecraft is already running",
+      "disabledUnsupported": "Requires Minecraft 1.20 or newer"
+    },
     "tab": {
       "noInstance": "Select an instance to view its worlds.",
       "loading": "Loading worlds…",

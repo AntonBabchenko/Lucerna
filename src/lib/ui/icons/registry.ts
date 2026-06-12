@@ -24,6 +24,7 @@ import {
   List,
   Minus,
   Package,
+  Play,
   Plus,
   Puzzle,
   RefreshCw,
@@ -77,6 +78,7 @@ export const ICONS = {
   scrollText: ScrollText, // 📜 Logs
   arrowUp: ArrowUp, // ↑ Updates filter
   circleX: CircleX, // ✕ missing status
+  play: Play, // Quick Play action — launch into a specific world / server
   shrink: Shrink, // collapse window to mini mode
   expand: Expand, // restore window from mini mode
   // Content kinds (Add-ons tab): picker options + per-kind placeholder avatars.

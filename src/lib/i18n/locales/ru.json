@@ -589,6 +589,12 @@
     }
   },
   "worlds": {
+    "quickPlay": {
+      "playWorld": "Играть в этот мир",
+      "disabledNotReady": "Сначала установите инстанс",
+      "disabledRunning": "Minecraft уже запущен",
+      "disabledUnsupported": "Нужен Minecraft 1.20 или новее"
+    },
     "tab": {
       "noInstance": "Выберите профиль, чтобы увидеть его миры.",
       "loading": "Загрузка миров…",
