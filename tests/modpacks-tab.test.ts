@@ -27,7 +27,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackImport: vi.fn(),
     modpackFetchToTemp: vi.fn(),
   },
-  events: {},
+  events: { gpuPrefApplied: { listen: () => Promise.resolve(() => {}) } },
 }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue(null) }));
 vi.mock('@tauri-apps/api/core', () => ({

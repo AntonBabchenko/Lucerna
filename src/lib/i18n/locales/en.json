@@ -986,6 +986,15 @@
         "levelDescription": "Choose how tooltips and the tour explain things.",
         "basic": "Basic — simple and clear",
         "advanced": "Advanced — technical details"
+      },
+      "gpu": {
+        "title": "Graphics",
+        "label": "Preferred GPU for Minecraft",
+        "auto": "Automatic (let the system decide)",
+        "high": "High performance",
+        "power": "Power saving",
+        "note": "Tells Lucerna's Java runtime which GPU to prefer. Default is automatic.",
+        "appliedToast": "Applied GPU preference to the new Java runtime: {name}"
       }
     },
     "storage": {

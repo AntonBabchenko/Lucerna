@@ -29,6 +29,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     processExited: {
       listen: vi.fn().mockResolvedValue(() => {}),
     },
+    gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
 

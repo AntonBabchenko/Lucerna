@@ -616,10 +616,9 @@ export const commands = {
 	 */
 	modpackSourceCaps: (source: ModSource) => typedError<SourceCaps, Error>(__TAURI_INVOKE("modpack_source_caps", { source })),
 	/**
-	 *  Per-instance modpack update check across all four sources. Replaces the
-	 *  Modrinth-only `modpack_check_update` (which the Overview card migrates to
-	 *  in a later change). Returns an explicit status that distinguishes
-	 *  "up to date" from "not checkable".
+	 *  Per-instance modpack update check across all four sources. Returns an
+	 *  explicit status that distinguishes "up to date" from "not checkable"
+	 *  (the former Modrinth-only `modpack_check_update` has been removed).
 	 */
 	modpackUpdateStatus: (instanceId: string) => typedError<ModpackUpdateStatus, Error>(__TAURI_INVOKE("modpack_update_status", { instanceId })),
 	/**
@@ -679,8 +678,14 @@ export const commands = {
 	/**
 	 *  Persist the GeneralSettings block. Read-modify-write of app.json
 	 *  — leaves `active_instance`, `onboarding`, and `version` untouched.
+	 *  After persisting, re-syncs GPU preference to every installed JRE.
 	 */
 	appSettingsSetGeneral: (general: GeneralSettings) => typedError<null, Error>(__TAURI_INVOKE("app_settings_set_general", { general })),
+	/**
+	 *  Probe GPU-selection capability for the Settings UI. Read-only; returns
+	 *  `Unsupported`/`SingleGpu` (UI hides the control) or `Available` with labels.
+	 */
+	gpuCapability: () => typedError<GpuCapability, Error>(__TAURI_INVOKE("gpu_capability")),
 	/**
 	 *  Check GitHub Releases for a newer version. Returns `UpdateInfo` with
 	 *  `available=false` when up-to-date; `Err` on network/parse failure
@@ -705,6 +710,7 @@ export const commands = {
 /** Events */
 export const events = {
 	downloadProgress: makeEvent<DownloadProgress>("download-progress"),
+	gpuPrefApplied: makeEvent<GpuPrefApplied>("gpu-pref-applied"),
 	installProgress: makeEvent<InstallProgress>("install-progress"),
 	modInstallFailed: makeEvent<ModInstallFailed>("mod-install-failed"),
 	modInstallProgress: makeEvent<ModInstallProgress>("mod-install-progress"),
@@ -1053,7 +1059,49 @@ export type GeneralSettings = {
 	 *  every compact/expand toggle.
 	 */
 	compact_mode?: boolean,
+	/**
+	 *  Preferred GPU for the Minecraft process. `#[serde(default)]` →
+	 *  app.json written before this field deserializes to `Auto`.
+	 */
+	gpu_preference?: GpuPreference,
 };
+
+/**  What the UI needs to decide whether/how to show the GPU control. */
+export type GpuCapability = 
+/**  OS has no per-launch GPU mechanism (macOS). Hide the control. */
+{ kind: "unsupported" } | 
+/**  Mechanism exists but only one GPU — nothing to choose. Hide. */
+{ kind: "single_gpu" } | 
+/**  Two or more GPUs — show the dropdown. */
+{ kind: "available"; gpus: GpuInfo[]; 
+/**  Name the "high performance" option resolves to, if known. */
+high: string | null; 
+/**  Name the "power saving" option resolves to, if known. */
+low: string | null };
+
+/**  One GPU as shown to the UI. */
+export type GpuInfo = {
+	name: string,
+};
+
+/**
+ *  Emitted when a freshly-installed JRE was stamped with a non-Auto GPU
+ *  preference, so the UI can surface a one-time "applied to new runtime" toast.
+ */
+export type GpuPrefApplied = {
+	/**  The preference applied (serialized snake_case: "high_performance" | "power_saving"). */
+	preference: GpuPreference,
+	/**  GPU name the preference resolves to (e.g. "NVIDIA GeForce RTX 3050 Ti"), if known. */
+	gpu_name: string | null,
+};
+
+/**
+ *  Which GPU Minecraft should prefer. OS-neutral: Windows maps
+ *  `HighPerformance→GpuPreference=2 / PowerSaving→1 / Auto→absent`;
+ *  Linux maps `HighPerformance→PRIME/DRI offload / {PowerSaving,Auto}→none`.
+ *  macOS ignores it (no mechanism). Default `Auto` = today's behavior.
+ */
+export type GpuPreference = "auto" | "high_performance" | "power_saving";
 
 export type Greeting = {
 	message: string,

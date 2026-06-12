@@ -59,12 +59,14 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     appSettingsMarkTourCompleted: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
   events: {
     modInstalled: { listen: () => Promise.resolve(() => {}) },
     modUninstalled: { listen: () => Promise.resolve(() => {}) },
     modToggle: { listen: () => Promise.resolve(() => {}) },
     processExited: { listen: () => Promise.resolve(() => {}) },
+    gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
   },
 }));
 

@@ -22,6 +22,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     appSettingsMarkTourCompleted: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
 }));
 

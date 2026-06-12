@@ -7,6 +7,8 @@
 //! window detection) plus the dispatch entry points the launcher calls.
 //! Enforced by `tests/structural_platform_chokepoint.rs`.
 
+pub mod gpu;
+
 use std::path::Path;
 
 /// True iff this platform supports in-app self-update (download + verify +

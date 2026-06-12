@@ -112,6 +112,19 @@ pub enum ThemePreference {
     Dark,
 }
 
+/// Which GPU Minecraft should prefer. OS-neutral: Windows maps
+/// `HighPerformance→GpuPreference=2 / PowerSaving→1 / Auto→absent`;
+/// Linux maps `HighPerformance→PRIME/DRI offload / {PowerSaving,Auto}→none`.
+/// macOS ignores it (no mechanism). Default `Auto` = today's behavior.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuPreference {
+    #[default]
+    Auto,
+    HighPerformance,
+    PowerSaving,
+}
+
 /// How verbose onboarding/help copy is. `Basic` = plain language (default,
 /// understandable to newcomers); `Advanced` = the original technical copy.
 /// Chosen on first launch and changeable in Settings → General.
@@ -165,6 +178,10 @@ pub struct GeneralSettings {
     /// every compact/expand toggle.
     #[serde(default)]
     pub compact_mode: bool,
+    /// Preferred GPU for the Minecraft process. `#[serde(default)]` →
+    /// app.json written before this field deserializes to `Auto`.
+    #[serde(default)]
+    pub gpu_preference: GpuPreference,
 }
 
 impl Default for GeneralSettings {
@@ -176,6 +193,7 @@ impl Default for GeneralSettings {
             language: default_language(),
             explanation_level: ExplanationLevel::default(),
             compact_mode: false,
+            gpu_preference: GpuPreference::default(),
         }
     }
 }
@@ -566,6 +584,51 @@ mod tests {
         }"#;
         let parsed: AppFile = serde_json::from_str(old_json).unwrap();
         assert!(!parsed.general.compact_mode);
+    }
+
+    #[test]
+    fn gpu_preference_default_is_auto() {
+        assert_eq!(GpuPreference::default(), GpuPreference::Auto);
+    }
+
+    #[test]
+    fn gpu_preference_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&GpuPreference::HighPerformance).unwrap(),
+            r#""high_performance""#
+        );
+        assert_eq!(
+            serde_json::to_string(&GpuPreference::PowerSaving).unwrap(),
+            r#""power_saving""#
+        );
+        assert_eq!(
+            serde_json::to_string(&GpuPreference::Auto).unwrap(),
+            r#""auto""#
+        );
+    }
+
+    #[test]
+    fn general_settings_default_gpu_pref_is_auto() {
+        assert_eq!(
+            GeneralSettings::default().gpu_preference,
+            GpuPreference::Auto
+        );
+    }
+
+    #[test]
+    fn app_file_without_gpu_pref_deserializes_to_auto() {
+        let old = r#"{ "version": 1, "general": { "hide_to_tray_during_game": true } }"#;
+        let parsed: AppFile = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.general.gpu_preference, GpuPreference::Auto);
+    }
+
+    #[test]
+    fn general_settings_roundtrips_gpu_pref() {
+        let mut g = GeneralSettings::default();
+        g.gpu_preference = GpuPreference::HighPerformance;
+        let back: GeneralSettings =
+            serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert_eq!(back.gpu_preference, GpuPreference::HighPerformance);
     }
 
     #[test]

@@ -7,6 +7,8 @@
     commands,
     type ExplanationLevel,
     type GeneralSettings,
+    type GpuCapability,
+    type GpuPreference,
     type ThemePreference,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -34,10 +36,32 @@
     { value: 'advanced', label: $t('settings.general.tips.advanced') },
   ]);
 
+  let gpuCap = $state<GpuCapability | null>(null);
+  const gpuOptions = $derived<{ value: GpuPreference; label: string }[]>(
+    gpuCap?.kind === 'available'
+      ? [
+          { value: 'auto', label: $t('settings.general.gpu.auto') },
+          {
+            value: 'high_performance',
+            label: gpuCap.high
+              ? `${$t('settings.general.gpu.high')} (${gpuCap.high})`
+              : $t('settings.general.gpu.high'),
+          },
+          {
+            value: 'power_saving',
+            label: gpuCap.low
+              ? `${$t('settings.general.gpu.power')} (${gpuCap.low})`
+              : $t('settings.general.gpu.power'),
+          },
+        ]
+      : [],
+  );
+
   let general = $state<GeneralSettings>({
     hide_to_tray_during_game: false,
     theme: 'system',
     check_updates_on_startup: true,
+    gpu_preference: 'auto',
   });
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
@@ -49,6 +73,8 @@
     } else {
       loadError = formatError(r.error);
     }
+    const c = await commands.gpuCapability();
+    if (c.status === 'ok') gpuCap = c.data;
   });
 
   async function save() {
@@ -67,6 +93,7 @@
       ...cur.data.general,
       hide_to_tray_during_game: general.hide_to_tray_during_game,
       check_updates_on_startup: general.check_updates_on_startup,
+      gpu_preference: general.gpu_preference,
     };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') {
@@ -234,6 +261,27 @@
       <span class="text-xs text-muted">{$t('settings.general.tips.levelDescription')}</span>
     </div>
   </div>
+
+  {#if gpuCap?.kind === 'available'}
+    <div class="flex flex-col gap-3">
+      <h3 class="font-medium text-sm text-primary">{$t('settings.general.gpu.title')}</h3>
+      <div class="flex flex-col gap-1">
+        <span class="text-sm text-primary">{$t('settings.general.gpu.label')}</span>
+        <Select
+          class="text-sm"
+          dataTestid="gpu-select"
+          ariaLabel={$t('settings.general.gpu.label')}
+          value={general.gpu_preference ?? null}
+          options={gpuOptions}
+          onChange={(v) => {
+            general.gpu_preference = v as GpuPreference;
+            void save();
+          }}
+        />
+        <span class="text-xs text-muted">{$t('settings.general.gpu.note')}</span>
+      </div>
+    </div>
+  {/if}
 
   <div class="flex flex-col gap-3">
     <h3 class="font-medium text-sm text-primary">{$t('settings.general.onboarding.title')}</h3>

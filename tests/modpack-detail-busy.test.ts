@@ -29,7 +29,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modpackFetchToTemp: mockFetchToTemp,
     modpackProject: mockProject,
   },
-  events: {},
+  events: { gpuPrefApplied: { listen: () => Promise.resolve(() => {}) } },
 }));
 
 import ModpackDetailModal from '$lib/modpacks/ModpackDetailModal.svelte';

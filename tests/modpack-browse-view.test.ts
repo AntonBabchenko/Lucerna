@@ -28,7 +28,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsGetCurseforgeKeyStatus: mockKeyStatus,
     modpackSourceCaps: mockSourceCaps,
   },
-  events: {},
+  events: { gpuPrefApplied: { listen: () => Promise.resolve(() => {}) } },
 }));
 vi.mock('$lib/settings/state.svelte', () => ({
   cfKeyVersion: { value: 0 },

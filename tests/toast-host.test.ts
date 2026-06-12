@@ -1,5 +1,14 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// ToastHost now registers a Tauri event listener on mount. Stub the events
+// module so tests don't hit the real Tauri IPC (undefined in happy-dom).
+vi.mock('$lib/ipc/bindings', () => ({
+  events: {
+    gpuPrefApplied: { listen: () => Promise.resolve(() => {}) },
+  },
+}));
+
 import ToastHost from '$lib/toasts/ToastHost.svelte';
 import { dismiss, pushSuccess, pushWarning, toastList } from '$lib/toasts/toasts.svelte';
 

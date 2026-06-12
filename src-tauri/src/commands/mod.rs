@@ -342,6 +342,16 @@ pub struct ModInstallFailed {
     pub error: crate::error::Error,
 }
 
+/// Emitted when a freshly-installed JRE was stamped with a non-Auto GPU
+/// preference, so the UI can surface a one-time "applied to new runtime" toast.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct GpuPrefApplied {
+    /// The preference applied (serialized snake_case: "high_performance" | "power_saving").
+    pub preference: crate::instances::schema::GpuPreference,
+    /// GPU name the preference resolves to (e.g. "NVIDIA GeForce RTX 3050 Ti"), if known.
+    pub gpu_name: Option<String>,
+}
+
 /// Per-instance root, e.g. `<app_data>/instances/<id>/`. The mod install
 /// pipeline writes under `{root}/.minecraft/mods/` and tracks state in
 /// `{root}/lucerna/installed-mods.json`.

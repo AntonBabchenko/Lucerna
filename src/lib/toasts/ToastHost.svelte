@@ -1,7 +1,18 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
-  import { dismiss, toastList } from '$lib/toasts/toasts.svelte';
+  import { events } from '$lib/ipc/bindings';
+  import { dismiss, toastList, pushSuccess } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+
+  onMount(() => {
+    const un = events.gpuPrefApplied.listen((e) => {
+      pushSuccess($t('settings.general.gpu.appliedToast', { name: e.payload.gpu_name ?? '' }));
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  });
 
   // Renders the active toast stack in the top-right corner. Mounted once
   // at the app root (`src/routes/+page.svelte`). z-[200] keeps toasts

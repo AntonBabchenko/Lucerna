@@ -311,6 +311,19 @@ pub async fn start(
     ));
     argv.extend(argv_from_manifest);
 
+    // GPU preference: best-effort, never blocks launch.
+    let gpu_pref = crate::paths::app_file(app)
+        .ok()
+        .and_then(|p| crate::instances::store::read_app_json(&p).ok())
+        .map(|af| af.general.gpu_preference)
+        .unwrap_or_default();
+    // Windows: keep the registry entry for THIS javaw in sync with the setting.
+    if let Err(e) = crate::platform::gpu::sync_for_exe(&java_path, gpu_pref) {
+        eprintln!("gpu: registry sync failed for {}: {e}", java_path.display());
+    }
+    // Linux: env vars on the child (empty elsewhere).
+    let gpu_env = crate::platform::gpu::launch_env(gpu_pref);
+
     let log_path = logs_dir.join(format!("{}-launch.log", local_iso_stamp()));
     let log_file = std::fs::File::create(&log_path)
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
@@ -318,8 +331,14 @@ pub async fn start(
         .try_clone()
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
 
-    let mut child =
-        crate::process::spawn_minecraft(&java_path, &argv, &game_dir, log_file, log_file_err)?;
+    let mut child = crate::process::spawn_minecraft(
+        &java_path,
+        &argv,
+        &game_dir,
+        &gpu_env,
+        log_file,
+        log_file_err,
+    )?;
     let pid = child.id().ok_or_else(|| Error::JavaSpawn {
         details: "spawned but no PID available".into(),
     })?;
