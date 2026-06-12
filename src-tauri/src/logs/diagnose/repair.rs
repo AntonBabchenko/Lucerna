@@ -145,6 +145,7 @@ pub fn suggest_heap_mb(current_mb: u32, total_ram_mb: Option<u64>) -> Option<u32
 }
 
 use crate::instances::schema::LoaderKind;
+use crate::mods::cited_resolve::ResolvedMod;
 use crate::mods::platform::{InstalledMod, VersionRef};
 
 /// The concrete, parameterised fix proposal returned by
@@ -167,6 +168,9 @@ pub enum RepairPlan {
     },
     ResolveConflict {
         candidates: Vec<ConflictCandidate>,
+    },
+    InstallMissingMods {
+        mods: Vec<ResolvedMod>,
     },
 }
 
@@ -379,6 +383,14 @@ mod tests {
     fn conflict_mods_empty_when_no_mod_lines() {
         let log = "net.fabricmc.loader.impl.discovery.ModResolutionException: something";
         assert!(extract_conflict_mods(log).is_empty());
+    }
+
+    #[test]
+    fn install_missing_mods_plan_serializes_with_kind_tag() {
+        let plan = RepairPlan::InstallMissingMods { mods: vec![] };
+        let j = serde_json::to_string(&plan).unwrap();
+        assert!(j.contains(r#""kind":"install_missing_mods""#), "got: {j}");
+        assert!(j.contains(r#""mods":[]"#), "got: {j}");
     }
 
     #[test]

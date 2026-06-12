@@ -178,9 +178,28 @@ pub async fn build_repair_plan(
             Ok(Some(RepairPlan::ResolveConflict { candidates }))
         }
         RepairKind::InstallMissingMods => {
-            // Handled by a dedicated command added alongside the
-            // server-missing-mods diagnoser pattern.
-            Ok(None)
+            use crate::logs::diagnose::server_mods::parse_server_mod_rejection;
+            let cited = parse_server_mod_rejection(&log);
+            // Honesty rule: zero cited mods → None (the diagnosis's advisory
+            // recommendation already guides the user). ≥1 cited → Some even when
+            // all are Unresolved, so the dialog lists them with manual-find links.
+            if cited.is_empty() {
+                return Ok(None);
+            }
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            let modrinth = platform_for(crate::mods::platform::ModSource::Modrinth);
+            let curseforge = platform_for(crate::mods::platform::ModSource::Curseforge);
+            let mods = crate::mods::cited_resolve::resolve(
+                &cited,
+                &instance.mc_version,
+                instance.loader,
+                modrinth.as_ref(),
+                curseforge.as_ref(),
+                &installed,
+            )
+            .await;
+            Ok(Some(RepairPlan::InstallMissingMods { mods }))
         }
     }
 }
