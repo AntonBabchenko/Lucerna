@@ -18,6 +18,7 @@ import {
   Expand,
   ExternalLink,
   FolderOpen,
+  Globe,
   Image,
   Info,
   LayoutGrid,
@@ -81,6 +82,7 @@ export const ICONS = {
   play: Play, // Quick Play action — launch into a specific world / server
   shrink: Shrink, // collapse window to mini mode
   expand: Expand, // restore window from mini mode
+  globe: Globe, // join-server satellite (Quick Play)
   // Content kinds (Add-ons tab): picker options + per-kind placeholder avatars.
   resourcePack: Image, // resource-pack kind
   shader: Aperture, // shader kind

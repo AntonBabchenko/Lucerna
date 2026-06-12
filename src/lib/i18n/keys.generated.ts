@@ -875,6 +875,7 @@ export type TranslationKey =
   | 'sidebar.createInstance'
   | 'sidebar.install'
   | 'sidebar.instance'
+  | 'sidebar.joinServer'
   | 'sidebar.logs'
   | 'sidebar.manage'
   | 'sidebar.modpackUpdatesBadge'

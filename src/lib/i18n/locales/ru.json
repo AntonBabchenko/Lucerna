@@ -80,7 +80,8 @@
     "logs": "Логи",
     "compactCollapse": "Свернуть в мини-режим",
     "compactExpand": "Развернуть на всё окно",
-    "modpackUpdatesBadge": "Доступно обновлений сборок: {count}"
+    "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
+    "joinServer": "Подключиться к серверу"
   },
   "instance": {
     "manage": {
