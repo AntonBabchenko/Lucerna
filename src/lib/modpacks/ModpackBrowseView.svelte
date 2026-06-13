@@ -223,7 +223,12 @@
       <Spinner size="lg" label={$t('modpacks.browse.searching')} />
     </div>
   {:else if error}
-    <div class="mt-4 text-sm text-danger">{error}</div>
+    <div class="mt-4 text-sm text-danger flex items-center justify-between gap-3">
+      <span>{error}</span>
+      <button type="button" class="btn-secondary btn-sm shrink-0" onclick={() => runSearch()}>
+        {$t('modpacks.browse.errorRetry')}
+      </button>
+    </div>
   {:else if page && page.hits.length === 0}
     <div class="mt-8 text-sm text-placeholder text-center">{$t('modpacks.browse.noResults')}</div>
   {:else if page}
