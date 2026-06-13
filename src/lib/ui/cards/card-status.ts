@@ -63,3 +63,9 @@ export function accentStripClass(accent: CardAccent): string {
       return 'bg-transparent';
   }
 }
+
+// Grid-tile corner status dot — the tile-form expression of the accent strip
+// (a rounded tile reads a flush left strip poorly). Same tone mapping.
+export function accentDotClass(accent: CardAccent): string {
+  return accentStripClass(accent);
+}

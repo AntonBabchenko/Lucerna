@@ -103,4 +103,28 @@ describe('ModCard', () => {
     expect(row?.className).toContain('bg-surface');
     expect(row?.className).not.toContain('bg-highlight');
   });
+
+  it('compact list shows icon action buttons (power + uninstall) for an enabled mod', () => {
+    render(ModCard, {
+      props: { summary, installed: inst(true), layout: 'list', density: 'compact', ...noopProps },
+    });
+    // Enabled → power toggle labelled "Disable", plus an "Uninstall" icon button.
+    expect(screen.getByRole('button', { name: /disable/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+  });
+
+  it('compact list omits the toggle for resource packs/shaders (canToggle=false)', () => {
+    render(ModCard, {
+      props: {
+        summary,
+        installed: inst(true),
+        layout: 'list',
+        density: 'compact',
+        canToggle: false,
+        ...noopProps,
+      },
+    });
+    expect(screen.queryByRole('button', { name: /disable/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+  });
 });
