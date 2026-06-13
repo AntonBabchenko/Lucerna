@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { CompatVerdict, ContentKind, ModSource } from '$lib/ipc/bindings';
-  import { modBrowseOpenProject, modBrowserNav } from '$lib/settings/state.svelte';
+  import { modBrowseOpenProject, modBrowserNav, addonsKind } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon, type IconName } from '$lib/ui/icons';
@@ -54,11 +54,21 @@
     void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(OPTIFINE_DOWNLOADS_URL));
   }
 
+  // Mirror the local kind into the cross-component addonsKind rune so the
+  // MainTabs drag-drop router knows which segment is active without needing
+  // a prop chain. Resets to 'mod' when this component is destroyed (i.e. when
+  // the user navigates away from the Add-ons tab) so a stale kind does not
+  // poison a future drop on a different tab.
+  $effect(() => {
+    addonsKind.value = kind;
+  });
+
   // The Iris deep-link rune is module-level and outlives this component. If the
   // tab is torn down between openIris() and the mod browser consuming it, clear
   // it so a later mount can't open Iris unprompted.
   onDestroy(() => {
     modBrowseOpenProject.value = null;
+    addonsKind.value = 'mod';
   });
 
   // i18n labels for the kind switch — order mirrors CONTENT_KINDS.

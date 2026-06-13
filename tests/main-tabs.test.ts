@@ -29,6 +29,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    assetInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
   events: {
@@ -116,6 +118,8 @@ describe('MainTabs drag-drop routing', () => {
     const s = await import('$lib/settings/state.svelte');
     s.droppedMods.value = null;
     s.droppedModpack.value = null;
+    s.droppedAssets.value = null;
+    s.addonsKind.value = 'mod';
     s.dragActive.value = false;
     dragDropHandlers.cbs.length = 0;
   });
@@ -183,5 +187,30 @@ describe('MainTabs drag-drop routing', () => {
     dragDropHandlers.fire({ payload: { type: 'enter' } });
     const { dragActive } = await import('$lib/settings/state.svelte');
     expect(dragActive.value).toBe(false);
+  });
+
+  it('routes a .zip drop on the Resource-pack segment to droppedAssets', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
+    await flushMount();
+    // Switch the Add-ons segment to Resource packs so addonsKind === 'resource_pack'.
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/Faithful.zip', '/x/notes.txt'] } });
+    const { droppedAssets } = await import('$lib/settings/state.svelte');
+    expect(droppedAssets.value).toEqual({ kind: 'resource_pack', paths: ['/x/Faithful.zip'] });
+  });
+
+  it('does not route a .zip when no instance is selected', async () => {
+    render(MainTabs, { props: { instanceId: null, mcVersion: null, loader: null } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/Faithful.zip'] } });
+    const { droppedAssets } = await import('$lib/settings/state.svelte');
+    expect(droppedAssets.value).toBeNull();
   });
 });
