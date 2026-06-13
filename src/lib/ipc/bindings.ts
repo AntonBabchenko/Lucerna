@@ -835,8 +835,8 @@ export type CitedKind = "missing" | "version_mismatch";
 
 /**
  *  One mod the server said the client is missing or running at the wrong
- *  version. `id` is the raw mod-id from the log (e.g. "jei", "create") —
- *  NOT a Modrinth slug or platform id.
+ *  version. `id` is the raw mod-id from the log (e.g. "farmersdelight",
+ *  "create") — NOT a Modrinth slug or platform id.
  */
 export type CitedMod = {
 	id: string,
