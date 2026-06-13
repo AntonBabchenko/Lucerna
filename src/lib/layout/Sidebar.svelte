@@ -220,9 +220,10 @@
         <button
           type="button"
           class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+          title={$t('sidebar.modsFolderTitle')}
           onclick={onOpenMods}
         >
-          <Icon name="blocks" size={14} />
+          <Icon name="folderOpen" size={14} />
           {$t('sidebar.mods')}
         </button>
       </div>

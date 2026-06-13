@@ -71,6 +71,7 @@
     "pickMcVersion": "(pick MC)",
     "manage": "Manage",
     "mods": "Mods",
+    "modsFolderTitle": "Open mods folder",
     "stop": "Stop",
     "play": "Play",
     "pickVersionTitle": "Pick a Minecraft version first",
