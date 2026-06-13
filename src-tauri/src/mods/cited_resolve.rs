@@ -15,6 +15,7 @@ use crate::mods::platform::{
     drop_filename_loader_mismatches, ContentKind, InstalledMod, LoaderKind, ModPlatform,
     ModSearchQuery, ModSort, ModSource, ModSummary, ModVersion, VersionRef,
 };
+use crate::mods::word_segment;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ResolvedCandidate {
@@ -244,25 +245,26 @@ async fn resolve_via_search(
     plat: &dyn ModPlatform,
     source: ModSource,
 ) -> ResolveTier {
-    let q = ModSearchQuery {
-        source,
-        kind: ContentKind::Mod,
-        query: c.id.clone(),
-        mc_version: Some(mc_version.to_string()),
-        loader: Some(loader),
-        sort: ModSort::Relevance,
-        page_size: MAX_FUZZY as u32,
-        offset: 0,
-    };
-    let Ok(page) = plat.search(&q).await else {
-        return ResolveTier::Unresolved;
-    };
-    if page.hits.is_empty() {
+    // Search the raw mod-id, then — when the slammed id segments into words —
+    // the spaced variant too. Modrinth/CurseForge tokenize a hyphenated slug,
+    // so a slammed query (`farmersdelight`) never surfaces a mod whose slug is
+    // `farmers-delight`; the segmented query (`farmers delight`) does. Merging
+    // both hit lists lets the exact slug match below promote the real project,
+    // even when the slammed query only turned up an unrelated compat patch.
+    let mut hits = search_hits(&c.id, mc_version, loader, plat, source).await;
+    if let Some(spaced) = word_segment::segment(&c.id) {
+        for hit in search_hits(&spaced, mc_version, loader, plat, source).await {
+            if !hits.iter().any(|h| h.project_id == hit.project_id) {
+                hits.push(hit);
+            }
+        }
+    }
+    if hits.is_empty() {
         return ResolveTier::Unresolved;
     }
 
-    // Exact: a slug-equal hit that has a compatible version.
-    if let Some(hit) = page.hits.iter().find(|h| is_exact_slug_match(&c.id, h)) {
+    // Exact: a slug-equal hit (after normalization) that has a compatible version.
+    if let Some(hit) = hits.iter().find(|h| is_exact_slug_match(&c.id, h)) {
         if let Ok(versions) = plat
             .versions(&hit.project_id, Some(mc_version), Some(loader))
             .await
@@ -281,7 +283,7 @@ async fn resolve_via_search(
     // so an unrelated hit lands in Unresolved ("find it yourself") rather than
     // being offered as a wrong guess — and (b) have a compatible version.
     let mut candidates = Vec::new();
-    for hit in page.hits.iter().take(MAX_FUZZY) {
+    for hit in hits.iter().take(MAX_FUZZY) {
         if !is_related_to_cited(&c.id, hit) {
             continue;
         }
@@ -300,6 +302,32 @@ async fn resolve_via_search(
     } else {
         ResolveTier::Fuzzy { candidates }
     }
+}
+
+/// One platform search for `query`, faceted by mc+loader. A transport error or
+/// 5xx yields an empty hit list (the caller treats "no hits" as Unresolved),
+/// keeping a flaky platform from masking a result the other platform could give.
+async fn search_hits(
+    query: &str,
+    mc_version: &str,
+    loader: LoaderKind,
+    plat: &dyn ModPlatform,
+    source: ModSource,
+) -> Vec<ModSummary> {
+    let q = ModSearchQuery {
+        source,
+        kind: ContentKind::Mod,
+        query: query.to_string(),
+        mc_version: Some(mc_version.to_string()),
+        loader: Some(loader),
+        sort: ModSort::Relevance,
+        page_size: MAX_FUZZY as u32,
+        offset: 0,
+    };
+    plat.search(&q)
+        .await
+        .map(|page| page.hits)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -596,5 +624,120 @@ mod tests {
             "expected Unresolved, got {:?}",
             out[0].tier
         );
+    }
+
+    #[tokio::test]
+    async fn slammed_query_misses_but_segmented_query_resolves_exact() {
+        // Real scenario: the slammed mod-id `farmersdelight` only turns up an
+        // unrelated compat patch on Modrinth (the hyphenated real slug is
+        // tokenized away), while the word-segmented query `farmers delight`
+        // surfaces the real `farmers-delight`. Segmentation must promote the
+        // real project to Exact rather than settling for the compat patch.
+        let _env = crate::test_env_lock();
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+
+        use crate::logs::diagnose::server_mods::{CitedKind, CitedMod};
+        use crate::mods::modrinth::ModrinthClient;
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let s = MockServer::start().await;
+
+        // Slammed query → only a compat patch (related, but not the real slug).
+        Mock::given(method("GET"))
+            .and(path("/v2/search"))
+            .and(query_param("query", "farmersdelight"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "hits": [{
+                        "project_id": "fd-compat",
+                        "slug": "farmersdelight-compat-patch",
+                        "title": "FD Compat Patch",
+                        "description": "patch",
+                        "icon_url": null,
+                        "downloads": 100,
+                        "author": "someone",
+                        "date_modified": "2026-05-01T00:00:00Z"
+                    }],
+                    "total_hits": 1,
+                    "offset": 0,
+                    "limit": 5
+                }"#,
+            ))
+            .mount(&s)
+            .await;
+
+        // Segmented query → the real mod, slug "farmers-delight".
+        Mock::given(method("GET"))
+            .and(path("/v2/search"))
+            .and(query_param("query", "farmers delight"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                    "hits": [{
+                        "project_id": "fd-real",
+                        "slug": "farmers-delight",
+                        "title": "Farmer's Delight",
+                        "description": "cooking and farming",
+                        "icon_url": null,
+                        "downloads": 9000000,
+                        "author": "vectorwing",
+                        "date_modified": "2026-05-01T00:00:00Z"
+                    }],
+                    "total_hits": 1,
+                    "offset": 0,
+                    "limit": 5
+                }"#,
+            ))
+            .mount(&s)
+            .await;
+
+        // Versions for the real project: one compatible 1.20.1/forge build. The
+        // compat patch's versions endpoint is intentionally unmocked — proving
+        // we never fall back to it once the segmented query yields Exact.
+        Mock::given(method("GET"))
+            .and(path("/v2/project/fd-real/version"))
+            .and(query_param("loaders", r#"["forge"]"#))
+            .and(query_param("game_versions", r#"["1.20.1"]"#))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                    "id": "fd-forge-v1",
+                    "project_id": "fd-real",
+                    "name": "Farmer's Delight 1.2.4",
+                    "version_number": "1.2.4",
+                    "game_versions": ["1.20.1"],
+                    "loaders": ["forge"],
+                    "date_published": "2026-05-01T00:00:00Z",
+                    "files": [{
+                        "url": "https://cdn.modrinth.com/fd-forge-1.2.4.jar",
+                        "filename": "FarmersDelight-1.20.1-1.2.4.jar",
+                        "hashes": {"sha1": "deadbeef"},
+                        "size": 2048,
+                        "primary": true
+                    }],
+                    "dependencies": []
+                }]"#,
+            ))
+            .mount(&s)
+            .await;
+
+        let mr = ModrinthClient::with_base(s.uri());
+        let cited = vec![CitedMod {
+            id: "farmersdelight".into(),
+            version: None,
+            kind: CitedKind::Missing,
+        }];
+
+        let out = resolve(&cited, "1.20.1", LoaderKind::Forge, &mr, &mr, &[]).await;
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(out.len(), 1);
+        match &out[0].tier {
+            ResolveTier::Exact { candidate } => {
+                assert_eq!(candidate.target.project_id, "fd-real");
+                assert_eq!(candidate.target.version_id, "fd-forge-v1");
+                assert_eq!(candidate.version_label, "1.2.4");
+            }
+            other => panic!("expected Exact via segmentation, got {other:?}"),
+        }
     }
 }
