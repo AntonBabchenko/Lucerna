@@ -8,7 +8,6 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Skin payload returned to the UI. The full skin PNG is base64-encoded;
 /// the head is cropped client-side onto a canvas.
@@ -80,10 +79,11 @@ fn profile_url(uuid_no_dashes: &str) -> String {
     )
 }
 
-/// Fetch the player's skin by UUID. Returns `Ok(None)` when the profile
-/// has no skin (default skin, offline UUID → 204, or any non-2xx). `Err`
-/// only on a transport failure reaching the texture host; the orchestrator
-/// degrades that to `None` too.
+/// Fetch the player's skin by UUID. Returns `Ok(None)` when there is no
+/// usable skin: the profile is absent (204 / non-2xx), carries no SKIN
+/// texture, or the texture itself is missing (non-2xx / empty body).
+/// `Err` only on a transport-level failure (no HTTP status received) — the
+/// orchestrator degrades that to `None` too.
 pub async fn fetch_skin(uuid: &str) -> Result<Option<AccountSkin>> {
     let uuid_no_dashes = uuid.replace('-', "");
     let url = profile_url(&uuid_no_dashes);
@@ -99,8 +99,11 @@ pub async fn fetch_skin(uuid: &str) -> Result<Option<AccountSkin>> {
     let Some(texture_url) = skin_url_from_properties(&profile.properties) else {
         return Ok(None);
     };
-    let png = crate::network::get_bytes(&texture_url, "account_skin").await?;
-    let skin_png_base64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    let tex_resp = crate::network::request::get(&texture_url, &[], "account_skin").await?;
+    if !(200..300).contains(&tex_resp.status) || tex_resp.body.is_empty() {
+        return Ok(None);
+    }
+    let skin_png_base64 = base64::engine::general_purpose::STANDARD.encode(&tex_resp.body);
     Ok(Some(AccountSkin {
         uuid: uuid.to_string(),
         texture_url,
@@ -116,13 +119,6 @@ const SKIN_CACHE_TTL_SECS: f64 = 6.0 * 3600.0;
 struct SkinMeta {
     texture_url: String,
     fetched_at: f64,
-}
-
-fn now_secs() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
 }
 
 /// Read a cached skin if present and fresh (`now - fetched_at <= ttl`).
@@ -176,7 +172,7 @@ pub async fn get_account_skin(
             return None;
         }
     };
-    let now = now_secs();
+    let now = crate::accounts::now_secs();
     if !force {
         if let Some(cached) = read_cached_skin(&dir, uuid, SKIN_CACHE_TTL_SECS, now) {
             return Some(cached);
@@ -354,5 +350,39 @@ mod tests {
             read_cached_skin(dir.path(), "nope", 6.0 * 3600.0, 1.0),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn fetch_skin_texture_404_returns_none() {
+        let _g = test_env_lock();
+        let server = MockServer::start().await;
+        let texture_url = format!("{}/texture/missing", server.uri());
+        let textures_json = format!(r#"{{"textures":{{"SKIN":{{"url":"{texture_url}"}}}}}}"#);
+        let textures_b64 =
+            base64::engine::general_purpose::STANDARD.encode(textures_json.as_bytes());
+        let profile_body = format!(
+            r#"{{"id":"abc","name":"P","properties":[{{"name":"textures","value":"{textures_b64}"}}]}}"#
+        );
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/session/minecraft/profile/.*$"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(profile_body))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/texture/missing"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        std::env::set_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE", server.uri());
+
+        let skin = fetch_skin("7e8d9c0a-1234-5678-9abc-def012345678")
+            .await
+            .unwrap();
+
+        std::env::remove_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE");
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(skin, None);
     }
 }

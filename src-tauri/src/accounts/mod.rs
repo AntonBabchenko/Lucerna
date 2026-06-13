@@ -16,6 +16,17 @@ use store::{read_account_file, write_account_file};
 
 pub use store::{upsert_microsoft_account, Account, AccountKind};
 
+/// Current Unix time in fractional seconds; `0.0` if the system clock is
+/// before the epoch (unreachable in practice). Shared by the MS-auth
+/// token-expiry math and the skin-cache freshness check.
+pub(crate) fn now_secs() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
 /// List every stored account. Returns an empty vec for a fresh install.
 pub fn list_accounts(app: &tauri::AppHandle) -> Result<Vec<Account>> {
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
