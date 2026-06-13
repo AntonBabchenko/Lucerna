@@ -436,15 +436,16 @@
             <button type="button" class="btn-secondary btn-sm" onclick={() => (createMode = false)}>
               {$t('instance.manage.cancelBtn')}
             </button>
-            <button
-              type="button"
-              class="btn-primary btn-sm"
-              disabled={!!createDisabledReason}
-              title={createDisabledReason}
-              onclick={submitCreate}
-            >
-              {$t('instance.manage.createBtn')}
-            </button>
+            <span class="inline-flex" use:tooltip={{ text: createDisabledReason, describe: false }}>
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                disabled={!!createDisabledReason}
+                onclick={submitCreate}
+              >
+                {$t('instance.manage.createBtn')}
+              </button>
+            </span>
           </div>
         {:else if selected}
           <h3 class="font-semibold text-primary mb-3">
@@ -551,16 +552,23 @@
             class="flex items-center justify-between pt-3 border-t"
             data-tour-ctx="manage-actions"
           >
-            <button
-              type="button"
-              class="btn-ghost-danger inline-flex items-center gap-1.5"
-              disabled={instances.length <= 1}
-              title={instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : ''}
-              onclick={() => (deleteConfirmOpen = true)}
+            <span
+              class="inline-flex"
+              use:tooltip={{
+                text: instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : '',
+                describe: false,
+              }}
             >
-              <Icon name="trash" size={14} />
-              {$t('instance.manage.deleteBtn')}
-            </button>
+              <button
+                type="button"
+                class="btn-ghost-danger inline-flex items-center gap-1.5"
+                disabled={instances.length <= 1}
+                onclick={() => (deleteConfirmOpen = true)}
+              >
+                <Icon name="trash" size={14} />
+                {$t('instance.manage.deleteBtn')}
+              </button>
+            </span>
             <div class="flex gap-2">
               <button
                 type="button"

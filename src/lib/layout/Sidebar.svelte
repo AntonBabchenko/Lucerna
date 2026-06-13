@@ -137,14 +137,22 @@
       >
         {$t('sidebar.addOffline')}
       </button>
-      <button
-        type="button"
-        class="btn-secondary btn-xs flex-1"
-        disabled={!activeAccount}
-        onclick={onRemoveAccount}
+      <span
+        class="inline-flex flex-1"
+        use:tooltip={{
+          text: !activeAccount ? $t('sidebar.removeAccountDisabled') : '',
+          describe: false,
+        }}
       >
-        {$t('sidebar.removeAccount')}
-      </button>
+        <button
+          type="button"
+          class="btn-secondary btn-xs w-full"
+          disabled={!activeAccount}
+          onclick={onRemoveAccount}
+        >
+          {$t('sidebar.removeAccount')}
+        </button>
+      </span>
     </div>
     {#if showAddOfflineInput}
       <div class="flex flex-col gap-1 mt-1">
@@ -235,15 +243,16 @@
             {$t('sidebar.stop')}
           </button>
         {:else if activeInstance.mc_version === ''}
-          <button
-            type="button"
-            data-tour="play-btn"
-            class="btn-success btn-lg"
-            disabled
-            title={$t('sidebar.pickVersionTitle')}
-          >
-            {$t('sidebar.play')}
-          </button>
+          <span class="inline-flex" use:tooltip={{ text: $t('sidebar.pickVersionTitle'), describe: false }}>
+            <button
+              type="button"
+              data-tour="play-btn"
+              class="btn-success btn-lg w-full"
+              disabled
+            >
+              {$t('sidebar.play')}
+            </button>
+          </span>
         {:else if installing}
           <button type="button" data-tour="play-btn" class="btn-primary btn-lg" disabled>
             <span class="inline-flex items-center justify-center gap-2">

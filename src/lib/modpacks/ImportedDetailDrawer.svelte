@@ -548,15 +548,22 @@
                      to re-fetch from. Disable Restore and explain why on
                      hover; the user's only recovery path is re-importing
                      the .mrpack. -->
-                <button
-                  type="button"
-                  class="btn-secondary btn-xs flex-shrink-0"
-                  disabled
-                  title={$t('modpacks.imported.detail.restoreDisabledTitle')}
-                  data-testid="imported-detail-restore-{f.sha1}"
+                <span
+                  class="inline-flex flex-shrink-0"
+                  use:tooltip={{
+                    text: $t('modpacks.imported.detail.restoreDisabledTitle'),
+                    describe: false,
+                  }}
                 >
-                  {$t('modpacks.imported.detail.restoreBtn')}
-                </button>
+                  <button
+                    type="button"
+                    class="btn-secondary btn-xs"
+                    disabled
+                    data-testid="imported-detail-restore-{f.sha1}"
+                  >
+                    {$t('modpacks.imported.detail.restoreBtn')}
+                  </button>
+                </span>
               {:else}
                 <button
                   type="button"
