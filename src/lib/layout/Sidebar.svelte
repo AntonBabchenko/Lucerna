@@ -243,13 +243,11 @@
             {$t('sidebar.stop')}
           </button>
         {:else if activeInstance.mc_version === ''}
-          <span class="inline-flex" use:tooltip={{ text: $t('sidebar.pickVersionTitle'), describe: false }}>
-            <button
-              type="button"
-              data-tour="play-btn"
-              class="btn-success btn-lg w-full"
-              disabled
-            >
+          <span
+            class="inline-flex"
+            use:tooltip={{ text: $t('sidebar.pickVersionTitle'), describe: false }}
+          >
+            <button type="button" data-tour="play-btn" class="btn-success btn-lg w-full" disabled>
               {$t('sidebar.play')}
             </button>
           </span>

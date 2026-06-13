@@ -90,7 +90,9 @@
           <div
             class="text-xs text-muted truncate"
             use:tooltip={{ text: importPhaseLabel(running.progress.phase), whenOverflowing: true }}
-          >{importPhaseLabel(running.progress.phase)}</div>
+          >
+            {importPhaseLabel(running.progress.phase)}
+          </div>
         {/if}
         {#if running.progress.bytes && running.progress.bytes.total && running.progress.bytes.total > 0 && running.progress.bytes.current != null}
           <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">
@@ -120,7 +122,8 @@
               <span
                 class="truncate flex-1"
                 use:tooltip={{ text: queueItemLabel(op), whenOverflowing: true }}
-              >{queueItemLabel(op)}</span>
+                >{queueItemLabel(op)}</span
+              >
               <button
                 type="button"
                 class="px-1 disabled:opacity-30"

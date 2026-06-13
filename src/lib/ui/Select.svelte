@@ -267,8 +267,8 @@
     <span
       class="truncate"
       class:text-placeholder={isPlaceholder}
-      use:tooltip={{ text: displayLabel, whenOverflowing: true }}
-    >{displayLabel}</span>
+      use:tooltip={{ text: displayLabel, whenOverflowing: true }}>{displayLabel}</span
+    >
   </span>
   <Icon name="chevronDown" class="text-muted flex-shrink-0" />
 </button>

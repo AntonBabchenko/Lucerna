@@ -207,7 +207,9 @@
       <div
         class="font-medium text-primary truncate"
         use:tooltip={{ text: degradedTitle, whenOverflowing: true }}
-      >{degradedTitle}</div>
+      >
+        {degradedTitle}
+      </div>
       {#if installed}
         <div class="text-xs text-muted truncate">
           {packChip
@@ -258,8 +260,8 @@
       <span class="min-w-0">
         <span
           class="block font-medium text-primary truncate"
-          use:tooltip={{ text: summary.name, whenOverflowing: true }}
-        >{summary.name}</span>
+          use:tooltip={{ text: summary.name, whenOverflowing: true }}>{summary.name}</span
+        >
         <span class="block text-xs text-muted truncate">
           {$t('mods.card.byAuthorDownloads', {
             author: summary.author,
@@ -307,8 +309,8 @@
     <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
       <span
         class="font-medium text-primary truncate"
-        use:tooltip={{ text: summary.name, whenOverflowing: true }}
-      >{summary.name}</span>
+        use:tooltip={{ text: summary.name, whenOverflowing: true }}>{summary.name}</span
+      >
       <span class="text-xs text-muted ml-2"
         >{$t('mods.card.byAuthorDownloads', {
           author: summary.author,

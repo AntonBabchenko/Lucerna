@@ -41,7 +41,9 @@
         <div
           class="font-semibold text-sm truncate"
           use:tooltip={{ text: hit.title, whenOverflowing: true }}
-        >{hit.title}</div>
+        >
+          {hit.title}
+        </div>
         <div class="text-xs text-muted line-clamp-2">{hit.description}</div>
         <div class="text-xs text-placeholder mt-1">
           {$t('modpacks.card.downloads', { count: (hit.downloads ?? 0).toLocaleString() })}
@@ -74,8 +76,8 @@
     {/if}
     <span
       class="font-medium text-sm truncate flex-1"
-      use:tooltip={{ text: hit.title, whenOverflowing: true }}
-    >{hit.title}</span>
+      use:tooltip={{ text: hit.title, whenOverflowing: true }}>{hit.title}</span
+    >
     <span class="text-xs text-placeholder flex-shrink-0"
       >{$t('modpacks.card.downloadsShort', { count: (hit.downloads ?? 0).toLocaleString() })}</span
     >

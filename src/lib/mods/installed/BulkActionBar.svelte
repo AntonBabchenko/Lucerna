@@ -63,7 +63,10 @@
       >
       <span
         class="inline-flex"
-        use:tooltip={{ text: !canUpdate ? $t('mods.installed.bulkUpdateTitle') : '', describe: false }}
+        use:tooltip={{
+          text: !canUpdate ? $t('mods.installed.bulkUpdateTitle') : '',
+          describe: false,
+        }}
       >
         <BusyButton
           busy={busyAction === 'update'}

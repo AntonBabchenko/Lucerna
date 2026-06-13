@@ -257,27 +257,27 @@
                     })
                   : null}
               >
-              <BusyButton
-                busy={installingVersionId === v.version_id}
-                class="btn-xs {isInstalled
-                  ? 'btn-secondary border-success text-success'
-                  : !v.primary_file.distribution_allowed
-                    ? 'btn-secondary text-muted'
-                    : 'btn-primary'}"
-                disabled={!v.primary_file.distribution_allowed || isInstalled}
-                onclick={() => onInstall(v)}
-              >
-                {#if isInstalled}
-                  <Icon name="success" size={14} />
-                  {$t('mods.detail.btnInstalled')}
-                {:else if !v.primary_file.distribution_allowed}
-                  {$t('mods.detail.btnRestricted')}
-                {:else if hasOtherInstalled}
-                  {$t('mods.detail.btnSwitch')}
-                {:else}
-                  {$t('mods.detail.btnInstall')}
-                {/if}
-              </BusyButton>
+                <BusyButton
+                  busy={installingVersionId === v.version_id}
+                  class="btn-xs {isInstalled
+                    ? 'btn-secondary border-success text-success'
+                    : !v.primary_file.distribution_allowed
+                      ? 'btn-secondary text-muted'
+                      : 'btn-primary'}"
+                  disabled={!v.primary_file.distribution_allowed || isInstalled}
+                  onclick={() => onInstall(v)}
+                >
+                  {#if isInstalled}
+                    <Icon name="success" size={14} />
+                    {$t('mods.detail.btnInstalled')}
+                  {:else if !v.primary_file.distribution_allowed}
+                    {$t('mods.detail.btnRestricted')}
+                  {:else if hasOtherInstalled}
+                    {$t('mods.detail.btnSwitch')}
+                  {:else}
+                    {$t('mods.detail.btnInstall')}
+                  {/if}
+                </BusyButton>
               </span>
             </div>
           {/each}
