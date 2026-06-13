@@ -7,8 +7,8 @@ use crate::error::Result;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-#[allow(unused_imports)]
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Skin payload returned to the UI. The full skin PNG is base64-encoded;
 /// the head is cropped client-side onto a canvas.
@@ -108,6 +108,95 @@ pub async fn fetch_skin(uuid: &str) -> Result<Option<AccountSkin>> {
     }))
 }
 
+/// Lazy-path cache freshness window. Sign-in / refresh prefetch with
+/// `force=true` bypasses this; the lazy display path honors it.
+const SKIN_CACHE_TTL_SECS: f64 = 6.0 * 3600.0;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SkinMeta {
+    texture_url: String,
+    fetched_at: f64,
+}
+
+fn now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// Read a cached skin if present and fresh (`now - fetched_at <= ttl`).
+/// Pure over the filesystem — takes the dir + clock so it is unit-testable.
+fn read_cached_skin(skins_dir: &Path, uuid: &str, ttl_secs: f64, now: f64) -> Option<AccountSkin> {
+    let meta_raw = std::fs::read_to_string(skins_dir.join(format!("{uuid}.json"))).ok()?;
+    let meta: SkinMeta = serde_json::from_str(&meta_raw).ok()?;
+    if now - meta.fetched_at > ttl_secs {
+        return None;
+    }
+    let png = std::fs::read(skins_dir.join(format!("{uuid}.png"))).ok()?;
+    Some(AccountSkin {
+        uuid: uuid.to_string(),
+        texture_url: meta.texture_url,
+        skin_png_base64: base64::engine::general_purpose::STANDARD.encode(&png),
+    })
+}
+
+/// Persist a freshly-fetched skin (raw PNG + meta sidecar).
+fn write_cached_skin(skins_dir: &Path, skin: &AccountSkin, now: f64) -> Result<()> {
+    std::fs::create_dir_all(skins_dir)
+        .map_err(|e| crate::error::Error::io(skins_dir.display().to_string(), e))?;
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(&skin.skin_png_base64)
+        .map_err(|e| crate::error::Error::io("<skin png>", format!("decode: {e}")))?;
+    std::fs::write(skins_dir.join(format!("{}.png", skin.uuid)), png)
+        .map_err(|e| crate::error::Error::io("<skin png>", e))?;
+    let meta = SkinMeta {
+        texture_url: skin.texture_url.clone(),
+        fetched_at: now,
+    };
+    let meta_json = serde_json::to_vec(&meta)
+        .map_err(|e| crate::error::Error::io("<skin meta>", format!("serialise: {e}")))?;
+    std::fs::write(skins_dir.join(format!("{}.json", skin.uuid)), meta_json)
+        .map_err(|e| crate::error::Error::io("<skin meta>", e))?;
+    Ok(())
+}
+
+/// Cache-first skin resolution. Reads a fresh cache entry unless `force`;
+/// otherwise fetches, caches, and returns. Any error (network, parse, IO)
+/// degrades to `None` — the avatar is cosmetic. Logs the degradation.
+pub async fn get_account_skin(
+    app: &tauri::AppHandle,
+    uuid: &str,
+    force: bool,
+) -> Option<AccountSkin> {
+    let dir = match crate::paths::skins_dir(app) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("account_skin: cannot resolve skins dir: {e}");
+            return None;
+        }
+    };
+    let now = now_secs();
+    if !force {
+        if let Some(cached) = read_cached_skin(&dir, uuid, SKIN_CACHE_TTL_SECS, now) {
+            return Some(cached);
+        }
+    }
+    match fetch_skin(uuid).await {
+        Ok(Some(skin)) => {
+            if let Err(e) = write_cached_skin(&dir, &skin, now) {
+                eprintln!("account_skin: cache write failed for {uuid}: {e}");
+            }
+            Some(skin)
+        }
+        Ok(None) => None,
+        Err(e) => {
+            eprintln!("account_skin: fetch failed for {uuid}: {e}");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
     crate::test_env_lock()
@@ -116,6 +205,7 @@ fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
     use wiremock::matchers::{method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -229,5 +319,40 @@ mod tests {
         std::env::remove_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE");
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(skin, None);
+    }
+
+    #[test]
+    fn cache_roundtrip_reads_back_fresh_entry() {
+        let dir = tempdir().unwrap();
+        let skin = AccountSkin {
+            uuid: "u-1".into(),
+            texture_url: "https://textures.minecraft.net/texture/x".into(),
+            skin_png_base64: base64::engine::general_purpose::STANDARD.encode([9u8, 8, 7]),
+        };
+        write_cached_skin(dir.path(), &skin, 1000.0).unwrap();
+        let read = read_cached_skin(dir.path(), "u-1", 6.0 * 3600.0, 1001.0);
+        assert_eq!(read, Some(skin));
+    }
+
+    #[test]
+    fn cache_miss_when_expired() {
+        let dir = tempdir().unwrap();
+        let skin = AccountSkin {
+            uuid: "u-2".into(),
+            texture_url: "https://textures.minecraft.net/texture/y".into(),
+            skin_png_base64: base64::engine::general_purpose::STANDARD.encode([1u8]),
+        };
+        write_cached_skin(dir.path(), &skin, 0.0).unwrap();
+        // now is well beyond ttl → expired → None.
+        assert_eq!(read_cached_skin(dir.path(), "u-2", 100.0, 10_000.0), None);
+    }
+
+    #[test]
+    fn cache_miss_when_absent() {
+        let dir = tempdir().unwrap();
+        assert_eq!(
+            read_cached_skin(dir.path(), "nope", 6.0 * 3600.0, 1.0),
+            None
+        );
     }
 }
