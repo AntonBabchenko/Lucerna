@@ -12,6 +12,8 @@ vi.mock('$lib/ipc/bindings', () => ({
 vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
 
 import { createMcVersions } from '$lib/versions/mc-versions.svelte';
+// Intentionally the REAL shared rune (not mocked) so the tests verify the actual
+// publish-to-mcVersions path on a successful load.
 import { mcVersions } from '$lib/settings/state.svelte';
 
 function entry(id: string): VersionEntry {
@@ -65,7 +67,9 @@ describe('createMcVersions self-heal', () => {
     expect(m.error).toBe('net down');
     listVersionsMock.mockResolvedValue({ status: 'ok', data: [entry('1.20.1')] });
     window.dispatchEvent(new Event('online'));
-    // onOnline calls load(); flush its awaits.
+    // onOnline → load() → attempt() → await listVersions() is a 2-await chain, so
+    // flush via a macrotask (drains the whole pending microtask queue). A single
+    // `await Promise.resolve()` tick would be insufficient here.
     await new Promise((r) => setTimeout(r, 0));
     expect(m.error).toBeNull();
     expect(m.value.map((v) => v.id)).toEqual(['1.20.1']);

@@ -57,7 +57,13 @@ export function createMcVersions() {
     cancelBackoff();
     loading = true;
     const r = await commands.listVersions();
-    if (mine !== seq || disposed) return;
+    if (mine !== seq || disposed) {
+      // Superseded by a newer load(), or torn down mid-flight — drop the write,
+      // but still clear `loading` so a disposed/superseded attempt can't leave a
+      // stale spinner flag set.
+      loading = false;
+      return;
+    }
     loading = false;
     if (r.status === 'ok') {
       value = r.data;
@@ -106,6 +112,7 @@ export function createMcVersions() {
     },
     dispose() {
       disposed = true;
+      backoffStep = 0;
       cancelBackoff();
       if (typeof window !== 'undefined') {
         window.removeEventListener('online', onOnline);
