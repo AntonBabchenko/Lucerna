@@ -143,7 +143,7 @@ pub fn create_instance(
         mc_version,
         loader,
         loader_version,
-        max_heap_mb: 2048,
+        max_heap_mb: memory::default_heap_mb(crate::platform::total_system_ram_mb()),
         extra_jvm_args: String::new(),
         created_unix_ms: unix_ms_f64(),
         mrpack_name,
