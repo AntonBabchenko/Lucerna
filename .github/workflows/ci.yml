@@ -101,6 +101,14 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - name: cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: bindings.ts up to date
+        # Regenerate the TS bindings from the same specta builder and diff
+        # against the committed src/lib/ipc/bindings.ts. Debug-only path that
+        # exits before the webview launches (headless-safe); fails if a Rust
+        # command/type changed without `cargo run -- --export-bindings`. Mirrors
+        # the frontend "i18n keys up to date" gate; reuses the bin cargo test
+        # already built. CWD must be src-tauri (exporter writes ../src/lib/ipc/).
+        run: cd src-tauri && cargo run -- --export-bindings --check
 
   rust-windows:
     name: rust (windows)
