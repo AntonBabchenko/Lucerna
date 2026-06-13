@@ -19,7 +19,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsInspectLocal: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { loader_mismatch: false, mc_mismatch: false, detected_loader: null, detected_mc: null },
+      data: {
+        loader_mismatch: false,
+        mc_mismatch: false,
+        detected_loader: null,
+        detected_mc: null,
+      },
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -62,8 +67,16 @@ describe('AddonsTab manual asset install', () => {
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await fireEvent.click(screen.getByTestId('file-dropzone'));
     await waitFor(() => {
-      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith('i', 'resource_pack', '/x/Faithful.zip');
-      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith('i', 'resource_pack', '/x/Bad.zip');
+      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith(
+        'i',
+        'resource_pack',
+        '/x/Faithful.zip',
+      );
+      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith(
+        'i',
+        'resource_pack',
+        '/x/Bad.zip',
+      );
     });
     expect(toasts.success).toHaveBeenCalled();
     expect(toasts.warning).toHaveBeenCalled();
@@ -77,7 +90,11 @@ describe('AddonsTab manual asset install', () => {
     const s = await import('$lib/settings/state.svelte');
     s.droppedAssets.value = { kind: 'shader', paths: ['/x/BSL.zip'] };
     await waitFor(() => {
-      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith('i', 'shader', '/x/BSL.zip');
+      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith(
+        'i',
+        'shader',
+        '/x/BSL.zip',
+      );
     });
     expect(s.droppedAssets.value).toBeNull();
   });

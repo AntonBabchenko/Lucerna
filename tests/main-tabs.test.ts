@@ -197,7 +197,9 @@ describe('MainTabs drag-drop routing', () => {
     // Switch the Add-ons segment to Resource packs so addonsKind === 'resource_pack'.
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await flushMount();
-    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/Faithful.zip', '/x/notes.txt'] } });
+    dragDropHandlers.fire({
+      payload: { type: 'drop', paths: ['/x/Faithful.zip', '/x/notes.txt'] },
+    });
     const { droppedAssets, droppedMods } = await import('$lib/settings/state.svelte');
     expect(droppedAssets.value).toEqual({ kind: 'resource_pack', paths: ['/x/Faithful.zip'] });
     expect(droppedMods.value).toBeNull();
