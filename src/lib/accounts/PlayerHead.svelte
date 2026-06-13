@@ -1,3 +1,9 @@
+<!--
+  PlayerHead — an account's Minecraft skin head (canvas), or a deterministic
+  letter avatar when no skin is available. Decorative by design: it is always
+  rendered next to the account's name/label, so both branches are aria-hidden.
+  Do not use it as the sole identifier of an account with no adjacent text.
+-->
 <script lang="ts">
   import { deriveAccountAvatar } from './account-avatar';
   import { loadSkinHead } from './skin-cache';
@@ -31,9 +37,15 @@
     };
   });
 
-  // Paint the head once both the PNG and the canvas element exist.
+  // Paint the head once both the PNG and the canvas element exist. drawHead
+  // returns a dispose that aborts a pending decode on teardown / re-run. If the
+  // PNG fails to decode, clear it so the letter fallback renders instead of a
+  // blank canvas.
   $effect(() => {
-    if (pngBase64 && canvas) drawHead(canvas, pngBase64, size);
+    if (!pngBase64 || !canvas) return;
+    return drawHead(canvas, pngBase64, size, () => {
+      pngBase64 = null;
+    });
   });
 </script>
 

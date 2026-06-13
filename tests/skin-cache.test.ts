@@ -42,4 +42,16 @@ describe('loadSkinHead', () => {
     await loadSkinHead('u');
     expect(accountSkin).toHaveBeenCalledTimes(1);
   });
+
+  test('evicts the cache entry on a rejected call so a later call retries', async () => {
+    accountSkin.mockRejectedValueOnce(new Error('bridge down'));
+    expect(await loadSkinHead('u')).toBeNull();
+    // After a rejection the entry is evicted; the next call hits the command again.
+    accountSkin.mockResolvedValue({
+      status: 'ok',
+      data: { uuid: 'u', texture_url: 't', skin_png_base64: 'BBBB' },
+    });
+    expect(await loadSkinHead('u')).toBe('BBBB');
+    expect(accountSkin).toHaveBeenCalledTimes(2);
+  });
 });
