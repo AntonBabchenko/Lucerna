@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  accentStripClass,
-  cardStatusStyle,
-  type CardStatusKind,
-} from '$lib/ui/cards/card-status';
+import { accentStripClass, type CardStatusKind, cardStatusStyle } from '$lib/ui/cards/card-status';
 
 describe('cardStatusStyle', () => {
   const cases: Array<[CardStatusKind, { accent: string; badge: string; dim: boolean }]> = [

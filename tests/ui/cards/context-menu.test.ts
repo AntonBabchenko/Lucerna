@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import ContextMenu from '$lib/ui/cards/ContextMenu.svelte';
-import { createRawSnippet } from 'svelte';
 
 const trigger = createRawSnippet(() => ({
   render: () => `<button data-testid="trigger">card</button>`,

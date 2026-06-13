@@ -1,7 +1,7 @@
 import { render } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import CardShell from '$lib/ui/cards/CardShell.svelte';
-import { createRawSnippet } from 'svelte';
 
 const body = createRawSnippet(() => ({ render: () => `<div data-testid="body">x</div>` }));
 

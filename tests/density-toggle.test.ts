@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
-import DensityToggle from '$lib/mods/DensityToggle.svelte';
 import { browserPrefs } from '$lib/mods/browser-prefs.svelte';
+import DensityToggle from '$lib/mods/DensityToggle.svelte';
 
 describe('DensityToggle', () => {
   beforeEach(() => {

@@ -17,7 +17,12 @@ const DEFAULTS = {
   density: 'comfortable' as Density,
 };
 
-export function loadPrefs(): { pageSize: PageSize; layout: Layout; installedPageSize: PageSize; density: Density } {
+export function loadPrefs(): {
+  pageSize: PageSize;
+  layout: Layout;
+  installedPageSize: PageSize;
+  density: Density;
+} {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULTS };

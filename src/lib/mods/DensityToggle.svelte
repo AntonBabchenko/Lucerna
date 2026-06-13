@@ -17,7 +17,8 @@
     aria-label={$t('mods.density.comfortable')}
     title={$t('mods.density.comfortable')}
     data-testid="density-comfortable"
-    onclick={() => (browserPrefs.density = 'comfortable')}><Icon name="densityComfortable" /></button
+    onclick={() => (browserPrefs.density = 'comfortable')}
+    ><Icon name="densityComfortable" /></button
   >
   <button
     type="button"

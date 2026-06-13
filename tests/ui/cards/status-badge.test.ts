@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
-import { createRawSnippet } from 'svelte';
 
 function text(label: string) {
   return createRawSnippet(() => ({ render: () => `<span>${label}</span>` }));
