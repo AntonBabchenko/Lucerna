@@ -11,10 +11,10 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 vi.mock('$lib/ipc/format-error', () => ({ formatError: (e: unknown) => String(e) }));
 
-import { createMcVersions } from '$lib/versions/mc-versions.svelte';
 // Intentionally the REAL shared rune (not mocked) so the tests verify the actual
 // publish-to-mcVersions path on a successful load.
 import { mcVersions } from '$lib/settings/state.svelte';
+import { createMcVersions } from '$lib/versions/mc-versions.svelte';
 
 function entry(id: string): VersionEntry {
   return {
@@ -126,5 +126,24 @@ describe('createMcVersions self-heal', () => {
     expect(m.error).toBeNull();
     expect(m.value.map((v) => v.id)).toEqual(['1.20.1']);
     m.dispose();
+  });
+
+  it('stops auto-retrying after the bounded backoff is exhausted', async () => {
+    vi.useFakeTimers();
+    listVersionsMock.mockReset();
+    mcVersions.value = [];
+    listVersionsMock.mockResolvedValue({ status: 'error', error: 'net down' });
+    const m = createMcVersions();
+    await m.load(); // attempt 1 (initial)
+    expect(listVersionsMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000); // attempt 2 (backoff step 0)
+    await vi.advanceTimersByTimeAsync(5000); // attempt 3 (backoff step 1)
+    await vi.advanceTimersByTimeAsync(10000); // attempt 4 (backoff step 2)
+    expect(listVersionsMock).toHaveBeenCalledTimes(4); // 1 initial + 3 bounded retries
+    // Schedule exhausted — no further timer fires no matter how long we wait.
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(listVersionsMock).toHaveBeenCalledTimes(4);
+    m.dispose();
+    vi.useRealTimers();
   });
 });

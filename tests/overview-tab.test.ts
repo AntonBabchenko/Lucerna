@@ -167,4 +167,16 @@ describe('OverviewTab version-error Reload', () => {
     });
     expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
   });
+
+  it('disables the Reload button while a retry is in flight', () => {
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: null,
+        errors: { ...noErrors, versions: 'Network error fetching …' },
+        versionsRetrying: true,
+      },
+    });
+    expect(screen.getByRole('button', { name: 'Reload' }).hasAttribute('disabled')).toBe(true);
+  });
 });

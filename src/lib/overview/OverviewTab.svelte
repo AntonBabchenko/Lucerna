@@ -35,6 +35,7 @@
     onNavBrowse,
     onDismissError,
     onRetryError = () => {},
+    versionsRetrying = false,
     onDismissInstallError,
     onDismissModsError,
   }: {
@@ -56,6 +57,7 @@
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
     onRetryError?: (key: ErrorKey) => void;
+    versionsRetrying?: boolean;
     onDismissInstallError: () => void;
     onDismissModsError: () => void;
   } = $props();
@@ -106,7 +108,12 @@
       <p class="text-xs text-danger flex items-center gap-1">
         {errors[key]}
         {#if RETRYABLE.includes(key)}
-          <button type="button" class="btn-tertiary text-xs" onclick={() => onRetryError(key)}>
+          <button
+            type="button"
+            class="btn-tertiary text-xs"
+            disabled={versionsRetrying}
+            onclick={() => onRetryError(key)}
+          >
             {$t('page.overview.errorRetry')}
           </button>
         {/if}

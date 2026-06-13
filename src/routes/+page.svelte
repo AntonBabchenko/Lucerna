@@ -643,6 +643,7 @@
             onRetryError={(key) => {
               if (key === 'versions') void mcv.load();
             }}
+            versionsRetrying={mcv.loading}
             onDismissInstallError={() => (installError = null)}
             onDismissModsError={() => (modsError = null)}
           />
