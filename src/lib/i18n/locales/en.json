@@ -1126,6 +1126,7 @@
       "statusStopped": "Stopped",
       "statusClean": "Game closed",
       "dismissError": "Dismiss error",
+      "errorRetry": "Reload",
       "noInstanceSelected": "No instance selected. Create one via the sidebar.",
       "attentionHeading": "Needs attention",
       "attnPickVersion": "Minecraft version not set",

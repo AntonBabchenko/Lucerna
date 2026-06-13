@@ -1126,6 +1126,7 @@
       "statusStopped": "Остановлено",
       "statusClean": "Игра закрыта",
       "dismissError": "Закрыть ошибку",
+      "errorRetry": "Обновить",
       "noInstanceSelected": "Профиль не выбран. Создайте его через боковую панель.",
       "attentionHeading": "Требует внимания",
       "attnPickVersion": "Версия Minecraft не выбрана",
