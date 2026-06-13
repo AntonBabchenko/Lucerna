@@ -18,6 +18,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import Select from '$lib/ui/Select.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
   import {
     groupStackFolds,
@@ -779,7 +780,7 @@
               class="btn-icon"
               disabled={totalMatches === 0}
               aria-label={$t('logs.search.prevAriaLabel')}
-              title={$t('logs.search.prevTitle')}
+              use:tooltip={$t('logs.search.prevTitle')}
               onclick={prevMatch}
             >
               <Icon name="chevronUp" />
@@ -788,7 +789,7 @@
               class="btn-icon"
               disabled={totalMatches === 0}
               aria-label={$t('logs.search.nextAriaLabel')}
-              title={$t('logs.search.nextTitle')}
+              use:tooltip={$t('logs.search.nextTitle')}
               onclick={nextMatch}
             >
               <Icon name="chevronDown" />

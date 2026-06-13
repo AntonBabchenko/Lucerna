@@ -3,6 +3,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { tooltip } from '$lib/ui/tooltip';
   import { deriveAvatar, type AvatarTone } from './avatar';
   import { deriveStatus, type StatusKind, type StatusTone } from './status';
 
@@ -36,6 +37,14 @@
     installing: 'page.overview.pillInstalling',
   };
 
+  const PILL_TOOLTIP: Record<StatusKind, TranslationKey> = {
+    running: 'page.overview.pillTooltip.running',
+    ready: 'page.overview.pillTooltip.ready',
+    needs_install: 'page.overview.pillTooltip.needsInstall',
+    pick_version: 'page.overview.pillTooltip.pickVersion',
+    installing: 'page.overview.pillTooltip.installing',
+  };
+
   const PILL_TONE: Record<StatusTone, string> = {
     ok: 'bg-success-bg border-success text-success',
     warn: 'bg-warning-bg border-warning-text text-warning-text',
@@ -57,7 +66,12 @@
   </div>
 
   <div class="min-w-0">
-    <div class="text-xl font-bold text-primary truncate">{instance.name}</div>
+    <div
+      class="text-xl font-bold text-primary truncate"
+      use:tooltip={{ text: instance.name, whenOverflowing: true }}
+    >
+      {instance.name}
+    </div>
     <div class="flex gap-1.5 mt-2 flex-wrap text-xs">
       <span class="rounded-full border border-border-subtle bg-base px-2.5 py-0.5 text-secondary">
         Minecraft {instance.mc_version || $t('page.overview.notSet')}
@@ -79,6 +93,7 @@
     ]}"
     data-testid="overview-status-pill"
     data-status={status.kind}
+    use:tooltip={$t(PILL_TOOLTIP[status.kind])}
   >
     <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true"></span>
     {$t(PILL_LABEL[status.kind])}

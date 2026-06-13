@@ -2,6 +2,7 @@
   import { browserPrefs } from './browser-prefs.svelte';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 </script>
 
 <div
@@ -15,7 +16,7 @@
     class:btn-primary={browserPrefs.layout === 'grid'}
     aria-pressed={browserPrefs.layout === 'grid'}
     aria-label={$t('mods.layout.grid')}
-    title={$t('mods.layout.grid')}
+    use:tooltip={$t('mods.layout.grid')}
     data-testid="layout-grid"
     onclick={() => (browserPrefs.layout = 'grid')}><Icon name="grid" /></button
   >
@@ -25,7 +26,7 @@
     class:btn-primary={browserPrefs.layout === 'list'}
     aria-pressed={browserPrefs.layout === 'list'}
     aria-label={$t('mods.layout.list')}
-    title={$t('mods.layout.list')}
+    use:tooltip={$t('mods.layout.list')}
     data-testid="layout-list"
     onclick={() => (browserPrefs.layout = 'list')}><Icon name="list" /></button
   >

@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import type { ModpackProgress } from '$lib/ipc/bindings';
   import { cancelQueued, moveQueued, opQueue, opRunning, type QueuedOp } from './op-queue.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Unified page-level "Operations" widget. Replaces IntegrityProgressView +
   // ImportProgressView: one corner card showing the running op's progress plus
@@ -68,7 +69,10 @@
     <h3 class="font-semibold text-sm text-primary mb-1">{$t('ops.heading')}</h3>
 
     {#if running}
-      <div class="text-sm text-secondary truncate">
+      <div
+        class="text-sm text-secondary truncate"
+        use:tooltip={{ text: runningLabel(running.op), whenOverflowing: true }}
+      >
         {runningLabel(running.op)}
       </div>
       {#if running.progress.kind !== 'import'}
@@ -83,7 +87,12 @@
         </div>
       {:else}
         {#if running.progress.phase}
-          <div class="text-xs text-muted truncate">{importPhaseLabel(running.progress.phase)}</div>
+          <div
+            class="text-xs text-muted truncate"
+            use:tooltip={{ text: importPhaseLabel(running.progress.phase), whenOverflowing: true }}
+          >
+            {importPhaseLabel(running.progress.phase)}
+          </div>
         {/if}
         {#if running.progress.bytes && running.progress.bytes.total && running.progress.bytes.total > 0 && running.progress.bytes.current != null}
           <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">
@@ -110,12 +119,17 @@
         <ul class="mt-1 space-y-1">
           {#each queue as op, i (op.id)}
             <li class="flex items-center gap-1 text-xs text-secondary">
-              <span class="truncate flex-1">{queueItemLabel(op)}</span>
+              <span
+                class="truncate flex-1"
+                use:tooltip={{ text: queueItemLabel(op), whenOverflowing: true }}
+                >{queueItemLabel(op)}</span
+              >
               <button
                 type="button"
                 class="px-1 disabled:opacity-30"
                 disabled={i === 0}
                 aria-label={$t('ops.moveUp')}
+                use:tooltip={$t('ops.moveUp')}
                 onclick={() => moveQueued(op.id, 'up')}>↑</button
               >
               <button
@@ -123,12 +137,14 @@
                 class="px-1 disabled:opacity-30"
                 disabled={i === queue.length - 1}
                 aria-label={$t('ops.moveDown')}
+                use:tooltip={$t('ops.moveDown')}
                 onclick={() => moveQueued(op.id, 'down')}>↓</button
               >
               <button
                 type="button"
                 class="px-1 text-danger"
                 aria-label={$t('ops.cancel')}
+                use:tooltip={$t('ops.cancel')}
                 onclick={() => cancelQueued(op.id)}>×</button
               >
             </li>

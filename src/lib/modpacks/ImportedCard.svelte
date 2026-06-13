@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n';
   import { relativeDate } from '$lib/format/relative-time';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { modpackUpdates } from './modpack-updates.svelte';
 
   // One card in the Imported tab grid. Mirrors ModpackCard's shape so
@@ -53,7 +54,7 @@
         {#if isModified}
           <span
             class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-bg text-warning-text align-middle"
-            title={$t('modpacks.imported.card.modifiedTitle')}
+            use:tooltip={$t('modpacks.imported.card.modifiedTitle')}
             data-testid="imported-card-modified-tag"
           >
             {$t('modpacks.imported.card.modifiedTag')}
@@ -62,7 +63,7 @@
         {#if updateEntry}
           <span
             class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success align-middle"
-            title={$t('modpacks.imported.card.updateTitle')}
+            use:tooltip={$t('modpacks.imported.card.updateTitle')}
             data-testid="imported-card-update-tag"
           >
             {$t('modpacks.imported.card.updateTag', { version: updateEntry.version_number })}

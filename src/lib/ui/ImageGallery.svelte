@@ -2,6 +2,7 @@
   import type { GalleryImage } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Compact screenshot carousel for the detail modals. Single image in
   // view; prev/next arrows step through. Renders nothing when there are no images.
@@ -34,12 +35,14 @@
       <button
         type="button"
         aria-label={$t('common.previousImage')}
+        use:tooltip={$t('common.previousImage')}
         class="absolute left-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 flex items-center justify-center"
         onclick={prev}><Icon name="chevronLeft" size={18} /></button
       >
       <button
         type="button"
         aria-label={$t('common.nextImage')}
+        use:tooltip={$t('common.nextImage')}
         class="absolute right-1 top-1/2 -translate-y-1/2 bg-surface/80 rounded-full w-7 h-7 flex items-center justify-center"
         onclick={next}><Icon name="chevronRight" size={18} /></button
       >

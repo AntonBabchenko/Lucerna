@@ -842,7 +842,7 @@ describe('ModCard — update_available shows Update btn-warning btn-xs (post 6.1
       },
     });
     // The "v1.0 → v2.0" version range badge
-    const badge = screen.getByTitle('Update available');
+    const badge = screen.getByTestId('mod-update-badge');
     const cls = badge.className;
     expect(cls).toContain('bg-warning-bg');
     expect(cls).toContain('text-warning-text');
@@ -864,7 +864,7 @@ describe('ModCard — packChip shows bg-accent-soft text-accent badge', () => {
         packChip: 'FTB Presents: Sky',
       },
     });
-    const chip = screen.getByTitle(/from modpack: ftb presents: sky/i);
+    const chip = screen.getByTestId('mod-pack-chip');
     const cls = chip.className;
     expect(cls).toContain('bg-accent-soft');
     expect(cls).toContain('text-accent');

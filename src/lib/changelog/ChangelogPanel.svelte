@@ -4,6 +4,7 @@
   // layout, heading localization, and opening a version's GitHub link.
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { t } from '$lib/i18n';
+  import { tooltip } from '$lib/ui/tooltip';
   import { parseInline } from './inline';
   import type { Changelog, SectionKind } from './types';
 
@@ -56,7 +57,7 @@
             <button
               type="button"
               class="btn-tertiary font-medium text-primary"
-              title={href}
+              use:tooltip={href}
               aria-label={$t('settings.changelog.openReleaseLabel', { version: ver.version })}
               onclick={() => openUrl(href)}
             >

@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import type { BulkAction } from '$lib/mods/installed/installed-selection.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     allSelected,
@@ -60,13 +61,20 @@
         class="btn-secondary btn-xs"
         onclick={onDisable}>{$t('mods.card.disable')}</BusyButton
       >
-      <BusyButton
-        busy={busyAction === 'update'}
-        disabled={busy || !canUpdate}
-        class="btn-secondary btn-xs"
-        title={!canUpdate ? $t('mods.installed.bulkUpdateTitle') : ''}
-        onclick={onUpdate}>{$t('mods.card.update')}</BusyButton
+      <span
+        class="inline-flex"
+        use:tooltip={{
+          text: !canUpdate ? $t('mods.installed.bulkUpdateTitle') : '',
+          describe: false,
+        }}
       >
+        <BusyButton
+          busy={busyAction === 'update'}
+          disabled={busy || !canUpdate}
+          class="btn-secondary btn-xs"
+          onclick={onUpdate}>{$t('mods.card.update')}</BusyButton
+        >
+      </span>
       <BusyButton
         busy={busyAction === 'uninstall'}
         disabled={busy}

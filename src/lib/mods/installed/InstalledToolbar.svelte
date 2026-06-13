@@ -3,6 +3,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
   let {
@@ -41,6 +42,14 @@
     checkingCompat: boolean;
     onCheckCompat: () => void;
   } = $props();
+
+  const checkDisabledReason = $derived(
+    counts.total === 0
+      ? $t('mods.installed.disabledNoMods')
+      : busy
+        ? $t('mods.installed.disabledBusy')
+        : '',
+  );
 
   const sortOptions = $derived([
     { value: 'name-asc', label: $t('mods.installed.sortNameAsc') },
@@ -154,23 +163,27 @@
         onChange={(v) => (sortBy = String(v) as SortBy)}
       />
     </div>
-    <BusyButton
-      busy={checking}
-      disabled={busy || counts.total === 0}
-      class="btn-secondary btn-xs"
-      onclick={onCheckUpdates}
-    >
-      <Icon name="refresh" class="icon-spin-hover" />
-      {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
-    </BusyButton>
-    <BusyButton
-      busy={checkingCompat}
-      disabled={busy || counts.total === 0}
-      class="btn-secondary btn-xs"
-      onclick={onCheckCompat}
-    >
-      {checkingCompat ? $t('mods.installed.checkingCompat') : $t('mods.installed.checkCompat')}
-    </BusyButton>
+    <span class="inline-flex" use:tooltip={{ text: checkDisabledReason, describe: false }}>
+      <BusyButton
+        busy={checking}
+        disabled={busy || counts.total === 0}
+        class="btn-secondary btn-xs"
+        onclick={onCheckUpdates}
+      >
+        <Icon name="refresh" class="icon-spin-hover" />
+        {checking ? $t('mods.card.checking') : $t('mods.installed.checkUpdates')}
+      </BusyButton>
+    </span>
+    <span class="inline-flex" use:tooltip={{ text: checkDisabledReason, describe: false }}>
+      <BusyButton
+        busy={checkingCompat}
+        disabled={busy || counts.total === 0}
+        class="btn-secondary btn-xs"
+        onclick={onCheckCompat}
+      >
+        {checkingCompat ? $t('mods.installed.checkingCompat') : $t('mods.installed.checkCompat')}
+      </BusyButton>
+    </span>
     <button
       type="button"
       class="btn-secondary btn-xs inline-flex items-center gap-1.5"

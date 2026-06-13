@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css';
+  import { TooltipLayer } from '$lib/ui/tooltip';
   let { children } = $props();
 
   // Block WebView2's native right-click menu (Back / Refresh / Save-as /
@@ -29,3 +30,5 @@
 <svelte:window oncontextmenu={onContextMenu} />
 
 {@render children?.()}
+
+<TooltipLayer />

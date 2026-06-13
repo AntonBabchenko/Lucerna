@@ -2,6 +2,7 @@
   import type { ModpackHit } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // One card in the modpack search grid (ModpackBrowseView). The card is
   // a button so the whole tile is clickable and the focus ring is
@@ -37,7 +38,12 @@
         </div>
       {/if}
       <div class="min-w-0 flex-1">
-        <div class="font-semibold text-sm truncate">{hit.title}</div>
+        <div
+          class="font-semibold text-sm truncate"
+          use:tooltip={{ text: hit.title, whenOverflowing: true }}
+        >
+          {hit.title}
+        </div>
         <div class="text-xs text-muted line-clamp-2">{hit.description}</div>
         <div class="text-xs text-placeholder mt-1">
           {$t('modpacks.card.downloads', { count: (hit.downloads ?? 0).toLocaleString() })}
@@ -68,7 +74,10 @@
         <Icon name="package" size={16} />
       </div>
     {/if}
-    <span class="font-medium text-sm truncate flex-1">{hit.title}</span>
+    <span
+      class="font-medium text-sm truncate flex-1"
+      use:tooltip={{ text: hit.title, whenOverflowing: true }}>{hit.title}</span
+    >
     <span class="text-xs text-placeholder flex-shrink-0"
       >{$t('modpacks.card.downloadsShort', { count: (hit.downloads ?? 0).toLocaleString() })}</span
     >

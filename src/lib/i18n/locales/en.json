@@ -71,7 +71,6 @@
     "pickMcVersion": "(pick MC)",
     "manage": "Manage",
     "mods": "Mods",
-    "modsFolderTitle": "Open mods folder",
     "stop": "Stop",
     "play": "Play",
     "pickVersionTitle": "Pick a Minecraft version first",
@@ -82,7 +81,8 @@
     "compactCollapse": "Collapse to mini mode",
     "compactExpand": "Expand to full window",
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
-    "joinServer": "Join a server"
+    "joinServer": "Join a server",
+    "removeAccountDisabled": "Sign in to an account first."
   },
   "instance": {
     "manage": {
@@ -351,7 +351,10 @@
       "toastUpdatedFailed": "{count, plural, one {Updated # mod} other {Updated # mods}}, {failed} failed",
       "toastUninstalled": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}",
       "toastUninstalledFailed": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}, {failed} failed",
-      "installDepFailed": "No compatible version of {name}"
+      "installDepFailed": "No compatible version of {name}",
+      "disabledNoMods": "Install some mods first.",
+      "disabledBusy": "Wait for the current check to finish.",
+      "missingDepsTooltip": "This mod is missing required dependencies and may not load."
     },
     "deps": {
       "installedStatus": "installed",
@@ -1157,7 +1160,14 @@
       "modpackNotCheckableNeedsKey": "Update check needs a CurseForge API key.",
       "modpackNotCheckableNoProvenance": "Update check isn't available for this import.",
       "modpackCheckFailed": "Couldn't check for updates.",
-      "sectionMods": "Mods"
+      "sectionMods": "Mods",
+      "pillTooltip": {
+        "running": "Minecraft is currently running for this instance.",
+        "ready": "Ready to play — files are installed and up to date.",
+        "needsInstall": "Files need to be installed before this instance can launch.",
+        "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
+        "installing": "Installing files for this instance…"
+      }
     },
     "offlineName": {
       "cannotBeEmpty": "Name cannot be empty"

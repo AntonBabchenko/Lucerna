@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // One result card in ModBrowseView. Shows mod metadata plus
   // install-state-aware controls:
@@ -117,7 +118,8 @@
     {#if packChip}
       <span
         class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
-        title={$t('mods.card.fromModpackTitle', { name: packChip })}
+        data-testid="mod-pack-chip"
+        use:tooltip={$t('mods.card.fromModpackTitle', { name: packChip })}
       >
         <Icon name="package" size={12} />
         {packChip}
@@ -127,7 +129,8 @@
     {:else if updateState && updateState.kind === 'update_available'}
       <span
         class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-warning-bg text-warning-text"
-        title={$t('mods.card.updateAvailableTitle')}
+        data-testid="mod-update-badge"
+        use:tooltip={$t('mods.card.updateAvailableTitle')}
       >
         v{installed.version_number ?? '?'}
         <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
@@ -136,7 +139,7 @@
         >{$t('mods.card.update')}</button
       >
     {:else if updateState && updateState.kind === 'check_failed'}
-      <span class="text-xs px-2 py-0.5 text-placeholder" title={updateState.reason}>
+      <span class="text-xs px-2 py-0.5 text-placeholder" use:tooltip={updateState.reason}>
         {$t('mods.card.checkFailed')}
       </span>
     {/if}
@@ -144,7 +147,7 @@
       class="text-xs px-2 py-0.5 rounded {installed.enabled
         ? 'bg-success-bg text-success'
         : 'bg-subtle text-muted'}"
-      title={crossPlatform && otherPlatformLabel
+      use:tooltip={crossPlatform && otherPlatformLabel
         ? `Installed via ${otherPlatformLabel} (v${installed.version_number ?? '?'})`
         : installed.version_number
           ? `Version ${installed.version_number} on disk`
@@ -201,7 +204,12 @@
       <Icon name={placeholderIcon} size={16} />
     </div>
     <div class="flex-1 min-w-0">
-      <div class="font-medium text-primary truncate">{degradedTitle}</div>
+      <div
+        class="font-medium text-primary truncate"
+        use:tooltip={{ text: degradedTitle, whenOverflowing: true }}
+      >
+        {degradedTitle}
+      </div>
       {#if installed}
         <div class="text-xs text-muted truncate">
           {packChip
@@ -218,7 +226,7 @@
       {#if packChip}
         <span
           class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-accent-soft text-accent"
-          title={$t('mods.card.fromModpackTitle', { name: packChip })}
+          use:tooltip={$t('mods.card.fromModpackTitle', { name: packChip })}
           ><Icon name="package" size={12} /> {packChip}</span
         >
       {/if}
@@ -250,7 +258,10 @@
         </div>
       {/if}
       <span class="min-w-0">
-        <span class="block font-medium text-primary truncate">{summary.name}</span>
+        <span
+          class="block font-medium text-primary truncate"
+          use:tooltip={{ text: summary.name, whenOverflowing: true }}>{summary.name}</span
+        >
         <span class="block text-xs text-muted truncate">
           {$t('mods.card.byAuthorDownloads', {
             author: summary.author,
@@ -296,7 +307,10 @@
     {/if}
 
     <button type="button" class="flex-1 text-left min-w-0" onclick={onOpenDetail}>
-      <span class="font-medium text-primary truncate">{summary.name}</span>
+      <span
+        class="font-medium text-primary truncate"
+        use:tooltip={{ text: summary.name, whenOverflowing: true }}>{summary.name}</span
+      >
       <span class="text-xs text-muted ml-2"
         >{$t('mods.card.byAuthorDownloads', {
           author: summary.author,
