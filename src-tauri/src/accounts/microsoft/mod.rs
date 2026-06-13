@@ -96,6 +96,15 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
         &mc_login.access_token,
     )?;
 
+    // Best-effort skin prefetch: warm the on-disk cache so the avatar is
+    // ready on first paint. Spawned so it never delays or fails sign-in;
+    // the lazy display path re-fetches if this hasn't completed yet.
+    let app_for_skin = app.clone();
+    let uuid_for_skin = account.uuid.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::accounts::skins::get_account_skin(&app_for_skin, &uuid_for_skin, true).await;
+    });
+
     Ok(account)
 }
 
@@ -131,6 +140,12 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
         &keychain::mc_access_key(&account.id),
         &mc_login.access_token,
     )?;
+
+    let app_for_skin = app.clone();
+    let uuid_for_skin = account.uuid.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::accounts::skins::get_account_skin(&app_for_skin, &uuid_for_skin, true).await;
+    });
 
     Ok(account)
 }
