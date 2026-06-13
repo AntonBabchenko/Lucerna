@@ -43,18 +43,23 @@
       <div class="font-semibold text-sm truncate flex items-center gap-1.5 flex-wrap">
         <span>{inst.mrpack_name} v{inst.mrpack_version}</span>
         {#if isModified}
-          <span data-testid="imported-card-modified-tag" title={$t('modpacks.imported.card.modifiedTitle')}>
-            <StatusBadge variant="warning" icon="info"
-              >{$t('modpacks.imported.card.modifiedTag')}</StatusBadge
-            >
-          </span>
+          <StatusBadge
+            variant="warning"
+            icon="info"
+            title={$t('modpacks.imported.card.modifiedTitle')}
+            testid="imported-card-modified-tag"
+          >
+            {$t('modpacks.imported.card.modifiedTag')}
+          </StatusBadge>
         {/if}
         {#if updateEntry}
-          <span data-testid="imported-card-update-tag" title={$t('modpacks.imported.card.updateTitle')}>
-            <StatusBadge variant="success"
-              >{$t('modpacks.imported.card.updateTag', { version: updateEntry.version_number })}</StatusBadge
-            >
-          </span>
+          <StatusBadge
+            variant="success"
+            title={$t('modpacks.imported.card.updateTitle')}
+            testid="imported-card-update-tag"
+          >
+            {$t('modpacks.imported.card.updateTag', { version: updateEntry.version_number })}
+          </StatusBadge>
         {/if}
       </div>
       <div class="text-xs text-muted truncate">

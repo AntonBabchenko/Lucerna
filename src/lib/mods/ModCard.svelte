@@ -130,7 +130,9 @@
     return out;
   });
 
-  const menuLabel = $derived($t('mods.card.menuAriaLabel', { name: summary?.name ?? degradedTitle }));
+  const menuLabel = $derived(
+    $t('mods.card.menuAriaLabel', { name: summary?.name ?? degradedTitle }),
+  );
 </script>
 
 {#snippet textActions()}
@@ -253,23 +255,34 @@
           </StatusBadge>
         {/if}
         {#if installed}
-          {#if canToggle}
+          {#if compact}
+            {#if canToggle}
+              <button
+                type="button"
+                class="btn-icon !w-7 !h-7 text-secondary"
+                onclick={onToggle}
+                aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+                title={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+                ><Icon name="power" size={15} /></button
+              >
+            {/if}
             <button
               type="button"
-              class="btn-icon !w-7 !h-7 text-secondary"
-              onclick={onToggle}
-              aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-              title={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-              ><Icon name="power" size={15} /></button
+              class="btn-icon !w-7 !h-7 text-danger"
+              onclick={onUninstall}
+              aria-label={$t('mods.card.uninstall')}
+              title={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
+            >
+          {:else}
+            {#if canToggle}
+              <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
+                {installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+              </button>
+            {/if}
+            <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}
+              >{$t('mods.card.uninstall')}</button
             >
           {/if}
-          <button
-            type="button"
-            class="btn-icon !w-7 !h-7 text-danger"
-            onclick={onUninstall}
-            aria-label={$t('mods.card.uninstall')}
-            title={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
-          >
         {/if}
       </div>
     </CardShell>

@@ -9,11 +9,13 @@
     variant = 'neutral',
     icon = undefined,
     title = undefined,
+    testid = undefined,
     children,
   }: {
     variant?: BadgeVariant;
     icon?: IconName;
     title?: string | undefined;
+    testid?: string | undefined;
     children: Snippet;
   } = $props();
 
@@ -27,7 +29,11 @@
   };
 </script>
 
-<span class={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${CLASS[variant]}`} {title}>
+<span
+  class={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${CLASS[variant]}`}
+  {title}
+  data-testid={testid}
+>
   {#if icon}<Icon name={icon} size={12} />{/if}
   {@render children()}
 </span>
