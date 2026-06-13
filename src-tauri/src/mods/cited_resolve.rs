@@ -38,14 +38,37 @@ pub struct ResolvedMod {
     pub tier: ResolveTier,
 }
 
-/// True when a search hit is an unambiguous match for the cited id: its
-/// slug equals the id case-insensitively. (`project_id` is never compared —
-/// mod-ids are not platform ids.)
+/// True when a search hit is an unambiguous match for the cited id: its slug
+/// equals the id after NORMALIZATION (strip non-alphanumerics, lowercase), so a
+/// hyphenated Modrinth slug matches a slammed mod-id — `farmers-delight` matches
+/// `farmersdelight`, `sophisticated-core` matches `sophisticatedcore`.
+/// (`project_id` is never compared — mod-ids are not platform ids.)
 pub fn is_exact_slug_match(cited_id: &str, hit: &ModSummary) -> bool {
+    let target = normalize_id(cited_id);
+    if target.is_empty() {
+        return false;
+    }
     hit.slug
         .as_deref()
-        .map(|s| s.eq_ignore_ascii_case(cited_id))
+        .map(|s| normalize_id(s) == target)
         .unwrap_or(false)
+}
+
+/// True when a search hit plausibly *is* the cited mod — its normalized slug or
+/// name overlaps the normalized cited id (one contains the other). Filters pure
+/// search noise out of the Fuzzy tier: cited `sophisticatedbackpacks` must not
+/// offer `evil-seagull` (zero overlap), while an FD compat patch whose slug
+/// contains `farmersdelight` legitimately stays.
+fn is_related_to_cited(cited_id: &str, hit: &ModSummary) -> bool {
+    let target = normalize_id(cited_id);
+    if target.is_empty() {
+        return false;
+    }
+    let relates = |s: &str| {
+        let n = normalize_id(s);
+        !n.is_empty() && (n.contains(&target) || target.contains(&n))
+    };
+    hit.slug.as_deref().is_some_and(relates) || relates(&hit.name)
 }
 
 /// Pick the version to install from a project's compatible versions. When
@@ -253,9 +276,15 @@ async fn resolve_via_search(
         }
     }
 
-    // Fuzzy: up to MAX_FUZZY hits that each have a compatible version.
+    // Fuzzy: up to MAX_FUZZY hits that (a) plausibly relate to the cited id —
+    // dropping pure search noise like "Evil Seagull" for "sophisticatedbackpacks"
+    // so an unrelated hit lands in Unresolved ("find it yourself") rather than
+    // being offered as a wrong guess — and (b) have a compatible version.
     let mut candidates = Vec::new();
     for hit in page.hits.iter().take(MAX_FUZZY) {
+        if !is_related_to_cited(&c.id, hit) {
+            continue;
+        }
         if let Ok(versions) = plat
             .versions(&hit.project_id, Some(mc_version), Some(loader))
             .await
@@ -384,6 +413,44 @@ mod tests {
             &hit(Some("just-enough-items"), "p")
         ));
         assert!(!is_exact_slug_match("jei", &hit(None, "p")));
+    }
+
+    #[test]
+    fn exact_slug_match_normalizes_punctuation() {
+        // A hyphenated Modrinth slug matches a slammed mod-id after normalization.
+        assert!(is_exact_slug_match(
+            "sophisticatedcore",
+            &hit(Some("sophisticated-core"), "p")
+        ));
+        assert!(is_exact_slug_match(
+            "farmersdelight",
+            &hit(Some("farmers-delight"), "p")
+        ));
+        // Still not a match when the words genuinely differ.
+        assert!(!is_exact_slug_match(
+            "jei",
+            &hit(Some("just-enough-items"), "p")
+        ));
+    }
+
+    #[test]
+    fn unrelated_hit_is_not_a_fuzzy_candidate() {
+        // Pure search noise — "Evil Seagull" has zero overlap with the cited id,
+        // so it must not be offered as a guess for "sophisticatedbackpacks".
+        assert!(!is_related_to_cited(
+            "sophisticatedbackpacks",
+            &hit(Some("evil-seagull"), "p")
+        ));
+        // A compat patch whose slug CONTAINS the cited id is legitimately related.
+        assert!(is_related_to_cited(
+            "farmersdelight",
+            &hit(Some("farmersdelight-notreepunching-pot"), "p")
+        ));
+        // The exact-slug case is trivially related too.
+        assert!(is_related_to_cited(
+            "sophisticatedcore",
+            &hit(Some("sophisticated-core"), "p")
+        ));
     }
 
     #[test]
