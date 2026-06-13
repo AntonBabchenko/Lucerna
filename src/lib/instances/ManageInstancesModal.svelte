@@ -71,9 +71,15 @@
   $effect(() => {
     if (open && !memBoundsLoaded) {
       memBoundsLoaded = true;
-      commands.instanceMemoryBounds().then((b) => {
-        memBounds = b;
-      });
+      commands
+        .instanceMemoryBounds()
+        .then((b) => {
+          memBounds = b;
+        })
+        .catch(() => {
+          // Intentional: keep FALLBACK_BOUNDS so the slider stays usable if the
+          // bounds query fails. No user-facing error — this is graceful degradation.
+        });
     }
   });
 
