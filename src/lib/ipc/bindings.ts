@@ -52,6 +52,16 @@ export const commands = {
 	 */
 	refreshMicrosoftAccount: (id: string) => typedError<Account, Error>(__TAURI_INVOKE("refresh_microsoft_account", { id })),
 	/**
+	 *  Resolve an account's skin (cache-first) by its Minecraft UUID. Returns
+	 *  `None` when the account has no skin or it cannot be fetched — the UI
+	 *  falls back to a letter avatar. Never errors on a cosmetic miss.
+	 */
+	accountSkin: (uuid: string) => typedError<{
+	uuid: string,
+	texture_url: string,
+	skin_png_base64: string,
+} | null, Error>(__TAURI_INVOKE("account_skin", { uuid })),
+	/**
 	 *  Fetch the Mojang version manifest. Cached for 5 minutes — repeated
 	 *  calls within that window are zero-network.
 	 */
@@ -765,6 +775,16 @@ export type Account = {
 
 /**  Discriminator for account type. */
 export type AccountKind = "offline" | "microsoft";
+
+/**
+ *  Skin payload returned to the UI. The full skin PNG is base64-encoded;
+ *  the head is cropped client-side onto a canvas.
+ */
+export type AccountSkin = {
+	uuid: string,
+	texture_url: string,
+	skin_png_base64: string,
+};
 
 export type AppFile = AppFile_Serialize | AppFile_Deserialize;
 
