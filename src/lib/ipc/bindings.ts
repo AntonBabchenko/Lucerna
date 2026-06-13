@@ -281,6 +281,7 @@ export const commands = {
 	setInstanceLoader: (id: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_loader", { id, loader, loaderVersion })),
 	setInstanceMemory: (id: string, maxHeapMb: number) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_memory", { id, maxHeapMb })),
 	setInstanceJvmArgs: (id: string, args: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_jvm_args", { id, args })),
+	instanceMemoryBounds: () => __TAURI_INVOKE<MemoryBounds>("instance_memory_bounds"),
 	/**
 	 *  Clear all modpack provenance fields (`mrpack_*`) from an instance,
 	 *  detaching it from its origin pack. Safe to call on non-pack instances
@@ -1265,6 +1266,19 @@ export type LogSource = "game" | "crash" | "launcher";
 export type McChangeReport = {
 	instance: InstanceWithStatus,
 	loader_outcome: LoaderOutcome,
+};
+
+/**
+ *  Adaptive memory bounds for the per-instance heap slider, derived from total
+ *  physical RAM. All MB values; `u32` (RAM-in-MB fits) to avoid the specta
+ *  `u64`→`f64` IPC quirk.
+ */
+export type MemoryBounds = {
+	min_mb: number,
+	max_mb: number,
+	recommended_max_mb: number,
+	step_mb: number,
+	ram_known: boolean,
 };
 
 /**

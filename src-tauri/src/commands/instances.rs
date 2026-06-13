@@ -300,6 +300,31 @@ pub fn set_instance_jvm_args(
     crate::instances::set_instance_jvm_args(&app, &id, args)
 }
 
+/// Adaptive memory bounds for the per-instance heap slider, derived from total
+/// physical RAM. All MB values; `u32` (RAM-in-MB fits) to avoid the specta
+/// `u64`→`f64` IPC quirk.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct MemoryBounds {
+    pub min_mb: u32,
+    pub max_mb: u32,
+    pub recommended_max_mb: u32,
+    pub step_mb: u32,
+    pub ram_known: bool,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn instance_memory_bounds() -> MemoryBounds {
+    let ram = crate::platform::total_system_ram_mb();
+    MemoryBounds {
+        min_mb: crate::instances::memory::slider_min_mb(),
+        max_mb: crate::instances::memory::slider_max_mb(ram),
+        recommended_max_mb: crate::instances::memory::recommended_max_mb(ram),
+        step_mb: crate::instances::memory::slider_step_mb(),
+        ram_known: ram.is_some(),
+    }
+}
+
 /// Clear all modpack provenance fields (`mrpack_*`) from an instance,
 /// detaching it from its origin pack. Safe to call on non-pack instances
 /// (idempotent no-op). The UI offers this when the user changes MC or
