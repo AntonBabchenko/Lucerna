@@ -18,6 +18,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import { get } from 'svelte/store';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     instanceId,
@@ -209,7 +210,7 @@
             {@const reason = checkFailedReason(asset.filename)}
             <span
               class="text-xs text-placeholder"
-              title={reason ?? $t('addons.installed.checkFailed')}
+              use:tooltip={reason ?? $t('addons.installed.checkFailed')}
               aria-label={$t('addons.installed.checkFailed')}
               role="img"
             >

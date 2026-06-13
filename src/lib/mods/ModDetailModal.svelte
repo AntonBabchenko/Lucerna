@@ -19,6 +19,7 @@
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Centered detail modal for a mod. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list with the
@@ -248,6 +249,14 @@
                 </div>
                 <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
               </div>
+              <span
+                class="inline-flex"
+                use:tooltip={hasOtherInstalled
+                  ? $t('mods.detail.switchVersionTitle', {
+                      installedId: installedVersionId ?? '',
+                    })
+                  : null}
+              >
               <BusyButton
                 busy={installingVersionId === v.version_id}
                 class="btn-xs {isInstalled
@@ -257,11 +266,6 @@
                     : 'btn-primary'}"
                 disabled={!v.primary_file.distribution_allowed || isInstalled}
                 onclick={() => onInstall(v)}
-                title={hasOtherInstalled
-                  ? $t('mods.detail.switchVersionTitle', {
-                      installedId: installedVersionId ?? '',
-                    })
-                  : undefined}
               >
                 {#if isInstalled}
                   <Icon name="success" size={14} />
@@ -274,6 +278,7 @@
                   {$t('mods.detail.btnInstall')}
                 {/if}
               </BusyButton>
+              </span>
             </div>
           {/each}
         {/if}
