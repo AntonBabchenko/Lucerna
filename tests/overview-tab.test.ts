@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
@@ -56,6 +56,7 @@ const baseProps = {
   onNavInstalled: () => {},
   onNavBrowse: () => {},
   onDismissError: () => {},
+  onRetryError: () => {},
   onDismissInstallError: () => {},
   onDismissModsError: () => {},
 };
@@ -136,5 +137,34 @@ describe('OverviewTab', () => {
     expect(getByText('boom')).toBeTruthy();
     await fireEvent.click(getByRole('button', { name: 'Dismiss error' }));
     expect(onDismissInstallError).toHaveBeenCalledOnce();
+  });
+});
+
+describe('OverviewTab version-error Reload', () => {
+  it('renders a Reload button for the versions error and calls onRetryError', async () => {
+    const onRetryError = vi.fn();
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: null,
+        errors: { ...noErrors, versions: 'Network error fetching …' },
+        onRetryError,
+      },
+    });
+    const btn = screen.getByRole('button', { name: 'Reload' });
+    await fireEvent.click(btn);
+    expect(onRetryError).toHaveBeenCalledWith('versions');
+  });
+
+  it('does not render a Reload button for a non-retryable error (instances)', () => {
+    render(OverviewTab, {
+      props: {
+        ...baseProps,
+        activeInstance: null,
+        errors: { ...noErrors, instances: 'cannot list instances' },
+        onRetryError: () => {},
+      },
+    });
+    expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
   });
 });

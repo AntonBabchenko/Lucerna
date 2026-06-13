@@ -34,6 +34,7 @@
     onNavInstalled,
     onNavBrowse,
     onDismissError,
+    onRetryError = () => {},
     onDismissInstallError,
     onDismissModsError,
   }: {
@@ -54,6 +55,7 @@
     onNavInstalled: () => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
+    onRetryError?: (key: ErrorKey) => void;
     onDismissInstallError: () => void;
     onDismissModsError: () => void;
   } = $props();
@@ -92,6 +94,10 @@
     'instances',
     'versions',
   ];
+
+  // Only network-backed errors are worth a Reload button; the rest are local
+  // (filesystem) reads with nothing to refetch.
+  const RETRYABLE: ErrorKey[] = ['versions'];
 </script>
 
 <div class="p-6 flex flex-col gap-4">
@@ -99,6 +105,11 @@
     {#if errors[key]}
       <p class="text-xs text-danger flex items-center gap-1">
         {errors[key]}
+        {#if RETRYABLE.includes(key)}
+          <button type="button" class="btn-tertiary text-xs" onclick={() => onRetryError(key)}>
+            {$t('page.overview.errorRetry')}
+          </button>
+        {/if}
         <CloseButton
           onClick={() => onDismissError(key)}
           ariaLabel={$t('page.overview.dismissError')}
