@@ -494,4 +494,31 @@ describe('ModBrowseView', () => {
     expect(screen.queryByText('MC 1.21')).toBeNull();
     expect(screen.getByText('MC 1.16.5')).toBeTruthy();
   });
+
+  it('shows a Reload button on a failed search and re-runs the search when clicked', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    // Every search fails with a network-class upstream error (the user-observed
+    // "427" family), so the inline error bar and its Reload button stay put.
+    search.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'HTTP 427' },
+    });
+
+    render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+
+    const retry = await screen.findByRole('button', { name: 'Reload' });
+    const callsBefore = search.mock.calls.length;
+    await fireEvent.click(retry);
+    await waitFor(() => expect(search.mock.calls.length).toBeGreaterThan(callsBefore));
+
+    // This file has no per-test mock reset, so restore the OK default to keep
+    // the error response from leaking into any test appended after this one.
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [], total: 0, offset: 0, page_size: 20 },
+    });
+  });
 });

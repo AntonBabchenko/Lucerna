@@ -141,4 +141,25 @@ describe('ModpackBrowseView', () => {
     const args = mockSearch.mock.calls.at(-1) ?? [];
     expect(args[4]).toBe('fabric');
   });
+
+  it('shows a Reload button on a failed modpack search and re-runs the search when clicked', async () => {
+    mockSearch.mockResolvedValue({
+      status: 'error',
+      error: { kind: 'network', url: 'https://api.modrinth.com', details: 'HTTP 427' },
+    });
+
+    render(ModpackBrowseView, { props: { onPickHit: () => {} } });
+
+    const retry = await screen.findByRole('button', { name: 'Reload' });
+    const callsBefore = mockSearch.mock.calls.length;
+    await fireEvent.click(retry);
+    await waitFor(() => expect(mockSearch.mock.calls.length).toBeGreaterThan(callsBefore));
+
+    // beforeEach only clears history, not the implementation — restore the OK
+    // default so the error mock doesn't leak into later tests.
+    mockSearch.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [], total: 0, offset: 0, limit: 20 },
+    });
+  });
 });
