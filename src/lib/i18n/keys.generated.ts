@@ -206,6 +206,7 @@ export type TranslationKey =
   | 'instance.manage.jvmArgsPlaceholder'
   | 'instance.manage.mcVersionLabel'
   | 'instance.manage.memoryLabel'
+  | 'instance.manage.memoryWarnHigh'
   | 'instance.manage.nameLabel'
   | 'instance.manage.newInstanceBtn'
   | 'instance.manage.openFolderBtn'
