@@ -67,8 +67,10 @@
 
   // One window-level drag-drop listener for the per-instance tabs.
   // Modpacks live outside MainTabs now (sidebar-level Browse modpacks
-  // view owns its own drag-drop), so this listener only handles .jar
-  // drops onto the Mod browser tab.
+  // view owns its own drag-drop), so on the Add-ons tab this listener
+  // routes `.jar` drops to the Mods segment (droppedMods) and `.zip`
+  // drops to the Resource-pack/Shader segments (droppedAssets), keyed
+  // off the active `addonsKind`.
   onMount(() => {
     const pending = getCurrentWebview().onDragDropEvent((event) => {
       const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;

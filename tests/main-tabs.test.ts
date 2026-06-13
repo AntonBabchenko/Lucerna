@@ -198,8 +198,9 @@ describe('MainTabs drag-drop routing', () => {
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await flushMount();
     dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/Faithful.zip', '/x/notes.txt'] } });
-    const { droppedAssets } = await import('$lib/settings/state.svelte');
+    const { droppedAssets, droppedMods } = await import('$lib/settings/state.svelte');
     expect(droppedAssets.value).toEqual({ kind: 'resource_pack', paths: ['/x/Faithful.zip'] });
+    expect(droppedMods.value).toBeNull();
   });
 
   it('does not route a .zip when no instance is selected', async () => {
