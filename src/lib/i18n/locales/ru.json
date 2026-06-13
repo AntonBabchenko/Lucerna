@@ -82,7 +82,8 @@
     "compactCollapse": "Свернуть в мини-режим",
     "compactExpand": "Развернуть на всё окно",
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
-    "joinServer": "Подключиться к серверу"
+    "joinServer": "Подключиться к серверу",
+    "removeAccountDisabled": "Сначала войдите в аккаунт."
   },
   "instance": {
     "manage": {
@@ -351,7 +352,10 @@
       "toastUpdatedFailed": "{count, plural, one {Обновлён # мод} few {Обновлено # мода} many {Обновлено # модов} other {Обновлено # мода}}, не удалось: {failed}",
       "toastUninstalled": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}",
       "toastUninstalledFailed": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}, не удалось: {failed}",
-      "installDepFailed": "Нет совместимой версии {name}"
+      "installDepFailed": "Нет совместимой версии {name}",
+      "disabledNoMods": "Сначала установите моды.",
+      "disabledBusy": "Дождитесь окончания текущей проверки.",
+      "missingDepsTooltip": "У этого мода отсутствуют обязательные зависимости — он может не загрузиться."
     },
     "deps": {
       "installedStatus": "установлен",
@@ -1149,7 +1153,14 @@
       "modpackNotCheckableNeedsKey": "Для проверки обновлений нужен ключ API CurseForge.",
       "modpackNotCheckableNoProvenance": "Проверка обновлений недоступна для этого импорта.",
       "modpackCheckFailed": "Не удалось проверить обновления.",
-      "sectionMods": "Моды"
+      "sectionMods": "Моды",
+      "pillTooltip": {
+        "running": "Minecraft сейчас запущен для этого инстанса.",
+        "ready": "Готово к запуску — файлы установлены и актуальны.",
+        "needsInstall": "Перед запуском нужно установить файлы инстанса.",
+        "pickVersion": "Выберите версию Minecraft, чтобы завершить настройку инстанса.",
+        "installing": "Идёт установка файлов инстанса…"
+      }
     },
     "offlineName": {
       "cannotBeEmpty": "Имя не может быть пустым"
