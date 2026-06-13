@@ -61,6 +61,13 @@ pub fn parse_server_mod_rejection(log: &str) -> Vec<CitedMod> {
 /// with an enforced channel appear here — but that is exactly the set that
 /// actually blocked the connection. FML gives no version on this line and does
 /// not distinguish "absent" from "wrong version", so kind is always `Missing`.
+///
+/// We match only the `client side` rejection: in a client log that means the
+/// server requires channels the client lacks → mods the client must install.
+/// The inverse `server side` rejection — the client carrying mods the server
+/// lacks (so the client rejects the server) — is NOT actionable here (we cannot
+/// add mods to a remote server), so it is deliberately ignored rather than
+/// mis-cited as "missing".
 fn parse_forge_fml_channels(log: &str) -> Option<Vec<CitedMod>> {
     // Gate on the definitive terminator so a stray "Channels [...]" log line
     // (e.g. a channel-registration message) never trips the parser.
@@ -93,8 +100,11 @@ fn parse_forge_fml_channels(log: &str) -> Option<Vec<CitedMod>> {
 
 /// Captures the bracketed `modid:channel` list from a FML channel-rejection
 /// line: `Channels [a:main, b:net] rejected their client side version number`.
+/// Deliberately anchored to `client side` only — a `server side` rejection in a
+/// client log is the client-has-extra-mods case and is not actionable by
+/// installing (see `parse_forge_fml_channels`).
 static FORGE_CHANNEL_REJECT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"Channels \[([^\]]+)\] rejected their (?:client|server) side version number")
+    Regex::new(r"Channels \[([^\]]+)\] rejected their client side version number")
         .expect("forge channel-reject regex compiles — covered by tests")
 });
 
@@ -181,6 +191,18 @@ mod tests {
         let mods = parse_server_mod_rejection(log);
         let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["create", "farmersdelight"]);
+    }
+
+    #[test]
+    fn ignores_server_side_rejection_when_client_has_extra_mods() {
+        // Inverse case (real 47.4.10 client log): the CLIENT carries mods with
+        // enforced channels the SERVER lacks, so the client rejects the server —
+        // "rejected their server side version number". These are NOT mods the
+        // client is missing (installing them is meaningless), so nothing is
+        // cited even though the "mismatched mod list" terminator is present.
+        let log = "[ERROR] [NetworkRegistry/NETREGISTRY]: Channels [alexsmobs:main_channel,citadel:main_channel] rejected their server side version number\n\
+                   [ERROR] [HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        assert!(parse_server_mod_rejection(log).is_empty());
     }
 
     #[test]
