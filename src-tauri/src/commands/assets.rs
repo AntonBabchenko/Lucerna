@@ -77,6 +77,38 @@ pub async fn asset_install(
     .await
 }
 
+/// Install a local resource-pack / shader `.zip` from disk into the instance as
+/// a manual asset (`source: None`). Validity-only: rejects a non-zip, or a
+/// resource pack missing `pack.mcmeta`. No Tauri event is emitted — the
+/// frontend bumps the `assetsChanged` rune to refresh the Installed view.
+#[tauri::command]
+#[specta::specta]
+pub async fn asset_install_local(
+    app: tauri::AppHandle,
+    instance_id: String,
+    kind: crate::mods::platform::ContentKind,
+    file_path: String,
+) -> crate::error::Result<crate::mods::platform::InstalledAsset> {
+    crate::mods::assets::require_asset_kind(kind)?;
+    let inst_root = instance_root(&app, &instance_id)?;
+    let bytes =
+        tokio::fs::read(&file_path)
+            .await
+            .map_err(|e| crate::error::Error::ModsInstancePath {
+                path: file_path.clone(),
+                details: format!("{} ({})", e, e.kind()),
+            })?;
+    let filename = std::path::Path::new(&file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| crate::error::Error::ModsInstancePath {
+            path: file_path.clone(),
+            details: "dropped path has no filename".into(),
+        })?
+        .to_string();
+    crate::mods::asset_local::install_asset_local(&inst_root, kind, &filename, &bytes).await
+}
+
 /// Check every installed asset of `kind` that carries platform identity
 /// for a newer version on the instance's MC version. A single asset's
 /// query failure becomes that asset's `CheckFailed` state. Resource packs

@@ -394,6 +394,13 @@ export const commands = {
 	 */
 	assetUninstall: (instanceId: string, kind: ContentKind, filename: string) => typedError<null, Error>(__TAURI_INVOKE("asset_uninstall", { instanceId, kind, filename })),
 	/**
+	 *  Install a local resource-pack / shader `.zip` from disk into the instance as
+	 *  a manual asset (`source: None`). Validity-only: rejects a non-zip, or a
+	 *  resource pack missing `pack.mcmeta`. No Tauri event is emitted — the
+	 *  frontend bumps the `assetsChanged` rune to refresh the Installed view.
+	 */
+	assetInstallLocal: (instanceId: string, kind: ContentKind, filePath: string) => typedError<InstalledAsset, Error>(__TAURI_INVOKE("asset_install_local", { instanceId, kind, filePath })),
+	/**
 	 *  Check every installed asset of `kind` that carries platform identity
 	 *  for a newer version on the instance's MC version. A single asset's
 	 *  query failure becomes that asset's `CheckFailed` state. Resource packs
