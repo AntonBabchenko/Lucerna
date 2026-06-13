@@ -3,6 +3,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
+  import DensityToggle from '$lib/mods/DensityToggle.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
 
@@ -198,6 +199,7 @@
         {$t('mods.installed.updateAll', { count: updateCount })}
       </BusyButton>
     {/if}
+    <DensityToggle />
   </div>
   {#if counts.total > 0}
     <div

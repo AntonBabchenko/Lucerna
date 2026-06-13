@@ -30,6 +30,8 @@ import {
   Power,
   Puzzle,
   RefreshCw,
+  Rows2,
+  Rows3,
   ScrollText,
   Settings,
   Shrink,
@@ -61,6 +63,8 @@ export const ICONS = {
   minus: Minus,
   list: List,
   grid: LayoutGrid,
+  densityComfortable: Rows2, // comfortable density toggle (fewer, taller rows)
+  densityCompact: Rows3, // compact density toggle (more rows per screen)
   // Second pass — non-indicator icons.
   package: Package, // modpack placeholder avatars + "from modpack" chips
   externalLink: ExternalLink, // opens an external site (e.g. OptiFine hint)
