@@ -1984,6 +1984,12 @@ export type ResolvedCandidate = {
 	display: ModSummary,
 	/**  Human label, e.g. the version_number "0.5.3". */
 	version_label: string,
+	/**
+	 *  Display names of the candidate's REQUIRED dependencies (transitive
+	 *  closure), so the card can show what else will be installed. Empty when
+	 *  the mod is standalone or deps couldn't be resolved.
+	 */
+	dependencies: string[],
 };
 
 export type ResolvedDep = {

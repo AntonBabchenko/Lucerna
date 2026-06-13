@@ -42,6 +42,7 @@ const planWithExactAndUnresolved: Extract<RepairPlan, { kind: 'install_missing_m
             updated_at: null,
           },
           version_label: '0.5.1',
+          dependencies: [],
         },
       },
     },
@@ -74,6 +75,7 @@ const planWithFuzzyOnly: Extract<RepairPlan, { kind: 'install_missing_mods' }> =
               updated_at: null,
             },
             version_label: '1.0.0',
+            dependencies: [],
           },
           {
             target: makeVersionRef('cand2'),
@@ -89,8 +91,37 @@ const planWithFuzzyOnly: Extract<RepairPlan, { kind: 'install_missing_mods' }> =
               updated_at: null,
             },
             version_label: '1.0.1',
+            dependencies: [],
           },
         ],
+      },
+    },
+  ],
+};
+
+const planWithExactWithDeps: Extract<RepairPlan, { kind: 'install_missing_mods' }> = {
+  kind: 'install_missing_mods',
+  mods: [
+    {
+      cited: { id: 'fd-ntp-compat', version: null, kind: 'missing' },
+      tier: {
+        tier: 'exact',
+        candidate: {
+          target: makeVersionRef('patch123'),
+          display: {
+            source: 'modrinth',
+            project_id: 'patch123',
+            slug: 'fd-ntp-compat',
+            name: 'FD x NTP Cooking Pot',
+            summary: 'Compat patch',
+            icon_url: null,
+            downloads: 1000,
+            author: 'patchauthor',
+            updated_at: null,
+          },
+          version_label: '1.0.0',
+          dependencies: ['No Tree Punching'],
+        },
       },
     },
   ],
@@ -132,5 +163,18 @@ describe('MissingModsRepairCard', () => {
     // No radio selected by default → install button disabled
     const installBtn = screen.getByTestId('missing-install');
     expect((installBtn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows dependsOn line when candidate has dependencies', () => {
+    render(MissingModsRepairCard, {
+      props: {
+        plan: planWithExactWithDeps,
+        instanceId: 'i1',
+        onClose: vi.fn(),
+      },
+    });
+
+    // The dependsOn line should render with the dep name
+    expect(screen.getByText(/No Tree Punching/)).toBeTruthy();
   });
 });

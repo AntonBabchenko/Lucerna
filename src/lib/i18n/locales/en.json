@@ -752,6 +752,8 @@
         "install": "Install {count} selected",
         "none": "Found the problem, but couldn't identify any of the mods automatically. Use the names above to find them in the Add-ons browser.",
         "installedToast": "Installed {name}",
+        "installedToastWithDeps": "Installed {name} (with: {deps})",
+        "dependsOn": "Also installs: {deps}",
         "failedToast": "Couldn't install {name}: {error}"
       }
     },
