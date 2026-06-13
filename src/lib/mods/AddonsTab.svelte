@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { CompatVerdict, ContentKind, ModSource } from '$lib/ipc/bindings';
-  import { modBrowseOpenProject, modBrowserNav, addonsKind } from '$lib/settings/state.svelte';
+  import { modBrowseOpenProject, modBrowserNav, addonsKind, droppedMods, droppedAssets, assetsChanged } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon, type IconName } from '$lib/ui/icons';
@@ -9,12 +9,11 @@
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
-  import { CONTENT_KINDS } from './content-kind';
+  import { CONTENT_KINDS, canInstallContent } from './content-kind';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { droppedMods } from '$lib/settings/state.svelte';
   import { canInstallMods } from './install-eligibility';
   import { get } from 'svelte/store';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
@@ -176,6 +175,10 @@
   // via canInstallMods() so it is defined once.
   const installDisabled = $derived(!canInstallMods(instanceId, loader));
 
+  // Resource packs / shaders install onto any selected instance (reuses the
+  // shared content rule; for non-mod kinds it is simply "an instance is selected").
+  const assetInstallDisabled = $derived(!canInstallContent(kind, instanceId, loader));
+
   // Files dropped on the Mods tab arrive via the droppedMods rune
   // (routed by MainTabs). Consume and reset so a later action isn't
   // re-triggered. Guarded to kind='mod': a jar dropped while a non-mod
@@ -188,6 +191,17 @@
     }
   });
 
+  // Zips dropped on a Resource-pack/Shader segment arrive via droppedAssets
+  // (routed by MainTabs). Consume and reset; guard that the payload kind still
+  // matches the active segment (the user may have switched kinds mid-drag).
+  $effect(() => {
+    const v = droppedAssets.value;
+    if (v !== null) {
+      droppedAssets.value = null;
+      if (v.kind === kind && kind !== 'mod') void installAssetsFromFiles(v.paths);
+    }
+  });
+
   async function installFromFile() {
     if (installDisabled) return;
     const r = await openFile({
@@ -195,6 +209,31 @@
       filters: [{ name: 'Mod jar', extensions: ['jar'] }],
     });
     if (Array.isArray(r) && r.length > 0) await onJarsPicked(r);
+  }
+
+  async function installAssetsFromPicker() {
+    if (assetInstallDisabled) return;
+    const r = await openFile({
+      multiple: true,
+      filters: [{ name: 'Add-on zip', extensions: ['zip'] }],
+    });
+    if (Array.isArray(r) && r.length > 0) await installAssetsFromFiles(r);
+  }
+
+  async function installAssetsFromFiles(paths: string[]) {
+    if (instanceId === null) return;
+    let ok = 0;
+    const failed: string[] = [];
+    for (const path of paths) {
+      const r = await commands.assetInstallLocal(instanceId, kind, path);
+      if (r.status === 'ok') ok += 1;
+      else failed.push(`${filenameOf(path)}: ${formatError(r.error)}`);
+    }
+    if (ok > 0) pushSuccess(get(t)('addons.install.toastInstalled', { count: ok }));
+    if (failed.length > 0)
+      pushWarning(get(t)('addons.install.toastFailed', { count: failed.length }), failed);
+    // Refresh the Installed view + Browse badges (assets have no Tauri events).
+    if (ok > 0) assetsChanged.value++;
   }
 
   function filenameOf(path: string): string {
@@ -387,6 +426,19 @@
         disabled={installDisabled}
         disabledLabel={$t('mods.browse.dropzoneDisabled')}
         onClick={installFromFile}
+      />
+    </div>
+  {/if}
+
+  {#if kind === 'resource_pack' || kind === 'shader'}
+    <div class="px-3 pt-3">
+      <FileDropzone
+        label={kind === 'resource_pack'
+          ? $t('addons.dropzoneResourcePack')
+          : $t('addons.dropzoneShader')}
+        disabled={assetInstallDisabled}
+        disabledLabel={$t('addons.dropzoneDisabled')}
+        onClick={installAssetsFromPicker}
       />
     </div>
   {/if}
