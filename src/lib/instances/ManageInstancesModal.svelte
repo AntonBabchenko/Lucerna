@@ -21,6 +21,7 @@
   import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     open = $bindable(),
@@ -368,7 +369,7 @@
                        the same "N problems" text. -->
                 <span
                   class="inline-flex text-warning-text"
-                  title={$t('instance.integrity.statusProblems', {
+                  use:tooltip={$t('instance.integrity.statusProblems', {
                     count: i.integrity.problem_count,
                   })}
                 >

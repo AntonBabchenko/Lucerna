@@ -9,6 +9,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let {
     accounts,
@@ -108,7 +109,7 @@
       type="button"
       class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-muted hover:border-accent hover:text-accent"
       aria-label={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
-      title={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
+      use:tooltip={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
       onclick={onToggleCompact}
     >
       <Icon name={compact ? 'expand' : 'shrink'} size={14} />
@@ -316,7 +317,7 @@
         {#if modpackUpdates.updateCount > 0}
           <span
             class="ml-1 inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-success px-1 text-[10px] font-semibold text-white"
-            title={$t('sidebar.modpackUpdatesBadge', { count: modpackUpdates.updateCount })}
+            use:tooltip={$t('sidebar.modpackUpdatesBadge', { count: modpackUpdates.updateCount })}
             data-testid="sidebar-modpack-updates-badge"
           >
             {modpackUpdates.updateCount}
@@ -337,7 +338,7 @@
         type="button"
         class="btn-secondary btn-xs flex-1"
         aria-label={$t('settings.title')}
-        title={$t('settings.title')}
+        use:tooltip={$t('settings.title')}
         onclick={() => (settingsOpen.value = { tab: 'general' })}
       >
         {$t('settings.title')}

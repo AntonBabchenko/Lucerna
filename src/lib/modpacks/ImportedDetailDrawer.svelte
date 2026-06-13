@@ -22,6 +22,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { drawerCache } from './drawer-cache';
   import { isUnresolvedMissingState } from './missing-mod';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
@@ -636,7 +637,7 @@
               {#if prov === 'pack'}
                 <span
                   class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-soft text-accent flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeFromPackTitle')}
+                  use:tooltip={$t('modpacks.imported.detail.badgeFromPackTitle')}
                   data-testid="mod-badge-pack-{m.sha1}"
                 >
                   <Icon name="package" size={11} />
@@ -645,7 +646,7 @@
               {:else if prov === 'user'}
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeUserAddedTitle')}
+                  use:tooltip={$t('modpacks.imported.detail.badgeUserAddedTitle')}
                   data-testid="mod-badge-user-{m.sha1}"
                 >
                   {$t('modpacks.imported.detail.badgeUserAdded')}
@@ -653,7 +654,7 @@
               {:else}
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-secondary flex-shrink-0"
-                  title={$t('modpacks.imported.detail.badgeManualTitle')}
+                  use:tooltip={$t('modpacks.imported.detail.badgeManualTitle')}
                   data-testid="mod-badge-manual-{m.sha1}"
                 >
                   {$t('modpacks.imported.detail.badgeManual')}
