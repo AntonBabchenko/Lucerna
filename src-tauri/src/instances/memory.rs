@@ -15,7 +15,8 @@ const FALLBACK_MAX_MB: u32 = 8192;
 const DEFAULT_MIN_MB: u32 = 2048;
 const DEFAULT_MAX_MB: u32 = 6144;
 
-/// Round `mb` down to the nearest `SLIDER_STEP_MB`, never below `SLIDER_MIN_MB`.
+/// Round `mb` down to the nearest `SLIDER_STEP_MB`, clamping up to
+/// `SLIDER_MIN_MB` if the floored result would be lower.
 fn round_to_step(mb: u32) -> u32 {
     let floored = (mb / SLIDER_STEP_MB) * SLIDER_STEP_MB;
     floored.max(SLIDER_MIN_MB)
@@ -91,7 +92,8 @@ mod tests {
         assert_eq!(recommended_max_mb(Some(8192)), 6144);
         assert_eq!(recommended_max_mb(Some(16384)), 12288);
         assert_eq!(recommended_max_mb(Some(4096)), 3072);
-        // Never exceeds the slider max even on tiny RAM.
+        // On tiny RAM both collapse to the floor; recommended never exceeds max.
+        assert_eq!(recommended_max_mb(Some(512)), 1024);
         assert!(recommended_max_mb(Some(512)) <= slider_max_mb(Some(512)));
     }
 }
