@@ -391,6 +391,13 @@
     "kindShaders": "Shaders",
     "kindSwitchAria": "Content type",
     "subTabsLabel": "Add-on views",
+    "dropzoneResourcePack": "Drop a resource pack .zip here to install — or click to browse",
+    "dropzoneShader": "Drop a shader .zip here to install — or click to browse",
+    "dropzoneDisabled": "Select an instance to install",
+    "install": {
+      "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",
+      "toastFailed": "{count, plural, one {# add-on failed to install} other {# add-ons failed to install}}"
+    },
     "shaderLoaderHint": {
       "intro": "Shaders need a shader loader to run — install one:",
       "iris": "Iris",

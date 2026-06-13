@@ -29,6 +29,8 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     modsInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    assetInstallLocal: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    assetsList: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listWorlds: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
   events: {
@@ -116,8 +118,11 @@ describe('MainTabs drag-drop routing', () => {
     const s = await import('$lib/settings/state.svelte');
     s.droppedMods.value = null;
     s.droppedModpack.value = null;
+    s.droppedAssets.value = null;
+    s.addonsKind.value = 'mod';
     s.dragActive.value = false;
     dragDropHandlers.cbs.length = 0;
+    vi.clearAllMocks();
   });
 
   it('routes a .jar drop on the Mods tab to droppedMods', async () => {
@@ -183,5 +188,42 @@ describe('MainTabs drag-drop routing', () => {
     dragDropHandlers.fire({ payload: { type: 'enter' } });
     const { dragActive } = await import('$lib/settings/state.svelte');
     expect(dragActive.value).toBe(false);
+  });
+
+  it('routes a .zip drop on the Resource-pack segment to assetInstallLocal', async () => {
+    render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
+    await flushMount();
+    dragDropHandlers.fire({
+      payload: { type: 'drop', paths: ['/x/Faithful.zip', '/x/notes.txt'] },
+    });
+    // AddonsTab (mounted) consumes droppedAssets and triggers the install flow,
+    // so assert on the downstream call (mirrors the .jar test), not the
+    // ephemeral rune which is reset to null as soon as it is consumed.
+    await waitFor(() => {
+      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith(
+        'i',
+        'resource_pack',
+        '/x/Faithful.zip',
+      );
+    });
+    const { droppedMods } = await import('$lib/settings/state.svelte');
+    expect(droppedMods.value).toBeNull();
+  });
+
+  it('does not route a .zip when no instance is selected', async () => {
+    render(MainTabs, { props: { instanceId: null, mcVersion: null, loader: null } });
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
+    await flushMount();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
+    await flushMount();
+    dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/Faithful.zip'] } });
+    const { droppedAssets } = await import('$lib/settings/state.svelte');
+    expect(droppedAssets.value).toBeNull();
+    expect(vi.mocked(commands.assetInstallLocal)).not.toHaveBeenCalled();
   });
 });

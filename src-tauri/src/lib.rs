@@ -107,6 +107,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::asset_install,
             commands::assets_list,
             commands::asset_uninstall,
+            commands::asset_install_local,
             commands::assets_check_updates,
             commands::check_instance_mod_compat,
             commands::scan_instance_mod_compat,
