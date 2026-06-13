@@ -86,6 +86,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::set_instance_loader,
             commands::set_instance_memory,
             commands::set_instance_jvm_args,
+            commands::instance_memory_bounds,
             commands::detach_instance_pack,
             commands::open_instance_folder,
             commands::verify_instance,

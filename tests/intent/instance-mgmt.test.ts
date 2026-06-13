@@ -27,6 +27,14 @@ vi.mock('$lib/ipc/bindings', () => ({
     listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listNeoforgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    // ManageInstancesModal fetches memory bounds on first open
+    instanceMemoryBounds: vi.fn().mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    }),
     // ManageInstancesModal calls these on user interaction only
     createInstance: vi.fn(),
     setActiveInstance: vi.fn(),

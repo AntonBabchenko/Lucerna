@@ -15,6 +15,14 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modpackStatus: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modpackUpdateStatus: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'up_to_date' } }),
+    // ManageInstancesModal fetches memory bounds on first open
+    instanceMemoryBounds: vi.fn().mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    }),
     // ManageInstancesModal calls these on user interaction only; mocked
     // here so imports don't throw at resolve time.
     createInstance: vi.fn(),
