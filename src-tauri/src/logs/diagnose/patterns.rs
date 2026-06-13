@@ -71,13 +71,25 @@ static CORRUPT_JAR_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
-// Two FML reject shapes (both confirmed in Phase 0, both from
-// `HandshakeHandler/FMLHANDSHAKE`) mean "the client is missing mods the server
-// requires": a channel-version mismatch (`… mismatched mod list`) and a
-// datapack-registry sync failure (`Missing required datapack registry: …`,
-// from library mods like Moonlight). `server_mods.rs` parses both.
+// Two FML reject shapes (both confirmed in Phase 0) mean "the client is missing
+// mods the server requires": a `client side` channel-version mismatch and a
+// datapack-registry sync failure (`Missing required datapack registry: …`, from
+// library mods like Moonlight). `server_mods.rs` parses both.
+//
+// Anchored to `client side` (not a bare `mismatched mod list`): the inverse
+// `server side` reject — the client carrying enforced-channel mods the server
+// lacks — is the `client-extra-mods` case below, not a missing-mods one. Without
+// this anchor that reject would mis-raise an "install missing mods" advisory.
 static SERVER_MISSING_MODS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"mismatched mod list|Missing required datapack registr")
+    Regex::new(r"rejected their client side version number|Missing required datapack registr")
+        .expect("regex compiles — covered by `all_patterns_regexes_compile`")
+});
+
+// The inverse reject: a `server side` channel rejection in a client log means
+// the client carries enforced-channel mods the server lacks → mods to *disable*,
+// not install. `server_mods.rs::parse_blocking_client_mods` extracts them.
+static CLIENT_EXTRA_MODS_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"rejected their server side version number")
         .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
@@ -152,6 +164,24 @@ pub const PATTERNS: &[Pattern] = &[
             "Open this log and use \"Install missing mods\" to add them to this instance, \
              then reconnect. Mods the launcher can't identify automatically are listed so \
              you can find them in the Add-ons browser.",
+        source_hint: SourceHint::GameLog,
+    },
+    Pattern {
+        id: "client-extra-mods",
+        // The inverse of `server-missing-mods`: a `server side` channel reject
+        // means the client carries enforced-channel mods the server lacks, so the
+        // client refused to join. Declared AFTER `server-missing-mods` — the
+        // engine matches first-in-declaration-order, so a log containing both
+        // directions surfaces the (more common) install case first.
+        matcher: Matcher::Regex(&CLIENT_EXTRA_MODS_RE),
+        title: "Your mods are blocking this server",
+        explanation:
+            "Your client has mods the server doesn't, and they enforce a connection \
+             channel, so your client refused to join. They must be disabled to connect — \
+             you can re-enable them later for single-player or other servers.",
+        recommendation:
+            "Open this log and disable the listed mods, then reconnect. Disabling is \
+             reversible.",
         source_hint: SourceHint::GameLog,
     },
     Pattern {
@@ -244,8 +274,9 @@ mod tests {
     }
 
     #[test]
-    fn v1_ships_exactly_eight_patterns() {
-        // Bumped 7 → 8 for `server-missing-mods` (server missing-mods repair feature).
-        assert_eq!(PATTERNS.len(), 8);
+    fn v1_ships_exactly_nine_patterns() {
+        // 7 → 8 for `server-missing-mods`; 8 → 9 for `client-extra-mods`
+        // (the inverse "your mods block this server" diagnosis).
+        assert_eq!(PATTERNS.len(), 9);
     }
 }

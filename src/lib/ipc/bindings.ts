@@ -143,7 +143,7 @@ export const commands = {
 	 *  clicks "Fix this", so the network swap-lookup for conflicts runs
 	 *  only on intent.
 	 */
-	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
+	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
 	/**
 	 *  Apply a user-confirmed repair choice by dispatching to the existing
 	 *  mutation commands. No resolution happens here — `build_repair_plan`
@@ -821,6 +821,18 @@ export type Backup = {
 	size_bytes: number | null,
 	/**  Convenience: timestamp parsed from the filename. ms since epoch. */
 	created_unix_ms: number | null,
+};
+
+/**  One installed mod the user can disable to join a server that lacks it. */
+export type BlockingMod = {
+	sha1: string,
+	name: string,
+	/**
+	 *  Names of *kept* installed mods that require this one (offline reverse-dep
+	 *  via `InstalledMod.requires`). Disabling this would break them; a non-empty
+	 *  list is a warning, not a block — the user still chooses.
+	 */
+	breaks: string[],
 };
 
 export type CategoryReport = {
@@ -1968,14 +1980,14 @@ export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "rein
  *  input — no instance I/O. Real precondition gating happens later in
  *  `build_repair_plan`.
  */
-export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict" | "install_missing_mods";
+export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict" | "install_missing_mods" | "disable_blocking_mods";
 
 /**
  *  The concrete, parameterised fix proposal returned by
  *  `build_repair_plan`. Every variant carries everything the executor
  *  needs — the executor itself does no resolution.
  */
-export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] };
+export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] };
 
 export type ResolveTier = { tier: "exact"; candidate: ResolvedCandidate } | { tier: "fuzzy"; candidates: ResolvedCandidate[] } | { tier: "unresolved" };
 

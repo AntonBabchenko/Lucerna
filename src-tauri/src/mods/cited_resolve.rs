@@ -122,23 +122,31 @@ fn filename_tokens(filename: &str) -> impl Iterator<Item = String> + '_ {
         .map(|t| t.to_ascii_lowercase())
 }
 
-/// Heuristic, OFFLINE check (no network): is a cited mod-id already satisfied
-/// by an installed mod? `InstalledMod` does not store the jar's internal
-/// mod-id, so we match the normalized cited id against the installed mod's
-/// name, its `project_id`, and its filename tokens. Powers "don't re-warn /
-/// re-offer a mod the user already installed" — the reject log is historical
-/// and never changes. Token-matching the filename (not prefix) avoids a
-/// false positive like cited "create" matching "createdeco-1.0.jar".
-pub fn cited_satisfied_by_installed(cited_id: &str, installed: &[InstalledMod]) -> bool {
+/// Find the installed mod a cited mod-id refers to, or `None`. `InstalledMod`
+/// does not store the jar's internal mod-id, so we match the normalized cited id
+/// against the installed mod's name, its `project_id`, and its filename tokens.
+/// Token-matching the filename (not prefix) avoids a false positive like cited
+/// "create" matching "createdeco-1.0.jar". First match wins.
+pub fn find_installed_for_cited<'a>(
+    cited_id: &str,
+    installed: &'a [InstalledMod],
+) -> Option<&'a InstalledMod> {
     let target = normalize_id(cited_id);
     if target.is_empty() {
-        return false;
+        return None;
     }
-    installed.iter().any(|m| {
+    installed.iter().find(|m| {
         normalize_id(&m.name) == target
             || m.project_id.as_deref().map(normalize_id).as_deref() == Some(target.as_str())
             || filename_tokens(&m.filename).any(|t| t == target)
     })
+}
+
+/// Heuristic, OFFLINE check (no network): is a cited mod-id already satisfied
+/// by an installed mod? Powers "don't re-warn / re-offer a mod the user already
+/// installed" — the reject log is historical and never changes.
+pub fn cited_satisfied_by_installed(cited_id: &str, installed: &[InstalledMod]) -> bool {
+    find_installed_for_cited(cited_id, installed).is_some()
 }
 
 /// The subset of `cited` not yet satisfied by an installed mod.

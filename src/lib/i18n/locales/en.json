@@ -723,6 +723,11 @@
           "title": "The server needs mods you don't have",
           "explanation": "The server rejected the connection because your client is missing mods it requires, or has them at the wrong version. Minecraft listed them before disconnecting.",
           "recommendation": "Open this log and use \"Install missing mods\" to add them to this instance, then reconnect. Mods the launcher can't identify automatically are listed so you can find them in the Add-ons browser."
+        },
+        "clientExtraMods": {
+          "title": "Your mods are blocking this server",
+          "explanation": "Your client has mods the server doesn't, and they enforce a connection channel, so your client refused to join. They must be disabled to connect — you can re-enable them later for single-player or other servers.",
+          "recommendation": "Open this log and disable the listed mods, then reconnect. Disabling is reversible."
         }
       }
     },
@@ -754,6 +759,17 @@
         "none": "Found the problem, but couldn't identify any of the mods automatically. Use the names above to find them in the Add-ons browser.",
         "installedToast": "Installed {name}",
         "failedToast": "Couldn't install {name}: {error}"
+      },
+      "blockingMods": {
+        "title": "Mods blocking this server",
+        "intro": "These mods are installed on your client but the server doesn't have them, and they require a connection. Disable them to join — you can re-enable them later for single-player or other servers.",
+        "disable": "Disable",
+        "disabledLabel": "Disabled",
+        "breaks": "Disabling this also breaks: {names} — they require it.",
+        "reconnectHint": "Disable the blocking mods, then reconnect to the server.",
+        "allDisabled": "All blocking mods disabled — reconnect to the server.",
+        "disabledToast": "Disabled {name}",
+        "failedToast": "Couldn't disable {name}: {error}"
       }
     },
     "empty": {

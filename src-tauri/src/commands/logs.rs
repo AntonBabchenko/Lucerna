@@ -81,6 +81,24 @@ pub async fn diagnose_log(
             }
         }
     }
+    // Symmetric guard for the inverse case: once the blocking mods are disabled
+    // (or removed), there's nothing left to act on — suppress the stale warning
+    // instead of nagging on the historical log.
+    if diag.pattern_id == "client-extra-mods" {
+        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
+        let ids = crate::logs::diagnose::server_mods::parse_blocking_client_mods(&log);
+        // Only suppress when blocking ids were actually parsed: an empty parse
+        // means the log doesn't truly match (e.g. truncated below the terminator),
+        // so leave the advisory rather than hide it. `build_repair_plan` returns
+        // `None` for an empty ids set, so the Fix button won't appear regardless.
+        if !ids.is_empty() {
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            if crate::logs::diagnose::repair::build_blocking_mods(&ids, &installed).is_empty() {
+                return Ok(None);
+            }
+        }
+    }
     Ok(Some(diag))
 }
 
@@ -221,6 +239,20 @@ pub async fn build_repair_plan(
             )
             .await;
             Ok(Some(RepairPlan::InstallMissingMods { mods }))
+        }
+        RepairKind::DisableBlockingMods => {
+            use crate::logs::diagnose::server_mods::parse_blocking_client_mods;
+            let ids = parse_blocking_client_mods(&log);
+            if ids.is_empty() {
+                return Ok(None);
+            }
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            let mods = crate::logs::diagnose::repair::build_blocking_mods(&ids, &installed);
+            if mods.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(RepairPlan::DisableBlockingMods { mods }))
         }
     }
 }

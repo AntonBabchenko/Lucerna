@@ -12,6 +12,7 @@
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
   import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
+  import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
   import { chooseOpenLog } from '$lib/logs/select-log';
@@ -871,6 +872,12 @@
                       instanceId={instanceId ?? ''}
                       {mcVersion}
                       {loader}
+                      onClose={() => (repairPlan = null)}
+                    />
+                  {:else if repairPlan && repairPlan.kind === 'disable_blocking_mods'}
+                    <BlockingModsRepairCard
+                      plan={repairPlan}
+                      instanceId={instanceId ?? ''}
                       onClose={() => (repairPlan = null)}
                     />
                   {:else if repairPlan}

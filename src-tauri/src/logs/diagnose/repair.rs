@@ -18,6 +18,7 @@ pub enum RepairKind {
     RedownloadMod,
     ResolveConflict,
     InstallMissingMods,
+    DisableBlockingMods,
 }
 
 /// Map a diagnoser `pattern_id` to its repair kind, or `None` for the
@@ -30,6 +31,7 @@ pub fn repair_kind_for(pattern_id: &str) -> Option<RepairKind> {
         "corrupt-mod-jar" => Some(RepairKind::RedownloadMod),
         "mod-resolution-conflict" => Some(RepairKind::ResolveConflict),
         "server-missing-mods" => Some(RepairKind::InstallMissingMods),
+        "client-extra-mods" => Some(RepairKind::DisableBlockingMods),
         _ => None,
     }
 }
@@ -172,6 +174,20 @@ pub enum RepairPlan {
     InstallMissingMods {
         mods: Vec<ResolvedMod>,
     },
+    DisableBlockingMods {
+        mods: Vec<BlockingMod>,
+    },
+}
+
+/// One installed mod the user can disable to join a server that lacks it.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct BlockingMod {
+    pub sha1: String,
+    pub name: String,
+    /// Names of *kept* installed mods that require this one (offline reverse-dep
+    /// via `InstalledMod.requires`). Disabling this would break them; a non-empty
+    /// list is a warning, not a block — the user still chooses.
+    pub breaks: Vec<String>,
 }
 
 /// One side of a mod conflict the user can act on.
@@ -245,6 +261,57 @@ pub fn build_conflict_candidates(
     out
 }
 
+/// Map the `server side`-cited mod-ids to *installed* mods the user can disable
+/// to join, and compute which kept mods each would break.
+///
+/// An id is matched to an installed mod by `cited_resolve::find_installed_for_cited`
+/// (normalized name / project_id / filename token — a jar's internal mod-id is not
+/// stored). Deduped by installed `sha1`; unmatched ids are dropped. `breaks` lists
+/// the *names* of mods that would lose a required dependency if this one is
+/// disabled: enabled mods, not themselves in the blocking set, whose `requires`
+/// (the offline project-id closure recorded at install) contains this mod's
+/// `project_id`. A blocking mod without a `project_id` can't be reverse-checked
+/// (and can't appear in anything's `requires`), so its `breaks` is empty.
+pub fn build_blocking_mods(cited_ids: &[String], installed: &[InstalledMod]) -> Vec<BlockingMod> {
+    let mut resolved: Vec<&InstalledMod> = Vec::new();
+    for id in cited_ids {
+        if let Some(m) = crate::mods::cited_resolve::find_installed_for_cited(id, installed) {
+            // A mod the user already disabled is no longer blocking the join.
+            if !m.enabled {
+                continue;
+            }
+            if resolved.iter().any(|r| r.sha1 == m.sha1) {
+                continue; // dedup by installed identity
+            }
+            resolved.push(m);
+        }
+    }
+    let blocking_sha1s: Vec<&str> = resolved.iter().map(|m| m.sha1.as_str()).collect();
+
+    resolved
+        .iter()
+        .map(|m| {
+            let breaks = match m.project_id.as_deref() {
+                Some(pid) => installed
+                    .iter()
+                    .filter(|other| {
+                        other.enabled
+                            && !blocking_sha1s.contains(&other.sha1.as_str())
+                            && other.requires.iter().any(|r| r.eq_ignore_ascii_case(pid))
+                    })
+                    .map(|other| other.name.clone())
+                    .collect(),
+                None => Vec::new(),
+            };
+            BlockingMod {
+                sha1: m.sha1.clone(),
+                name: m.name.clone(),
+                breaks,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +331,103 @@ mod tests {
             enrich_attempted: false,
             requires: vec![],
         }
+    }
+
+    fn inst(
+        name: &str,
+        sha1: &str,
+        project: Option<&str>,
+        enabled: bool,
+        requires: &[&str],
+    ) -> InstalledMod {
+        InstalledMod {
+            filename: format!("{}.jar", name.to_lowercase().replace([' ', '\''], "")),
+            sha1: sha1.into(),
+            source: project.map(|_| ModSource::Modrinth),
+            project_id: project.map(|p| p.into()),
+            version_id: project.map(|_| "verid".into()),
+            name: name.into(),
+            version_number: Some("1.0".into()),
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled,
+            enrich_attempted: false,
+            requires: requires.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn repair_kind_maps_client_extra_mods() {
+        assert_eq!(
+            repair_kind_for("client-extra-mods"),
+            Some(RepairKind::DisableBlockingMods)
+        );
+    }
+
+    #[test]
+    fn build_blocking_maps_cited_ids_to_installed_and_drops_unmatched() {
+        let installed = vec![
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &[]),
+            inst("Citadel", "c", Some("citadel"), true, &[]),
+            inst("Unrelated", "u", Some("other"), true, &[]),
+        ];
+        let cited = vec![
+            "alexsmobs".to_string(),
+            "citadel".to_string(),
+            "ghostmod".to_string(), // not installed → dropped
+        ];
+        let blocking = build_blocking_mods(&cited, &installed);
+        let names: Vec<&str> = blocking.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, vec!["Alex's Mobs", "Citadel"]);
+        assert!(blocking.iter().all(|b| b.breaks.is_empty()));
+    }
+
+    #[test]
+    fn build_blocking_breaks_lists_kept_enabled_dependents_only() {
+        let installed = vec![
+            inst("Citadel", "c", Some("citadel"), true, &[]),
+            // KEPT + enabled, requires citadel → a break.
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &["citadel"]),
+            // Disabled dependent → not a live break.
+            inst("Old User", "o", Some("olduser"), false, &["citadel"]),
+        ];
+        let blocking = build_blocking_mods(&["citadel".to_string()], &installed);
+        assert_eq!(blocking.len(), 1);
+        assert_eq!(blocking[0].name, "Citadel");
+        assert_eq!(blocking[0].breaks, vec!["Alex's Mobs".to_string()]);
+    }
+
+    #[test]
+    fn build_blocking_excludes_other_blocking_mods_from_breaks() {
+        // Both are being disabled; alexsmobs requires citadel, but since alexsmobs
+        // is itself in the blocking set it is not counted as a break for citadel.
+        let installed = vec![
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &["citadel"]),
+            inst("Citadel", "c", Some("citadel"), true, &[]),
+        ];
+        let blocking = build_blocking_mods(
+            &["alexsmobs".to_string(), "citadel".to_string()],
+            &installed,
+        );
+        let citadel = blocking.iter().find(|b| b.name == "Citadel").unwrap();
+        assert!(
+            citadel.breaks.is_empty(),
+            "alexsmobs is also being disabled, so not a break: {:?}",
+            citadel.breaks
+        );
+    }
+
+    #[test]
+    fn build_blocking_empty_when_no_ids_match() {
+        let installed = vec![inst("Sodium", "s", Some("sodium"), true, &[])];
+        assert!(build_blocking_mods(&["alexsmobs".to_string()], &installed).is_empty());
+    }
+
+    #[test]
+    fn build_blocking_skips_already_disabled_mods() {
+        // A blocking mod the user already disabled no longer blocks the join, so
+        // it drops out — this is what lets the diagnosis self-suppress afterwards.
+        let installed = vec![inst("Alex's Mobs", "a", Some("alexsmobs"), false, &[])];
+        assert!(build_blocking_mods(&["alexsmobs".to_string()], &installed).is_empty());
     }
 
     #[test]

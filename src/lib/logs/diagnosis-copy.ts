@@ -53,4 +53,9 @@ export const DIAGNOSIS_COPY: Record<string, DiagnosisCopyKeys> = {
     explanation: 'logs.diagnosis.patterns.serverMissingMods.explanation',
     recommendation: 'logs.diagnosis.patterns.serverMissingMods.recommendation',
   },
+  'client-extra-mods': {
+    title: 'logs.diagnosis.patterns.clientExtraMods.title',
+    explanation: 'logs.diagnosis.patterns.clientExtraMods.explanation',
+    recommendation: 'logs.diagnosis.patterns.clientExtraMods.recommendation',
+  },
 };

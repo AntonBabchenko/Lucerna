@@ -74,23 +74,14 @@ fn parse_forge_fml_channels(log: &str) -> Option<Vec<CitedMod>> {
     if !log.contains("mismatched mod list") {
         return None;
     }
-    let mut out: Vec<CitedMod> = Vec::new();
-    for caps in FORGE_CHANNEL_REJECT_RE.captures_iter(log) {
-        for token in caps[1].split(',') {
-            let modid = token.split(':').next().unwrap_or("").trim();
-            if modid.is_empty() {
-                continue;
-            }
-            if out.iter().any(|m| m.id.eq_ignore_ascii_case(modid)) {
-                continue; // dedup by id, first wins
-            }
-            out.push(CitedMod {
-                id: modid.to_string(),
-                version: None,
-                kind: CitedKind::Missing,
-            });
-        }
-    }
+    let out: Vec<CitedMod> = extract_channel_modids(&FORGE_CHANNEL_REJECT_RE, log)
+        .into_iter()
+        .map(|id| CitedMod {
+            id,
+            version: None,
+            kind: CitedKind::Missing,
+        })
+        .collect();
     if out.is_empty() {
         None
     } else {
@@ -98,14 +89,62 @@ fn parse_forge_fml_channels(log: &str) -> Option<Vec<CitedMod>> {
     }
 }
 
+/// The mod-ids the CLIENT carries that the SERVER lacks — the inverse,
+/// "client has extra mods" reject. A client log reads, e.g.:
+///
+/// ```text
+/// ...NetworkRegistry/NETREGISTRY]: Channels [alexsmobs:main_channel,citadel:main_channel] rejected their server side version number
+/// ...HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list
+/// ```
+///
+/// `server side` (not `client side`): the client refused the server because it
+/// carries enforced-channel mods the server doesn't have. These are NOT mods to
+/// install — they are already present and must be *disabled* to join. Empty when
+/// the log isn't this reject (including the client-missing `client side` case,
+/// which `parse_server_mod_rejection` owns). Deduped case-insensitively,
+/// order-preserving.
+pub fn parse_blocking_client_mods(log: &str) -> Vec<String> {
+    if !log.contains("mismatched mod list") {
+        return Vec::new();
+    }
+    extract_channel_modids(&FORGE_CHANNEL_BLOCKING_RE, log)
+}
+
+/// Extract deduped mod-ids from every `Channels [a:ch, b:ch] …` bracket the
+/// `re` matches (each token is `<modid>:<channel>`; we take the mod-id).
+/// Case-insensitive dedup, first occurrence wins, order-preserving.
+fn extract_channel_modids(re: &Regex, log: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for caps in re.captures_iter(log) {
+        for token in caps[1].split(',') {
+            let modid = token.split(':').next().unwrap_or("").trim();
+            if modid.is_empty() {
+                continue;
+            }
+            if out.iter().any(|m| m.eq_ignore_ascii_case(modid)) {
+                continue; // dedup by id, first wins
+            }
+            out.push(modid.to_string());
+        }
+    }
+    out
+}
+
 /// Captures the bracketed `modid:channel` list from a FML channel-rejection
 /// line: `Channels [a:main, b:net] rejected their client side version number`.
 /// Deliberately anchored to `client side` only — a `server side` rejection in a
-/// client log is the client-has-extra-mods case and is not actionable by
-/// installing (see `parse_forge_fml_channels`).
+/// client log is the client-has-extra-mods case (see `parse_blocking_client_mods`).
 static FORGE_CHANNEL_REJECT_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"Channels \[([^\]]+)\] rejected their client side version number")
         .expect("forge channel-reject regex compiles — covered by tests")
+});
+
+/// The `server side` counterpart of `FORGE_CHANNEL_REJECT_RE`: the client
+/// rejected the server because it carries enforced-channel mods the server
+/// lacks. Powers `parse_blocking_client_mods`.
+static FORGE_CHANNEL_BLOCKING_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"Channels \[([^\]]+)\] rejected their server side version number")
+        .expect("forge channel-blocking regex compiles — covered by tests")
 });
 
 /// Modern Forge / Minecraft datapack-registry sync (confirmed against 47.4.10
@@ -244,5 +283,44 @@ mod tests {
         assert!(ids.iter().any(|s| s == "farmersdelight"), "got: {ids:?}");
         assert!(ids.iter().any(|s| s == "moonlight"), "got: {ids:?}");
         assert_eq!(ids.len(), 2);
+    }
+
+    // ── parse_blocking_client_mods (the "client has extra mods" reject) ──────
+
+    // Real 47.4.10 client log: the client carries alexsmobs + citadel (enforced
+    // channels) that the server lacks, so the client rejects the server.
+    const FORGE_BLOCKING: &str = "\
+[16:37:08.506] [Netty Client IO #0/ERROR] [net.minecraftforge.network.NetworkRegistry/NETREGISTRY]: Channels [alexsmobs:main_channel,citadel:main_channel] rejected their server side version number
+[16:37:08.507] [Netty Client IO #0/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+
+    #[test]
+    fn blocking_parses_modids_from_server_side_reject() {
+        assert_eq!(
+            parse_blocking_client_mods(FORGE_BLOCKING),
+            vec!["alexsmobs".to_string(), "citadel".to_string()]
+        );
+    }
+
+    #[test]
+    fn blocking_empty_on_client_side_reject() {
+        // The client-MISSING case (client side) is not a blocking-mods situation.
+        assert!(parse_blocking_client_mods(FORGE_REJECT).is_empty());
+    }
+
+    #[test]
+    fn blocking_empty_without_mismatch_terminator() {
+        // A "server side" line without the terminator is not a fatal reject.
+        let log = "[ERROR] [NetworkRegistry/NETREGISTRY]: Channels [alexsmobs:main_channel] rejected their server side version number";
+        assert!(parse_blocking_client_mods(log).is_empty());
+    }
+
+    #[test]
+    fn blocking_dedups_repeated_ids() {
+        let log = "[ERROR] [NetworkRegistry/NETREGISTRY]: Channels [alexsmobs:main_channel,alexsmobs:other] rejected their server side version number\n\
+                   [ERROR] [HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        assert_eq!(
+            parse_blocking_client_mods(log),
+            vec!["alexsmobs".to_string()]
+        );
     }
 }
