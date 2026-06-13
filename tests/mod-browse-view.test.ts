@@ -513,5 +513,12 @@ describe('ModBrowseView', () => {
     const callsBefore = search.mock.calls.length;
     await fireEvent.click(retry);
     await waitFor(() => expect(search.mock.calls.length).toBeGreaterThan(callsBefore));
+
+    // This file has no per-test mock reset, so restore the OK default to keep
+    // the error response from leaking into any test appended after this one.
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [], total: 0, offset: 0, page_size: 20 },
+    });
   });
 });
