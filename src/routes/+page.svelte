@@ -540,7 +540,12 @@
       {onSelectInstance}
       onOpenManage={() => (manageOpen = true)}
       {onOpenMods}
-      onOpenLogs={() => (logsOpen = !logsOpen)}
+      onOpenLogs={() => {
+        // Plain "Logs" open is not a deep-link — clear any stale crash path so
+        // the viewer selects the newest log instead of re-opening an old crash.
+        logsInitialPath = null;
+        logsOpen = !logsOpen;
+      }}
       {running}
       {installing}
       {onPlay}
