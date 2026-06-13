@@ -67,12 +67,13 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
     showTooltip(node.getBoundingClientRect(), opts.text, {
       placement: opts.placement,
       immediate,
+      owner: node,
     });
     if (shouldDescribe()) node.setAttribute('aria-describedby', TOOLTIP_ID);
   }
 
   function close() {
-    hideTooltip();
+    hideTooltip(node);
     node.removeAttribute('aria-describedby');
   }
 

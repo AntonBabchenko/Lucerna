@@ -21,6 +21,10 @@ export const tooltipState = $state<{
 
 let triggerRect: TriggerRect | null = null;
 let openTimer: ReturnType<typeof setTimeout> | null = null;
+// Identity of the trigger that owns the currently-shown (or pending) tooltip.
+// Lets hideTooltip ignore a hide request from a *different* trigger (e.g. a
+// reactive update(null)/destroy elsewhere) so it cannot tear down this one.
+let owner: unknown = null;
 
 function clearTimer() {
   if (openTimer !== null) {
@@ -54,11 +58,14 @@ function detachDismiss() {
 export interface ShowOptions {
   placement: Placement;
   immediate: boolean;
+  /** The trigger that owns this tooltip; passed back to hideTooltip to scope hides. */
+  owner?: unknown;
 }
 
 export function showTooltip(rect: TriggerRect, text: string, opts: ShowOptions): void {
   clearTimer();
   triggerRect = rect;
+  owner = opts.owner ?? null;
   const reveal = () => {
     tooltipState.text = text;
     tooltipState.placement = opts.placement;
@@ -69,11 +76,17 @@ export function showTooltip(rect: TriggerRect, text: string, opts: ShowOptions):
   else openTimer = setTimeout(reveal, OPEN_DELAY_MS);
 }
 
-export function hideTooltip(): void {
+export function hideTooltip(requester?: unknown): void {
+  // A hide from a specific trigger only applies to the tooltip it owns. The
+  // global dismiss path (scroll/resize/Escape) calls hideTooltip() with no
+  // argument and always hides. This stops one trigger's reactive
+  // update(null)/destroy from closing a different trigger's visible tooltip.
+  if (requester !== undefined && requester !== owner) return;
   clearTimer();
   if (tooltipState.visible) detachDismiss();
   tooltipState.visible = false;
   triggerRect = null;
+  owner = null;
 }
 
 /** Called by TooltipLayer once it has measured its own rendered size. */

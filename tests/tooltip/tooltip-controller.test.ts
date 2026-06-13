@@ -58,4 +58,17 @@ describe('tooltip-controller', () => {
     expect(typeof tooltipState.top).toBe('number');
     expect(typeof tooltipState.left).toBe('number');
   });
+
+  it('a hide from a different owner does not close a tooltip owned by another trigger', () => {
+    const a = {};
+    const b = {};
+    showTooltip(rect, 'Hello', { placement: 'top', immediate: true, owner: a });
+    expect(tooltipState.visible).toBe(true);
+    // b never owned this tooltip — its hide is ignored.
+    hideTooltip(b);
+    expect(tooltipState.visible).toBe(true);
+    // the real owner hides it; an argument-less hide (global dismiss) would too.
+    hideTooltip(a);
+    expect(tooltipState.visible).toBe(false);
+  });
 });

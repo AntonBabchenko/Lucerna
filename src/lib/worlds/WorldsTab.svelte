@@ -172,16 +172,23 @@
             </div>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button
-              type="button"
-              class="rounded p-1 text-placeholder hover:bg-subtle hover:text-success disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-placeholder"
-              disabled={quickPlayDisabledReason !== null}
-              title={quickPlayDisabledReason ?? $t('worlds.quickPlay.playWorld')}
-              aria-label={$t('worlds.quickPlay.playWorld')}
-              onclick={() => onQuickPlayWorld(w.folder_name)}
+            <span
+              class="inline-flex"
+              use:tooltip={{
+                text: quickPlayDisabledReason ?? $t('worlds.quickPlay.playWorld'),
+                describe: false,
+              }}
             >
-              <Icon name="play" size={16} />
-            </button>
+              <button
+                type="button"
+                class="rounded p-1 text-placeholder hover:bg-subtle hover:text-success disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-placeholder"
+                disabled={quickPlayDisabledReason !== null}
+                aria-label={$t('worlds.quickPlay.playWorld')}
+                onclick={() => onQuickPlayWorld(w.folder_name)}
+              >
+                <Icon name="play" size={16} />
+              </button>
+            </span>
             <button
               type="button"
               class="rounded p-1 text-placeholder hover:bg-subtle"
