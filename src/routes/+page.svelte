@@ -662,6 +662,8 @@
     initialPath={logsInitialPath}
     instanceId={activeInstance?.id ?? null}
     instanceName={activeInstance?.name ?? null}
+    mcVersion={activeInstance?.mc_version ?? null}
+    loader={activeInstance?.loader ?? null}
   />
 
   <ManageInstancesModal

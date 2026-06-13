@@ -22,10 +22,6 @@ pub struct ResolvedCandidate {
     pub display: ModSummary,
     /// Human label, e.g. the version_number "0.5.3".
     pub version_label: String,
-    /// Display names of the candidate's REQUIRED dependencies (transitive
-    /// closure), so the card can show what else will be installed. Empty when
-    /// the mod is standalone or deps couldn't be resolved.
-    pub dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -69,12 +65,8 @@ pub fn pick_version<'a>(
     versions.first()
 }
 
-/// Build a candidate from a hit + chosen version + resolved dependency names.
-pub fn make_candidate(
-    hit: &ModSummary,
-    version: &ModVersion,
-    dependencies: Vec<String>,
-) -> ResolvedCandidate {
+/// Build a candidate from a hit + chosen version.
+pub fn make_candidate(hit: &ModSummary, version: &ModVersion) -> ResolvedCandidate {
     ResolvedCandidate {
         target: VersionRef {
             source: version.source,
@@ -83,35 +75,7 @@ pub fn make_candidate(
         },
         display: hit.clone(),
         version_label: version.version_number.clone(),
-        dependencies,
     }
-}
-
-/// Resolve the REQUIRED-dependency display names for a picked version, so the
-/// UI can show what else an install will pull in. Best-effort: returns empty
-/// on any resolve failure (the install itself still pulls deps regardless).
-/// Names come from each dep's project (clean name), falling back to the dep
-/// version's own name. Deduped, order-preserving.
-async fn required_dep_names(
-    plat: &dyn ModPlatform,
-    version: &ModVersion,
-    mc_version: &str,
-    loader: LoaderKind,
-) -> Vec<String> {
-    let Ok(deps) = plat.resolve_deps(version, mc_version, loader).await else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = Vec::new();
-    for d in &deps.required {
-        let name = match plat.project(&d.version.project_id).await {
-            Ok(p) => p.summary.name,
-            Err(_) => d.version.name.clone(),
-        };
-        if !name.is_empty() && !names.contains(&name) {
-            names.push(name);
-        }
-    }
-    names
 }
 
 const MAX_FUZZY: usize = 5;
@@ -227,9 +191,8 @@ async fn resolve_one(
                             author: String::new(),
                             updated_at: None,
                         };
-                        let deps = required_dep_names(plat, v, mc_version, loader).await;
                         return ResolveTier::Exact {
-                            candidate: Box::new(make_candidate(&summary, v, deps)),
+                            candidate: Box::new(make_candidate(&summary, v)),
                         };
                     }
                 }
@@ -283,9 +246,8 @@ async fn resolve_via_search(
         {
             let versions = drop_filename_loader_mismatches(versions, Some(loader));
             if let Some(v) = pick_version(&versions, c.version.as_deref()) {
-                let deps = required_dep_names(plat, v, mc_version, loader).await;
                 return ResolveTier::Exact {
-                    candidate: Box::new(make_candidate(hit, v, deps)),
+                    candidate: Box::new(make_candidate(hit, v)),
                 };
             }
         }
@@ -300,8 +262,7 @@ async fn resolve_via_search(
         {
             let versions = drop_filename_loader_mismatches(versions, Some(loader));
             if let Some(v) = pick_version(&versions, c.version.as_deref()) {
-                let deps = required_dep_names(plat, v, mc_version, loader).await;
-                candidates.push(make_candidate(hit, v, deps));
+                candidates.push(make_candidate(hit, v));
             }
         }
     }
@@ -568,138 +529,5 @@ mod tests {
             "expected Unresolved, got {:?}",
             out[0].tier
         );
-    }
-
-    #[tokio::test]
-    async fn candidate_dependencies_surfaced_from_required_dep() {
-        let _env = crate::test_env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-
-        use crate::logs::diagnose::server_mods::{CitedKind, CitedMod};
-        use crate::mods::modrinth::ModrinthClient;
-        use wiremock::matchers::{method, path, query_param};
-        use wiremock::{Mock, MockServer, ResponseTemplate};
-
-        let s = MockServer::start().await;
-
-        // Search: returns a hit for the compat-patch mod.
-        Mock::given(method("GET"))
-            .and(path("/v2/search"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                r#"{
-                    "hits": [{
-                        "project_id": "patch123",
-                        "slug": "fd-ntp-compat",
-                        "title": "FD x NTP Cooking Pot",
-                        "description": "Compat patch",
-                        "icon_url": null,
-                        "downloads": 1000,
-                        "author": "patchauthor",
-                        "date_modified": "2026-05-01T00:00:00Z"
-                    }],
-                    "total_hits": 1,
-                    "offset": 0,
-                    "limit": 5
-                }"#,
-            ))
-            .mount(&s)
-            .await;
-
-        // Versions for the compat-patch: one build with a required dep on "ntpmod".
-        Mock::given(method("GET"))
-            .and(path("/v2/project/patch123/version"))
-            .and(query_param("loaders", r#"["forge"]"#))
-            .and(query_param("game_versions", r#"["1.20.1"]"#))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                r#"[{
-                    "id": "patch-v1",
-                    "project_id": "patch123",
-                    "name": "FD-NTP 1.0.0",
-                    "version_number": "1.0.0",
-                    "game_versions": ["1.20.1"],
-                    "loaders": ["forge"],
-                    "date_published": "2026-05-01T00:00:00Z",
-                    "files": [{
-                        "url": "https://cdn.modrinth.com/patch.jar",
-                        "filename": "fd-ntp-compat-1.0.0.jar",
-                        "hashes": {"sha1": "aabbcc"},
-                        "size": 512,
-                        "primary": true
-                    }],
-                    "dependencies": [
-                        {"project_id": "ntpmod", "dependency_type": "required"}
-                    ]
-                }]"#,
-            ))
-            .mount(&s)
-            .await;
-
-        // resolve_deps calls versions for each required dep.
-        Mock::given(method("GET"))
-            .and(path("/v2/project/ntpmod/version"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                r#"[{
-                    "id": "ntp-v1",
-                    "project_id": "ntpmod",
-                    "name": "No Tree Punching",
-                    "version_number": "7.0.0",
-                    "game_versions": ["1.20.1"],
-                    "loaders": ["forge"],
-                    "date_published": "2026-05-01T00:00:00Z",
-                    "files": [{
-                        "url": "https://cdn.modrinth.com/ntp.jar",
-                        "filename": "notreepunching-forge-7.0.0.jar",
-                        "hashes": {"sha1": "ccddee"},
-                        "size": 256,
-                        "primary": true
-                    }],
-                    "dependencies": []
-                }]"#,
-            ))
-            .mount(&s)
-            .await;
-
-        // project() call for the dep to get its display name.
-        Mock::given(method("GET"))
-            .and(path("/v2/project/ntpmod"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                r#"{
-                    "id": "ntpmod",
-                    "slug": "no-tree-punching",
-                    "title": "No Tree Punching",
-                    "description": "NTP mod",
-                    "icon_url": null,
-                    "downloads": 50000,
-                    "team": "teamA",
-                    "published": "2026-01-01T00:00:00Z",
-                    "updated": "2026-05-01T00:00:00Z",
-                    "body": ""
-                }"#,
-            ))
-            .mount(&s)
-            .await;
-
-        let mr = ModrinthClient::with_base(s.uri());
-        let cited = vec![CitedMod {
-            id: "fd-ntp-compat".into(),
-            version: None,
-            kind: CitedKind::Missing,
-        }];
-
-        let out = resolve(&cited, "1.20.1", LoaderKind::Forge, &mr, &mr, &[]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
-        assert_eq!(out.len(), 1);
-        match &out[0].tier {
-            ResolveTier::Exact { candidate } => {
-                assert_eq!(candidate.target.project_id, "patch123");
-                assert_eq!(
-                    candidate.dependencies,
-                    vec!["No Tree Punching"],
-                    "required dep name should be surfaced from project title"
-                );
-            }
-            other => panic!("expected Exact, got {other:?}"),
-        }
     }
 }

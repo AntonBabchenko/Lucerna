@@ -2,6 +2,7 @@
   import {
     commands,
     type Diagnosis,
+    type LoaderKind,
     type LogFileMeta,
     type LogSource,
     type RepairChoice,
@@ -35,11 +36,18 @@
     initialPath = null as string | null,
     instanceId = null as string | null,
     instanceName = null as string | null,
+    mcVersion = null as string | null,
+    loader = null as LoaderKind | null,
   }: {
     open: boolean;
     initialPath?: string | null;
     instanceId?: string | null;
     instanceName?: string | null;
+    // The active instance's MC version + loader, threaded straight through to
+    // the missing-mods repair card so it can run the mod-browser install flow
+    // (decideModInstall needs both). Null until an instance is selected.
+    mcVersion?: string | null;
+    loader?: LoaderKind | null;
   } = $props();
 
   // ---------------------------------------------------------------------------
@@ -832,10 +840,12 @@
                   {copy ? $t(copy.recommendation) : diagnosis.recommendation}
                 </p>
                 {#if diagnosis.repair && instanceId}
-                  {#if repairPlan && repairPlan.kind === 'install_missing_mods'}
+                  {#if repairPlan && repairPlan.kind === 'install_missing_mods' && mcVersion && loader}
                     <MissingModsRepairCard
                       plan={repairPlan}
                       instanceId={instanceId ?? ''}
+                      {mcVersion}
+                      {loader}
                       onClose={() => (repairPlan = null)}
                     />
                   {:else if repairPlan}
