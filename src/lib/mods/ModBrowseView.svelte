@@ -867,7 +867,14 @@
 
   <div class="p-3 space-y-2">
     {#if error}
-      <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2">{error}</div>
+      <div
+        class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 flex items-center justify-between gap-3"
+      >
+        <span>{error}</span>
+        <button type="button" class="btn-secondary btn-sm shrink-0" onclick={() => void reload()}>
+          {$t('mods.browse.errorRetry')}
+        </button>
+      </div>
     {/if}
     {#if loading}
       <div class="flex justify-center py-8 text-secondary">
