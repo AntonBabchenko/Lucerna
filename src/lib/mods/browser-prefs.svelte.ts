@@ -5,6 +5,7 @@
 
 export type PageSize = 20 | 50 | 100;
 export type Layout = 'grid' | 'list';
+export type Density = 'compact' | 'comfortable';
 
 export const PAGE_SIZES: PageSize[] = [20, 50, 100];
 
@@ -13,9 +14,10 @@ const DEFAULTS = {
   pageSize: 20 as PageSize,
   layout: 'grid' as Layout,
   installedPageSize: 50 as PageSize,
+  density: 'comfortable' as Density,
 };
 
-export function loadPrefs(): { pageSize: PageSize; layout: Layout; installedPageSize: PageSize } {
+export function loadPrefs(): { pageSize: PageSize; layout: Layout; installedPageSize: PageSize; density: Density } {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULTS };
@@ -25,7 +27,8 @@ export function loadPrefs(): { pageSize: PageSize; layout: Layout; installedPage
     const pageSize = pickSize(parsed?.pageSize, DEFAULTS.pageSize);
     const installedPageSize = pickSize(parsed?.installedPageSize, DEFAULTS.installedPageSize);
     const layout: Layout = parsed?.layout === 'list' ? 'list' : 'grid';
-    return { pageSize, layout, installedPageSize };
+    const density: Density = parsed?.density === 'compact' ? 'compact' : 'comfortable';
+    return { pageSize, layout, installedPageSize, density };
   } catch {
     return { ...DEFAULTS };
   }
@@ -37,6 +40,7 @@ class BrowserPrefs {
   pageSize = $state<PageSize>(initial.pageSize);
   layout = $state<Layout>(initial.layout);
   installedPageSize = $state<PageSize>(initial.installedPageSize);
+  density = $state<Density>(initial.density);
 
   constructor() {
     try {
@@ -53,6 +57,7 @@ class BrowserPrefs {
                 pageSize: this.pageSize,
                 layout: this.layout,
                 installedPageSize: this.installedPageSize,
+                density: this.density,
               }),
             );
           } catch {
