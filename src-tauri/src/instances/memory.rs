@@ -72,7 +72,7 @@ mod tests {
     fn default_heap_clamps_into_band() {
         assert_eq!(default_heap_mb(None), 2048);
         assert_eq!(default_heap_mb(Some(4096)), 2048); // 40% = 1638 → floor 2048
-        assert_eq!(default_heap_mb(Some(8192)), 3276); // 40% = 3276.8 → 3276 in band
+        assert_eq!(default_heap_mb(Some(8192)), 3276); // 8192*2/5 = 3276 (integer div), in band
         assert_eq!(default_heap_mb(Some(16384)), 6144); // 40% = 6553 → cap 6144
         assert_eq!(default_heap_mb(Some(32768)), 6144); // 40% = 13107 → cap 6144
     }

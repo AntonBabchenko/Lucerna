@@ -54,6 +54,10 @@
     ram_known: false,
   };
   let memBounds = $state<MemoryBounds>(FALLBACK_BOUNDS);
+  // Plain `let`, not `$state`: a one-shot fetch guard. This modal is persistently
+  // mounted (opened via the `open` prop, never re-keyed), so the flag lives for
+  // the session and bounds are fetched once. Physical RAM doesn't change at
+  // runtime, so there's nothing to refresh.
   let memBoundsLoaded = false;
 
   // When the modal opens, default the selection to the currently-active
