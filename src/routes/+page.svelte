@@ -6,7 +6,6 @@
     type CrashReport,
     type Error as IpcError,
     type InstanceWithStatus,
-    type VersionEntry,
   } from '$lib/ipc/bindings';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
@@ -45,9 +44,10 @@
   import { initLocale } from '$lib/i18n/state.svelte';
   import { t } from '$lib/i18n';
   import { get } from 'svelte/store';
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { formatError } from '$lib/ipc/format-error';
-  import { modBrowserNav, modpacksNav, mcVersions, settingsOpen } from '$lib/settings/state.svelte';
+  import { modBrowserNav, modpacksNav, settingsOpen } from '$lib/settings/state.svelte';
+  import { createMcVersions } from '$lib/versions/mc-versions.svelte';
   import {
     dismiss,
     pushActionToast,
@@ -69,11 +69,10 @@
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
 
-  // Vanilla MC version manifest, still fetched on mount and passed
-  // through to ManageInstancesModal where it powers the MC version
-  // picker. Home no longer renders a version dropdown — see Manage.
-  let versions = $state<VersionEntry[]>([]);
-  let versionsError = $state<string | null>(null);
+  // Self-healing owner of the MC version manifest (fetch + online/backoff
+  // recovery). Powers the Manage modal's version picker and publishes to the
+  // shared `mcVersions` rune for the browsers' version combobox.
+  const mcv = createMcVersions();
 
   let instances = $state<InstanceWithStatus[]>([]);
   let activeInstance = $state<InstanceWithStatus | null>(null);
@@ -345,19 +344,15 @@
 
     await refreshAccounts();
 
-    const versionsResult = await commands.listVersions();
-    if (versionsResult.status === 'ok') {
-      versions = versionsResult.data;
-      // Publish to the shared rune so the McVersionCombobox in the mod
-      // and modpack browsers can read the list without prop drilling
-      // through MainTabs / ModpacksTab.
-      mcVersions.value = versionsResult.data;
-    } else {
-      versionsError = formatError(versionsResult.error);
-    }
+    // Fire-and-forget: the composable owns the fetch, publishes the list to the
+    // shared `mcVersions` rune, and self-heals a transient failure (online event
+    // + bounded backoff) instead of leaving a stale error banner.
+    void mcv.load();
 
     void initOnboarding();
   });
+
+  onDestroy(() => mcv.dispose());
 
   async function onSelectAccount(id: string) {
     const result = await commands.setActiveAccount(id);
@@ -629,7 +624,7 @@
               listAccounts: listAccountsError,
               remove: removeError,
               instances: instancesError,
-              versions: versionsError,
+              versions: mcv.error,
             }}
             onManage={() => (manageOpen = true)}
             onExport={() => (exportDialogOpen = true)}
@@ -643,8 +638,12 @@
               else if (key === 'listAccounts') listAccountsError = null;
               else if (key === 'remove') removeError = null;
               else if (key === 'instances') instancesError = null;
-              else if (key === 'versions') versionsError = null;
+              else if (key === 'versions') mcv.dismissError();
             }}
+            onRetryError={(key) => {
+              if (key === 'versions') void mcv.load();
+            }}
+            versionsRetrying={mcv.loading}
             onDismissInstallError={() => (installError = null)}
             onDismissModsError={() => (modsError = null)}
           />
@@ -668,7 +667,7 @@
     bind:open={manageOpen}
     bind:instances
     bind:activeInstance
-    {versions}
+    versions={mcv.value}
     onChanged={refreshInstances}
     isRunning={running !== null}
   />

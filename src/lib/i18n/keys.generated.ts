@@ -744,6 +744,7 @@ export type TranslationKey =
   | 'page.overview.attnPickVersion'
   | 'page.overview.avatarAlt'
   | 'page.overview.dismissError'
+  | 'page.overview.errorRetry'
   | 'page.overview.exportModpack'
   | 'page.overview.installedTab'
   | 'page.overview.labelLoader'
