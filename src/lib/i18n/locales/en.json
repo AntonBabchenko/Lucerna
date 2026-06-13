@@ -682,7 +682,49 @@
       "uploadFailed": "Log upload failed"
     },
     "diagnosis": {
-      "whatToTry": "What to try:"
+      "whatToTry": "What to try:",
+      "patterns": {
+        "javaVersionTooOld": {
+          "title": "Java version is too old for this modpack",
+          "explanation": "One of your mods was built for a newer version of Java than the instance is currently running. Minecraft launched the game, but the mod's classes failed to load.",
+          "recommendation": "Bump the instance's Minecraft version under Manage → Minecraft version — newer MC versions install a newer JRE automatically. If your modpack is locked to this MC version, the mod itself likely needs an update from its author."
+        },
+        "modResolutionConflict": {
+          "title": "Two mods conflict with each other",
+          "explanation": "Fabric stopped loading because two of your installed mods can't run together — one requires a version of something the other forbids.",
+          "recommendation": "Open the crash log below to see which mods are named. Disable one of the two in the Installed tab and try again. If you imported a modpack, see if the pack author lists a known-bad combination."
+        },
+        "fabricLoaderMissingMain": {
+          "title": "Fabric loader wasn't installed for this instance",
+          "explanation": "The launcher asked Java to start Fabric, but the Fabric loader files aren't on the classpath. This usually means the instance was created vanilla and Fabric wasn't chosen, or the loader install failed.",
+          "recommendation": "Open Manage for this instance, set the loader to Fabric, pick a loader version, and let the launcher reinstall before launching."
+        },
+        "corruptModJar": {
+          "title": "A mod file is corrupt",
+          "explanation": "Minecraft tried to read a mod jar and found it was damaged or incomplete. The most common cause is a download that was interrupted partway.",
+          "recommendation": "Open the crash log below to find the jar's filename. In the Installed tab, uninstall that mod and reinstall it. If you imported a modpack, re-importing the pack will re-fetch every jar with SHA-1 verification."
+        },
+        "outOfMemory": {
+          "title": "Minecraft ran out of memory",
+          "explanation": "The instance's allotted memory (heap) wasn't enough — typical for heavy modpacks or when many chunks are loaded.",
+          "recommendation": "Open Manage for this instance, raise the Max heap value (try 4096 MB for a vanilla-ish modpack, 6144 MB or more for heavy packs), then try again. Don't exceed half of your system RAM."
+        },
+        "portAlreadyInUse": {
+          "title": "Network port is already taken",
+          "explanation": "Minecraft tried to open a network port — usually for the integrated LAN server — and another program is already using it.",
+          "recommendation": "Quit any other running Minecraft windows (including from other launchers), then try again. If the problem persists, restart the computer to clear stuck connections."
+        },
+        "diskFull": {
+          "title": "Hard drive is full",
+          "explanation": "Minecraft tried to write a file (chunks, screenshots, mod cache, logs) and the disk refused because it ran out of space.",
+          "recommendation": "Free up space on the drive that holds the launcher's data — typically %APPDATA% on Windows. The launcher's Storage settings show how much space the mod cache takes if you want to start there."
+        },
+        "serverMissingMods": {
+          "title": "The server needs mods you don't have",
+          "explanation": "The server rejected the connection because your client is missing mods it requires, or has them at the wrong version. Minecraft listed them before disconnecting.",
+          "recommendation": "Open this log and use \"Install missing mods\" to add them to this instance, then reconnect. Mods the launcher can't identify automatically are listed so you can find them in the Add-ons browser."
+        }
+      }
     },
     "repair": {
       "fixThis": "Fix this",

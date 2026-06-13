@@ -20,6 +20,7 @@
   import { Icon } from '$lib/ui/icons';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { DIAGNOSIS_COPY } from '$lib/logs/diagnosis-copy';
   import {
     groupStackFolds,
     maybeParseCrashReport,
@@ -813,19 +814,22 @@
 
             <!-- Diagnosis card -->
             {#if diagnosis}
+              {@const copy = DIAGNOSIS_COPY[diagnosis.pattern_id]}
               <details
                 open
                 class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
               >
                 <summary class="cursor-pointer font-semibold text-warning-text select-none">
                   <span class="flex items-center gap-1.5"
-                    ><Icon name="warning" /> {diagnosis.title}</span
+                    ><Icon name="warning" /> {copy ? $t(copy.title) : diagnosis.title}</span
                   >
                 </summary>
-                <p class="mt-2 text-sm text-warning-text selectable">{diagnosis.explanation}</p>
+                <p class="mt-2 text-sm text-warning-text selectable">
+                  {copy ? $t(copy.explanation) : diagnosis.explanation}
+                </p>
                 <p class="mt-2 text-sm text-warning-text selectable">
                   <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
-                  {diagnosis.recommendation}
+                  {copy ? $t(copy.recommendation) : diagnosis.recommendation}
                 </p>
                 {#if diagnosis.repair && instanceId}
                   {#if repairPlan && repairPlan.kind === 'install_missing_mods'}
