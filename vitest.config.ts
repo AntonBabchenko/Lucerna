@@ -11,6 +11,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [sveltekit(), svelteTesting()],
   test: {
+    // Cap Vitest's worker forks at half the cores. The default is one fork per
+    // core (16 on the maintainer's machine), which spikes CPU/RAM/disk and
+    // makes the whole system sluggish mid-run. Half keeps the suite fast while
+    // leaving the machine responsive.
+    maxWorkers: '50%',
     include: ['tests/**/*.test.ts'],
     environment: 'happy-dom',
     setupFiles: ['./tests/vitest.setup.ts'],

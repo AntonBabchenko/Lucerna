@@ -100,3 +100,12 @@ tempfile = "3.27.0"
 tokio = { version = "1.52.3", features = ["full"] }
 wiremock = "0.6.5"
 
+[profile.dev]
+# Local disk is the bottleneck during test/dev builds on the maintainer's
+# machine, not CPU. The default `debug = 2` emits full variable/type debug info
+# (large .pdb and debug sections on Windows) that bloats the target dir and adds
+# disk writes on every link. `debug = 1` keeps line tables — panic backtraces
+# still resolve to file:line — while writing far less. The `test` profile
+# inherits this, so `cargo test` build artifacts shrink too.
+debug = 1
+
