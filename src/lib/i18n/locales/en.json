@@ -244,7 +244,9 @@
       "update": "Update",
       "selectAriaLabel": "Select mod {name}",
       "fromModpackTitle": "From modpack: {name}",
-      "byAuthorDownloads": "by {author} · {downloads} dl"
+      "byAuthorDownloads": "by {author} · {downloads} dl",
+      "details": "Details",
+      "menuAriaLabel": "Actions for {name}"
     },
     "detail": {
       "loading": "Loading…",
@@ -289,6 +291,11 @@
       "groupAriaLabel": "Result layout",
       "grid": "Grid",
       "list": "List"
+    },
+    "density": {
+      "groupAriaLabel": "Row density",
+      "comfortable": "Comfortable",
+      "compact": "Compact"
     },
     "curseforgeBanner": {
       "heading": "CurseForge requires an API key",

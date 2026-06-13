@@ -244,7 +244,9 @@
       "update": "Обновить",
       "selectAriaLabel": "Выбрать мод {name}",
       "fromModpackTitle": "Из сборки: {name}",
-      "byAuthorDownloads": "{author} · {downloads} скач."
+      "byAuthorDownloads": "{author} · {downloads} скач.",
+      "details": "Подробнее",
+      "menuAriaLabel": "Действия для {name}"
     },
     "detail": {
       "loading": "Загрузка…",
@@ -289,6 +291,11 @@
       "groupAriaLabel": "Вид результатов",
       "grid": "Сетка",
       "list": "Список"
+    },
+    "density": {
+      "groupAriaLabel": "Плотность строк",
+      "comfortable": "Просторно",
+      "compact": "Компактно"
     },
     "curseforgeBanner": {
       "heading": "CurseForge требует API-ключ",
