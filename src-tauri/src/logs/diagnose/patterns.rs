@@ -71,6 +71,16 @@ static CORRUPT_JAR_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
+// Two FML reject shapes (both confirmed in Phase 0, both from
+// `HandshakeHandler/FMLHANDSHAKE`) mean "the client is missing mods the server
+// requires": a channel-version mismatch (`… mismatched mod list`) and a
+// datapack-registry sync failure (`Missing required datapack registry: …`,
+// from library mods like Moonlight). `server_mods.rs` parses both.
+static SERVER_MISSING_MODS_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"mismatched mod list|Missing required datapack registr")
+        .expect("regex compiles — covered by `all_patterns_regexes_compile`")
+});
+
 // --- The knowledge base --------------------------------------------
 
 pub const PATTERNS: &[Pattern] = &[
@@ -128,11 +138,11 @@ pub const PATTERNS: &[Pattern] = &[
     },
     Pattern {
         id: "server-missing-mods",
-        // Anchor confirmed in the Phase 0 spike against a real modern-Forge
-        // (47.4.10) client log: FML terminates a mod-mismatched join with this
-        // line. server_mods.rs extracts the mod-ids from the paired
-        // "Channels [...] rejected ..." lines.
-        matcher: Matcher::Substring("mismatched mod list"),
+        // Anchors confirmed in the Phase 0 spike against real modern-Forge
+        // (47.4.10) client logs: FML rejects a join either with a channel
+        // "mismatched mod list" or a "Missing required datapack registry" sync
+        // failure. server_mods.rs parses the mod-ids from whichever appears.
+        matcher: Matcher::Regex(&SERVER_MISSING_MODS_RE),
         title: "The server needs mods you don't have",
         explanation:
             "The server rejected the connection because your client is missing mods it \

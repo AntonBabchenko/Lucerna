@@ -1,9 +1,9 @@
 //! Parser for "modded connection rejected — missing/mismatched mods"
 //! lines in a Minecraft client log. Pure: no I/O, no network. One
 //! recognizer per supported loader/format (anchors captured in the
-//! Phase 0 spike). `parse_server_mod_rejection` tries each in order and
-//! returns the first non-empty result; an unrecognized log yields an
-//! empty vec so the feature simply does not appear (zero false positives).
+//! Phase 0 spike). `parse_server_mod_rejection` runs every recognizer and
+//! merges their results; an unrecognized log yields an empty vec so the
+//! feature simply does not appear (zero false positives).
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -27,14 +27,25 @@ pub enum CitedKind {
     VersionMismatch,
 }
 
-/// Parse a (capped) client-log body into the cited mods. Empty when no
-/// known reject format is recognized. Dedups by `id` (first occurrence
-/// wins, preserving order).
+/// Parse a (capped) client-log body into the cited mods. Runs every format
+/// recognizer and MERGES their results — a single rejection can mix formats
+/// (e.g. a datapack-registry failure for a library mod plus a channel mismatch
+/// for others). Empty when nothing is recognized. Deduped by `id`
+/// (case-insensitive, first occurrence wins, order-preserving).
 pub fn parse_server_mod_rejection(log: &str) -> Vec<CitedMod> {
-    if let Some(mods) = parse_forge_fml_channels(log) {
-        return mods;
+    let mut out: Vec<CitedMod> = Vec::new();
+    let recognizers = [
+        parse_forge_fml_channels(log),
+        parse_forge_datapack_registries(log),
+    ];
+    for mods in recognizers.into_iter().flatten() {
+        for m in mods {
+            if !out.iter().any(|x| x.id.eq_ignore_ascii_case(&m.id)) {
+                out.push(m);
+            }
+        }
     }
-    Vec::new()
+    out
 }
 
 /// Modern Forge / FML (1.13+, confirmed against 47.4.10 in Phase 0) rejects a
@@ -87,6 +98,54 @@ static FORGE_CHANNEL_REJECT_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("forge channel-reject regex compiles — covered by tests")
 });
 
+/// Modern Forge / Minecraft datapack-registry sync (confirmed against 47.4.10
+/// in Phase 0): when the server has mods that register custom datapack
+/// registries (e.g. the Moonlight library — a Supplementaries dependency) and
+/// the client lacks them, FML rejects with one line per missing registry:
+///
+/// ```text
+/// ...HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:map_markers
+/// ...HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:soft_fluids
+/// ```
+///
+/// A registry id is `<namespace>:<path>`; the namespace is the registering
+/// mod's id (`moonlight`). We cite distinct namespaces. Installing that mod
+/// adds the registries; if other mods are also missing, the next join surfaces
+/// them (the channel-mismatch format above).
+fn parse_forge_datapack_registries(log: &str) -> Option<Vec<CitedMod>> {
+    if !log.contains("Missing required datapack registr") {
+        return None;
+    }
+    let mut out: Vec<CitedMod> = Vec::new();
+    for caps in FORGE_DATAPACK_REGISTRY_RE.captures_iter(log) {
+        let ns = caps[1].trim();
+        if ns.is_empty() {
+            continue;
+        }
+        if out.iter().any(|m| m.id.eq_ignore_ascii_case(ns)) {
+            continue; // dedup by id, first wins
+        }
+        out.push(CitedMod {
+            id: ns.to_string(),
+            version: None,
+            kind: CitedKind::Missing,
+        });
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Captures the namespace of a missing datapack-registry id from a line like
+/// `Missing required datapack registry: moonlight:map_markers` (the real log
+/// form — one per line). The namespace is the registering mod's id.
+static FORGE_DATAPACK_REGISTRY_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"Missing required datapack registr(?:y|ies):\s*([a-z0-9_.-]+):")
+        .expect("forge datapack-registry regex compiles — covered by tests")
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +189,38 @@ mod tests {
         // message, not a rejection — must not produce false positives.
         let log = "[INFO]: Registered Channels [foo:main] for mod foo";
         assert!(parse_server_mod_rejection(log).is_empty());
+    }
+
+    // Real excerpt: client missing the Moonlight library (a Supplementaries
+    // dependency) that registers custom datapack registries — one line each.
+    const FORGE_DATAPACK_REJECT: &str = "\
+[14:20:19.857] [Netty Client IO #0/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:map_markers
+[14:20:19.857] [Netty Client IO #0/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:soft_fluids";
+
+    #[test]
+    fn parses_datapack_registry_reject_dedups_namespace() {
+        let mods = parse_server_mod_rejection(FORGE_DATAPACK_REJECT);
+        assert_eq!(
+            mods.len(),
+            1,
+            "both registries share the namespace 'moonlight'"
+        );
+        assert_eq!(mods[0].id, "moonlight");
+        assert_eq!(mods[0].kind, CitedKind::Missing);
+        assert_eq!(mods[0].version, None);
+    }
+
+    #[test]
+    fn merges_channel_and_datapack_formats() {
+        let log = "[ERROR] [HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:map_markers\n\
+                   [ERROR] [HandshakeHandler/FMLHANDSHAKE]: Channels [farmersdelight:main] rejected their client side version number\n\
+                   [ERROR] [HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        let ids: Vec<String> = parse_server_mod_rejection(log)
+            .iter()
+            .map(|m| m.id.clone())
+            .collect();
+        assert!(ids.iter().any(|s| s == "farmersdelight"), "got: {ids:?}");
+        assert!(ids.iter().any(|s| s == "moonlight"), "got: {ids:?}");
+        assert_eq!(ids.len(), 2);
     }
 }

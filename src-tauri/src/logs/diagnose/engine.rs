@@ -443,6 +443,12 @@ mod tests {
     }
 
     #[test]
+    fn pattern_server_missing_mods_matches_datapack_registry_reject() {
+        let content = "[Netty Client IO #0/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:map_markers";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
+
+    #[test]
     fn pattern_server_missing_mods_does_not_match_generic_disconnect() {
         assert_no_diag(
             "[12:00:03] [Render thread/INFO]: Disconnected: Connection closed",
