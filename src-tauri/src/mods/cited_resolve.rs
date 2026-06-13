@@ -80,6 +80,52 @@ pub fn make_candidate(hit: &ModSummary, version: &ModVersion) -> ResolvedCandida
 
 const MAX_FUZZY: usize = 5;
 
+/// Normalize a mod identifier for loose matching: ascii-alphanumerics only,
+/// lowercased. "Farmer's Delight" → "farmersdelight".
+fn normalize_id(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// Lowercased alphanumeric tokens of a filename, split on any separator.
+/// "FarmersDelight-1.20.1-1.3.2.jar" → ["farmersdelight","1","20","1","1","3","2","jar"].
+fn filename_tokens(filename: &str) -> impl Iterator<Item = String> + '_ {
+    filename
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_ascii_lowercase())
+}
+
+/// Heuristic, OFFLINE check (no network): is a cited mod-id already satisfied
+/// by an installed mod? `InstalledMod` does not store the jar's internal
+/// mod-id, so we match the normalized cited id against the installed mod's
+/// name, its `project_id`, and its filename tokens. Powers "don't re-warn /
+/// re-offer a mod the user already installed" — the reject log is historical
+/// and never changes. Token-matching the filename (not prefix) avoids a
+/// false positive like cited "create" matching "createdeco-1.0.jar".
+pub fn cited_satisfied_by_installed(cited_id: &str, installed: &[InstalledMod]) -> bool {
+    let target = normalize_id(cited_id);
+    if target.is_empty() {
+        return false;
+    }
+    installed.iter().any(|m| {
+        normalize_id(&m.name) == target
+            || m.project_id.as_deref().map(normalize_id).as_deref() == Some(target.as_str())
+            || filename_tokens(&m.filename).any(|t| t == target)
+    })
+}
+
+/// The subset of `cited` not yet satisfied by an installed mod.
+pub fn unsatisfied_cited(cited: &[CitedMod], installed: &[InstalledMod]) -> Vec<CitedMod> {
+    cited
+        .iter()
+        .filter(|c| !cited_satisfied_by_installed(&c.id, installed))
+        .cloned()
+        .collect()
+}
+
 /// Resolve every cited mod to a tier. Network: one search + (per candidate)
 /// one versions() call, faceted by mc+loader. `installed` powers the
 /// high-confidence mismatch path (skip search when the project_id is known).
@@ -230,6 +276,7 @@ async fn resolve_via_search(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logs::diagnose::server_mods::CitedKind;
     use crate::mods::platform::{LoaderKind, ModFile, ModSource};
 
     fn hit(slug: Option<&str>, pid: &str) -> ModSummary {
@@ -265,6 +312,68 @@ mod tests {
             deps: vec![],
             published_at: None,
         }
+    }
+
+    fn fake_installed(name: &str, filename: &str, project: Option<&str>) -> InstalledMod {
+        InstalledMod {
+            filename: filename.into(),
+            sha1: "sha".into(),
+            source: project.map(|_| ModSource::Modrinth),
+            project_id: project.map(Into::into),
+            version_id: project.map(|_| "v".into()),
+            name: name.into(),
+            version_number: Some("1.0".into()),
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        }
+    }
+
+    #[test]
+    fn cited_satisfied_matches_by_name_or_filename_token() {
+        let installed = vec![
+            fake_installed("Farmer's Delight", "FarmersDelight-1.20.1-1.3.2.jar", None),
+            fake_installed(
+                "Just Enough Items",
+                "jei-1.20.1-forge-15.20.0.130.jar",
+                Some("u6dRKJwZ"),
+            ),
+        ];
+        assert!(cited_satisfied_by_installed("farmersdelight", &installed)); // normalized name
+        assert!(cited_satisfied_by_installed("jei", &installed)); // filename token
+        assert!(!cited_satisfied_by_installed("create", &installed));
+    }
+
+    #[test]
+    fn cited_satisfied_no_false_positive_on_substring() {
+        // cited "create" must NOT be satisfied by "Create Deco" / createdeco jar.
+        let installed = vec![fake_installed("Create Deco", "createdeco-1.0.jar", None)];
+        assert!(!cited_satisfied_by_installed("create", &installed));
+    }
+
+    #[test]
+    fn unsatisfied_cited_drops_installed_keeps_missing() {
+        let installed = vec![fake_installed(
+            "Farmer's Delight",
+            "FarmersDelight-1.3.2.jar",
+            None,
+        )];
+        let cited = vec![
+            CitedMod {
+                id: "farmersdelight".into(),
+                version: None,
+                kind: CitedKind::Missing,
+            },
+            CitedMod {
+                id: "create".into(),
+                version: None,
+                kind: CitedKind::Missing,
+            },
+        ];
+        let out = unsatisfied_cited(&cited, &installed);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "create");
     }
 
     #[test]

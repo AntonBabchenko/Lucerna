@@ -64,7 +64,24 @@ pub async fn diagnose_log(
     let roots = crate::logs::files::allowed_roots(&app, &instance_id)?;
     let path_buf = std::path::PathBuf::from(&path);
     crate::logs::files::assert_under_allowed_roots(&path_buf, &roots)?;
-    crate::logs::diagnose::diagnose(&path_buf).await
+    let Some(diag) = crate::logs::diagnose::diagnose(&path_buf).await? else {
+        return Ok(None);
+    };
+    // Stale-log guard: the missing-mods diagnosis is driven by historical log
+    // text that never changes. If the user has since installed the cited mods,
+    // suppress the now-resolved warning instead of nagging on the old log.
+    if diag.pattern_id == "server-missing-mods" {
+        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
+        let cited = crate::logs::diagnose::server_mods::parse_server_mod_rejection(&log);
+        if !cited.is_empty() {
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            if crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed).is_empty() {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(diag))
 }
 
 /// Build a concrete, confirmable repair plan for a diagnosed log, or
@@ -180,14 +197,18 @@ pub async fn build_repair_plan(
         RepairKind::InstallMissingMods => {
             use crate::logs::diagnose::server_mods::parse_server_mod_rejection;
             let cited = parse_server_mod_rejection(&log);
-            // Honesty rule: zero cited mods → None (the diagnosis's advisory
-            // recommendation already guides the user). ≥1 cited → Some even when
-            // all are Unresolved, so the dialog lists them with manual-find links.
             if cited.is_empty() {
                 return Ok(None);
             }
             let inst_root = instance_root(&app, &instance_id)?;
             let installed = crate::mods::installed::list(&inst_root).await?;
+            // Drop mods the user has since installed — the reject log is
+            // historical and never changes, so without this the card keeps
+            // re-offering a mod that's already present. All satisfied → no card.
+            let cited = crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed);
+            if cited.is_empty() {
+                return Ok(None);
+            }
             let modrinth = platform_for(crate::mods::platform::ModSource::Modrinth);
             let curseforge = platform_for(crate::mods::platform::ModSource::Curseforge);
             let mods = crate::mods::cited_resolve::resolve(
