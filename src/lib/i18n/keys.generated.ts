@@ -262,6 +262,7 @@ export type TranslationKey =
   | 'logs.repair.missingMods.findInBrowser'
   | 'logs.repair.missingMods.fuzzyHeading'
   | 'logs.repair.missingMods.install'
+  | 'logs.repair.missingMods.installedLabel'
   | 'logs.repair.missingMods.installedToast'
   | 'logs.repair.missingMods.intro'
   | 'logs.repair.missingMods.none'

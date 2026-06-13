@@ -750,6 +750,7 @@
         "serverWants": "server wants {version}",
         "findInBrowser": "Find in Add-ons",
         "install": "Install",
+        "installedLabel": "Installed",
         "none": "Found the problem, but couldn't identify any of the mods automatically. Use the names above to find them in the Add-ons browser.",
         "installedToast": "Installed {name}",
         "failedToast": "Couldn't install {name}: {error}"

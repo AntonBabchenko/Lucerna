@@ -56,6 +56,11 @@
   // same rationale as ModBrowseView's installingProjectIds.
   const installingProjectIds = new SvelteSet<string>();
 
+  // Project_ids that finished installing this session. Their Install button
+  // becomes a disabled "Installed" state so it can't be clicked again —
+  // re-clicking would re-install and stack duplicate success toasts.
+  const installedProjectIds = new SvelteSet<string>();
+
   // The dependency dialog state, populated when decideModInstall returns a
   // prompt. Identical shape to ModBrowseView's depPrompt — we reuse the same
   // DependencyDialog component and onConfirm flow verbatim.
@@ -151,6 +156,7 @@
       if (decision.kind === 'install') {
         const installed = await commands.modsInstallWithDeps(instanceId, candidate.target, []);
         if (installed.status === 'ok') {
+          installedProjectIds.add(projectId);
           pushSuccess(
             $t('logs.repair.missingMods.installedToast', { name: decision.primaryProjectName }),
           );
@@ -185,6 +191,27 @@
   <p class="text-sm font-semibold">{$t('logs.repair.missingMods.title')}</p>
   <p class="mt-1 text-xs text-muted">{$t('logs.repair.missingMods.intro')}</p>
 
+  {#snippet installButton(cand: ResolvedCandidate, cls: string)}
+    {@const pid = cand.target.project_id}
+    <button
+      type="button"
+      class="{cls} btn-xs ml-auto"
+      data-testid={`missing-install-${pid}`}
+      disabled={isCandidateBusy(pid) || installedProjectIds.has(pid)}
+      onclick={() => void installCandidate(cand)}
+    >
+      {#if installedProjectIds.has(pid)}
+        {$t('logs.repair.missingMods.installedLabel')}
+      {:else if isCandidateBusy(pid)}
+        <span class="inline-flex items-center gap-1.5"
+          ><Spinner size="sm" label={$t('logs.repair.working')} />{$t('logs.repair.working')}</span
+        >
+      {:else}
+        {$t('logs.repair.missingMods.install')}
+      {/if}
+    </button>
+  {/snippet}
+
   {#if exact.length > 0}
     <p class="mt-3 text-xs font-semibold">{$t('logs.repair.missingMods.exactHeading')}</p>
     {#each exact as rm (rm.cited.id)}
@@ -194,23 +221,7 @@
           <span>{cand.display.name}</span>
           <span class="text-xs text-muted">{cand.display.source} · {cand.version_label}</span>
           {#if label(rm)}<span class="text-xs text-muted">· {label(rm)}</span>{/if}
-          <button
-            type="button"
-            class="btn-primary btn-xs ml-auto"
-            data-testid={`missing-install-${cand.target.project_id}`}
-            disabled={isCandidateBusy(cand.target.project_id)}
-            onclick={() => void installCandidate(cand)}
-          >
-            {#if isCandidateBusy(cand.target.project_id)}
-              <span class="inline-flex items-center gap-1.5"
-                ><Spinner size="sm" label={$t('logs.repair.working')} />{$t(
-                  'logs.repair.working',
-                )}</span
-              >
-            {:else}
-              {$t('logs.repair.missingMods.install')}
-            {/if}
-          </button>
+          {@render installButton(cand, 'btn-primary')}
         </div>
       {/if}
     {/each}
@@ -226,23 +237,7 @@
             <div class="flex items-center gap-2 text-sm">
               <span>{c.display.name}</span>
               <span class="text-xs text-muted">{c.display.source} · {c.version_label}</span>
-              <button
-                type="button"
-                class="btn-secondary btn-xs ml-auto"
-                data-testid={`missing-install-${c.target.project_id}`}
-                disabled={isCandidateBusy(c.target.project_id)}
-                onclick={() => void installCandidate(c)}
-              >
-                {#if isCandidateBusy(c.target.project_id)}
-                  <span class="inline-flex items-center gap-1.5"
-                    ><Spinner size="sm" label={$t('logs.repair.working')} />{$t(
-                      'logs.repair.working',
-                    )}</span
-                  >
-                {:else}
-                  {$t('logs.repair.missingMods.install')}
-                {/if}
-              </button>
+              {@render installButton(c, 'btn-secondary')}
             </div>
           {/each}
         </div>
@@ -307,6 +302,7 @@
           })),
         );
         if (installed.status === 'ok') {
+          installedProjectIds.add(prompt.primary.project_id);
           // Build the per-mod toast from the dialog's already-resolved project
           // names — same as ModBrowseView's onConfirm.
           const depLines = buildInstalledDepLines(prompt, chosenOptional);
