@@ -5,7 +5,13 @@
   import AddonsTab from '$lib/mods/AddonsTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
-  import { modBrowserNav, droppedMods, droppedAssets, addonsKind, dragActive } from '$lib/settings/state.svelte';
+  import {
+    modBrowserNav,
+    droppedMods,
+    droppedAssets,
+    addonsKind,
+    dragActive,
+  } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
 
   type Tab = 'overview' | 'mod_browser' | 'worlds';

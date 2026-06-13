@@ -1,6 +1,13 @@
 <script lang="ts">
   import type { CompatVerdict, ContentKind, ModSource } from '$lib/ipc/bindings';
-  import { modBrowseOpenProject, modBrowserNav, addonsKind, droppedMods, droppedAssets, assetsChanged } from '$lib/settings/state.svelte';
+  import {
+    modBrowseOpenProject,
+    modBrowserNav,
+    addonsKind,
+    droppedMods,
+    droppedAssets,
+    assetsChanged,
+  } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon, type IconName } from '$lib/ui/icons';
