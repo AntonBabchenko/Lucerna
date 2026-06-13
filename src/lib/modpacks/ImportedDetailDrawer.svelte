@@ -377,7 +377,11 @@
   <header class="p-4 border-b flex items-start gap-3">
     <div class="flex-shrink-0"><Icon name="package" size={24} /></div>
     <div class="flex-1 min-w-0">
-      <h3 id="imported-detail-title" class="font-semibold truncate">{inst.mrpack_name}</h3>
+      <h3
+        id="imported-detail-title"
+        class="font-semibold truncate"
+        use:tooltip={{ text: inst.mrpack_name ?? '', whenOverflowing: true }}
+      >{inst.mrpack_name}</h3>
       <div class="text-xs text-muted truncate">
         v{inst.mrpack_version} · {formatBadge(inst.mrpack_source)}
       </div>
@@ -476,7 +480,11 @@
                    different version); warning only when truly missing — so
                    "different version" is not mistaken for "missing". -->
               <Icon name={m.state === 'missing' ? 'warning' : 'success'} class="flex-shrink-0" />
-              <span class="truncate flex-1" class:text-muted={isInstalled}>
+              <span
+                class="truncate flex-1"
+                class:text-muted={isInstalled}
+                use:tooltip={{ text: m.entry.mod_name, whenOverflowing: true }}
+              >
                 {m.entry.mod_name}
                 {#if isDifferentVersion}
                   <span class="text-muted text-xs">
@@ -542,7 +550,10 @@
             <li
               class="flex items-center gap-2 text-sm py-1 px-2 rounded bg-danger-bg border border-danger"
             >
-              <span class="truncate flex-1 line-through text-secondary">{f.name}</span>
+              <span
+                class="truncate flex-1 line-through text-secondary"
+                use:tooltip={{ text: f.name, whenOverflowing: true }}
+              >{f.name}</span>
               {#if f.url === ''}
                 <!-- Bundled mod from overrides/mods/ — no network source
                      to re-fetch from. Disable Restore and explain why on
@@ -610,7 +621,10 @@
               class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
             >
               <Icon name="info" class="flex-shrink-0" />
-              <span class="truncate flex-1">{s.path}</span>
+              <span
+                class="truncate flex-1"
+                use:tooltip={{ text: s.path, whenOverflowing: true }}
+              >{s.path}</span>
               <span class="text-xs text-muted flex-shrink-0">{formatSize($t, s.size)}</span>
             </li>
           {/each}
@@ -667,7 +681,10 @@
                   {$t('modpacks.imported.detail.badgeManual')}
                 </span>
               {/if}
-              <span class="truncate flex-1">{displayName(m)}</span>
+              <span
+                class="truncate flex-1"
+                use:tooltip={{ text: displayName(m), whenOverflowing: true }}
+              >{displayName(m)}</span>
               {#if !m.enabled}
                 <span
                   class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-subtle text-muted flex-shrink-0"
@@ -694,7 +711,10 @@
           <ul class="space-y-1 pl-4" data-testid="imported-detail-resourcepacks">
             {#each resourcepacks as f (f.install_path)}
               <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1">{f.name}</span>
+                <span
+                  class="truncate flex-1"
+                  use:tooltip={{ text: f.name, whenOverflowing: true }}
+                >{f.name}</span>
                 <span class="text-xs text-placeholder flex-shrink-0">{formatSize($t, f.size)}</span>
               </li>
             {/each}
@@ -710,7 +730,10 @@
           <ul class="space-y-1 pl-4" data-testid="imported-detail-shaderpacks">
             {#each shaderpacks as f (f.install_path)}
               <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1">{f.name}</span>
+                <span
+                  class="truncate flex-1"
+                  use:tooltip={{ text: f.name, whenOverflowing: true }}
+                >{f.name}</span>
                 <span class="text-xs text-placeholder flex-shrink-0">{formatSize($t, f.size)}</span>
               </li>
             {/each}
@@ -726,7 +749,10 @@
           <ul class="space-y-1 pl-4" data-testid="imported-detail-configs">
             {#each configs as f (f.install_path)}
               <li class="flex items-center gap-2 text-sm py-1">
-                <span class="truncate flex-1 text-secondary">{f.install_path}</span>
+                <span
+                  class="truncate flex-1 text-secondary"
+                  use:tooltip={{ text: f.install_path, whenOverflowing: true }}
+                >{f.install_path}</span>
               </li>
             {/each}
           </ul>

@@ -152,7 +152,10 @@
         <li class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="font-medium truncate">{w.folder_name}</span>
+              <span
+                class="font-medium truncate"
+                use:tooltip={{ text: w.folder_name, whenOverflowing: true }}
+              >{w.folder_name}</span>
               {#if w.backup_count > 0}
                 <span
                   class="inline-flex items-center gap-1 text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"

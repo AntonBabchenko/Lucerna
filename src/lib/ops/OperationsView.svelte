@@ -69,7 +69,10 @@
     <h3 class="font-semibold text-sm text-primary mb-1">{$t('ops.heading')}</h3>
 
     {#if running}
-      <div class="text-sm text-secondary truncate">
+      <div
+        class="text-sm text-secondary truncate"
+        use:tooltip={{ text: runningLabel(running.op), whenOverflowing: true }}
+      >
         {runningLabel(running.op)}
       </div>
       {#if running.progress.kind !== 'import'}
@@ -84,7 +87,10 @@
         </div>
       {:else}
         {#if running.progress.phase}
-          <div class="text-xs text-muted truncate">{importPhaseLabel(running.progress.phase)}</div>
+          <div
+            class="text-xs text-muted truncate"
+            use:tooltip={{ text: importPhaseLabel(running.progress.phase), whenOverflowing: true }}
+          >{importPhaseLabel(running.progress.phase)}</div>
         {/if}
         {#if running.progress.bytes && running.progress.bytes.total && running.progress.bytes.total > 0 && running.progress.bytes.current != null}
           <div class="h-2 bg-subtle rounded mt-2 overflow-hidden">
@@ -111,7 +117,10 @@
         <ul class="mt-1 space-y-1">
           {#each queue as op, i (op.id)}
             <li class="flex items-center gap-1 text-xs text-secondary">
-              <span class="truncate flex-1">{queueItemLabel(op)}</span>
+              <span
+                class="truncate flex-1"
+                use:tooltip={{ text: queueItemLabel(op), whenOverflowing: true }}
+              >{queueItemLabel(op)}</span>
               <button
                 type="button"
                 class="px-1 disabled:opacity-30"

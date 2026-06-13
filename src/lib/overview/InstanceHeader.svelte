@@ -66,7 +66,10 @@
   </div>
 
   <div class="min-w-0">
-    <div class="text-xl font-bold text-primary truncate">{instance.name}</div>
+    <div
+      class="text-xl font-bold text-primary truncate"
+      use:tooltip={{ text: instance.name, whenOverflowing: true }}
+    >{instance.name}</div>
     <div class="flex gap-1.5 mt-2 flex-wrap text-xs">
       <span class="rounded-full border border-border-subtle bg-base px-2.5 py-0.5 text-secondary">
         Minecraft {instance.mc_version || $t('page.overview.notSet')}
