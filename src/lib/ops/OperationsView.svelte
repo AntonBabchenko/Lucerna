@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import type { ModpackProgress } from '$lib/ipc/bindings';
   import { cancelQueued, moveQueued, opQueue, opRunning, type QueuedOp } from './op-queue.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Unified page-level "Operations" widget. Replaces IntegrityProgressView +
   // ImportProgressView: one corner card showing the running op's progress plus
@@ -116,6 +117,7 @@
                 class="px-1 disabled:opacity-30"
                 disabled={i === 0}
                 aria-label={$t('ops.moveUp')}
+                use:tooltip={$t('ops.moveUp')}
                 onclick={() => moveQueued(op.id, 'up')}>↑</button
               >
               <button
@@ -123,12 +125,14 @@
                 class="px-1 disabled:opacity-30"
                 disabled={i === queue.length - 1}
                 aria-label={$t('ops.moveDown')}
+                use:tooltip={$t('ops.moveDown')}
                 onclick={() => moveQueued(op.id, 'down')}>↓</button
               >
               <button
                 type="button"
                 class="px-1 text-danger"
                 aria-label={$t('ops.cancel')}
+                use:tooltip={$t('ops.cancel')}
                 onclick={() => cancelQueued(op.id)}>×</button
               >
             </li>

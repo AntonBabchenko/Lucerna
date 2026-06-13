@@ -221,7 +221,7 @@
         <button
           type="button"
           class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-          title={$t('sidebar.modsFolderTitle')}
+          use:tooltip={$t('sidebar.modsFolderTitle')}
           onclick={onOpenMods}
         >
           <Icon name="folderOpen" size={14} />
@@ -280,8 +280,8 @@
               <button
                 type="button"
                 class="btn-success btn-lg px-3"
-                title={$t('sidebar.joinServer')}
                 aria-label={$t('sidebar.joinServer')}
+                use:tooltip={$t('sidebar.joinServer')}
                 onclick={onOpenQuickJoin}
               >
                 <Icon name="globe" size={18} />
