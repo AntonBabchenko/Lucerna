@@ -67,6 +67,9 @@ pub async fn install_asset_local(
     // stays inside `.minecraft/` (string guard + canonical-parent guard,
     // mirroring install::install_asset's defense-in-depth).
     let rel = crate::mods::install::asset_subpath(kind, filename);
+    // `rel` is `<asset_dir>/<filename>`. Given the `is_safe_filename` guard
+    // above, this can't fail today — kept as defense-in-depth mirroring
+    // install::install_asset, which validates an arbitrary modpack-supplied path.
     if !crate::mods::modpack::path_safety::is_safe_relative_path(&rel) {
         return Err(Error::ModpackOverridesPathEscape { entry: rel });
     }
@@ -123,6 +126,7 @@ pub async fn install_asset_local(
 mod tests {
     use super::*;
     use std::io::Write;
+    use tempfile::TempDir;
     use zip::write::SimpleFileOptions;
 
     /// Build an in-memory `.zip` from (name, bytes) entries.
@@ -163,8 +167,6 @@ mod tests {
         let err = validate_asset_zip(b"not a zip at all", ContentKind::Shader).unwrap_err();
         assert!(matches!(err, Error::ModsDecode { .. }));
     }
-
-    use tempfile::TempDir;
 
     fn rp_zip() -> Vec<u8> {
         zip_with(&[("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)])
