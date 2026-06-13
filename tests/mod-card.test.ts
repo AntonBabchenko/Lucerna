@@ -127,4 +127,24 @@ describe('ModCard', () => {
     expect(screen.queryByRole('button', { name: /disable/i })).toBeNull();
     expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
   });
+
+  it('an enabled mod keeps a quiet (transparent) accent strip — no wall of green', () => {
+    const { container } = render(ModCard, {
+      props: { summary, installed: inst(true), layout: 'list', ...noopProps },
+    });
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
+  });
+
+  it('an incompatible installed mod paints a danger accent strip', () => {
+    const { container } = render(ModCard, {
+      props: {
+        summary,
+        installed: inst(true),
+        layout: 'list',
+        attention: 'incompatible',
+        ...noopProps,
+      },
+    });
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
+  });
 });

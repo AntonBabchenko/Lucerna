@@ -27,6 +27,7 @@
     onUpdate = () => {},
     checking = false,
     packChip = null,
+    attention = null,
     layout = 'grid',
     density = browserPrefs.density,
     highlighted = false,
@@ -47,6 +48,9 @@
     onUpdate?: () => void;
     checking?: boolean;
     packChip?: string | null;
+    // Installed-tab attention state that outranks enabled/disabled for the accent
+    // strip (InstalledModRow passes it; browse leaves it null).
+    attention?: 'incompatible' | 'missing-deps' | null;
     layout?: 'grid' | 'list';
     density?: Density;
     highlighted?: boolean;
@@ -77,6 +81,8 @@
 
   const statusKind = $derived.by((): CardStatusKind => {
     if (!installed) return 'none';
+    if (attention === 'incompatible') return 'incompatible';
+    if (attention === 'missing-deps') return 'missing-deps';
     if (packChip) return 'from-pack';
     if (hasUpdate) return 'update';
     if (crossPlatform) return 'cross-platform';
@@ -231,16 +237,24 @@
           onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
         />
       {/if}
-      <CardMedia iconUrl={null} placeholder="circleX" size={compact ? 'sm' : 'md'} />
+      <CardMedia
+        iconUrl={null}
+        placeholder={isPlatform ? 'circleX' : placeholderIcon}
+        size={compact ? 'sm' : 'md'}
+      />
       <div class="flex-1 min-w-0">
         <div class="font-medium text-primary truncate font-mono text-xs">{degradedTitle}</div>
         {#if installed && !compact}
           <div class="text-xs text-muted truncate">
-            {packChip
+            {(packChip
               ? $t('mods.installed.fromModpack')
               : isPlatform
                 ? `${sourceLabel ?? ''} · ${$t('mods.installed.detailsUnavailable')}`
-                : $t('mods.installed.manualMod')}
+                : $t('mods.installed.manualMod')) +
+              ' · ' +
+              (installed.enabled
+                ? $t('mods.installed.enabledStatus')
+                : $t('mods.installed.disabledStatus'))}
           </div>
         {/if}
       </div>
@@ -259,7 +273,7 @@
             {#if canToggle}
               <button
                 type="button"
-                class="btn-icon !w-7 !h-7 text-secondary"
+                class={`btn-icon !w-7 !h-7 ${installed.enabled ? 'text-success' : 'text-muted'}`}
                 onclick={onToggle}
                 aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
                 title={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}

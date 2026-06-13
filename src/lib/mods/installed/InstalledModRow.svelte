@@ -126,6 +126,7 @@
       {onUpdate}
       {checking}
       {packChip}
+      attention={depMissing > 0 ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
       selectable={true}
       {selected}
       {onSelectChange}

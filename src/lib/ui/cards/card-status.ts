@@ -29,11 +29,13 @@ export interface CardStatusStyle {
 
 const STYLE: Record<CardStatusKind, CardStatusStyle> = {
   none: { accent: 'none', badge: 'neutral', dim: false },
-  enabled: { accent: 'success', badge: 'success', dim: false },
+  // "installed & fine" stays quiet (accent none) — a screen full of enabled mods
+  // must not be a wall of green. The success *badge* still carries the state.
+  enabled: { accent: 'none', badge: 'success', dim: false },
   disabled: { accent: 'muted', badge: 'muted', dim: true },
   update: { accent: 'warning', badge: 'warning', dim: false },
   'from-pack': { accent: 'info', badge: 'info', dim: false },
-  'cross-platform': { accent: 'success', badge: 'neutral', dim: false },
+  'cross-platform': { accent: 'none', badge: 'neutral', dim: false },
   incompatible: { accent: 'danger', badge: 'danger', dim: false },
   'missing-deps': { accent: 'danger', badge: 'danger', dim: false },
   'distribution-disabled': { accent: 'warning', badge: 'warning', dim: false },

@@ -35,12 +35,15 @@
   let left = $state(0);
   let activeIndex = $state(-1);
   let menuEl: HTMLDivElement | undefined = $state();
+  let returnFocusEl: HTMLElement | null = null;
 
   const enabledIndexes = $derived(
     items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0),
   );
 
   function openAt(x: number, y: number) {
+    // Remember where focus was so we can return it when the menu closes.
+    returnFocusEl = document.activeElement as HTMLElement | null;
     left = Math.min(Math.max(x, MARGIN), Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN));
     const estH = items.length * ROW + 10;
     top = Math.min(Math.max(y, MARGIN), Math.max(MARGIN, window.innerHeight - estH - MARGIN));
@@ -67,6 +70,10 @@
   function close() {
     open = false;
     activeIndex = -1;
+    // Restore focus to wherever it was when the menu opened (e.g. the card),
+    // so keyboard users don't get dropped onto <body>.
+    returnFocusEl?.focus?.();
+    returnFocusEl = null;
   }
 
   function select(it: ContextMenuItem) {
@@ -129,7 +136,7 @@
     role="menu"
     tabindex="-1"
     aria-label={ariaLabel}
-    class="fixed z-50 bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
+    class="fixed z-50 max-h-[80vh] overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
     style="top: {top}px; left: {left}px; width: {WIDTH}px;"
     onkeydown={onMenuKeydown}
   >

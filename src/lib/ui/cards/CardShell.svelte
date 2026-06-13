@@ -24,7 +24,7 @@
   } = $props();
 
   const VARIANT: Record<'tile' | 'row' | 'compact-row', string> = {
-    tile: 'relative overflow-hidden border border-border-subtle rounded-lg bg-surface p-3',
+    tile: 'relative overflow-hidden border border-border-subtle rounded-lg bg-surface p-3 flex flex-col h-full',
     row: 'relative flex items-center gap-3 pl-4 pr-3 py-2 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors',
     'compact-row':
       'relative flex items-center gap-2.5 pl-4 pr-3 py-1.5 border-b border-border-subtle bg-surface hover:bg-subtle transition-colors text-sm',
