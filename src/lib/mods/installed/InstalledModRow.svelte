@@ -142,6 +142,7 @@
           <span
             data-testid="status-badge"
             class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-danger-bg text-danger"
+            use:tooltip={$t('mods.installed.missingDepsTooltip')}
             ><Icon name="warning" size={12} />{badge.text}</span
           >
         {/if}

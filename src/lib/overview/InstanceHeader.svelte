@@ -3,6 +3,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { tooltip } from '$lib/ui/tooltip';
   import { deriveAvatar, type AvatarTone } from './avatar';
   import { deriveStatus, type StatusKind, type StatusTone } from './status';
 
@@ -34,6 +35,14 @@
     needs_install: 'page.overview.pillNeedsInstall',
     pick_version: 'page.overview.pillPickVersion',
     installing: 'page.overview.pillInstalling',
+  };
+
+  const PILL_TOOLTIP: Record<StatusKind, TranslationKey> = {
+    running: 'page.overview.pillTooltip.running',
+    ready: 'page.overview.pillTooltip.ready',
+    needs_install: 'page.overview.pillTooltip.needsInstall',
+    pick_version: 'page.overview.pillTooltip.pickVersion',
+    installing: 'page.overview.pillTooltip.installing',
   };
 
   const PILL_TONE: Record<StatusTone, string> = {
@@ -79,6 +88,7 @@
     ]}"
     data-testid="overview-status-pill"
     data-status={status.kind}
+    use:tooltip={$t(PILL_TOOLTIP[status.kind])}
   >
     <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true"></span>
     {$t(PILL_LABEL[status.kind])}

@@ -9,6 +9,7 @@
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { t } from '$lib/i18n';
 
@@ -156,6 +157,7 @@
                 <span
                   class="inline-flex items-center gap-1 text-xs text-warning-text bg-warning-bg rounded px-1.5 py-0.5"
                   aria-label={$t('worlds.tab.backupCountAriaLabel', { count: w.backup_count })}
+                  use:tooltip={$t('worlds.tab.backupCountAriaLabel', { count: w.backup_count })}
                 >
                   <Icon name="package" size={12} />
                   {w.backup_count}
