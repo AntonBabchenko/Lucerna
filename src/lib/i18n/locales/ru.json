@@ -189,6 +189,7 @@
       "sortUpdated": "Обновление",
       "searching": "Поиск…",
       "noResults": "Ничего не найдено.",
+      "errorRetry": "Обновить",
       "allInstalledOnPage": "Все моды на этой странице уже установлены. Листайте дальше или включите «Показывать установленные».",
       "vanillaHeading": "Этот профиль — vanilla Minecraft",
       "vanillaBody": "В vanilla Minecraft нет загрузчика модов, поэтому jar-файлы с Modrinth / CurseForge не могут быть загружены во время выполнения. Чтобы устанавливать моды, создайте или переключитесь на профиль с Fabric, Quilt, Forge или NeoForge через панель «Управление» на боковой панели.",
@@ -560,7 +561,8 @@
       "sortNewest": "Новые",
       "sortUpdated": "Обновлённые",
       "searching": "Поиск…",
-      "noResults": "Сборки не найдены."
+      "noResults": "Сборки не найдены.",
+      "errorRetry": "Обновить"
     },
     "card": {
       "downloads": "{count} скачиваний",

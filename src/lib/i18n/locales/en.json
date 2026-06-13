@@ -189,6 +189,7 @@
       "sortUpdated": "Updated",
       "searching": "Searching…",
       "noResults": "No results.",
+      "errorRetry": "Reload",
       "allInstalledOnPage": "Every mod on this page is already installed. Use the pager to see more, or turn on “Show installed”.",
       "vanillaHeading": "This instance is vanilla Minecraft",
       "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
@@ -560,7 +561,8 @@
       "sortNewest": "Newest",
       "sortUpdated": "Updated",
       "searching": "Searching…",
-      "noResults": "No modpacks found."
+      "noResults": "No modpacks found.",
+      "errorRetry": "Reload"
     },
     "card": {
       "downloads": "{count} downloads",
