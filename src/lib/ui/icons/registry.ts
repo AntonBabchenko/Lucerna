@@ -73,9 +73,9 @@ export const ICONS = {
   arrowUpRight: ArrowUpRight, // jump-to-row (dep tree internal navigation)
   // i18n tier — nav/action + status.
   settings: Settings, // ⚙ Manage
-  folderOpen: FolderOpen, // 📁 Open folder
+  folderOpen: FolderOpen, // 📁 Open folder (instance dir, mods folder)
   trash: Trash2, // 🗑 Delete
-  blocks: Blocks, // 📂 Mods
+  blocks: Blocks, // 📂 Mods content kind (Add-ons tab kind switch)
   scrollText: ScrollText, // 📜 Logs
   arrowUp: ArrowUp, // ↑ Updates filter
   circleX: CircleX, // ✕ missing status
