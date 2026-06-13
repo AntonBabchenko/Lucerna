@@ -229,7 +229,6 @@
         <button
           type="button"
           class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-          use:tooltip={$t('sidebar.modsFolderTitle')}
           onclick={onOpenMods}
         >
           <Icon name="folderOpen" size={14} />
@@ -344,8 +343,6 @@
       <button
         type="button"
         class="btn-secondary btn-xs flex-1"
-        aria-label={$t('settings.title')}
-        use:tooltip={$t('settings.title')}
         onclick={() => (settingsOpen.value = { tab: 'general' })}
       >
         {$t('settings.title')}

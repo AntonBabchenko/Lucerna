@@ -903,7 +903,6 @@ export type TranslationKey =
   | 'sidebar.manage'
   | 'sidebar.modpackUpdatesBadge'
   | 'sidebar.mods'
-  | 'sidebar.modsFolderTitle'
   | 'sidebar.noAccounts'
   | 'sidebar.noInstances'
   | 'sidebar.pickMcVersion'
