@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { InstalledMod, ModSummary } from '$lib/ipc/bindings';
   import type { IconName } from '$lib/ui/icons';
+  import { browserPrefs } from './browser-prefs.svelte';
   import ModCard from './ModCard.svelte';
 
   // Renders the list of ModCards in the correct wrapper for the chosen layout.
@@ -47,6 +48,7 @@
         canToggle={isMod}
         {placeholderIcon}
         layout="grid"
+        density={browserPrefs.density}
       />
     {/each}
   </div>
@@ -64,6 +66,7 @@
         canToggle={isMod}
         {placeholderIcon}
         layout="list"
+        density={browserPrefs.density}
       />
     {/each}
   </div>
