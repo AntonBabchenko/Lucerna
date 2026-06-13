@@ -11,13 +11,18 @@ export const TOOLTIP_ID = 'app-tooltip';
 /** Hover open delay. Keyboard focus shows immediately (a11y), bypassing this. */
 export const OPEN_DELAY_MS = 400;
 
+/** Keep the caret clear of the bubble's rounded corners when edge-clamped. */
+const CARET_INSET = 12;
+
 export const tooltipState = $state<{
   visible: boolean;
   text: string;
   top: number;
   left: number;
   placement: Placement;
-}>({ visible: false, text: '', top: 0, left: 0, placement: 'top' });
+  /** Caret centre, in px from the bubble's left edge — points at the trigger. */
+  caretLeft: number;
+}>({ visible: false, text: '', top: 0, left: 0, placement: 'top', caretLeft: CARET_INSET });
 
 let triggerRect: TriggerRect | null = null;
 let openTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,4 +104,9 @@ export function positionTooltip(bubble: Size): void {
   tooltipState.top = r.top;
   tooltipState.left = r.left;
   tooltipState.placement = r.placement;
+  // The caret points at the trigger's centre, clamped within the bubble so it
+  // stays clear of the rounded corners even when the bubble is edge-clamped.
+  const triggerCenterX = triggerRect.left + triggerRect.width / 2;
+  const maxCaret = Math.max(CARET_INSET, bubble.width - CARET_INSET);
+  tooltipState.caretLeft = Math.min(Math.max(triggerCenterX - r.left, CARET_INSET), maxCaret);
 }

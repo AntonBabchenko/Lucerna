@@ -57,6 +57,9 @@ describe('tooltip-controller', () => {
     positionTooltip({ width: 120, height: 30 });
     expect(typeof tooltipState.top).toBe('number');
     expect(typeof tooltipState.left).toBe('number');
+    // Caret points at the trigger centre, clamped inside the bubble.
+    expect(tooltipState.caretLeft).toBeGreaterThanOrEqual(12);
+    expect(tooltipState.caretLeft).toBeLessThanOrEqual(120 - 12);
   });
 
   it('a hide from a different owner does not close a tooltip owned by another trigger', () => {
