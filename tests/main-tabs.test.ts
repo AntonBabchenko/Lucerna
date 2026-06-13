@@ -122,6 +122,7 @@ describe('MainTabs drag-drop routing', () => {
     s.addonsKind.value = 'mod';
     s.dragActive.value = false;
     dragDropHandlers.cbs.length = 0;
+    vi.clearAllMocks();
   });
 
   it('routes a .jar drop on the Mods tab to droppedMods', async () => {
@@ -189,19 +190,27 @@ describe('MainTabs drag-drop routing', () => {
     expect(dragActive.value).toBe(false);
   });
 
-  it('routes a .zip drop on the Resource-pack segment to droppedAssets', async () => {
+  it('routes a .zip drop on the Resource-pack segment to assetInstallLocal', async () => {
     render(MainTabs, { props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' } });
     await flushMount();
     await fireEvent.click(screen.getByRole('tab', { name: 'Add-ons' }));
     await flushMount();
-    // Switch the Add-ons segment to Resource packs so addonsKind === 'resource_pack'.
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await flushMount();
     dragDropHandlers.fire({
       payload: { type: 'drop', paths: ['/x/Faithful.zip', '/x/notes.txt'] },
     });
-    const { droppedAssets, droppedMods } = await import('$lib/settings/state.svelte');
-    expect(droppedAssets.value).toEqual({ kind: 'resource_pack', paths: ['/x/Faithful.zip'] });
+    // AddonsTab (mounted) consumes droppedAssets and triggers the install flow,
+    // so assert on the downstream call (mirrors the .jar test), not the
+    // ephemeral rune which is reset to null as soon as it is consumed.
+    await waitFor(() => {
+      expect(vi.mocked(commands.assetInstallLocal)).toHaveBeenCalledWith(
+        'i',
+        'resource_pack',
+        '/x/Faithful.zip',
+      );
+    });
+    const { droppedMods } = await import('$lib/settings/state.svelte');
     expect(droppedMods.value).toBeNull();
   });
 
@@ -215,5 +224,6 @@ describe('MainTabs drag-drop routing', () => {
     dragDropHandlers.fire({ payload: { type: 'drop', paths: ['/x/Faithful.zip'] } });
     const { droppedAssets } = await import('$lib/settings/state.svelte');
     expect(droppedAssets.value).toBeNull();
+    expect(vi.mocked(commands.assetInstallLocal)).not.toHaveBeenCalled();
   });
 });

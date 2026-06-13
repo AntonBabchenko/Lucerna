@@ -7,7 +7,6 @@ export type TranslationKey =
   | 'addons.dropzoneDisabled'
   | 'addons.dropzoneResourcePack'
   | 'addons.dropzoneShader'
-  | 'addons.install.toastCouldNotRead'
   | 'addons.install.toastFailed'
   | 'addons.install.toastInstalled'
   | 'addons.installed.checkFailed'
