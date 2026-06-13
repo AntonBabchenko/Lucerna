@@ -7,6 +7,7 @@ pub mod keychain;
 pub mod microsoft;
 pub mod offline;
 pub mod ops;
+pub mod skins;
 pub mod store;
 
 use crate::error::{Error, Result};
