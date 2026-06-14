@@ -3,6 +3,8 @@
 //! `commands.rs` orchestrates instance state + platform calls around
 //! these helpers.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -184,9 +186,10 @@ pub enum RepairPlan {
 pub struct BlockingMod {
     pub sha1: String,
     pub name: String,
-    /// Names of *kept* installed mods that require this one (offline reverse-dep
-    /// via `InstalledMod.requires`). Disabling this would break them; a non-empty
-    /// list is a warning, not a block — the user still chooses.
+    /// Names of *kept* installed mods whose jar declares a mandatory dependency
+    /// on this one (read via `local::read_jar_dependency_ids`). Disabling this
+    /// would break them; a non-empty list is a warning, not a block — the user
+    /// still chooses.
     pub breaks: Vec<String>,
 }
 
@@ -266,43 +269,50 @@ pub fn build_conflict_candidates(
 ///
 /// An id is matched to an installed mod by `cited_resolve::find_installed_for_cited`
 /// (normalized name / project_id / filename token — a jar's internal mod-id is not
-/// stored). Deduped by installed `sha1`; unmatched ids are dropped. `breaks` lists
-/// the *names* of mods that would lose a required dependency if this one is
-/// disabled: enabled mods, not themselves in the blocking set, whose `requires`
-/// (the offline project-id closure recorded at install) contains this mod's
-/// `project_id`. A blocking mod without a `project_id` can't be reverse-checked
-/// (and can't appear in anything's `requires`), so its `breaks` is empty.
-pub fn build_blocking_mods(cited_ids: &[String], installed: &[InstalledMod]) -> Vec<BlockingMod> {
-    let mut resolved: Vec<&InstalledMod> = Vec::new();
+/// stored). Already-disabled mods are skipped; matches deduped by `sha1`; unmatched
+/// ids dropped. `breaks` lists the *names* of mods that would lose a required
+/// dependency if this one is disabled: enabled mods, not themselves in the blocking
+/// set, whose **jar-declared** dependency mod-ids (`declared_deps`, keyed by
+/// installed `sha1`) include this blocking mod-id. `declared_deps` is read from the
+/// jars by the caller (`local::read_jar_dependency_ids`) — the recorded `requires`
+/// registry is too sparse to be reliable. An empty map yields empty `breaks` (used
+/// by the diagnose-time emptiness check, which only needs the list).
+pub fn build_blocking_mods(
+    cited_ids: &[String],
+    installed: &[InstalledMod],
+    declared_deps: &HashMap<String, Vec<String>>,
+) -> Vec<BlockingMod> {
+    // Resolve each cited (blocking mod-id, installed mod), enabled-only, deduped.
+    let mut resolved: Vec<(&str, &InstalledMod)> = Vec::new();
     for id in cited_ids {
         if let Some(m) = crate::mods::cited_resolve::find_installed_for_cited(id, installed) {
             // A mod the user already disabled is no longer blocking the join.
             if !m.enabled {
                 continue;
             }
-            if resolved.iter().any(|r| r.sha1 == m.sha1) {
+            if resolved.iter().any(|(_, r)| r.sha1 == m.sha1) {
                 continue; // dedup by installed identity
             }
-            resolved.push(m);
+            resolved.push((id.as_str(), m));
         }
     }
-    let blocking_sha1s: Vec<&str> = resolved.iter().map(|m| m.sha1.as_str()).collect();
+    let blocking_sha1s: Vec<&str> = resolved.iter().map(|(_, m)| m.sha1.as_str()).collect();
 
     resolved
         .iter()
-        .map(|m| {
-            let breaks = match m.project_id.as_deref() {
-                Some(pid) => installed
-                    .iter()
-                    .filter(|other| {
-                        other.enabled
-                            && !blocking_sha1s.contains(&other.sha1.as_str())
-                            && other.requires.iter().any(|r| r.eq_ignore_ascii_case(pid))
-                    })
-                    .map(|other| other.name.clone())
-                    .collect(),
-                None => Vec::new(),
-            };
+        .map(|(blocking_modid, m)| {
+            let breaks = installed
+                .iter()
+                .filter(|other| {
+                    other.enabled
+                        && !blocking_sha1s.contains(&other.sha1.as_str())
+                        && declared_deps.get(&other.sha1).is_some_and(|deps| {
+                            deps.iter()
+                                .any(|dep| dep.eq_ignore_ascii_case(blocking_modid))
+                        })
+                })
+                .map(|other| other.name.clone())
+                .collect();
             BlockingMod {
                 sha1: m.sha1.clone(),
                 name: m.name.clone(),
@@ -375,7 +385,7 @@ mod tests {
             "citadel".to_string(),
             "ghostmod".to_string(), // not installed → dropped
         ];
-        let blocking = build_blocking_mods(&cited, &installed);
+        let blocking = build_blocking_mods(&cited, &installed, &HashMap::new());
         let names: Vec<&str> = blocking.iter().map(|b| b.name.as_str()).collect();
         assert_eq!(names, vec!["Alex's Mobs", "Citadel"]);
         assert!(blocking.iter().all(|b| b.breaks.is_empty()));
@@ -385,12 +395,16 @@ mod tests {
     fn build_blocking_breaks_lists_kept_enabled_dependents_only() {
         let installed = vec![
             inst("Citadel", "c", Some("citadel"), true, &[]),
-            // KEPT + enabled, requires citadel → a break.
-            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &["citadel"]),
-            // Disabled dependent → not a live break.
-            inst("Old User", "o", Some("olduser"), false, &["citadel"]),
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &[]),
+            inst("Old User", "o", Some("olduser"), false, &[]),
         ];
-        let blocking = build_blocking_mods(&["citadel".to_string()], &installed);
+        // Both Alex's Mobs and Old User declare a jar dep on "citadel"; only the
+        // enabled one (Alex's Mobs) is a live break.
+        let deps = HashMap::from([
+            ("a".to_string(), vec!["citadel".to_string()]),
+            ("o".to_string(), vec!["citadel".to_string()]),
+        ]);
+        let blocking = build_blocking_mods(&["citadel".to_string()], &installed, &deps);
         assert_eq!(blocking.len(), 1);
         assert_eq!(blocking[0].name, "Citadel");
         assert_eq!(blocking[0].breaks, vec!["Alex's Mobs".to_string()]);
@@ -398,15 +412,17 @@ mod tests {
 
     #[test]
     fn build_blocking_excludes_other_blocking_mods_from_breaks() {
-        // Both are being disabled; alexsmobs requires citadel, but since alexsmobs
-        // is itself in the blocking set it is not counted as a break for citadel.
+        // Alex's Mobs declares a jar dep on Citadel, but since Alex's Mobs is
+        // itself in the blocking set it is not counted as a break for Citadel.
         let installed = vec![
-            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &["citadel"]),
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &[]),
             inst("Citadel", "c", Some("citadel"), true, &[]),
         ];
+        let deps = HashMap::from([("a".to_string(), vec!["citadel".to_string()])]);
         let blocking = build_blocking_mods(
             &["alexsmobs".to_string(), "citadel".to_string()],
             &installed,
+            &deps,
         );
         let citadel = blocking.iter().find(|b| b.name == "Citadel").unwrap();
         assert!(
@@ -419,7 +435,9 @@ mod tests {
     #[test]
     fn build_blocking_empty_when_no_ids_match() {
         let installed = vec![inst("Sodium", "s", Some("sodium"), true, &[])];
-        assert!(build_blocking_mods(&["alexsmobs".to_string()], &installed).is_empty());
+        assert!(
+            build_blocking_mods(&["alexsmobs".to_string()], &installed, &HashMap::new()).is_empty()
+        );
     }
 
     #[test]
@@ -427,7 +445,9 @@ mod tests {
         // A blocking mod the user already disabled no longer blocks the join, so
         // it drops out — this is what lets the diagnosis self-suppress afterwards.
         let installed = vec![inst("Alex's Mobs", "a", Some("alexsmobs"), false, &[])];
-        assert!(build_blocking_mods(&["alexsmobs".to_string()], &installed).is_empty());
+        assert!(
+            build_blocking_mods(&["alexsmobs".to_string()], &installed, &HashMap::new()).is_empty()
+        );
     }
 
     #[test]

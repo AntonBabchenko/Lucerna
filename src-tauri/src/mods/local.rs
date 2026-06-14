@@ -6,6 +6,8 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 
 use chrono::Utc;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use sha1::{Digest, Sha1};
 use tokio::fs;
 
@@ -164,6 +166,145 @@ pub fn read_jar_meta(jar_bytes: &[u8]) -> Result<JarMeta, Error> {
         mc_version,
         display_name,
     })
+}
+
+/// Mod-id keys that name a loader or Minecraft itself, not a real mod dependency.
+const LOADER_DEP_IDS: &[&str] = &[
+    "forge",
+    "neoforge",
+    "fml",
+    "minecraft",
+    "fabric",
+    "fabricloader",
+    "fabric-loader",
+    "java",
+    "quilt_loader",
+    "quilt",
+];
+
+fn push_dep(out: &mut Vec<String>, id: String) {
+    let trimmed = id.trim();
+    if trimmed.is_empty() || LOADER_DEP_IDS.contains(&trimmed.to_ascii_lowercase().as_str()) {
+        return;
+    }
+    if !out.iter().any(|x| x.eq_ignore_ascii_case(trimmed)) {
+        out.push(trimmed.to_string());
+    }
+}
+
+/// Declared MANDATORY dependency mod-ids from a mod jar's descriptors.
+/// Best-effort: Forge/NeoForge `mods.toml` / `neoforge.mods.toml` (each
+/// `[[dependencies.*]]` that is required → its `modId`) plus Fabric
+/// `fabric.mod.json` and Quilt `quilt.mod.json` `depends`. Loader/MC ids are
+/// dropped; deduped case-insensitively. Empty for a jar with no recognised
+/// descriptor; only an unreadable zip is an error.
+///
+/// Powers the "disabling X also breaks Y" warning — read from the jar (what FML
+/// itself reads at load), not the launcher's `requires` registry, which records
+/// only install-time pulls and is frequently empty.
+pub fn read_jar_dependency_ids(jar_bytes: &[u8]) -> Result<Vec<String>, Error> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).map_err(|e| Error::ModsDecode {
+        platform: "local jar".into(),
+        details: e.to_string(),
+    })?;
+    let mut out: Vec<String> = Vec::new();
+    for name in ["META-INF/mods.toml", "META-INF/neoforge.mods.toml"] {
+        if let Some(txt) = entry_text(&mut zip, name) {
+            for id in parse_forge_mandatory_deps(&txt) {
+                push_dep(&mut out, id);
+            }
+        }
+    }
+    if let Some(txt) = entry_text(&mut zip, "fabric.mod.json") {
+        for id in parse_fabric_depends(&txt) {
+            push_dep(&mut out, id);
+        }
+    }
+    if let Some(txt) = entry_text(&mut zip, "quilt.mod.json") {
+        for id in parse_quilt_depends(&txt) {
+            push_dep(&mut out, id);
+        }
+    }
+    Ok(out)
+}
+
+static FORGE_MODID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"modId\s*=\s*"([^"]+)""#).expect("forge modId regex compiles"));
+static FORGE_MANDATORY_TRUE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"mandatory\s*=\s*true").expect("mandatory-true regex compiles"));
+static FORGE_MANDATORY_ANY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"mandatory\s*=").expect("mandatory-any regex compiles"));
+static FORGE_TYPE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"type\s*=\s*"([^"]+)""#).expect("dep-type regex compiles"));
+
+/// Extract required dependency mod-ids from a Forge/NeoForge `mods.toml`. Each
+/// `[[dependencies.<owner>]]` block declares one `modId`; it counts as required
+/// when `mandatory=true` (Forge), `type="required"` (NeoForge), or neither
+/// marker is present (legacy default). An explicit `mandatory=false` or a
+/// non-`required` `type` (optional / incompatible / discouraged) is skipped.
+/// Regex-scanned rather than TOML-parsed to avoid a new crate — best-effort, but
+/// the FML descriptor schema is regular enough that real jars parse.
+fn parse_forge_mandatory_deps(text: &str) -> Vec<String> {
+    let marker = "[[dependencies";
+    let mut out: Vec<String> = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = text[from..].find(marker) {
+        let block_start = from + rel + marker.len();
+        // The block runs until the next TOML header (`[` anywhere later).
+        let block_end = text[block_start..]
+            .find('[')
+            .map(|i| block_start + i)
+            .unwrap_or(text.len());
+        let block = &text[block_start..block_end];
+
+        let type_val = FORGE_TYPE_RE
+            .captures(block)
+            .map(|c| c[1].to_ascii_lowercase());
+        let required = FORGE_MANDATORY_TRUE_RE.is_match(block)
+            || type_val.as_deref() == Some("required")
+            || (!FORGE_MANDATORY_ANY_RE.is_match(block) && type_val.is_none());
+        if required {
+            if let Some(c) = FORGE_MODID_RE.captures(block) {
+                out.push(c[1].to_string());
+            }
+        }
+        from = block_end;
+    }
+    out
+}
+
+/// Fabric `fabric.mod.json` `depends` object keys (every entry is required;
+/// `recommends`/`suggests` are not).
+fn parse_fabric_depends(json_text: &str) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+        return Vec::new();
+    };
+    v.get("depends")
+        .and_then(|d| d.as_object())
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// Quilt `quilt.mod.json` `quilt_loader.depends` — an array of mod-id strings or
+/// `{ "id": "<modid>", … }` objects.
+fn parse_quilt_depends(json_text: &str) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+        return Vec::new();
+    };
+    let Some(arr) = v
+        .get("quilt_loader")
+        .and_then(|q| q.get("depends"))
+        .and_then(|d| d.as_array())
+    else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|e| match e {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Object(o) => o.get("id").and_then(|x| x.as_str()).map(String::from),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Compatibility verdict for a local mod jar against a target instance.
@@ -392,6 +533,91 @@ mod tests {
         assert_eq!(first_major_minor("~1.19").as_deref(), Some("1.19"));
         assert_eq!(first_major_minor("*"), None);
         assert_eq!(first_major_minor("21w13a"), None);
+    }
+
+    // ── jar-declared dependency reading (the "breaks" warning source) ──────────
+
+    #[test]
+    fn parse_forge_deps_includes_required_excludes_optional() {
+        let toml = "\
+[[mods]]
+modId=\"evilseagull\"
+[[dependencies.evilseagull]]
+    modId=\"alexsmobs\"
+    mandatory=true
+    versionRange=\"[1.22.0,)\"
+[[dependencies.evilseagull]]
+    modId=\"jei\"
+    mandatory=false
+[[dependencies.evilseagull]]
+    modId=\"citadel\"
+    type=\"required\"
+[[dependencies.evilseagull]]
+    modId=\"curios\"
+    type=\"optional\"
+";
+        let deps = parse_forge_mandatory_deps(toml);
+        assert!(deps.contains(&"alexsmobs".to_string()), "{deps:?}");
+        assert!(deps.contains(&"citadel".to_string()), "{deps:?}");
+        assert!(
+            !deps.contains(&"jei".to_string()),
+            "mandatory=false: {deps:?}"
+        );
+        assert!(
+            !deps.contains(&"curios".to_string()),
+            "type=optional: {deps:?}"
+        );
+        // The declaring mod's own id (in [[mods]]) is not scanned as a dependency.
+        assert!(!deps.contains(&"evilseagull".to_string()), "{deps:?}");
+    }
+
+    #[test]
+    fn parse_fabric_depends_returns_keys() {
+        let json = r#"{"depends":{"minecraft":">=1.20.1","fabricloader":">=0.15","sodium":"*"}}"#;
+        let mut deps = parse_fabric_depends(json);
+        deps.sort();
+        assert_eq!(deps, vec!["fabricloader", "minecraft", "sodium"]);
+    }
+
+    #[test]
+    fn parse_quilt_depends_strings_and_objects() {
+        let json = r#"{"quilt_loader":{"depends":["sodium",{"id":"alexsmobs","versions":"*"}]}}"#;
+        assert_eq!(
+            parse_quilt_depends(json),
+            vec!["sodium".to_string(), "alexsmobs".to_string()]
+        );
+    }
+
+    #[test]
+    fn read_jar_dependency_ids_merges_descriptors_and_drops_loader_ids() {
+        let bytes = jar(&[
+            (
+                "META-INF/mods.toml",
+                "[[dependencies.evilseagull]]\nmodId=\"forge\"\nmandatory=true\n\
+                 [[dependencies.evilseagull]]\nmodId=\"alexsmobs\"\nmandatory=true\nversionRange=\"[1.22.0,)\"\n",
+            ),
+            (
+                "fabric.mod.json",
+                r#"{"depends":{"minecraft":">=1.20.1","citadel":"*"}}"#,
+            ),
+        ]);
+        let deps = read_jar_dependency_ids(&bytes).unwrap();
+        assert!(deps.iter().any(|d| d == "alexsmobs"), "{deps:?}");
+        assert!(deps.iter().any(|d| d == "citadel"), "{deps:?}");
+        assert!(
+            !deps.iter().any(|d| d.eq_ignore_ascii_case("forge")),
+            "loader id dropped: {deps:?}"
+        );
+        assert!(
+            !deps.iter().any(|d| d.eq_ignore_ascii_case("minecraft")),
+            "mc id dropped: {deps:?}"
+        );
+    }
+
+    #[test]
+    fn read_jar_dependency_ids_empty_for_descriptorless_jar() {
+        let bytes = jar(&[("foo.txt", "nothing")]);
+        assert!(read_jar_dependency_ids(&bytes).unwrap().is_empty());
     }
 
     #[test]

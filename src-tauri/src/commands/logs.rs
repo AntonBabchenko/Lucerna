@@ -94,7 +94,15 @@ pub async fn diagnose_log(
         if !ids.is_empty() {
             let inst_root = instance_root(&app, &instance_id)?;
             let installed = crate::mods::installed::list(&inst_root).await?;
-            if crate::logs::diagnose::repair::build_blocking_mods(&ids, &installed).is_empty() {
+            // The emptiness check only needs the blocking list, not `breaks`, so
+            // an empty deps map is fine here (no jar reads at diagnose time).
+            if crate::logs::diagnose::repair::build_blocking_mods(
+                &ids,
+                &installed,
+                &std::collections::HashMap::new(),
+            )
+            .is_empty()
+            {
                 return Ok(None);
             }
         }
@@ -248,7 +256,28 @@ pub async fn build_repair_plan(
             }
             let inst_root = instance_root(&app, &instance_id)?;
             let installed = crate::mods::installed::list(&inst_root).await?;
-            let mods = crate::logs::diagnose::repair::build_blocking_mods(&ids, &installed);
+            // Read each enabled mod's jar-declared dependencies so the card can
+            // warn when disabling a blocking mod would break a mod that needs it.
+            // (The recorded `requires` registry is too sparse to rely on — it
+            // only records install-time pulls; jars carry the real declarations,
+            // same as FML reads at load.)
+            let mods_dir = crate::mods::installed::mods_dir(&inst_root);
+            let mut declared_deps: std::collections::HashMap<String, Vec<String>> =
+                std::collections::HashMap::new();
+            for m in installed.iter().filter(|m| m.enabled) {
+                if let Ok(bytes) = tokio::fs::read(mods_dir.join(&m.filename)).await {
+                    if let Ok(deps) = crate::mods::local::read_jar_dependency_ids(&bytes) {
+                        if !deps.is_empty() {
+                            declared_deps.insert(m.sha1.clone(), deps);
+                        }
+                    }
+                }
+            }
+            let mods = crate::logs::diagnose::repair::build_blocking_mods(
+                &ids,
+                &installed,
+                &declared_deps,
+            );
             if mods.is_empty() {
                 return Ok(None);
             }
