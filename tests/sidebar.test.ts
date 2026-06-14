@@ -118,6 +118,35 @@ describe('Sidebar', () => {
     expect(getByTestId('sidebar-open-modpacks')).toBeTruthy();
   });
 
+  it('shows an icon on the Settings button', () => {
+    render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    // The Settings button carries a visible label, so its accessible name is
+    // "Settings" (the gear icon is decorative/aria-hidden). Assert the icon is
+    // actually present — it should line up with the icon-bearing Logs button.
+    const settingsBtn = screen.getByRole('button', { name: 'Settings' });
+    expect(settingsBtn.querySelector('svg')).not.toBeNull();
+  });
+
   it('does NOT render the deferred-MS italic text', () => {
     render(Sidebar, {
       props: {

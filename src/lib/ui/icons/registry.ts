@@ -33,9 +33,12 @@ import {
   ScrollText,
   Settings,
   Shrink,
+  SlidersHorizontal,
+  Square,
   Trash2,
   TriangleAlert,
   User,
+  UserPlus,
   X,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
@@ -74,7 +77,8 @@ export const ICONS = {
   arrowRight: ArrowRight, // version-transition marker (v1 → v2) / next / CTA
   arrowUpRight: ArrowUpRight, // jump-to-row (dep tree internal navigation)
   // i18n tier — nav/action + status.
-  settings: Settings, // ⚙ Manage
+  settings: Settings, // ⚙ Settings (gear) — app settings entry point
+  sliders: SlidersHorizontal, // 🎚 Manage instances (tune/adjust a profile)
   folderOpen: FolderOpen, // 📁 Open folder (instance dir, mods folder)
   trash: Trash2, // 🗑 Delete
   blocks: Blocks, // 📂 Mods content kind (Add-ons tab kind switch)
@@ -82,8 +86,10 @@ export const ICONS = {
   arrowUp: ArrowUp, // ↑ Updates filter
   circleX: CircleX, // ✕ missing status
   play: Play, // Quick Play action — launch into a specific world / server
+  stop: Square, // ■ Stop the running game (transport pair with play ▶)
   power: Power, // enable/disable toggle (mods only; RP/shaders have no toggle)
   user: User, // author marker in browse metadata
+  userPlus: UserPlus, // add an offline account
   shrink: Shrink, // collapse window to mini mode
   expand: Expand, // restore window from mini mode
   globe: Globe, // join-server satellite (Quick Play)
