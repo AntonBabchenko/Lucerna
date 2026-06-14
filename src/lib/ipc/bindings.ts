@@ -836,9 +836,10 @@ export type BlockingMod = {
 	sha1: string,
 	name: string,
 	/**
-	 *  Names of *kept* installed mods that require this one (offline reverse-dep
-	 *  via `InstalledMod.requires`). Disabling this would break them; a non-empty
-	 *  list is a warning, not a block — the user still chooses.
+	 *  Names of *kept* installed mods whose jar declares a mandatory dependency
+	 *  on this one (read via `local::read_jar_dependency_ids`). Disabling this
+	 *  would break them; a non-empty list is a warning, not a block — the user
+	 *  still chooses.
 	 */
 	breaks: string[],
 };
