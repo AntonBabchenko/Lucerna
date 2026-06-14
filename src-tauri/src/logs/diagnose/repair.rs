@@ -181,15 +181,21 @@ pub enum RepairPlan {
     },
 }
 
-/// One installed mod the user can disable to join a server that lacks it.
+/// One mod the server rejected during the FML channel handshake. The user can
+/// disable it (if the server simply lacks the mod) — but a `server side` reject
+/// can also mean a version mismatch, which disabling won't fix; the card
+/// surfaces both possibilities rather than prescribing disable.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct BlockingMod {
+    /// The cited mod-id from the reject (e.g. `sophisticatedbackpacks`) — the
+    /// clearest label, matching what the server named. Preferred over `name`,
+    /// which is filename-derived and unreliable for unenriched mods.
+    pub mod_id: String,
     pub sha1: String,
     pub name: String,
     /// Names of *kept* installed mods whose jar declares a mandatory dependency
     /// on this one (read via `local::read_jar_dependency_ids`). Disabling this
-    /// would break them; a non-empty list is a warning, not a block — the user
-    /// still chooses.
+    /// would break them; a non-empty list is a warning, not a block.
     pub breaks: Vec<String>,
 }
 
@@ -314,6 +320,7 @@ pub fn build_blocking_mods(
                 .map(|other| other.name.clone())
                 .collect();
             BlockingMod {
+                mod_id: blocking_modid.to_string(),
                 sha1: m.sha1.clone(),
                 name: m.name.clone(),
                 breaks,
@@ -388,6 +395,9 @@ mod tests {
         let blocking = build_blocking_mods(&cited, &installed, &HashMap::new());
         let names: Vec<&str> = blocking.iter().map(|b| b.name.as_str()).collect();
         assert_eq!(names, vec!["Alex's Mobs", "Citadel"]);
+        // mod_id carries the cited id (the card's display label).
+        let ids: Vec<&str> = blocking.iter().map(|b| b.mod_id.as_str()).collect();
+        assert_eq!(ids, vec!["alexsmobs", "citadel"]);
         assert!(blocking.iter().all(|b| b.breaks.is_empty()));
     }
 

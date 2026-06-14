@@ -831,15 +831,25 @@ export type Backup = {
 	created_unix_ms: number | null,
 };
 
-/**  One installed mod the user can disable to join a server that lacks it. */
+/**
+ *  One mod the server rejected during the FML channel handshake. The user can
+ *  disable it (if the server simply lacks the mod) — but a `server side` reject
+ *  can also mean a version mismatch, which disabling won't fix; the card
+ *  surfaces both possibilities rather than prescribing disable.
+ */
 export type BlockingMod = {
+	/**
+	 *  The cited mod-id from the reject (e.g. `sophisticatedbackpacks`) — the
+	 *  clearest label, matching what the server named. Preferred over `name`,
+	 *  which is filename-derived and unreliable for unenriched mods.
+	 */
+	mod_id: string,
 	sha1: string,
 	name: string,
 	/**
 	 *  Names of *kept* installed mods whose jar declares a mandatory dependency
 	 *  on this one (read via `local::read_jar_dependency_ids`). Disabling this
-	 *  would break them; a non-empty list is a warning, not a block — the user
-	 *  still chooses.
+	 *  would break them; a non-empty list is a warning, not a block.
 	 */
 	breaks: string[],
 };

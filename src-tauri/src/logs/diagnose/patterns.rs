@@ -168,20 +168,23 @@ pub const PATTERNS: &[Pattern] = &[
     },
     Pattern {
         id: "client-extra-mods",
-        // The inverse of `server-missing-mods`: a `server side` channel reject
-        // means the client carries enforced-channel mods the server lacks, so the
-        // client refused to join. Declared AFTER `server-missing-mods` — the
-        // engine matches first-in-declaration-order, so a log containing both
-        // directions surfaces the (more common) install case first.
+        // A `server side` channel reject is ambiguous: the server may not have the
+        // mod at all (disable to join), OR it has a different version than the
+        // client (a version mismatch — disabling won't help; you need the server's
+        // version, which FML shows on the in-game disconnect screen but never
+        // logs). The log can't distinguish them, so the copy presents both cases
+        // rather than prescribing disable. Declared AFTER `server-missing-mods` —
+        // the engine matches first-in-declaration-order.
         matcher: Matcher::Regex(&CLIENT_EXTRA_MODS_RE),
-        title: "Your mods are blocking this server",
+        title: "The server rejected some of your mods",
         explanation:
-            "Your client has mods the server doesn't, and they enforce a connection \
-             channel, so your client refused to join. They must be disabled to connect — \
-             you can re-enable them later for single-player or other servers.",
+            "The server refused the connection over these mods. Either the server doesn't \
+             have them, or your version differs from the server's — Minecraft can't tell \
+             the launcher which, but its disconnect screen shows any version it needs.",
         recommendation:
-            "Open this log and disable the listed mods, then reconnect. Disabling is \
-             reversible.",
+            "Open this log. If the server doesn't have a mod, disable it (reversible) and \
+             reconnect. If it's a version difference, install the version the server needs \
+             instead of disabling.",
         source_hint: SourceHint::GameLog,
     },
     Pattern {

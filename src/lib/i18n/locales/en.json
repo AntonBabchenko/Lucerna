@@ -736,9 +736,9 @@
           "recommendation": "Open this log and use \"Install missing mods\" to add them to this instance, then reconnect. Mods the launcher can't identify automatically are listed so you can find them in the Add-ons browser."
         },
         "clientExtraMods": {
-          "title": "Your mods are blocking this server",
-          "explanation": "Your client has mods the server doesn't, and they enforce a connection channel, so your client refused to join. They must be disabled to connect — you can re-enable them later for single-player or other servers.",
-          "recommendation": "Open this log and disable the listed mods, then reconnect. Disabling is reversible."
+          "title": "The server rejected some of your mods",
+          "explanation": "The server refused the connection over these mods. Either the server doesn't have them, or your version differs from the server's — Minecraft can't tell the launcher which, but its disconnect screen shows any version it needs.",
+          "recommendation": "Open this log. If the server doesn't have a mod, disable it (reversible) and reconnect. If it's a version difference, install the version the server needs instead of disabling."
         }
       }
     },
@@ -772,13 +772,14 @@
         "failedToast": "Couldn't install {name}: {error}"
       },
       "blockingMods": {
-        "title": "Mods blocking this server",
-        "intro": "These mods are installed on your client but the server doesn't have them, and they require a connection. Disable them to join — you can re-enable them later for single-player or other servers.",
+        "title": "Mods the server rejected",
+        "intro": "The server rejected these mods. Either it doesn't have them — then disabling lets you join — or you have a different version than the server.",
+        "caveat": "Disable only if the server doesn't have the mod. If your version differs, you need the server's version (Minecraft's disconnect screen shows it) — disabling would just remove the mod.",
         "disable": "Disable",
         "disabledLabel": "Disabled",
         "breaks": "Disabling this also breaks: {names} — they require it.",
-        "reconnectHint": "Disable the blocking mods, then reconnect to the server.",
-        "allDisabled": "All blocking mods disabled — reconnect to the server.",
+        "reconnectHint": "Disable any mods the server lacks, then reconnect.",
+        "allDisabled": "Disabled — reconnect to the server.",
         "disabledToast": "Disabled {name}",
         "failedToast": "Couldn't disable {name}: {error}"
       }

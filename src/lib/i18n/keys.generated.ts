@@ -263,6 +263,7 @@ export type TranslationKey =
   | 'logs.repair.apply'
   | 'logs.repair.blockingMods.allDisabled'
   | 'logs.repair.blockingMods.breaks'
+  | 'logs.repair.blockingMods.caveat'
   | 'logs.repair.blockingMods.disable'
   | 'logs.repair.blockingMods.disabledLabel'
   | 'logs.repair.blockingMods.disabledToast'

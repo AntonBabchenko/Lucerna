@@ -32,8 +32,8 @@ describe('BlockingModsRepairCard', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
-          { sha1: 'a', name: "Alex's Mobs", breaks: [] },
-          { sha1: 'c', name: 'Citadel', breaks: [] },
+          { sha1: 'a', mod_id: 'alexsmobs', name: "Alex's Mobs", breaks: [] },
+          { sha1: 'c', mod_id: 'citadel', name: 'Citadel', breaks: [] },
         ]),
         instanceId: 'inst-1',
         onClose: vi.fn(),
@@ -41,14 +41,17 @@ describe('BlockingModsRepairCard', () => {
     });
     expect(screen.getByTestId('blocking-disable-a')).toBeTruthy();
     expect(screen.getByTestId('blocking-disable-c')).toBeTruthy();
+    // The row labels the mod by its cited mod-id, not a filename-derived name.
+    expect(screen.getByText('alexsmobs')).toBeTruthy();
+    expect(screen.getByText('citadel')).toBeTruthy();
   });
 
   it('shows a breaks warning only for mods that break a kept dependent', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
-          { sha1: 'c', name: 'Citadel', breaks: ["Alex's Mobs"] },
-          { sha1: 'x', name: 'Standalone', breaks: [] },
+          { sha1: 'c', mod_id: 'citadel', name: 'Citadel', breaks: ["Alex's Mobs"] },
+          { sha1: 'x', mod_id: 'standalone', name: 'Standalone', breaks: [] },
         ]),
         instanceId: 'inst-1',
         onClose: vi.fn(),
@@ -62,7 +65,7 @@ describe('BlockingModsRepairCard', () => {
     executeRepair.mockResolvedValue({ status: 'ok', data: null });
     render(BlockingModsRepairCard, {
       props: {
-        plan: planOf([{ sha1: 'a', name: "Alex's Mobs", breaks: [] }]),
+        plan: planOf([{ sha1: 'a', mod_id: 'alexsmobs', name: "Alex's Mobs", breaks: [] }]),
         instanceId: 'inst-1',
         onClose: vi.fn(),
       },
@@ -80,7 +83,7 @@ describe('BlockingModsRepairCard', () => {
     executeRepair.mockResolvedValue({ status: 'error', error: 'net::ERR' });
     render(BlockingModsRepairCard, {
       props: {
-        plan: planOf([{ sha1: 'a', name: "Alex's Mobs", breaks: [] }]),
+        plan: planOf([{ sha1: 'a', mod_id: 'alexsmobs', name: "Alex's Mobs", breaks: [] }]),
         instanceId: 'inst-1',
         onClose: vi.fn(),
       },
@@ -95,7 +98,7 @@ describe('BlockingModsRepairCard', () => {
     executeRepair.mockResolvedValue({ status: 'ok', data: null });
     render(BlockingModsRepairCard, {
       props: {
-        plan: planOf([{ sha1: 'a', name: "Alex's Mobs", breaks: [] }]),
+        plan: planOf([{ sha1: 'a', mod_id: 'alexsmobs', name: "Alex's Mobs", breaks: [] }]),
         instanceId: 'inst-1',
         onClose: vi.fn(),
       },

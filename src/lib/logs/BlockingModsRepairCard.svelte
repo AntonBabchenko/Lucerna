@@ -57,19 +57,20 @@
 >
   <p class="text-sm font-semibold">{$t('logs.repair.blockingMods.title')}</p>
   <p class="mt-1 text-xs text-muted">{$t('logs.repair.blockingMods.intro')}</p>
+  <p class="mt-1 text-xs text-warning-text/80">{$t('logs.repair.blockingMods.caveat')}</p>
 
   <div class="mt-3 flex flex-col gap-2">
     {#each plan.mods as m (m.sha1)}
       <div class="text-sm">
         <div class="flex items-center gap-2">
-          <span>{m.name}</span>
+          <span class="font-mono">{m.mod_id}</span>
           <button
             type="button"
             class="btn-warning btn-xs ml-auto"
             data-testid={`blocking-disable-${m.sha1}`}
-            aria-label={`${$t('logs.repair.blockingMods.disable')} ${m.name}`}
+            aria-label={`${$t('logs.repair.blockingMods.disable')} ${m.mod_id}`}
             disabled={disablingSha1s.has(m.sha1) || disabledSha1s.has(m.sha1)}
-            onclick={() => void disableMod(m.sha1, m.name)}
+            onclick={() => void disableMod(m.sha1, m.mod_id)}
           >
             {#if disabledSha1s.has(m.sha1)}
               {$t('logs.repair.blockingMods.disabledLabel')}
