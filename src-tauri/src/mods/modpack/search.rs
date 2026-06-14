@@ -31,6 +31,9 @@ struct MrHit {
     icon_url: Option<String>,
     downloads: u64,
     latest_version: Option<String>,
+    /// Project owner, as returned by `/v2/search`. Absent on some hits.
+    #[serde(default)]
+    author: Option<String>,
     categories: Vec<String>,
 }
 
@@ -135,6 +138,7 @@ pub async fn search(
                 supported_loaders,
                 source: crate::mods::platform::ModSource::Modrinth,
                 distribution_allowed: None,
+                author: h.author,
             }
         })
         .collect();
@@ -171,6 +175,7 @@ mod tests {
                 "icon_url": "https://cdn.modrinth.com/data/.../icon.png",
                 "downloads": 1234,
                 "latest_version": "1.20.1",
+                "author": "PackOwner",
                 "categories": ["fabric", "magic"]
             }],
             "total_hits": 1,
@@ -194,6 +199,7 @@ mod tests {
         assert_eq!(r.hits[0].supported_loaders, vec![LoaderKind::Fabric]);
         assert_eq!(r.hits[0].source, ModSource::Modrinth);
         assert!(r.hits[0].distribution_allowed.is_none());
+        assert_eq!(r.hits[0].author.as_deref(), Some("PackOwner"));
     }
 
     #[tokio::test]

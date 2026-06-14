@@ -3,6 +3,8 @@
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import { accentStripClass } from '$lib/ui/cards/card-status';
 
   let { instance, onOpenPack }: { instance: InstanceWithStatus; onOpenPack: () => void } = $props();
 
@@ -32,9 +34,13 @@
 </script>
 
 <div
-  class="rounded-xl border border-border-subtle bg-surface p-3.5 flex flex-col gap-2.5"
+  class="relative overflow-hidden rounded-xl border border-border-subtle bg-surface p-3.5 pl-4 flex flex-col gap-2.5"
   data-testid="overview-modpack-card"
 >
+  <span
+    aria-hidden="true"
+    class={`absolute left-0 top-0 bottom-0 w-[3px] ${accentStripClass(status?.kind === 'update_available' ? 'success' : 'none')}`}
+  ></span>
   <div class="text-[10px] uppercase tracking-wider text-muted">
     {$t('page.overview.sectionModpack')}
   </div>
@@ -51,11 +57,12 @@
       >
     {/if}
     {#if status?.kind === 'update_available'}
-      <span
-        class="rounded-full border border-success bg-success-bg px-2 py-0.5 text-xs text-success"
-        data-testid="modpack-update-available"
-      >
-        {$t('page.overview.modpackUpdateAvailable', { version: status.entry.version_number })}
+      <span data-testid="modpack-update-available">
+        <StatusBadge variant="success"
+          >{$t('page.overview.modpackUpdateAvailable', {
+            version: status.entry.version_number,
+          })}</StatusBadge
+        >
       </span>
     {/if}
     <button

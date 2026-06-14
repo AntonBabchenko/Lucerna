@@ -463,7 +463,7 @@
         {#if kind === 'mod'}
           <InstalledModsView {instanceId} {mcVersion} {loader} />
         {:else}
-          <InstalledAssetsView {instanceId} {kind} />
+          <InstalledAssetsView {instanceId} {kind} {mcVersion} {loader} />
         {/if}
       </div>
     {/if}

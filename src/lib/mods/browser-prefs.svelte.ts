@@ -15,7 +15,11 @@ const DEFAULTS = {
   installedPageSize: 50 as PageSize,
 };
 
-export function loadPrefs(): { pageSize: PageSize; layout: Layout; installedPageSize: PageSize } {
+export function loadPrefs(): {
+  pageSize: PageSize;
+  layout: Layout;
+  installedPageSize: PageSize;
+} {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULTS };

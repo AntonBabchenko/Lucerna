@@ -108,6 +108,7 @@ fn pack_to_hit(p: &AtlPack) -> ModpackHit {
         supported_loaders: Vec::new(), // not derivable without per-version Configs
         source: ModSource::Atlauncher,
         distribution_allowed: None,
+        author: None, // ATLauncher public catalogue exposes no author
     }
 }
 
@@ -425,6 +426,10 @@ mod tests {
         assert_eq!(page.total, 2, "private pack excluded");
         assert_eq!(page.hits[0].title, "Alpha Pack", "alphabetical order");
         assert_eq!(page.hits[0].source, ModSource::Atlauncher);
+        assert_eq!(
+            page.hits[0].author, None,
+            "ATLauncher catalogue exposes no author"
+        );
     }
 
     #[tokio::test]

@@ -47,6 +47,8 @@ describe('icon registry', () => {
       'chevronLast',
       'arrowLeft',
       'arrowUpRight',
+      'power',
+      'user',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });

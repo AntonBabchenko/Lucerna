@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
@@ -112,7 +113,6 @@
   >
     <ModCard
       layout="list"
-      dense={true}
       highlighted={hoveredKey === rowKey}
       {summary}
       {installed}
@@ -124,6 +124,7 @@
       {onUpdate}
       {checking}
       {packChip}
+      attention={depMissing > 0 ? 'missing-deps' : incompatibleTitle ? 'incompatible' : null}
       selectable={true}
       {selected}
       {onSelectChange}
@@ -131,20 +132,16 @@
     {#if summary || incompatibleTitle}
       <div class="flex items-center gap-2 px-3 pb-0.5 text-xs">
         {#if incompatibleTitle}
-          <span
-            data-testid="incompat-badge"
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-warning-bg text-warning-text"
-            use:tooltip={incompatibleTitle}
-            ><Icon name="warning" size={12} />{$t('mods.installed.badgeIncompatible')}</span
-          >
+          <span data-testid="incompat-badge" use:tooltip={incompatibleTitle}>
+            <StatusBadge variant="warning" icon="warning">
+              {$t('mods.installed.badgeIncompatible')}
+            </StatusBadge>
+          </span>
         {/if}
         {#if badge}
-          <span
-            data-testid="status-badge"
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-danger-bg text-danger"
-            use:tooltip={$t('mods.installed.missingDepsTooltip')}
-            ><Icon name="warning" size={12} />{badge.text}</span
-          >
+          <span data-testid="status-badge" use:tooltip={$t('mods.installed.missingDepsTooltip')}>
+            <StatusBadge variant="danger" icon="warning">{badge.text}</StatusBadge>
+          </span>
         {/if}
         {#if graphLoading && !root}
           <span class="text-placeholder">{$t('mods.installed.resolvingShort')}</span>

@@ -71,6 +71,28 @@ static CORRUPT_JAR_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
+// Two FML reject shapes (both confirmed in Phase 0) mean "the client is missing
+// mods the server requires": a `client side` channel-version mismatch and a
+// datapack-registry sync failure (`Missing required datapack registry: …`, from
+// library mods like Moonlight). `server_mods.rs` parses both.
+//
+// Anchored to `client side` (not a bare `mismatched mod list`): the inverse
+// `server side` reject — the client carrying enforced-channel mods the server
+// lacks — is the `client-extra-mods` case below, not a missing-mods one. Without
+// this anchor that reject would mis-raise an "install missing mods" advisory.
+static SERVER_MISSING_MODS_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"rejected their client side version number|Missing required datapack registr")
+        .expect("regex compiles — covered by `all_patterns_regexes_compile`")
+});
+
+// The inverse reject: a `server side` channel rejection in a client log means
+// the client carries enforced-channel mods the server lacks → mods to *disable*,
+// not install. `server_mods.rs::parse_blocking_client_mods` extracts them.
+static CLIENT_EXTRA_MODS_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"rejected their server side version number")
+        .expect("regex compiles — covered by `all_patterns_regexes_compile`")
+});
+
 // --- The knowledge base --------------------------------------------
 
 pub const PATTERNS: &[Pattern] = &[
@@ -125,6 +147,45 @@ pub const PATTERNS: &[Pattern] = &[
              that mod and reinstall it. If you imported a modpack, re-importing the pack will \
              re-fetch every jar with SHA-1 verification.",
         source_hint: SourceHint::Any,
+    },
+    Pattern {
+        id: "server-missing-mods",
+        // Anchors confirmed in the Phase 0 spike against real modern-Forge
+        // (47.4.10) client logs: FML rejects a join either with a channel
+        // "mismatched mod list" or a "Missing required datapack registry" sync
+        // failure. server_mods.rs parses the mod-ids from whichever appears.
+        matcher: Matcher::Regex(&SERVER_MISSING_MODS_RE),
+        title: "The server needs mods you don't have",
+        explanation:
+            "The server rejected the connection because your client is missing mods it \
+             requires, or has them at the wrong version. Minecraft listed them before \
+             disconnecting.",
+        recommendation:
+            "Open this log and use \"Install missing mods\" to add them to this instance, \
+             then reconnect. Mods the launcher can't identify automatically are listed so \
+             you can find them in the Add-ons browser.",
+        source_hint: SourceHint::GameLog,
+    },
+    Pattern {
+        id: "client-extra-mods",
+        // A `server side` channel reject is ambiguous: the server may not have the
+        // mod at all (disable to join), OR it has a different version than the
+        // client (a version mismatch — disabling won't help; you need the server's
+        // version, which FML shows on the in-game disconnect screen but never
+        // logs). The log can't distinguish them, so the copy presents both cases
+        // rather than prescribing disable. Declared AFTER `server-missing-mods` —
+        // the engine matches first-in-declaration-order.
+        matcher: Matcher::Regex(&CLIENT_EXTRA_MODS_RE),
+        title: "The server rejected some of your mods",
+        explanation:
+            "The server refused the connection over these mods. Either the server doesn't \
+             have them, or your version differs from the server's — Minecraft can't tell \
+             the launcher which, but its disconnect screen shows any version it needs.",
+        recommendation:
+            "Open this log. If the server doesn't have a mod, disable it (reversible) and \
+             reconnect. If it's a version difference, install the version the server needs \
+             instead of disabling.",
+        source_hint: SourceHint::GameLog,
     },
     Pattern {
         id: "out-of-memory",
@@ -216,10 +277,9 @@ mod tests {
     }
 
     #[test]
-    fn v1_ships_exactly_seven_patterns() {
-        // Sentinel against accidental drift. If you intentionally add
-        // (or remove) a pattern, bump this number and document in
-        // the commit. The spec's §4 lists the v1 set explicitly.
-        assert_eq!(PATTERNS.len(), 7);
+    fn v1_ships_exactly_nine_patterns() {
+        // 7 → 8 for `server-missing-mods`; 8 → 9 for `client-extra-mods`
+        // (the inverse "your mods block this server" diagnosis).
+        assert_eq!(PATTERNS.len(), 9);
     }
 }

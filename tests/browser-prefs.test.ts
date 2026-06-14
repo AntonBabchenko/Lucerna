@@ -13,13 +13,21 @@ describe('browser-prefs', () => {
   test('falls back to defaults on malformed localStorage', async () => {
     localStorage.setItem('lucerna.browserPrefs', '{not json');
     const m = await import('../src/lib/mods/browser-prefs.svelte');
-    expect(m.loadPrefs()).toEqual({ pageSize: 20, layout: 'grid', installedPageSize: 50 });
+    expect(m.loadPrefs()).toEqual({
+      pageSize: 20,
+      layout: 'grid',
+      installedPageSize: 50,
+    });
   });
 
   test('loadPrefs reads a valid stored value', async () => {
     localStorage.setItem('lucerna.browserPrefs', JSON.stringify({ pageSize: 50, layout: 'list' }));
     const m = await import('../src/lib/mods/browser-prefs.svelte');
-    expect(m.loadPrefs()).toEqual({ pageSize: 50, layout: 'list', installedPageSize: 50 });
+    expect(m.loadPrefs()).toEqual({
+      pageSize: 50,
+      layout: 'list',
+      installedPageSize: 50,
+    });
   });
 });
 

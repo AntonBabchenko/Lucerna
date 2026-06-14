@@ -175,6 +175,7 @@ function makeHit(over: Partial<ModpackHit> = {}): ModpackHit {
     supported_loaders: ['fabric'],
     source: 'modrinth',
     distribution_allowed: null,
+    author: null,
     ...over,
   };
 }

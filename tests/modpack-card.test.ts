@@ -19,6 +19,7 @@ const hit: ModpackHit = {
   supported_loaders: ['fabric'],
   source: 'modrinth',
   distribution_allowed: null,
+  author: 'Pack Author',
 };
 
 describe('ModpackCard', () => {
@@ -44,5 +45,64 @@ describe('ModpackCard', () => {
   it('shows no badge when distribution is allowed', () => {
     const { queryByText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
     expect(queryByText('CurseForge download disabled')).toBeNull();
+  });
+
+  it('renders the author when present (grid)', () => {
+    const { getAllByText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
+    expect(getAllByText(/Pack Author/).length).toBeGreaterThan(0);
+  });
+
+  it('renders the author when present (list)', () => {
+    const { getAllByText } = render(ModpackCard, {
+      props: { hit, onClick: () => {}, layout: 'list' },
+    });
+    expect(getAllByText(/Pack Author/).length).toBeGreaterThan(0);
+  });
+
+  it('shows no author line when author is null', () => {
+    const noAuthor: ModpackHit = { ...hit, author: null };
+    const { queryByText } = render(ModpackCard, { props: { hit: noAuthor, onClick: () => {} } });
+    expect(queryByText(/Pack Author/)).toBeNull();
+  });
+
+  it('renders quick-install button when onQuickInstall is provided', () => {
+    const { getByLabelText } = render(ModpackCard, {
+      props: { hit, onClick: () => {}, onQuickInstall: () => {} },
+    });
+    expect(getByLabelText('Install latest version')).toBeTruthy();
+  });
+
+  it('has no quick-install button when onQuickInstall is omitted', () => {
+    const { queryByLabelText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
+    expect(queryByLabelText('Install latest version')).toBeNull();
+  });
+
+  it('quick-install click fires onQuickInstall and not the card onClick (grid)', async () => {
+    const onClick = vi.fn();
+    const onQuickInstall = vi.fn();
+    const { getByLabelText } = render(ModpackCard, {
+      props: { hit, onClick, onQuickInstall },
+    });
+    await fireEvent.click(getByLabelText('Install latest version'));
+    expect(onQuickInstall).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('quick-install click fires onQuickInstall and not the card onClick (list)', async () => {
+    const onClick = vi.fn();
+    const onQuickInstall = vi.fn();
+    const { getByLabelText } = render(ModpackCard, {
+      props: { hit, onClick, onQuickInstall, layout: 'list' },
+    });
+    await fireEvent.click(getByLabelText('Install latest version'));
+    expect(onQuickInstall).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('disables the quick-install button while installing', () => {
+    const { getByLabelText } = render(ModpackCard, {
+      props: { hit, onClick: () => {}, onQuickInstall: () => {}, installing: true },
+    });
+    expect((getByLabelText('Install latest version') as HTMLButtonElement).disabled).toBe(true);
   });
 });

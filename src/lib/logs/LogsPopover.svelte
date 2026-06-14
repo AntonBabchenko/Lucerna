@@ -2,6 +2,7 @@
   import {
     commands,
     type Diagnosis,
+    type LoaderKind,
     type LogFileMeta,
     type LogSource,
     type RepairChoice,
@@ -10,8 +11,11 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
+  import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
+  import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
+  import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
@@ -20,6 +24,7 @@
   import Select from '$lib/ui/Select.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { DIAGNOSIS_COPY } from '$lib/logs/diagnosis-copy';
   import {
     groupStackFolds,
     maybeParseCrashReport,
@@ -34,11 +39,18 @@
     initialPath = null as string | null,
     instanceId = null as string | null,
     instanceName = null as string | null,
+    mcVersion = null as string | null,
+    loader = null as LoaderKind | null,
   }: {
     open: boolean;
     initialPath?: string | null;
     instanceId?: string | null;
     instanceName?: string | null;
+    // The active instance's MC version + loader, threaded straight through to
+    // the missing-mods repair card so it can run the mod-browser install flow
+    // (decideModInstall needs both). Null until an instance is selected.
+    mcVersion?: string | null;
+    loader?: LoaderKind | null;
   } = $props();
 
   // ---------------------------------------------------------------------------
@@ -189,17 +201,18 @@
   // Effects: load on open / initialPath
   // ---------------------------------------------------------------------------
 
+  // On open — and on a mid-open deep-link change — refresh the file list and
+  // select which log to show: an explicit `initialPath` deep-link when present,
+  // otherwise the newest log (the backend sorts newest-first). This is what
+  // surfaces a fresh run's log instead of a stale prior selection, and re-reads
+  // content so a rewritten `latest.log` isn't shown from the previous run.
+  // Keyed on `open`/`initialPath` only (not `selectedPath`), so manual dropdown
+  // selection while the panel is open is left alone.
   $effect(() => {
-    if (open) {
-      void reloadList();
-    }
-  });
-
-  $effect(() => {
-    if (open && initialPath && initialPath !== selectedPath) {
-      selectedPath = initialPath;
-      void loadContent(initialPath);
-    }
+    const isOpen = open;
+    const deepLink = initialPath;
+    if (!isOpen) return;
+    void openViewer(deepLink);
   });
 
   // ---------------------------------------------------------------------------
@@ -217,6 +230,29 @@
       files = result.data;
     } else {
       listError = JSON.stringify(result.error);
+    }
+  }
+
+  // Open-time selection: refresh the list, then show the deep-link (if still
+  // present) or the newest log. `selectFile` loads its content, refreshing a
+  // rewritten `latest.log` from a prior run.
+  async function openViewer(deepLink: string | null) {
+    await reloadList();
+    const target = chooseOpenLog(files, deepLink);
+    if (target) {
+      await selectFile(target);
+    } else {
+      selectedPath = null;
+      selectedContent = '';
+    }
+  }
+
+  // Toolbar reload: refresh the list and re-read the currently-selected log
+  // (so its content reflects the latest run), without changing the selection.
+  async function reload() {
+    await reloadList();
+    if (selectedPath) {
+      await loadContent(selectedPath);
     }
   }
 
@@ -606,7 +642,7 @@
             </div>
             <button
               class="btn-secondary btn-xs inline-flex items-center gap-1.5"
-              onclick={() => void reloadList()}
+              onclick={() => void reload()}
             >
               <Icon name="refresh" class="icon-spin-hover" />{$t('logs.toolbar.reload')}
             </button>
@@ -813,22 +849,39 @@
 
             <!-- Diagnosis card -->
             {#if diagnosis}
+              {@const copy = DIAGNOSIS_COPY[diagnosis.pattern_id]}
               <details
                 open
                 class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
               >
                 <summary class="cursor-pointer font-semibold text-warning-text select-none">
                   <span class="flex items-center gap-1.5"
-                    ><Icon name="warning" /> {diagnosis.title}</span
+                    ><Icon name="warning" /> {copy ? $t(copy.title) : diagnosis.title}</span
                   >
                 </summary>
-                <p class="mt-2 text-sm text-warning-text selectable">{diagnosis.explanation}</p>
+                <p class="mt-2 text-sm text-warning-text selectable">
+                  {copy ? $t(copy.explanation) : diagnosis.explanation}
+                </p>
                 <p class="mt-2 text-sm text-warning-text selectable">
                   <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
-                  {diagnosis.recommendation}
+                  {copy ? $t(copy.recommendation) : diagnosis.recommendation}
                 </p>
                 {#if diagnosis.repair && instanceId}
-                  {#if repairPlan}
+                  {#if repairPlan && repairPlan.kind === 'install_missing_mods' && mcVersion && loader}
+                    <MissingModsRepairCard
+                      plan={repairPlan}
+                      instanceId={instanceId ?? ''}
+                      {mcVersion}
+                      {loader}
+                      onClose={() => (repairPlan = null)}
+                    />
+                  {:else if repairPlan && repairPlan.kind === 'disable_blocking_mods'}
+                    <BlockingModsRepairCard
+                      plan={repairPlan}
+                      instanceId={instanceId ?? ''}
+                      onClose={() => (repairPlan = null)}
+                    />
+                  {:else if repairPlan}
                     <RepairConfirmCard
                       plan={repairPlan}
                       busy={repairApplying}

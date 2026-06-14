@@ -43,24 +43,23 @@ describe('ModCard', () => {
     expect(screen.queryByRole('button', { name: /uninstall/i })).toBeNull();
   });
 
-  it('shows Disable + Uninstall + Installed pill when the mod is installed and enabled', () => {
+  it('shows Disable + Uninstall icon actions + version when installed and enabled', () => {
     render(ModCard, { props: { summary, installed: inst(true), ...noopProps } });
-    expect(screen.getByText(/^Installed/)).toBeTruthy();
+    expect(screen.getByText('v1.0')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^disable$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^install$/i })).toBeNull();
   });
 
-  it('shows Enable + Disabled pill when the mod is installed but disabled', () => {
+  it('shows Enable + Uninstall icon actions when the mod is installed but disabled', () => {
     render(ModCard, { props: { summary, installed: inst(false), ...noopProps } });
-    expect(screen.getByText(/^Disabled/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /^enable$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
   });
 
-  it('shows the version number on the Installed pill when known', () => {
+  it('shows the version number when known', () => {
     render(ModCard, { props: { summary, installed: inst(true), ...noopProps } });
-    expect(screen.getByText(/Installed · v1\.0/)).toBeTruthy();
+    expect(screen.getByText('v1.0')).toBeTruthy();
   });
 
   it('shows the other-platform label when installed.source ≠ summary.source', () => {
@@ -102,5 +101,48 @@ describe('ModCard', () => {
     const row = container.querySelector('[data-testid="card-list-row"]');
     expect(row?.className).toContain('bg-surface');
     expect(row?.className).not.toContain('bg-highlight');
+  });
+
+  it('list row shows icon action buttons (power + uninstall) for an enabled mod', () => {
+    render(ModCard, {
+      props: { summary, installed: inst(true), layout: 'list', ...noopProps },
+    });
+    // Enabled → power toggle labelled "Disable", plus an "Uninstall" icon button.
+    expect(screen.getByRole('button', { name: /disable/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+  });
+
+  it('omits the toggle for resource packs/shaders (canToggle=false)', () => {
+    render(ModCard, {
+      props: {
+        summary,
+        installed: inst(true),
+        layout: 'list',
+        canToggle: false,
+        ...noopProps,
+      },
+    });
+    expect(screen.queryByRole('button', { name: /disable/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+  });
+
+  it('an enabled mod keeps a quiet (transparent) accent strip — no wall of green', () => {
+    const { container } = render(ModCard, {
+      props: { summary, installed: inst(true), layout: 'list', ...noopProps },
+    });
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-transparent');
+  });
+
+  it('an incompatible installed mod paints a danger accent strip', () => {
+    const { container } = render(ModCard, {
+      props: {
+        summary,
+        installed: inst(true),
+        layout: 'list',
+        attention: 'incompatible',
+        ...noopProps,
+      },
+    });
+    expect(container.querySelector('[data-card-accent]')?.className).toContain('bg-danger');
   });
 });
