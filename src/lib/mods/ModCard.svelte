@@ -193,7 +193,7 @@
     {#if hasUpdate}
       <button
         type="button"
-        class="btn-icon !w-7 !h-7 text-warning-text"
+        class="btn-icon !w-7 !h-7 !text-warning-text"
         onclick={onUpdate}
         aria-label={$t('mods.card.update')}
         use:tooltip={$t('mods.card.update')}><Icon name="refresh" size={15} /></button
@@ -202,7 +202,7 @@
     {#if canToggle}
       <button
         type="button"
-        class={`btn-icon !w-7 !h-7 ${installed.enabled ? 'text-success' : 'text-muted'}`}
+        class={`btn-icon !w-7 !h-7 ${installed.enabled ? '!text-success' : '!text-muted'}`}
         onclick={onToggle}
         aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
         use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
@@ -211,7 +211,7 @@
     {/if}
     <button
       type="button"
-      class="btn-icon !w-7 !h-7 text-danger"
+      class="btn-icon !w-7 !h-7 !text-danger"
       onclick={onUninstall}
       aria-label={$t('mods.card.uninstall')}
       use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
@@ -279,7 +279,7 @@
             {#if canToggle}
               <button
                 type="button"
-                class={`btn-icon !w-7 !h-7 ${installed.enabled ? 'text-success' : 'text-muted'}`}
+                class={`btn-icon !w-7 !h-7 ${installed.enabled ? '!text-success' : '!text-muted'}`}
                 onclick={onToggle}
                 aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
                 use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
@@ -288,7 +288,7 @@
             {/if}
             <button
               type="button"
-              class="btn-icon !w-7 !h-7 text-danger"
+              class="btn-icon !w-7 !h-7 !text-danger"
               onclick={onUninstall}
               aria-label={$t('mods.card.uninstall')}
               use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
