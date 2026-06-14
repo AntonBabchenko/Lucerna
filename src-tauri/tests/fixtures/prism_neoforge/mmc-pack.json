@@ -1,0 +1,7 @@
+{
+  "components": [
+    { "uid": "net.minecraft", "version": "1.20.1" },
+    { "uid": "net.neoforged", "version": "20.4.190" }
+  ],
+  "formatVersion": 1
+}

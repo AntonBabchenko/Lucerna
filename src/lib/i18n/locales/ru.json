@@ -82,7 +82,8 @@
     "compactExpand": "Развернуть на всё окно",
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
     "joinServer": "Подключиться к серверу",
-    "removeAccountDisabled": "Сначала войдите в аккаунт."
+    "removeAccountDisabled": "Сначала войдите в аккаунт.",
+    "importLauncher": "Импорт из лаунчера"
   },
   "instance": {
     "manage": {
@@ -178,6 +179,53 @@
       "heading": "{count, plural, one {# мод может быть несовместим} few {# мода могут быть несовместимы} many {# модов могут быть несовместимы} other {# мода могут быть несовместимы}}",
       "skipBtn": "Пропустить",
       "installAnywayBtn": "Установить всё равно"
+    }
+  },
+  "instances": {
+    "import": {
+      "dialogAriaLabel": "Импорт из лаунчера",
+      "step1Title": "Выберите профиль для импорта",
+      "contentLabel": "Содержимое для импорта",
+      "mcVersionInputLabel": "Версия Minecraft",
+      "mcVersionPlaceholder": "напр. 1.20.1",
+      "mcVersionHint": "Папка .minecraft не хранит свою версию — укажите её, чтобы включить импорт.",
+      "loaderInputLabel": "Загрузчик модов",
+      "sourcePathLabel": "Исходная папка",
+      "step2Title": "Импорт «{name}»",
+      "discover": "Найти профили",
+      "discoverSubtitle": "Выберите найденный на этом ПК инстанс или укажите папку.",
+      "noContent": "В этой папке нечего импортировать.",
+      "discovering": "Поиск…",
+      "discoverEmpty": "Профили других лаунчеров не найдены. Попробуйте указать папку вручную.",
+      "discoverError": "Не удалось найти профили",
+      "browseFolder": "Выбрать папку…",
+      "sourcePrism": "Prism Launcher",
+      "sourceCurseforge": "CurseForge",
+      "sourceModrinth": "Modrinth App",
+      "sourceAtlauncher": "ATLauncher",
+      "sourceRaw": "Vanilla .minecraft",
+      "mcLabel": "Minecraft {version}",
+      "loaderLabel": "{loader} {version}",
+      "categoryMods": "Моды",
+      "categoryConfig": "Конфигурация",
+      "categorySaves": "Миры",
+      "categoryResourcePacks": "Ресурспаки",
+      "categoryShaderpacks": "Шейдеры",
+      "categoryOptionsTxt": "Настройки",
+      "nameLabel": "Имя профиля",
+      "importBtn": "Импортировать",
+      "back": "Назад",
+      "selectAll": "Выбрать все",
+      "deselectAll": "Снять выбор",
+      "imported": "Импортировано: {name}",
+      "failed": "Ошибка импорта из лаунчера",
+      "progress": "Импорт «{name}»…",
+      "phase": {
+        "creating_instance": "Создание профиля…",
+        "copying": "Копирование файлов…",
+        "recovering_identities": "Определение модов…",
+        "done": "Готово."
+      }
     }
   },
   "mods": {
@@ -1042,7 +1090,10 @@
     "updateCheckFailed": "Не удалось проверить обновления: {details}",
     "updateVerificationFailed": "Проверка обновления не пройдена — загрузка может быть повреждена или подделана. {details}",
     "updateInstallFailed": "Не удалось установить обновление: {details}",
-    "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}"
+    "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}",
+    "importInstanceUnreadable": "Не удалось прочитать сборку {launcher}: {details}",
+    "importUnsupportedLoader": "Неподдерживаемый загрузчик «{loader}» в импортируемой сборке",
+    "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}"
   },
   "settings": {
     "title": "Настройки",
@@ -1163,7 +1214,8 @@
     "cancel": "Отменить",
     "queueItemVerify": "Проверка «{name}»",
     "queueItemRepair": "Ремонт «{name}»",
-    "queueItemImport": "Импорт «{name}»"
+    "queueItemImport": "Импорт «{name}»",
+    "queueItemLauncherImport": "Импорт «{name}» из лаунчера"
   },
   "page": {
     "update": {

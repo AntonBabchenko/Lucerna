@@ -32,6 +32,7 @@ function instance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
     mrpack_summary: null,
     mrpack_version_id: null,
     integrity: null,
+    imported_from: null,
     ...over,
   };
 }
@@ -45,6 +46,7 @@ const noopHandlers = {
   onOpenMods: () => {},
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
+  onOpenLauncherImport: () => {},
   onPlay: () => {},
   onStop: () => {},
   onInstall: () => {},

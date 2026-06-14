@@ -14,6 +14,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     repairInstance: vi.fn(),
     modpackImport: vi.fn(),
     setActiveInstance: vi.fn(),
+    launcherImportRun: vi.fn(),
   },
   events: {
     verifyProgress: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -42,6 +43,7 @@ import {
   __resetOpQueueForTest,
   cancelQueued,
   enqueueIntegrity,
+  enqueueLauncherImport,
   moveQueued,
   opCompletionTick,
   opQueue,
@@ -224,10 +226,16 @@ describe('op-queue store', () => {
     enqueueIntegrity('b', 'Bravo', 'verify'); // queued
     enqueueIntegrity('c', 'Charlie', 'verify'); // queued
 
-    const bOp = opQueue().find((q) => q.kind !== 'import' && q.instanceId === 'b');
+    const bOp = opQueue().find(
+      (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === 'b',
+    );
     if (!bOp) throw new Error('b not queued');
     cancelQueued(bOp.id);
-    expect(opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''))).toEqual(['c']);
+    expect(
+      opQueue().map((q) =>
+        q.kind !== 'import' && q.kind !== 'launcher-import' ? q.instanceId : '',
+      ),
+    ).toEqual(['c']);
 
     // Cancelling the running op's id is a no-op (it isn't in the queue array).
     const running = opRunning();
@@ -248,7 +256,10 @@ describe('op-queue store', () => {
     enqueueIntegrity('b', 'Bravo', 'verify'); // queue[0]
     enqueueIntegrity('c', 'Charlie', 'verify'); // queue[1]
 
-    const ids = () => opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''));
+    const ids = () =>
+      opQueue().map((q) =>
+        q.kind !== 'import' && q.kind !== 'launcher-import' ? q.instanceId : '',
+      );
     const cId = opQueue()[1].id;
     moveQueued(cId, 'up');
     expect(ids()).toEqual(['c', 'b']);
@@ -324,5 +335,101 @@ describe('op-queue store', () => {
     };
     action.run();
     await vi.waitFor(() => expect(commands.setActiveInstance).toHaveBeenCalledWith('i9'));
+  });
+
+  const mockForeign = {
+    source: 'prism' as const,
+    name: 'Prism Pack',
+    root: '/prism/instances/pack',
+    minecraft_dir: '/prism/instances/pack/.minecraft',
+    mc_version: '1.20.4',
+    loader: 'fabric' as const,
+    loader_version: '0.15.7',
+    max_heap_mb: 4096,
+    extra_jvm_args: null,
+    content: [],
+    known_mods: [],
+  };
+
+  const mockInstanceData = {
+    id: 'inst-new',
+    name: 'Prism Pack',
+    mc_version: '1.20.4',
+    loader: 'fabric' as const,
+    loader_version: '0.15.7',
+    max_heap_mb: 4096,
+    extra_jvm_args: null,
+    installed: true,
+    imported_from: null,
+    content_overview: null,
+    integrity: null,
+    playtime: null,
+    gpu_preference: null,
+  };
+
+  it('enqueueLauncherImport: success pushes action toast and bumps importCompletionTick', async () => {
+    (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockImplementation(
+      async (
+        _f: unknown,
+        _s: unknown,
+        _n: unknown,
+        _mv: unknown,
+        _lo: unknown,
+        _lv: unknown,
+        ch: { onmessage: ((m: unknown) => void) | null },
+      ) => {
+        ch.onmessage?.({ phase: 'done', instance_id: 'inst-new', untracked_mods: 0 });
+        return { status: 'ok', data: mockInstanceData };
+      },
+    );
+    (commands.setActiveInstance as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: null,
+    });
+
+    enqueueLauncherImport('Prism Pack', {
+      foreign: mockForeign,
+      selected: ['mods'],
+      targetName: 'Prism Pack',
+    });
+
+    await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  it('enqueueLauncherImport: dedupes same root', async () => {
+    const d = deferred<{ status: 'ok'; data: typeof mockInstanceData }>();
+    (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockReturnValue(d.promise);
+
+    enqueueLauncherImport('Prism Pack', {
+      foreign: mockForeign,
+      selected: ['mods'],
+      targetName: 'Prism Pack',
+    });
+    enqueueLauncherImport('Prism Pack', {
+      foreign: mockForeign,
+      selected: ['mods'],
+      targetName: 'Prism Pack',
+    }); // same root → ignored
+
+    expect(opQueue().length).toBe(0); // first is running, second dropped
+    d.resolve({ status: 'ok', data: mockInstanceData });
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
+  });
+
+  it('enqueueLauncherImport: error pushes warning', async () => {
+    (commands.launcherImportRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'error',
+      error: { kind: 'io', path: '/x', details: 'nope' },
+    });
+
+    enqueueLauncherImport('Prism Pack', {
+      foreign: mockForeign,
+      selected: ['mods'],
+      targetName: 'Prism Pack',
+    });
+
+    await vi.waitFor(() => expect(pushWarning).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(opRunning()).toBeNull());
   });
 });

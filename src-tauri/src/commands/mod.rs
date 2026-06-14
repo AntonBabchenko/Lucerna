@@ -38,6 +38,8 @@ mod curseforge_key;
 pub use curseforge_key::*;
 mod modpack_cmds;
 pub use modpack_cmds::*;
+mod instance_import_cmds;
+pub use instance_import_cmds::*;
 mod settings;
 pub use settings::*;
 mod update;

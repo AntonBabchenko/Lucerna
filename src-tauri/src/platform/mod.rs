@@ -9,7 +9,60 @@
 
 pub mod gpu;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Standard on-disk locations where third-party launchers keep their
+/// per-instance folders. Best-effort: returned paths may not exist; the
+/// manual folder picker is the fallback when a path is wrong.
+pub fn default_launcher_roots() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut roots = Vec::new();
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let base = PathBuf::from(&appdata);
+            roots.push(base.join("PrismLauncher").join("instances"));
+            roots.push(base.join("MultiMC").join("instances"));
+            roots.push(base.join("PolyMC").join("instances"));
+            roots.push(base.join("ATLauncher").join("instances"));
+            roots.push(base.join("com.modrinth.theseus").join("profiles"));
+        }
+        if let Ok(home) = std::env::var("USERPROFILE") {
+            roots.push(
+                PathBuf::from(&home)
+                    .join("curseforge")
+                    .join("minecraft")
+                    .join("Instances"),
+            );
+        }
+        return roots;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut roots = Vec::new();
+        if let Ok(home) = std::env::var("HOME") {
+            let base = PathBuf::from(&home);
+            roots.push(base.join(".local/share/PrismLauncher/instances"));
+            roots.push(base.join(".local/share/multimc/instances"));
+            roots.push(base.join(".local/share/PolyMC/instances"));
+            roots.push(
+                base.join(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"),
+            );
+        }
+        return roots;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut roots = Vec::new();
+        if let Ok(home) = std::env::var("HOME") {
+            let base = PathBuf::from(&home);
+            roots.push(base.join("Library/Application Support/PrismLauncher/instances"));
+            roots.push(base.join("Library/Application Support/MultiMC/instances"));
+        }
+        return roots;
+    }
+    #[allow(unreachable_code)]
+    vec![]
+}
 
 /// True iff this platform supports in-app self-update (download + verify +
 /// launch an installer). Windows-only today; Linux is check-and-notify and

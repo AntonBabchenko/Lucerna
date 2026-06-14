@@ -111,6 +111,7 @@ function instance(overrides: Partial<InstanceWithStatus> = {}): InstanceWithStat
     mrpack_summary: 'A pack about being cool.',
     mrpack_version_id: null,
     integrity: null,
+    imported_from: null,
     ...overrides,
   };
 }

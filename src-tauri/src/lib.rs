@@ -144,6 +144,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Modpack export (v0.6.0):
             commands::export_preview,
             commands::export_modpack,
+            // Launcher instance import (Phase 1):
+            commands::launcher_import_discover,
+            commands::launcher_import_inspect_folder,
+            commands::launcher_import_run,
             // Onboarding (v0.5.0 sub-feature 5):
             commands::app_settings_get,
             commands::app_settings_mark_tour_completed,

@@ -38,6 +38,7 @@ const sampleInstance: InstanceWithStatus = {
   mrpack_summary: null,
   mrpack_version_id: null,
   integrity: null,
+  imported_from: null,
 };
 
 describe('Sidebar', () => {
@@ -56,6 +57,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -82,6 +84,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -108,6 +111,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -116,6 +120,32 @@ describe('Sidebar', () => {
       },
     });
     expect(getByTestId('sidebar-open-modpacks')).toBeTruthy();
+  });
+
+  it('renders the Import from launcher button', () => {
+    const { getByTestId } = render(Sidebar, {
+      props: {
+        accounts: [],
+        activeAccount: null,
+        instances: [],
+        activeInstance: null,
+        onSelectAccount: vi.fn(),
+        onRemoveAccount: vi.fn(),
+        onAddOffline: vi.fn(),
+        onSelectInstance: vi.fn(),
+        onOpenManage: vi.fn(),
+        onOpenMods: vi.fn(),
+        onOpenLogs: vi.fn(),
+        onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
+        running: null,
+        installing: false,
+        onPlay: vi.fn(),
+        onStop: vi.fn(),
+        onInstall: vi.fn(),
+      },
+    });
+    expect(getByTestId('sidebar-open-launcher-import')).toBeTruthy();
   });
 
   it('shows an icon on the Settings button', () => {
@@ -133,6 +163,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -162,6 +193,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -187,6 +219,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -219,6 +252,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -244,6 +278,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),
@@ -270,6 +305,7 @@ describe('Sidebar', () => {
         onOpenMods: vi.fn(),
         onOpenLogs: vi.fn(),
         onOpenModpacks: vi.fn(),
+        onOpenLauncherImport: vi.fn(),
         running: null,
         installing: false,
         onPlay: vi.fn(),

@@ -21,6 +21,7 @@
 
   function runningLabel(op: QueuedOp): string {
     if (op.kind === 'import') return $t('modpacks.import.progress.heading');
+    if (op.kind === 'launcher-import') return $t('instances.import.progress', { name: op.name });
     return op.kind === 'verify'
       ? $t('instance.integrity.opVerifying', { name: op.name })
       : $t('instance.integrity.opRepairing', { name: op.name });
@@ -53,6 +54,7 @@
 
   function queueItemLabel(op: QueuedOp): string {
     if (op.kind === 'import') return $t('ops.queueItemImport', { name: op.name });
+    if (op.kind === 'launcher-import') return $t('ops.queueItemLauncherImport', { name: op.name });
     return op.kind === 'verify'
       ? $t('ops.queueItemVerify', { name: op.name })
       : $t('ops.queueItemRepair', { name: op.name });
@@ -75,7 +77,7 @@
       >
         {runningLabel(running.op)}
       </div>
-      {#if running.progress.kind !== 'import'}
+      {#if running.progress.kind !== 'import' && running.progress.kind !== 'launcher-import'}
         <div class="text-xs text-muted">
           {running.progress.filesDone}/{running.progress.filesTotal}
         </div>
@@ -85,7 +87,7 @@
             style="width: {pct(running.progress.filesDone, running.progress.filesTotal)}%"
           ></div>
         </div>
-      {:else}
+      {:else if running.progress.kind === 'import'}
         {#if running.progress.phase}
           <div
             class="text-xs text-muted truncate"
@@ -100,6 +102,12 @@
               class="h-full bg-accent"
               style="width: {pct(running.progress.bytes.current, running.progress.bytes.total)}%"
             ></div>
+          </div>
+        {/if}
+      {:else if running.progress.kind === 'launcher-import'}
+        {#if running.progress.phase}
+          <div class="text-xs text-muted truncate">
+            {$t(`instances.import.phase.${running.progress.phase.phase}`)}
           </div>
         {/if}
       {/if}

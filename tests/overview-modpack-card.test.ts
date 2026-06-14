@@ -29,6 +29,7 @@ const modrinthInst = {
   mrpack_summary: 'Kitchen-sink pack',
   mrpack_version_id: 'v60',
   integrity: null,
+  imported_from: null,
 };
 
 function okData(data: ModpackInstanceUpdate[]) {

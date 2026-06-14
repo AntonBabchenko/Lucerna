@@ -26,6 +26,7 @@
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
+    onOpenLauncherImport,
     running,
     installing,
     onPlay,
@@ -54,6 +55,9 @@
     // tied to the selected instance — installing a pack creates a new one — so
     // the entry point lives at the sidebar level, not as a per-instance tab.
     onOpenModpacks: () => void;
+    // Open the launcher-instance import dialog (step 1: discover/browse for
+    // existing launcher instances; step 2: pick content + name).
+    onOpenLauncherImport: () => void;
     // Launch-state inputs (moved here from the Overview pane in
     // +page.svelte). running !== null = MC is up; installing = an
     // install pipeline is in flight; otherwise the button morphs
@@ -355,6 +359,15 @@
           </span>
         {/if}
       </span>
+    </button>
+    <button
+      type="button"
+      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-accent-soft hover:border-accent"
+      data-testid="sidebar-open-launcher-import"
+      onclick={onOpenLauncherImport}
+    >
+      <Icon name="download" size={16} />
+      {$t('sidebar.importLauncher')}
     </button>
     <div class="flex gap-1">
       <button
