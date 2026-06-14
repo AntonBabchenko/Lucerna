@@ -287,14 +287,19 @@ describe('AddonsTab', () => {
         },
       ],
     });
-    render(AddonsTab, { props }); // fabric
-    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
-    // The banner shows momentarily (installed list starts empty) then hides once
-    // detection resolves — wait for the Iris button to disappear.
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
-    });
-    // Restore the factory default so later tests see an empty installed list.
-    vi.mocked(commands.modsListInstalled).mockResolvedValue({ status: 'ok', data: [] });
+    try {
+      render(AddonsTab, { props }); // fabric
+      await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+      // The banner shows momentarily (installed list starts empty) then hides
+      // once detection resolves — wait for the Iris button to disappear.
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
+      });
+    } finally {
+      // Restore the factory default even if an assertion throws, so a failure
+      // here cannot cascade into later tests (afterEach's clearAllMocks does
+      // not reset mock implementations).
+      vi.mocked(commands.modsListInstalled).mockResolvedValue({ status: 'ok', data: [] });
+    }
   });
 });
