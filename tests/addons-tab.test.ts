@@ -282,8 +282,6 @@ describe('AddonsTab', () => {
           version_number: null,
           installed_at: '2026-06-14T00:00:00Z',
           enabled: true,
-          requires: [],
-          enrich_attempted: false,
         },
       ],
     });

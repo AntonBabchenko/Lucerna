@@ -193,11 +193,12 @@
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
   } = $props();
 
-  // Shader-loader detection. We load the instance's installed mods (only while
-  // the Shaders segment is active) and listen for install/uninstall/toggle so
-  // the hint disappears live once a working shader loader is present. The hint
-  // is purely informational, so a failed lookup is swallowed (worst case the
-  // hint shows when it could have been hidden).
+  // Shader-loader detection. The installed-mods lookup runs only while the
+  // Shaders segment is active and an instance is selected (guarded inside
+  // refreshInstalledShaderMods); the mod-event listeners fire on any change but
+  // no-op off the segment. Keeps the hint live so it disappears the moment a
+  // working shader loader is installed. Purely informational, so a failed
+  // lookup is swallowed (worst case the hint shows when it could have hidden).
   let installedShaderMods = $state<InstalledMod[]>([]);
 
   async function refreshInstalledShaderMods() {
