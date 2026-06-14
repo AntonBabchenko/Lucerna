@@ -1,6 +1,7 @@
 import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
+import type { DepTreeNode, DepViolation, PreflightReport } from '$lib/ipc/bindings';
+import DepTree from '$lib/mods/DepTree.svelte';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
 import { hasBlocking, toOverlayKeys } from '$lib/mods/preflight.svelte';
 
@@ -161,5 +162,54 @@ describe('PreflightPanel', () => {
     const updateButtons = getAllByRole('button');
     // Only outOfRangeViolation has a provider_project, so one Update button
     expect(updateButtons).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DepTree overlay — outOfRangeKeys replaces the green "installed" check
+// ---------------------------------------------------------------------------
+
+const satisfiedNode: DepTreeNode = {
+  source: 'modrinth',
+  project_id: 'core-id',
+  name: 'Sophisticated Core',
+  status: 'satisfied',
+  cycle: false,
+  children: [],
+};
+
+const treeProps = {
+  hoveredKey: null,
+  onHover: () => {},
+  onInstall: () => {},
+  onAdd: () => {},
+  onOpenDetail: () => {},
+};
+
+describe('DepTree overlay', () => {
+  it('shows treeOutOfRange text and hides installedStatus when key is in outOfRangeKeys', () => {
+    const outOfRangeKeys = new Set(['modrinth:core-id']);
+    const { getByText, queryByText } = render(DepTree, {
+      props: { nodes: [satisfiedNode], outOfRangeKeys, ...treeProps },
+    });
+    expect(getByText('version too old')).toBeTruthy();
+    expect(queryByText('installed')).toBeNull();
+  });
+
+  it('shows installedStatus (green check) when outOfRangeKeys is empty (default)', () => {
+    const { getByText, queryByText } = render(DepTree, {
+      props: { nodes: [satisfiedNode], ...treeProps },
+    });
+    expect(getByText('installed')).toBeTruthy();
+    expect(queryByText('version too old')).toBeNull();
+  });
+
+  it('shows installedStatus when outOfRangeKeys does not contain the node key', () => {
+    const outOfRangeKeys = new Set(['modrinth:some-other-id']);
+    const { getByText, queryByText } = render(DepTree, {
+      props: { nodes: [satisfiedNode], outOfRangeKeys, ...treeProps },
+    });
+    expect(getByText('installed')).toBeTruthy();
+    expect(queryByText('version too old')).toBeNull();
   });
 });

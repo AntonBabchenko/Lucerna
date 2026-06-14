@@ -7,6 +7,7 @@
 
   let {
     nodes,
+    outOfRangeKeys = new Set(),
     hoveredKey,
     onHover,
     onInstall,
@@ -15,6 +16,7 @@
     onOpenDetail,
   }: {
     nodes: DepTreeNode[];
+    outOfRangeKeys?: Set<string>;
     hoveredKey: string | null;
     onHover: (key: string | null) => void;
     onInstall: (node: DepTreeNode) => void;
@@ -62,7 +64,11 @@
             onclick={() => onJump(n)}><Icon name="arrowUpRight" size={12} /></button
           >
         {/if}
-        {#if n.status === 'satisfied' || n.status === 'optional_present'}
+        {#if outOfRangeKeys.has(keyOf(n))}
+          <span class="inline-flex items-center gap-1 text-danger"
+            ><Icon name="circleX" size={12} />{$t('mods.preflight.treeOutOfRange')}</span
+          >
+        {:else if n.status === 'satisfied' || n.status === 'optional_present'}
           <span class="inline-flex items-center gap-1 text-success"
             ><Icon name="success" size={12} />{$t('mods.deps.installedStatus')}</span
           >
@@ -93,6 +99,7 @@
         <div class="ml-4 border-l border-border-subtle pl-3">
           <Self
             nodes={n.children}
+            {outOfRangeKeys}
             {hoveredKey}
             {onHover}
             {onInstall}

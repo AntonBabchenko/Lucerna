@@ -14,6 +14,7 @@
     onInstall,
     onJump,
     onOpenDetail,
+    outOfRangeKeys = new Set(),
   }: {
     root: DepRoot;
     requiredBy: RequiredByEntry[];
@@ -22,6 +23,7 @@
     onInstall: (node: DepTreeNode) => void;
     onJump: (target: { source: ModSource; project_id: string }) => void;
     onOpenDetail: (source: ModSource, projectId: string) => void;
+    outOfRangeKeys?: Set<string>;
   } = $props();
 </script>
 
@@ -38,6 +40,7 @@
     </div>
     <DepTree
       nodes={root.required}
+      {outOfRangeKeys}
       {hoveredKey}
       {onHover}
       {onInstall}
@@ -52,6 +55,7 @@
     </div>
     <DepTree
       nodes={root.optional}
+      {outOfRangeKeys}
       {hoveredKey}
       {onHover}
       {onInstall}

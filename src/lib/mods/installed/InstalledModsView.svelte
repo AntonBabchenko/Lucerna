@@ -23,7 +23,7 @@
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
-  import { createPreflight } from '$lib/mods/preflight.svelte';
+  import { createPreflight, toOverlayKeys } from '$lib/mods/preflight.svelte';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
@@ -71,6 +71,9 @@
     },
   );
   const preflight = createPreflight(() => instanceId);
+  const outOfRangeKeys = $derived(
+    toOverlayKeys(preflight.report ?? { violations: [] }),
+  );
   const selection = createInstalledSelection(
     () => filters.filtered,
     () => instanceId,
@@ -325,6 +328,7 @@
             ? compatTitle(row.installed.sha1)
             : null}
           selected={selection.selected.has(row.installed.sha1)}
+          {outOfRangeKeys}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
           onHover={(k) => (deps.hoveredKey = k)}
           onOpenDetail={() => {
