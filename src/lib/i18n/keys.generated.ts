@@ -22,6 +22,7 @@ export type TranslationKey =
   | 'addons.kindShaders'
   | 'addons.kindSwitchAria'
   | 'addons.shaderLoaderHint.intro'
+  | 'addons.shaderLoaderHint.introOne'
   | 'addons.shaderLoaderHint.iris'
   | 'addons.shaderLoaderHint.oculus'
   | 'addons.shaderLoaderHint.optifine'

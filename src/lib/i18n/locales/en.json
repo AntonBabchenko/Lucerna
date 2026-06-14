@@ -454,6 +454,7 @@
     },
     "shaderLoaderHint": {
       "intro": "Shaders need a shader loader to run — install one:",
+      "introOne": "Shaders need a shader loader to run — install:",
       "iris": "Iris",
       "oculus": "Oculus",
       "or": "or",

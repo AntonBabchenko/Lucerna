@@ -118,6 +118,7 @@ describe('AddonsTab', () => {
     });
     expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
     expect(screen.getByText(/Minecraft 1\.20\.1/)).toBeTruthy();
+    expect(screen.getByText('Shaders need a shader loader to run — install:')).toBeTruthy();
   });
 
   it('with no instance offers all three loaders and asks to pick an instance', async () => {
@@ -236,6 +237,7 @@ describe('AddonsTab', () => {
     });
     expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
+    expect(screen.getByText('Shaders need a shader loader to run — install one:')).toBeTruthy();
   });
 
   it('on NeoForge offers Iris and Oculus but not OptiFine', async () => {

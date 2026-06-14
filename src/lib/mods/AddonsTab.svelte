@@ -460,7 +460,11 @@
         class="bg-accent/10 border border-accent/40 text-secondary text-sm rounded p-2 space-y-1.5"
         role="note"
       >
-        <p>{$t('addons.shaderLoaderHint.intro')}</p>
+        <p>
+          {shaderOptions.length === 1
+            ? $t('addons.shaderLoaderHint.introOne')
+            : $t('addons.shaderLoaderHint.intro')}
+        </p>
         <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
           {#each shaderOptions as id, i (id)}
             {#if i > 0}
