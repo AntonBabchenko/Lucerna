@@ -148,3 +148,38 @@ describe('Sidebar — instance section buttons', () => {
     expect(btn).toHaveBtnSize('xs');
   });
 });
+
+// The sidebar's action buttons carry visible text labels, so their accessible
+// names come from the text — the icons are decorative (aria-hidden). These
+// guard that each button actually renders its icon alongside the label.
+describe('Sidebar — button icons', () => {
+  it('Add offline button shows an icon', () => {
+    render(Sidebar, { props: baseProps });
+    const btn = screen.getByRole('button', { name: /add offline/i });
+    expect(btn.querySelector('svg')).not.toBeNull();
+  });
+
+  it('Remove button shows an icon', () => {
+    render(Sidebar, { props: baseProps });
+    const btn = screen.getByRole('button', { name: /^remove$/i });
+    expect(btn.querySelector('svg')).not.toBeNull();
+  });
+
+  it('Play button shows an icon', () => {
+    render(Sidebar, { props: { ...baseProps, activeInstance: instance({ ready: true }) } });
+    const btn = screen.getByRole('button', { name: 'Play' });
+    expect(btn.querySelector('svg')).not.toBeNull();
+  });
+
+  it('Stop button shows an icon', () => {
+    render(Sidebar, {
+      props: {
+        ...baseProps,
+        activeInstance: instance({ ready: true }),
+        running: { version_id: '1.20.4', pid: 1234 },
+      },
+    });
+    const btn = screen.getByRole('button', { name: 'Stop' });
+    expect(btn.querySelector('svg')).not.toBeNull();
+  });
+});
