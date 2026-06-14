@@ -337,6 +337,7 @@ export type TranslationKey =
   | 'modpacks.browse.sortNewest'
   | 'modpacks.browse.sortRelevance'
   | 'modpacks.browse.sortUpdated'
+  | 'modpacks.card.byAuthor'
   | 'modpacks.card.distributionDisabled'
   | 'modpacks.card.distributionDisabledShort'
   | 'modpacks.card.downloads'

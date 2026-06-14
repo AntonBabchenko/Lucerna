@@ -136,6 +136,7 @@ pub(crate) async fn search_impl(
                     supported_loaders,
                     source: ModSource::Ftb,
                     distribution_allowed: None,
+                    author: detail.authors.first().map(|a| a.name.clone()),
                 });
             }
         }
@@ -851,6 +852,7 @@ mod tests {
         assert_eq!(hit.source, ModSource::Ftb);
         assert_eq!(hit.project_id, "91");
         assert_eq!(hit.title, "Pack 91");
+        assert_eq!(hit.author.as_deref(), Some("Test Author"));
         assert_eq!(hit.latest_mc_version, Some("1.16.5".to_string()));
         assert!(
             hit.supported_loaders.contains(&LoaderKind::Forge),

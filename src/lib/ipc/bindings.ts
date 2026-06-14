@@ -1638,6 +1638,13 @@ export type ModpackHit = {
 	 *  downloads — the UI surfaces an "Open on CurseForge" fallback.
 	 */
 	distribution_allowed: boolean | null,
+	/**
+	 *  Display name of the pack author/owner, when the source's listing
+	 *  exposes one. `None` for sources that omit it (ATLauncher's public
+	 *  catalogue) — the card then shows no author line. Modrinth: search
+	 *  `author` (project owner). FTB: first entry of the pack's `authors`.
+	 */
+	author: string | null,
 };
 
 /**  One batch entry: an instance id paired with its resolved status. */

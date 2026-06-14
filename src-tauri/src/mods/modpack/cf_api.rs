@@ -265,6 +265,10 @@ pub async fn search(
             supported_loaders: vec![],
             source: ModSource::Curseforge,
             distribution_allowed: m.allow_mod_distribution,
+            // CurseForge modpack browse is not wired into the UI (CF packs
+            // are import-by-file only), so the author is left unset here
+            // rather than adding CF-only deserialization.
+            author: None,
         })
         .collect();
     Ok(ModpackSearchPage {

@@ -32,6 +32,7 @@ const baseHit: ModpackHit = {
   supported_loaders: [],
   source: 'curseforge',
   distribution_allowed: null,
+  author: null,
 };
 
 describe('ModpackDetailModal', () => {

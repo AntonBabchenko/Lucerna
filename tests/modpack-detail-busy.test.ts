@@ -45,6 +45,7 @@ const baseHit: ModpackHit = {
   supported_loaders: [],
   source: 'modrinth',
   distribution_allowed: null,
+  author: null,
 };
 
 describe('ModpackDetailModal install busy state', () => {
