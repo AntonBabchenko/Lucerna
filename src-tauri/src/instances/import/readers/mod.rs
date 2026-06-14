@@ -3,6 +3,7 @@
 //! manual-folder detection.
 
 pub mod prism;
+pub mod profile;
 pub mod raw_minecraft;
 
 use std::path::{Path, PathBuf};
