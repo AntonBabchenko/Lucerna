@@ -12,7 +12,7 @@ pub fn discover_all() -> Vec<ForeignInstance> {
     let mut out = Vec::new();
     for reader in structured_readers() {
         for root in reader.default_roots() {
-            out.extend(scan_root_with(&*reader, &root));
+            out.extend(reader.expand_root(&root));
         }
     }
     out
@@ -21,23 +21,11 @@ pub fn discover_all() -> Vec<ForeignInstance> {
 /// Scan one root with every structured reader (used by tests and by a
 /// user-pointed launcher root). Public for `discover_all` + tests.
 pub fn scan_root(root: &Path) -> Vec<ForeignInstance> {
-    let readers = structured_readers();
     let mut out = Vec::new();
-    for reader in &readers {
-        out.extend(scan_root_with(&**reader, root));
+    for reader in structured_readers() {
+        out.extend(reader.expand_root(root));
     }
     out
-}
-
-fn scan_root_with(reader: &dyn LauncherReader, root: &Path) -> Vec<ForeignInstance> {
-    let Ok(rd) = std::fs::read_dir(root) else {
-        return vec![];
-    };
-    rd.flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir() && reader.detect(p))
-        .filter_map(|p| reader.read(&p).ok())
-        .collect()
 }
 
 /// Detect a single user-picked folder. Tries structured readers first,
