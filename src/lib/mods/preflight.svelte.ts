@@ -1,4 +1,10 @@
-import { commands, type DepProjectRef, type PreflightReport } from '$lib/ipc/bindings';
+import {
+  commands,
+  type DepProjectRef,
+  type DepViolation,
+  type LoaderKind,
+  type PreflightReport,
+} from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { preflightCache } from './preflight-cache';
 
@@ -38,6 +44,95 @@ function depProjectRefKey(ref: DepProjectRef): string {
  */
 export function hasBlocking(report: PreflightReport): boolean {
   return report.violations.length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Remediation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a `{ source, project_id }` pair from a `DepProjectRef` in the same
+ * string key format used by `depProjectRefKey` (curseforge uses `mod_id`).
+ */
+function depRefToIds(ref: DepProjectRef): { source: 'modrinth' | 'curseforge'; projectId: string } {
+  if (ref.source === 'modrinth') {
+    return { source: 'modrinth', projectId: ref.project_id };
+  }
+  return { source: 'curseforge', projectId: String(ref.mod_id) };
+}
+
+/**
+ * Attempt to resolve and install the newest compatible version for a single
+ * `version_out_of_range` violation that has a `provider_project`.
+ *
+ * v1 simplification: picks `vr.data[0]` (modsVersions returns newest-compatible-
+ * first, identical to the installDepNode strategy). A rare "version too high"
+ * case won't be fixed, but the post-update re-check will surface it honestly.
+ *
+ * Fail semantics: returns `{ ok: false }` on any IPC error or when there is no
+ * resolvable version — never throws.
+ */
+export async function remediateViolation(
+  instanceId: string,
+  v: DepViolation,
+  mc: string,
+  loader: LoaderKind,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (v.provider_project === null) {
+    return { ok: false, reason: 'no-provider' };
+  }
+  const { source, projectId } = depRefToIds(v.provider_project);
+  const vr = await commands.modsVersions(source, projectId, mc, loader);
+  if (vr.status === 'error' || vr.data.length === 0) {
+    return { ok: false, reason: 'no-version' };
+  }
+  const primary = vr.data[0];
+  const res = await commands.modsInstallWithDeps(
+    instanceId,
+    { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
+    [],
+  );
+  return {
+    ok: res.status === 'ok',
+    reason: res.status === 'ok' ? undefined : 'install-failed',
+  };
+}
+
+/**
+ * Attempt to remediate all `version_out_of_range` violations with a
+ * `provider_project` in the given report. Runs sequentially (install-order
+ * safety). Returns the number of violations that were successfully updated.
+ */
+export async function remediateAll(
+  instanceId: string,
+  report: PreflightReport,
+  mc: string,
+  loader: LoaderKind,
+): Promise<number> {
+  let updated = 0;
+  for (const v of report.violations) {
+    if (v.kind !== 'version_out_of_range' || v.provider_project === null) continue;
+    const result = await remediateViolation(instanceId, v, mc, loader);
+    if (result.ok) updated++;
+  }
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Launch decision helper (pure, testable outside Svelte components)
+// ---------------------------------------------------------------------------
+
+/**
+ * Decide what the launch flow should do given the raw result of
+ * `instanceDependencyPreflight`. Returns:
+ * - `'gate'`   — block launch and show the gate dialog (blocking violations found)
+ * - `'launch'` — proceed with launch immediately (no violations, or check failed)
+ */
+export function decideLaunch(
+  preflightResult: { status: 'ok'; data: PreflightReport } | { status: 'error'; error: unknown },
+): 'gate' | 'launch' {
+  if (preflightResult.status !== 'ok') return 'launch'; // fail-open
+  return hasBlocking(preflightResult.data) ? 'gate' : 'launch';
 }
 
 // ---------------------------------------------------------------------------

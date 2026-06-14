@@ -23,7 +23,7 @@
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
-  import { createPreflight, toOverlayKeys } from '$lib/mods/preflight.svelte';
+  import { createPreflight, remediateViolation, toOverlayKeys } from '$lib/mods/preflight.svelte';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
@@ -82,9 +82,21 @@
     deps.invalidateGraph,
   );
 
-  // Placeholder for Task 12: one-click provider update from the pre-flight panel.
-  // TODO(Task 12): wire remediation — resolve newest compatible version and install.
-  const onPreflightUpdate = async (_v: DepViolation): Promise<void> => {};
+  // One-click remediation from the pre-flight panel: resolve newest compatible
+  // version for the violation's provider project and install it, then refresh
+  // the panel. Shows a toast on success or failure (mirrors installDepNode).
+  const onPreflightUpdate = async (v: DepViolation): Promise<void> => {
+    if (!instanceId || !mcVersion || !loader) return;
+    const result = await remediateViolation(instanceId, v, mcVersion, loader);
+    if (result.ok) {
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: v.dep_display_name ?? v.dep_id }));
+    } else {
+      pushWarning(get(t)('mods.browse.toastInstallFailed'));
+    }
+    preflight.invalidate();
+    deps.invalidateGraph();
+    await data.refresh();
+  };
 
   // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
   // for interpolation, which the composable does not own).

@@ -36,6 +36,9 @@
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
+  import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
+  import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
+  import type { PreflightReport } from '$lib/ipc/bindings';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -112,6 +115,10 @@
   let quickPlaySupported = $state(false);
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
+
+  // Pre-flight gate: populated when hasBlocking violations are found before launch.
+  let gateReport = $state<PreflightReport | null>(null);
+  let gateBusy = $state(false);
 
   let logsOpen = $state(false);
   let logsInitialPath = $state<string | null>(null);
@@ -421,6 +428,19 @@
     }
   }
 
+  // Shared launch path: used by the normal (no violations) flow AND by
+  // the gate dialog's "Launch anyway" / post-update path.
+  async function doLaunch() {
+    if (!activeInstance) return;
+    installError = null;
+    const result = await commands.launchInstance(activeInstance.id, null);
+    if (result.status === 'error') {
+      installError = formatError(result.error);
+    }
+    // processSpawned event sets `running` once MC starts; processExited
+    // clears it. No need to refresh state here.
+  }
+
   async function onPlay() {
     if (!activeInstance) return;
     // No account = the game can't launch. Instead of the backend's terse
@@ -432,13 +452,38 @@
     }
     if (activeInstance.mc_version === '') return;
     if (!activeInstance.ready) return;
-    installError = null;
-    const result = await commands.launchInstance(activeInstance.id, null);
-    if (result.status === 'error') {
-      installError = formatError(result.error);
+
+    // Dependency pre-flight: check for blocking violations before launch.
+    // Fail-open: if the command errors, proceed normally (decideLaunch returns 'launch').
+    const pr = await commands.instanceDependencyPreflight(activeInstance.id);
+    if (decideLaunch(pr) === 'gate') {
+      // pr.status === 'ok' is guaranteed here (decideLaunch only returns 'gate' on ok+violations)
+      gateReport = (pr as { status: 'ok'; data: PreflightReport }).data;
+      return;
     }
-    // processSpawned event sets `running` once MC starts; processExited
-    // clears it. No need to refresh state here.
+
+    await doLaunch();
+  }
+
+  // Gate dialog handlers
+  async function onGateLaunchAnyway() {
+    gateReport = null;
+    await doLaunch();
+  }
+
+  async function onGateUpdateLaunch() {
+    if (!activeInstance || !gateReport) return;
+    gateBusy = true;
+    const loader = activeInstance.loader;
+    const mc = activeInstance.mc_version;
+    await remediateAll(activeInstance.id, gateReport, mc, loader);
+    gateBusy = false;
+    gateReport = null;
+    await doLaunch();
+  }
+
+  function onGateCancel() {
+    gateReport = null;
   }
 
   async function onQuickPlayWorld(folderName: string) {
@@ -716,6 +761,15 @@
     onJoin={onQuickJoin}
     onClose={() => (quickJoinOpen = false)}
   />
+  {#if gateReport}
+    <PreflightGateDialog
+      report={gateReport}
+      busy={gateBusy}
+      onUpdateLaunch={onGateUpdateLaunch}
+      onLaunchAnyway={onGateLaunchAnyway}
+      onCancel={onGateCancel}
+    />
+  {/if}
   {#if exportDialogOpen && activeInstance}
     <ExportPackDialog
       instanceId={activeInstance.id}
