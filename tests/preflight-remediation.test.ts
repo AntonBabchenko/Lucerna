@@ -236,6 +236,19 @@ describe('remediateAll', () => {
     // missingViolation is skipped (no provider), modrinth+cf both succeed → 2
     expect(count).toBe(2);
   });
+
+  it('returns 0 when all remediateViolation calls fail (e.g. offline / no compatible version)', async () => {
+    // Both providers return an error (network offline, etc.)
+    mocks.modsVersions.mockResolvedValue({ status: 'error', error: 'network failure' });
+
+    const report: PreflightReport = {
+      violations: [modrinthViolation, curseforgeViolation],
+    };
+    const count = await remediateAll('inst-1', report, '1.20.1', 'fabric');
+    // modsVersions errors → remediateViolation returns { ok: false } for both → 0 updated
+    expect(count).toBe(0);
+    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

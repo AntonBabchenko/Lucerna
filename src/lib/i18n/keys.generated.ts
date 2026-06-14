@@ -720,6 +720,7 @@ export type TranslationKey =
   | 'mods.preflight.panelTitle'
   | 'mods.preflight.treeOutOfRange'
   | 'mods.preflight.update'
+  | 'mods.preflight.updateFailed'
   | 'mods.source.ariaLabel'
   | 'mods.source.label'
   | 'nav.addons'

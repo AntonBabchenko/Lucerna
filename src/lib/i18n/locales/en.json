@@ -448,7 +448,8 @@
       "gateLaunchAnyway": "Launch anyway",
       "gateCancel": "Cancel",
       "treeOutOfRange": "version too old",
-      "checkFailed": "Couldn't check compatibility"
+      "checkFailed": "Couldn't check compatibility",
+      "updateFailed": "No compatible update was available — nothing was changed."
     }
   },
   "addons": {

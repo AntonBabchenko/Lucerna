@@ -476,8 +476,14 @@
     gateBusy = true;
     const loader = activeInstance.loader;
     const mc = activeInstance.mc_version;
-    await remediateAll(activeInstance.id, gateReport, mc, loader);
+    const updated = await remediateAll(activeInstance.id, gateReport, mc, loader);
     gateBusy = false;
+    if (updated === 0) {
+      // Nothing was fixed (offline, no compatible version, etc.) — keep the gate
+      // dialog open so the user can choose "Launch anyway" or "Cancel" explicitly.
+      pushWarning(get(t)('mods.preflight.updateFailed'));
+      return;
+    }
     gateReport = null;
     await doLaunch();
   }
