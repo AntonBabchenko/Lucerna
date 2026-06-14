@@ -187,15 +187,122 @@ fn opt(s: &str) -> Option<String> {
     }
 }
 
-// predicate_satisfies is a stub here — implemented in Task 3.
-fn predicate_satisfies(_installed: &str, _pred: &str, _is_quilt: bool) -> Satisfaction {
-    Satisfaction::Unknown
+/// Fabric/Quilt semver predicate. `is_quilt` flips the bare-version rule:
+/// Fabric bare `1.0.0` = exact; Quilt bare `1.0.0` = caret (`>=1.0.0 <2.0.0`).
+/// Top-level OR is split on a synthetic ` || ` the reader inserts for arrays;
+/// within one alternative, space-separated terms are AND-ed.
+fn predicate_satisfies(installed: &str, pred: &str, is_quilt: bool) -> Satisfaction {
+    let pred = pred.trim();
+    if pred.is_empty() || pred == "*" {
+        return Satisfaction::Satisfied;
+    }
+    let mut any_unknown = false;
+    for alt in pred.split("||") {
+        match alternative_holds(installed, alt.trim(), is_quilt) {
+            Satisfaction::Satisfied => return Satisfaction::Satisfied,
+            Satisfaction::Unknown => any_unknown = true,
+            Satisfaction::Violated => {}
+        }
+    }
+    if any_unknown {
+        Satisfaction::Unknown
+    } else {
+        Satisfaction::Violated
+    }
+}
+
+fn alternative_holds(installed: &str, alt: &str, is_quilt: bool) -> Satisfaction {
+    let mut any_unknown = false;
+    for term in alt.split_whitespace() {
+        match term_holds(installed, term, is_quilt) {
+            Satisfaction::Satisfied => {}
+            Satisfaction::Violated => return Satisfaction::Violated,
+            Satisfaction::Unknown => any_unknown = true,
+        }
+    }
+    if any_unknown {
+        Satisfaction::Unknown
+    } else {
+        Satisfaction::Satisfied
+    }
+}
+
+fn term_holds(installed: &str, term: &str, is_quilt: bool) -> Satisfaction {
+    let (op, ver) = if let Some(v) = term.strip_prefix(">=") {
+        (">=", v)
+    } else if let Some(v) = term.strip_prefix("<=") {
+        ("<=", v)
+    } else if let Some(v) = term.strip_prefix('>') {
+        (">", v)
+    } else if let Some(v) = term.strip_prefix('<') {
+        ("<", v)
+    } else if let Some(v) = term.strip_prefix('=') {
+        ("=", v)
+    } else if let Some(v) = term.strip_prefix('^') {
+        ("^", v)
+    } else if let Some(v) = term.strip_prefix('~') {
+        ("~", v)
+    } else {
+        // bare
+        if is_quilt {
+            ("^", term) // Quilt bare = caret
+        } else {
+            ("=", term) // Fabric bare = exact
+        }
+    };
+    // x-range (e.g. 1.2.x) — treat as caret on the fixed prefix; conservative
+    // fallback to Unknown if it contains a wildcard we don't model precisely.
+    if ver.contains('x') || ver.contains('X') || ver.contains('*') {
+        return Satisfaction::Unknown;
+    }
+    let c = compare_numeric(installed, ver);
+    if c == Cmp::Unknown {
+        return Satisfaction::Unknown;
+    }
+    match op {
+        "=" => bool_sat(c == Cmp::Equal),
+        ">=" => bool_sat(c != Cmp::Less),
+        ">" => bool_sat(c == Cmp::Greater),
+        "<=" => bool_sat(c != Cmp::Greater),
+        "<" => bool_sat(c == Cmp::Less),
+        "^" => caret_or_tilde(installed, ver, true),
+        "~" => caret_or_tilde(installed, ver, false),
+        _ => Satisfaction::Unknown,
+    }
+}
+
+fn bool_sat(b: bool) -> Satisfaction {
+    if b {
+        Satisfaction::Satisfied
+    } else {
+        Satisfaction::Violated
+    }
+}
+
+/// `^a.b.c` = `>=a.b.c <(a+1).0.0`; `~a.b.c` = `>=a.b.c <a.(b+1).0`.
+fn caret_or_tilde(installed: &str, base: &str, caret: bool) -> Satisfaction {
+    if compare_numeric(installed, base) == Cmp::Less {
+        return Satisfaction::Violated;
+    }
+    let parts: Vec<&str> = base.split('.').collect();
+    let major = parts.first().and_then(|s| s.parse::<u64>().ok());
+    let minor = parts.get(1).and_then(|s| s.parse::<u64>().ok());
+    let upper = match (caret, major, minor) {
+        (true, Some(m), _) => format!("{}.0.0", m + 1),
+        (false, Some(m), Some(n)) => format!("{}.{}.0", m, n + 1),
+        _ => return Satisfaction::Unknown,
+    };
+    match compare_numeric(installed, &upper) {
+        Cmp::Less => Satisfaction::Satisfied,
+        Cmp::Unknown => Satisfaction::Unknown,
+        _ => Satisfaction::Violated,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use RangeFamily::Maven;
+    use RangeFamily::{FabricPredicate, Maven, QuiltPredicate};
 
     #[test]
     fn numeric_compare_orders_the_real_bug_case() {
@@ -269,5 +376,50 @@ mod tests {
             satisfies("1.0.0-beta", "[1.0.0,)", Maven),
             Satisfaction::Unknown
         );
+    }
+
+    #[test]
+    fn fabric_bare_is_exact_quilt_bare_is_caret() {
+        // Same input string "1.0.0", different families:
+        assert_eq!(
+            satisfies("1.4.0", "1.0.0", FabricPredicate),
+            Satisfaction::Violated
+        ); // exact
+        assert_eq!(
+            satisfies("1.4.0", "1.0.0", QuiltPredicate),
+            Satisfaction::Satisfied
+        ); // caret <2.0.0
+        assert_eq!(
+            satisfies("2.0.0", "1.0.0", QuiltPredicate),
+            Satisfaction::Violated
+        ); // caret upper
+    }
+
+    #[test]
+    fn fabric_operators_and_star() {
+        assert_eq!(
+            satisfies("0.15.0", ">=0.15", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        assert_eq!(
+            satisfies("0.14.0", ">=0.15", FabricPredicate),
+            Satisfaction::Violated
+        );
+        assert_eq!(
+            satisfies("9.9.9", "*", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+    }
+
+    #[test]
+    fn predicate_or_and_xrange_unknown() {
+        assert_eq!(
+            satisfies("3.0.0", ">=1.0.0 <2.0.0 || >=3.0.0", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        assert_eq!(
+            satisfies("1.2.5", "1.2.x", FabricPredicate),
+            Satisfaction::Unknown
+        ); // x-range → silent
     }
 }
