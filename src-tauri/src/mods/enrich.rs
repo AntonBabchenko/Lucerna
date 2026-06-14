@@ -263,6 +263,91 @@ async fn resolve_curseforge(
     (out, true)
 }
 
+/// Shared hash-enrichment body for a fixed set of in-scope mods. Builds
+/// the SHA-1 list (Modrinth) and `(Murmur2, SHA-1)` fingerprint pairs
+/// (CurseForge) from the on-disk jars, batch-queries Modrinth and — when
+/// a CurseForge key is supplied — CurseForge, merges per-jar with the
+/// `home`-platform tie-break, computes the `attempted` set (gated on
+/// every TRIED platform returning a parsed-OK response), persists the
+/// recovered identities, and returns the count newly resolved.
+///
+/// This is the reusable core behind both public entries:
+/// `enrich_instance` (modpack-origin scope, `home = pack_origin.source`)
+/// and `enrich_untracked` (all untracked mods, `home = Modrinth`). A
+/// no-op (`Ok(0)`) when `in_scope` is empty. Best-effort: network
+/// failures degrade to "no match"; only a registry write failure is
+/// `Err`.
+async fn enrich_selected(
+    instance_root: &Path,
+    in_scope: &[&InstalledMod],
+    home: ModSource,
+    modrinth_base: &str,
+    cf_base: &str,
+    cf_key: Option<&str>,
+) -> Result<u32, Error> {
+    if in_scope.is_empty() {
+        return Ok(0);
+    }
+
+    // SHA-1s for the Modrinth query; (Murmur2, SHA-1) pairs for CF. The
+    // jar on disk is `filename` (enabled) or `filename.disabled`.
+    let mods_dir = installed::mods_dir(instance_root);
+    let shas: Vec<String> = in_scope
+        .iter()
+        .map(|m| m.sha1.to_ascii_lowercase())
+        .collect();
+    let mut fingerprints: Vec<(u32, String)> = Vec::new();
+    for m in in_scope {
+        let path = if m.enabled {
+            mods_dir.join(&m.filename)
+        } else {
+            mods_dir.join(format!("{}.disabled", m.filename))
+        };
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => {
+                fingerprints.push((curseforge_fingerprint(&bytes), m.sha1.to_ascii_lowercase()));
+            }
+            Err(e) => {
+                eprintln!(
+                    "[enrich] cannot read {} for fingerprinting: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    let cf_tried = cf_key.is_some();
+    let (mr, mr_ok) = resolve_modrinth(modrinth_base, &shas).await;
+    let (cf, cf_ok) = match cf_key {
+        Some(k) => resolve_curseforge(cf_base, k, &fingerprints).await,
+        None => (HashMap::new(), true),
+    };
+
+    let mut resolved: HashMap<String, VersionRef> = HashMap::new();
+    for m in in_scope {
+        let key = m.sha1.to_ascii_lowercase();
+        if let Some(id) = pick_identity(mr.get(&key).cloned(), cf.get(&key).cloned(), home) {
+            resolved.insert(key, id);
+        }
+    }
+
+    // `attempted` gates on whether every platform we TRIED in this pass
+    // succeeded with a parsed-OK response. A platform we did not query
+    // (CF when `cf_key.is_none()`) does not count as tried. When any
+    // tried platform failed, no mod gets the attempted flag — the next
+    // pass retries. The `resolved` map is written back regardless so
+    // partial-success identities (Modrinth hit while CF was down) still
+    // land. (Spec §1-§2.)
+    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
+    let attempted: HashSet<String> = if all_tried_succeeded {
+        shas.into_iter().collect()
+    } else {
+        HashSet::new()
+    };
+    installed::apply_enrichment(instance_root, &resolved, &attempted).await?;
+    Ok(resolved.len() as u32)
+}
+
 /// Hash-enrich an instance's modpack override-bundled mods. Reads the
 /// registry, selects the in-scope mods (see "Scope" in the plan),
 /// batch-queries Modrinth and — when a CurseForge key is supplied —
@@ -292,68 +377,58 @@ pub async fn enrich_instance(
                 && crate::mods::updates::is_pack_origin_mod(m, Some(&pack_origin))
         })
         .collect();
-    if in_scope.is_empty() {
-        return Ok(0);
-    }
 
-    // SHA-1s for the Modrinth query; (Murmur2, SHA-1) pairs for CF. The
-    // jar on disk is `filename` (enabled) or `filename.disabled`.
-    let mods_dir = installed::mods_dir(instance_root);
-    let shas: Vec<String> = in_scope
+    enrich_selected(
+        instance_root,
+        &in_scope,
+        pack_origin.source,
+        modrinth_base,
+        cf_base,
+        cf_key,
+    )
+    .await
+}
+
+/// Hash-enrich EVERY untracked mod in an instance, regardless of
+/// `pack_origin`. This is the launcher-import counterpart to
+/// [`enrich_instance`]: instances imported from another launcher (Prism,
+/// a generic `.minecraft`) have no `pack_origin` and their loose jars
+/// land `source = None`, so they rely entirely on hash-enrich to recover
+/// a Modrinth/CurseForge identity (the headline goal — per-mod updates).
+/// `enrich_instance` would no-op for them because it gates on
+/// `pack_origin`; this entry does not.
+///
+/// Selects in-scope = every mod with `source.is_none() &&
+/// !enrich_attempted` (no pack-origin filter, no pack_origin
+/// requirement) and uses `home = Modrinth` as the tie-break when a jar
+/// matches on both platforms (sensible default for imports — prefer the
+/// open API). Returns the number of mods newly resolved. Best-effort: a
+/// missing `pack_origin` never short-circuits it; network failures
+/// degrade to "no match"; only a registry read/write failure is `Err`.
+pub async fn enrich_untracked(
+    instance_root: &Path,
+    modrinth_base: &str,
+    cf_base: &str,
+    cf_key: Option<&str>,
+) -> Result<u32, Error> {
+    // `list` reconciles `mods/` into the registry, so loose jars that
+    // landed source=None are present before we select.
+    let installed_mods = installed::list(instance_root).await?;
+
+    let in_scope: Vec<&InstalledMod> = installed_mods
         .iter()
-        .map(|m| m.sha1.to_ascii_lowercase())
+        .filter(|m| m.source.is_none() && !m.enrich_attempted)
         .collect();
-    let mut fingerprints: Vec<(u32, String)> = Vec::new();
-    for m in &in_scope {
-        let path = if m.enabled {
-            mods_dir.join(&m.filename)
-        } else {
-            mods_dir.join(format!("{}.disabled", m.filename))
-        };
-        match tokio::fs::read(&path).await {
-            Ok(bytes) => {
-                fingerprints.push((curseforge_fingerprint(&bytes), m.sha1.to_ascii_lowercase()));
-            }
-            Err(e) => {
-                eprintln!(
-                    "[enrich] cannot read {} for fingerprinting: {e}",
-                    path.display()
-                );
-            }
-        }
-    }
 
-    let cf_tried = cf_key.is_some();
-    let (mr, mr_ok) = resolve_modrinth(modrinth_base, &shas).await;
-    let (cf, cf_ok) = match cf_key {
-        Some(k) => resolve_curseforge(cf_base, k, &fingerprints).await,
-        None => (HashMap::new(), true),
-    };
-
-    let home = pack_origin.source;
-    let mut resolved: HashMap<String, VersionRef> = HashMap::new();
-    for m in &in_scope {
-        let key = m.sha1.to_ascii_lowercase();
-        if let Some(id) = pick_identity(mr.get(&key).cloned(), cf.get(&key).cloned(), home) {
-            resolved.insert(key, id);
-        }
-    }
-
-    // `attempted` gates on whether every platform we TRIED in this pass
-    // succeeded with a parsed-OK response. A platform we did not query
-    // (CF when `cf_key.is_none()`) does not count as tried. When any
-    // tried platform failed, no mod gets the attempted flag — the next
-    // pass retries. The `resolved` map is written back regardless so
-    // partial-success identities (Modrinth hit while CF was down) still
-    // land. (Spec §1-§2.)
-    let all_tried_succeeded = mr_ok && (!cf_tried || cf_ok);
-    let attempted: HashSet<String> = if all_tried_succeeded {
-        shas.into_iter().collect()
-    } else {
-        HashSet::new()
-    };
-    installed::apply_enrichment(instance_root, &resolved, &attempted).await?;
-    Ok(resolved.len() as u32)
+    enrich_selected(
+        instance_root,
+        &in_scope,
+        ModSource::Modrinth,
+        modrinth_base,
+        cf_base,
+        cf_key,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -774,6 +849,52 @@ mod tests {
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(n, 1);
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert_eq!(m.source, Some(ModSource::Modrinth));
+        assert_eq!(m.project_id.as_deref(), Some("MR-PROJ"));
+        assert_eq!(m.version_id.as_deref(), Some("MR-VER"));
+        assert!(m.enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn enrich_untracked_resolves_a_loose_mod_without_pack_origin() {
+        // The launcher-import scenario: a loose jar copied from another
+        // launcher lands in the registry as source=None with NO
+        // pack_origin. enrich_instance would no-op (it gates on
+        // pack_origin); enrich_untracked must still recover the identity.
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
+        // No set_pack_origin — a launcher-imported / manually-built instance.
+
+        let mr = MockServer::start().await;
+        let mut map = serde_json::Map::new();
+        map.insert(
+            sha.clone(),
+            serde_json::json!({ "id": "MR-VER", "project_id": "MR-PROJ" }),
+        );
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
+            .mount(&mr)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // Sanity: the pack-origin-gated entry is a no-op here.
+        let gated = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
+            .await
+            .unwrap();
+        let n = enrich_untracked(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        assert_eq!(gated, 0, "enrich_instance must no-op without pack_origin");
+        assert_eq!(n, 1, "enrich_untracked must recover the loose mod");
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
             .iter()

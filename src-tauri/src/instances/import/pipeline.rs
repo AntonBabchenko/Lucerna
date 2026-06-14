@@ -204,8 +204,10 @@ pub async fn run_import(
         let records = build_installed_records(&jars, &foreign.known_mods, &now_rfc3339());
         crate::mods::installed::register_imported_mods(&instance_root, records).await?;
         // Best-effort hash-enrich for the untracked ones (never blocks).
+        // Launcher-imported instances have no pack_origin, so we use the
+        // pack-origin-agnostic entry — `enrich_instance` would no-op here.
         let _ =
-            crate::mods::enrich::enrich_instance(&instance_root, modrinth_base, cf_base, cf_key)
+            crate::mods::enrich::enrich_untracked(&instance_root, modrinth_base, cf_base, cf_key)
                 .await;
         // Count untracked after enrich for an honest result.
         if let Ok(state) = crate::mods::installed::read_or_empty(&instance_root).await {
