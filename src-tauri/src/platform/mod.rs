@@ -21,6 +21,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
         if let Ok(appdata) = std::env::var("APPDATA") {
             let base = PathBuf::from(&appdata);
             roots.push(base.join("PrismLauncher").join("instances"));
+            roots.push(base.join("MultiMC").join("instances"));
             roots.push(base.join("PolyMC").join("instances"));
             roots.push(base.join("ATLauncher").join("instances"));
             roots.push(base.join("com.modrinth.theseus").join("profiles"));
@@ -33,7 +34,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
                     .join("Instances"),
             );
         }
-        roots
+        return roots;
     }
     #[cfg(target_os = "linux")]
     {
@@ -41,23 +42,26 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
         if let Ok(home) = std::env::var("HOME") {
             let base = PathBuf::from(&home);
             roots.push(base.join(".local/share/PrismLauncher/instances"));
+            roots.push(base.join(".local/share/multimc/instances"));
             roots.push(base.join(".local/share/PolyMC/instances"));
             roots.push(
                 base.join(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"),
             );
         }
-        roots
+        return roots;
     }
     #[cfg(target_os = "macos")]
     {
         let mut roots = Vec::new();
         if let Ok(home) = std::env::var("HOME") {
-            roots.push(
-                PathBuf::from(&home).join("Library/Application Support/PrismLauncher/instances"),
-            );
+            let base = PathBuf::from(&home);
+            roots.push(base.join("Library/Application Support/PrismLauncher/instances"));
+            roots.push(base.join("Library/Application Support/MultiMC/instances"));
         }
-        roots
+        return roots;
     }
+    #[allow(unreachable_code)]
+    vec![]
 }
 
 /// True iff this platform supports in-app self-update (download + verify +
