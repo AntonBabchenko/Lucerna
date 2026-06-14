@@ -61,7 +61,7 @@
     "noAccounts": "Нет аккаунтов — добавьте один ниже.",
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "офлайн",
-    "addOffline": "+ Добавить офлайн",
+    "addOffline": "Добавить офлайн",
     "removeAccount": "Удалить",
     "playerNamePlaceholder": "Имя игрока",
     "addAccountConfirm": "Добавить",

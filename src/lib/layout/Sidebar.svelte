@@ -146,9 +146,10 @@
     <div class="flex gap-1">
       <button
         type="button"
-        class="btn-secondary btn-xs flex-1"
+        class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
         onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
       >
+        <Icon name="userPlus" size={14} />
         {$t('sidebar.addOffline')}
       </button>
       <span
@@ -160,10 +161,11 @@
       >
         <button
           type="button"
-          class="btn-secondary btn-xs w-full"
+          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
           disabled={!activeAccount}
           onclick={onRemoveAccount}
         >
+          <Icon name="trash" size={14} />
           {$t('sidebar.removeAccount')}
         </button>
       </span>
@@ -237,7 +239,7 @@
           class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
           onclick={onOpenManage}
         >
-          <Icon name="settings" size={14} />
+          <Icon name="sliders" size={14} />
           {$t('sidebar.manage')}
         </button>
         <button
@@ -252,7 +254,13 @@
 
       {#if activeInstance}
         {#if running}
-          <button type="button" data-tour="play-btn" class="btn-danger btn-lg" onclick={onStop}>
+          <button
+            type="button"
+            data-tour="play-btn"
+            class="btn-danger btn-lg flex items-center justify-center gap-1.5"
+            onclick={onStop}
+          >
+            <Icon name="stop" size={16} />
             {$t('sidebar.stop')}
           </button>
         {:else if activeInstance.mc_version === ''}
@@ -260,7 +268,13 @@
             class="inline-flex"
             use:tooltip={{ text: $t('sidebar.pickVersionTitle'), describe: false }}
           >
-            <button type="button" data-tour="play-btn" class="btn-success btn-lg w-full" disabled>
+            <button
+              type="button"
+              data-tour="play-btn"
+              class="btn-success btn-lg w-full flex items-center justify-center gap-1.5"
+              disabled
+            >
+              <Icon name="play" size={16} />
               {$t('sidebar.play')}
             </button>
           </span>
@@ -291,9 +305,10 @@
             <button
               type="button"
               data-tour="play-btn"
-              class="btn-success btn-lg flex-1"
+              class="btn-success btn-lg flex-1 flex items-center justify-center gap-1.5"
               onclick={onPlay}
             >
+              <Icon name="play" size={16} />
               {$t('sidebar.play')}
             </button>
             {#if quickPlaySupported}
@@ -365,9 +380,10 @@
       </button>
       <button
         type="button"
-        class="btn-secondary btn-xs flex-1"
+        class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
         onclick={() => (settingsOpen.value = { tab: 'general' })}
       >
+        <Icon name="settings" size={14} />
         {$t('settings.title')}
       </button>
     </div>
