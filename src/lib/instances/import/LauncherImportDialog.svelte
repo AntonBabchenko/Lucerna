@@ -1,12 +1,13 @@
 <script lang="ts">
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import type { ContentCategory, ForeignInstance } from '$lib/ipc/bindings';
+  import type { ContentCategory, ForeignInstance, LoaderKind } from '$lib/ipc/bindings';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
   import Modal from '$lib/ui/Modal.svelte';
+  import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
 
   // Two-step wizard:
@@ -74,6 +75,19 @@
   let seededFor: ForeignInstance | null = null;
   let targetName = $state('');
 
+  // Generic `.minecraft` carries no version/loader metadata — the user
+  // supplies them. Seeded from the chosen instance (blank for raw).
+  let mcVersionInput = $state('');
+  let loaderInput = $state<LoaderKind>('vanilla');
+  const needsManualVersion = $derived(chosen?.source === 'raw_minecraft');
+  const LOADER_OPTIONS: { value: string; label: string }[] = [
+    { value: 'vanilla', label: 'Vanilla' },
+    { value: 'fabric', label: 'Fabric' },
+    { value: 'quilt', label: 'Quilt' },
+    { value: 'forge', label: 'Forge' },
+    { value: 'neoforge', label: 'NeoForge' },
+  ];
+
   $effect.pre(() => {
     if (chosen && seededFor !== chosen) {
       seededFor = chosen;
@@ -81,6 +95,8 @@
       const available = new Set(chosen.content.map((c) => c.category));
       selected = new Set(ALL_CATEGORIES.filter((c) => available.has(c)));
       targetName = chosen.name;
+      mcVersionInput = chosen.mc_version;
+      loaderInput = chosen.loader;
     }
   });
 
@@ -141,11 +157,15 @@
 
   function doImport() {
     if (!chosen || selected.size === 0 || !targetName.trim()) return;
+    if (needsManualVersion && !mcVersionInput.trim()) return;
     importing = true;
     enqueueLauncherImport(targetName.trim(), {
       foreign: chosen,
       selected: [...selected],
       targetName: targetName.trim(),
+      mcVersionOverride: needsManualVersion ? mcVersionInput.trim() : null,
+      loaderOverride: needsManualVersion ? loaderInput : null,
+      loaderVersionOverride: null,
     });
     onClose();
   }
@@ -261,6 +281,37 @@
         />
       </label>
 
+      <!-- Generic .minecraft: user supplies version + loader -->
+      {#if needsManualVersion}
+        <label class="block mb-4">
+          <span class="text-sm text-secondary">{$t('instances.import.mcVersionInputLabel')}</span>
+          <input
+            type="text"
+            class="mt-1 input w-full"
+            bind:value={mcVersionInput}
+            placeholder={$t('instances.import.mcVersionPlaceholder')}
+            data-testid="mc-version-input"
+          />
+        </label>
+        <div class="block mb-4">
+          <span class="text-sm text-secondary">{$t('instances.import.loaderInputLabel')}</span>
+          <Select
+            class="mt-1 w-full"
+            value={loaderInput}
+            options={LOADER_OPTIONS}
+            onChange={(v) => (loaderInput = v as LoaderKind)}
+            ariaLabel={$t('instances.import.loaderInputLabel')}
+            dataTestid="loader-select"
+          />
+        </div>
+      {/if}
+
+      <!-- Source folder path (so the user can clean up the original later) -->
+      <div class="mb-4 text-xs text-muted">
+        <span class="text-secondary">{$t('instances.import.sourcePathLabel')}:</span>
+        <span class="font-mono break-all" data-testid="source-path">{chosen.root}</span>
+      </div>
+
       <!-- Category checkboxes -->
       <div class="mb-4">
         <div class="flex items-center justify-between mb-2">
@@ -311,7 +362,10 @@
         <button
           type="button"
           class="btn btn-primary"
-          disabled={selected.size === 0 || !targetName.trim() || importing}
+          disabled={selected.size === 0 ||
+            !targetName.trim() ||
+            importing ||
+            (needsManualVersion && !mcVersionInput.trim())}
           onclick={doImport}
           data-testid="import-btn"
         >
