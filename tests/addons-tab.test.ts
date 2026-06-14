@@ -68,6 +68,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue([]) }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
+import { commands } from '$lib/ipc/bindings';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
 
 const props = {
@@ -98,30 +99,37 @@ describe('AddonsTab', () => {
     expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('shows the shader hint banner with Iris/OptiFine actions and the shader dropzone when Shaders is selected', async () => {
-    render(AddonsTab, { props });
+  it('on Fabric shows only Iris (no OptiFine, no Oculus) plus the shader dropzone', async () => {
+    render(AddonsTab, { props }); // props.loader === 'fabric'
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
     });
-    expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /OptiFine/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Oculus' })).toBeNull();
     expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
-  it('the shader hint names the instance MC version for OptiFine', async () => {
-    render(AddonsTab, { props });
+  it('on vanilla the hint offers OptiFine and names the instance MC version', async () => {
+    render(AddonsTab, { props: { ...props, loader: 'vanilla' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
-      expect(screen.getByText(/Minecraft 1\.20\.1/)).toBeTruthy();
+      expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
     });
+    expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
+    expect(screen.getByText(/Minecraft 1\.20\.1/)).toBeTruthy();
+    expect(screen.getByText('Shaders need a shader loader to run — install:')).toBeTruthy();
   });
 
-  it('the shader hint asks to pick an instance when none is selected', async () => {
-    render(AddonsTab, { props: { ...props, instanceId: null, mcVersion: null } });
+  it('with no instance offers all three loaders and asks to pick an instance', async () => {
+    render(AddonsTab, { props: { ...props, instanceId: null, mcVersion: null, loader: null } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByText(/select an instance to see which build/i)).toBeTruthy();
     });
+    expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Oculus' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
   });
 
   it('clicking Iris jumps to the Mods segment and opens the Iris detail modal', async () => {
@@ -141,7 +149,7 @@ describe('AddonsTab', () => {
 
   it('clicking OptiFine opens the optifine.net downloads page externally', async () => {
     const { openUrl } = await import('@tauri-apps/plugin-opener');
-    render(AddonsTab, { props });
+    render(AddonsTab, { props: { ...props, loader: 'vanilla' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     const optifine = await screen.findByRole('button', { name: /OptiFine/ });
     await fireEvent.click(optifine);
@@ -218,6 +226,80 @@ describe('AddonsTab', () => {
     expect(tablists.length).toBeGreaterThanOrEqual(2);
     for (const tl of tablists) {
       expect(tl.getAttribute('aria-label')).toBeTruthy();
+    }
+  });
+
+  it('on Forge offers Oculus and OptiFine but not Iris', async () => {
+    render(AddonsTab, { props: { ...props, loader: 'forge' } });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Oculus' })).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
+    expect(screen.getByText('Shaders need a shader loader to run — install one:')).toBeTruthy();
+  });
+
+  it('on NeoForge offers Iris and Oculus but not OptiFine', async () => {
+    render(AddonsTab, { props: { ...props, loader: 'neoforge' } });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: 'Oculus' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /OptiFine/ })).toBeNull();
+  });
+
+  it('clicking Oculus jumps to the Mods segment and deep-links the Oculus project', async () => {
+    render(AddonsTab, { props: { ...props, loader: 'forge' } });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+    const oculus = await screen.findByRole('button', { name: 'Oculus' });
+    // openOculus deep-links the Oculus Modrinth project (GchcoXML) into the
+    // freshly-mounted mod browser, which consumes modBrowseOpenProject on mount.
+    await fireEvent.click(oculus);
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
+    });
+    // The mod browser consumed the deep-link and opened the detail modal — this
+    // proves openOculus set modBrowseOpenProject (the rune is cleared on consume,
+    // so we assert on the resulting modal, mirroring the Iris test).
+    const { commands: c } = await import('$lib/ipc/bindings');
+    await waitFor(() => {
+      expect(vi.mocked(c.modsProject)).toHaveBeenCalledWith('modrinth', 'GchcoXML');
+    });
+  });
+
+  it('hides the hint entirely when an applicable shader loader is already installed', async () => {
+    // Iris already installed on a Fabric instance → no banner.
+    vi.mocked(commands.modsListInstalled).mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          filename: 'iris-mc1.20.1-1.7.0.jar',
+          sha1: 'a',
+          source: 'modrinth',
+          project_id: 'YL57xq9U',
+          version_id: null,
+          name: 'Iris',
+          version_number: null,
+          installed_at: '2026-06-14T00:00:00Z',
+          enabled: true,
+        },
+      ],
+    });
+    try {
+      render(AddonsTab, { props }); // fabric
+      await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
+      // The banner shows momentarily (installed list starts empty) then hides
+      // once detection resolves — wait for the Iris button to disappear.
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
+      });
+    } finally {
+      // Restore the factory default even if an assertion throws, so a failure
+      // here cannot cascade into later tests (afterEach's clearAllMocks does
+      // not reset mock implementations).
+      vi.mocked(commands.modsListInstalled).mockResolvedValue({ status: 'ok', data: [] });
     }
   });
 });

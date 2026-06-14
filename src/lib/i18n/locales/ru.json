@@ -458,7 +458,9 @@
     },
     "shaderLoaderHint": {
       "intro": "Для работы шейдеров нужен загрузчик шейдеров — установите один из:",
+      "introOne": "Для работы шейдеров нужен загрузчик шейдеров — установите:",
       "iris": "Iris",
+      "oculus": "Oculus",
       "or": "или",
       "optifine": "OptiFine",
       "optifineVersion": "OptiFine: скачайте сборку под Minecraft {mc} с optifine.net.",
