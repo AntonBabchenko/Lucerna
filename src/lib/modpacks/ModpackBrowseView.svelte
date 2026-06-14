@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SvelteSet } from 'svelte/reactivity';
   import { commands } from '$lib/ipc/bindings';
   import type {
     ModpackHit,
@@ -32,7 +33,17 @@
   // creates a NEW instance. The browser must read as instance-agnostic
   // from the toolbar down, so the filter inputs are NOT pre-filled
   // from the active instance.
-  let { onPickHit }: { onPickHit: (hit: ModpackHit, mc: string | null) => void } = $props();
+  let {
+    onPickHit,
+    onQuickInstall,
+    installingIds,
+  }: {
+    onPickHit: (hit: ModpackHit, mc: string | null) => void;
+    // Optional one-click install of a pack's latest version (the parent
+    // ModpacksTab supplies it). Omitted in tests/standalone use → no button.
+    onQuickInstall?: (hit: ModpackHit, mc: string | null) => void;
+    installingIds?: SvelteSet<string>;
+  } = $props();
 
   // query resets to '' on each open (intentional — search box starts blank).
   let query = $state('');
@@ -239,6 +250,10 @@
             {hit}
             layout="grid"
             onClick={() => onPickHit(hit, modpackBrowseState.mcFilter.trim() || null)}
+            onQuickInstall={onQuickInstall
+              ? () => onQuickInstall(hit, modpackBrowseState.mcFilter.trim() || null)
+              : null}
+            installing={installingIds?.has(hit.project_id) ?? false}
           />
         {/each}
       </div>
@@ -249,6 +264,10 @@
             {hit}
             layout="list"
             onClick={() => onPickHit(hit, modpackBrowseState.mcFilter.trim() || null)}
+            onQuickInstall={onQuickInstall
+              ? () => onQuickInstall(hit, modpackBrowseState.mcFilter.trim() || null)
+              : null}
+            installing={installingIds?.has(hit.project_id) ?? false}
           />
         {/each}
       </div>

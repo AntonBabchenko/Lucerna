@@ -342,6 +342,7 @@ export type TranslationKey =
   | 'modpacks.card.distributionDisabledShort'
   | 'modpacks.card.downloads'
   | 'modpacks.card.downloadsShort'
+  | 'modpacks.card.quickInstall'
   | 'modpacks.detail.blockedBody'
   | 'modpacks.detail.closeAriaLabel'
   | 'modpacks.detail.closeScrimAriaLabel'

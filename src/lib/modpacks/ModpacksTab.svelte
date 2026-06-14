@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -161,6 +162,58 @@
     hintVersionId = null;
   }
 
+  // Per-card busy for the browse quick-install (resolve latest + download).
+  // SvelteSet so two cards installing in parallel don't clobber each other.
+  const quickInstalling = new SvelteSet<string>();
+
+  // Quick-install = the detail modal's recommended-version install, surfaced on
+  // the browse card. Resolve the latest version exactly like the modal (newest
+  // visible version, honouring the active MC filter) and reuse the existing
+  // fetch → inspect → ImportPickerDialog flow — nothing about the import is
+  // reinvented, so the transparency review still runs. Any failure (no matching
+  // version, network/decode error, or distribution blocked) falls back to
+  // opening the detail modal, which surfaces the version list or the
+  // "Open on CurseForge" body.
+  async function quickInstall(hit: ModpackHit, mc: string | null) {
+    const openModal = () => {
+      drawerHit = hit;
+      drawerMcFilter = mc;
+    };
+    if (hit.distribution_allowed === false) {
+      openModal();
+      return;
+    }
+    quickInstalling.add(hit.project_id);
+    try {
+      const v = await commands.modpackGetVersions(hit.source, hit.project_id);
+      if (v.status !== 'ok') {
+        openModal();
+        return;
+      }
+      const visible = mc ? v.data.filter((x) => x.game_versions.includes(mc)) : v.data;
+      // Backend returns versions newest-first; [0] is the recommended pick.
+      const recommended = visible[0];
+      if (!recommended) {
+        openModal();
+        return;
+      }
+      const r = await commands.modpackFetchToTemp(hit.source, hit.project_id, recommended.id);
+      if (r.status === 'ok') {
+        hintProjectId = hit.project_id;
+        hintSource = hit.source;
+        hintVersionId = recommended.id;
+        await inspect(r.data);
+      } else {
+        // distribution disabled or any other fetch error → let the modal handle it.
+        openModal();
+      }
+    } catch {
+      openModal();
+    } finally {
+      quickInstalling.delete(hit.project_id);
+    }
+  }
+
   // The user confirmed the picker. Hand the import request up to the page
   // (which owns the op-queue store + OperationsView widget) and clear the
   // local picker state. Synchronous — ModpacksTab no longer awaits the import,
@@ -247,6 +300,8 @@
             drawerHit = h;
             drawerMcFilter = mc;
           }}
+          onQuickInstall={quickInstall}
+          installingIds={quickInstalling}
         />
       </div>
     {/if}
