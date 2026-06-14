@@ -404,9 +404,20 @@ pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
 /// Find the end of a TOML section block starting at `from` in `text`.
 /// A new section begins with `[[` or `[` at the start of a line; we
 /// stop there. Falls back to `text.len()` when no next section exists.
+///
+/// Delimits a block by scanning for the next *line-initial* `[`, i.e. a
+/// newline immediately followed by `[`. This is the correct delimiter because
+/// a bare `find('[')` would falsely end the block inside a quoted value such as
+/// `versionRange = "[1.3.51,)"`.
+///
+/// Known best-effort limitation: a TOML triple-quoted or multi-line string
+/// value that begins a line with `[` would also be treated as a new section
+/// header. In practice `mods.toml` never uses multi-line strings for
+/// `modId`/`version` fields, so this case does not arise.
 fn toml_block_end(text: &str, from: usize) -> usize {
-    // Search for `[[` first (dep/mods array headers) then bare `[` (table headers).
-    // We scan byte-by-byte looking for a newline followed by `[`.
+    // Scan byte-by-byte for `\n[`; `[[mods]]` and `[[dependencies.*]]` headers
+    // both start with `[`, so one check covers both array-of-tables and
+    // plain-table headers.
     let bytes = text.as_bytes();
     let mut i = from;
     while i < bytes.len() {
@@ -425,9 +436,9 @@ fn parse_forge_manifest(
     out: &mut ManifestDeps,
 ) {
     // own [[mods]] id + version (resolve ${file.jarVersion})
-    let mut from = 0;
-    while let Some(rel) = text[from..].find("[[mods]]") {
-        let start = from + rel + "[[mods]]".len();
+    let mut mods_from = 0;
+    while let Some(rel) = text[mods_from..].find("[[mods]]") {
+        let start = mods_from + rel + "[[mods]]".len();
         let end = toml_block_end(text, start);
         let block = &text[start..end];
         if let Some(id) = FORGE_MODID_RE.captures(block) {
@@ -439,13 +450,13 @@ fn parse_forge_manifest(
                 version,
             });
         }
-        from = end;
+        mods_from = end;
     }
     // dependencies (reuse the same block-scan as parse_forge_mandatory_deps)
     let marker = "[[dependencies";
-    let mut from = 0;
-    while let Some(rel) = text[from..].find(marker) {
-        let start = from + rel + marker.len();
+    let mut deps_from = 0;
+    while let Some(rel) = text[deps_from..].find(marker) {
+        let start = deps_from + rel + marker.len();
         let end = toml_block_end(text, start);
         let block = &text[start..end];
         let type_val = FORGE_TYPE_RE
@@ -476,7 +487,7 @@ fn parse_forge_manifest(
                 family,
             });
         }
-        from = end;
+        deps_from = end;
     }
 }
 
@@ -1451,5 +1462,21 @@ modId=\"evilseagull\"
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].mod_id, "embeddedlib");
         assert_eq!(providers[0].version.as_deref(), Some("2.1.0"));
+    }
+
+    #[test]
+    fn file_jar_version_without_manifest_yields_none() {
+        // A jar that declares `version = "${file.jarVersion}"` but ships no
+        // META-INF/MANIFEST.MF. The token cannot be resolved, so the caller
+        // receives `None` and treats it as the dev/unknown sentinel.
+        let toml = "[[mods]]\nmodId=\"x\"\nversion=\"${file.jarVersion}\"\n";
+        let j = jar(&[("META-INF/mods.toml", toml)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        assert_eq!(
+            m.provided[0].version,
+            None,
+            "unresolvable ${{file.jarVersion}} must yield None, got {:?}",
+            m.provided[0].version
+        );
     }
 }
