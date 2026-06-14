@@ -9,20 +9,24 @@ import { t } from '$lib/i18n';
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
 import { commands, events } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
+import type { LauncherImportRequest, LauncherImportProgressCb } from '$lib/instances/import/launcher-import-runner';
+import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
 import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { runImport } from './import-runner';
 
 export type IntegrityKind = 'verify' | 'repair';
-export type OpKind = 'verify' | 'repair' | 'import';
+export type OpKind = 'verify' | 'repair' | 'import' | 'launcher-import';
 
 export type QueuedOp =
   | { id: string; kind: IntegrityKind; instanceId: string; name: string }
-  | { id: string; kind: 'import'; name: string; request: ModpackImportRequest };
+  | { id: string; kind: 'import'; name: string; request: ModpackImportRequest }
+  | { id: string; kind: 'launcher-import'; name: string; request: LauncherImportRequest };
 
 export type RunningProgress =
   | { kind: IntegrityKind; filesDone: number; filesTotal: number }
-  | { kind: 'import'; phase: ModpackProgress | null; bytes: ProgressTick | null };
+  | { kind: 'import'; phase: ModpackProgress | null; bytes: ProgressTick | null }
+  | { kind: 'launcher-import'; phase: import('$lib/ipc/bindings').ImportProgress | null };
 
 export type RunningOp = { op: QueuedOp; progress: RunningProgress };
 
@@ -42,9 +46,9 @@ function newId(): string {
 }
 
 function initialProgress(op: QueuedOp): RunningProgress {
-  return op.kind === 'import'
-    ? { kind: 'import', phase: null, bytes: null }
-    : { kind: op.kind, filesDone: 0, filesTotal: 0 };
+  if (op.kind === 'import') return { kind: 'import', phase: null, bytes: null };
+  if (op.kind === 'launcher-import') return { kind: 'launcher-import', phase: null };
+  return { kind: op.kind, filesDone: 0, filesTotal: 0 };
 }
 
 // One lazy verify-progress listener (attached on first enqueue so it stays
@@ -86,8 +90,19 @@ function ensureListener(): void {
  *  a running or queued integrity op is a no-op. Kicks the drain loop. */
 export function enqueueIntegrity(instanceId: string, name: string, kind: IntegrityKind): void {
   ensureListener();
-  if (running && running.op.kind !== 'import' && running.op.instanceId === instanceId) return;
-  if (queue.some((q) => q.kind !== 'import' && q.instanceId === instanceId)) return;
+  if (
+    running &&
+    running.op.kind !== 'import' &&
+    running.op.kind !== 'launcher-import' &&
+    running.op.instanceId === instanceId
+  )
+    return;
+  if (
+    queue.some(
+      (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === instanceId,
+    )
+  )
+    return;
   queue = [...queue, { id: newId(), kind, instanceId, name }];
   void processNext();
 }
@@ -100,6 +115,8 @@ async function processNext(): Promise<void> {
 
   if (op.kind === 'import') {
     await runImportOp(op);
+  } else if (op.kind === 'launcher-import') {
+    await runLauncherImportOp(op);
   } else {
     await runIntegrity(op);
   }
@@ -208,6 +225,41 @@ async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<v
   }
 }
 
+export function enqueueLauncherImport(name: string, request: LauncherImportRequest): void {
+  ensureListener();
+  // Dedupe by the foreign instance root directory (same launcher instance path → same op).
+  const key = request.foreign.root;
+  if (running && running.op.kind === 'launcher-import' && running.op.request.foreign.root === key)
+    return;
+  if (queue.some((q) => q.kind === 'launcher-import' && q.request.foreign.root === key)) return;
+  queue = [...queue, { id: newId(), kind: 'launcher-import', name, request }];
+  void processNext();
+}
+
+async function runLauncherImportOp(
+  op: Extract<QueuedOp, { kind: 'launcher-import' }>,
+): Promise<void> {
+  const onProgress: LauncherImportProgressCb = (phase) => {
+    if (running && running.op.id === op.id) {
+      running = { op, progress: { kind: 'launcher-import', phase } };
+    }
+  };
+  const outcome = await runLauncherImport(op.request, onProgress);
+  const tr = get(t);
+  if (outcome.status === 'ok') {
+    const id = outcome.instanceId;
+    pushActionToast(
+      'success',
+      tr('instances.import.imported', { name: outcome.name }),
+      { label: tr('ops.openInstance'), run: () => void selectInstance(id) },
+      [],
+    );
+    importCompletionTick += 1;
+  } else {
+    pushWarning(tr('instances.import.failed'), [outcome.message]);
+  }
+}
+
 /** Cancel a QUEUED op by id (no-op if it is the running op or unknown). */
 export function cancelQueued(id: string): void {
   queue = queue.filter((q) => q.id !== id);
@@ -231,17 +283,24 @@ export function opStatusFor(instanceId: string): {
   filesDone: number;
   filesTotal: number;
 } | null {
-  if (running && running.op.kind !== 'import' && running.op.instanceId === instanceId) {
+  if (
+    running &&
+    running.op.kind !== 'import' &&
+    running.op.kind !== 'launcher-import' &&
+    running.op.instanceId === instanceId
+  ) {
     const p = running.progress;
     return {
       phase: 'running',
       kind: running.op.kind,
-      filesDone: p.kind === 'import' ? 0 : p.filesDone,
-      filesTotal: p.kind === 'import' ? 0 : p.filesTotal,
+      filesDone: p.kind === 'import' || p.kind === 'launcher-import' ? 0 : p.filesDone,
+      filesTotal: p.kind === 'import' || p.kind === 'launcher-import' ? 0 : p.filesTotal,
     };
   }
-  const queued = queue.find((q) => q.kind !== 'import' && q.instanceId === instanceId);
-  if (queued && queued.kind !== 'import') {
+  const queued = queue.find(
+    (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === instanceId,
+  );
+  if (queued && queued.kind !== 'import' && queued.kind !== 'launcher-import') {
     return { phase: 'queued', kind: queued.kind, filesDone: 0, filesTotal: 0 };
   }
   return null;
