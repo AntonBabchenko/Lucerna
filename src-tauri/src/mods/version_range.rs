@@ -286,10 +286,10 @@ fn bool_sat(b: bool) -> Satisfaction {
     }
 }
 
-/// `^a.b.c` upper bound follows semver:
+/// Upper bound for `^`/`~` ranges, following semver:
 ///   - `^0.x.y` = `>=0.x.y <0.(x+1).0`  (zero-major: minor is the breaking digit)
 ///   - `^M.x.y` (M >= 1) = `>=M.x.y <(M+1).0.0`
-/// `~a.b.c` = `>=a.b.c <a.(b+1).0` (minor bump, regardless of major).
+///   - `~a.b.c` = `>=a.b.c <a.(b+1).0`  (minor bump, regardless of major)
 fn caret_or_tilde(installed: &str, base: &str, caret: bool) -> Satisfaction {
     if compare_numeric(installed, base) == Cmp::Less {
         return Satisfaction::Violated;
