@@ -283,6 +283,15 @@ pub enum Error {
 
     #[error("mclo.gs upload failed: {details}")]
     McLogsUpload { details: String },
+
+    #[error("Could not read {launcher} instance: {details}")]
+    ImportInstanceUnreadable { launcher: String, details: String },
+
+    #[error("Unsupported loader '{loader}' in imported instance")]
+    ImportUnsupportedLoader { loader: String },
+
+    #[error("Import source folder not recognized: {path}")]
+    ImportSourceUnrecognized { path: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
