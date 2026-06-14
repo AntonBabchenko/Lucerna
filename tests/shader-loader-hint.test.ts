@@ -48,8 +48,10 @@ describe('detectInstalledShaderLoaders', () => {
     expect(detectInstalledShaderLoaders(installed, ALL)).toEqual(['iris']);
   });
 
-  it('detects Iris by filename (CurseForge / manual jar)', () => {
-    const installed = [mod({ source: 'curseforge', filename: 'iris-mc1.21.1-1.7.5.jar' })];
+  it('detects Iris from CurseForge by project id', () => {
+    const installed = [
+      mod({ source: 'curseforge', project_id: '455508', filename: 'iris-1.7.6.jar' }),
+    ];
     expect(detectInstalledShaderLoaders(installed, ALL)).toEqual(['iris']);
   });
 
@@ -59,6 +61,20 @@ describe('detectInstalledShaderLoaders', () => {
       mod({ source: null, filename: 'OptiFine_1.20.1_HD_U_I6.jar' }),
     ];
     expect(detectInstalledShaderLoaders(installed, ALL)).toEqual(['oculus', 'optifine']);
+  });
+
+  it('detects Oculus from CurseForge by project id', () => {
+    const installed = [mod({ source: 'curseforge', project_id: '581495' })];
+    expect(detectInstalledShaderLoaders(installed, ALL)).toEqual(['oculus']);
+  });
+
+  it('does NOT detect iris/oculus-named addon mods that are not the loader', () => {
+    const installed = [
+      mod({ source: 'curseforge', project_id: '999999', filename: 'irislowka-1.2.jar' }),
+      mod({ source: null, filename: 'iris-oculus-shader-folder-1.0.jar' }),
+      mod({ source: 'modrinth', project_id: 'someOtherId', filename: 'iris-flywheel-compat.jar' }),
+    ];
+    expect(detectInstalledShaderLoaders(installed, ALL)).toEqual([]);
   });
 
   it('ignores unrelated mods and mid-name "iris" matches', () => {
@@ -79,7 +95,7 @@ describe('detectInstalledShaderLoaders', () => {
   });
 
   it('counts a disabled shader loader as installed', () => {
-    const installed = [mod({ filename: 'iris-mc1.20.1-1.7.0.jar', enabled: false })];
+    const installed = [mod({ source: 'modrinth', project_id: 'YL57xq9U', enabled: false })];
     expect(detectInstalledShaderLoaders(installed, ['iris'])).toEqual(['iris']);
   });
 });

@@ -38,28 +38,38 @@ export function shaderLoaderOptions(loader: Loader): ShaderLoaderId[] {
   }
 }
 
-// Filename heuristics — source-agnostic, so they catch CurseForge and manual
-// jars too. All three are anchored at the start so a jar that merely references
-// the loader mid-name (e.g. "better-optifine-compat-*.jar", "modern-iris-*.jar")
-// does not false-positive. Real loader jars start with the loader name followed
-// by a separator: "iris-mc1.21.1-*.jar", "oculus-mc*.jar",
-// "OptiFine_1.20.1_HD_U_I6.jar".
-const FILENAME_PATTERNS: Record<ShaderLoaderId, RegExp> = {
-  iris: /^iris[-_.]/i,
-  oculus: /^oculus[-_.]/i,
-  optifine: /^optifine[-_.]/i,
+// Per-source canonical project ids for the loaders published to a platform.
+// Detection matches by id (NOT filename) so the many addon/compat mods whose
+// names start with "iris"/"oculus" (e.g. "Irislowka", "Iris/Oculus Shader
+// Folder") — which share the jar prefix but are NOT the loader — cannot
+// false-positively hide the hint. CurseForge ids are internal (detection only);
+// the Modrinth ids above are also used by the component for deep-linking.
+const IRIS_CURSEFORGE_PROJECT_ID = '455508';
+const OCULUS_CURSEFORGE_PROJECT_ID = '581495';
+
+const PROJECT_IDS: Record<ShaderLoaderId, { modrinth?: string; curseforge?: string }> = {
+  iris: { modrinth: IRIS_MODRINTH_PROJECT_ID, curseforge: IRIS_CURSEFORGE_PROJECT_ID },
+  oculus: { modrinth: OCULUS_MODRINTH_PROJECT_ID, curseforge: OCULUS_CURSEFORGE_PROJECT_ID },
+  optifine: {},
 };
 
-const MODRINTH_IDS: Partial<Record<ShaderLoaderId, string>> = {
-  iris: IRIS_MODRINTH_PROJECT_ID,
-  oculus: OCULUS_MODRINTH_PROJECT_ID,
-};
+// OptiFine has no Modrinth/CurseForge project (site-only download), so a
+// filename heuristic is its only signal. Anchored at the start; "OptiFine" is a
+// distinctive prefix (real jars: "OptiFine_1.20.1_HD_U_I6.jar", incl. the "_MOD"
+// Forge variant).
+const OPTIFINE_FILENAME = /^optifine[-_.]/i;
 
 function matchesShaderLoader(id: ShaderLoaderId, m: InstalledMod): boolean {
-  const modrinthId = MODRINTH_IDS[id];
-  if (modrinthId && m.source === 'modrinth' && m.project_id === modrinthId) return true;
-  const base = m.filename.split(/[\\/]/).pop() ?? m.filename;
-  return FILENAME_PATTERNS[id].test(base);
+  const ids = PROJECT_IDS[id];
+  if (m.project_id) {
+    if (m.source === 'modrinth' && m.project_id === ids.modrinth) return true;
+    if (m.source === 'curseforge' && m.project_id === ids.curseforge) return true;
+  }
+  if (id === 'optifine') {
+    const base = m.filename.split(/[\\/]/).pop() ?? m.filename;
+    return OPTIFINE_FILENAME.test(base);
+  }
+  return false;
 }
 
 /** Subset of `applicable` already installed on the instance (intersected with
