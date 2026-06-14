@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CompatVerdict, ContentKind, ModSource } from '$lib/ipc/bindings';
+  import type { CompatVerdict, ContentKind, InstalledMod, ModSource } from '$lib/ipc/bindings';
   import {
     modBrowseOpenProject,
     modBrowserNav,
@@ -17,7 +17,13 @@
   import SourcePicker from './SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
   import { CONTENT_KINDS, canInstallContent } from './content-kind';
-  import { commands } from '$lib/ipc/bindings';
+  import {
+    detectInstalledShaderLoaders,
+    IRIS_MODRINTH_PROJECT_ID,
+    OCULUS_MODRINTH_PROJECT_ID,
+    shaderLoaderOptions,
+  } from './shader-loader-hint';
+  import { commands, events } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
@@ -25,7 +31,7 @@
   import { get } from 'svelte/store';
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import FileDropzone from './FileDropzone.svelte';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
 
   type View = 'browse' | 'installed';
 
@@ -42,7 +48,6 @@
   // with how mod cards key the same project. OptiFine is distributed only from
   // its own site — no Modrinth/CurseForge install path — so its action opens
   // the downloads page in the system browser.
-  const IRIS_MODRINTH_PROJECT_ID = 'YL57xq9U';
   const OPTIFINE_DOWNLOADS_URL = 'https://optifine.net/downloads';
 
   // Shader-loader hint actions. Iris is a Fabric/Quilt mod: open it in the
@@ -54,6 +59,16 @@
     kind = 'mod';
     view = 'browse';
     modBrowseOpenProject.value = { source: 'modrinth', projectId: IRIS_MODRINTH_PROJECT_ID };
+  }
+
+  // Oculus is the Forge/NeoForge port of Iris. Same deep-link mechanism as
+  // openIris: flip to the Mods segment and let the freshly-mounted mod browser
+  // consume modBrowseOpenProject to open Oculus's detail modal.
+  function openOculus() {
+    source = 'modrinth';
+    kind = 'mod';
+    view = 'browse';
+    modBrowseOpenProject.value = { source: 'modrinth', projectId: OCULUS_MODRINTH_PROJECT_ID };
   }
 
   function openOptifine() {
@@ -75,6 +90,8 @@
   onDestroy(() => {
     modBrowseOpenProject.value = null;
     addonsKind.value = 'mod';
+    for (const u of shaderModUnlisteners) u();
+    shaderModUnlisteners = [];
   });
 
   // i18n labels for the kind switch — order mirrors CONTENT_KINDS.
@@ -175,6 +192,50 @@
     mcVersion: string | null;
     loader: 'vanilla' | 'fabric' | 'quilt' | 'forge' | 'neoforge' | null;
   } = $props();
+
+  // Shader-loader detection. The installed-mods lookup runs only while the
+  // Shaders segment is active and an instance is selected (guarded inside
+  // refreshInstalledShaderMods); the mod-event listeners fire on any change but
+  // no-op off the segment. Keeps the hint live so it disappears the moment a
+  // working shader loader is installed. Purely informational, so a failed
+  // lookup is swallowed (worst case the hint shows when it could have hidden).
+  let installedShaderMods = $state<InstalledMod[]>([]);
+
+  async function refreshInstalledShaderMods() {
+    if (kind !== 'shader' || !instanceId) {
+      installedShaderMods = [];
+      return;
+    }
+    const reqId = instanceId;
+    const r = await commands.modsListInstalled(reqId);
+    if (instanceId !== reqId || r.status !== 'ok') return;
+    installedShaderMods = r.data;
+  }
+
+  $effect(() => {
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _kind = kind;
+    // biome-ignore lint/correctness/noUnusedVariables: reactive read
+    const _id = instanceId;
+    void refreshInstalledShaderMods();
+  });
+
+  let shaderModUnlisteners: Array<() => void> = [];
+  onMount(async () => {
+    const handlers = [
+      events.modInstalled.listen(() => void refreshInstalledShaderMods()),
+      events.modUninstalled.listen(() => void refreshInstalledShaderMods()),
+      events.modToggle.listen(() => void refreshInstalledShaderMods()),
+    ];
+    for (const p of handlers) shaderModUnlisteners.push(await p);
+  });
+
+  // Shader loaders that work on this instance's loader, and which of them are
+  // already installed. The banner shows only when none are.
+  const shaderOptions = $derived(shaderLoaderOptions(loader));
+  const detectedShaderLoaders = $derived(
+    detectInstalledShaderLoaders(installedShaderMods, shaderOptions),
+  );
 
   // Local-jar install (the drag-drop droppedMods consumer + the "Install
   // from file…" button) is MOD-ONLY and available only for a selected,
@@ -388,40 +449,57 @@
     <SourcePicker value={source} onChange={(v) => (source = v)} />
   </div>
 
-  {#if kind === 'shader'}
-    <!-- Non-blocking info banner: shaders need a shader loader to run. Iris is
-         actionable (opens its mod detail modal); OptiFine opens its downloads
-         page since it has no in-app install path. -->
+  {#if kind === 'shader' && detectedShaderLoaders.length === 0}
+    <!-- Non-blocking info banner: shaders need a shader loader to run. We list
+         only the loaders that work on this instance's loader (all of them, not
+         just one). Iris/Oculus open their mod detail modal in-app; OptiFine has
+         no in-app install path, so it opens its downloads page. Hidden entirely
+         once an applicable loader is detected as installed. -->
     <div class="px-3 pt-3">
       <div
         class="bg-accent/10 border border-accent/40 text-secondary text-sm rounded p-2 space-y-1.5"
         role="note"
       >
-        <p>{$t('addons.shaderLoaderHint.intro')}</p>
+        <p>
+          {shaderOptions.length === 1
+            ? $t('addons.shaderLoaderHint.introOne')
+            : $t('addons.shaderLoaderHint.intro')}
+        </p>
         <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <button
-            type="button"
-            class="font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
-            onclick={openIris}
-          >
-            {$t('addons.shaderLoaderHint.iris')}
-          </button>
-          <span class="text-placeholder">{$t('addons.shaderLoaderHint.or')}</span>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
-            onclick={openOptifine}
-          >
-            {$t('addons.shaderLoaderHint.optifine')}<Icon name="externalLink" size={14} />
-          </button>
+          {#each shaderOptions as id, i (id)}
+            {#if i > 0}
+              <span class="text-placeholder">{$t('addons.shaderLoaderHint.or')}</span>
+            {/if}
+            {#if id === 'optifine'}
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
+                onclick={openOptifine}
+              >
+                {$t('addons.shaderLoaderHint.optifine')}<Icon name="externalLink" size={14} />
+              </button>
+            {:else}
+              <button
+                type="button"
+                class="font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded"
+                onclick={id === 'iris' ? openIris : openOculus}
+              >
+                {id === 'iris'
+                  ? $t('addons.shaderLoaderHint.iris')
+                  : $t('addons.shaderLoaderHint.oculus')}
+              </button>
+            {/if}
+          {/each}
         </p>
-        <p class="text-xs text-muted">
-          {#if mcVersion}
-            {$t('addons.shaderLoaderHint.optifineVersion', { mc: mcVersion })}
-          {:else}
-            {$t('addons.shaderLoaderHint.optifineNoInstance')}
-          {/if}
-        </p>
+        {#if shaderOptions.includes('optifine')}
+          <p class="text-xs text-muted">
+            {#if mcVersion}
+              {$t('addons.shaderLoaderHint.optifineVersion', { mc: mcVersion })}
+            {:else}
+              {$t('addons.shaderLoaderHint.optifineNoInstance')}
+            {/if}
+          </p>
+        {/if}
       </div>
     </div>
   {/if}
