@@ -153,7 +153,7 @@ export const commands = {
 	 *  clicks "Fix this", so the network swap-lookup for conflicts runs
 	 *  only on intent.
 	 */
-	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
+	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
 	/**
 	 *  Apply a user-confirmed repair choice by dispatching to the existing
 	 *  mutation commands. No resolution happens here — `build_repair_plan`
@@ -851,12 +851,48 @@ export type Backup = {
 	created_unix_ms: number | null,
 };
 
+/**
+ *  One mod the server rejected during the FML channel handshake. The user can
+ *  disable it (if the server simply lacks the mod) — but a `server side` reject
+ *  can also mean a version mismatch, which disabling won't fix; the card
+ *  surfaces both possibilities rather than prescribing disable.
+ */
+export type BlockingMod = {
+	/**
+	 *  The cited mod-id from the reject (e.g. `sophisticatedbackpacks`) — the
+	 *  clearest label, matching what the server named. Preferred over `name`,
+	 *  which is filename-derived and unreliable for unenriched mods.
+	 */
+	mod_id: string,
+	sha1: string,
+	name: string,
+	/**
+	 *  Names of *kept* installed mods whose jar declares a mandatory dependency
+	 *  on this one (read via `local::read_jar_dependency_ids`). Disabling this
+	 *  would break them; a non-empty list is a warning, not a block.
+	 */
+	breaks: string[],
+};
+
 export type CategoryReport = {
 	category: VerifyCategory,
 	total: number,
 	ok: number,
 	missing: number,
 	corrupt: number,
+};
+
+export type CitedKind = "missing" | "version_mismatch";
+
+/**
+ *  One mod the server said the client is missing or running at the wrong
+ *  version. `id` is the raw mod-id from the log (e.g. "farmersdelight",
+ *  "create") — NOT a Modrinth slug or platform id.
+ */
+export type CitedMod = {
+	id: string,
+	version: string | null,
+	kind: CitedKind,
 };
 
 /**
@@ -1996,14 +2032,23 @@ export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "rein
  *  input — no instance I/O. Real precondition gating happens later in
  *  `build_repair_plan`.
  */
-export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict";
+export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict" | "install_missing_mods" | "disable_blocking_mods";
 
 /**
  *  The concrete, parameterised fix proposal returned by
  *  `build_repair_plan`. Every variant carries everything the executor
  *  needs — the executor itself does no resolution.
  */
-export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] };
+export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] };
+
+export type ResolveTier = { tier: "exact"; candidate: ResolvedCandidate } | { tier: "fuzzy"; candidates: ResolvedCandidate[] } | { tier: "unresolved" };
+
+export type ResolvedCandidate = {
+	target: VersionRef,
+	display: ModSummary,
+	/**  Human label, e.g. the version_number "0.5.3". */
+	version_label: string,
+};
 
 export type ResolvedDep = {
 	project_ref: DepProjectRef,
@@ -2037,6 +2082,11 @@ export type ResolvedMissing = {
 	 *  to unresolved if this sha1 leaves the registry (self-healing).
 	 */
 	sha1: string,
+};
+
+export type ResolvedMod = {
+	cited: CitedMod,
+	tier: ResolveTier,
 };
 
 export type RestoreMode = "replace" | "as_copy";

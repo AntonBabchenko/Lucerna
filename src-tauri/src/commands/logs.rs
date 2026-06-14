@@ -64,7 +64,50 @@ pub async fn diagnose_log(
     let roots = crate::logs::files::allowed_roots(&app, &instance_id)?;
     let path_buf = std::path::PathBuf::from(&path);
     crate::logs::files::assert_under_allowed_roots(&path_buf, &roots)?;
-    crate::logs::diagnose::diagnose(&path_buf).await
+    let Some(diag) = crate::logs::diagnose::diagnose(&path_buf).await? else {
+        return Ok(None);
+    };
+    // Stale-log guard: the missing-mods diagnosis is driven by historical log
+    // text that never changes. If the user has since installed the cited mods,
+    // suppress the now-resolved warning instead of nagging on the old log.
+    if diag.pattern_id == "server-missing-mods" {
+        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
+        let cited = crate::logs::diagnose::server_mods::parse_server_mod_rejection(&log);
+        if !cited.is_empty() {
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            if crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed).is_empty() {
+                return Ok(None);
+            }
+        }
+    }
+    // Symmetric guard for the inverse case: once the blocking mods are disabled
+    // (or removed), there's nothing left to act on — suppress the stale warning
+    // instead of nagging on the historical log.
+    if diag.pattern_id == "client-extra-mods" {
+        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
+        let ids = crate::logs::diagnose::server_mods::parse_blocking_client_mods(&log);
+        // Only suppress when blocking ids were actually parsed: an empty parse
+        // means the log doesn't truly match (e.g. truncated below the terminator),
+        // so leave the advisory rather than hide it. `build_repair_plan` returns
+        // `None` for an empty ids set, so the Fix button won't appear regardless.
+        if !ids.is_empty() {
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            // The emptiness check only needs the blocking list, not `breaks`, so
+            // an empty deps map is fine here (no jar reads at diagnose time).
+            if crate::logs::diagnose::repair::build_blocking_mods(
+                &ids,
+                &installed,
+                &std::collections::HashMap::new(),
+            )
+            .is_empty()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(diag))
 }
 
 /// Build a concrete, confirmable repair plan for a diagnosed log, or
@@ -176,6 +219,69 @@ pub async fn build_repair_plan(
             }
             enrich_swap_targets(&mut candidates, &installed, &instance).await;
             Ok(Some(RepairPlan::ResolveConflict { candidates }))
+        }
+        RepairKind::InstallMissingMods => {
+            use crate::logs::diagnose::server_mods::parse_server_mod_rejection;
+            let cited = parse_server_mod_rejection(&log);
+            if cited.is_empty() {
+                return Ok(None);
+            }
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            // Drop mods the user has since installed — the reject log is
+            // historical and never changes, so without this the card keeps
+            // re-offering a mod that's already present. All satisfied → no card.
+            let cited = crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed);
+            if cited.is_empty() {
+                return Ok(None);
+            }
+            let modrinth = platform_for(crate::mods::platform::ModSource::Modrinth);
+            let curseforge = platform_for(crate::mods::platform::ModSource::Curseforge);
+            let mods = crate::mods::cited_resolve::resolve(
+                &cited,
+                &instance.mc_version,
+                instance.loader,
+                modrinth.as_ref(),
+                curseforge.as_ref(),
+                &installed,
+            )
+            .await;
+            Ok(Some(RepairPlan::InstallMissingMods { mods }))
+        }
+        RepairKind::DisableBlockingMods => {
+            use crate::logs::diagnose::server_mods::parse_blocking_client_mods;
+            let ids = parse_blocking_client_mods(&log);
+            if ids.is_empty() {
+                return Ok(None);
+            }
+            let inst_root = instance_root(&app, &instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            // Read each enabled mod's jar-declared dependencies so the card can
+            // warn when disabling a blocking mod would break a mod that needs it.
+            // (The recorded `requires` registry is too sparse to rely on — it
+            // only records install-time pulls; jars carry the real declarations,
+            // same as FML reads at load.)
+            let mods_dir = crate::mods::installed::mods_dir(&inst_root);
+            let mut declared_deps: std::collections::HashMap<String, Vec<String>> =
+                std::collections::HashMap::new();
+            for m in installed.iter().filter(|m| m.enabled) {
+                if let Ok(bytes) = tokio::fs::read(mods_dir.join(&m.filename)).await {
+                    if let Ok(deps) = crate::mods::local::read_jar_dependency_ids(&bytes) {
+                        if !deps.is_empty() {
+                            declared_deps.insert(m.sha1.clone(), deps);
+                        }
+                    }
+                }
+            }
+            let mods = crate::logs::diagnose::repair::build_blocking_mods(
+                &ids,
+                &installed,
+                &declared_deps,
+            );
+            if mods.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(RepairPlan::DisableBlockingMods { mods }))
         }
     }
 }

@@ -3,6 +3,8 @@
 //! `commands.rs` orchestrates instance state + platform calls around
 //! these helpers.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -17,6 +19,8 @@ pub enum RepairKind {
     ReinstallLoader,
     RedownloadMod,
     ResolveConflict,
+    InstallMissingMods,
+    DisableBlockingMods,
 }
 
 /// Map a diagnoser `pattern_id` to its repair kind, or `None` for the
@@ -28,6 +32,8 @@ pub fn repair_kind_for(pattern_id: &str) -> Option<RepairKind> {
         "fabric-loader-missing-main" => Some(RepairKind::ReinstallLoader),
         "corrupt-mod-jar" => Some(RepairKind::RedownloadMod),
         "mod-resolution-conflict" => Some(RepairKind::ResolveConflict),
+        "server-missing-mods" => Some(RepairKind::InstallMissingMods),
+        "client-extra-mods" => Some(RepairKind::DisableBlockingMods),
         _ => None,
     }
 }
@@ -143,6 +149,7 @@ pub fn suggest_heap_mb(current_mb: u32, total_ram_mb: Option<u64>) -> Option<u32
 }
 
 use crate::instances::schema::LoaderKind;
+use crate::mods::cited_resolve::ResolvedMod;
 use crate::mods::platform::{InstalledMod, VersionRef};
 
 /// The concrete, parameterised fix proposal returned by
@@ -166,6 +173,30 @@ pub enum RepairPlan {
     ResolveConflict {
         candidates: Vec<ConflictCandidate>,
     },
+    InstallMissingMods {
+        mods: Vec<ResolvedMod>,
+    },
+    DisableBlockingMods {
+        mods: Vec<BlockingMod>,
+    },
+}
+
+/// One mod the server rejected during the FML channel handshake. The user can
+/// disable it (if the server simply lacks the mod) — but a `server side` reject
+/// can also mean a version mismatch, which disabling won't fix; the card
+/// surfaces both possibilities rather than prescribing disable.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct BlockingMod {
+    /// The cited mod-id from the reject (e.g. `sophisticatedbackpacks`) — the
+    /// clearest label, matching what the server named. Preferred over `name`,
+    /// which is filename-derived and unreliable for unenriched mods.
+    pub mod_id: String,
+    pub sha1: String,
+    pub name: String,
+    /// Names of *kept* installed mods whose jar declares a mandatory dependency
+    /// on this one (read via `local::read_jar_dependency_ids`). Disabling this
+    /// would break them; a non-empty list is a warning, not a block.
+    pub breaks: Vec<String>,
 }
 
 /// One side of a mod conflict the user can act on.
@@ -239,6 +270,65 @@ pub fn build_conflict_candidates(
     out
 }
 
+/// Map the `server side`-cited mod-ids to *installed* mods the user can disable
+/// to join, and compute which kept mods each would break.
+///
+/// An id is matched to an installed mod by `cited_resolve::find_installed_for_cited`
+/// (normalized name / project_id / filename token — a jar's internal mod-id is not
+/// stored). Already-disabled mods are skipped; matches deduped by `sha1`; unmatched
+/// ids dropped. `breaks` lists the *names* of mods that would lose a required
+/// dependency if this one is disabled: enabled mods, not themselves in the blocking
+/// set, whose **jar-declared** dependency mod-ids (`declared_deps`, keyed by
+/// installed `sha1`) include this blocking mod-id. `declared_deps` is read from the
+/// jars by the caller (`local::read_jar_dependency_ids`) — the recorded `requires`
+/// registry is too sparse to be reliable. An empty map yields empty `breaks` (used
+/// by the diagnose-time emptiness check, which only needs the list).
+pub fn build_blocking_mods(
+    cited_ids: &[String],
+    installed: &[InstalledMod],
+    declared_deps: &HashMap<String, Vec<String>>,
+) -> Vec<BlockingMod> {
+    // Resolve each cited (blocking mod-id, installed mod), enabled-only, deduped.
+    let mut resolved: Vec<(&str, &InstalledMod)> = Vec::new();
+    for id in cited_ids {
+        if let Some(m) = crate::mods::cited_resolve::find_installed_for_cited(id, installed) {
+            // A mod the user already disabled is no longer blocking the join.
+            if !m.enabled {
+                continue;
+            }
+            if resolved.iter().any(|(_, r)| r.sha1 == m.sha1) {
+                continue; // dedup by installed identity
+            }
+            resolved.push((id.as_str(), m));
+        }
+    }
+    let blocking_sha1s: Vec<&str> = resolved.iter().map(|(_, m)| m.sha1.as_str()).collect();
+
+    resolved
+        .iter()
+        .map(|(blocking_modid, m)| {
+            let breaks = installed
+                .iter()
+                .filter(|other| {
+                    other.enabled
+                        && !blocking_sha1s.contains(&other.sha1.as_str())
+                        && declared_deps.get(&other.sha1).is_some_and(|deps| {
+                            deps.iter()
+                                .any(|dep| dep.eq_ignore_ascii_case(blocking_modid))
+                        })
+                })
+                .map(|other| other.name.clone())
+                .collect();
+            BlockingMod {
+                mod_id: blocking_modid.to_string(),
+                sha1: m.sha1.clone(),
+                name: m.name.clone(),
+                breaks,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +348,116 @@ mod tests {
             enrich_attempted: false,
             requires: vec![],
         }
+    }
+
+    fn inst(
+        name: &str,
+        sha1: &str,
+        project: Option<&str>,
+        enabled: bool,
+        requires: &[&str],
+    ) -> InstalledMod {
+        InstalledMod {
+            filename: format!("{}.jar", name.to_lowercase().replace([' ', '\''], "")),
+            sha1: sha1.into(),
+            source: project.map(|_| ModSource::Modrinth),
+            project_id: project.map(|p| p.into()),
+            version_id: project.map(|_| "verid".into()),
+            name: name.into(),
+            version_number: Some("1.0".into()),
+            installed_at: "2026-01-01T00:00:00Z".into(),
+            enabled,
+            enrich_attempted: false,
+            requires: requires.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn repair_kind_maps_client_extra_mods() {
+        assert_eq!(
+            repair_kind_for("client-extra-mods"),
+            Some(RepairKind::DisableBlockingMods)
+        );
+    }
+
+    #[test]
+    fn build_blocking_maps_cited_ids_to_installed_and_drops_unmatched() {
+        let installed = vec![
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &[]),
+            inst("Citadel", "c", Some("citadel"), true, &[]),
+            inst("Unrelated", "u", Some("other"), true, &[]),
+        ];
+        let cited = vec![
+            "alexsmobs".to_string(),
+            "citadel".to_string(),
+            "ghostmod".to_string(), // not installed → dropped
+        ];
+        let blocking = build_blocking_mods(&cited, &installed, &HashMap::new());
+        let names: Vec<&str> = blocking.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, vec!["Alex's Mobs", "Citadel"]);
+        // mod_id carries the cited id (the card's display label).
+        let ids: Vec<&str> = blocking.iter().map(|b| b.mod_id.as_str()).collect();
+        assert_eq!(ids, vec!["alexsmobs", "citadel"]);
+        assert!(blocking.iter().all(|b| b.breaks.is_empty()));
+    }
+
+    #[test]
+    fn build_blocking_breaks_lists_kept_enabled_dependents_only() {
+        let installed = vec![
+            inst("Citadel", "c", Some("citadel"), true, &[]),
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &[]),
+            inst("Old User", "o", Some("olduser"), false, &[]),
+        ];
+        // Both Alex's Mobs and Old User declare a jar dep on "citadel"; only the
+        // enabled one (Alex's Mobs) is a live break.
+        let deps = HashMap::from([
+            ("a".to_string(), vec!["citadel".to_string()]),
+            ("o".to_string(), vec!["citadel".to_string()]),
+        ]);
+        let blocking = build_blocking_mods(&["citadel".to_string()], &installed, &deps);
+        assert_eq!(blocking.len(), 1);
+        assert_eq!(blocking[0].name, "Citadel");
+        assert_eq!(blocking[0].breaks, vec!["Alex's Mobs".to_string()]);
+    }
+
+    #[test]
+    fn build_blocking_excludes_other_blocking_mods_from_breaks() {
+        // Alex's Mobs declares a jar dep on Citadel, but since Alex's Mobs is
+        // itself in the blocking set it is not counted as a break for Citadel.
+        let installed = vec![
+            inst("Alex's Mobs", "a", Some("alexsmobs"), true, &[]),
+            inst("Citadel", "c", Some("citadel"), true, &[]),
+        ];
+        let deps = HashMap::from([("a".to_string(), vec!["citadel".to_string()])]);
+        let blocking = build_blocking_mods(
+            &["alexsmobs".to_string(), "citadel".to_string()],
+            &installed,
+            &deps,
+        );
+        let citadel = blocking.iter().find(|b| b.name == "Citadel").unwrap();
+        assert!(
+            citadel.breaks.is_empty(),
+            "alexsmobs is also being disabled, so not a break: {:?}",
+            citadel.breaks
+        );
+    }
+
+    #[test]
+    fn build_blocking_empty_when_no_ids_match() {
+        let installed = vec![inst("Sodium", "s", Some("sodium"), true, &[])];
+        assert!(
+            build_blocking_mods(&["alexsmobs".to_string()], &installed, &HashMap::new()).is_empty()
+        );
+    }
+
+    #[test]
+    fn build_blocking_skips_already_disabled_mods() {
+        // A blocking mod the user already disabled no longer blocks the join, so
+        // it drops out — this is what lets the diagnosis self-suppress afterwards.
+        let installed = vec![inst("Alex's Mobs", "a", Some("alexsmobs"), false, &[])];
+        assert!(
+            build_blocking_mods(&["alexsmobs".to_string()], &installed, &HashMap::new()).is_empty()
+        );
     }
 
     #[test]
@@ -304,6 +504,14 @@ mod tests {
         assert_eq!(
             repair_kind_for("mod-resolution-conflict"),
             Some(RepairKind::ResolveConflict)
+        );
+    }
+
+    #[test]
+    fn repair_kind_maps_server_missing_mods() {
+        assert_eq!(
+            repair_kind_for("server-missing-mods"),
+            Some(RepairKind::InstallMissingMods)
         );
     }
 
@@ -369,6 +577,14 @@ mod tests {
     fn conflict_mods_empty_when_no_mod_lines() {
         let log = "net.fabricmc.loader.impl.discovery.ModResolutionException: something";
         assert!(extract_conflict_mods(log).is_empty());
+    }
+
+    #[test]
+    fn install_missing_mods_plan_serializes_with_kind_tag() {
+        let plan = RepairPlan::InstallMissingMods { mods: vec![] };
+        let j = serde_json::to_string(&plan).unwrap();
+        assert!(j.contains(r#""kind":"install_missing_mods""#), "got: {j}");
+        assert!(j.contains(r#""mods":[]"#), "got: {j}");
     }
 
     #[test]

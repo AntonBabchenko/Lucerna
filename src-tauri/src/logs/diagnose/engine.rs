@@ -433,4 +433,60 @@ mod tests {
             LogSource::Game,
         );
     }
+
+    // 8. server-missing-mods (client missing mods the server requires)
+
+    #[test]
+    fn pattern_server_missing_mods_matches_forge_reject_block() {
+        let content = "[Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Channels [farmersdelight:main] rejected their client side version number\n\
+                       [Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
+
+    #[test]
+    fn pattern_server_missing_mods_matches_datapack_registry_reject() {
+        let content = "[Netty Client IO #0/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Missing required datapack registry: moonlight:map_markers";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
+
+    #[test]
+    fn pattern_server_missing_mods_does_not_match_generic_disconnect() {
+        assert_no_diag(
+            "[12:00:03] [Render thread/INFO]: Disconnected: Connection closed",
+            LogSource::Game,
+        );
+    }
+
+    // 9. client-extra-mods (client carries enforced-channel mods the server lacks)
+
+    #[test]
+    fn pattern_client_extra_mods_matches_server_side_reject() {
+        // Server-side reject → client-extra-mods. That this resolves to
+        // client-extra-mods (not server-missing-mods, declared first) proves the
+        // install diagnosis no longer fires on this inverse case.
+        let content = "[Netty Client IO #0/ERROR] [net.minecraftforge.network.NetworkRegistry/NETREGISTRY]: Channels [alexsmobs:main_channel,citadel:main_channel] rejected their server side version number\n\
+                       [Netty Client IO #0/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        assert_diag(content, LogSource::Game, "client-extra-mods");
+    }
+
+    #[test]
+    fn pattern_client_side_reject_is_install_not_blocking() {
+        // A client-side reject stays the install case; client-extra-mods (server
+        // side only) must not steal it.
+        let content = "[Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Channels [farmersdelight:main] rejected their client side version number\n\
+                       [Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
+
+    #[test]
+    fn pattern_both_directions_install_wins_over_disable() {
+        // A log carrying BOTH a client-side (missing) and a server-side (extra)
+        // reject must surface the install case. Enforces the declaration-order
+        // tiebreak: server-missing-mods is declared before client-extra-mods, so
+        // reordering the PATTERNS array would break this and fail here.
+        let content = "[ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Channels [foo:ch] rejected their client side version number\n\
+                       [ERROR] [net.minecraftforge.network.NetworkRegistry/NETREGISTRY]: Channels [bar:ch] rejected their server side version number\n\
+                       [ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
 }
