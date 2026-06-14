@@ -321,17 +321,27 @@
         />
       {/if}
       <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />
-      <button type="button" class="flex-1 text-left min-w-0 truncate" onclick={onOpenDetail}>
-        <span class="font-medium text-primary">{summary.name}</span>
+      <button
+        type="button"
+        class="flex flex-1 items-center gap-2 text-left min-w-0"
+        onclick={onOpenDetail}
+      >
+        <span class="font-medium text-primary flex-shrink-0">{summary.name}</span>
         {#if installed}
-          <span class="text-xs text-muted ml-2">{installedMeta}</span>
+          <span class="text-xs text-muted flex-shrink-0">{installedMeta}</span>
         {:else}
-          <span class="text-xs text-muted ml-2 inline-flex items-center gap-1">
+          <span class="text-xs text-muted flex-shrink-0 inline-flex items-center gap-1">
             <Icon name="user" size={12} />
             {summary.author}
             <Icon name="download" size={12} class="ml-1.5" />
             {(summary.downloads ?? 0).toLocaleString()}
           </span>
+        {/if}
+        {#if summary.summary}
+          <span
+            class="text-xs text-secondary flex-1 min-w-0 truncate border-l border-border-subtle pl-2"
+            >{summary.summary}</span
+          >
         {/if}
       </button>
       <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
