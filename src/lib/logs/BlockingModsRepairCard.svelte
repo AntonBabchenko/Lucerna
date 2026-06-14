@@ -71,10 +71,7 @@
           <div class="mt-2 flex flex-col gap-2">
             <p class="text-xs text-muted">{$t('logs.repair.blockingMods.disableHint')}</p>
             {#if m.breaks.length > 0}
-              <p
-                class="text-xs text-warning-text/80"
-                data-testid={`blocking-breaks-${m.sha1}`}
-              >
+              <p class="text-xs text-warning-text/80" data-testid={`blocking-breaks-${m.sha1}`}>
                 {$t('logs.repair.blockingMods.breaks', { names: m.breaks.join(', ') })}
               </p>
             {/if}
