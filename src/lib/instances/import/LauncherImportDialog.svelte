@@ -6,6 +6,7 @@
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
+  import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -285,13 +286,13 @@
       {#if needsManualVersion}
         <label class="block mb-4">
           <span class="text-sm text-secondary">{$t('instances.import.mcVersionInputLabel')}</span>
-          <input
-            type="text"
-            class="mt-1 input w-full"
-            bind:value={mcVersionInput}
-            placeholder={$t('instances.import.mcVersionPlaceholder')}
-            data-testid="mc-version-input"
-          />
+          <div class="mt-1">
+            <McVersionCombobox
+              bind:value={mcVersionInput}
+              placeholder={$t('instances.import.mcVersionPlaceholder')}
+              dataTestid="mc-version-input"
+            />
+          </div>
           <span class="mt-1 block text-xs text-muted">
             {$t('instances.import.mcVersionHint')}
           </span>
