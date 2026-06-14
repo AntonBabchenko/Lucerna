@@ -177,7 +177,13 @@ describe('MissingModsRepairCard', () => {
     modsVersions.mockResolvedValue({ status: 'ok', data: [makeModVersion('p1')] });
     modsResolveInstallPlan.mockResolvedValue({
       status: 'ok',
-      data: { required: [], optional: [], incompatible: [], unresolvable: [], loader_requirements: [] },
+      data: {
+        required: [],
+        optional: [],
+        incompatible: [],
+        unresolvable: [],
+        loader_requirements: [],
+      },
     });
     decideModInstall.mockResolvedValue({ kind: 'install', primaryProjectName: 'Create' });
     modsInstallWithDeps.mockResolvedValue({
