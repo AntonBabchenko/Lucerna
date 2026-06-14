@@ -2,6 +2,7 @@
   import {
     commands,
     events,
+    type DepViolation,
     type LoaderKind,
     type ModSource,
     type ModVersion,
@@ -22,7 +23,9 @@
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
+  import { createPreflight, remediateViolation, toOverlayKeys } from '$lib/mods/preflight.svelte';
   import { createInstalledSelection } from './installed-selection.svelte';
+  import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modKey } from './row-utils';
@@ -67,6 +70,8 @@
       getPageSize: () => filters.pageSize,
     },
   );
+  const preflight = createPreflight(() => instanceId);
+  const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
   const selection = createInstalledSelection(
     () => filters.filtered,
     () => instanceId,
@@ -74,6 +79,24 @@
     () => updates.updateChecks,
     deps.invalidateGraph,
   );
+
+  // One-click remediation from the pre-flight panel: resolve newest compatible
+  // version for the violation's provider project and install it, then refresh
+  // the panel. Shows a toast on success or failure (mirrors installDepNode).
+  const onPreflightUpdate = async (v: DepViolation): Promise<void> => {
+    if (!instanceId || !mcVersion || !loader) return;
+    const result = await remediateViolation(instanceId, v, mcVersion, loader);
+    if (result.ok) {
+      pushSuccess(
+        get(t)('mods.browse.toastInstalledMod', { name: v.dep_display_name ?? v.dep_id }),
+      );
+    } else {
+      pushWarning(get(t)('mods.browse.toastInstallFailed'));
+    }
+    preflight.invalidate();
+    deps.invalidateGraph();
+    await data.refresh();
+  };
 
   // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
   // for interpolation, which the composable does not own).
@@ -160,6 +183,7 @@
     }
     shellBusy = false;
     deps.invalidateGraph();
+    preflight.invalidate();
     await data.refresh();
   }
 
@@ -183,6 +207,7 @@
     else {
       await data.refresh();
       deps.reloadGraph();
+      preflight.invalidate();
     }
     shellBusy = false;
   }
@@ -208,15 +233,18 @@
       events.modInstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
+        preflight.invalidate();
         void compat.runOfflineScan();
       }),
       events.modUninstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
+        preflight.invalidate();
         void compat.runOfflineScan();
       }),
       events.modToggle.listen(() => {
         void data.refresh();
+        preflight.invalidate();
         void compat.runOfflineScan();
       }),
     ];
@@ -229,6 +257,7 @@
     filters.dispose();
     updates.dispose();
     deps.dispose();
+    preflight.dispose();
     selection.dispose();
     compat.dispose();
   });
@@ -259,6 +288,8 @@
   {#if updates.showCfBanner}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
   {/if}
+
+  <PreflightPanel report={preflight.report} onUpdate={onPreflightUpdate} />
 
   {#if !instanceId}
     <div class="text-placeholder text-sm py-8 text-center">
@@ -309,6 +340,7 @@
             ? compatTitle(row.installed.sha1)
             : null}
           selected={selection.selected.has(row.installed.sha1)}
+          {outOfRangeKeys}
           onToggleExpand={() => deps.toggleExpand(row.installed.sha1)}
           onHover={(k) => (deps.hoveredKey = k)}
           onOpenDetail={() => {

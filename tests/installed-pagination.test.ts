@@ -37,6 +37,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsCheckUpdates: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
+    instanceDependencyPreflight: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { violations: [] } }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsProject: vi.fn().mockImplementation((_s: string, id: string) =>

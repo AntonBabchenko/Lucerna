@@ -31,6 +31,7 @@
     packChip,
     incompatibleTitle,
     selected,
+    outOfRangeKeys = new Set(),
     onToggleExpand,
     onHover,
     onOpenDetail,
@@ -57,6 +58,7 @@
     packChip: string | null;
     incompatibleTitle: string | null;
     selected: boolean;
+    outOfRangeKeys?: Set<string>;
     onToggleExpand: () => void;
     onHover: (k: string | null) => void;
     // The MAIN row's own ModCard detail opener.
@@ -171,6 +173,7 @@
       onInstall={onInstallDep}
       {onJump}
       onOpenDetail={onOpenDetailMod}
+      {outOfRangeKeys}
     />
   {/if}
 </div>

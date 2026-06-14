@@ -484,6 +484,14 @@ export const commands = {
 	 */
 	modsDependencyGraph: (instanceId: string) => typedError<DependencyGraph, Error>(__TAURI_INVOKE("mods_dependency_graph", { instanceId })),
 	/**
+	 *  Offline dependency version pre-flight for an instance. Reads every enabled
+	 *  mod jar's descriptor, builds a provider index, and checks that every
+	 *  mandatory dependency is present and within the declared version range.
+	 *  Network-free; pure local jar inspection. An empty `violations` list means
+	 *  no detected problems.
+	 */
+	instanceDependencyPreflight: (instanceId: string) => typedError<PreflightReport, Error>(__TAURI_INVOKE("instance_dependency_preflight", { instanceId })),
+	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
 	 *  compatibility against the target instance. No filesystem writes.
 	 */
@@ -1008,6 +1016,38 @@ export type DepTreeNode = {
 	 */
 	cycle: boolean,
 	children: DepTreeNode[],
+};
+
+/**
+ *  One resolved dependency violation, enriched with enough context for the
+ *  UI to show an actionable error row.
+ */
+export type DepViolation = {
+	/**  SHA-1 of the mod that declared the dependency. */
+	dependent_sha1: string,
+	/**  Display name of the mod that declared the dependency. */
+	dependent_name: string,
+	/**  Mod-id of the missing / out-of-range dependency. */
+	dep_id: string,
+	/**
+	 *  Optional human-readable display name for `dep_id`, if we could look
+	 *  it up. `None` in v1 (best-effort enrichment is out of scope).
+	 */
+	dep_display_name: string | null,
+	/**  `MissingRequired` or `VersionOutOfRange`. */
+	kind: ViolationKind,
+	/**  The version that is actually installed (`None` for `MissingRequired`). */
+	installed_version: string | null,
+	/**
+	 *  The version range the dependent declared (empty string for
+	 *  `MissingRequired`).
+	 */
+	needed: string,
+	/**
+	 *  Platform project reference for the provider, if we could link it.
+	 *  Powers a "View on Modrinth / CurseForge" link in the UI.
+	 */
+	provider_project: DepProjectRef | null,
 };
 
 export type DependencyGraph = {
@@ -2039,6 +2079,12 @@ export type PlaytimeStats = {
 	last_session_unix_ms: number | null,
 };
 
+/**  Aggregated result of the dependency pre-flight scan. */
+export type PreflightReport = {
+	/**  All detected violations. Empty means no problems found. */
+	violations: DepViolation[],
+};
+
 export type ProblemArtifact = {
 	category: VerifyCategory,
 	rel_path: string,
@@ -2307,6 +2353,16 @@ export type VersionRef = {
 };
 
 export type VersionType = "release" | "snapshot" | "old_alpha" | "old_beta";
+
+/**  What kind of dependency violation was detected. */
+export type ViolationKind = 
+/**  A required dependency mod is absent from the installed set. */
+"missing_required" | 
+/**
+ *  A required dependency is present but its version does not satisfy
+ *  the declared version range.
+ */
+"version_out_of_range";
 
 /**
  *  A singleplayer world inside an instance, surfaced to the UI.
