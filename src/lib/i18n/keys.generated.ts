@@ -59,6 +59,8 @@ export type TranslationKey =
   | 'errors.hashMismatch'
   | 'errors.hostNotAllowed'
   | 'errors.importInstanceUnreadable'
+  | 'errors.importNoProvenance'
+  | 'errors.importSourceMissing'
   | 'errors.importSourceUnrecognized'
   | 'errors.importUnsupportedLoader'
   | 'errors.instanceBusy'

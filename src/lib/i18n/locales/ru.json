@@ -1095,7 +1095,9 @@
     "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}",
     "importInstanceUnreadable": "Не удалось прочитать сборку {launcher}: {details}",
     "importUnsupportedLoader": "Неподдерживаемый загрузчик «{loader}» в импортируемой сборке",
-    "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}"
+    "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}",
+    "importNoProvenance": "Этот инстанс не был импортирован из другого лаунчера.",
+    "importSourceMissing": "Исходная папка больше не существует: {path}"
   },
   "settings": {
     "title": "Настройки",

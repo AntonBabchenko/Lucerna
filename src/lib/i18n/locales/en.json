@@ -1095,7 +1095,9 @@
     "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}",
     "importInstanceUnreadable": "Couldn't read the {launcher} instance: {details}",
     "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
-    "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}"
+    "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}",
+    "importNoProvenance": "This instance wasn't imported from another launcher.",
+    "importSourceMissing": "The original source folder no longer exists: {path}"
   },
   "settings": {
     "title": "Settings",
