@@ -295,7 +295,10 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert_eq!(detect_loader(&vj), (LoaderKind::Forge, Some("47.2.0".into())));
+        assert_eq!(
+            detect_loader(&vj),
+            (LoaderKind::Forge, Some("47.2.0".into()))
+        );
     }
 
     #[test]
@@ -320,7 +323,10 @@ mod tests {
             }],
             ..Default::default()
         };
-        assert_eq!(detect_loader(&vj), (LoaderKind::Fabric, Some("0.15.7".into())));
+        assert_eq!(
+            detect_loader(&vj),
+            (LoaderKind::Fabric, Some("0.15.7".into()))
+        );
     }
 
     #[test]
@@ -457,7 +463,10 @@ mod tests {
             names.iter().any(|n| n.starts_with("Minecraft")),
             "shared dir expected, got: {names:?}"
         );
-        assert!(!names.contains(&"1.20.1".to_string()), "vanilla leaked: {names:?}");
+        assert!(
+            !names.contains(&"1.20.1".to_string()),
+            "vanilla leaked: {names:?}"
+        );
     }
 
     #[test]
