@@ -99,7 +99,7 @@ pub fn resolve(mods: &[ParsedMod], index: &ProviderIndex) -> Vec<Violation> {
 // ── IPC types & testable command core ─────────────────────────────────────
 
 /// What kind of dependency violation was detected.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ViolationKind {
     /// A required dependency mod is absent from the installed set.
@@ -111,7 +111,7 @@ pub enum ViolationKind {
 
 /// One resolved dependency violation, enriched with enough context for the
 /// UI to show an actionable error row.
-#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct DepViolation {
     /// SHA-1 of the mod that declared the dependency.
     pub dependent_sha1: String,
@@ -135,7 +135,7 @@ pub struct DepViolation {
 }
 
 /// Aggregated result of the dependency pre-flight scan.
-#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct PreflightReport {
     /// All detected violations. Empty means no problems found.
     pub violations: Vec<DepViolation>,
@@ -258,20 +258,15 @@ pub async fn dependency_preflight_for_root(
         }
 
         // Register provided mod-ids → platform identity for violation enrichment.
+        // Only insert when dep_project_ref returns Some; FTB/ATLauncher sources
+        // return None (no per-mod browser) and must not create a spurious link.
         if let (Some(source), Some(project_id)) = (m.source, m.project_id.as_deref()) {
-            for p in &manifest.provided {
-                provider_owner
-                    .entry(p.mod_id.to_ascii_lowercase())
-                    .or_insert_with(|| {
-                        dep_project_ref(source, project_id).unwrap_or(
-                            // FTB/ATLauncher fall through — return a Modrinth ref as a
-                            // safe placeholder (project_id is opaque for pack sources).
-                            crate::mods::platform::DepProjectRef::Modrinth {
-                                project_id: project_id.into(),
-                                version_id: None,
-                            },
-                        )
-                    });
+            if let Some(ref_) = dep_project_ref(source, project_id) {
+                for p in &manifest.provided {
+                    provider_owner
+                        .entry(p.mod_id.to_ascii_lowercase())
+                        .or_insert_with(|| ref_.clone());
+                }
             }
         }
 
@@ -384,5 +379,46 @@ mod tests {
         ];
         let index = ProviderIndex::build(&mods, &[]);
         assert!(resolve(&mods, &index).is_empty());
+    }
+
+    /// FTB and ATLauncher sources have no per-mod browser; `dep_project_ref`
+    /// must return `None` so pack-sourced mods never emit a bogus Modrinth link.
+    #[test]
+    fn ftb_and_atl_sources_yield_no_dep_project_ref() {
+        use crate::mods::platform::ModSource;
+        assert!(dep_project_ref(ModSource::Ftb, "some-opaque-pack-id").is_none());
+        assert!(dep_project_ref(ModSource::Atlauncher, "some-opaque-pack-id").is_none());
+        // Modrinth and CurseForge sources do produce a ref.
+        assert!(dep_project_ref(ModSource::Modrinth, "aaabbb").is_some());
+        assert!(dep_project_ref(ModSource::Curseforge, "12345").is_some());
+    }
+
+    /// IPC types must round-trip through JSON (Deserialize was added alongside Serialize).
+    #[test]
+    fn preflight_report_deserialize_round_trip() {
+        use crate::mods::platform::DepProjectRef;
+        let report = PreflightReport {
+            violations: vec![DepViolation {
+                dependent_sha1: "abc".into(),
+                dependent_name: "Backpacks".into(),
+                dep_id: "sophisticatedcore".into(),
+                dep_display_name: None,
+                kind: ViolationKind::VersionOutOfRange,
+                installed_version: Some("1.3.50".into()),
+                needed: "[1.3.51,)".into(),
+                provider_project: Some(DepProjectRef::Modrinth {
+                    project_id: "sc".into(),
+                    version_id: None,
+                }),
+            }],
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let back: PreflightReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.violations.len(), 1);
+        assert_eq!(back.violations[0].dep_id, "sophisticatedcore");
+        assert!(matches!(
+            back.violations[0].kind,
+            ViolationKind::VersionOutOfRange
+        ));
     }
 }
