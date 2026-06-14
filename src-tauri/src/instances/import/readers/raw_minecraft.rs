@@ -32,24 +32,16 @@ impl LauncherReader for RawMinecraftReader {
         Self::looks_like_minecraft(dir)
     }
     fn read(&self, dir: &Path) -> Result<ForeignInstance> {
-        let name = dir
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .filter(|s| s != ".minecraft")
-            .or_else(|| {
-                dir.parent()
-                    .and_then(|p| p.file_name())
-                    .map(|s| s.to_string_lossy().into_owned())
-            })
-            .unwrap_or_else(|| "Imported".to_string());
+        // Best-effort hint from `versions/`; the user confirms/overrides it
+        // in the dropdown (a `.minecraft` doesn't record "the" version).
+        let mc_version = detect_mc_version_hint(dir).unwrap_or_default();
+        let name = instance_name_for(dir, &mc_version);
         Ok(ForeignInstance {
             source: ForeignLauncher::RawMinecraft,
             name,
             root: dir.to_path_buf(),
             minecraft_dir: dir.to_path_buf(),
-            // Best-effort hint from `versions/`; the user confirms/overrides
-            // it in the dropdown (a `.minecraft` doesn't record "the" version).
-            mc_version: detect_mc_version_hint(dir).unwrap_or_default(),
+            mc_version,
             loader: LoaderKind::Vanilla, // user may override
             loader_version: None,
             max_heap_mb: None,
@@ -57,6 +49,45 @@ impl LauncherReader for RawMinecraftReader {
             content: scan_content(dir),
             known_mods: vec![],
         })
+    }
+}
+
+/// A sensible default instance name for a manually-picked folder.
+/// - A meaningful folder name (anything but the generic `.minecraft`) is used
+///   directly (e.g. a modpack folder, or a TLauncher `versions/<name>`).
+/// - When the folder *is* `.minecraft`, its parent is used — unless the parent
+///   is a generic OS location (`Roaming`, `AppData`, …) which carries no
+///   meaning, in which case a friendly default (`Minecraft <version>`, or just
+///   `Minecraft`) is used instead.
+/// The user can rename it before importing.
+fn instance_name_for(dir: &Path, mc_version: &str) -> String {
+    const GENERIC: &[&str] = &[
+        "roaming",
+        "appdata",
+        "local",
+        "application support",
+        "home",
+        "minecraft",
+        ".minecraft",
+    ];
+    if let Some(self_name) = dir.file_name().and_then(|s| s.to_str()) {
+        if !self_name.eq_ignore_ascii_case(".minecraft") && !self_name.is_empty() {
+            return self_name.to_string();
+        }
+    }
+    if let Some(parent) = dir
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+    {
+        if !parent.is_empty() && !GENERIC.iter().any(|g| parent.eq_ignore_ascii_case(g)) {
+            return parent.to_string();
+        }
+    }
+    if mc_version.is_empty() {
+        "Minecraft".to_string()
+    } else {
+        format!("Minecraft {mc_version}")
     }
 }
 
@@ -215,5 +246,27 @@ mod tests {
         .unwrap();
         let fi = RawMinecraftReader.read(mc).unwrap();
         assert_eq!(fi.mc_version, "1.20.4"); // concrete lastVersionId wins over higher 1.21.1
+    }
+
+    #[test]
+    fn names_from_meaningful_parent_when_dir_is_dot_minecraft() {
+        // …/MyPack/.minecraft → use the meaningful parent "MyPack".
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join("MyPack/.minecraft");
+        std::fs::create_dir_all(mc.join("saves")).unwrap();
+        let fi = RawMinecraftReader.read(&mc).unwrap();
+        assert_eq!(fi.name, "MyPack");
+    }
+
+    #[test]
+    fn names_friendly_default_for_generic_parent() {
+        // …/Roaming/.minecraft → parent is a generic OS dir; fall back to a
+        // friendly default with the detected version, not "Roaming".
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join("Roaming/.minecraft");
+        std::fs::create_dir_all(mc.join("versions/1.20.4")).unwrap();
+        std::fs::create_dir_all(mc.join("saves")).unwrap();
+        let fi = RawMinecraftReader.read(&mc).unwrap();
+        assert_eq!(fi.name, "Minecraft 1.20.4");
     }
 }
