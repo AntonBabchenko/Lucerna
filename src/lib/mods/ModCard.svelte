@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { browserPrefs, type Density } from './browser-prefs.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
@@ -148,13 +149,18 @@
         variant="info"
         icon="package"
         title={$t('mods.card.fromModpackTitle', { name: packChip })}
+        testid="mod-pack-chip"
       >
         {packChip}
       </StatusBadge>
     {:else if checking}
       <span class="text-xs px-2 py-0.5 text-placeholder">{$t('mods.card.checking')}</span>
     {:else if hasUpdate && updateState?.kind === 'update_available'}
-      <StatusBadge variant="warning" title={$t('mods.card.updateAvailableTitle')}>
+      <StatusBadge
+        variant="warning"
+        title={$t('mods.card.updateAvailableTitle')}
+        testid="mod-update-badge"
+      >
         v{installed.version_number ?? '?'}
         <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
       </StatusBadge>
@@ -162,7 +168,7 @@
         >{$t('mods.card.update')}</button
       >
     {:else if updateState && updateState.kind === 'check_failed'}
-      <span class="text-xs px-2 py-0.5 text-placeholder" title={updateState.reason}
+      <span class="text-xs px-2 py-0.5 text-placeholder" use:tooltip={updateState.reason}
         >{$t('mods.card.checkFailed')}</span
       >
     {/if}
@@ -190,7 +196,7 @@
         class="btn-icon !w-7 !h-7 text-warning-text"
         onclick={onUpdate}
         aria-label={$t('mods.card.update')}
-        title={$t('mods.card.update')}><Icon name="refresh" size={15} /></button
+        use:tooltip={$t('mods.card.update')}><Icon name="refresh" size={15} /></button
       >
     {/if}
     {#if canToggle}
@@ -199,7 +205,7 @@
         class={`btn-icon !w-7 !h-7 ${installed.enabled ? 'text-success' : 'text-muted'}`}
         onclick={onToggle}
         aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-        title={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+        use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
         ><Icon name="power" size={15} /></button
       >
     {/if}
@@ -208,7 +214,7 @@
       class="btn-icon !w-7 !h-7 text-danger"
       onclick={onUninstall}
       aria-label={$t('mods.card.uninstall')}
-      title={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
+      use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
     >
   {:else}
     <BusyButton busy={installing} class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
@@ -276,7 +282,7 @@
                 class={`btn-icon !w-7 !h-7 ${installed.enabled ? 'text-success' : 'text-muted'}`}
                 onclick={onToggle}
                 aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-                title={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+                use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
                 ><Icon name="power" size={15} /></button
               >
             {/if}
@@ -285,7 +291,7 @@
               class="btn-icon !w-7 !h-7 text-danger"
               onclick={onUninstall}
               aria-label={$t('mods.card.uninstall')}
-              title={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
+              use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
             >
           {:else}
             {#if canToggle}

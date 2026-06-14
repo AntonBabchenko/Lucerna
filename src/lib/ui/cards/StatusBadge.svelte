@@ -1,10 +1,12 @@
 <script lang="ts">
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import type { Snippet } from 'svelte';
   import type { BadgeVariant } from './card-status';
 
   // The single status pill used by every card surface. Variant maps to the
-  // semantic token pair; an optional leading icon and title are supported.
+  // semantic token pair; an optional leading icon and tooltip (via the shared
+  // use:tooltip layer) are supported.
   let {
     variant = 'neutral',
     icon = undefined,
@@ -31,7 +33,7 @@
 
 <span
   class={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${CLASS[variant]}`}
-  {title}
+  use:tooltip={title}
   data-testid={testid}
 >
   {#if icon}<Icon name={icon} size={12} />{/if}
