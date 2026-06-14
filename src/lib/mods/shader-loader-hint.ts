@@ -39,14 +39,15 @@ export function shaderLoaderOptions(loader: Loader): ShaderLoaderId[] {
 }
 
 // Filename heuristics — source-agnostic, so they catch CurseForge and manual
-// jars too. Anchored at the start for iris/oculus so a jar that merely contains
-// the substring mid-name does not false-positive. OptiFine's name is
-// distinctive enough to match anywhere (e.g. "OptiFine_1.20.1_HD_U_I6.jar",
-// incl. the "_MOD" Forge variant).
+// jars too. All three are anchored at the start so a jar that merely references
+// the loader mid-name (e.g. "better-optifine-compat-*.jar", "modern-iris-*.jar")
+// does not false-positive. Real loader jars start with the loader name followed
+// by a separator: "iris-mc1.21.1-*.jar", "oculus-mc*.jar",
+// "OptiFine_1.20.1_HD_U_I6.jar".
 const FILENAME_PATTERNS: Record<ShaderLoaderId, RegExp> = {
   iris: /^iris[-_.]/i,
   oculus: /^oculus[-_.]/i,
-  optifine: /optifine/i,
+  optifine: /^optifine[-_.]/i,
 };
 
 const MODRINTH_IDS: Partial<Record<ShaderLoaderId, string>> = {

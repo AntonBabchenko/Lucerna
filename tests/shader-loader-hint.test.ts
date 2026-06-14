@@ -36,8 +36,6 @@ function mod(partial: Partial<InstalledMod>): InstalledMod {
     version_number: null,
     installed_at: '2026-06-14T00:00:00Z',
     enabled: true,
-    requires: [],
-    enrich_attempted: false,
     ...partial,
   };
 }
@@ -68,6 +66,7 @@ describe('detectInstalledShaderLoaders', () => {
       mod({ filename: 'sodium-fabric-0.5.8.jar' }),
       mod({ source: 'modrinth', project_id: 'AANobbMI', filename: 'sodium.jar' }),
       mod({ filename: 'modern-iris-decor.jar' }), // contains "iris" but not at start
+      mod({ filename: 'better-optifine-compat-1.0.jar' }), // references optifine mid-name
     ];
     expect(detectInstalledShaderLoaders(installed, ALL)).toEqual([]);
   });
