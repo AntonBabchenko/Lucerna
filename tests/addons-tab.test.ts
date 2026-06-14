@@ -249,15 +249,22 @@ describe('AddonsTab', () => {
   });
 
   it('clicking Oculus jumps to the Mods segment and deep-links the Oculus project', async () => {
-    const { modBrowseOpenProject } = await import('$lib/settings/state.svelte');
     render(AddonsTab, { props: { ...props, loader: 'forge' } });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     const oculus = await screen.findByRole('button', { name: 'Oculus' });
+    // openOculus deep-links the Oculus Modrinth project (GchcoXML) into the
+    // freshly-mounted mod browser, which consumes modBrowseOpenProject on mount.
     await fireEvent.click(oculus);
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
     });
-    expect(modBrowseOpenProject.value).toEqual({ source: 'modrinth', projectId: 'GchcoXML' });
+    // The mod browser consumed the deep-link and opened the detail modal — this
+    // proves openOculus set modBrowseOpenProject (the rune is cleared on consume,
+    // so we assert on the resulting modal, mirroring the Iris test).
+    const { commands: c } = await import('$lib/ipc/bindings');
+    await waitFor(() => {
+      expect(vi.mocked(c.modsProject)).toHaveBeenCalledWith('modrinth', 'GchcoXML');
+    });
   });
 
   it('hides the hint entirely when an applicable shader loader is already installed', async () => {
