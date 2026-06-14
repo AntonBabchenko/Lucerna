@@ -152,7 +152,7 @@
 </script>
 
 <Modal
-  onClose={onClose}
+  {onClose}
   ariaLabel={$t('instances.import.dialogAriaLabel')}
   dataTestid="launcher-import-dialog"
   panelClass="max-w-lg w-full"
@@ -173,9 +173,7 @@
           data-testid="discover-btn"
         >
           <Icon name="refresh" size={16} />
-          {discovering
-            ? $t('instances.import.discovering')
-            : $t('instances.import.discover')}
+          {discovering ? $t('instances.import.discovering') : $t('instances.import.discover')}
         </button>
         <button
           type="button"
@@ -212,9 +210,7 @@
                 >
                   <div class="flex items-center justify-between">
                     <span class="font-medium text-primary truncate">{inst.name}</span>
-                    <span class="text-xs text-muted ml-2 shrink-0"
-                      >{sourceLabel(inst.source)}</span
-                    >
+                    <span class="text-xs text-muted ml-2 shrink-0">{sourceLabel(inst.source)}</span>
                   </div>
                   <div class="text-xs text-secondary mt-0.5">
                     {$t('instances.import.mcLabel', { version: inst.mc_version })}
@@ -277,9 +273,7 @@
             onclick={toggleAll}
             data-testid="toggle-all-btn"
           >
-            {allSelected
-              ? $t('instances.import.deselectAll')
-              : $t('instances.import.selectAll')}
+            {allSelected ? $t('instances.import.deselectAll') : $t('instances.import.selectAll')}
           </button>
         </div>
 
@@ -311,11 +305,7 @@
       </div>
 
       <div class="flex justify-between mt-6">
-        <button
-          type="button"
-          class="btn btn-secondary"
-          onclick={onClose}
-        >
+        <button type="button" class="btn btn-secondary" onclick={onClose}>
           {$t('common.cancel')}
         </button>
         <button

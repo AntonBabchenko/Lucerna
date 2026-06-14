@@ -46,16 +46,17 @@ export async function runLauncherImport(
   );
 
   if (r.status === 'ok') {
+    let untrackedMods = 0;
+    // latestPhase is reassigned in ch.onmessage callback; cast to escape over-narrow inference.
+    const phase = latestPhase as ImportProgress | null;
+    if (phase !== null && phase.phase === 'done') {
+      untrackedMods = phase.untracked_mods;
+    }
     return {
       status: 'ok',
       name: r.data.name,
       instanceId: r.data.id,
-      untrackedMods: (() => {
-        if (latestPhase && latestPhase.phase === 'done') {
-          return latestPhase.untracked_mods;
-        }
-        return 0;
-      })(),
+      untrackedMods,
     };
   }
   return { status: 'error', message: formatError(r.error) };

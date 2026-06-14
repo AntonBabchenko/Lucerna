@@ -31,9 +31,9 @@ vi.mock('$lib/i18n', () => ({
   },
 }));
 
+import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
 import { commands } from '$lib/ipc/bindings';
 import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
-import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
 
 const mockForeign = {
   source: 'prism' as const,
@@ -123,7 +123,9 @@ describe('LauncherImportDialog', () => {
     fireEvent.click(getByTestId('discover-btn'));
     await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
 
-    const row = getByTestId('discovered-list').querySelector('[data-testid="instance-row"]')!;
+    const row = getByTestId('discovered-list').querySelector(
+      '[data-testid="instance-row"]',
+    ) as Element;
     fireEvent.click(row);
 
     await waitFor(() => expect(getByTestId('import-btn')).toBeTruthy());
@@ -143,7 +145,7 @@ describe('LauncherImportDialog', () => {
     fireEvent.click(getByTestId('discover-btn'));
     await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
     fireEvent.click(
-      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]')!,
+      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]') as Element,
     );
     await waitFor(() => expect(getByTestId('category-list')).toBeTruthy());
 
@@ -151,9 +153,7 @@ describe('LauncherImportDialog', () => {
     expect(modsCb.checked).toBe(true);
 
     fireEvent.click(modsCb);
-    await waitFor(() =>
-      expect((getByTestId('cat-mods') as HTMLInputElement).checked).toBe(false),
-    );
+    await waitFor(() => expect((getByTestId('cat-mods') as HTMLInputElement).checked).toBe(false));
   });
 
   it('step 2: import button calls enqueueLauncherImport and closes dialog', async () => {
@@ -170,7 +170,7 @@ describe('LauncherImportDialog', () => {
     fireEvent.click(getByTestId('discover-btn'));
     await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
     fireEvent.click(
-      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]')!,
+      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]') as Element,
     );
     await waitFor(() => expect(getByTestId('import-btn')).toBeTruthy());
 
@@ -192,7 +192,7 @@ describe('LauncherImportDialog', () => {
     fireEvent.click(getByTestId('discover-btn'));
     await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
     fireEvent.click(
-      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]')!,
+      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]') as Element,
     );
     await waitFor(() => expect(getByTestId('back-btn')).toBeTruthy());
 

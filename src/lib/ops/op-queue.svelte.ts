@@ -6,11 +6,14 @@
 
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
+import type {
+  LauncherImportProgressCb,
+  LauncherImportRequest,
+} from '$lib/instances/import/launcher-import-runner';
+import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
 import type { ModpackProgress, ProgressTick } from '$lib/ipc/bindings';
 import { commands, events } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import type { LauncherImportRequest, LauncherImportProgressCb } from '$lib/instances/import/launcher-import-runner';
-import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
 import { pushActionToast, pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
 import { runImport } from './import-runner';
@@ -61,16 +64,19 @@ function ensureListener(): void {
   try {
     events.verifyProgress
       .listen((e) => {
+        const snap = running;
         if (
-          running &&
-          running.op.kind !== 'import' &&
-          running.progress.kind !== 'import' &&
-          e.payload.instance_id === running.op.instanceId
+          snap &&
+          snap.op.kind !== 'import' &&
+          snap.op.kind !== 'launcher-import' &&
+          snap.progress.kind !== 'import' &&
+          snap.progress.kind !== 'launcher-import' &&
+          e.payload.instance_id === snap.op.instanceId
         ) {
           running = {
-            op: running.op,
+            op: snap.op,
             progress: {
-              kind: running.progress.kind,
+              kind: snap.progress.kind,
               filesDone: e.payload.files_done,
               filesTotal: e.payload.files_total,
             },

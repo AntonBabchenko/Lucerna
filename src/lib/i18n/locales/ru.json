@@ -82,7 +82,8 @@
     "compactExpand": "Развернуть на всё окно",
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
     "joinServer": "Подключиться к серверу",
-    "removeAccountDisabled": "Сначала войдите в аккаунт."
+    "removeAccountDisabled": "Сначала войдите в аккаунт.",
+    "importLauncher": "Импорт из лаунчера"
   },
   "instance": {
     "manage": {
@@ -178,6 +179,45 @@
       "heading": "{count, plural, one {# мод может быть несовместим} few {# мода могут быть несовместимы} many {# модов могут быть несовместимы} other {# мода могут быть несовместимы}}",
       "skipBtn": "Пропустить",
       "installAnywayBtn": "Установить всё равно"
+    }
+  },
+  "instances": {
+    "import": {
+      "dialogAriaLabel": "Импорт из лаунчера",
+      "step1Title": "Выберите профиль для импорта",
+      "step2Title": "Импорт «{name}»",
+      "discover": "Найти профили",
+      "discovering": "Поиск…",
+      "discoverEmpty": "Профили других лаунчеров не найдены. Попробуйте указать папку вручную.",
+      "discoverError": "Не удалось найти профили",
+      "browseFolder": "Выбрать папку…",
+      "sourcePrism": "Prism Launcher",
+      "sourceCurseforge": "CurseForge",
+      "sourceModrinth": "Modrinth App",
+      "sourceAtlauncher": "ATLauncher",
+      "sourceRaw": "Vanilla .minecraft",
+      "mcLabel": "Minecraft {version}",
+      "loaderLabel": "{loader} {version}",
+      "categoryMods": "Моды",
+      "categoryConfig": "Конфигурация",
+      "categorySaves": "Миры",
+      "categoryResourcePacks": "Ресурспаки",
+      "categoryShaderpacks": "Шейдеры",
+      "categoryOptionsTxt": "Настройки",
+      "nameLabel": "Имя профиля",
+      "importBtn": "Импортировать",
+      "back": "Назад",
+      "selectAll": "Выбрать все",
+      "deselectAll": "Снять выбор",
+      "imported": "Импортировано: {name}",
+      "failed": "Ошибка импорта из лаунчера",
+      "progress": "Импорт «{name}»…",
+      "phase": {
+        "creating_instance": "Создание профиля…",
+        "copying": "Копирование файлов…",
+        "recovering_identities": "Определение модов…",
+        "done": "Готово."
+      }
     }
   },
   "mods": {
@@ -1088,7 +1128,8 @@
     "cancel": "Отменить",
     "queueItemVerify": "Проверка «{name}»",
     "queueItemRepair": "Ремонт «{name}»",
-    "queueItemImport": "Импорт «{name}»"
+    "queueItemImport": "Импорт «{name}»",
+    "queueItemLauncherImport": "Импорт «{name}» из лаунчера"
   },
   "page": {
     "update": {

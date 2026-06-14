@@ -82,7 +82,8 @@
     "compactExpand": "Expand to full window",
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
-    "removeAccountDisabled": "Sign in to an account first."
+    "removeAccountDisabled": "Sign in to an account first.",
+    "importLauncher": "Import from launcher"
   },
   "instance": {
     "manage": {
@@ -178,6 +179,45 @@
       "heading": "{count, plural, one {# mod may not be compatible} other {# mods may not be compatible}}",
       "skipBtn": "Skip these",
       "installAnywayBtn": "Install anyway"
+    }
+  },
+  "instances": {
+    "import": {
+      "dialogAriaLabel": "Import from launcher",
+      "step1Title": "Choose an instance to import",
+      "step2Title": "Import \"{name}\"",
+      "discover": "Search for instances",
+      "discovering": "Searching…",
+      "discoverEmpty": "No launcher instances found. Try browsing to a specific folder.",
+      "discoverError": "Could not discover instances",
+      "browseFolder": "Browse to folder…",
+      "sourcePrism": "Prism Launcher",
+      "sourceCurseforge": "CurseForge",
+      "sourceModrinth": "Modrinth App",
+      "sourceAtlauncher": "ATLauncher",
+      "sourceRaw": "Vanilla .minecraft",
+      "mcLabel": "Minecraft {version}",
+      "loaderLabel": "{loader} {version}",
+      "categoryMods": "Mods",
+      "categoryConfig": "Config",
+      "categorySaves": "Saves",
+      "categoryResourcePacks": "Resource packs",
+      "categoryShaderpacks": "Shader packs",
+      "categoryOptionsTxt": "Options",
+      "nameLabel": "Instance name",
+      "importBtn": "Import",
+      "back": "Back",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "imported": "Imported {name}",
+      "failed": "Launcher import failed",
+      "progress": "Importing {name}…",
+      "phase": {
+        "creating_instance": "Creating instance…",
+        "copying": "Copying files…",
+        "recovering_identities": "Identifying mods…",
+        "done": "Done."
+      }
     }
   },
   "mods": {
@@ -1088,7 +1128,8 @@
     "cancel": "Cancel",
     "queueItemVerify": "Verify “{name}”",
     "queueItemRepair": "Repair “{name}”",
-    "queueItemImport": "Import “{name}”"
+    "queueItemImport": "Import “{name}”",
+    "queueItemLauncherImport": "Import “{name}” from launcher"
   },
   "page": {
     "update": {

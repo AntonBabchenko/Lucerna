@@ -102,6 +102,7 @@ const noopHandlers = {
   onOpenMods: () => {},
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
+  onOpenLauncherImport: () => {},
   onPlay: () => {},
   onStop: () => {},
   onInstall: () => {},

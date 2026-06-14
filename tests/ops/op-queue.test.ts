@@ -226,10 +226,16 @@ describe('op-queue store', () => {
     enqueueIntegrity('b', 'Bravo', 'verify'); // queued
     enqueueIntegrity('c', 'Charlie', 'verify'); // queued
 
-    const bOp = opQueue().find((q) => q.kind !== 'import' && q.instanceId === 'b');
+    const bOp = opQueue().find(
+      (q) => q.kind !== 'import' && q.kind !== 'launcher-import' && q.instanceId === 'b',
+    );
     if (!bOp) throw new Error('b not queued');
     cancelQueued(bOp.id);
-    expect(opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''))).toEqual(['c']);
+    expect(
+      opQueue().map((q) =>
+        q.kind !== 'import' && q.kind !== 'launcher-import' ? q.instanceId : '',
+      ),
+    ).toEqual(['c']);
 
     // Cancelling the running op's id is a no-op (it isn't in the queue array).
     const running = opRunning();
@@ -250,7 +256,10 @@ describe('op-queue store', () => {
     enqueueIntegrity('b', 'Bravo', 'verify'); // queue[0]
     enqueueIntegrity('c', 'Charlie', 'verify'); // queue[1]
 
-    const ids = () => opQueue().map((q) => (q.kind !== 'import' ? q.instanceId : ''));
+    const ids = () =>
+      opQueue().map((q) =>
+        q.kind !== 'import' && q.kind !== 'launcher-import' ? q.instanceId : '',
+      );
     const cId = opQueue()[1].id;
     moveQueued(cId, 'up');
     expect(ids()).toEqual(['c', 'b']);

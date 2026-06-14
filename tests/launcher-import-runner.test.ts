@@ -16,9 +16,9 @@ vi.mock('$lib/ipc/format-error', () => ({
   formatError: vi.fn((e: { kind: string }) => `err:${e.kind}`),
 }));
 
-import { commands } from '$lib/ipc/bindings';
-import type { ForeignInstance } from '$lib/ipc/bindings';
 import { runLauncherImport } from '$lib/instances/import/launcher-import-runner';
+import type { ForeignInstance } from '$lib/ipc/bindings';
+import { commands } from '$lib/ipc/bindings';
 
 const mockForeign: ForeignInstance = {
   source: 'prism',
