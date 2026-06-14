@@ -9,6 +9,9 @@
     type AssetUpdateState,
     type ContentKind,
     type InstalledAsset,
+    type LoaderKind,
+    type ModSource,
+    type ModSummary,
     type ModVersion,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -19,16 +22,31 @@
   import { Icon } from '$lib/ui/icons';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
+  import ModDetailModal from './ModDetailModal.svelte';
+  import { mapLimit } from './concurrency';
   import { get } from 'svelte/store';
   import { tooltip } from '$lib/ui/tooltip';
 
   let {
     instanceId,
     kind,
+    mcVersion = null,
+    loader = null,
   }: {
     instanceId: string | null;
     kind: ContentKind;
+    mcVersion?: string | null;
+    loader?: LoaderKind | null;
   } = $props();
+
+  // Project summaries (icon_url) for assets that have a platform identity,
+  // resolved like installed mods via commands.modsProject. Keyed by filename.
+  let summaries = $state<Map<string, ModSummary>>(new Map());
+  // Detail modal target — a resource pack / shader IS a Modrinth/CF project, so
+  // the same ModDetailModal works; install routes through assetInstall.
+  let detail = $state<{ source: ModSource; projectId: string; versionId: string | null } | null>(
+    null,
+  );
 
   let assets = $state<InstalledAsset[]>([]);
   let loading = $state(false);
@@ -52,8 +70,9 @@
     // and in ModBrowseView's handlers; bumping inside this effect would loop.
     void assetsChanged.value;
     const gen = ++generation;
-    // Clear any prior update badges — they belonged to the previous list.
+    // Clear any prior update badges + icons — they belonged to the previous list.
     updateStates = new Map();
+    summaries = new Map();
     if (id === null) {
       assets = [];
       loading = false;
@@ -70,10 +89,25 @@
         assets = [];
       } else {
         assets = res.data;
+        void enrich(res.data, gen);
       }
       loading = false;
     })();
   });
+
+  // Resolve each platform asset's project summary (icon_url) the same way the
+  // installed-mods view does — bounded concurrency, guarded against a stale
+  // instance/kind switch via the generation counter.
+  async function enrich(list: InstalledAsset[], gen: number) {
+    const map = new Map<string, ModSummary>();
+    await mapLimit(list, 6, async (a) => {
+      if (!a.source || !a.project_id) return;
+      const p = await commands.modsProject(a.source as ModSource, a.project_id);
+      if (p.status === 'ok') map.set(a.filename, p.data.summary);
+    });
+    if (gen !== generation) return;
+    summaries = map;
+  }
 
   async function refresh() {
     if (instanceId === null) return;
@@ -81,7 +115,38 @@
     const res = await commands.assetsList(instanceId, kind);
     if (gen !== generation) return;
     if (res.status === 'error') error = formatError(res.error);
-    else assets = res.data;
+    else {
+      assets = res.data;
+      void enrich(res.data, gen);
+    }
+  }
+
+  function openDetail(asset: InstalledAsset) {
+    if (!asset.source || !asset.project_id) return;
+    detail = {
+      source: asset.source as ModSource,
+      projectId: asset.project_id,
+      versionId: asset.version_id,
+    };
+  }
+
+  async function installDetailVersion(v: ModVersion) {
+    if (instanceId === null) return;
+    detail = null;
+    busy = true;
+    error = null;
+    try {
+      const res = await commands.assetInstall(instanceId, v, kind);
+      if (res.status === 'error') {
+        pushWarning(formatError(res.error));
+        return;
+      }
+      await refresh();
+      assetsChanged.value++;
+      pushSuccess(v.name);
+    } finally {
+      busy = false;
+    }
   }
 
   async function remove(asset: InstalledAsset) {
@@ -200,17 +265,37 @@
       {#each assets as asset (asset.filename)}
         {@const latest = updatable(asset.filename)}
         <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'}>
-          <CardMedia
-            iconUrl={null}
-            placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
-            size="sm"
-          />
-          <div class="min-w-0 flex-1 truncate">
-            <span class="text-sm text-primary">{asset.name}</span>
-            {#if asset.version_number}
-              <span class="text-xs text-muted ml-2">{asset.version_number}</span>
-            {/if}
-          </div>
+          {#if asset.source && asset.project_id}
+            <button
+              type="button"
+              class="flex flex-1 items-center gap-2.5 min-w-0 text-left"
+              onclick={() => openDetail(asset)}
+            >
+              <CardMedia
+                iconUrl={summaries.get(asset.filename)?.icon_url ?? null}
+                placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
+                size="sm"
+              />
+              <span class="min-w-0 flex-1 truncate">
+                <span class="text-sm text-primary">{asset.name}</span>
+                {#if asset.version_number}
+                  <span class="text-xs text-muted ml-2">{asset.version_number}</span>
+                {/if}
+              </span>
+            </button>
+          {:else}
+            <CardMedia
+              iconUrl={null}
+              placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
+              size="sm"
+            />
+            <div class="min-w-0 flex-1 truncate">
+              <span class="text-sm text-primary">{asset.name}</span>
+              {#if asset.version_number}
+                <span class="text-xs text-muted ml-2">{asset.version_number}</span>
+              {/if}
+            </div>
+          {/if}
           {#if checkFailed(asset.filename)}
             {@const reason = checkFailedReason(asset.filename)}
             <span
@@ -243,5 +328,17 @@
         </CardShell>
       {/each}
     </div>
+  {/if}
+
+  {#if detail && instanceId}
+    <ModDetailModal
+      source={detail.source}
+      projectId={detail.projectId}
+      {mcVersion}
+      {loader}
+      installedVersionId={detail.versionId}
+      onClose={() => (detail = null)}
+      onInstall={installDetailVersion}
+    />
   {/if}
 </div>

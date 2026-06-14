@@ -8,17 +8,25 @@ import { assetsChanged } from '$lib/settings/state.svelte';
 
 // vi.mock is hoisted — the spies live in vi.hoisted so the factory and the
 // tests share the same references.
-const { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, pushWarning, pushSuccess } =
-  vi.hoisted(() => ({
-    assetsList: vi.fn(),
-    assetUninstall: vi.fn(),
-    assetsCheckUpdates: vi.fn(),
-    assetInstall: vi.fn(),
-    pushWarning: vi.fn(),
-    pushSuccess: vi.fn(),
-  }));
+const {
+  assetsList,
+  assetUninstall,
+  assetsCheckUpdates,
+  assetInstall,
+  modsProject,
+  pushWarning,
+  pushSuccess,
+} = vi.hoisted(() => ({
+  assetsList: vi.fn(),
+  assetUninstall: vi.fn(),
+  assetsCheckUpdates: vi.fn(),
+  assetInstall: vi.fn(),
+  modsProject: vi.fn(),
+  pushWarning: vi.fn(),
+  pushSuccess: vi.fn(),
+}));
 
-const spies = { assetsList, assetUninstall, assetsCheckUpdates, assetInstall };
+const spies = { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, modsProject };
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -26,6 +34,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetUninstall,
     assetsCheckUpdates,
     assetInstall,
+    modsProject,
   },
 }));
 
@@ -72,6 +81,20 @@ function makeVersion(over: Partial<ModVersion> = {}): ModVersion {
   };
 }
 
+function makeSummary() {
+  return {
+    source: 'modrinth' as const,
+    project_id: 'proj-1',
+    slug: 'complementary',
+    name: 'Complementary Shaders',
+    summary: 'A shader pack',
+    icon_url: 'https://x/i.png',
+    downloads: 0,
+    author: 'EminGT',
+    updated_at: null,
+  };
+}
+
 function ok<T>(data: T) {
   return { status: 'ok' as const, data };
 }
@@ -81,6 +104,9 @@ describe('InstalledAssetsView', () => {
     for (const s of Object.values(spies)) s.mockReset();
     pushWarning.mockReset();
     pushSuccess.mockReset();
+    // Enrichment resolves each platform asset's project summary (icon). Default
+    // to a resolved summary so the icon loads; individual tests can override.
+    modsProject.mockResolvedValue(ok({ summary: makeSummary() }));
     // The assetsChanged rune is module-global and shared across tests — reset
     // it so a bump from one test can't leak into the next.
     assetsChanged.value = 0;
@@ -98,6 +124,17 @@ describe('InstalledAssetsView', () => {
     expect(await screen.findByText('Complementary Shaders')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
     expect(spies.assetsList).toHaveBeenCalledWith('inst-1', 'shader');
+  });
+
+  it('loads the project icon for a platform asset', async () => {
+    spies.assetsList.mockResolvedValue(ok([makeAsset()]));
+
+    const { container } = render(InstalledAssetsView, { instanceId: 'inst-1', kind: 'shader' });
+
+    await screen.findByText('Complementary Shaders');
+    await waitFor(() =>
+      expect(container.querySelector('img')?.getAttribute('src')).toBe('https://x/i.png'),
+    );
   });
 
   it('calls assetUninstall with (instanceId, kind, filename) on Remove', async () => {

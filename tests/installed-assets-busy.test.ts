@@ -7,15 +7,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledAsset } from '$lib/ipc/bindings';
 import { assetsChanged } from '$lib/settings/state.svelte';
 
-const { assetsList, assetUninstall, assetsCheckUpdates, assetInstall, pushWarning, pushSuccess } =
-  vi.hoisted(() => ({
-    assetsList: vi.fn(),
-    assetUninstall: vi.fn(),
-    assetsCheckUpdates: vi.fn(),
-    assetInstall: vi.fn(),
-    pushWarning: vi.fn(),
-    pushSuccess: vi.fn(),
-  }));
+const {
+  assetsList,
+  assetUninstall,
+  assetsCheckUpdates,
+  assetInstall,
+  modsProject,
+  pushWarning,
+  pushSuccess,
+} = vi.hoisted(() => ({
+  assetsList: vi.fn(),
+  assetUninstall: vi.fn(),
+  assetsCheckUpdates: vi.fn(),
+  assetInstall: vi.fn(),
+  modsProject: vi.fn(),
+  pushWarning: vi.fn(),
+  pushSuccess: vi.fn(),
+}));
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -23,6 +31,7 @@ vi.mock('$lib/ipc/bindings', () => ({
     assetUninstall,
     assetsCheckUpdates,
     assetInstall,
+    modsProject,
   },
 }));
 
@@ -55,6 +64,22 @@ describe('InstalledAssetsView busy state', () => {
     assetUninstall.mockReset();
     assetsCheckUpdates.mockReset();
     assetInstall.mockReset();
+    modsProject.mockReset();
+    modsProject.mockResolvedValue(
+      ok({
+        summary: {
+          source: 'modrinth',
+          project_id: 'proj-1',
+          slug: 'faithful',
+          name: 'Faithful',
+          summary: '',
+          icon_url: null,
+          downloads: 0,
+          author: 'a',
+          updated_at: null,
+        },
+      }),
+    );
     pushWarning.mockReset();
     pushSuccess.mockReset();
     assetsChanged.value = 0;
