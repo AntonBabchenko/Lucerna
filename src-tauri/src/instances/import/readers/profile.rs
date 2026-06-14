@@ -139,6 +139,13 @@ fn source_for_root(minecraft_root: &Path) -> ForeignLauncher {
     }
 }
 
+/// True iff `<dir>/mods` exists and contains at least one entry.
+fn mods_dir_nonempty(dir: &Path) -> bool {
+    std::fs::read_dir(dir.join("mods"))
+        .map(|mut rd| rd.next().is_some())
+        .unwrap_or(false)
+}
+
 /// A sensible instance name: a meaningful folder name (e.g. `test`) used
 /// directly; a `.minecraft` falls back to `Minecraft <version>`.
 fn instance_name_for(game_dir: &Path, mc_version: &str) -> String {
@@ -206,7 +213,36 @@ impl LauncherReader for ProfileReader {
         })
     }
 
-    // expand_root override added in Task 9.
+    fn expand_root(&self, root: &Path) -> Vec<ForeignInstance> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // The shared `.minecraft` itself — only when it carries mods directly
+        // (the TLauncher + Forge pattern). Vanilla worlds in a bare
+        // `.minecraft/saves` stay on the manual-pick RawMinecraft path.
+        if mods_dir_nonempty(root) && self.detect(root) {
+            if let Ok(fi) = self.read(root) {
+                if seen.insert(fi.minecraft_dir.clone()) {
+                    out.push(fi);
+                }
+            }
+        }
+
+        // Each `versions/<name>` that has its own game content.
+        if let Ok(rd) = std::fs::read_dir(root.join("versions")) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if p.is_dir() && self.detect(&p) {
+                    if let Ok(fi) = self.read(&p) {
+                        if seen.insert(fi.minecraft_dir.clone()) {
+                            out.push(fi);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -396,5 +432,46 @@ mod tests {
             .content
             .iter()
             .any(|c| c.category == ContentCategory::Mods));
+    }
+
+    #[test]
+    fn expand_root_finds_versions_and_shared_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("mods")).unwrap();
+        std::fs::write(mc.join("mods/shared.jar"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        let game = mc.join("versions/test");
+        std::fs::create_dir_all(game.join("saves/World")).unwrap();
+        std::fs::write(game.join("saves/World/level.dat"), b"x").unwrap();
+        std::fs::write(game.join("test.json"), r#"{"id":"1.20.1"}"#).unwrap();
+        let v = mc.join("versions/1.20.1");
+        std::fs::create_dir_all(&v).unwrap();
+        std::fs::write(v.join("1.20.1.json"), r#"{"id":"1.20.1"}"#).unwrap();
+        std::fs::write(v.join("1.20.1.jar"), b"x").unwrap();
+
+        let found = ProfileReader.expand_root(&mc);
+        let names: Vec<_> = found.iter().map(|f| f.name.clone()).collect();
+        assert!(names.contains(&"test".to_string()), "got: {names:?}");
+        assert!(
+            names.iter().any(|n| n.starts_with("Minecraft")),
+            "shared dir expected, got: {names:?}"
+        );
+        assert!(!names.contains(&"1.20.1".to_string()), "vanilla leaked: {names:?}");
+    }
+
+    #[test]
+    fn expand_root_skips_shared_dir_without_mods() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("saves/New World")).unwrap();
+        std::fs::write(mc.join("saves/New World/level.dat"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        let v = mc.join("versions/26.1.2");
+        std::fs::create_dir_all(&v).unwrap();
+        std::fs::write(v.join("26.1.2.json"), r#"{"id":"26.1.2"}"#).unwrap();
+        std::fs::write(v.join("26.1.2.jar"), b"x").unwrap();
+
+        assert!(ProfileReader.expand_root(&mc).is_empty());
     }
 }
