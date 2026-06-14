@@ -54,6 +54,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsEnrichPackMods: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'set' }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
+    instanceDependencyPreflight: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { violations: [] } }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     // The view now fetches ModProject for each platform-installed mod

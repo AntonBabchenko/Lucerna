@@ -44,6 +44,7 @@ vi.mock('$lib/ipc/bindings', async (orig) => {
         },
       })),
       modsDependencyGraph: vi.fn(async () => ({ status: 'ok', data: { roots: [] } })),
+      instanceDependencyPreflight: vi.fn(async () => ({ status: 'ok', data: { violations: [] } })),
       scanInstanceModCompat: vi.fn(async () => ({ status: 'ok', data: [] })),
       checkInstanceModCompat: vi.fn(async () => ({ status: 'ok', data: [] })),
     },

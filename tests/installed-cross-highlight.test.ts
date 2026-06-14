@@ -86,6 +86,9 @@ vi.mock('$lib/ipc/bindings', () => ({
         ],
       },
     }),
+    instanceDependencyPreflight: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { violations: [] } }),
     scanInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     checkInstanceModCompat: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

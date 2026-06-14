@@ -18,6 +18,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsListInstalled: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsPackOriginSummary: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsDependencyGraph: vi.fn().mockResolvedValue({ status: 'ok', data: { roots: [] } }),
+    instanceDependencyPreflight: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { violations: [] } }),
     modsInspectLocal: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {

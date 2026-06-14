@@ -1,5 +1,7 @@
+import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { PreflightReport } from '$lib/ipc/bindings';
+import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
+import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
 import { hasBlocking, toOverlayKeys } from '$lib/mods/preflight.svelte';
 
 const report: PreflightReport = {
@@ -84,5 +86,80 @@ describe('toOverlayKeys edge cases', () => {
 
   it('returns an empty set for an empty report', () => {
     expect(toOverlayKeys({ violations: [] }).size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PreflightPanel component rendering
+// ---------------------------------------------------------------------------
+
+const outOfRangeViolation: DepViolation = {
+  kind: 'version_out_of_range',
+  dependent_name: 'Sophisticated Backpacks',
+  dependent_sha1: 'aa',
+  dep_id: 'sophisticatedcore',
+  dep_display_name: 'Sophisticated Core',
+  needed: '[1.3.51,)',
+  installed_version: '1.3.50.2005',
+  provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
+};
+
+const missingViolation: DepViolation = {
+  kind: 'missing_required',
+  dependent_name: 'Backpacks',
+  dependent_sha1: 'bb',
+  dep_id: 'missingmod',
+  dep_display_name: null,
+  needed: '',
+  installed_version: null,
+  provider_project: null,
+};
+
+describe('PreflightPanel', () => {
+  it('renders nothing when report is null', () => {
+    const { queryByTestId } = render(PreflightPanel, {
+      props: { report: null, onUpdate: () => {} },
+    });
+    expect(queryByTestId('preflight-panel')).toBeNull();
+  });
+
+  it('renders nothing when violations list is empty', () => {
+    const { queryByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [] }, onUpdate: () => {} },
+    });
+    expect(queryByTestId('preflight-panel')).toBeNull();
+  });
+
+  it('renders one row for a version_out_of_range violation with the dependent name and dep name', () => {
+    const { getByTestId, getAllByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [outOfRangeViolation] }, onUpdate: () => {} },
+    });
+    expect(getByTestId('preflight-panel')).toBeTruthy();
+    const rows = getAllByTestId('preflight-row');
+    expect(rows).toHaveLength(1);
+    const rowText = rows[0].textContent ?? '';
+    expect(rowText).toContain('Sophisticated Backpacks');
+    expect(rowText).toContain('Sophisticated Core');
+  });
+
+  it('renders one row for a missing_required violation with the dependent name and dep id', () => {
+    const { getAllByTestId } = render(PreflightPanel, {
+      props: { report: { violations: [missingViolation] }, onUpdate: () => {} },
+    });
+    const rows = getAllByTestId('preflight-row');
+    expect(rows).toHaveLength(1);
+    const rowText = rows[0].textContent ?? '';
+    expect(rowText).toContain('Backpacks');
+    expect(rowText).toContain('missingmod');
+  });
+
+  it('renders an Update button only for version_out_of_range with a provider_project', () => {
+    const reportWithBoth: PreflightReport = { violations: [outOfRangeViolation, missingViolation] };
+    const { getAllByRole } = render(PreflightPanel, {
+      props: { report: reportWithBoth, onUpdate: () => {} },
+    });
+    const updateButtons = getAllByRole('button');
+    // Only outOfRangeViolation has a provider_project, so one Update button
+    expect(updateButtons).toHaveLength(1);
   });
 });
