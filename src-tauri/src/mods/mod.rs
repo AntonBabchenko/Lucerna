@@ -20,6 +20,7 @@ pub mod modpack;
 pub mod modrinth;
 pub mod orphans;
 pub mod platform;
+pub mod preflight;
 pub mod project_cache;
 pub mod render;
 pub mod unsupported;

@@ -1473,8 +1473,7 @@ modId=\"evilseagull\"
         let j = jar(&[("META-INF/mods.toml", toml)]);
         let m = read_jar_manifest_deps(&j).unwrap();
         assert_eq!(
-            m.provided[0].version,
-            None,
+            m.provided[0].version, None,
             "unresolvable ${{file.jarVersion}} must yield None, got {:?}",
             m.provided[0].version
         );
