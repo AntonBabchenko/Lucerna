@@ -112,6 +112,33 @@ fn loader_from_coord(coord: &str) -> Option<(LoaderKind, Option<String>)> {
     }
 }
 
+/// The enclosing `.minecraft` for a game dir. If the dir itself holds a
+/// `launcher_profiles.json` it IS the root (shared-dir case); otherwise it
+/// is a `versions/<name>` dir and the root is two levels up.
+fn minecraft_root_of(game_dir: &Path) -> PathBuf {
+    if game_dir.join("launcher_profiles.json").is_file() {
+        return game_dir.to_path_buf();
+    }
+    game_dir
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| game_dir.to_path_buf())
+}
+
+/// `Tlauncher` when a TLauncher marker file sits at the `.minecraft` root,
+/// else the official `MojangLauncher`.
+fn source_for_root(minecraft_root: &Path) -> ForeignLauncher {
+    let marker = ["TlauncherProfiles.json", "TLauncherAdditional.json"]
+        .iter()
+        .any(|m| minecraft_root.join(m).is_file());
+    if marker {
+        ForeignLauncher::Tlauncher
+    } else {
+        ForeignLauncher::MojangLauncher
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +233,39 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(detect_loader(&vj), (LoaderKind::Vanilla, None));
+    }
+
+    #[test]
+    fn root_of_shared_minecraft_is_itself() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        assert_eq!(minecraft_root_of(&mc), mc);
+    }
+
+    #[test]
+    fn root_of_versions_dir_is_two_up() {
+        let tmp = tempfile::tempdir().unwrap();
+        let game = tmp.path().join(".minecraft/versions/test");
+        std::fs::create_dir_all(&game).unwrap();
+        assert_eq!(minecraft_root_of(&game), tmp.path().join(".minecraft"));
+    }
+
+    #[test]
+    fn source_is_tlauncher_when_marker_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        std::fs::write(mc.join("TlauncherProfiles.json"), "{}").unwrap();
+        assert_eq!(source_for_root(&mc), ForeignLauncher::Tlauncher);
+    }
+
+    #[test]
+    fn source_is_mojang_without_marker() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(&mc).unwrap();
+        assert_eq!(source_for_root(&mc), ForeignLauncher::MojangLauncher);
     }
 }
