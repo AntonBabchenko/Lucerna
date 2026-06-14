@@ -81,4 +81,37 @@ mod tests {
     fn detect_folder_rejects_unrelated_dir() {
         assert!(detect_folder(Path::new(env!("CARGO_MANIFEST_DIR"))).is_none());
     }
+
+    #[test]
+    fn scan_root_expands_profile_minecraft() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        let game = mc.join("versions/test");
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/a.jar"), b"x").unwrap();
+        std::fs::write(game.join("test.json"), r#"{"id":"1.20.1"}"#).unwrap();
+
+        let found = scan_root(&mc);
+        assert!(
+            found.iter().any(|f| f.name == "test"
+                && f.source == crate::instances::schema::ForeignLauncher::MojangLauncher),
+            "got: {:?}",
+            found.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn detect_folder_matches_profile_versions_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let game = tmp.path().join(".minecraft/versions/test");
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/a.jar"), b"x").unwrap();
+        std::fs::write(game.join("test.json"), r#"{"id":"1.20.1"}"#).unwrap();
+
+        let fi = detect_folder(&game).unwrap();
+        assert_eq!(
+            fi.source,
+            crate::instances::schema::ForeignLauncher::MojangLauncher
+        );
+    }
 }

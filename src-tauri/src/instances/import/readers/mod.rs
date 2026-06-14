@@ -39,5 +39,8 @@ pub trait LauncherReader: Send + Sync {
 /// Every structured reader (the generic `.minecraft` reader is handled
 /// separately — it has no auto-discovery and matches any `.minecraft`).
 pub fn structured_readers() -> Vec<Box<dyn LauncherReader>> {
-    vec![Box::new(prism::PrismReader)]
+    vec![
+        Box::new(prism::PrismReader),
+        Box::new(profile::ProfileReader),
+    ]
 }
