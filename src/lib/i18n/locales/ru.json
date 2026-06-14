@@ -101,6 +101,8 @@
       "createBtn": "Создать",
       "doneBtn": "Готово",
       "openFolderBtn": "Открыть папку",
+      "importedFromLabel": "Импортировано из {launcher}",
+      "openSourceFolderBtn": "Открыть исходную папку",
       "deleteBtn": "Удалить профиль",
       "emptyState": "Выберите профиль слева или нажмите + Новый профиль.",
       "memoryLabel": "Память (макс. heap): {value}",

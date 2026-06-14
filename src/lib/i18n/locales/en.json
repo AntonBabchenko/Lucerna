@@ -101,6 +101,8 @@
       "createBtn": "Create",
       "doneBtn": "Done",
       "openFolderBtn": "Open folder",
+      "importedFromLabel": "Imported from {launcher}",
+      "openSourceFolderBtn": "Open source folder",
       "deleteBtn": "Delete instance",
       "emptyState": "Pick an instance on the left, or click + New instance.",
       "memoryLabel": "Memory (max heap): {value}",
