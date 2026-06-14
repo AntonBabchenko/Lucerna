@@ -227,6 +227,52 @@ describe('LauncherImportDialog', () => {
     expect(commands.launcherImportInspectFolder).toHaveBeenCalledWith('/some/path');
   });
 
+  it('shows version + loader editors for a mojang_launcher source', async () => {
+    const mojangForeign = {
+      source: 'mojang_launcher' as const,
+      name: 'test',
+      root: 'C:/x/.minecraft/versions/test',
+      minecraft_dir: 'C:/x/.minecraft/versions/test',
+      mc_version: '1.20.1',
+      loader: 'forge' as const,
+      loader_version: '47.2.0',
+      max_heap_mb: null,
+      extra_jvm_args: null,
+      content: [{ category: 'mods' as const, file_count: 1, total_bytes: 10 }],
+      known_mods: [],
+    };
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [mojangForeign],
+    });
+
+    const { getByTestId } = render(LauncherImportDialog, { props: { onClose: vi.fn() } });
+    fireEvent.click(getByTestId('discover-btn'));
+    await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
+    fireEvent.click(
+      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]') as Element,
+    );
+    await waitFor(() => expect(getByTestId('loader-select')).toBeTruthy());
+    expect(getByTestId('mc-version-input')).toBeTruthy();
+  });
+
+  it('does not show the loader editor for a structured prism source', async () => {
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [mockForeign],
+    });
+    const { getByTestId, queryByTestId } = render(LauncherImportDialog, {
+      props: { onClose: vi.fn() },
+    });
+    fireEvent.click(getByTestId('discover-btn'));
+    await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
+    fireEvent.click(
+      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]') as Element,
+    );
+    await waitFor(() => expect(getByTestId('import-btn')).toBeTruthy());
+    expect(queryByTestId('loader-select')).toBeNull();
+  });
+
   it('browse-to-folder: cancelled picker does nothing', async () => {
     openFileMock.mockResolvedValue(null);
 

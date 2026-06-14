@@ -203,6 +203,8 @@
       "sourceCurseforge": "CurseForge",
       "sourceModrinth": "Modrinth App",
       "sourceAtlauncher": "ATLauncher",
+      "sourceMojang": "Minecraft Launcher",
+      "sourceTlauncher": "TLauncher",
       "sourceRaw": "Vanilla .minecraft",
       "mcLabel": "Minecraft {version}",
       "loaderLabel": "{loader} {version}",

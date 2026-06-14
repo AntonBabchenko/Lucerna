@@ -85,7 +85,14 @@
   // supplies them. Seeded from the chosen instance (blank for raw).
   let mcVersionInput = $state('');
   let loaderInput = $state<LoaderKind>('vanilla');
-  const needsManualVersion = $derived(chosen?.source === 'raw_minecraft');
+  // Sources whose version/loader are unknown or only best-effort: the user
+  // confirms/corrects them. raw_minecraft arrives blank; the profile sources
+  // (Minecraft Launcher / TLauncher) arrive pre-seeded with detection.
+  const allowsVersionLoaderEdit = $derived(
+    chosen?.source === 'raw_minecraft' ||
+      chosen?.source === 'mojang_launcher' ||
+      chosen?.source === 'tlauncher',
+  );
   const LOADER_OPTIONS: { value: string; label: string }[] = [
     { value: 'vanilla', label: 'Vanilla' },
     { value: 'fabric', label: 'Fabric' },
@@ -169,7 +176,11 @@
             ? 'instances.import.sourceModrinth'
             : source === 'atlauncher'
               ? 'instances.import.sourceAtlauncher'
-              : 'instances.import.sourceRaw';
+              : source === 'mojang_launcher'
+                ? 'instances.import.sourceMojang'
+                : source === 'tlauncher'
+                  ? 'instances.import.sourceTlauncher'
+                  : 'instances.import.sourceRaw';
     return $t(key as Parameters<typeof $t>[0]);
   }
 
@@ -180,7 +191,7 @@
       selected.size > 0 &&
       targetName.trim() !== '' &&
       !importing &&
-      (!needsManualVersion || mcVersionInput.trim() !== ''),
+      (!allowsVersionLoaderEdit || mcVersionInput.trim() !== ''),
   );
 
   function doImport() {
@@ -190,8 +201,8 @@
       foreign: chosen,
       selected: [...selected],
       targetName: targetName.trim(),
-      mcVersionOverride: needsManualVersion ? mcVersionInput.trim() : null,
-      loaderOverride: needsManualVersion ? loaderInput : null,
+      mcVersionOverride: allowsVersionLoaderEdit ? mcVersionInput.trim() : null,
+      loaderOverride: allowsVersionLoaderEdit ? loaderInput : null,
       loaderVersionOverride: null,
     });
     onClose();
@@ -337,7 +348,7 @@
       </label>
 
       <!-- Generic .minecraft: user supplies version + loader -->
-      {#if needsManualVersion}
+      {#if allowsVersionLoaderEdit}
         <label class="block">
           <span class="text-sm font-medium text-secondary"
             >{$t('instances.import.mcVersionInputLabel')}</span
@@ -349,7 +360,10 @@
               dataTestid="mc-version-input"
             />
           </div>
-          <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span>
+          {#if chosen?.source === 'raw_minecraft'}
+            <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span
+            >
+          {/if}
         </label>
         <div class="block">
           <span class="text-sm font-medium text-secondary"
