@@ -1,0 +1,7 @@
+{
+  "components": [
+    { "uid": "net.minecraft", "version": "1.20.1" },
+    { "uid": "org.quiltmc.quilt-loader", "version": "0.23.1" }
+  ],
+  "formatVersion": 1
+}
