@@ -19,6 +19,7 @@ const hit: ModpackHit = {
   supported_loaders: ['fabric'],
   source: 'modrinth',
   distribution_allowed: null,
+  author: 'Pack Author',
 };
 
 describe('ModpackCard', () => {
@@ -44,5 +45,23 @@ describe('ModpackCard', () => {
   it('shows no badge when distribution is allowed', () => {
     const { queryByText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
     expect(queryByText('CurseForge download disabled')).toBeNull();
+  });
+
+  it('renders the author when present (grid)', () => {
+    const { getAllByText } = render(ModpackCard, { props: { hit, onClick: () => {} } });
+    expect(getAllByText(/Pack Author/).length).toBeGreaterThan(0);
+  });
+
+  it('renders the author when present (list)', () => {
+    const { getAllByText } = render(ModpackCard, {
+      props: { hit, onClick: () => {}, layout: 'list' },
+    });
+    expect(getAllByText(/Pack Author/).length).toBeGreaterThan(0);
+  });
+
+  it('shows no author line when author is null', () => {
+    const noAuthor: ModpackHit = { ...hit, author: null };
+    const { queryByText } = render(ModpackCard, { props: { hit: noAuthor, onClick: () => {} } });
+    expect(queryByText(/Pack Author/)).toBeNull();
   });
 });

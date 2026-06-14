@@ -14,6 +14,7 @@ const hit: ModpackHit = {
   supported_loaders: ['fabric'],
   source: 'modrinth',
   distribution_allowed: null,
+  author: null,
 };
 
 describe('ModpackCard layout', () => {

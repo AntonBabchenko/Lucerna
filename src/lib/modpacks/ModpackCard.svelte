@@ -26,6 +26,12 @@
       <CardMedia iconUrl={hit.icon_url} placeholder="package" size="lg" />
       <div class="min-w-0 flex-1">
         <div class="font-semibold text-sm truncate">{hit.title}</div>
+        {#if hit.author}
+          <div class="text-xs text-muted flex items-center gap-1 min-w-0">
+            <Icon name="user" size={12} class="flex-shrink-0" />
+            <span class="truncate">{$t('modpacks.card.byAuthor', { author: hit.author })}</span>
+          </div>
+        {/if}
         <div class="text-xs text-muted line-clamp-2">{hit.description}</div>
         <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <StatusBadge variant="neutral" icon="download">
@@ -49,6 +55,14 @@
   >
     <CardMedia iconUrl={hit.icon_url} placeholder="package" size="md" />
     <span class="font-medium text-sm truncate flex-1">{hit.title}</span>
+    {#if hit.author}
+      <span
+        class="text-xs text-placeholder flex-shrink-0 inline-flex items-center gap-1 min-w-0 max-w-[10rem]"
+      >
+        <Icon name="user" size={12} class="flex-shrink-0" />
+        <span class="truncate">{hit.author}</span>
+      </span>
+    {/if}
     <span class="text-xs text-placeholder flex-shrink-0 inline-flex items-center gap-1">
       <Icon name="download" size={12} />
       {$t('modpacks.card.downloadsShort', { count: (hit.downloads ?? 0).toLocaleString() })}
