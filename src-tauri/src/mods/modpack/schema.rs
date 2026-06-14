@@ -150,6 +150,11 @@ pub struct ModpackHit {
     /// `Some(false)` = the author disabled third-party launcher
     /// downloads — the UI surfaces an "Open on CurseForge" fallback.
     pub distribution_allowed: Option<bool>,
+    /// Display name of the pack author/owner, when the source's listing
+    /// exposes one. `None` for sources that omit it (ATLauncher's public
+    /// catalogue) — the card then shows no author line. Modrinth: search
+    /// `author` (project owner). FTB: first entry of the pack's `authors`.
+    pub author: Option<String>,
 }
 
 /// Full detail of a modpack project for the detail modal's Overview tab.
