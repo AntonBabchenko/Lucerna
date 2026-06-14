@@ -188,6 +188,7 @@
       "contentLabel": "Content to import",
       "mcVersionInputLabel": "Minecraft version",
       "mcVersionPlaceholder": "e.g. 1.20.1",
+      "mcVersionHint": "A plain .minecraft folder doesn't record its version — enter it to enable import.",
       "loaderInputLabel": "Mod loader",
       "sourcePathLabel": "Source folder",
       "step2Title": "Import \"{name}\"",

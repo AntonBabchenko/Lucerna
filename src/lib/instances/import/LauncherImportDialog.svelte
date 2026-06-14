@@ -292,6 +292,9 @@
             placeholder={$t('instances.import.mcVersionPlaceholder')}
             data-testid="mc-version-input"
           />
+          <span class="mt-1 block text-xs text-muted">
+            {$t('instances.import.mcVersionHint')}
+          </span>
         </label>
         <div class="block mb-4">
           <span class="text-sm text-secondary">{$t('instances.import.loaderInputLabel')}</span>

@@ -9,6 +9,20 @@ use crate::instances::schema::{ForeignLauncher, LoaderKind};
 
 pub struct PrismReader;
 
+/// Prism / MultiMC store the per-instance game directory as `minecraft`
+/// (modern Prism default — confirmed on real installs) or `.minecraft`
+/// (older / vanilla-style configs). Pick whichever exists; default to
+/// `minecraft` so a missing dir simply scans empty.
+fn prism_game_dir(instance_dir: &Path) -> PathBuf {
+    for name in ["minecraft", ".minecraft"] {
+        let candidate = instance_dir.join(name);
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+    instance_dir.join("minecraft")
+}
+
 #[derive(Deserialize)]
 struct MmcPack {
     components: Vec<MmcComponent>,
@@ -95,7 +109,7 @@ impl LauncherReader for PrismReader {
         let max_heap_mb = cfg_value(&cfg, "MaxMemAlloc").and_then(|v| v.parse::<u32>().ok());
         let extra_jvm_args = cfg_value(&cfg, "JvmArgs").filter(|s| !s.is_empty());
 
-        let minecraft_dir = dir.join(".minecraft");
+        let minecraft_dir = prism_game_dir(dir);
         let content = scan_content(&minecraft_dir);
 
         Ok(ForeignInstance {
@@ -129,6 +143,31 @@ mod tests {
     #[test]
     fn detects_a_prism_instance() {
         assert!(PrismReader.detect(&fixture("prism_fabric")));
+    }
+
+    #[test]
+    fn reads_game_dir_without_dot_prefix() {
+        // Modern Prism stores the game dir as `minecraft` (no dot) — the
+        // original reader hardcoded `.minecraft` and found no content.
+        let tmp = tempfile::tempdir().unwrap();
+        let inst = tmp.path().join("Create+");
+        std::fs::create_dir_all(inst.join("minecraft/mods")).unwrap();
+        std::fs::write(inst.join("minecraft/mods/a.jar"), b"").unwrap();
+        std::fs::write(inst.join("instance.cfg"), "[General]\nname=Create+\n").unwrap();
+        std::fs::write(
+            inst.join("mmc-pack.json"),
+            r#"{"components":[{"uid":"net.minecraft","version":"1.21.1"},{"uid":"net.neoforged","version":"21.1.229"}],"formatVersion":1}"#,
+        )
+        .unwrap();
+        let fi = PrismReader.read(&inst).unwrap();
+        assert!(fi.minecraft_dir.ends_with("minecraft"));
+        assert!(
+            fi.content
+                .iter()
+                .any(|c| c.category == crate::instances::import::model::ContentCategory::Mods),
+            "expected Mods category, got: {:?}",
+            fi.content
+        );
     }
 
     #[test]

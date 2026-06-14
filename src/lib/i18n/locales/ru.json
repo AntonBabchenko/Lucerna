@@ -188,6 +188,7 @@
       "contentLabel": "Содержимое для импорта",
       "mcVersionInputLabel": "Версия Minecraft",
       "mcVersionPlaceholder": "напр. 1.20.1",
+      "mcVersionHint": "Папка .minecraft не хранит свою версию — укажите её, чтобы включить импорт.",
       "loaderInputLabel": "Загрузчик модов",
       "sourcePathLabel": "Исходная папка",
       "step2Title": "Импорт «{name}»",

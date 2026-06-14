@@ -247,6 +247,7 @@ export type TranslationKey =
   | 'instances.import.loaderInputLabel'
   | 'instances.import.loaderLabel'
   | 'instances.import.mcLabel'
+  | 'instances.import.mcVersionHint'
   | 'instances.import.mcVersionInputLabel'
   | 'instances.import.mcVersionPlaceholder'
   | 'instances.import.nameLabel'
