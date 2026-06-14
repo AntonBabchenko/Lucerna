@@ -1,7 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import type { LoaderKind } from '$lib/ipc/bindings';
-  import DensityToggle from '$lib/mods/DensityToggle.svelte';
   import LayoutToggle from '$lib/mods/LayoutToggle.svelte';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -169,6 +168,5 @@
     <span class="w-full text-xs text-placeholder">{serverFilterNote}</span>
   {/if}
 
-  <DensityToggle />
   <LayoutToggle />
 </div>

@@ -1,21 +1,20 @@
 <script lang="ts">
   import type { InstalledMod, ModSummary, ModUpdateState } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
-  import BusyButton from '$lib/ui/BusyButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon, type IconName } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
-  import { browserPrefs, type Density } from './browser-prefs.svelte';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import ContextMenu, { type ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import { cardStatusStyle, accentDotClass, type CardStatusKind } from '$lib/ui/cards/card-status';
 
-  // One result/installed card for mods, resource packs, and shaders. Composes
-  // the shared card primitives (CardShell / CardMedia / StatusBadge / ContextMenu)
-  // and a single card-status mapping so every surface speaks the same language.
-  // Three forms: grid tile, list row (comfortable), and compact row (icon
-  // actions). A `summary === null` branch renders a degraded/manual row.
+  // One card for mods, resource packs, and shaders, in a single compact style.
+  // `layout` only switches the shape (list row vs grid tile) — there is no
+  // separate "comfortable" density. Actions are always icon buttons with
+  // tooltips; the full set is also on the right-click ContextMenu. A
+  // `summary === null` branch renders a degraded/manual row.
 
   let {
     summary,
@@ -30,7 +29,6 @@
     packChip = null,
     attention = null,
     layout = 'grid',
-    density = browserPrefs.density,
     highlighted = false,
     selectable = false,
     selected = false,
@@ -53,7 +51,6 @@
     // strip (InstalledModRow passes it; browse leaves it null).
     attention?: 'incompatible' | 'missing-deps' | null;
     layout?: 'grid' | 'list';
-    density?: Density;
     highlighted?: boolean;
     selectable?: boolean;
     selected?: boolean;
@@ -62,8 +59,6 @@
     installing?: boolean;
     placeholderIcon?: IconName;
   } = $props();
-
-  const compact = $derived(layout === 'list' && density === 'compact');
 
   const crossPlatform = $derived(
     summary !== null &&
@@ -91,14 +86,14 @@
   });
   const style = $derived(cardStatusStyle(statusKind));
 
-  // Pill label preserves the exact text the existing tests assert
-  // ("Installed", "Installed · v1.0", "Installed (Modrinth)").
-  const pillText = $derived.by(() => {
+  // The single muted secondary line for an installed mod (version is the norm;
+  // cross-platform explains the version mismatch; otherwise the install state).
+  const installedMeta = $derived.by(() => {
     if (!installed) return '';
-    const base = installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled');
-    if (crossPlatform && otherPlatformLabel) return `${base} (${otherPlatformLabel})`;
-    if (installed.version_number) return `${base} · v${installed.version_number}`;
-    return base;
+    const stateWord = installed.enabled ? $t('mods.card.installed') : $t('mods.card.disabled');
+    if (crossPlatform && otherPlatformLabel) return `${stateWord} (${otherPlatformLabel})`;
+    if (installed.version_number) return `v${installed.version_number}`;
+    return stateWord;
   });
 
   // Degraded-row identity (summary null).
@@ -113,8 +108,20 @@
         ? 'Modrinth'
         : null,
   );
+  const degradedMeta = $derived.by(() => {
+    if (!installed) return '';
+    const base = packChip
+      ? $t('mods.installed.fromModpack')
+      : isPlatform
+        ? `${sourceLabel ?? ''} · ${$t('mods.installed.detailsUnavailable')}`
+        : $t('mods.installed.manualMod');
+    const stateWord = installed.enabled
+      ? $t('mods.installed.enabledStatus')
+      : $t('mods.installed.disabledStatus');
+    return `${base} · ${stateWord}`;
+  });
 
-  // Context menu (compact + degraded rows) — the full action set.
+  // Context menu (right-click / Shift+F10) — the full action set.
   const menuItems = $derived.by((): ContextMenuItem[] => {
     if (!installed)
       return [{ label: $t('mods.card.install'), icon: 'download', onSelect: onInstall }];
@@ -141,52 +148,6 @@
     $t('mods.card.menuAriaLabel', { name: summary?.name ?? degradedTitle }),
   );
 </script>
-
-{#snippet textActions()}
-  {#if installed}
-    {#if packChip}
-      <StatusBadge
-        variant="info"
-        icon="package"
-        title={$t('mods.card.fromModpackTitle', { name: packChip })}
-        testid="mod-pack-chip"
-      >
-        {packChip}
-      </StatusBadge>
-    {:else if checking}
-      <span class="text-xs px-2 py-0.5 text-placeholder">{$t('mods.card.checking')}</span>
-    {:else if hasUpdate && updateState?.kind === 'update_available'}
-      <StatusBadge
-        variant="warning"
-        title={$t('mods.card.updateAvailableTitle')}
-        testid="mod-update-badge"
-      >
-        v{installed.version_number ?? '?'}
-        <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
-      </StatusBadge>
-      <button type="button" class="btn-warning btn-xs" onclick={onUpdate}
-        >{$t('mods.card.update')}</button
-      >
-    {:else if updateState && updateState.kind === 'check_failed'}
-      <span class="text-xs px-2 py-0.5 text-placeholder" use:tooltip={updateState.reason}
-        >{$t('mods.card.checkFailed')}</span
-      >
-    {/if}
-    <StatusBadge variant={style.badge} title={pillText}>{pillText}</StatusBadge>
-    {#if canToggle}
-      <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
-        {installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-      </button>
-    {/if}
-    <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}
-      >{$t('mods.card.uninstall')}</button
-    >
-  {:else}
-    <BusyButton busy={installing} class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
-      {$t('mods.card.install')}
-    </BusyButton>
-  {/if}
-{/snippet}
 
 {#snippet iconActions()}
   {#if installed}
@@ -217,17 +178,51 @@
       use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
     >
   {:else}
-    <BusyButton busy={installing} class="btn-primary btn-xs whitespace-nowrap" onclick={onInstall}>
-      <Icon name="download" size={14} />
-      {$t('mods.card.install')}
-    </BusyButton>
+    <button
+      type="button"
+      class="btn-icon !w-7 !h-7 !text-accent"
+      onclick={onInstall}
+      disabled={installing}
+      aria-label={$t('mods.card.install')}
+      use:tooltip={$t('mods.card.install')}
+    >
+      {#if installing}<Spinner size="sm" />{:else}<Icon name="download" size={15} />{/if}
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet badges()}
+  {#if packChip}
+    <StatusBadge
+      variant="info"
+      icon="package"
+      title={$t('mods.card.fromModpackTitle', { name: packChip })}
+      testid="mod-pack-chip"
+    >
+      {packChip}
+    </StatusBadge>
+  {:else if checking}
+    <span class="text-xs text-placeholder">{$t('mods.card.checking')}</span>
+  {:else if hasUpdate && updateState?.kind === 'update_available'}
+    <StatusBadge
+      variant="warning"
+      title={$t('mods.card.updateAvailableTitle')}
+      testid="mod-update-badge"
+    >
+      v{installed?.version_number ?? '?'}
+      <Icon name="arrowRight" size={12} /> v{updateState.target.version_number}
+    </StatusBadge>
+  {:else if updateState && updateState.kind === 'check_failed'}
+    <span class="text-xs text-placeholder" use:tooltip={updateState.reason}
+      >{$t('mods.card.checkFailed')}</span
+    >
   {/if}
 {/snippet}
 
 {#if summary === null}
   <ContextMenu items={menuItems} ariaLabel={menuLabel}>
     <CardShell
-      variant={compact ? 'compact-row' : 'row'}
+      variant="compact-row"
       accent={style.accent}
       dim={style.dim}
       {highlighted}
@@ -243,68 +238,33 @@
           onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
         />
       {/if}
-      <CardMedia
-        iconUrl={null}
-        placeholder={isPlatform ? 'circleX' : placeholderIcon}
-        size={compact ? 'sm' : 'md'}
-      />
+      <CardMedia iconUrl={null} placeholder={isPlatform ? 'circleX' : placeholderIcon} size="sm" />
       <div class="flex-1 min-w-0">
-        <div class="font-medium text-primary truncate font-mono text-xs">{degradedTitle}</div>
-        {#if installed && !compact}
-          <div class="text-xs text-muted truncate">
-            {(packChip
-              ? $t('mods.installed.fromModpack')
-              : isPlatform
-                ? `${sourceLabel ?? ''} · ${$t('mods.installed.detailsUnavailable')}`
-                : $t('mods.installed.manualMod')) +
-              ' · ' +
-              (installed.enabled
-                ? $t('mods.installed.enabledStatus')
-                : $t('mods.installed.disabledStatus'))}
-          </div>
-        {/if}
+        <span class="font-medium text-primary truncate font-mono text-xs">{degradedTitle}</span>
+        {#if installed}<span class="text-xs text-muted ml-2">{degradedMeta}</span>{/if}
       </div>
-      <div class="flex items-center gap-1 flex-shrink-0">
-        {#if packChip}
-          <StatusBadge
-            variant="info"
-            icon="package"
-            title={$t('mods.card.fromModpackTitle', { name: packChip })}
-          >
-            {packChip}
-          </StatusBadge>
-        {/if}
-        {#if installed}
-          {#if compact}
-            {#if canToggle}
-              <button
-                type="button"
-                class={`btn-icon !w-7 !h-7 ${installed.enabled ? '!text-success' : '!text-muted'}`}
-                onclick={onToggle}
-                aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-                use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-                ><Icon name="power" size={15} /></button
-              >
-            {/if}
+      <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      {#if installed}
+        <div class="flex items-center gap-1 flex-shrink-0">
+          {#if canToggle}
             <button
               type="button"
-              class="btn-icon !w-7 !h-7 !text-danger"
-              onclick={onUninstall}
-              aria-label={$t('mods.card.uninstall')}
-              use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
-            >
-          {:else}
-            {#if canToggle}
-              <button type="button" class="btn-secondary btn-xs" onclick={onToggle}>
-                {installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
-              </button>
-            {/if}
-            <button type="button" class="btn-ghost-danger btn-xs" onclick={onUninstall}
-              >{$t('mods.card.uninstall')}</button
+              class={`btn-icon !w-7 !h-7 ${installed.enabled ? '!text-success' : '!text-muted'}`}
+              onclick={onToggle}
+              aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+              use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
+              ><Icon name="power" size={15} /></button
             >
           {/if}
-        {/if}
-      </div>
+          <button
+            type="button"
+            class="btn-icon !w-7 !h-7 !text-danger"
+            onclick={onUninstall}
+            aria-label={$t('mods.card.uninstall')}
+            use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
+          >
+        </div>
+      {/if}
     </CardShell>
   </ContextMenu>
 {:else if layout === 'grid'}
@@ -320,24 +280,31 @@
       class="flex items-start gap-2 text-left min-w-0 w-full"
       onclick={onOpenDetail}
     >
-      <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="lg" />
+      <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="md" />
       <span class="min-w-0">
         <span class="block font-medium text-primary truncate">{summary.name}</span>
         <span class="block text-xs text-muted truncate">
-          {$t('mods.card.byAuthorDownloads', {
-            author: summary.author,
-            downloads: (summary.downloads ?? 0).toLocaleString(),
-          })}
+          {#if installed}
+            {installedMeta}
+          {:else}
+            {$t('mods.card.byAuthorDownloads', {
+              author: summary.author,
+              downloads: (summary.downloads ?? 0).toLocaleString(),
+            })}
+          {/if}
         </span>
       </span>
     </button>
-    <p class="text-sm text-secondary line-clamp-2 flex-1 mt-2">{summary.summary}</p>
-    <div class="flex items-center gap-1 flex-wrap mt-2">{@render textActions()}</div>
+    <p class="text-xs text-secondary line-clamp-2 flex-1 mt-1.5">{summary.summary}</p>
+    <div class="flex items-center justify-between gap-1 mt-2">
+      <div class="flex items-center gap-1 flex-wrap min-w-0">{@render badges()}</div>
+      <div class="flex items-center gap-1 flex-shrink-0">{@render iconActions()}</div>
+    </div>
   </CardShell>
 {:else}
   <ContextMenu items={menuItems} ariaLabel={menuLabel}>
     <CardShell
-      variant={compact ? 'compact-row' : 'row'}
+      variant="compact-row"
       accent={style.accent}
       dim={style.dim}
       {highlighted}
@@ -353,36 +320,22 @@
           onchange={(e) => onSelectChange((e.currentTarget as HTMLInputElement).checked)}
         />
       {/if}
-      <CardMedia
-        iconUrl={summary.icon_url}
-        placeholder={placeholderIcon}
-        size={compact ? 'sm' : 'md'}
-      />
+      <CardMedia iconUrl={summary.icon_url} placeholder={placeholderIcon} size="sm" />
       <button type="button" class="flex-1 text-left min-w-0 truncate" onclick={onOpenDetail}>
         <span class="font-medium text-primary">{summary.name}</span>
-        {#if compact}
-          {#if installed}
-            <span class="text-xs text-muted ml-2">v{installed.version_number ?? '?'}</span>
-          {:else}
-            <span class="text-xs text-muted ml-2 inline-flex items-center gap-1">
-              <Icon name="user" size={12} />
-              {summary.author}
-              <Icon name="download" size={12} class="ml-1.5" />
-              {(summary.downloads ?? 0).toLocaleString()}
-            </span>
-          {/if}
+        {#if installed}
+          <span class="text-xs text-muted ml-2">{installedMeta}</span>
         {:else}
-          <span class="text-xs text-muted ml-2"
-            >{$t('mods.card.byAuthorDownloads', {
-              author: summary.author,
-              downloads: (summary.downloads ?? 0).toLocaleString(),
-            })}</span
-          >
+          <span class="text-xs text-muted ml-2 inline-flex items-center gap-1">
+            <Icon name="user" size={12} />
+            {summary.author}
+            <Icon name="download" size={12} class="ml-1.5" />
+            {(summary.downloads ?? 0).toLocaleString()}
+          </span>
         {/if}
       </button>
-      <div class="flex items-center gap-1 flex-shrink-0">
-        {#if compact}{@render iconActions()}{:else}{@render textActions()}{/if}
-      </div>
+      <div class="flex items-center gap-1 flex-shrink-0">{@render badges()}</div>
+      <div class="flex items-center gap-1 flex-shrink-0">{@render iconActions()}</div>
     </CardShell>
   </ContextMenu>
 {/if}

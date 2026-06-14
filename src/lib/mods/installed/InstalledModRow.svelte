@@ -11,7 +11,6 @@
   import { Icon } from '$lib/ui/icons';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { tooltip } from '$lib/ui/tooltip';
-  import { browserPrefs } from '../browser-prefs.svelte';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
@@ -114,7 +113,6 @@
   >
     <ModCard
       layout="list"
-      density={browserPrefs.density}
       highlighted={hoveredKey === rowKey}
       {summary}
       {installed}

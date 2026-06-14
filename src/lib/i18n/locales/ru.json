@@ -292,11 +292,6 @@
       "grid": "Сетка",
       "list": "Список"
     },
-    "density": {
-      "groupAriaLabel": "Плотность строк",
-      "comfortable": "Просторно",
-      "compact": "Компактно"
-    },
     "curseforgeBanner": {
       "heading": "CurseForge требует API-ключ",
       "body": "Modrinth работает анонимно, но для CurseForge нужен бесплатный API-ключ. Его получение занимает около 5 минут — создайте бесплатный аккаунт на console.curseforge.com, сгенерируйте ключ и вставьте его в настройки.",

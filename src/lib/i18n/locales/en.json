@@ -292,11 +292,6 @@
       "grid": "Grid",
       "list": "List"
     },
-    "density": {
-      "groupAriaLabel": "Row density",
-      "comfortable": "Comfortable",
-      "compact": "Compact"
-    },
     "curseforgeBanner": {
       "heading": "CurseForge requires an API key",
       "body": "Modrinth works anonymously, but CurseForge needs a free API key. It takes about 5 minutes to obtain one — get a free account at console.curseforge.com, generate a key, and paste it into Settings.",

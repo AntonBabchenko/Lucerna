@@ -43,24 +43,23 @@ describe('ModCard', () => {
     expect(screen.queryByRole('button', { name: /uninstall/i })).toBeNull();
   });
 
-  it('shows Disable + Uninstall + Installed pill when the mod is installed and enabled', () => {
+  it('shows Disable + Uninstall icon actions + version when installed and enabled', () => {
     render(ModCard, { props: { summary, installed: inst(true), ...noopProps } });
-    expect(screen.getByText(/^Installed/)).toBeTruthy();
+    expect(screen.getByText('v1.0')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^disable$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^install$/i })).toBeNull();
   });
 
-  it('shows Enable + Disabled pill when the mod is installed but disabled', () => {
+  it('shows Enable + Uninstall icon actions when the mod is installed but disabled', () => {
     render(ModCard, { props: { summary, installed: inst(false), ...noopProps } });
-    expect(screen.getByText(/^Disabled/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /^enable$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
   });
 
-  it('shows the version number on the Installed pill when known', () => {
+  it('shows the version number when known', () => {
     render(ModCard, { props: { summary, installed: inst(true), ...noopProps } });
-    expect(screen.getByText(/Installed · v1\.0/)).toBeTruthy();
+    expect(screen.getByText('v1.0')).toBeTruthy();
   });
 
   it('shows the other-platform label when installed.source ≠ summary.source', () => {
@@ -104,22 +103,21 @@ describe('ModCard', () => {
     expect(row?.className).not.toContain('bg-highlight');
   });
 
-  it('compact list shows icon action buttons (power + uninstall) for an enabled mod', () => {
+  it('list row shows icon action buttons (power + uninstall) for an enabled mod', () => {
     render(ModCard, {
-      props: { summary, installed: inst(true), layout: 'list', density: 'compact', ...noopProps },
+      props: { summary, installed: inst(true), layout: 'list', ...noopProps },
     });
     // Enabled → power toggle labelled "Disable", plus an "Uninstall" icon button.
     expect(screen.getByRole('button', { name: /disable/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
   });
 
-  it('compact list omits the toggle for resource packs/shaders (canToggle=false)', () => {
+  it('omits the toggle for resource packs/shaders (canToggle=false)', () => {
     render(ModCard, {
       props: {
         summary,
         installed: inst(true),
         layout: 'list',
-        density: 'compact',
         canToggle: false,
         ...noopProps,
       },
