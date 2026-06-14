@@ -56,11 +56,7 @@
     >
       {$t('mods.preflight.gateLaunchAnyway')}
     </button>
-    <BusyButton
-      class="btn-primary btn-sm w-full sm:w-auto"
-      {busy}
-      onclick={onUpdateLaunch}
-    >
+    <BusyButton class="btn-primary btn-sm w-full sm:w-auto" {busy} onclick={onUpdateLaunch}>
       {$t('mods.preflight.gateUpdateLaunch')}
     </BusyButton>
   </div>

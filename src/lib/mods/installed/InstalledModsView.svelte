@@ -71,9 +71,7 @@
     },
   );
   const preflight = createPreflight(() => instanceId);
-  const outOfRangeKeys = $derived(
-    toOverlayKeys(preflight.report ?? { violations: [] }),
-  );
+  const outOfRangeKeys = $derived(toOverlayKeys(preflight.report ?? { violations: [] }));
   const selection = createInstalledSelection(
     () => filters.filtered,
     () => instanceId,
@@ -89,7 +87,9 @@
     if (!instanceId || !mcVersion || !loader) return;
     const result = await remediateViolation(instanceId, v, mcVersion, loader);
     if (result.ok) {
-      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: v.dep_display_name ?? v.dep_id }));
+      pushSuccess(
+        get(t)('mods.browse.toastInstalledMod', { name: v.dep_display_name ?? v.dep_id }),
+      );
     } else {
       pushWarning(get(t)('mods.browse.toastInstallFailed'));
     }
