@@ -37,6 +37,7 @@ const fabricInst = {
   mrpack_summary: null,
   mrpack_version_id: null,
   integrity: { healthy: true, checked_unix_ms: Date.now(), categories: [], problem_count: 0 },
+  imported_from: null,
 };
 
 const baseProps = {

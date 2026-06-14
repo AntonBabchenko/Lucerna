@@ -140,7 +140,10 @@ pub async fn run_import(
     modrinth_base: &str,
     cf_base: &str,
     cf_key: Option<&str>,
-    emit: &dyn Fn(ImportProgress),
+    // `Send + Sync` so the `#[tauri::command]` future built around this in
+    // `launcher_import_run` stays `Send` (`emit` is held across an `.await`).
+    // Mirrors `modpack::import::import`'s `on_progress` bound.
+    emit: &(dyn Fn(ImportProgress) + Send + Sync),
 ) -> Result<String> {
     use crate::instances;
     use crate::paths;

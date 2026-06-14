@@ -964,7 +964,10 @@
     "updateCheckFailed": "Не удалось проверить обновления: {details}",
     "updateVerificationFailed": "Проверка обновления не пройдена — загрузка может быть повреждена или подделана. {details}",
     "updateInstallFailed": "Не удалось установить обновление: {details}",
-    "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}"
+    "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}",
+    "importInstanceUnreadable": "Не удалось прочитать сборку {launcher}: {details}",
+    "importUnsupportedLoader": "Неподдерживаемый загрузчик «{loader}» в импортируемой сборке",
+    "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}"
   },
   "settings": {
     "title": "Настройки",

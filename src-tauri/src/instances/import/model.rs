@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::instances::schema::{ForeignLauncher, LoaderKind};
 use crate::mods::platform::ModSource;
 
 /// One copyable content category in a foreign instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ContentCategory {
     Mods,
@@ -37,16 +37,20 @@ impl ContentCategory {
 }
 
 /// A category present on disk in the source, with size info for the preview.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+///
+/// `total_bytes` is `f64` — specta forbids exporting `u64` across the IPC
+/// boundary (BigInt precision loss). A directory's byte total stays well
+/// within `f64`'s 2^53 exact-integer range, so no precision is lost.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
 pub struct ContentEntry {
     pub category: ContentCategory,
     pub file_count: u32,
-    pub total_bytes: u64,
+    pub total_bytes: f64,
 }
 
 /// A mod whose platform identity is already known from the source's
 /// manifest (CurseForge App / Modrinth App). Empty for Prism / raw.
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct KnownMod {
     pub filename: String,
     pub source: ModSource,
@@ -56,7 +60,7 @@ pub struct KnownMod {
 
 /// Normalized foreign instance — the contract between readers and the
 /// pipeline. The pipeline never branches on `source`.
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct ForeignInstance {
     pub source: ForeignLauncher,
     pub name: String,
@@ -165,14 +169,14 @@ pub fn scan_content(minecraft_dir: &Path) -> Vec<ContentEntry> {
                 Some(ContentEntry {
                     category: cat,
                     file_count: 1,
-                    total_bytes: bytes,
+                    total_bytes: bytes as f64,
                 })
             } else {
                 let (file_count, total_bytes) = dir_stats(&path)?;
                 (file_count > 0).then_some(ContentEntry {
                     category: cat,
                     file_count,
-                    total_bytes,
+                    total_bytes: total_bytes as f64,
                 })
             }
         })
@@ -225,12 +229,12 @@ mod tests {
                 ContentEntry {
                     category: ContentCategory::Mods,
                     file_count: 120,
-                    total_bytes: 200_000_000,
+                    total_bytes: 200_000_000.0,
                 },
                 ContentEntry {
                     category: ContentCategory::Saves,
                     file_count: 2,
-                    total_bytes: 3_000_000_000,
+                    total_bytes: 3_000_000_000.0,
                 },
             ],
             known_mods: vec![],

@@ -964,7 +964,10 @@
     "updateCheckFailed": "Couldn't check for updates: {details}",
     "updateVerificationFailed": "Update verification failed — the download may be corrupt or tampered with. {details}",
     "updateInstallFailed": "Couldn't install the update: {details}",
-    "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}"
+    "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}",
+    "importInstanceUnreadable": "Couldn't read the {launcher} instance: {details}",
+    "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
+    "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}"
   },
   "settings": {
     "title": "Settings",

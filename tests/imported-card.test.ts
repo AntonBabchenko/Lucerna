@@ -22,6 +22,7 @@ const baseInst = {
   mrpack_summary: null,
   mrpack_version_id: null,
   integrity: null,
+  imported_from: null,
 };
 
 describe('ImportedCard', () => {
@@ -117,6 +118,7 @@ const inst: InstanceWithStatus = {
   mrpack_summary: null,
   mrpack_version_id: 'v1',
   integrity: null,
+  imported_from: null,
 };
 
 afterEach(() => modpackUpdates.reset());
