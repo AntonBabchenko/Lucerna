@@ -1,6 +1,7 @@
 //! Multi-instance support.
 
 pub mod ids;
+pub mod import;
 pub mod memory;
 pub mod migrate;
 pub mod scan;
