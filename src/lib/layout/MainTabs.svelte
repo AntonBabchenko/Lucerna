@@ -5,7 +5,13 @@
   import AddonsTab from '$lib/mods/AddonsTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
-  import { modBrowserNav, droppedMods, dragActive } from '$lib/settings/state.svelte';
+  import {
+    modBrowserNav,
+    droppedMods,
+    droppedAssets,
+    addonsKind,
+    dragActive,
+  } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
 
   type Tab = 'overview' | 'mod_browser' | 'worlds';
@@ -67,8 +73,10 @@
 
   // One window-level drag-drop listener for the per-instance tabs.
   // Modpacks live outside MainTabs now (sidebar-level Browse modpacks
-  // view owns its own drag-drop), so this listener only handles .jar
-  // drops onto the Mod browser tab.
+  // view owns its own drag-drop), so on the Add-ons tab this listener
+  // routes `.jar` drops to the Mods segment (droppedMods) and `.zip`
+  // drops to the Resource-pack/Shader segments (droppedAssets), keyed
+  // off the active `addonsKind`.
   onMount(() => {
     const pending = getCurrentWebview().onDragDropEvent((event) => {
       const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;
@@ -84,9 +92,19 @@
         dragActive.value = false;
         const paths =
           (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
-        const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
-        if (jars.length > 0 && canInstall) {
-          droppedMods.value = jars;
+        if (addonsKind.value === 'mod') {
+          const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
+          if (jars.length > 0 && canInstall) {
+            droppedMods.value = jars;
+          }
+        } else {
+          // Resource-pack / shader segment — accept .zip. Any selected instance
+          // qualifies (resource packs run on vanilla; a shader pack file installs
+          // regardless of loader).
+          const zips = paths.filter((p) => p.toLowerCase().endsWith('.zip'));
+          if (zips.length > 0 && instanceId !== null) {
+            droppedAssets.value = { kind: addonsKind.value, paths: zips };
+          }
         }
       }
     });

@@ -71,7 +71,6 @@
     "pickMcVersion": "(pick MC)",
     "manage": "Manage",
     "mods": "Mods",
-    "modsFolderTitle": "Open mods folder",
     "stop": "Stop",
     "play": "Play",
     "pickVersionTitle": "Pick a Minecraft version first",
@@ -82,7 +81,8 @@
     "compactCollapse": "Collapse to mini mode",
     "compactExpand": "Expand to full window",
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
-    "joinServer": "Join a server"
+    "joinServer": "Join a server",
+    "removeAccountDisabled": "Sign in to an account first."
   },
   "instance": {
     "manage": {
@@ -102,7 +102,8 @@
       "openFolderBtn": "Open folder",
       "deleteBtn": "Delete instance",
       "emptyState": "Pick an instance on the left, or click + New instance.",
-      "memoryLabel": "Memory (max heap): {mb} MB",
+      "memoryLabel": "Memory (max heap): {value}",
+      "memoryWarnHigh": "Allocating more than {recommended} may leave little memory for the OS and Minecraft itself.",
       "jvmArgsLabel": "Extra JVM args",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
       "cannotDeleteLast": "Cannot delete the last instance"
@@ -351,7 +352,10 @@
       "toastUpdatedFailed": "{count, plural, one {Updated # mod} other {Updated # mods}}, {failed} failed",
       "toastUninstalled": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}",
       "toastUninstalledFailed": "{count, plural, one {Uninstalled # mod} other {Uninstalled # mods}}, {failed} failed",
-      "installDepFailed": "No compatible version of {name}"
+      "installDepFailed": "No compatible version of {name}",
+      "disabledNoMods": "Install some mods first.",
+      "disabledBusy": "Wait for the current check to finish.",
+      "missingDepsTooltip": "This mod is missing required dependencies and may not load."
     },
     "deps": {
       "installedStatus": "installed",
@@ -391,6 +395,13 @@
     "kindShaders": "Shaders",
     "kindSwitchAria": "Content type",
     "subTabsLabel": "Add-on views",
+    "dropzoneResourcePack": "Drop a resource pack .zip here to install — or click to browse",
+    "dropzoneShader": "Drop a shader .zip here to install — or click to browse",
+    "dropzoneDisabled": "Select an instance to install",
+    "install": {
+      "toastInstalled": "{count, plural, one {Installed # add-on} other {Installed # add-ons}}",
+      "toastFailed": "{count, plural, one {# add-on failed to install} other {# add-ons failed to install}}"
+    },
     "shaderLoaderHint": {
       "intro": "Shaders need a shader loader to run — install one:",
       "iris": "Iris",
@@ -1198,6 +1209,7 @@
       "statusStopped": "Stopped",
       "statusClean": "Game closed",
       "dismissError": "Dismiss error",
+      "errorRetry": "Reload",
       "noInstanceSelected": "No instance selected. Create one via the sidebar.",
       "attentionHeading": "Needs attention",
       "attnPickVersion": "Minecraft version not set",
@@ -1221,7 +1233,14 @@
       "modpackNotCheckableNeedsKey": "Update check needs a CurseForge API key.",
       "modpackNotCheckableNoProvenance": "Update check isn't available for this import.",
       "modpackCheckFailed": "Couldn't check for updates.",
-      "sectionMods": "Mods"
+      "sectionMods": "Mods",
+      "pillTooltip": {
+        "running": "Minecraft is currently running for this instance.",
+        "ready": "Ready to play — files are installed and up to date.",
+        "needsInstall": "Files need to be installed before this instance can launch.",
+        "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
+        "installing": "Installing files for this instance…"
+      }
     },
     "offlineName": {
       "cannotBeEmpty": "Name cannot be empty"

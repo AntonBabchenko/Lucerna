@@ -71,7 +71,6 @@
     "pickMcVersion": "(выбрать версию MC)",
     "manage": "Управление",
     "mods": "Моды",
-    "modsFolderTitle": "Открыть папку модов",
     "stop": "Стоп",
     "play": "Играть",
     "pickVersionTitle": "Сначала выберите версию Minecraft",
@@ -82,7 +81,8 @@
     "compactCollapse": "Свернуть в мини-режим",
     "compactExpand": "Развернуть на всё окно",
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
-    "joinServer": "Подключиться к серверу"
+    "joinServer": "Подключиться к серверу",
+    "removeAccountDisabled": "Сначала войдите в аккаунт."
   },
   "instance": {
     "manage": {
@@ -102,7 +102,8 @@
       "openFolderBtn": "Открыть папку",
       "deleteBtn": "Удалить профиль",
       "emptyState": "Выберите профиль слева или нажмите + Новый профиль.",
-      "memoryLabel": "Память (макс. heap): {mb} МБ",
+      "memoryLabel": "Память (макс. heap): {value}",
+      "memoryWarnHigh": "Выделение более {recommended} может оставить мало памяти для ОС и самого Minecraft.",
       "jvmArgsLabel": "Дополнительные аргументы JVM",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
       "cannotDeleteLast": "Нельзя удалить последний профиль"
@@ -351,7 +352,10 @@
       "toastUpdatedFailed": "{count, plural, one {Обновлён # мод} few {Обновлено # мода} many {Обновлено # модов} other {Обновлено # мода}}, не удалось: {failed}",
       "toastUninstalled": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}",
       "toastUninstalledFailed": "{count, plural, one {Удалён # мод} few {Удалено # мода} many {Удалено # модов} other {Удалено # мода}}, не удалось: {failed}",
-      "installDepFailed": "Нет совместимой версии {name}"
+      "installDepFailed": "Нет совместимой версии {name}",
+      "disabledNoMods": "Сначала установите моды.",
+      "disabledBusy": "Дождитесь окончания текущей проверки.",
+      "missingDepsTooltip": "У этого мода отсутствуют обязательные зависимости — он может не загрузиться."
     },
     "deps": {
       "installedStatus": "установлен",
@@ -391,6 +395,13 @@
     "kindShaders": "Шейдеры",
     "kindSwitchAria": "Тип контента",
     "subTabsLabel": "Разделы дополнений",
+    "dropzoneResourcePack": "Перетащите .zip ресурспака сюда для установки — или нажмите для выбора",
+    "dropzoneShader": "Перетащите .zip шейдера сюда для установки — или нажмите для выбора",
+    "dropzoneDisabled": "Выберите инстанс для установки",
+    "install": {
+      "toastInstalled": "{count, plural, one {Установлен # аддон} few {Установлено # аддона} many {Установлено # аддонов} other {Установлено # аддонов}}",
+      "toastFailed": "{count, plural, one {# аддон не установлен} few {# аддона не установлено} many {# аддонов не установлено} other {# аддонов не установлено}}"
+    },
     "shaderLoaderHint": {
       "intro": "Для работы шейдеров нужен загрузчик шейдеров — установите один из:",
       "iris": "Iris",
@@ -1198,6 +1209,7 @@
       "statusStopped": "Остановлено",
       "statusClean": "Игра закрыта",
       "dismissError": "Закрыть ошибку",
+      "errorRetry": "Обновить",
       "noInstanceSelected": "Профиль не выбран. Создайте его через боковую панель.",
       "attentionHeading": "Требует внимания",
       "attnPickVersion": "Версия Minecraft не выбрана",
@@ -1221,7 +1233,14 @@
       "modpackNotCheckableNeedsKey": "Для проверки обновлений нужен ключ API CurseForge.",
       "modpackNotCheckableNoProvenance": "Проверка обновлений недоступна для этого импорта.",
       "modpackCheckFailed": "Не удалось проверить обновления.",
-      "sectionMods": "Моды"
+      "sectionMods": "Моды",
+      "pillTooltip": {
+        "running": "Minecraft сейчас запущен для этого инстанса.",
+        "ready": "Готово к запуску — файлы установлены и актуальны.",
+        "needsInstall": "Перед запуском нужно установить файлы инстанса.",
+        "pickVersion": "Выберите версию Minecraft, чтобы завершить настройку инстанса.",
+        "installing": "Идёт установка файлов инстанса…"
+      }
     },
     "offlineName": {
       "cannotBeEmpty": "Имя не может быть пустым"

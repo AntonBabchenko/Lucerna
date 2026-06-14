@@ -2,6 +2,7 @@
   import type { DepRoot, DepTreeNode, ModSource } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import DepTree from '../DepTree.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
 
@@ -86,7 +87,7 @@
           <button
             type="button"
             class="text-accent inline-flex items-center justify-center"
-            title={$t('mods.deps.jumpToTitle', { name: e.name })}
+            use:tooltip={$t('mods.deps.jumpToTitle', { name: e.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: e.name })}
             onclick={() => onJump({ source: e.source, project_id: e.projectId })}
             ><Icon name="arrowUpRight" size={12} /></button

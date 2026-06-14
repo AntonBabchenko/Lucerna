@@ -98,14 +98,14 @@ describe('AddonsTab', () => {
     expect(screen.getByRole('tab', { name: 'Mods' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('shows the shader hint banner with Iris/OptiFine actions and hides the dropzone when Shaders is selected', async () => {
+  it('shows the shader hint banner with Iris/OptiFine actions and the shader dropzone when Shaders is selected', async () => {
     render(AddonsTab, { props });
     await fireEvent.click(screen.getByRole('tab', { name: 'Shaders' }));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Iris' })).toBeTruthy();
     });
     expect(screen.getByRole('button', { name: /OptiFine/ })).toBeTruthy();
-    expect(screen.queryByTestId('file-dropzone')).toBeNull();
+    expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
   it('the shader hint names the instance MC version for OptiFine', async () => {
@@ -150,7 +150,7 @@ describe('AddonsTab', () => {
     });
   });
 
-  it('shows no hint banner and no dropzone when Resource packs is selected', async () => {
+  it('shows no hint banner but shows the resource-pack dropzone when Resource packs is selected', async () => {
     render(AddonsTab, { props });
     await fireEvent.click(screen.getByRole('tab', { name: 'Resource packs' }));
     await waitFor(() => {
@@ -159,7 +159,7 @@ describe('AddonsTab', () => {
       ).toBe('true');
     });
     expect(screen.queryByRole('button', { name: 'Iris' })).toBeNull();
-    expect(screen.queryByTestId('file-dropzone')).toBeNull();
+    expect(screen.getByTestId('file-dropzone')).toBeTruthy();
   });
 
   it('switching kind resets to Browse sub-view', async () => {

@@ -4,6 +4,7 @@
 //! Two implementations live under [`modrinth`] and [`curseforge`].
 //! The install pipeline lives in [`install`].
 
+pub mod asset_local;
 pub mod assets;
 pub mod cache;
 pub mod cited_resolve;

@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
@@ -133,7 +134,7 @@
           <span
             data-testid="incompat-badge"
             class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-warning-bg text-warning-text"
-            title={incompatibleTitle}
+            use:tooltip={incompatibleTitle}
             ><Icon name="warning" size={12} />{$t('mods.installed.badgeIncompatible')}</span
           >
         {/if}
@@ -141,6 +142,7 @@
           <span
             data-testid="status-badge"
             class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-danger-bg text-danger"
+            use:tooltip={$t('mods.installed.missingDepsTooltip')}
             ><Icon name="warning" size={12} />{badge.text}</span
           >
         {/if}

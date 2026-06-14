@@ -44,6 +44,13 @@ const m = vi.hoisted(() => ({
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     ...m,
+    instanceMemoryBounds: vi.fn().mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    }),
     setActiveInstance: vi.fn(),
     setInstanceName: vi.fn(),
     setInstanceVersion: vi.fn(),

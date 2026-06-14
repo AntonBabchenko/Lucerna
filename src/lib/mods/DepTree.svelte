@@ -2,6 +2,7 @@
   import type { DepTreeNode, ModSource } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import Self from './DepTree.svelte';
 
   let {
@@ -56,7 +57,7 @@
           <button
             type="button"
             class="text-accent inline-flex items-center justify-center"
-            title={$t('mods.deps.jumpToTitle', { name: n.name })}
+            use:tooltip={$t('mods.deps.jumpToTitle', { name: n.name })}
             aria-label={$t('mods.deps.jumpToTitle', { name: n.name })}
             onclick={() => onJump(n)}><Icon name="arrowUpRight" size={12} /></button
           >

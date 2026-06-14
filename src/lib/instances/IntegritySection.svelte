@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
   import { enqueueIntegrity, opStatusFor } from '$lib/ops/op-queue.svelte';
   import type { IntegrityStatus, VerifyCategory } from '$lib/ipc/bindings';
@@ -60,15 +61,16 @@
       <h3 class="text-xs uppercase text-secondary mb-1">{$t('instance.integrity.heading')}</h3>
       <p class="text-xs text-muted max-w-xs">{$t('instance.integrity.subtitle')}</p>
     </div>
-    <button
-      type="button"
-      class="btn-secondary btn-sm"
-      disabled={blocked}
-      title={blockTitle}
-      onclick={() => enqueueIntegrity(instanceId, name, 'verify')}
-    >
-      {effective ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
-    </button>
+    <span class="inline-flex" use:tooltip={{ text: blockTitle, describe: false }}>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        disabled={blocked}
+        onclick={() => enqueueIntegrity(instanceId, name, 'verify')}
+      >
+        {effective ? $t('instance.integrity.reverifyBtn') : $t('instance.integrity.verifyBtn')}
+      </button>
+    </span>
   </div>
 
   {#if op?.phase === 'running'}
@@ -116,15 +118,16 @@
         {/each}
       </ul>
       <div class="mt-2 flex justify-end">
-        <button
-          type="button"
-          class="btn-primary btn-sm"
-          disabled={blocked}
-          title={blockTitle}
-          onclick={() => enqueueIntegrity(instanceId, name, 'repair')}
-        >
-          {$t('instance.integrity.repairBtn', { count: effective.problem_count })}
-        </button>
+        <span class="inline-flex" use:tooltip={{ text: blockTitle, describe: false }}>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            disabled={blocked}
+            onclick={() => enqueueIntegrity(instanceId, name, 'repair')}
+          >
+            {$t('instance.integrity.repairBtn', { count: effective.problem_count })}
+          </button>
+        </span>
       </div>
     {/if}
     {#if effective.checked_unix_ms !== null}

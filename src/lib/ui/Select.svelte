@@ -15,6 +15,7 @@
   // aria-activedescendant (never moves DOM focus into the list).
 
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 
   type Primitive = string | number;
   type Option = { value: Primitive; label: string; disabled?: boolean; icon?: IconName };
@@ -263,7 +264,11 @@
     {#if selectedOption?.icon}
       <Icon name={selectedOption.icon} class="flex-shrink-0" />
     {/if}
-    <span class="truncate" class:text-placeholder={isPlaceholder}>{displayLabel}</span>
+    <span
+      class="truncate"
+      class:text-placeholder={isPlaceholder}
+      use:tooltip={{ text: displayLabel, whenOverflowing: true }}>{displayLabel}</span
+    >
   </span>
   <Icon name="chevronDown" class="text-muted flex-shrink-0" />
 </button>

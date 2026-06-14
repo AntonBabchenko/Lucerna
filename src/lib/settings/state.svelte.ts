@@ -1,4 +1,4 @@
-import type { ModSource } from '$lib/ipc/bindings';
+import type { ContentKind, ModSource } from '$lib/ipc/bindings';
 
 // Cross-component state for opening the Settings modal at a specific tab.
 //
@@ -55,6 +55,21 @@ export const droppedMods = $state<{ value: string[] | null }>({ value: null });
 // A modpack file (`.mrpack`/`.zip`) dropped onto the Modpacks tab,
 // routed here by MainTabs. ModpacksTab consumes this and resets it.
 export const droppedModpack = $state<{ value: string | null }>({ value: null });
+
+// The Add-ons tab's currently active content kind, published so MainTabs'
+// single window-level drag-drop listener can route by kind: a `.jar` drop only
+// makes sense on the Mods segment, a `.zip` drop on the Resource-pack/Shader
+// segments. AddonsTab writes this on mount + kind change and resets it to 'mod'
+// on destroy.
+export const addonsKind = $state<{ value: ContentKind }>({ value: 'mod' });
+
+// Local `.zip` files dropped onto the Add-ons tab while a Resource-pack or
+// Shader segment is active, routed here by MainTabs. AddonsTab consumes this
+// (guarding that `kind` still matches its active segment) and resets it to null.
+// Mirrors `droppedMods`.
+export const droppedAssets = $state<{ value: { kind: ContentKind; paths: string[] } | null }>({
+  value: null,
+});
 
 // True while an OS file-drag is hovering an accepting tab. MainTabs'
 // drag-drop listener sets it; FileDropzone reads it to show its drag
