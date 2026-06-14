@@ -1,5 +1,7 @@
 //! Tauri commands for importing an instance from another launcher.
 
+use std::path::PathBuf;
+
 use tauri::ipc::Channel;
 
 use crate::error::Error;
@@ -8,6 +10,7 @@ use crate::instances::import::model::{
     build_import_plan, ContentCategory, ForeignInstance, ImportProgress,
 };
 use crate::instances::import::pipeline;
+use crate::instances::schema::InstanceFile;
 
 /// Auto-discover importable instances across known launcher install paths.
 #[tauri::command]
@@ -99,4 +102,95 @@ pub async fn launcher_import_run(
     Ok(crate::instances::schema::InstanceWithStatus::from_file(
         &instance, ready,
     ))
+}
+
+/// Resolve the still-existing source directory recorded at import time.
+/// Errors when the instance has no provenance, or the folder was removed.
+fn resolve_source_dir(file: &InstanceFile) -> Result<PathBuf, Error> {
+    let prov = file
+        .imported_from
+        .as_ref()
+        .ok_or_else(|| Error::ImportNoProvenance {
+            id: file.id.clone(),
+        })?;
+    let path = PathBuf::from(&prov.source_path);
+    if !path.is_dir() {
+        return Err(Error::ImportSourceMissing {
+            path: prov.source_path.clone(),
+        });
+    }
+    Ok(path)
+}
+
+/// Open the folder the instance was imported from, so the user can find and
+/// clean up the original files. The path is read server-side from the
+/// instance's stored provenance — the UI passes only the id.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_imported_source_folder(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<(), Error> {
+    use tauri_plugin_opener::OpenerExt;
+    let file = crate::instances::read_instance(&app, &instance_id)?;
+    let dir = resolve_source_dir(&file)?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_source_dir;
+    use crate::instances::schema::{ForeignLauncher, ImportProvenance, InstanceFile, LoaderKind};
+
+    fn instance_file(imported_from: Option<ImportProvenance>) -> InstanceFile {
+        InstanceFile {
+            id: "abc-123".into(),
+            name: "Test".into(),
+            mc_version: "1.20.1".into(),
+            loader: LoaderKind::Vanilla,
+            loader_version: None,
+            max_heap_mb: 2048,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1_700_000_000_000.0,
+            mrpack_name: None,
+            mrpack_version: None,
+            mrpack_project_id: None,
+            mrpack_source: None,
+            mrpack_summary: None,
+            mrpack_version_id: None,
+            integrity: None,
+            imported_from,
+        }
+    }
+
+    fn provenance(source_path: String) -> ImportProvenance {
+        ImportProvenance {
+            launcher: ForeignLauncher::MojangLauncher,
+            source_name: "test".into(),
+            source_path,
+            imported_unix_ms: 0.0,
+        }
+    }
+
+    #[test]
+    fn errors_when_no_provenance() {
+        let f = instance_file(None);
+        assert!(resolve_source_dir(&f).is_err());
+    }
+
+    #[test]
+    fn errors_when_source_missing() {
+        let f = instance_file(Some(provenance(r"C:\definitely\not\here\xyz123".into())));
+        assert!(resolve_source_dir(&f).is_err());
+    }
+
+    #[test]
+    fn returns_path_when_source_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = instance_file(Some(provenance(tmp.path().to_string_lossy().to_string())));
+        assert_eq!(resolve_source_dir(&f).unwrap(), tmp.path());
+    }
 }
