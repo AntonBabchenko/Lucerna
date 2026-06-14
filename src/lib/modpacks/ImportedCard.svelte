@@ -3,27 +3,15 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import { relativeDate } from '$lib/format/relative-time';
-  import { Icon } from '$lib/ui/icons';
-  import { tooltip } from '$lib/ui/tooltip';
+  import CardMedia from '$lib/ui/cards/CardMedia.svelte';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import { accentStripClass, type CardAccent } from '$lib/ui/cards/card-status';
   import { modpackUpdates } from './modpack-updates.svelte';
 
-  // One card in the Imported tab grid. Mirrors ModpackCard's shape so
-  // the user sees a consistent grid across Browse and Imported. We
-  // always show the package placeholder icon — fetching real pack icons for
-  // imported instances would require another Modrinth/CurseForge call
-  // per card on every render of the tab, which isn't worth it in v1.
-  //
-  // `created_unix_ms` is `number | null` on the bindings type (very old
-  // instances created before that field existed never get it back-filled
-  // in InstanceMeta::open). We coalesce nulls to empty-string in the
-  // relative-time helper and skip the trailing "· imported …" segment.
-
-  // `isModified` (bundle 2) flips the small amber "modified" tag in the
-  // title row when the pack's installed mods have drifted from the
-  // import-time snapshot (user added or removed mods). Computed by
-  // ImportedView from modpack_status; defaults to false so callers
-  // that don't track status (= every existing test, every old-style
-  // call site) keep their current rendering.
+  // One card in the Imported tab grid. Mirrors the shared card language: a left
+  // accent strip signals attention (update available > modified), the avatar is
+  // the package placeholder (fetching real pack icons per render isn't worth it),
+  // and tags use the shared StatusBadge.
   let {
     inst,
     onClick,
@@ -34,40 +22,44 @@
     const s = modpackUpdates.statusFor(inst.id);
     return s?.kind === 'update_available' ? s.entry : null;
   });
+
+  // Attention accent: update available (success) > modified (warning) > none.
+  const accent = $derived<CardAccent>(updateEntry ? 'success' : isModified ? 'warning' : 'none');
 </script>
 
 <button
   type="button"
-  class="text-left p-3 bg-surface border rounded hover:border-accent hover:shadow-sm transition-all w-full"
+  class="relative overflow-hidden text-left p-3 pl-4 bg-surface border border-border-subtle rounded-lg hover:border-accent hover:bg-subtle transition-colors w-full"
   onclick={onClick}
   data-testid="imported-card"
 >
+  <span
+    aria-hidden="true"
+    class={`absolute left-0 top-0 bottom-0 w-[3px] ${accentStripClass(accent)}`}
+  ></span>
   <div class="flex gap-3">
-    <div
-      class="w-12 h-12 bg-subtle rounded flex items-center justify-center text-placeholder flex-shrink-0"
-    >
-      <Icon name="package" size={24} />
-    </div>
+    <CardMedia iconUrl={null} placeholder="package" size="lg" />
     <div class="min-w-0 flex-1">
-      <div class="font-semibold text-sm truncate">
-        {inst.mrpack_name} v{inst.mrpack_version}
+      <div class="font-semibold text-sm truncate flex items-center gap-1.5 flex-wrap">
+        <span>{inst.mrpack_name} v{inst.mrpack_version}</span>
         {#if isModified}
-          <span
-            class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-bg text-warning-text align-middle"
-            use:tooltip={$t('modpacks.imported.card.modifiedTitle')}
-            data-testid="imported-card-modified-tag"
+          <StatusBadge
+            variant="warning"
+            icon="info"
+            title={$t('modpacks.imported.card.modifiedTitle')}
+            testid="imported-card-modified-tag"
           >
             {$t('modpacks.imported.card.modifiedTag')}
-          </span>
+          </StatusBadge>
         {/if}
         {#if updateEntry}
-          <span
-            class="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded bg-success-bg text-success align-middle"
-            use:tooltip={$t('modpacks.imported.card.updateTitle')}
-            data-testid="imported-card-update-tag"
+          <StatusBadge
+            variant="success"
+            title={$t('modpacks.imported.card.updateTitle')}
+            testid="imported-card-update-tag"
           >
             {$t('modpacks.imported.card.updateTag', { version: updateEntry.version_number })}
-          </span>
+          </StatusBadge>
         {/if}
       </div>
       <div class="text-xs text-muted truncate">

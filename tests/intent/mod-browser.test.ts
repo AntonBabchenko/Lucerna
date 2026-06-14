@@ -653,7 +653,7 @@ describe('InstalledModsView — empty state when instance has no mods', () => {
 // ── InstalledModsView — manual-mod row buttons ────────────────────────────────
 
 describe('InstalledModsView — manual-mod row buttons', () => {
-  it('Disable button in manual-mod row is btn-secondary btn-xs', async () => {
+  it('Disable button in manual-mod row is an icon button', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     // Manual mod: source=null so no ModCard is rendered — degraded row instead.
     const manualMod = makeInstalled({ source: null, project_id: null, version_id: null });
@@ -664,13 +664,12 @@ describe('InstalledModsView — manual-mod row buttons', () => {
     render(InstalledModsView, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // Wait for data to load — the degraded row renders an Enable/Disable button.
+    // Compact rows: the enable/disable toggle is an icon button (labelled).
     const disableBtn = await screen.findByRole('button', { name: /disable/i });
-    expect(disableBtn).toHaveBtnVariant('secondary');
-    expect(disableBtn).toHaveBtnSize('xs');
+    expect(disableBtn).toHaveBtnVariant('icon');
   });
 
-  it('Uninstall button in manual-mod row is btn-ghost-danger btn-xs', async () => {
+  it('Uninstall button in manual-mod row is an icon button', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const manualMod = makeInstalled({ source: null, project_id: null, version_id: null });
     vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
@@ -681,15 +680,14 @@ describe('InstalledModsView — manual-mod row buttons', () => {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const uninstallBtn = await screen.findByRole('button', { name: /uninstall/i });
-    expect(uninstallBtn).toHaveBtnVariant('ghost-danger');
-    expect(uninstallBtn).toHaveBtnSize('xs');
+    expect(uninstallBtn).toHaveBtnVariant('icon');
   });
 });
 
 // ── ModCard — not-installed state ─────────────────────────────────────────────
 
-describe('ModCard — not-installed state has "Install" btn-primary btn-xs', () => {
-  it('"Install" button is btn-primary btn-xs', () => {
+describe('ModCard — not-installed state shows an Install icon button', () => {
+  it('"Install" action is an icon button', () => {
     render(ModCard, {
       props: {
         summary: makeSummary(),
@@ -701,36 +699,28 @@ describe('ModCard — not-installed state has "Install" btn-primary btn-xs', () 
       },
     });
     const btn = screen.getByRole('button', { name: /^install$/i });
-    expect(btn).toHaveBtnVariant('primary');
-    expect(btn).toHaveBtnSize('xs');
+    expect(btn).toHaveBtnVariant('icon');
   });
 });
 
 // ── ModCard — installed+enabled state ────────────────────────────────────────
 
-describe('ModCard — installed+enabled shows "Installed" badge with success colours', () => {
-  it('"Installed" badge has bg-success/10 and text-success classes', () => {
+describe('ModCard — installed+enabled shows version + green power toggle', () => {
+  it('shows the installed version', () => {
     render(ModCard, {
       props: {
         summary: makeSummary(),
-        installed: makeInstalled({ enabled: true }),
+        installed: makeInstalled({ enabled: true, version_number: '1.0' }),
         onInstall: () => {},
         onOpenDetail: () => {},
         onToggle: () => {},
         onUninstall: () => {},
       },
     });
-    // The badge span text starts with "Installed"
-    const badge = screen
-      .getAllByText(/installed/i)
-      .find((el) => el.tagName.toLowerCase() === 'span');
-    expect(badge).not.toBeUndefined();
-    const cls = badge?.className ?? '';
-    expect(cls).toContain('bg-success');
-    expect(cls).toContain('text-success');
+    expect(screen.getByText('v1.0')).toBeTruthy();
   });
 
-  it('Disable button is btn-secondary btn-xs for enabled mod', () => {
+  it('Disable toggle is an icon button tinted success', () => {
     render(ModCard, {
       props: {
         summary: makeSummary(),
@@ -742,11 +732,11 @@ describe('ModCard — installed+enabled shows "Installed" badge with success col
       },
     });
     const btn = screen.getByRole('button', { name: /disable/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('xs');
+    expect(btn).toHaveBtnVariant('icon');
+    expect(btn.className).toContain('text-success');
   });
 
-  it('Uninstall button is btn-ghost-danger btn-xs', () => {
+  it('Uninstall is an icon button tinted danger', () => {
     render(ModCard, {
       props: {
         summary: makeSummary(),
@@ -758,16 +748,16 @@ describe('ModCard — installed+enabled shows "Installed" badge with success col
       },
     });
     const btn = screen.getByRole('button', { name: /uninstall/i });
-    expect(btn).toHaveBtnVariant('ghost-danger');
-    expect(btn).toHaveBtnSize('xs');
+    expect(btn).toHaveBtnVariant('icon');
+    expect(btn.className).toContain('text-danger');
   });
 });
 
 // ── ModCard — installed+disabled state ───────────────────────────────────────
 
-describe('ModCard — installed+disabled badge has bg-subtle text-muted', () => {
-  it('"Disabled" badge has bg-subtle and text-muted classes', () => {
-    render(ModCard, {
+describe('ModCard — installed+disabled dims the card', () => {
+  it('the card shell is dimmed (opacity-60) when disabled', () => {
+    const { container } = render(ModCard, {
       props: {
         summary: makeSummary(),
         installed: makeInstalled({ enabled: false }),
@@ -777,16 +767,11 @@ describe('ModCard — installed+disabled badge has bg-subtle text-muted', () => 
         onUninstall: () => {},
       },
     });
-    const badge = screen
-      .getAllByText(/disabled/i)
-      .find((el) => el.tagName.toLowerCase() === 'span');
-    expect(badge).not.toBeUndefined();
-    const cls = badge?.className ?? '';
-    expect(cls).toContain('bg-subtle');
-    expect(cls).toContain('text-muted');
+    const shell = container.querySelector('[data-card-shell]');
+    expect(shell?.className).toContain('opacity-60');
   });
 
-  it('Enable button is btn-secondary btn-xs for disabled mod', () => {
+  it('Enable toggle is an icon button for disabled mod', () => {
     render(ModCard, {
       props: {
         summary: makeSummary(),
@@ -798,15 +783,14 @@ describe('ModCard — installed+disabled badge has bg-subtle text-muted', () => 
       },
     });
     const btn = screen.getByRole('button', { name: /^enable$/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('xs');
+    expect(btn).toHaveBtnVariant('icon');
   });
 });
 
 // ── ModCard — update_available state ─────────────────────────────────────────
 
-describe('ModCard — update_available shows Update btn-warning btn-xs (post 6.1 fix)', () => {
-  it('"Update" button is btn-warning btn-xs when update_available', () => {
+describe('ModCard — update_available shows a refresh icon + version range badge', () => {
+  it('"Update" action is an icon button when update_available', () => {
     const target = makeVersion({ version_id: 'v2.0', version_number: '2.0' });
     render(ModCard, {
       props: {
@@ -821,9 +805,8 @@ describe('ModCard — update_available shows Update btn-warning btn-xs (post 6.1
         checking: false,
       },
     });
-    const btn = screen.getByRole('button', { name: /^update$/i });
-    expect(btn).toHaveBtnVariant('warning');
-    expect(btn).toHaveBtnSize('xs');
+    const btn = screen.getByRole('button', { name: /update/i });
+    expect(btn).toHaveBtnVariant('icon');
   });
 
   it('version range badge has bg-warning-bg text-warning-text', () => {

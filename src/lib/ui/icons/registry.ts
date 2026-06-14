@@ -27,6 +27,7 @@ import {
   Package,
   Play,
   Plus,
+  Power,
   Puzzle,
   RefreshCw,
   ScrollText,
@@ -34,6 +35,7 @@ import {
   Shrink,
   Trash2,
   TriangleAlert,
+  User,
   X,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
@@ -80,6 +82,8 @@ export const ICONS = {
   arrowUp: ArrowUp, // ↑ Updates filter
   circleX: CircleX, // ✕ missing status
   play: Play, // Quick Play action — launch into a specific world / server
+  power: Power, // enable/disable toggle (mods only; RP/shaders have no toggle)
+  user: User, // author marker in browse metadata
   shrink: Shrink, // collapse window to mini mode
   expand: Expand, // restore window from mini mode
   globe: Globe, // join-server satellite (Quick Play)
