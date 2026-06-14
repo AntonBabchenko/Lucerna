@@ -25,10 +25,15 @@ function planOf(mods: BlockingPlan['mods']): BlockingPlan {
   return { kind: 'disable_blocking_mods', mods };
 }
 
+function openDisclosure(sha1: string): void {
+  const summary = screen.getByTestId(`blocking-disclosure-${sha1}`).querySelector('summary');
+  if (summary) void fireEvent.click(summary);
+}
+
 afterEach(() => vi.clearAllMocks());
 
 describe('BlockingModsRepairCard', () => {
-  it('renders a Disable button per blocking mod', () => {
+  it('leads with guidance and lists each mod by its cited mod-id', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
@@ -39,14 +44,30 @@ describe('BlockingModsRepairCard', () => {
         onClose: vi.fn(),
       },
     });
-    expect(screen.getByTestId('blocking-disable-a')).toBeTruthy();
-    expect(screen.getByTestId('blocking-disable-c')).toBeTruthy();
-    // The row labels the mod by its cited mod-id, not a filename-derived name.
+    // The card leads with the guidance block, not a prominent action.
+    expect(screen.getByTestId('blocking-intro')).toBeTruthy();
+    // Rows label mods by cited mod-id, not a filename-derived name.
     expect(screen.getByText('alexsmobs')).toBeTruthy();
     expect(screen.getByText('citadel')).toBeTruthy();
   });
 
-  it('shows a breaks warning only for mods that break a kept dependent', () => {
+  it('keeps each Disable action behind a collapsed per-mod disclosure', () => {
+    render(BlockingModsRepairCard, {
+      props: {
+        plan: planOf([{ sha1: 'a', mod_id: 'alexsmobs', name: "Alex's Mobs", breaks: [] }]),
+        instanceId: 'inst-1',
+        onClose: vi.fn(),
+      },
+    });
+    const disclosure = screen.getByTestId('blocking-disclosure-a') as HTMLDetailsElement;
+    expect(disclosure.tagName).toBe('DETAILS');
+    expect(disclosure.open).toBe(false);
+    // The Disable button lives inside that disclosure, not at the top level.
+    const disableBtn = screen.getByTestId('blocking-disable-a');
+    expect(disclosure.contains(disableBtn)).toBe(true);
+  });
+
+  it('shows a breaks warning inside the disclosure only for mods that break a kept dependent', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
@@ -57,7 +78,10 @@ describe('BlockingModsRepairCard', () => {
         onClose: vi.fn(),
       },
     });
-    expect(screen.getByTestId('blocking-breaks-c')).toBeTruthy();
+    const breaks = screen.getByTestId('blocking-breaks-c');
+    expect((screen.getByTestId('blocking-disclosure-c') as HTMLElement).contains(breaks)).toBe(
+      true,
+    );
     expect(screen.queryByTestId('blocking-breaks-x')).toBeNull();
   });
 
@@ -70,6 +94,7 @@ describe('BlockingModsRepairCard', () => {
         onClose: vi.fn(),
       },
     });
+    openDisclosure('a');
     await fireEvent.click(screen.getByTestId('blocking-disable-a'));
     await waitFor(() =>
       expect(executeRepair).toHaveBeenCalledWith('inst-1', { kind: 'disable_mod', sha1: 'a' }),
@@ -88,6 +113,7 @@ describe('BlockingModsRepairCard', () => {
         onClose: vi.fn(),
       },
     });
+    openDisclosure('a');
     await fireEvent.click(screen.getByTestId('blocking-disable-a'));
     await waitFor(() => expect(pushWarning).toHaveBeenCalled());
     // The disable failed → the row stays actionable so the user can retry.
@@ -104,6 +130,7 @@ describe('BlockingModsRepairCard', () => {
       },
     });
     expect(screen.queryByTestId('blocking-all-disabled')).toBeNull();
+    openDisclosure('a');
     await fireEvent.click(screen.getByTestId('blocking-disable-a'));
     await waitFor(() => expect(screen.getByTestId('blocking-all-disabled')).toBeTruthy());
   });
