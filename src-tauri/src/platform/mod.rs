@@ -25,6 +25,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             roots.push(base.join("PolyMC").join("instances"));
             roots.push(base.join("ATLauncher").join("instances"));
             roots.push(base.join("com.modrinth.theseus").join("profiles"));
+            roots.push(base.join(".minecraft"));
         }
         if let Ok(home) = std::env::var("USERPROFILE") {
             roots.push(
@@ -47,6 +48,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             roots.push(
                 base.join(".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"),
             );
+            roots.push(base.join(".minecraft"));
         }
         return roots;
     }
@@ -57,6 +59,7 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             let base = PathBuf::from(&home);
             roots.push(base.join("Library/Application Support/PrismLauncher/instances"));
             roots.push(base.join("Library/Application Support/MultiMC/instances"));
+            roots.push(base.join("Library/Application Support/minecraft"));
         }
         return roots;
     }
