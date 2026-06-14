@@ -3,12 +3,10 @@
 //! the shared pipeline copies content and recovers mod identities. The
 //! source is always read-only.
 
-// Submodules added in later tasks:
-// pub mod discovery;  // added in later tasks
-// pub mod pipeline;   // added in later tasks
-// pub mod readers;    // added in later tasks
-
+pub mod discovery;
 pub mod model;
+// pub mod pipeline;   // added in a later task
+pub mod readers;
 
 pub use model::{
     build_import_plan, scan_content, ContentCategory, ContentEntry, ForeignInstance, ImportPlan,
