@@ -68,8 +68,8 @@ vi.mock('$lib/ipc/bindings', () => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn().mockResolvedValue([]) }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
-import AddonsTab from '$lib/mods/AddonsTab.svelte';
 import { commands } from '$lib/ipc/bindings';
+import AddonsTab from '$lib/mods/AddonsTab.svelte';
 
 const props = {
   instanceId: 'i',
