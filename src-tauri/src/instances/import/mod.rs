@@ -11,5 +11,6 @@
 pub mod model;
 
 pub use model::{
-    ContentCategory, ContentEntry, ForeignInstance, ImportPlan, ImportProgress, KnownMod,
+    build_import_plan, scan_content, ContentCategory, ContentEntry, ForeignInstance, ImportPlan,
+    ImportProgress, KnownMod,
 };

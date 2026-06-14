@@ -196,8 +196,8 @@ fn dir_stats(dir: &Path) -> Option<(u32, u64)> {
             if ft.is_dir() {
                 stack.push(p);
             } else if ft.is_file() {
-                count += 1;
-                bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                count = count.saturating_add(1);
+                bytes = bytes.saturating_add(entry.metadata().map(|m| m.len()).unwrap_or(0));
             }
         }
     }
