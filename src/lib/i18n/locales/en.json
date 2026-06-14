@@ -580,6 +580,7 @@
     },
     "card": {
       "byAuthor": "by {author}",
+      "quickInstall": "Install latest version",
       "downloads": "{count} downloads",
       "downloadsShort": "{count} dl",
       "distributionDisabled": "CurseForge download disabled",

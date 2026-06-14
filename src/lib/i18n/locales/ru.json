@@ -580,6 +580,7 @@
     },
     "card": {
       "byAuthor": "{author}",
+      "quickInstall": "Установить последнюю версию",
       "downloads": "{count} скачиваний",
       "downloadsShort": "{count} скач.",
       "distributionDisabled": "Загрузка через CurseForge отключена",
