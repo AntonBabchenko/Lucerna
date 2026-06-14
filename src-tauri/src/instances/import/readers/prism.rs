@@ -106,7 +106,15 @@ impl LauncherReader for PrismReader {
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default()
         });
-        let max_heap_mb = cfg_value(&cfg, "MaxMemAlloc").and_then(|v| v.parse::<u32>().ok());
+        // Only honor a per-instance heap when Prism is actually overriding
+        // it (`OverrideMemory=true`). Otherwise the stored `MaxMemAlloc` is
+        // inactive — Prism uses its global setting — so report None and let
+        // the import pick the adaptive default instead of a stale value.
+        let max_heap_mb = if cfg_value(&cfg, "OverrideMemory").as_deref() == Some("true") {
+            cfg_value(&cfg, "MaxMemAlloc").and_then(|v| v.parse::<u32>().ok())
+        } else {
+            None
+        };
         let extra_jvm_args = cfg_value(&cfg, "JvmArgs").filter(|s| !s.is_empty());
 
         let minecraft_dir = prism_game_dir(dir);
@@ -189,6 +197,27 @@ mod tests {
             c.category,
             crate::instances::import::model::ContentCategory::Mods
         )));
+    }
+
+    #[test]
+    fn ignores_max_mem_when_override_memory_off() {
+        // OverrideMemory=false → the stored MaxMemAlloc is inactive in Prism,
+        // so the reader must report None (import then uses the adaptive default).
+        let tmp = tempfile::tempdir().unwrap();
+        let inst = tmp.path().join("HeavyPack");
+        std::fs::create_dir_all(inst.join("minecraft/mods")).unwrap();
+        std::fs::write(
+            inst.join("instance.cfg"),
+            "[General]\nname=HeavyPack\nOverrideMemory=false\nMaxMemAlloc=1024\n",
+        )
+        .unwrap();
+        std::fs::write(
+            inst.join("mmc-pack.json"),
+            r#"{"components":[{"uid":"net.minecraft","version":"1.21.1"},{"uid":"net.neoforged","version":"21.1.229"}]}"#,
+        )
+        .unwrap();
+        let fi = PrismReader.read(&inst).unwrap();
+        assert_eq!(fi.max_heap_mb, None);
     }
 
     #[test]

@@ -63,7 +63,15 @@ pub async fn launcher_import_run(
     let ram = crate::platform::total_system_ram_mb();
     let heap_min = crate::instances::memory::slider_min_mb();
     let heap_max = crate::instances::memory::slider_max_mb(ram);
-    let plan = build_import_plan(&foreign, &selected, &target_name, heap_min, heap_max);
+    let heap_default = crate::instances::memory::default_heap_mb(ram);
+    let plan = build_import_plan(
+        &foreign,
+        &selected,
+        &target_name,
+        heap_min,
+        heap_max,
+        heap_default,
+    );
 
     // Base URLs + CF key mirror the established mod/modpack pattern
     // (`mods_enrich_pack_mods`): production passes the canonical hosts as

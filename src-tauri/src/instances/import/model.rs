@@ -118,17 +118,21 @@ fn strip_heap_flags(args: &str) -> String {
         .join(" ")
 }
 
-/// Build the import plan. `heap_min`/`heap_max` are the adaptive bounds
-/// (from `instance_memory_bounds`); the source heap is clamped into them,
-/// defaulting to `heap_min` when the source did not specify one.
+/// Build the import plan. `heap_min`/`heap_max` are the adaptive bounds and
+/// `heap_default` the adaptive default (all from the `memory` module). The
+/// source heap is clamped into the bounds; when the source did not specify
+/// one, the adaptive default is used — NOT the minimum, so a heavy modpack
+/// imported from a launcher that doesn't store a per-instance heap still
+/// gets a sane default (matching a freshly-created instance).
 pub fn build_import_plan(
     foreign: &ForeignInstance,
     selected: &[ContentCategory],
     target_name: &str,
     heap_min: u32,
     heap_max: u32,
+    heap_default: u32,
 ) -> ImportPlan {
-    let requested = foreign.max_heap_mb.unwrap_or(heap_min);
+    let requested = foreign.max_heap_mb.unwrap_or(heap_default);
     let max_heap_mb = requested.clamp(heap_min, heap_max);
     let extra_jvm_args = foreign
         .extra_jvm_args
@@ -249,6 +253,7 @@ mod tests {
             "ATM9 (Prism)",
             4096,
             12288,
+            4096,
         );
         assert_eq!(plan.mc_version, "1.20.1");
         assert_eq!(plan.loader, LoaderKind::Forge);
@@ -260,13 +265,23 @@ mod tests {
     #[test]
     fn plan_clamps_heap_to_bounds() {
         // source asked 8192; bounds are [4096, 6000] -> clamped to 6000.
-        let plan = build_import_plan(&foreign(), &[ContentCategory::Mods], "n", 4096, 6000);
+        let plan = build_import_plan(&foreign(), &[ContentCategory::Mods], "n", 4096, 6000, 4096);
         assert_eq!(plan.max_heap_mb, 6000);
     }
 
     #[test]
     fn plan_only_includes_selected_categories() {
-        let plan = build_import_plan(&foreign(), &[ContentCategory::Mods], "n", 2048, 12288);
+        let plan = build_import_plan(&foreign(), &[ContentCategory::Mods], "n", 2048, 12288, 2048);
         assert_eq!(plan.copy_categories, vec![ContentCategory::Mods]);
+    }
+
+    #[test]
+    fn plan_uses_adaptive_default_when_source_has_no_heap() {
+        // A source with no per-instance heap (e.g. Prism OverrideMemory=false)
+        // must get the adaptive DEFAULT (3000), not the minimum (1024).
+        let mut fi = foreign();
+        fi.max_heap_mb = None;
+        let plan = build_import_plan(&fi, &[ContentCategory::Mods], "n", 1024, 12288, 3000);
+        assert_eq!(plan.max_heap_mb, 3000);
     }
 }
