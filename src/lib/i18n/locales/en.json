@@ -193,6 +193,8 @@
       "sourcePathLabel": "Source folder",
       "step2Title": "Import \"{name}\"",
       "discover": "Search for instances",
+      "discoverSubtitle": "Pick an instance found on this PC, or browse to a folder.",
+      "noContent": "Nothing importable was found in this folder.",
       "discovering": "Searching…",
       "discoverEmpty": "No launcher instances found. Try browsing to a specific folder.",
       "discoverError": "Could not discover instances",

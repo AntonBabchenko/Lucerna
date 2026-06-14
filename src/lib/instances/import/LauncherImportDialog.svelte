@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import type { ContentCategory, ForeignInstance, LoaderKind } from '$lib/ipc/bindings';
   import { commands } from '$lib/ipc/bindings';
@@ -9,11 +10,11 @@
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
-  import { Icon } from '$lib/ui/icons';
+  import { Icon, type IconName } from '$lib/ui/icons';
 
   // Two-step wizard:
-  //   Step 1 — discovery list (discover + browse-to-folder)
-  //   Step 2 — category checkboxes + name override for the chosen instance
+  //   Step 1 — discovery list (auto-scan + browse-to-folder)
+  //   Step 2 — category checkboxes + name/version/loader for the chosen instance
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -22,10 +23,9 @@
   let chosen = $state<ForeignInstance | null>(null);
 
   // ── step 1: discovery ──────────────────────────────────────────────────────
-  let discovering = $state(false);
+  let discovering = $state(true); // auto-scan kicks off on mount
   let discovered = $state<ForeignInstance[]>([]);
   let discoverError = $state<string | null>(null);
-  let hasDiscovered = $state(false);
 
   async function discover() {
     discovering = true;
@@ -34,7 +34,6 @@
       const res = await commands.launcherImportDiscover();
       if (res.status === 'ok') {
         discovered = res.data;
-        hasDiscovered = true;
       } else {
         discoverError = formatError(res.error);
       }
@@ -42,6 +41,12 @@
       discovering = false;
     }
   }
+
+  // Scan known launcher locations as soon as the dialog opens — finding
+  // importable instances is the whole point of this screen.
+  onMount(() => {
+    void discover();
+  });
 
   async function browseFolder() {
     const path = await openFile({ directory: true });
@@ -140,6 +145,20 @@
     return $t(key as Parameters<typeof $t>[0]);
   }
 
+  function categoryIcon(cat: ContentCategory): IconName {
+    return cat === 'mods'
+      ? 'puzzle'
+      : cat === 'config'
+        ? 'settings'
+        : cat === 'saves'
+          ? 'globe'
+          : cat === 'resource_packs'
+            ? 'resourcePack'
+            : cat === 'shaderpacks'
+              ? 'shader'
+              : 'scrollText';
+  }
+
   function sourceLabel(source: ForeignInstance['source']): string {
     const key =
       source === 'prism'
@@ -156,9 +175,16 @@
 
   let importing = $state(false);
 
+  const canImport = $derived(
+    !!chosen &&
+      selected.size > 0 &&
+      targetName.trim() !== '' &&
+      !importing &&
+      (!needsManualVersion || mcVersionInput.trim() !== ''),
+  );
+
   function doImport() {
-    if (!chosen || selected.size === 0 || !targetName.trim()) return;
-    if (needsManualVersion && !mcVersionInput.trim()) return;
+    if (!chosen || !canImport) return;
     importing = true;
     enqueueLauncherImport(targetName.trim(), {
       foreign: chosen,
@@ -175,108 +201,136 @@
 <Modal
   {onClose}
   ariaLabel={$t('instances.import.dialogAriaLabel')}
+  ariaLabelledby="launcher-import-heading"
   dataTestid="launcher-import-dialog"
-  panelClass="max-w-lg w-full"
+  panelClass="max-w-xl w-full max-h-[85vh] flex flex-col"
 >
-  <div class="p-6">
-    {#if step === 'discover'}
-      <!-- Step 1: discovery -->
-      <h2 class="text-lg font-semibold text-primary mb-4" id="launcher-import-heading">
+  {#if step === 'discover'}
+    <!-- Step 1: discovery ─────────────────────────────────────────────── -->
+    <header class="px-5 py-4 border-b border-border-subtle">
+      <h2 class="text-lg font-semibold text-primary" id="launcher-import-heading">
         {$t('instances.import.step1Title')}
       </h2>
+      <p class="text-sm text-muted mt-0.5">{$t('instances.import.discoverSubtitle')}</p>
+    </header>
 
-      <div class="flex gap-2 mb-4">
+    <div class="flex-1 overflow-y-auto px-5 py-4">
+      {#if discovering}
+        <div class="flex flex-col items-center justify-center gap-3 py-12 text-muted">
+          <Icon name="refresh" size={26} class="animate-spin" />
+          <span class="text-sm">{$t('instances.import.discovering')}</span>
+        </div>
+      {:else if discoverError}
+        <div
+          class="flex items-start gap-2 rounded-md bg-danger-bg px-3 py-2 text-sm text-danger"
+          role="alert"
+          data-testid="discover-error"
+        >
+          <Icon name="warning" size={14} class="mt-0.5 shrink-0" />
+          <span>{discoverError}</span>
+        </div>
+      {:else if discovered.length === 0}
+        <div
+          class="flex flex-col items-center justify-center gap-2 py-12 text-center"
+          data-testid="discover-empty"
+        >
+          <Icon name="package" size={30} class="text-placeholder" />
+          <p class="max-w-xs text-sm text-muted">{$t('instances.import.discoverEmpty')}</p>
+        </div>
+      {:else}
+        <ul class="space-y-2" data-testid="discovered-list">
+          {#each discovered as inst (inst.root)}
+            <li>
+              <button
+                type="button"
+                class="group flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface p-3 text-left transition-colors hover:border-accent hover:bg-accent-soft"
+                onclick={() => selectInstance(inst)}
+                data-testid="instance-row"
+              >
+                <span
+                  class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-subtle text-secondary transition-colors group-hover:text-accent"
+                >
+                  <Icon name="package" size={18} />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-medium text-primary">{inst.name}</span>
+                  <span class="block truncate text-xs text-muted">
+                    {$t('instances.import.mcLabel', { version: inst.mc_version })}
+                    {#if inst.loader !== 'vanilla'}
+                      · {inst.loader}{inst.loader_version ? ` ${inst.loader_version}` : ''}
+                    {/if}
+                  </span>
+                </span>
+                <span
+                  class="shrink-0 rounded-full bg-subtle px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted"
+                >
+                  {sourceLabel(inst.source)}
+                </span>
+                <Icon
+                  name="chevronRight"
+                  size={16}
+                  class="shrink-0 text-placeholder transition-colors group-hover:text-accent"
+                />
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+
+    <footer class="flex items-center justify-between gap-2 border-t border-border-subtle px-5 py-3">
+      <button
+        type="button"
+        class="btn-secondary btn-sm inline-flex items-center gap-1.5"
+        onclick={browseFolder}
+        data-testid="browse-folder-btn"
+      >
+        <Icon name="folderOpen" size={14} />
+        {$t('instances.import.browseFolder')}
+      </button>
+      <div class="flex items-center gap-2">
         <button
           type="button"
-          class="btn btn-primary flex items-center gap-2"
+          class="btn-ghost btn-sm inline-flex items-center gap-1.5"
           onclick={discover}
           disabled={discovering}
           data-testid="discover-btn"
         >
-          <Icon name="refresh" size={16} />
-          {discovering ? $t('instances.import.discovering') : $t('instances.import.discover')}
+          <Icon name="refresh" size={14} class={discovering ? 'animate-spin' : ''} />
+          {$t('instances.import.discover')}
         </button>
-        <button
-          type="button"
-          class="btn btn-secondary flex items-center gap-2"
-          onclick={browseFolder}
-          disabled={discovering}
-          data-testid="browse-folder-btn"
-        >
-          <Icon name="folderOpen" size={16} />
-          {$t('instances.import.browseFolder')}
-        </button>
-      </div>
-
-      {#if discoverError}
-        <p class="text-sm text-danger mb-3" role="alert" data-testid="discover-error">
-          {discoverError}
-        </p>
-      {/if}
-
-      {#if hasDiscovered}
-        {#if discovered.length === 0}
-          <p class="text-sm text-secondary" data-testid="discover-empty">
-            {$t('instances.import.discoverEmpty')}
-          </p>
-        {:else}
-          <ul class="space-y-2 max-h-72 overflow-y-auto" data-testid="discovered-list">
-            {#each discovered as inst (inst.root)}
-              <li>
-                <button
-                  type="button"
-                  class="w-full text-left rounded border border-border p-3 hover:bg-subtle transition-colors"
-                  onclick={() => selectInstance(inst)}
-                  data-testid="instance-row"
-                >
-                  <div class="flex items-center justify-between">
-                    <span class="font-medium text-primary truncate">{inst.name}</span>
-                    <span class="text-xs text-muted ml-2 shrink-0">{sourceLabel(inst.source)}</span>
-                  </div>
-                  <div class="text-xs text-secondary mt-0.5">
-                    {$t('instances.import.mcLabel', { version: inst.mc_version })}
-                    {#if inst.loader !== 'vanilla'}
-                      · {$t('instances.import.loaderLabel', {
-                        loader: inst.loader,
-                        version: inst.loader_version ?? '',
-                      })}
-                    {/if}
-                  </div>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      {/if}
-
-      <div class="flex justify-end mt-6">
-        <button type="button" class="btn btn-secondary" onclick={onClose}>
+        <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
           {$t('common.cancel')}
         </button>
       </div>
-    {:else if step === 'configure' && chosen}
-      <!-- Step 2: category + name -->
-      <div class="flex items-center gap-2 mb-4">
-        <button
-          type="button"
-          class="btn btn-ghost p-1"
-          aria-label={$t('instances.import.back')}
-          onclick={() => (step = 'discover')}
-          data-testid="back-btn"
-        >
-          <Icon name="arrowLeft" size={16} />
-        </button>
-        <h2 class="text-lg font-semibold text-primary" id="launcher-import-heading">
-          {$t('instances.import.step2Title', { name: chosen.name })}
-        </h2>
-      </div>
+    </footer>
+  {:else if step === 'configure' && chosen}
+    <!-- Step 2: configure ─────────────────────────────────────────────── -->
+    <header class="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+      <button
+        type="button"
+        class="btn-icon"
+        aria-label={$t('instances.import.back')}
+        onclick={() => (step = 'discover')}
+        data-testid="back-btn"
+      >
+        <Icon name="arrowLeft" size={18} />
+      </button>
+      <h2
+        class="min-w-0 flex-1 truncate text-lg font-semibold text-primary"
+        id="launcher-import-heading"
+      >
+        {$t('instances.import.step2Title', { name: chosen.name })}
+      </h2>
+    </header>
 
-      <!-- Name input -->
-      <label class="block mb-4">
-        <span class="text-sm text-secondary">{$t('instances.import.nameLabel')}</span>
+    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+      <!-- Name -->
+      <label class="block">
+        <span class="text-sm font-medium text-secondary">{$t('instances.import.nameLabel')}</span>
         <input
           type="text"
-          class="mt-1 input w-full"
+          class="input mt-1 w-full"
           bind:value={targetName}
           data-testid="name-input"
         />
@@ -284,8 +338,10 @@
 
       <!-- Generic .minecraft: user supplies version + loader -->
       {#if needsManualVersion}
-        <label class="block mb-4">
-          <span class="text-sm text-secondary">{$t('instances.import.mcVersionInputLabel')}</span>
+        <label class="block">
+          <span class="text-sm font-medium text-secondary"
+            >{$t('instances.import.mcVersionInputLabel')}</span
+          >
           <div class="mt-1">
             <McVersionCombobox
               bind:value={mcVersionInput}
@@ -293,12 +349,12 @@
               dataTestid="mc-version-input"
             />
           </div>
-          <span class="mt-1 block text-xs text-muted">
-            {$t('instances.import.mcVersionHint')}
-          </span>
+          <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span>
         </label>
-        <div class="block mb-4">
-          <span class="text-sm text-secondary">{$t('instances.import.loaderInputLabel')}</span>
+        <div class="block">
+          <span class="text-sm font-medium text-secondary"
+            >{$t('instances.import.loaderInputLabel')}</span
+          >
           <Select
             class="mt-1 w-full"
             value={loaderInput}
@@ -310,18 +366,12 @@
         </div>
       {/if}
 
-      <!-- Source folder path (so the user can clean up the original later) -->
-      <div class="mb-4 text-xs text-muted">
-        <span class="text-secondary">{$t('instances.import.sourcePathLabel')}:</span>
-        <span class="font-mono break-all" data-testid="source-path">{chosen.root}</span>
-      </div>
-
-      <!-- Category checkboxes -->
-      <div class="mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-sm font-medium text-secondary">
-            {$t('instances.import.contentLabel')}
-          </span>
+      <!-- Content categories -->
+      <div>
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-sm font-medium text-secondary"
+            >{$t('instances.import.contentLabel')}</span
+          >
           <button
             type="button"
             class="text-xs text-accent hover:underline"
@@ -332,50 +382,65 @@
           </button>
         </div>
 
-        <ul class="space-y-1" data-testid="category-list">
-          {#each availableCategories as cat (cat)}
-            {@const entry = contentEntry(cat)}
-            <li class="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id={`cat-${cat}`}
-                checked={selected.has(cat)}
-                onchange={() => toggleCategory(cat)}
-                class="rounded"
-                data-testid={`cat-${cat}`}
-              />
-              <label for={`cat-${cat}`} class="flex-1 text-sm text-primary cursor-pointer">
-                {categoryLabel(cat)}
-                {#if entry}
-                  <span class="text-xs text-muted ml-1">
-                    ({entry.file_count}
-                    {#if entry.total_bytes != null}
-                      · {formatSize($t, entry.total_bytes)}{/if})
-                  </span>
-                {/if}
-              </label>
-            </li>
-          {/each}
-        </ul>
+        {#if availableCategories.length === 0}
+          <p class="rounded-md bg-subtle px-3 py-3 text-sm text-muted">
+            {$t('instances.import.noContent')}
+          </p>
+        {:else}
+          <ul class="space-y-0.5" data-testid="category-list">
+            {#each availableCategories as cat (cat)}
+              {@const entry = contentEntry(cat)}
+              <li>
+                <label
+                  for={`cat-${cat}`}
+                  class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-subtle"
+                >
+                  <input
+                    type="checkbox"
+                    id={`cat-${cat}`}
+                    checked={selected.has(cat)}
+                    onchange={() => toggleCategory(cat)}
+                    class="rounded"
+                    data-testid={`cat-${cat}`}
+                  />
+                  <Icon name={categoryIcon(cat)} size={16} class="shrink-0 text-secondary" />
+                  <span class="flex-1 text-sm text-primary">{categoryLabel(cat)}</span>
+                  {#if entry}
+                    <span class="shrink-0 text-xs text-muted">
+                      {entry.file_count}{#if entry.total_bytes != null}
+                        · {formatSize($t, entry.total_bytes)}{/if}
+                    </span>
+                  {/if}
+                </label>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </div>
 
-      <div class="flex justify-between mt-6">
-        <button type="button" class="btn btn-secondary" onclick={onClose}>
-          {$t('common.cancel')}
-        </button>
-        <button
-          type="button"
-          class="btn btn-primary"
-          disabled={selected.size === 0 ||
-            !targetName.trim() ||
-            importing ||
-            (needsManualVersion && !mcVersionInput.trim())}
-          onclick={doImport}
-          data-testid="import-btn"
-        >
-          {$t('instances.import.importBtn')}
-        </button>
+      <!-- Source folder (so the user can find / clean up the original) -->
+      <div class="flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs">
+        <Icon name="folderOpen" size={14} class="mt-0.5 shrink-0 text-muted" />
+        <div class="min-w-0">
+          <div class="text-secondary">{$t('instances.import.sourcePathLabel')}</div>
+          <div class="break-all font-mono text-muted" data-testid="source-path">{chosen.root}</div>
+        </div>
       </div>
-    {/if}
-  </div>
+    </div>
+
+    <footer class="flex justify-between gap-2 border-t border-border-subtle px-5 py-3">
+      <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
+        {$t('common.cancel')}
+      </button>
+      <button
+        type="button"
+        class="btn-primary btn-sm"
+        disabled={!canImport}
+        onclick={doImport}
+        data-testid="import-btn"
+      >
+        {$t('instances.import.importBtn')}
+      </button>
+    </footer>
+  {/if}
 </Modal>

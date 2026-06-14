@@ -1,5 +1,5 @@
 import { fireEvent, render, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock plugin-dialog before SUT import (vitest hoists mocks).
 const openFileMock = vi.fn();
@@ -53,6 +53,16 @@ const mockForeign = {
 };
 
 describe('LauncherImportDialog', () => {
+  // The dialog auto-scans on mount; give every test a safe default so the
+  // mount-time discover() never sees an undefined result. Tests that care
+  // about the result override this in their body before rendering.
+  beforeEach(() => {
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: [],
+    });
+  });
+
   it('renders step 1 with discover and browse buttons', () => {
     const { getByTestId } = render(LauncherImportDialog, {
       props: { onClose: vi.fn() },
