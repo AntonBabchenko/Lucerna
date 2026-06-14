@@ -1,6 +1,10 @@
 //! Pure dependency pre-flight resolver. No network, no disk. Given each
 //! installed mod's parsed manifest and an index of available providers,
 //! returns the required-dependency violations the loader would hit.
+//!
+//! The module also exposes `dependency_preflight_for_root` — the testable
+//! core of the `instance_dependency_preflight` Tauri command — along with
+//! the `ViolationKind`, `DepViolation`, and `PreflightReport` IPC types.
 
 use std::collections::HashMap;
 
@@ -90,6 +94,201 @@ pub fn resolve(mods: &[ParsedMod], index: &ProviderIndex) -> Vec<Violation> {
         }
     }
     out
+}
+
+// ── IPC types & testable command core ─────────────────────────────────────
+
+/// What kind of dependency violation was detected.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ViolationKind {
+    /// A required dependency mod is absent from the installed set.
+    MissingRequired,
+    /// A required dependency is present but its version does not satisfy
+    /// the declared version range.
+    VersionOutOfRange,
+}
+
+/// One resolved dependency violation, enriched with enough context for the
+/// UI to show an actionable error row.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct DepViolation {
+    /// SHA-1 of the mod that declared the dependency.
+    pub dependent_sha1: String,
+    /// Display name of the mod that declared the dependency.
+    pub dependent_name: String,
+    /// Mod-id of the missing / out-of-range dependency.
+    pub dep_id: String,
+    /// Optional human-readable display name for `dep_id`, if we could look
+    /// it up. `None` in v1 (best-effort enrichment is out of scope).
+    pub dep_display_name: Option<String>,
+    /// `MissingRequired` or `VersionOutOfRange`.
+    pub kind: ViolationKind,
+    /// The version that is actually installed (`None` for `MissingRequired`).
+    pub installed_version: Option<String>,
+    /// The version range the dependent declared (empty string for
+    /// `MissingRequired`).
+    pub needed: String,
+    /// Platform project reference for the provider, if we could link it.
+    /// Powers a "View on Modrinth / CurseForge" link in the UI.
+    pub provider_project: Option<crate::mods::platform::DepProjectRef>,
+}
+
+/// Aggregated result of the dependency pre-flight scan.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct PreflightReport {
+    /// All detected violations. Empty means no problems found.
+    pub violations: Vec<DepViolation>,
+}
+
+/// Map a `ModSource` + `project_id` to a `DepProjectRef` for the
+/// "view on platform" link. Returns `None` for pack-managed sources (FTB,
+/// ATLauncher) that have no per-mod browser.
+fn dep_project_ref(
+    source: crate::mods::platform::ModSource,
+    pid: &str,
+) -> Option<crate::mods::platform::DepProjectRef> {
+    use crate::mods::platform::{DepProjectRef, ModSource};
+    match source {
+        ModSource::Modrinth => Some(DepProjectRef::Modrinth {
+            project_id: pid.into(),
+            version_id: None,
+        }),
+        ModSource::Curseforge => pid
+            .parse::<u32>()
+            .ok()
+            .map(|mod_id| DepProjectRef::Curseforge {
+                mod_id,
+                file_id: None,
+            }),
+        // FTB and ATLauncher are pack-only sources with no per-mod browser.
+        ModSource::Ftb | ModSource::Atlauncher => None,
+    }
+}
+
+/// Convert a raw `Violation` into a `DepViolation`, enriching the
+/// `provider_project` field from the `provider_owner` map built earlier.
+fn enrich(
+    v: Violation,
+    provider_owner: &std::collections::HashMap<String, crate::mods::platform::DepProjectRef>,
+) -> DepViolation {
+    match v {
+        Violation::MissingRequired {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+        } => DepViolation {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            dep_display_name: None,
+            kind: ViolationKind::MissingRequired,
+            installed_version: None,
+            needed: String::new(),
+            provider_project: None,
+        },
+        Violation::VersionOutOfRange {
+            dependent_sha1,
+            dependent_name,
+            dep_id,
+            needed,
+            installed,
+        } => {
+            let provider_project = provider_owner.get(&dep_id.to_ascii_lowercase()).cloned();
+            DepViolation {
+                dependent_sha1,
+                dependent_name,
+                dep_id,
+                dep_display_name: None,
+                kind: ViolationKind::VersionOutOfRange,
+                installed_version: Some(installed),
+                needed,
+                provider_project,
+            }
+        }
+    }
+}
+
+/// The testable core of the `instance_dependency_preflight` Tauri command.
+/// Accepts a resolved `instance_root` path so integration tests can call it
+/// without a `tauri::AppHandle`.
+pub async fn dependency_preflight_for_root(
+    root: &std::path::Path,
+) -> crate::error::Result<PreflightReport> {
+    use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps};
+    use std::collections::HashMap;
+
+    let installed = crate::mods::installed::list(root).await?;
+    let mods_dir = crate::mods::installed::mods_dir(root);
+
+    // Map lowercased provided mod_id → DepProjectRef for violation enrichment
+    // (powers the "view on platform" link). Built from mods with source identity.
+    let mut provider_owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
+
+    let mut parsed: Vec<ParsedMod> = Vec::new();
+    let mut jij: Vec<(String, Option<String>)> = Vec::new();
+
+    for m in &installed {
+        if !m.enabled {
+            continue;
+        }
+        // Attempt to read the jar bytes; try the .disabled name as fallback.
+        let bytes = {
+            let path = mods_dir.join(&m.filename);
+            match tokio::fs::read(&path).await {
+                Ok(b) => b,
+                Err(_) => {
+                    let disabled = mods_dir.join(format!("{}.disabled", m.filename));
+                    match tokio::fs::read(&disabled).await {
+                        Ok(b) => b,
+                        Err(_) => continue, // jar missing from disk — skip gracefully
+                    }
+                }
+            }
+        };
+
+        let Ok(manifest) = read_jar_manifest_deps(&bytes) else {
+            continue; // unreadable zip — skip, never fail the whole scan
+        };
+
+        // Collect JIJ (Jar-in-Jar) providers so an embedded lib is not
+        // falsely flagged as a missing dependency.
+        for p in read_jar_embedded_providers(&bytes) {
+            jij.push((p.mod_id, p.version));
+        }
+
+        // Register provided mod-ids → platform identity for violation enrichment.
+        if let (Some(source), Some(project_id)) = (m.source, m.project_id.as_deref()) {
+            for p in &manifest.provided {
+                provider_owner
+                    .entry(p.mod_id.to_ascii_lowercase())
+                    .or_insert_with(|| {
+                        dep_project_ref(source, project_id).unwrap_or(
+                            // FTB/ATLauncher fall through — return a Modrinth ref as a
+                            // safe placeholder (project_id is opaque for pack sources).
+                            crate::mods::platform::DepProjectRef::Modrinth {
+                                project_id: project_id.into(),
+                                version_id: None,
+                            },
+                        )
+                    });
+            }
+        }
+
+        parsed.push(ParsedMod {
+            sha1: m.sha1.clone(),
+            name: m.name.clone(),
+            manifest,
+        });
+    }
+
+    let index = ProviderIndex::build(&parsed, &jij);
+    let raw = resolve(&parsed, &index);
+    let violations = raw
+        .into_iter()
+        .map(|v| enrich(v, &provider_owner))
+        .collect();
+    Ok(PreflightReport { violations })
 }
 
 #[cfg(test)]

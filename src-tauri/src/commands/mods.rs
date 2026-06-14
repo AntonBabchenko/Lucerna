@@ -952,3 +952,27 @@ pub async fn mods_dependency_graph(
 
     build_graph(&roots, make_fetch()).await
 }
+
+// =========================================================================
+// Dependency version pre-flight (Task 6)
+// =========================================================================
+//
+// IPC types (ViolationKind, DepViolation, PreflightReport) and the testable
+// core (dependency_preflight_for_root) all live in `crate::mods::preflight`
+// so integration tests can reach them via the public `mods` module without
+// needing the `commands` module to be public.
+
+/// Offline dependency version pre-flight for an instance. Reads every enabled
+/// mod jar's descriptor, builds a provider index, and checks that every
+/// mandatory dependency is present and within the declared version range.
+/// Network-free; pure local jar inspection. An empty `violations` list means
+/// no detected problems.
+#[tauri::command]
+#[specta::specta]
+pub async fn instance_dependency_preflight(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
+    let root = instance_root(&app, &instance_id)?;
+    crate::mods::preflight::dependency_preflight_for_root(&root).await
+}
