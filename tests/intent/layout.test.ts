@@ -16,6 +16,7 @@ import Sidebar from '$lib/layout/Sidebar.svelte';
 // listener registration also needs to resolve without a real Tauri runtime.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
+    accountSkin: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'missing' }),
     modsSearch: vi
       .fn()

@@ -7,6 +7,7 @@ pub mod keychain;
 pub mod microsoft;
 pub mod offline;
 pub mod ops;
+pub mod skins;
 pub mod store;
 
 use crate::error::{Error, Result};
@@ -14,6 +15,17 @@ use crate::paths::account_file;
 use store::{read_account_file, write_account_file};
 
 pub use store::{upsert_microsoft_account, Account, AccountKind};
+
+/// Current Unix time in fractional seconds; `0.0` if the system clock is
+/// before the epoch (unreachable in practice). Shared by the MS-auth
+/// token-expiry math and the skin-cache freshness check.
+pub(crate) fn now_secs() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
 
 /// List every stored account. Returns an empty vec for a fresh install.
 pub fn list_accounts(app: &tauri::AppHandle) -> Result<Vec<Account>> {

@@ -64,3 +64,15 @@ pub async fn refresh_microsoft_account(
 ) -> crate::error::Result<crate::accounts::store::Account> {
     crate::accounts::microsoft::refresh(&app, &id).await
 }
+
+/// Resolve an account's skin (cache-first) by its Minecraft UUID. Returns
+/// `None` when the account has no skin or it cannot be fetched — the UI
+/// falls back to a letter avatar. Never errors on a cosmetic miss.
+#[tauri::command]
+#[specta::specta]
+pub async fn account_skin(
+    app: tauri::AppHandle,
+    uuid: String,
+) -> Result<Option<crate::accounts::skins::AccountSkin>, crate::error::Error> {
+    Ok(crate::accounts::skins::get_account_skin(&app, &uuid, false).await)
+}

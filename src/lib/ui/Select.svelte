@@ -1,3 +1,13 @@
+<script module lang="ts">
+  import type { IconName } from '$lib/ui/icons';
+  export type SelectOption = {
+    value: string | number;
+    label: string;
+    disabled?: boolean;
+    icon?: IconName;
+  };
+</script>
+
 <script lang="ts">
   // Fully-themeable select-only listbox. Replaces native <select> across
   // the app: WebKitGTK (Linux) draws the native popup as an OS widget that
@@ -14,11 +24,12 @@
   // the trigger button and the active option is tracked via
   // aria-activedescendant (never moves DOM focus into the list).
 
-  import { Icon, type IconName } from '$lib/ui/icons';
+  import { Icon } from '$lib/ui/icons';
+  import type { Snippet } from 'svelte';
   import { tooltip } from '$lib/ui/tooltip';
 
   type Primitive = string | number;
-  type Option = { value: Primitive; label: string; disabled?: boolean; icon?: IconName };
+  type Option = SelectOption;
 
   let {
     value,
@@ -30,6 +41,8 @@
     id,
     class: className = '',
     dataTestid,
+    optionLeading,
+    valueLeading,
   }: {
     value: Primitive | null;
     options: Option[];
@@ -40,6 +53,10 @@
     id?: string;
     class?: string;
     dataTestid?: string;
+    // Optional leading content per option row / for the selected value.
+    // Falls back to the existing `icon` rendering when not provided.
+    optionLeading?: Snippet<[Option]>;
+    valueLeading?: Snippet<[Option]>;
   } = $props();
 
   const MAX_POPOVER_HEIGHT = 240; // keep in sync with max-h-60 on the list
@@ -261,7 +278,9 @@
   onkeydown={onKeyDown}
 >
   <span class="inline-flex items-center gap-2 min-w-0">
-    {#if selectedOption?.icon}
+    {#if valueLeading && selectedOption}
+      {@render valueLeading(selectedOption)}
+    {:else if selectedOption?.icon}
       <Icon name={selectedOption.icon} class="flex-shrink-0" />
     {/if}
     <span
@@ -305,7 +324,9 @@
         }}
       >
         <span class="inline-flex items-center gap-2">
-          {#if opt.icon}
+          {#if optionLeading}
+            {@render optionLeading(opt)}
+          {:else if opt.icon}
             <Icon name={opt.icon} class="flex-shrink-0" />
           {/if}
           {opt.label}

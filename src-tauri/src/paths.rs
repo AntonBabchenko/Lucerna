@@ -62,6 +62,12 @@ pub fn account_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("account.json"))
 }
 
+/// Per-account cached skin PNGs + metadata sidecars (`<uuid>.png` /
+/// `<uuid>.json`). Cosmetic cache — safe to delete; repopulated on demand.
+pub fn skins_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("skins"))
+}
+
 /// Scratch directory for downloaded update installers + bundles.
 /// Lives under the app dir; cleared/overwritten per update attempt.
 pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {

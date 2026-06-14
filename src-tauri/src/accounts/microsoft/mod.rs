@@ -10,16 +10,9 @@ use crate::accounts::store::{upsert_microsoft_account, Account};
 use crate::error::{Error, Result};
 use crate::paths::account_file;
 use rand::RngCore;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 const LISTENER_TIMEOUT_DEFAULT: Duration = Duration::from_secs(5 * 60);
-
-fn now_secs() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
 
 fn fresh_state() -> String {
     let mut buf = [0u8; 16];
@@ -79,7 +72,7 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
     let mc_login = mc_services::login_with_xbox(&xsts.userhash, &xsts.token).await?;
     let profile = mc_services::fetch_profile(&mc_login.access_token).await?;
     let mc_uuid = mc_services::hyphenate_uuid(&profile.id)?;
-    let expires_at = now_secs() + mc_login.expires_in as f64;
+    let expires_at = super::now_secs() + mc_login.expires_in as f64;
 
     // Resolve the account file path via paths::account_file (same pattern as
     // other functions in accounts/mod.rs), then delegate to the testable
@@ -95,6 +88,15 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
         &keychain::mc_access_key(&account.id),
         &mc_login.access_token,
     )?;
+
+    // Best-effort skin prefetch: warm the on-disk cache so the avatar is
+    // ready on first paint. Spawned so it never delays or fails sign-in;
+    // the lazy display path re-fetches if this hasn't completed yet.
+    let app_for_skin = app.clone();
+    let uuid_for_skin = account.uuid.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::accounts::skins::get_account_skin(&app_for_skin, &uuid_for_skin, true).await;
+    });
 
     Ok(account)
 }
@@ -118,7 +120,7 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
     let mc_login = mc_services::login_with_xbox(&xsts.userhash, &xsts.token).await?;
     let profile = mc_services::fetch_profile(&mc_login.access_token).await?;
     let mc_uuid = mc_services::hyphenate_uuid(&profile.id)?;
-    let expires_at = now_secs() + mc_login.expires_in as f64;
+    let expires_at = super::now_secs() + mc_login.expires_in as f64;
 
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let account = upsert_microsoft_account(&path, &mc_uuid, &profile.name, Some(expires_at))?;
@@ -131,6 +133,15 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
         &keychain::mc_access_key(&account.id),
         &mc_login.access_token,
     )?;
+
+    // Best-effort skin prefetch: warm the on-disk cache so the avatar is
+    // ready on first paint. Spawned so it never delays or fails the refresh;
+    // the lazy display path re-fetches if this hasn't completed yet.
+    let app_for_skin = app.clone();
+    let uuid_for_skin = account.uuid.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::accounts::skins::get_account_skin(&app_for_skin, &uuid_for_skin, true).await;
+    });
 
     Ok(account)
 }

@@ -5,7 +5,9 @@
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
+  import PlayerHead from '$lib/accounts/PlayerHead.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import type { SelectOption } from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
@@ -121,12 +123,20 @@
     {#if accounts.length === 0}
       <p class="text-xs text-muted">{$t('sidebar.noAccounts')}</p>
     {:else}
+      {#snippet accountLeading(opt: SelectOption)}
+        {@const acc = accounts.find((a) => a.id === opt.value)}
+        {#if acc}
+          <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
+        {/if}
+      {/snippet}
       <Select
         class="w-full text-sm"
         value={activeAccount?.id ?? ''}
         options={accountOptions}
         onChange={(v) => onSelectAccount(String(v))}
         ariaLabel={$t('sidebar.account')}
+        optionLeading={accountLeading}
+        valueLeading={accountLeading}
       />
     {/if}
     <div class="flex gap-1">

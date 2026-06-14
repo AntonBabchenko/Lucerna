@@ -48,6 +48,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::add_offline_account,
             commands::begin_microsoft_signin,
             commands::refresh_microsoft_account,
+            commands::account_skin,
             commands::list_versions,
             commands::install_version,
             commands::install_instance,
