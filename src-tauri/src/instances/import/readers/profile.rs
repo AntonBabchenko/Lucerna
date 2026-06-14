@@ -60,6 +60,58 @@ fn resolve_mc_version(minecraft_root: &Path, vj: Option<&VersionJson>) -> String
     detect_mc_version_hint(minecraft_root).unwrap_or_default()
 }
 
+/// Best-effort loader + version from a version JSON. Library coordinates
+/// give an exact version; `mainClass` / `id` markers give the kind only.
+/// Order matters: NeoForge before Forge ("neoforge" contains "forge").
+fn detect_loader(vj: &VersionJson) -> (LoaderKind, Option<String>) {
+    for lib in &vj.libraries {
+        let Some(name) = lib.name.as_deref() else {
+            continue;
+        };
+        if let Some(found) = loader_from_coord(name) {
+            return found;
+        }
+    }
+    let hay = format!(
+        "{} {} {}",
+        vj.main_class.as_deref().unwrap_or(""),
+        vj.id.as_deref().unwrap_or(""),
+        vj.inherits_from.as_deref().unwrap_or("")
+    )
+    .to_lowercase();
+    if hay.contains("neoforge") || hay.contains("neoforged") {
+        (LoaderKind::NeoForge, None)
+    } else if hay.contains("forge") {
+        (LoaderKind::Forge, None)
+    } else if hay.contains("fabric") {
+        (LoaderKind::Fabric, None)
+    } else if hay.contains("quilt") {
+        (LoaderKind::Quilt, None)
+    } else {
+        (LoaderKind::Vanilla, None)
+    }
+}
+
+/// Match a Maven coordinate `group:artifact:version` against known loader
+/// libraries. The Forge version is the part after the last `-` (coordinates
+/// look like `1.20.1-47.2.0`); other loaders use the version verbatim.
+fn loader_from_coord(coord: &str) -> Option<(LoaderKind, Option<String>)> {
+    let mut parts = coord.splitn(3, ':');
+    let group = parts.next()?;
+    let artifact = parts.next()?;
+    let version = parts.next().map(str::to_string);
+    match (group, artifact) {
+        ("net.neoforged", "neoforge") => Some((LoaderKind::NeoForge, version)),
+        ("net.minecraftforge", "forge") => {
+            let v = version.map(|v| v.rsplit('-').next().unwrap_or(&v).to_string());
+            Some((LoaderKind::Forge, v))
+        }
+        ("net.fabricmc", "fabric-loader") => Some((LoaderKind::Fabric, version)),
+        ("org.quiltmc", "quilt-loader") => Some((LoaderKind::Quilt, version)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +152,59 @@ mod tests {
     fn version_empty_when_nothing_resolves() {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(resolve_mc_version(tmp.path(), None), "");
+    }
+
+    #[test]
+    fn loader_forge_from_library_with_version() {
+        let vj = VersionJson {
+            libraries: vec![VersionLib {
+                name: Some("net.minecraftforge:forge:1.20.1-47.2.0".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(detect_loader(&vj), (LoaderKind::Forge, Some("47.2.0".into())));
+    }
+
+    #[test]
+    fn loader_neoforge_from_library() {
+        let vj = VersionJson {
+            libraries: vec![VersionLib {
+                name: Some("net.neoforged:neoforge:21.1.66".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            detect_loader(&vj),
+            (LoaderKind::NeoForge, Some("21.1.66".into()))
+        );
+    }
+
+    #[test]
+    fn loader_fabric_from_library() {
+        let vj = VersionJson {
+            libraries: vec![VersionLib {
+                name: Some("net.fabricmc:fabric-loader:0.15.7".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(detect_loader(&vj), (LoaderKind::Fabric, Some("0.15.7".into())));
+    }
+
+    #[test]
+    fn loader_quilt_from_main_class_without_version() {
+        let vj = VersionJson {
+            main_class: Some("org.quiltmc.loader.impl.launch.knot.KnotClient".into()),
+            ..Default::default()
+        };
+        assert_eq!(detect_loader(&vj), (LoaderKind::Quilt, None));
+    }
+
+    #[test]
+    fn loader_vanilla_when_no_marker() {
+        let vj = VersionJson {
+            main_class: Some("net.minecraft.client.main.Main".into()),
+            ..Default::default()
+        };
+        assert_eq!(detect_loader(&vj), (LoaderKind::Vanilla, None));
     }
 }
