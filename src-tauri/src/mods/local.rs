@@ -15,6 +15,7 @@ use crate::error::Error;
 use crate::mods::compat::ModLocalCompat;
 use crate::mods::installed;
 use crate::mods::platform::{InstalledMod, LoaderKind};
+use crate::mods::version_range::RangeFamily;
 
 /// Which loader family a mod jar targets, detected from its descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +24,41 @@ pub enum LoaderFamily {
     Fabric,
     /// Forge or NeoForge (including legacy Forge).
     Forge,
+}
+
+/// Which side a declared dependency applies to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepSide {
+    Both,
+    Client,
+    Server,
+}
+
+/// One declared dependency with everything the resolver needs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeclaredDep {
+    pub dep_id: String,
+    pub range: String,
+    pub required: bool,
+    pub side: DepSide,
+    pub family: RangeFamily,
+}
+
+/// A mod id this jar provides, with its own declared version (post
+/// `${file.jarVersion}` resolution). Multi-mod jars yield several.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProvidedMod {
+    pub mod_id: String,
+    pub version: Option<String>,
+}
+
+/// Everything the pre-flight needs from one jar.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ManifestDeps {
+    /// Own `[[mods]]` / fabric id / quilt id (+ JIJ as providers).
+    pub provided: Vec<ProvidedMod>,
+    /// Declared dependencies.
+    pub deps: Vec<DeclaredDep>,
 }
 
 /// Best-effort metadata read from a mod `.jar`.
@@ -237,6 +273,17 @@ static FORGE_MANDATORY_ANY_RE: Lazy<Regex> =
 static FORGE_TYPE_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"type\s*=\s*"([^"]+)""#).expect("dep-type regex compiles"));
 
+// ── structured manifest readers ────────────────────────────────────────────
+
+static FORGE_VERSION_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?m)^\s*version\s*=\s*"([^"]+)""#).expect("forge version regex"));
+static FORGE_VERSIONRANGE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"versionRange\s*=\s*"([^"]*)""#).expect("versionRange regex"));
+static FORGE_SIDE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"side\s*=\s*"([^"]+)""#).expect("side regex"));
+static MANIFEST_IMPL_VERSION_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^Implementation-Version:\s*(.+)$").expect("impl-version regex"));
+
 /// Extract required dependency mod-ids from a Forge/NeoForge `mods.toml`. Each
 /// `[[dependencies.<owner>]]` block declares one `modId`; it counts as required
 /// when `mandatory=true` (Forge), `type="required"` (NeoForge), or neither
@@ -305,6 +352,254 @@ fn parse_quilt_depends(json_text: &str) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+// ── structured manifest readers (pre-flight) ───────────────────────────────
+
+/// Resolve `${file.jarVersion}` against `META-INF/MANIFEST.MF`. Returns the raw
+/// value unchanged if it is not the token; `None` if it is the token and the
+/// manifest attribute is absent (caller treats as the dev sentinel → Unknown).
+fn resolve_jar_version(raw: &str, manifest: Option<&str>) -> Option<String> {
+    if raw.trim() != "${file.jarVersion}" {
+        return Some(raw.to_string());
+    }
+    manifest
+        .and_then(|m| MANIFEST_IMPL_VERSION_RE.captures(m))
+        .map(|c| c[1].trim().to_string())
+}
+
+fn is_loader_or_mc(id: &str) -> bool {
+    LOADER_DEP_IDS.contains(&id.trim().to_ascii_lowercase().as_str())
+}
+
+/// Structured manifest read for the dependency pre-flight. Best-effort: a jar
+/// with no recognised descriptor yields an empty `ManifestDeps`. Only an
+/// unreadable zip is an error.
+pub fn read_jar_manifest_deps(jar_bytes: &[u8]) -> Result<ManifestDeps, Error> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(jar_bytes)).map_err(|e| Error::ModsDecode {
+        platform: "local jar".into(),
+        details: e.to_string(),
+    })?;
+    let manifest = entry_text(&mut zip, "META-INF/MANIFEST.MF");
+    let mut out = ManifestDeps::default();
+
+    for (name, family) in [
+        ("META-INF/mods.toml", RangeFamily::Maven),
+        ("META-INF/neoforge.mods.toml", RangeFamily::Maven),
+    ] {
+        if let Some(txt) = entry_text(&mut zip, name) {
+            parse_forge_manifest(&txt, manifest.as_deref(), family, &mut out);
+        }
+    }
+    if let Some(txt) = entry_text(&mut zip, "fabric.mod.json") {
+        parse_fabric_manifest(&txt, &mut out);
+    }
+    if let Some(txt) = entry_text(&mut zip, "quilt.mod.json") {
+        parse_quilt_manifest(&txt, &mut out);
+    }
+    out.deps.retain(|d| !is_loader_or_mc(&d.dep_id));
+    Ok(out)
+}
+
+/// Find the end of a TOML section block starting at `from` in `text`.
+/// A new section begins with `[[` or `[` at the start of a line; we
+/// stop there. Falls back to `text.len()` when no next section exists.
+fn toml_block_end(text: &str, from: usize) -> usize {
+    // Search for `[[` first (dep/mods array headers) then bare `[` (table headers).
+    // We scan byte-by-byte looking for a newline followed by `[`.
+    let bytes = text.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            return i + 1;
+        }
+        i += 1;
+    }
+    text.len()
+}
+
+fn parse_forge_manifest(
+    text: &str,
+    manifest: Option<&str>,
+    family: RangeFamily,
+    out: &mut ManifestDeps,
+) {
+    // own [[mods]] id + version (resolve ${file.jarVersion})
+    let mut from = 0;
+    while let Some(rel) = text[from..].find("[[mods]]") {
+        let start = from + rel + "[[mods]]".len();
+        let end = toml_block_end(text, start);
+        let block = &text[start..end];
+        if let Some(id) = FORGE_MODID_RE.captures(block) {
+            let version = FORGE_VERSION_RE
+                .captures(block)
+                .and_then(|c| resolve_jar_version(&c[1], manifest));
+            out.provided.push(ProvidedMod {
+                mod_id: id[1].to_string(),
+                version,
+            });
+        }
+        from = end;
+    }
+    // dependencies (reuse the same block-scan as parse_forge_mandatory_deps)
+    let marker = "[[dependencies";
+    let mut from = 0;
+    while let Some(rel) = text[from..].find(marker) {
+        let start = from + rel + marker.len();
+        let end = toml_block_end(text, start);
+        let block = &text[start..end];
+        let type_val = FORGE_TYPE_RE
+            .captures(block)
+            .map(|c| c[1].to_ascii_lowercase());
+        let required = FORGE_MANDATORY_TRUE_RE.is_match(block)
+            || type_val.as_deref() == Some("required")
+            || (!FORGE_MANDATORY_ANY_RE.is_match(block) && type_val.is_none());
+        if let Some(id) = FORGE_MODID_RE.captures(block) {
+            let range = FORGE_VERSIONRANGE_RE
+                .captures(block)
+                .map(|c| c[1].to_string())
+                .unwrap_or_default();
+            let side = match FORGE_SIDE_RE
+                .captures(block)
+                .map(|c| c[1].to_ascii_uppercase())
+                .as_deref()
+            {
+                Some("CLIENT") => DepSide::Client,
+                Some("SERVER") => DepSide::Server,
+                _ => DepSide::Both,
+            };
+            out.deps.push(DeclaredDep {
+                dep_id: id[1].to_string(),
+                range,
+                required,
+                side,
+                family,
+            });
+        }
+        from = end;
+    }
+}
+
+fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+        return;
+    };
+    if let Some(id) = v.get("id").and_then(|x| x.as_str()) {
+        out.provided.push(ProvidedMod {
+            mod_id: id.to_string(),
+            version: v.get("version").and_then(|x| x.as_str()).map(String::from),
+        });
+    }
+    if let Some(obj) = v.get("depends").and_then(|d| d.as_object()) {
+        for (id, val) in obj {
+            out.deps.push(DeclaredDep {
+                dep_id: id.clone(),
+                range: predicate_value(val),
+                required: true,
+                side: DepSide::Both,
+                family: RangeFamily::FabricPredicate,
+            });
+        }
+    }
+}
+
+fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
+        return;
+    };
+    let ql = v.get("quilt_loader");
+    if let Some(id) = ql.and_then(|q| q.get("id")).and_then(|x| x.as_str()) {
+        out.provided.push(ProvidedMod {
+            mod_id: id.to_string(),
+            version: ql
+                .and_then(|q| q.get("version"))
+                .and_then(|x| x.as_str())
+                .map(String::from),
+        });
+    }
+    let Some(arr) = ql.and_then(|q| q.get("depends")).and_then(|d| d.as_array()) else {
+        return;
+    };
+    for e in arr {
+        let (id, range, optional) = match e {
+            serde_json::Value::String(s) => (Some(s.clone()), "*".to_string(), false),
+            serde_json::Value::Object(o) => (
+                o.get("id").and_then(|x| x.as_str()).map(String::from),
+                o.get("versions")
+                    .map(predicate_value)
+                    .unwrap_or_else(|| "*".into()),
+                o.get("optional").and_then(|x| x.as_bool()).unwrap_or(false),
+            ),
+            _ => (None, "*".into(), false),
+        };
+        if let Some(id) = id {
+            out.deps.push(DeclaredDep {
+                dep_id: id,
+                range,
+                required: !optional,
+                side: DepSide::Both,
+                family: RangeFamily::QuiltPredicate,
+            });
+        }
+    }
+}
+
+/// A Fabric/Quilt predicate value: a string, or an array joined with ` || ` (OR).
+fn predicate_value(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(a) => a
+            .iter()
+            .filter_map(|x| x.as_str())
+            .collect::<Vec<_>>()
+            .join(" || "),
+        _ => "*".to_string(),
+    }
+}
+
+/// Read a zip entry's raw bytes, or `None` if absent / unreadable.
+fn entry_bytes(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<Vec<u8>> {
+    let mut f = zip.by_name(name).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
+/// Read the JIJ (Jar-in-Jar) embedded jars from an outer jar's
+/// `META-INF/jarjar/` directory. For each `.jar` found there, recursively
+/// calls `read_jar_manifest_deps` to get the inner jar's real `[[mods]]`
+/// `modId` + version (not the Maven artifact id from `metadata.json`, which
+/// is unreliable). Returns empty on any error — best-effort, never fails.
+pub fn read_jar_embedded_providers(jar_bytes: &[u8]) -> Vec<ProvidedMod> {
+    let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(jar_bytes)) else {
+        return Vec::new();
+    };
+    // Collect entry names first to avoid borrow conflicts when reading bytes.
+    let names: Vec<String> = (0..zip.len())
+        .filter_map(|i| {
+            let entry = zip.by_index(i).ok()?;
+            let name = entry.name().to_string();
+            // Match META-INF/jarjar/<something>.jar (no sub-directories)
+            if name.starts_with("META-INF/jarjar/")
+                && name.ends_with(".jar")
+                && name.matches('/').count() == 2
+            {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for name in &names {
+        if let Some(inner_bytes) = entry_bytes(&mut zip, name) {
+            if let Ok(inner_manifest) = read_jar_manifest_deps(&inner_bytes) {
+                out.extend(inner_manifest.provided);
+            }
+        }
+    }
+    out
 }
 
 /// Compatibility verdict for a local mod jar against a target instance.
@@ -1059,5 +1354,102 @@ modId=\"evilseagull\"
             .await
             .unwrap_err();
         assert!(matches!(err, Error::ModsFilenameConflict { .. }));
+    }
+
+    // ── structured manifest reader tests ──────────────────────────────────────
+
+    #[test]
+    fn reads_forge_dep_with_versionrange_and_own_version() {
+        let toml = "[[mods]]\nmodId=\"backpacks\"\nversion=\"3.20.0\"\n\
+            [[dependencies.backpacks]]\nmodId=\"sophisticatedcore\"\nmandatory=true\n\
+            versionRange=\"[1.3.51,)\"\nside=\"BOTH\"\n";
+        let j = jar(&[("META-INF/mods.toml", toml)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        assert!(
+            m.provided
+                .iter()
+                .any(|p| p.mod_id == "backpacks" && p.version.as_deref() == Some("3.20.0")),
+            "provided: {:?}",
+            m.provided
+        );
+        let dep = m
+            .deps
+            .iter()
+            .find(|d| d.dep_id == "sophisticatedcore")
+            .unwrap();
+        assert_eq!(dep.range, "[1.3.51,)");
+        assert!(dep.required);
+    }
+
+    #[test]
+    fn fabric_provides_id_and_required_depends_with_predicate() {
+        let json = r#"{"id":"sodium","version":"0.5.3","depends":{"minecraft":">=1.20.1","fabricloader":">=0.15","fabric-api":">=0.90"}}"#;
+        let j = jar(&[("fabric.mod.json", json)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        assert!(
+            m.provided
+                .iter()
+                .any(|p| p.mod_id == "sodium" && p.version.as_deref() == Some("0.5.3")),
+            "provided: {:?}",
+            m.provided
+        );
+        // minecraft + fabricloader filtered; fabric-api kept.
+        assert_eq!(
+            m.deps.iter().map(|d| d.dep_id.as_str()).collect::<Vec<_>>(),
+            vec!["fabric-api"]
+        );
+    }
+
+    #[test]
+    fn forge_resolves_file_jar_version_from_manifest() {
+        let toml = "[[mods]]\nmodId=\"x\"\nversion=\"${file.jarVersion}\"\n";
+        let j = jar(&[
+            ("META-INF/mods.toml", toml),
+            (
+                "META-INF/MANIFEST.MF",
+                "Manifest-Version: 1.0\nImplementation-Version: 7.8.9\n",
+            ),
+        ]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        assert_eq!(m.provided[0].version.as_deref(), Some("7.8.9"));
+    }
+
+    #[test]
+    fn quilt_optional_dep_is_not_required() {
+        let json = r#"{"quilt_loader":{"id":"x","version":"1.0.0","depends":[{"id":"sodium","versions":">=0.5","optional":true}]}}"#;
+        let j = jar(&[("quilt.mod.json", json)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        assert!(
+            !m.deps
+                .iter()
+                .find(|d| d.dep_id == "sodium")
+                .unwrap()
+                .required
+        );
+    }
+
+    #[test]
+    fn jij_reader_extracts_embedded_jar_mod_id() {
+        // Build inner jar declaring modId="embeddedlib" version="2.1.0"
+        let inner_toml = "[[mods]]\nmodId=\"embeddedlib\"\nversion=\"2.1.0\"\n";
+        let inner_bytes = jar(&[("META-INF/mods.toml", inner_toml)]);
+
+        // Build outer jar with inner jar at META-INF/jarjar/lib.jar
+        let outer = {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file("META-INF/jarjar/lib.jar", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(&inner_bytes).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        };
+
+        let providers = read_jar_embedded_providers(&outer);
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].mod_id, "embeddedlib");
+        assert_eq!(providers[0].version.as_deref(), Some("2.1.0"));
     }
 }
