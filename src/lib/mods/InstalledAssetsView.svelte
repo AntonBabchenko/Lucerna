@@ -17,6 +17,8 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import CardShell from '$lib/ui/cards/CardShell.svelte';
+  import CardMedia from '$lib/ui/cards/CardMedia.svelte';
   import { get } from 'svelte/store';
   import { tooltip } from '$lib/ui/tooltip';
 
@@ -194,48 +196,51 @@
   {:else if assets.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">{$t('addons.installed.empty')}</div>
   {:else}
-    <div class="border border-border-subtle rounded overflow-hidden">
+    <div class="border border-border-subtle rounded-lg overflow-hidden">
       {#each assets as asset (asset.filename)}
         {@const latest = updatable(asset.filename)}
-        <div
-          class="flex items-center gap-3 px-3 py-2 border-b border-border-subtle last:border-b-0"
-        >
-          <div class="min-w-0 flex-1">
-            <div class="text-sm text-primary truncate">{asset.name}</div>
+        <CardShell variant="compact-row" accent={latest ? 'warning' : 'none'}>
+          <CardMedia
+            iconUrl={null}
+            placeholder={kind === 'shader' ? 'shader' : 'resourcePack'}
+            size="sm"
+          />
+          <div class="min-w-0 flex-1 truncate">
+            <span class="text-sm text-primary">{asset.name}</span>
             {#if asset.version_number}
-              <div class="text-xs text-secondary truncate">{asset.version_number}</div>
+              <span class="text-xs text-muted ml-2">{asset.version_number}</span>
             {/if}
           </div>
           {#if checkFailed(asset.filename)}
             {@const reason = checkFailedReason(asset.filename)}
             <span
-              class="text-xs text-placeholder"
+              class="text-warning-text flex-shrink-0"
               use:tooltip={reason ?? $t('addons.installed.checkFailed')}
               aria-label={$t('addons.installed.checkFailed')}
               role="img"
             >
-              <Icon name="warning" />
+              <Icon name="warning" size={15} />
             </span>
           {/if}
           {#if latest}
-            <BusyButton
+            <button
               type="button"
-              class="btn-primary btn-sm"
-              {busy}
+              class="btn-icon !w-7 !h-7 !text-warning-text"
+              disabled={busy}
               onclick={() => update(asset, latest)}
+              aria-label={$t('addons.installed.update')}
+              use:tooltip={$t('addons.installed.update')}><Icon name="refresh" size={15} /></button
             >
-              {$t('addons.installed.update')}
-            </BusyButton>
           {/if}
-          <BusyButton
+          <button
             type="button"
-            class="btn-secondary btn-sm"
-            {busy}
+            class="btn-icon !w-7 !h-7 !text-danger"
+            disabled={busy}
             onclick={() => remove(asset)}
+            aria-label={$t('addons.installed.remove')}
+            use:tooltip={$t('addons.installed.remove')}><Icon name="trash" size={15} /></button
           >
-            {$t('addons.installed.remove')}
-          </BusyButton>
-        </div>
+        </CardShell>
       {/each}
     </div>
   {/if}
