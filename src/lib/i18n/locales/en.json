@@ -773,8 +773,9 @@
       },
       "blockingMods": {
         "title": "Mods the server rejected",
-        "intro": "The server rejected these mods. Either it doesn't have them — then disabling lets you join — or you have a different version than the server.",
-        "caveat": "Disable only if the server doesn't have the mod. If your version differs, you need the server's version (Minecraft's disconnect screen shows it) — disabling would just remove the mod.",
+        "intro": "The server rejected the connection over these mods. Usually that means your version differs from the server's — you need the server's version, which Minecraft's disconnect screen shows. Less often the server doesn't have the mod at all. For a version difference, install the server's version instead of disabling.",
+        "disableQuestion": "The server doesn't have this mod?",
+        "disableHint": "Disable it only if the server truly doesn't have this mod — this won't help with a version difference. Disabling is reversible.",
         "disable": "Disable",
         "disabledLabel": "Disabled",
         "breaks": "Disabling this also breaks: {names} — they require it.",
