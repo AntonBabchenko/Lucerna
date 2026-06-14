@@ -134,11 +134,11 @@ pub struct PackOriginFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct OnDisk {
+pub(crate) struct OnDisk {
     #[serde(default = "default_version")]
     version: u32,
     #[serde(default)]
-    mods: Vec<InstalledMod>,
+    pub(crate) mods: Vec<InstalledMod>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pack_origin: Option<PackOrigin>,
 }
@@ -178,7 +178,7 @@ pub async fn list(instance_root: &Path) -> Result<Vec<InstalledMod>, Error> {
     Ok(state.mods)
 }
 
-async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error> {
+pub(crate) async fn read_or_empty(instance_root: &Path) -> Result<OnDisk, Error> {
     let path = registry_path(instance_root);
     if !fs::try_exists(&path).await.map_err(|e| io_err(&path, e))? {
         return Ok(OnDisk {
@@ -391,6 +391,22 @@ pub async fn apply_enrichment(
             m.project_id = Some(id.project_id.clone());
             m.version_id = Some(id.version_id.clone());
         }
+    }
+    write(instance_root, &state).await
+}
+
+/// Insert freshly-imported mod records into the registry, replacing any
+/// existing entry with the same SHA-1 (idempotent re-import). Used by the
+/// launcher-instance import pipeline after copying loose jars.
+pub async fn register_imported_mods(
+    instance_root: &Path,
+    mods: Vec<InstalledMod>,
+) -> Result<(), Error> {
+    let mut state = read_or_empty(instance_root).await?;
+    for m in mods {
+        let key = m.sha1.to_ascii_lowercase();
+        state.mods.retain(|e| e.sha1.to_ascii_lowercase() != key);
+        state.mods.push(m);
     }
     write(instance_root, &state).await
 }
@@ -1052,6 +1068,51 @@ mod tests {
         let mods = list(td.path()).await.unwrap();
         assert!(mods[0].source.is_none());
         assert!(mods[0].enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn register_imported_mods_persists_records() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let recs = vec![
+            InstalledMod {
+                filename: "sodium.jar".into(),
+                sha1: "abc123".into(),
+                source: Some(crate::mods::platform::ModSource::Modrinth),
+                project_id: Some("AANobbMI".into()),
+                version_id: Some("v1".into()),
+                name: "sodium.jar".into(),
+                version_number: None,
+                installed_at: "2026-06-14T00:00:00Z".into(),
+                enabled: true,
+                enrich_attempted: true,
+                requires: vec![],
+            },
+            InstalledMod {
+                filename: "unknown.jar".into(),
+                sha1: "def456".into(),
+                source: None,
+                project_id: None,
+                version_id: None,
+                name: "unknown.jar".into(),
+                version_number: None,
+                installed_at: "2026-06-14T00:00:00Z".into(),
+                enabled: true,
+                enrich_attempted: false,
+                requires: vec![],
+            },
+        ];
+        register_imported_mods(root, recs).await.unwrap();
+        let state = read_or_empty(root).await.unwrap();
+        assert_eq!(state.mods.len(), 2);
+        assert!(state
+            .mods
+            .iter()
+            .any(|m| m.filename == "sodium.jar" && m.source.is_some()));
+        assert!(state
+            .mods
+            .iter()
+            .any(|m| m.filename == "unknown.jar" && m.source.is_none()));
     }
 
     #[tokio::test]
