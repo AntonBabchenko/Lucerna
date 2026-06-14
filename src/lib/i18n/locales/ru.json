@@ -437,6 +437,18 @@
       "unresolvableRowNoVersions": "{name} — совместимых версий не найдено",
       "subRequires": "требует: {name}",
       "installBtn": "{count, plural, one {Установить (# мод)} few {Установить (# мода)} many {Установить (# модов)} other {Установить (# мода)}}"
+    },
+    "preflight": {
+      "panelTitle": "Проверка совместимости",
+      "missing": "{dependent} требует {dep}, который не установлен",
+      "outOfRange": "{dependent} требует {dep} {needed} — установлено: {installed}",
+      "update": "Обновить",
+      "gateTitle": "Часть модов может не загрузиться",
+      "gateUpdateLaunch": "Обновить и запустить",
+      "gateLaunchAnyway": "Запустить всё равно",
+      "gateCancel": "Отмена",
+      "treeOutOfRange": "версия устарела",
+      "checkFailed": "Не удалось проверить совместимость"
     }
   },
   "addons": {

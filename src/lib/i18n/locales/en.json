@@ -437,6 +437,18 @@
       "unresolvableRowNoVersions": "{name} — no compatible version found",
       "subRequires": "requires: {name}",
       "installBtn": "{count, plural, one {Install (# mod)} other {Install (# mods)}}"
+    },
+    "preflight": {
+      "panelTitle": "Compatibility check",
+      "missing": "{dependent} needs {dep}, which is not installed",
+      "outOfRange": "{dependent} needs {dep} {needed} — installed: {installed}",
+      "update": "Update",
+      "gateTitle": "Some mods may not load",
+      "gateUpdateLaunch": "Update & launch",
+      "gateLaunchAnyway": "Launch anyway",
+      "gateCancel": "Cancel",
+      "treeOutOfRange": "version too old",
+      "checkFailed": "Couldn't check compatibility"
     }
   },
   "addons": {
