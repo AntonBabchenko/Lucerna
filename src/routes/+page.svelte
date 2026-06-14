@@ -22,6 +22,7 @@
   import MainTabs from '$lib/layout/MainTabs.svelte';
   import OverviewTab from '$lib/overview/OverviewTab.svelte';
   import ExportPackDialog from '$lib/modpacks/ExportPackDialog.svelte';
+  import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
   import OperationsView from '$lib/ops/OperationsView.svelte';
@@ -122,6 +123,7 @@
   // pack creates a new instance — so a scrim-backed modal signals "separate
   // context, not the current instance".
   let modpacksModalOpen = $state(false);
+  let launcherImportOpen = $state(false);
 
   // The Overview missing-mods indicator and any other deep-link that
   // sets modpacksNav expects the Modpacks view to come up. ModpacksTab
@@ -207,6 +209,7 @@
     const anyWideOverlay =
       manageOpen ||
       modpacksModalOpen ||
+      launcherImportOpen ||
       logsOpen ||
       settingsOpen.value !== null ||
       exportDialogOpen ||
@@ -514,6 +517,7 @@
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
+      onOpenLauncherImport={() => (launcherImportOpen = true)}
       {quickPlaySupported}
       onOpenQuickJoin={() => (quickJoinOpen = true)}
       {onSelectAccount}
@@ -711,6 +715,9 @@
       instanceName={activeInstance.name}
       onClose={() => (exportDialogOpen = false)}
     />
+  {/if}
+  {#if launcherImportOpen}
+    <LauncherImportDialog onClose={() => (launcherImportOpen = false)} />
   {/if}
 </main>
 <ToastHost />
