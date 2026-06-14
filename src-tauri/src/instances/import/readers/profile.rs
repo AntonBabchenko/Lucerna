@@ -139,6 +139,76 @@ fn source_for_root(minecraft_root: &Path) -> ForeignLauncher {
     }
 }
 
+/// A sensible instance name: a meaningful folder name (e.g. `test`) used
+/// directly; a `.minecraft` falls back to `Minecraft <version>`.
+fn instance_name_for(game_dir: &Path, mc_version: &str) -> String {
+    if let Some(name) = game_dir.file_name().and_then(|s| s.to_str()) {
+        if !name.eq_ignore_ascii_case(".minecraft") && !name.is_empty() {
+            return name.to_string();
+        }
+    }
+    if mc_version.is_empty() {
+        "Minecraft".to_string()
+    } else {
+        format!("Minecraft {mc_version}")
+    }
+}
+
+impl LauncherReader for ProfileReader {
+    fn launcher(&self) -> ForeignLauncher {
+        // Discovery uses `expand_root` + `read`, not `launcher()`; report the
+        // primary (official) variant. The per-instance source is set in `read`.
+        ForeignLauncher::MojangLauncher
+    }
+
+    fn default_roots(&self) -> Vec<PathBuf> {
+        crate::platform::default_launcher_roots()
+            .into_iter()
+            .filter(|p| p.ends_with(".minecraft") || p.ends_with("minecraft"))
+            .collect()
+    }
+
+    fn detect(&self, dir: &Path) -> bool {
+        if scan_content(dir).is_empty() {
+            return false;
+        }
+        let is_shared = dir.join("launcher_profiles.json").is_file();
+        let has_version_json = dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|n| !n.is_empty() && dir.join(format!("{n}.json")).is_file())
+            .unwrap_or(false);
+        is_shared || has_version_json
+    }
+
+    fn read(&self, dir: &Path) -> Result<ForeignInstance> {
+        let vj = read_version_json(dir);
+        let minecraft_root = minecraft_root_of(dir);
+        let mc_version = resolve_mc_version(&minecraft_root, vj.as_ref());
+        let (loader, loader_version) = vj
+            .as_ref()
+            .map(detect_loader)
+            .unwrap_or((LoaderKind::Vanilla, None));
+        let source = source_for_root(&minecraft_root);
+        let name = instance_name_for(dir, &mc_version);
+        Ok(ForeignInstance {
+            source,
+            name,
+            root: dir.to_path_buf(),
+            minecraft_dir: dir.to_path_buf(),
+            mc_version,
+            loader,
+            loader_version,
+            max_heap_mb: None,
+            extra_jvm_args: None,
+            content: scan_content(dir),
+            known_mods: vec![],
+        })
+    }
+
+    // expand_root override added in Task 9.
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +337,64 @@ mod tests {
         let mc = tmp.path().join(".minecraft");
         std::fs::create_dir_all(&mc).unwrap();
         assert_eq!(source_for_root(&mc), ForeignLauncher::MojangLauncher);
+    }
+
+    use crate::instances::import::model::ContentCategory;
+
+    /// A `versions/<name>` modded game dir: own mods + a version JSON.
+    fn versions_game_dir() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        let game = tmp.path().join(".minecraft/versions/test");
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/a.jar"), b"x").unwrap();
+        std::fs::write(
+            game.join("test.json"),
+            r#"{"id":"test","inheritsFrom":"1.20.1","libraries":[{"name":"net.minecraftforge:forge:1.20.1-47.2.0"}]}"#,
+        )
+        .unwrap();
+        tmp
+    }
+
+    #[test]
+    fn detects_versions_game_dir_with_content() {
+        let tmp = versions_game_dir();
+        assert!(ProfileReader.detect(&tmp.path().join(".minecraft/versions/test")));
+    }
+
+    #[test]
+    fn rejects_bare_vanilla_version_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let game = tmp.path().join(".minecraft/versions/1.20.1");
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("1.20.1.json"), r#"{"id":"1.20.1"}"#).unwrap();
+        std::fs::write(game.join("1.20.1.jar"), b"x").unwrap();
+        assert!(!ProfileReader.detect(&game));
+    }
+
+    #[test]
+    fn detects_shared_minecraft_with_mods() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("mods")).unwrap();
+        std::fs::write(mc.join("mods/a.jar"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        assert!(ProfileReader.detect(&mc));
+    }
+
+    #[test]
+    fn reads_versions_dir_with_forge_and_inherited_version() {
+        let tmp = versions_game_dir();
+        let fi = ProfileReader
+            .read(&tmp.path().join(".minecraft/versions/test"))
+            .unwrap();
+        assert_eq!(fi.name, "test");
+        assert_eq!(fi.mc_version, "1.20.1");
+        assert_eq!(fi.loader, LoaderKind::Forge);
+        assert_eq!(fi.loader_version.as_deref(), Some("47.2.0"));
+        assert_eq!(fi.source, ForeignLauncher::MojangLauncher);
+        assert!(fi
+            .content
+            .iter()
+            .any(|c| c.category == ContentCategory::Mods));
     }
 }
