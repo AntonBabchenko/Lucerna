@@ -92,7 +92,7 @@ fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
     }
     // No brackets => bare version, redefined as a minimum (>=).
     if !range.starts_with('[') && !range.starts_with('(') {
-        return cmp_to_sat(compare_numeric(installed, range), Bound::AtLeast);
+        return cmp_to_sat(compare_numeric(installed, range));
     }
     let restrictions = match parse_maven_restrictions(range) {
         Some(r) if !r.is_empty() => r,
@@ -114,11 +114,7 @@ fn maven_satisfies(installed: &str, range: &str) -> Satisfaction {
     }
 }
 
-enum Bound {
-    AtLeast,
-}
-
-fn cmp_to_sat(c: Cmp, _b: Bound) -> Satisfaction {
+fn cmp_to_sat(c: Cmp) -> Satisfaction {
     match c {
         Cmp::Greater | Cmp::Equal => Satisfaction::Satisfied, // installed >= bare
         Cmp::Less => Satisfaction::Violated,
@@ -196,22 +192,33 @@ fn predicate_satisfies(installed: &str, pred: &str, is_quilt: bool) -> Satisfact
     if pred.is_empty() || pred == "*" {
         return Satisfaction::Satisfied;
     }
+    // OR across alternatives. A malformed (empty) alternative makes the whole
+    // predicate un-evaluable — Unknown propagates and prevents a Satisfied result,
+    // keeping the conservative contract.
+    let mut any_satisfied = false;
     let mut any_unknown = false;
     for alt in pred.split("||") {
         match alternative_holds(installed, alt.trim(), is_quilt) {
-            Satisfaction::Satisfied => return Satisfaction::Satisfied,
+            Satisfaction::Satisfied => any_satisfied = true,
             Satisfaction::Unknown => any_unknown = true,
             Satisfaction::Violated => {}
         }
     }
     if any_unknown {
         Satisfaction::Unknown
+    } else if any_satisfied {
+        Satisfaction::Satisfied
     } else {
         Satisfaction::Violated
     }
 }
 
 fn alternative_holds(installed: &str, alt: &str, is_quilt: bool) -> Satisfaction {
+    // An empty/whitespace-only alternative (e.g. trailing `||`) cannot be
+    // evaluated — treat conservatively as Unknown rather than Satisfied.
+    if alt.trim().is_empty() {
+        return Satisfaction::Unknown;
+    }
     let mut any_unknown = false;
     for term in alt.split_whitespace() {
         match term_holds(installed, term, is_quilt) {
@@ -279,7 +286,10 @@ fn bool_sat(b: bool) -> Satisfaction {
     }
 }
 
-/// `^a.b.c` = `>=a.b.c <(a+1).0.0`; `~a.b.c` = `>=a.b.c <a.(b+1).0`.
+/// `^a.b.c` upper bound follows semver:
+///   - `^0.x.y` = `>=0.x.y <0.(x+1).0`  (zero-major: minor is the breaking digit)
+///   - `^M.x.y` (M >= 1) = `>=M.x.y <(M+1).0.0`
+/// `~a.b.c` = `>=a.b.c <a.(b+1).0` (minor bump, regardless of major).
 fn caret_or_tilde(installed: &str, base: &str, caret: bool) -> Satisfaction {
     if compare_numeric(installed, base) == Cmp::Less {
         return Satisfaction::Violated;
@@ -288,8 +298,30 @@ fn caret_or_tilde(installed: &str, base: &str, caret: bool) -> Satisfaction {
     let major = parts.first().and_then(|s| s.parse::<u64>().ok());
     let minor = parts.get(1).and_then(|s| s.parse::<u64>().ok());
     let upper = match (caret, major, minor) {
-        (true, Some(m), _) => format!("{}.0.0", m + 1),
-        (false, Some(m), Some(n)) => format!("{}.{}.0", m, n + 1),
+        // ^0.x.y — zero-major: upper = 0.(x+1).0
+        (true, Some(0), Some(n)) => {
+            let n1 = match n.checked_add(1) {
+                Some(v) => v,
+                None => return Satisfaction::Unknown,
+            };
+            format!("0.{n1}.0")
+        }
+        // ^M.x.y (M >= 1) — upper = (M+1).0.0
+        (true, Some(m), _) => {
+            let m1 = match m.checked_add(1) {
+                Some(v) => v,
+                None => return Satisfaction::Unknown,
+            };
+            format!("{m1}.0.0")
+        }
+        // ~M.x.y — upper = M.(x+1).0
+        (false, Some(m), Some(n)) => {
+            let n1 = match n.checked_add(1) {
+                Some(v) => v,
+                None => return Satisfaction::Unknown,
+            };
+            format!("{m}.{n1}.0")
+        }
         _ => return Satisfaction::Unknown,
     };
     match compare_numeric(installed, &upper) {
@@ -421,5 +453,88 @@ mod tests {
             satisfies("1.2.5", "1.2.x", FabricPredicate),
             Satisfaction::Unknown
         ); // x-range → silent
+    }
+
+    // Fix 1 + Fix 2: zero-major caret (^0.x.y = >=0.x.y <0.(x+1).0)
+    #[test]
+    fn caret_zero_major_rejects_version_past_next_minor() {
+        // ^0.92.0: upper = 0.93.0; 0.99.0 is above that → Violated
+        assert_eq!(
+            satisfies("0.99.0", "^0.92.0", FabricPredicate),
+            Satisfaction::Violated
+        );
+        // 0.92.5 is within [0.92.0, 0.93.0) → Satisfied
+        assert_eq!(
+            satisfies("0.92.5", "^0.92.0", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        // 0.93.0 is exactly the upper bound (exclusive) → Violated
+        assert_eq!(
+            satisfies("0.93.0", "^0.92.0", FabricPredicate),
+            Satisfaction::Violated
+        );
+    }
+
+    // Tilde: ~M.x.y = >=M.x.y <M.(x+1).0
+    #[test]
+    fn tilde_allows_patch_bumps_not_minor_bumps() {
+        assert_eq!(
+            satisfies("1.2.9", "~1.2.3", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        assert_eq!(
+            satisfies("1.3.0", "~1.2.3", FabricPredicate),
+            Satisfaction::Violated
+        );
+        // base itself is satisfied
+        assert_eq!(
+            satisfies("1.2.3", "~1.2.3", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+    }
+
+    // <= operator
+    #[test]
+    fn lte_operator() {
+        assert_eq!(
+            satisfies("1.0.0", "<=1.0.0", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        assert_eq!(
+            satisfies("1.0.1", "<=1.0.0", FabricPredicate),
+            Satisfaction::Violated
+        );
+    }
+
+    // < operator
+    #[test]
+    fn lt_operator() {
+        assert_eq!(
+            satisfies("0.9.0", "<1.0.0", FabricPredicate),
+            Satisfaction::Satisfied
+        );
+        assert_eq!(
+            satisfies("1.0.0", "<1.0.0", FabricPredicate),
+            Satisfaction::Violated
+        );
+    }
+
+    // Fix 4: trailing || produces an empty alternative → Unknown (conservative).
+    // An Unknown alternative poisons the whole OR expression so the result is
+    // Unknown even when another alternative is Satisfied — preserving the
+    // "cannot be confident → do not flag" contract.
+    #[test]
+    fn trailing_or_alternative_is_unknown_not_satisfied() {
+        // ">=1.0 ||" — first alt Satisfied, second alt empty (Unknown).
+        // Unknown wins → result is Unknown, not Satisfied.
+        assert_eq!(
+            satisfies("1.0.0", ">=1.0 ||", FabricPredicate),
+            Satisfaction::Unknown
+        );
+        // ">=2.0 ||" — first alt Violated, second empty (Unknown) → Unknown.
+        assert_eq!(
+            satisfies("1.0.0", ">=2.0 ||", FabricPredicate),
+            Satisfaction::Unknown
+        );
     }
 }
