@@ -347,7 +347,7 @@
     </button>
     <button
       type="button"
-      class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-accent-soft hover:border-accent"
       data-testid="sidebar-open-launcher-import"
       onclick={onOpenLauncherImport}
     >

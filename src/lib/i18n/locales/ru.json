@@ -185,6 +185,7 @@
     "import": {
       "dialogAriaLabel": "Импорт из лаунчера",
       "step1Title": "Выберите профиль для импорта",
+      "contentLabel": "Содержимое для импорта",
       "step2Title": "Импорт «{name}»",
       "discover": "Найти профили",
       "discovering": "Поиск…",

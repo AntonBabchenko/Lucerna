@@ -265,7 +265,7 @@
       <div class="mb-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm font-medium text-secondary">
-            {$t('instances.import.step1Title')}
+            {$t('instances.import.contentLabel')}
           </span>
           <button
             type="button"

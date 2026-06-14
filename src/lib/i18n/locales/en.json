@@ -185,6 +185,7 @@
     "import": {
       "dialogAriaLabel": "Import from launcher",
       "step1Title": "Choose an instance to import",
+      "contentLabel": "Content to import",
       "step2Title": "Import \"{name}\"",
       "discover": "Search for instances",
       "discovering": "Searching…",

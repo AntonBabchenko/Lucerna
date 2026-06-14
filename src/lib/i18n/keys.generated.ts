@@ -234,6 +234,7 @@ export type TranslationKey =
   | 'instances.import.categoryResourcePacks'
   | 'instances.import.categorySaves'
   | 'instances.import.categoryShaderpacks'
+  | 'instances.import.contentLabel'
   | 'instances.import.deselectAll'
   | 'instances.import.dialogAriaLabel'
   | 'instances.import.discover'
