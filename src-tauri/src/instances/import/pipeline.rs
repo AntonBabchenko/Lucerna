@@ -188,8 +188,16 @@ pub async fn run_import(
             });
         });
         if let Err(e) = res {
-            if cat == ContentCategory::Mods && mods_selected {
-                let _ = instances::delete_instance(app, &id); // rollback
+            if cat == ContentCategory::Mods {
+                // Rollback the half-built instance. Remove the directory
+                // directly rather than via `delete_instance`, which
+                // returns `Err(LastInstance)` (a silent no-op) when the
+                // import is the only instance on disk — the common
+                // first-action-after-install case. The imported instance
+                // is not active during `run_import`, so a direct dir
+                // removal is safe; a stale active-pointer self-heals in
+                // `get_active_instance`.
+                let _ = std::fs::remove_dir_all(&instance_root);
                 return Err(e);
             }
             // best-effort category: tolerate, continue.
