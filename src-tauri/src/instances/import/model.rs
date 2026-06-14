@@ -87,10 +87,19 @@ pub struct ImportPlan {
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum ImportProgress {
-    CreatingInstance { name: String },
-    Copying { category: ContentCategory, current: u32, total: u32 },
+    CreatingInstance {
+        name: String,
+    },
+    Copying {
+        category: ContentCategory,
+        current: u32,
+        total: u32,
+    },
     RecoveringIdentities,
-    Done { instance_id: String, untracked_mods: u32 },
+    Done {
+        instance_id: String,
+        untracked_mods: u32,
+    },
 }
 
 /// Strip `-Xmx`/`-Xms` tokens (those map to `max_heap_mb`) and collapse
@@ -153,10 +162,18 @@ pub fn scan_content(minecraft_dir: &Path) -> Vec<ContentEntry> {
             let path = minecraft_dir.join(cat.rel_path());
             if cat.is_file() {
                 let bytes = fs::metadata(&path).ok()?.len();
-                Some(ContentEntry { category: cat, file_count: 1, total_bytes: bytes })
+                Some(ContentEntry {
+                    category: cat,
+                    file_count: 1,
+                    total_bytes: bytes,
+                })
             } else {
                 let (file_count, total_bytes) = dir_stats(&path)?;
-                (file_count > 0).then_some(ContentEntry { category: cat, file_count, total_bytes })
+                (file_count > 0).then_some(ContentEntry {
+                    category: cat,
+                    file_count,
+                    total_bytes,
+                })
             }
         })
         .collect()
@@ -222,8 +239,13 @@ mod tests {
 
     #[test]
     fn plan_maps_fields_and_strips_xmx_from_jvm_args() {
-        let plan =
-            build_import_plan(&foreign(), &[ContentCategory::Mods], "ATM9 (Prism)", 4096, 12288);
+        let plan = build_import_plan(
+            &foreign(),
+            &[ContentCategory::Mods],
+            "ATM9 (Prism)",
+            4096,
+            12288,
+        );
         assert_eq!(plan.mc_version, "1.20.1");
         assert_eq!(plan.loader, LoaderKind::Forge);
         assert_eq!(plan.loader_version.as_deref(), Some("47.2.0"));
