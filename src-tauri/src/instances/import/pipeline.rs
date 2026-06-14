@@ -5,9 +5,15 @@
 
 use std::path::Path;
 
+use sha1::{Digest, Sha1};
+
 use crate::error::{Error, Result};
-use crate::instances::import::model::ContentCategory;
+use crate::instances::import::model::{
+    ContentCategory, ForeignInstance, ImportPlan, ImportProgress,
+};
+use crate::instances::schema::ImportProvenance;
 use crate::mods::modpack::path_safety::is_safe_relative_path;
+use crate::mods::platform::InstalledMod;
 
 /// Progress callback for a copy: (files_done, files_total).
 type CopyProgress<'a> = dyn FnMut(u32, u32) + 'a;
@@ -91,6 +97,163 @@ fn io(path: &Path, e: std::io::Error) -> Error {
     Error::io(path.display().to_string(), e)
 }
 
+/// Turn copied `(filename, sha1)` pairs into registry records, applying a
+/// `KnownMod` identity when the manifest provided one (matched by
+/// filename). Jars without a known identity are left untracked
+/// (`source: None`, `enrich_attempted: false`) so the later hash-enrich
+/// pass can try to recover them.
+pub fn build_installed_records(
+    jars: &[(String, String)],
+    known: &[crate::instances::import::model::KnownMod],
+    installed_at: &str,
+) -> Vec<InstalledMod> {
+    jars.iter()
+        .map(|(filename, sha1)| {
+            let id = known.iter().find(|k| &k.filename == filename);
+            InstalledMod {
+                filename: filename.clone(),
+                sha1: sha1.clone(),
+                source: id.map(|k| k.source),
+                project_id: id.map(|k| k.project_id.clone()),
+                version_id: id.and_then(|k| k.version_id.clone()),
+                name: filename.clone(),
+                version_number: None,
+                installed_at: installed_at.to_string(),
+                enabled: true,
+                enrich_attempted: false,
+                requires: vec![],
+            }
+        })
+        .collect()
+}
+
+/// Run a full import. Creates the instance, copies the selected
+/// categories, recovers mod identities, and finalizes. On a mandatory-
+/// phase failure (instance create, or Mods copy when Mods selected) the
+/// half-built instance is deleted (rollback). Best-effort failures
+/// (other categories, enrich) are tolerated and reflected in the result.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_import(
+    app: &tauri::AppHandle,
+    foreign: &ForeignInstance,
+    plan: &ImportPlan,
+    modrinth_base: &str,
+    cf_base: &str,
+    cf_key: Option<&str>,
+    emit: &dyn Fn(ImportProgress),
+) -> Result<String> {
+    use crate::instances;
+    use crate::paths;
+
+    emit(ImportProgress::CreatingInstance {
+        name: plan.name.clone(),
+    });
+    let provenance = ImportProvenance {
+        launcher: foreign.source,
+        source_name: foreign.name.clone(),
+        source_path: foreign.root.to_string_lossy().into_owned(),
+        imported_unix_ms: now_unix_ms(),
+    };
+    let created = instances::create_instance(
+        app,
+        plan.name.clone(),
+        plan.mc_version.clone(),
+        plan.loader,
+        plan.loader_version.clone(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(provenance),
+    )?;
+    let id = created.id;
+
+    // Apply heap + jvm args (create_instance uses defaults).
+    let _ = instances::set_instance_memory(app, &id, plan.max_heap_mb);
+    let _ = instances::set_instance_jvm_args(app, &id, plan.extra_jvm_args.clone());
+
+    let instance_root =
+        paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
+    let dst_mc = paths::minecraft_dir(app, &id).map_err(|e| Error::io("<minecraft_dir>", e))?;
+
+    // Copy categories. Mods is mandatory if selected — its failure rolls back.
+    let mods_selected = plan.copy_categories.contains(&ContentCategory::Mods);
+    for &cat in &plan.copy_categories {
+        let res = copy_category(&foreign.minecraft_dir, &dst_mc, cat, &mut |cur, tot| {
+            emit(ImportProgress::Copying {
+                category: cat,
+                current: cur,
+                total: tot,
+            });
+        });
+        if let Err(e) = res {
+            if cat == ContentCategory::Mods && mods_selected {
+                let _ = instances::delete_instance(app, &id); // rollback
+                return Err(e);
+            }
+            // best-effort category: tolerate, continue.
+        }
+    }
+
+    // Recover identities for copied mods.
+    let mut untracked = 0u32;
+    if mods_selected {
+        emit(ImportProgress::RecoveringIdentities);
+        let jars = hash_jars(&dst_mc.join("mods"));
+        let records = build_installed_records(&jars, &foreign.known_mods, &now_rfc3339());
+        crate::mods::installed::register_imported_mods(&instance_root, records).await?;
+        // Best-effort hash-enrich for the untracked ones (never blocks).
+        let _ =
+            crate::mods::enrich::enrich_instance(&instance_root, modrinth_base, cf_base, cf_key)
+                .await;
+        // Count untracked after enrich for an honest result.
+        if let Ok(state) = crate::mods::installed::read_or_empty(&instance_root).await {
+            untracked = state.mods.iter().filter(|m| m.source.is_none()).count() as u32;
+        }
+    }
+
+    emit(ImportProgress::Done {
+        instance_id: id.clone(),
+        untracked_mods: untracked,
+    });
+    Ok(id)
+}
+
+/// SHA-1 (hex, lowercase) of every `*.jar` directly under `dir`.
+fn hash_jars(dir: &Path) -> Vec<(String, String)> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
+    rd.flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|x| x == "jar").unwrap_or(false))
+        .filter_map(|p| {
+            let bytes = std::fs::read(&p).ok()?;
+            let filename = p.file_name()?.to_string_lossy().into_owned();
+            Some((filename, sha1_hex(&bytes)))
+        })
+        .collect()
+}
+
+/// SHA-1 of `bytes` as a lowercase hex string. Matches the digest the
+/// installed-mods registry and `enrich`/`install` use (`sha1` + `hex`).
+fn sha1_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha1::digest(bytes))
+}
+
+/// Wall-clock milliseconds since the Unix epoch as `f64` — matches the
+/// `created_unix_ms` / specta `f64` convention used across instance files.
+fn now_unix_ms() -> f64 {
+    crate::instances::unix_ms_f64()
+}
+
+/// RFC-3339 timestamp for `installed_at`, matching the format the
+/// installed-mods registry already writes (`chrono::Utc::now().to_rfc3339()`).
+fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +318,37 @@ mod tests {
         assert!(
             src_mc.join("mods/a.jar").exists(),
             "source file must survive"
+        );
+    }
+
+    #[test]
+    fn builds_installed_records_using_known_identity_then_falls_back() {
+        use crate::instances::import::model::KnownMod;
+        use crate::mods::platform::ModSource;
+
+        let known = vec![KnownMod {
+            filename: "sodium.jar".into(),
+            source: ModSource::Modrinth,
+            project_id: "AANobbMI".into(),
+            version_id: Some("v1".into()),
+        }];
+        // sodium matches a known identity; mystery.jar does not.
+        let recs = build_installed_records(
+            &[
+                ("sodium.jar".to_string(), "HASH_SODIUM".to_string()),
+                ("mystery.jar".to_string(), "HASH_MYSTERY".to_string()),
+            ],
+            &known,
+            "2026-06-14T00:00:00Z",
+        );
+        let sodium = recs.iter().find(|m| m.filename == "sodium.jar").unwrap();
+        assert_eq!(sodium.source, Some(ModSource::Modrinth));
+        assert_eq!(sodium.project_id.as_deref(), Some("AANobbMI"));
+        let mystery = recs.iter().find(|m| m.filename == "mystery.jar").unwrap();
+        assert_eq!(mystery.source, None);
+        assert!(
+            !mystery.enrich_attempted,
+            "untracked jar left for hash-enrich pass"
         );
     }
 }

@@ -97,7 +97,7 @@ pub fn read_instance(app: &tauri::AppHandle, id: &str) -> Result<InstanceFile> {
     read_one(app, id)
 }
 
-fn unix_ms_f64() -> f64 {
+pub(crate) fn unix_ms_f64() -> f64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_millis() as f64)
@@ -129,6 +129,7 @@ pub fn create_instance(
     mrpack_source: Option<crate::mods::platform::ModSource>,
     mrpack_summary: Option<String>,
     mrpack_version_id: Option<String>,
+    imported_from: Option<crate::instances::schema::ImportProvenance>,
 ) -> Result<InstanceWithStatus> {
     let id = ids::new_id();
     let dir = paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
@@ -154,7 +155,7 @@ pub fn create_instance(
         mrpack_summary,
         mrpack_version_id,
         integrity: None,
-        imported_from: None, // Task 9 extends the signature to accept this
+        imported_from,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
