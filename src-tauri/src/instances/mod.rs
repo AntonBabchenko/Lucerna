@@ -153,6 +153,7 @@ pub fn create_instance(
         mrpack_summary,
         mrpack_version_id,
         integrity: None,
+        imported_from: None, // Task 9 extends the signature to accept this
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
@@ -405,6 +406,7 @@ mod tests {
             mrpack_summary: Some("A great pack".into()),
             mrpack_version_id: Some("vyRB9jtS".into()),
             integrity: None,
+            imported_from: None,
         }
     }
 
@@ -425,6 +427,7 @@ mod tests {
             mrpack_summary: None,
             mrpack_version_id: None,
             integrity: None,
+            imported_from: None,
         }
     }
 

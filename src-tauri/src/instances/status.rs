@@ -103,6 +103,7 @@ mod tests {
             mrpack_summary: None,
             mrpack_version_id: None,
             integrity: None,
+            imported_from: None,
         }
     }
 

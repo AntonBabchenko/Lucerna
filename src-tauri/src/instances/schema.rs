@@ -13,6 +13,29 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+/// Which third-party launcher an instance was imported from. Distinct
+/// from `ModSource` (a mod *platform*) — this is the *launcher* of origin.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ForeignLauncher {
+    Prism,
+    CurseforgeApp,
+    ModrinthApp,
+    Atlauncher,
+    RawMinecraft,
+}
+
+/// Provenance written when an instance is created via launcher import.
+/// `None` for manually-created and modpack-imported instances.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct ImportProvenance {
+    pub launcher: ForeignLauncher,
+    pub source_name: String,
+    pub source_path: String,
+    /// f64 to satisfy specta-typescript (no u64); within JS safe-int range.
+    pub imported_unix_ms: f64,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LoaderKind {
@@ -69,6 +92,10 @@ pub struct InstanceFile {
     /// without it deserialises to None (no schema-version bump).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integrity: Option<crate::verify::IntegrityStatus>,
+    /// Set when this instance was imported from another launcher.
+    /// Additive — old instance.json without it deserialises to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_from: Option<ImportProvenance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
@@ -218,6 +245,7 @@ pub struct InstanceWithStatus {
     pub mrpack_summary: Option<String>,
     pub mrpack_version_id: Option<String>,
     pub integrity: Option<crate::verify::IntegrityStatus>,
+    pub imported_from: Option<ImportProvenance>,
 }
 
 impl InstanceWithStatus {
@@ -239,6 +267,7 @@ impl InstanceWithStatus {
             mrpack_summary: file.mrpack_summary.clone(),
             mrpack_version_id: file.mrpack_version_id.clone(),
             integrity: file.integrity.clone(),
+            imported_from: file.imported_from.clone(),
         }
     }
 }
@@ -264,6 +293,7 @@ mod tests {
             mrpack_summary: None,
             mrpack_version_id: None,
             integrity: None,
+            imported_from: None,
         }
     }
 
@@ -695,5 +725,37 @@ mod tests {
         s.integrity = Some(sample_integrity());
         let w = InstanceWithStatus::from_file(&s, true);
         assert_eq!(w.integrity, Some(sample_integrity()));
+    }
+
+    #[test]
+    fn instance_file_roundtrips_with_imported_from() {
+        let mut s = sample();
+        s.imported_from = Some(ImportProvenance {
+            launcher: ForeignLauncher::Prism,
+            source_name: "ATM9".into(),
+            source_path: r"C:\Users\x\AppData\Roaming\PrismLauncher\instances\ATM9".into(),
+            imported_unix_ms: 1_700_000_000_000.0,
+        });
+        let json = serde_json::to_string(&s).unwrap();
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
+    }
+
+    #[test]
+    fn instance_file_serializes_skip_none_imported_from() {
+        let s = sample();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("imported_from"), "got: {json}");
+    }
+
+    #[test]
+    fn instance_file_deserializes_old_json_without_imported_from() {
+        let json = r#"{
+            "version": 1, "id": "abc", "name": "Old", "mc_version": "1.20.1",
+            "loader": "vanilla", "loader_version": null, "max_heap_mb": 2048,
+            "extra_jvm_args": "", "created_unix_ms": 1700000000000.0
+        }"#;
+        let inst: InstanceFile = serde_json::from_str(json).unwrap();
+        assert_eq!(inst.imported_from, None);
     }
 }
