@@ -5,7 +5,7 @@
 
 pub mod discovery;
 pub mod model;
-// pub mod pipeline;   // added in a later task
+pub mod pipeline;
 pub mod readers;
 
 pub use model::{
