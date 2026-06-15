@@ -25,6 +25,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { tourState } from '../src/lib/onboarding/state.svelte';
 import GeneralPanel from '../src/lib/settings/GeneralPanel.svelte';
 import { settingsOpen } from '../src/lib/settings/state.svelte';
+import { rainbowFx } from '../src/lib/fx/rainbow-fx.svelte';
 
 beforeEach(() => {
   tourState.active = false;
@@ -50,5 +51,15 @@ describe('GeneralPanel', () => {
     render(GeneralPanel);
     await fireEvent.click(screen.getByRole('button', { name: /replay onboarding tour/i }));
     expect(appSettingsMarkTourCompleted).not.toHaveBeenCalled();
+  });
+
+  test('rainbow toggle reflects and updates the rainbow preference', async () => {
+    rainbowFx.set(true);
+    render(GeneralPanel);
+    const toggle = screen.getByTestId('rainbow-icons-toggle') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    await fireEvent.click(toggle);
+    expect(rainbowFx.enabled).toBe(false);
+    rainbowFx.set(true); // restore default
   });
 });
