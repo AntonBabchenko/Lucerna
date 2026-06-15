@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { ModVersion } from '$lib/ipc/bindings';
 import {
+  __resetBlockingReplaceStateForTest,
   getChosenVersion,
   getLoadedVersions,
   setChosenVersion,
   setLoadedVersions,
 } from '$lib/logs/blocking-replace-state.svelte';
+
+beforeEach(() => __resetBlockingReplaceStateForTest());
 
 const v = (id: string): ModVersion => ({
   source: 'modrinth',

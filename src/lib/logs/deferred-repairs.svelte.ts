@@ -23,7 +23,9 @@ type DeferredRepair = {
 let queue = $state<DeferredRepair[]>([]);
 const completed = new SvelteSet<string>();
 
-const key = (instanceId: string, sha1: string | null) => `${instanceId}::${sha1 ?? ''}`;
+// Instance-level repairs (no specific mod) use an explicit sentinel so their key
+// can't collide with a mod whose sha1 is somehow empty.
+const key = (instanceId: string, sha1: string | null) => `${instanceId}::${sha1 ?? '__instance__'}`;
 let seq = 0;
 
 export function isDeferred(instanceId: string, sha1: string | null): boolean {
