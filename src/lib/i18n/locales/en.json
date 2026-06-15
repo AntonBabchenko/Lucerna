@@ -1114,7 +1114,10 @@
     "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
     "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}",
     "importNoProvenance": "This instance wasn't imported from another launcher.",
-    "importSourceMissing": "The original source folder no longer exists: {path}"
+    "importSourceMissing": "The original source folder no longer exists: {path}",
+    "serversDatParse": "Could not read the server list (servers.dat): {reason}",
+    "savedServerNameInvalid": "That server name isn't valid: {reason}",
+    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again."
   },
   "settings": {
     "title": "Settings",
