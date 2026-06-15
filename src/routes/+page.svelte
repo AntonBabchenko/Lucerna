@@ -73,9 +73,13 @@
   let offlineNameError = $state<string | null>(null);
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
-  // Gates the actual account removal behind a confirm dialog (see
-  // RemoveAccountDialog) — a single click should not delete an account silently.
-  let removeConfirmOpen = $state(false);
+  // Id of the account pending removal — gates the actual delete behind the
+  // confirm dialog (see RemoveAccountDialog). Set from the per-row trash in the
+  // account dropdown; any account can be removed, not just the active one.
+  let removeConfirmId = $state<string | null>(null);
+  const removeConfirmAccount = $derived(
+    removeConfirmId ? (accounts.find((a) => a.id === removeConfirmId) ?? null) : null,
+  );
 
   // Self-healing owner of the MC version manifest (fetch + online/backoff
   // recovery). Powers the Manage modal's version picker and publishes to the
@@ -375,20 +379,17 @@
     }
   }
 
-  function onRemoveActive() {
-    if (!activeAccount) return;
+  function requestRemoveAccount(id: string) {
     removeError = null;
-    removeConfirmOpen = true;
+    removeConfirmId = id;
   }
 
-  async function confirmRemoveActive() {
-    if (!activeAccount) {
-      removeConfirmOpen = false;
-      return;
-    }
+  async function confirmRemoveAccount() {
+    const id = removeConfirmId;
+    removeConfirmId = null;
+    if (!id) return;
     removeError = null;
-    const result = await commands.removeAccount(activeAccount.id);
-    removeConfirmOpen = false;
+    const result = await commands.removeAccount(id);
     if (result.status === 'ok') {
       await refreshAccounts();
     } else {
@@ -586,7 +587,7 @@
       {quickPlaySupported}
       onOpenQuickJoin={() => (quickJoinOpen = true)}
       {onSelectAccount}
-      onRemoveAccount={onRemoveActive}
+      onRemoveAccount={requestRemoveAccount}
       onAddOffline={async (name) => {
         if (!name) {
           offlineNameError = get(t)('page.offlineName.cannotBeEmpty');
@@ -800,11 +801,11 @@
   {#if launcherImportOpen}
     <LauncherImportDialog onClose={() => (launcherImportOpen = false)} />
   {/if}
-  {#if removeConfirmOpen && activeAccount}
+  {#if removeConfirmAccount}
     <RemoveAccountDialog
-      accountName={activeAccount.name}
-      onCancel={() => (removeConfirmOpen = false)}
-      onConfirm={confirmRemoveActive}
+      accountName={removeConfirmAccount.name}
+      onCancel={() => (removeConfirmId = null)}
+      onConfirm={confirmRemoveAccount}
     />
   {/if}
 </main>

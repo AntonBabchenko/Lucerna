@@ -43,6 +43,8 @@
     dataTestid,
     optionLeading,
     valueLeading,
+    optionTrailing,
+    onDeleteOption,
   }: {
     value: Primitive | null;
     options: Option[];
@@ -57,6 +59,20 @@
     // Falls back to the existing `icon` rendering when not provided.
     optionLeading?: Snippet<[Option]>;
     valueLeading?: Snippet<[Option]>;
+    // Optional trailing content per open-list option row (e.g. a per-row action
+    // button). Right-aligned. Each <li> carries a `group` class and an
+    // `is-active` class (when it is the hovered / keyboard-active row), so the
+    // snippet can reveal itself with those exact Tailwind variants:
+    //   class="opacity-0 group-hover:opacity-100 group-[.is-active]:opacity-100"
+    // (the literal strings must appear in the consumer's file for Tailwind's JIT
+    // scanner to emit them). A trailing interactive control must stop its own
+    // mousedown (stopPropagation + preventDefault) so it does not also commit
+    // the row; activate it on click.
+    optionTrailing?: Snippet<[Option]>;
+    // Keyboard parity for a trailing per-row action: when set, pressing Delete
+    // while the list is open invokes it for the active option (and closes the
+    // list). Generic enough for any "deletable options" list.
+    onDeleteOption?: (option: Option) => void;
   } = $props();
 
   const MAX_POPOVER_HEIGHT = 240; // keep in sync with max-h-60 on the list
@@ -200,6 +216,12 @@
       e.preventDefault();
       e.stopPropagation();
       closeList();
+    } else if (e.key === 'Delete' && onDeleteOption && activeIndex >= 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const opt = options[activeIndex];
+      closeList();
+      onDeleteOption(opt);
     } else if (e.key === 'Tab') {
       // Commit the active option, then let focus move on naturally.
       commit(activeIndex);
@@ -309,7 +331,8 @@
         role="option"
         aria-selected={opt.value === value}
         aria-disabled={opt.disabled || undefined}
-        class="px-3 py-1.5 text-primary"
+        class="group flex items-center gap-2 px-3 py-1.5 text-primary"
+        class:is-active={i === activeIndex}
         class:cursor-pointer={!opt.disabled}
         class:cursor-not-allowed={opt.disabled}
         class:opacity-50={opt.disabled}
@@ -323,14 +346,17 @@
           if (!opt.disabled) activeIndex = i;
         }}
       >
-        <span class="inline-flex items-center gap-2">
+        <span class="inline-flex min-w-0 flex-1 items-center gap-2">
           {#if optionLeading}
             {@render optionLeading(opt)}
           {:else if opt.icon}
             <Icon name={opt.icon} class="flex-shrink-0" />
           {/if}
-          {opt.label}
+          <span class="truncate">{opt.label}</span>
         </span>
+        {#if optionTrailing}
+          {@render optionTrailing(opt)}
+        {/if}
       </li>
     {/each}
   </ul>

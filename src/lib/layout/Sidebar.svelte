@@ -45,7 +45,7 @@
     instances: InstanceWithStatus[];
     activeInstance: InstanceWithStatus | null;
     onSelectAccount: (id: string) => void;
-    onRemoveAccount: () => void;
+    onRemoveAccount: (id: string) => void;
     onAddOffline: (name: string) => void;
     onSelectInstance: (id: string) => void;
     onOpenManage: () => void;
@@ -103,27 +103,7 @@
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
-
-  // Keyboard parity for the hover-revealed trash: pressing Delete while focus is
-  // anywhere in the account-selector group removes the active account (same
-  // confirm flow as the trash button). Handled on the window (not the wrapper
-  // div, which is non-interactive) and gated by a focus-containment check so it
-  // only fires when the selector or its trash button holds focus.
-  let selectorGroup: HTMLDivElement | undefined = $state();
-  function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key !== 'Delete' || !activeAccount) return;
-    if (!selectorGroup?.contains(document.activeElement)) return;
-    // The Select keeps DOM focus on its trigger while its dropdown is open (the
-    // WAI-ARIA combobox model), so a Delete pressed mid-selection would pass the
-    // containment check above. Skip while the listbox is rendered so switching
-    // accounts never accidentally arms removal.
-    if (selectorGroup.querySelector('[role="listbox"]')) return;
-    e.preventDefault();
-    onRemoveAccount();
-  }
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} />
 
 <aside
   data-sidebar
@@ -153,34 +133,43 @@
           <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
         {/if}
       {/snippet}
-      <!-- The account selector pairs with a trash icon revealed on hover or
-           keyboard focus (group-hover / group-focus-within), replacing the old
-           standalone Remove button. Removal targets the active (selected)
-           account and is gated by the confirm dialog in +page.svelte. Space for
-           the trash is reserved so revealing it causes no layout shift. -->
-      <div class="group flex items-center gap-1" bind:this={selectorGroup}>
-        <Select
-          class="flex-1 min-w-0 text-sm"
-          value={activeAccount?.id ?? ''}
-          options={accountOptions}
-          onChange={(v) => onSelectAccount(String(v))}
-          ariaLabel={$t('sidebar.account')}
-          optionLeading={accountLeading}
-          valueLeading={accountLeading}
-        />
-        {#if activeAccount}
-          {@const removeLabel = $t('sidebar.removeAccountLabel', { name: activeAccount.name })}
+      <!-- Per-row trash inside the open dropdown: revealed on row hover and on
+           the keyboard-active row (group-hover / group-[.is-active] via the
+           markers Select puts on each <li>). Removes that specific account
+           (gated by the confirm dialog in +page.svelte). onmousedown is stopped
+           so clicking the trash does not also commit/select the row; Delete on
+           the active row routes through Select's onDeleteOption. -->
+      {#snippet accountTrailing(opt: SelectOption)}
+        {@const acc = accounts.find((a) => a.id === opt.value)}
+        {#if acc}
+          {@const removeLabel = $t('sidebar.removeAccountLabel', { name: acc.name })}
           <button
             type="button"
-            class="btn-icon !text-danger hover:!bg-danger/10 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            tabindex="-1"
+            class="inline-flex flex-shrink-0 items-center justify-center rounded p-1 text-danger opacity-0 transition-opacity hover:bg-danger/10 group-hover:opacity-100 group-[.is-active]:opacity-100"
             aria-label={removeLabel}
             use:tooltip={{ text: removeLabel, describe: false }}
-            onclick={onRemoveAccount}
+            onmousedown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+            }}
+            onclick={() => onRemoveAccount(acc.id)}
           >
             <Icon name="trash" size={14} />
           </button>
         {/if}
-      </div>
+      {/snippet}
+      <Select
+        class="w-full text-sm"
+        value={activeAccount?.id ?? ''}
+        options={accountOptions}
+        onChange={(v) => onSelectAccount(String(v))}
+        ariaLabel={$t('sidebar.account')}
+        optionLeading={accountLeading}
+        valueLeading={accountLeading}
+        optionTrailing={accountTrailing}
+        onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
+      />
     {/if}
     <button
       type="button"

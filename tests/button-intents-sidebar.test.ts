@@ -127,43 +127,44 @@ describe('Sidebar — account section buttons', () => {
     expect(btn).toHaveBtnSize('xs');
   });
 
-  it('account removal is an icon-only trash button, not a standalone "Remove" button', () => {
+  it('there is no standalone "Remove" button; the trash lives inside the dropdown', async () => {
     render(Sidebar, { props: baseProps });
-    // The old standalone text "Remove" button is gone.
+    // No standalone text "Remove" button in the closed sidebar.
     expect(screen.queryByRole('button', { name: /^remove$/i })).toBeNull();
-    // It is replaced by an icon-only trash button named for the active account.
+    // The per-row trash only exists once the account dropdown is open.
+    expect(screen.queryByRole('button', { name: /remove steve/i })).toBeNull();
+    await fireEvent.click(screen.getByRole('combobox', { name: /account/i }));
+    expect(screen.getByRole('button', { name: /remove steve/i })).toBeTruthy();
+  });
+
+  it("a row's trash invokes onRemoveAccount with that account id, without selecting it", async () => {
+    const onRemoveAccount = vi.fn();
+    const onSelectAccount = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onRemoveAccount, onSelectAccount } });
+    await fireEvent.click(screen.getByRole('combobox', { name: /account/i }));
     const trash = screen.getByRole('button', { name: /remove steve/i });
-    expect(trash).toHaveBtnVariant('icon');
+    // mousedown is the row's commit trigger; the trash must swallow it so the
+    // click removes rather than selects.
+    await fireEvent.mouseDown(trash);
+    await fireEvent.click(trash);
+    expect(onRemoveAccount).toHaveBeenCalledWith('of-1');
+    expect(onSelectAccount).not.toHaveBeenCalled();
   });
 
-  it('the trash button invokes onRemoveAccount', async () => {
+  it('Delete on the active dropdown row removes that account', async () => {
     const onRemoveAccount = vi.fn();
     render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
-    await fireEvent.click(screen.getByRole('button', { name: /remove steve/i }));
-    expect(onRemoveAccount).toHaveBeenCalledTimes(1);
+    const combobox = screen.getByRole('combobox', { name: /account/i });
+    await fireEvent.click(combobox); // opens; the selected row becomes active
+    await fireEvent.keyDown(combobox, { key: 'Delete' });
+    expect(onRemoveAccount).toHaveBeenCalledWith('of-1');
   });
 
-  it('the trash button is absent when there is no active account', () => {
-    render(Sidebar, { props: { ...baseProps, activeAccount: null } });
+  it('no trash anywhere when there are no accounts', async () => {
+    render(Sidebar, { props: { ...baseProps, accounts: [], activeAccount: null } });
+    // No selector to open and no trash to find.
+    expect(screen.queryByRole('combobox', { name: /account/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /remove/i })).toBeNull();
-  });
-
-  it('Delete on the focused account selector removes the active account', async () => {
-    const onRemoveAccount = vi.fn();
-    render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
-    (screen.getByRole('combobox', { name: /account/i }) as HTMLElement).focus();
-    await fireEvent.keyDown(window, { key: 'Delete' });
-    expect(onRemoveAccount).toHaveBeenCalledTimes(1);
-  });
-
-  it('Delete does not arm removal while the account dropdown is open', async () => {
-    const onRemoveAccount = vi.fn();
-    render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
-    const combobox = screen.getByRole('combobox', { name: /account/i }) as HTMLElement;
-    await fireEvent.click(combobox); // open the listbox
-    combobox.focus(); // combobox keeps DOM focus while the dropdown is open
-    await fireEvent.keyDown(window, { key: 'Delete' });
-    expect(onRemoveAccount).not.toHaveBeenCalled();
   });
 });
 
@@ -193,8 +194,9 @@ describe('Sidebar — button icons', () => {
     expect(btn.querySelector('svg')).not.toBeNull();
   });
 
-  it('Remove trash button shows an icon', () => {
+  it('Remove trash button (in the open dropdown) shows an icon', async () => {
     render(Sidebar, { props: baseProps });
+    await fireEvent.click(screen.getByRole('combobox', { name: /account/i }));
     const btn = screen.getByRole('button', { name: /remove steve/i });
     expect(btn.querySelector('svg')).not.toBeNull();
   });
