@@ -13,7 +13,6 @@ import {
   ChevronRight,
   ChevronUp,
   CircleX,
-  Copy,
   Download,
   EllipsisVertical,
   Expand,
@@ -86,7 +85,6 @@ export const ICONS = {
   scrollText: ScrollText, // 📜 Logs
   arrowUp: ArrowUp, // ↑ Updates filter
   circleX: CircleX, // ✕ missing status
-  copy: Copy, // copy a value (e.g. a saved server's address) to the clipboard
   play: Play, // Quick Play action — launch into a specific world / server
   stop: Square, // ■ Stop the running game (transport pair with play ▶)
   power: Power, // enable/disable toggle (mods only; RP/shaders have no toggle)

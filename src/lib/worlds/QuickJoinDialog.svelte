@@ -136,10 +136,21 @@
                 {$t('quickJoin.deleteConfirmAction')}
               </button>
             {:else}
-              <div class="flex-1 min-w-0">
+              <!-- Click the name/address block to copy the address; ✓ + tooltip
+                   give transient feedback. Keeps the row free of an extra button. -->
+              <button
+                type="button"
+                class="flex-1 min-w-0 text-left cursor-pointer rounded transition-opacity hover:opacity-80"
+                aria-label={$t('quickJoin.copyAddress')}
+                use:tooltip={$t(copiedIndex === i ? 'quickJoin.copied' : 'quickJoin.copyAddress')}
+                onclick={() => copyAddress(i, server.address)}
+              >
                 <p class="text-sm font-medium text-primary truncate">{server.name}</p>
-                <p class="text-xs text-secondary truncate">{server.address}</p>
-              </div>
+                <p class="text-xs text-secondary truncate flex items-center gap-1">
+                  <span class="truncate">{server.address}</span>
+                  {#if copiedIndex === i}<Icon name="success" size={12} />{/if}
+                </p>
+              </button>
               <button
                 type="button"
                 class="btn-success btn-sm flex items-center gap-1.5"
@@ -149,15 +160,6 @@
               >
                 <Icon name="play" size={14} />
                 {$t('quickJoin.connect')}
-              </button>
-              <button
-                type="button"
-                class="btn-icon"
-                aria-label={$t('quickJoin.copyAddress')}
-                use:tooltip={$t(copiedIndex === i ? 'quickJoin.copied' : 'quickJoin.copyAddress')}
-                onclick={() => copyAddress(i, server.address)}
-              >
-                <Icon name={copiedIndex === i ? 'success' : 'copy'} size={15} />
               </button>
               <button
                 type="button"
