@@ -116,6 +116,21 @@
   let quickPlaySupported = $state(false);
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
+  let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
+
+  async function loadSavedServers() {
+    if (!activeInstance) {
+      savedServers = [];
+      return;
+    }
+    const r = await commands.listSavedServers(activeInstance.id);
+    savedServers = r.status === 'ok' ? r.data : [];
+  }
+
+  async function openServersDialog() {
+    quickJoinOpen = true;
+    await loadSavedServers();
+  }
 
   // Pre-flight gate: populated when hasBlocking violations are found before launch.
   let gateReport = $state<PreflightReport | null>(null);
@@ -513,7 +528,7 @@
     }
   }
 
-  async function onQuickJoin(address: string) {
+  async function connectToAddress(address: string) {
     if (!activeInstance) return;
     if (!activeAccount) {
       showAccountHint();
@@ -532,6 +547,48 @@
     } else {
       quickJoinOpen = false;
     }
+  }
+
+  async function onServerSave(name: string, address: string): Promise<boolean> {
+    if (!activeInstance) return false;
+    quickJoinBusy = true;
+    installError = null;
+    const r = await commands.addSavedServer(activeInstance.id, name, address);
+    quickJoinBusy = false;
+    if (r.status === 'error') {
+      installError = formatError(r.error);
+      return false;
+    }
+    await loadSavedServers();
+    return true;
+  }
+
+  async function onServerSaveAndConnect(name: string, address: string): Promise<boolean> {
+    if (!activeInstance) return false;
+    quickJoinBusy = true;
+    installError = null;
+    const r = await commands.addSavedServer(activeInstance.id, name, address);
+    if (r.status === 'error') {
+      quickJoinBusy = false;
+      installError = formatError(r.error);
+      return false;
+    }
+    await loadSavedServers();
+    quickJoinBusy = false;
+    await connectToAddress(address);
+    return true;
+  }
+
+  async function onServerDelete(index: number, address: string) {
+    if (!activeInstance) return;
+    quickJoinBusy = true;
+    installError = null;
+    const r = await commands.removeSavedServer(activeInstance.id, index, address);
+    quickJoinBusy = false;
+    if (r.status === 'error') {
+      installError = formatError(r.error);
+    }
+    await loadSavedServers();
   }
 
   async function onStop() {
@@ -573,8 +630,7 @@
       onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
       onOpenLauncherImport={() => (launcherImportOpen = true)}
-      {quickPlaySupported}
-      onOpenQuickJoin={() => (quickJoinOpen = true)}
+      onOpenQuickJoin={() => void openServersDialog()}
       {onSelectAccount}
       onRemoveAccount={onRemoveActive}
       onAddOffline={async (name) => {
@@ -767,9 +823,15 @@
   <TourOverlay />
   <QuickJoinDialog
     open={quickJoinOpen}
+    {savedServers}
     busy={quickJoinBusy}
+    connectDisabledReason={quickPlayDisabledReason}
+    addDisabledReason={running !== null ? $t('worlds.quickPlay.disabledRunning') : null}
     showOfflineHint={activeAccount?.kind === 'offline'}
-    onJoin={onQuickJoin}
+    onConnect={(address) => void connectToAddress(address)}
+    onSave={onServerSave}
+    onSaveAndConnect={onServerSaveAndConnect}
+    onDelete={(index, address) => void onServerDelete(index, address)}
     onClose={() => (quickJoinOpen = false)}
   />
   {#if gateReport}

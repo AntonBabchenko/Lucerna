@@ -82,6 +82,7 @@
     "compactExpand": "Развернуть на всё окно",
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
     "joinServer": "Подключиться к серверу",
+    "servers": "Серверы",
     "removeAccountDisabled": "Сначала войдите в аккаунт.",
     "importLauncher": "Импорт из лаунчера"
   },
@@ -1125,7 +1126,10 @@
     "importUnsupportedLoader": "Неподдерживаемый загрузчик «{loader}» в импортируемой сборке",
     "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}",
     "importNoProvenance": "Этот инстанс не был импортирован из другого лаунчера.",
-    "importSourceMissing": "Исходная папка больше не существует: {path}"
+    "importSourceMissing": "Исходная папка больше не существует: {path}",
+    "serversDatParse": "Не удалось прочитать список серверов (servers.dat): {reason}",
+    "savedServerNameInvalid": "«{name}» — недопустимое имя сервера: {reason}",
+    "savedServerListChanged": "Список сохранённых серверов изменился — откройте окно заново и повторите."
   },
   "settings": {
     "title": "Настройки",
@@ -1339,13 +1343,27 @@
     }
   },
   "quickJoin": {
-    "title": "Подключиться к серверу",
-    "addressLabel": "Адрес сервера",
-    "addressPlaceholder": "хост или хост:порт",
-    "join": "Подключиться",
-    "cancel": "Отмена",
-    "invalidAddress": "Введите корректный адрес сервера (хост или хост:порт).",
-    "offlineHint": "Онлайн-серверы обычно отклоняют offline-аккаунты."
+    "title": "Серверы",
+    "savedHeading": "Сохранённые серверы",
+    "empty": "Пока нет сохранённых серверов. Добавьте ниже.",
+    "connect": "Подключиться",
+    "copyAddress": "Копировать адрес",
+    "copied": "Скопировано",
+    "delete": "Удалить сервер",
+    "deleteConfirm": "Удалить «{name}» из списка?",
+    "deleteCancel": "Отмена",
+    "deleteConfirmAction": "Удалить",
+    "addSection": "Добавить сервер",
+    "nameLabel": "Название",
+    "namePlaceholder": "Мой сервер",
+    "addressLabel": "Адрес",
+    "addressPlaceholder": "host или host:port",
+    "save": "Сохранить",
+    "saveAndConnect": "Сохранить и подключиться",
+    "cancel": "Закрыть",
+    "invalidName": "Введите название сервера.",
+    "invalidAddress": "Введите корректный адрес сервера (host или host:port).",
+    "offlineHint": "Онлайн-серверы обычно отклоняют офлайн-аккаунты."
   },
   "format": {
     "relativeTime": {

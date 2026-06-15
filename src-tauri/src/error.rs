@@ -298,6 +298,15 @@ pub enum Error {
 
     #[error("Import source folder not recognized: {path}")]
     ImportSourceUnrecognized { path: String },
+
+    #[error("servers.dat could not be parsed: {reason}")]
+    ServersDatParse { reason: String },
+
+    #[error("Invalid server name '{name}': {reason}")]
+    SavedServerNameInvalid { name: String, reason: String },
+
+    #[error("The saved server list changed — refresh and try again")]
+    SavedServerListChanged,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -345,6 +354,39 @@ mod tests {
         // tag: "kind" + snake_case rename → "hash_mismatch"
         assert!(json.contains(r#""kind":"hash_mismatch""#), "got: {json}");
         assert!(json.contains(r#""expected":"aaa""#));
+    }
+
+    #[test]
+    fn servers_dat_parse_serializes_with_tag() {
+        let e = Error::ServersDatParse {
+            reason: "bad tag".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"servers_dat_parse""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""reason":"bad tag""#), "got: {json}");
+    }
+
+    #[test]
+    fn saved_server_name_invalid_serializes_with_tag() {
+        let e = Error::SavedServerNameInvalid {
+            name: "x".into(),
+            reason: "empty name".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"saved_server_name_invalid""#),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn saved_server_list_changed_serializes_as_unit() {
+        let e = Error::SavedServerListChanged;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"saved_server_list_changed"}"#);
     }
 
     #[test]

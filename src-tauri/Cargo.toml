@@ -48,6 +48,10 @@ md-5 = "0.11.0"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 quick-xml = { version = "0.32", default-features = false, features = ["serialize"] }
+# NBT (de)serialization for the per-instance `servers.dat` saved-server list.
+# servers.dat is UNCOMPRESSED NBT, so fastnbt's from_bytes/to_bytes apply
+# directly (no gzip layer). Used only by the local-file `servers::` module.
+fastnbt = "2"
 async-recursion = "1.1.1"
 xz2 = "0.1"
 async-trait = "0.1.83"

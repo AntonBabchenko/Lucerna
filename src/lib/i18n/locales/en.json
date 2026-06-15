@@ -82,6 +82,7 @@
     "compactExpand": "Expand to full window",
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
+    "servers": "Servers",
     "removeAccountDisabled": "Sign in to an account first.",
     "importLauncher": "Import from launcher"
   },
@@ -1125,7 +1126,10 @@
     "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
     "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}",
     "importNoProvenance": "This instance wasn't imported from another launcher.",
-    "importSourceMissing": "The original source folder no longer exists: {path}"
+    "importSourceMissing": "The original source folder no longer exists: {path}",
+    "serversDatParse": "Could not read the server list (servers.dat): {reason}",
+    "savedServerNameInvalid": "“{name}” isn't a valid server name: {reason}",
+    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again."
   },
   "settings": {
     "title": "Settings",
@@ -1339,11 +1343,25 @@
     }
   },
   "quickJoin": {
-    "title": "Join a server",
-    "addressLabel": "Server address",
+    "title": "Servers",
+    "savedHeading": "Saved servers",
+    "empty": "No saved servers yet. Add one below.",
+    "connect": "Connect",
+    "copyAddress": "Copy address",
+    "copied": "Copied",
+    "delete": "Delete server",
+    "deleteConfirm": "Delete \"{name}\" from the list?",
+    "deleteCancel": "Cancel",
+    "deleteConfirmAction": "Delete",
+    "addSection": "Add a server",
+    "nameLabel": "Name",
+    "namePlaceholder": "My server",
+    "addressLabel": "Address",
     "addressPlaceholder": "host or host:port",
-    "join": "Join",
-    "cancel": "Cancel",
+    "save": "Save",
+    "saveAndConnect": "Save and connect",
+    "cancel": "Close",
+    "invalidName": "Enter a server name.",
     "invalidAddress": "Enter a valid server address (host or host:port).",
     "offlineHint": "Online servers usually reject offline accounts."
   },
