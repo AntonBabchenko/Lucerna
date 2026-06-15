@@ -163,8 +163,9 @@
               </button>
               <button
                 type="button"
-                class="btn-icon"
+                class="btn-icon !text-danger"
                 aria-label={$t('quickJoin.delete')}
+                use:tooltip={$t('quickJoin.delete')}
                 disabled={busy}
                 onclick={() => (confirmingIndex = i)}
               >
