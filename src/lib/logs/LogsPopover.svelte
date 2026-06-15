@@ -20,7 +20,7 @@
   import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
-  import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import Select from '$lib/ui/Select.svelte';
@@ -304,6 +304,12 @@
       pushWarning($t('logs.manage.clearOld'), [formatError(r.error)]);
       return;
     }
+    pushSuccess(
+      $t('logs.manage.cleared', {
+        count: r.data.deleted_count,
+        size: formatSize($t, r.data.freed_bytes),
+      }),
+    );
     await reloadList();
     // If the open file was swept away, clear the viewer.
     if (selectedPath && !files.some((f) => f.path === selectedPath)) {
@@ -877,6 +883,9 @@
                       </button>
                       {#if confirmingDeletePath === f.path}
                         <span class="flex items-center gap-1 px-2">
+                          <span class="text-[10px] text-muted"
+                            >{$t('logs.manage.deleteConfirm')}</span
+                          >
                           <button
                             class="btn-warning btn-xs"
                             disabled={deletingPaths.has(f.path)}

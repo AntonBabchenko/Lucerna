@@ -879,7 +879,6 @@
       "clearOld": "Очистить старые",
       "clearOldTitle": "Очистка старых логов",
       "clearOldBody": "Удалить файлов: {count} (освободит ~{size})? latest.log и debug.log останутся.",
-      "clearOldNothing": "Нет старых логов для удаления.",
       "cleared": "Удалено логов: {count} · освобождено {size}"
     }
   },

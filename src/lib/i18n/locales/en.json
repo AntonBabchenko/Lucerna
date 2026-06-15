@@ -879,7 +879,6 @@
       "clearOld": "Clear old",
       "clearOldTitle": "Clear old logs",
       "clearOldBody": "Delete {count} file(s) (frees ~{size})? latest.log and debug.log are kept.",
-      "clearOldNothing": "No old logs to clear.",
       "cleared": "Cleared {count} log file(s) · {size} freed"
     }
   },

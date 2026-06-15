@@ -313,7 +313,6 @@ export type TranslationKey =
   | 'logs.empty.truncated'
   | 'logs.manage.clearOld'
   | 'logs.manage.clearOldBody'
-  | 'logs.manage.clearOldNothing'
   | 'logs.manage.clearOldTitle'
   | 'logs.manage.cleared'
   | 'logs.manage.confirmNo'

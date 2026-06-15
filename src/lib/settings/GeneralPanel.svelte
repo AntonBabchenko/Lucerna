@@ -106,7 +106,15 @@
       hide_to_tray_during_game: general.hide_to_tray_during_game,
       check_updates_on_startup: general.check_updates_on_startup,
       gpu_preference: general.gpu_preference,
-      log_retention: retention,
+      log_retention: {
+        enabled: retention.enabled,
+        max_files: Number.isFinite(retention.max_files as number)
+          ? Math.max(0, Math.trunc(retention.max_files as number))
+          : DEFAULT_RETENTION.max_files,
+        max_total_mb: Number.isFinite(retention.max_total_mb as number)
+          ? Math.max(1, Math.trunc(retention.max_total_mb as number))
+          : DEFAULT_RETENTION.max_total_mb,
+      },
     };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') {
