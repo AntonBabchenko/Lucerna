@@ -20,6 +20,10 @@ use crate::mods::platform::{LoaderKind, ModSource};
 const GAME_MINECRAFT: &str = "432";
 /// CurseForge `classId` for the Modpacks category.
 const CLASS_MODPACKS: &str = "4471";
+/// CurseForge's `/v1/mods/search` caps `pageSize` at 50 (HTTP 400 above it).
+/// Mirrors the constant in `mods/curseforge` — an external-API limit, kept
+/// local rather than coupling the two CF clients for one value. See `search()`.
+const CF_MAX_PAGE_SIZE: u32 = 50;
 
 // ---- response shapes -------------------------------------------------
 
@@ -39,7 +43,11 @@ struct Env<T> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Pag {
+    // `index`/`page_size` echo the request; search() drives pagination from the
+    // requested offset/page_size, so only `total_count` is read back.
+    #[allow(dead_code)]
     index: u32,
+    #[allow(dead_code)]
     page_size: u32,
     total_count: u32,
 }
@@ -189,70 +197,77 @@ pub async fn search(
     page_size: u32,
 ) -> Result<ModpackSearchPage, Error> {
     let key = require_key(key)?;
-    let limit: u32 = page_size;
-    let offset = page * limit;
-    let mut params: Vec<(&str, String)> = vec![
-        ("gameId", GAME_MINECRAFT.to_string()),
-        ("classId", CLASS_MODPACKS.to_string()),
-        ("searchFilter", query.to_string()),
-        ("pageSize", limit.to_string()),
-        ("index", offset.to_string()),
-    ];
-    if let Some(mc) = mc_version {
-        params.push(("gameVersion", mc.to_string()));
-    }
-    if let Some(l) = loader {
-        if l != LoaderKind::Vanilla {
-            params.push(("modLoaderType", loader_type(l).to_string()));
-        }
-    }
-    // ModpackSort -> CurseForge sortField. Relevance = no sortField
-    // (CurseForge default relevance order). Codes per the CF API docs:
-    // 3 = LastUpdated, 6 = TotalDownloads, 11 = ReleaseDate.
-    match sort {
-        ModpackSort::Relevance => {}
-        ModpackSort::Downloads => {
-            params.push(("sortField", "6".into()));
-            params.push(("sortOrder", "desc".into()));
-        }
-        ModpackSort::Updated => {
-            params.push(("sortField", "3".into()));
-            params.push(("sortOrder", "desc".into()));
-        }
-        ModpackSort::Newest => {
-            params.push(("sortField", "11".into()));
-            params.push(("sortOrder", "desc".into()));
-        }
-    }
-    let url = format!("{base}/v1/mods/search?{}", encode_pairs(&params));
-    let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
-        .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
-    check_status(&resp, &url)?;
-    let env: ListEnv<CfMod> =
-        serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
-            platform: "curseforge".into(),
-            details: e.to_string(),
-        })?;
+    let want = page_size.max(1);
+    let base_offset = page * want;
 
-    let total = env
-        .pagination
-        .as_ref()
-        .map(|p| p.total_count)
-        .unwrap_or(env.data.len() as u32);
-    let offset = env.pagination.as_ref().map(|p| p.index).unwrap_or(offset);
-    let limit = env
-        .pagination
-        .as_ref()
-        .map(|p| p.page_size)
-        .unwrap_or(limit);
-    let hits = env
-        .data
-        .into_iter()
-        .map(|m| ModpackHit {
+    // CurseForge caps pageSize at CF_MAX_PAGE_SIZE; a request for more (the
+    // shared browser offers up to 100, which Modrinth allows) is served by
+    // stitching back-to-back windows that tile [base_offset, base_offset +
+    // page_size). page_size <= the cap stays a single request. Windows stop
+    // early once one underfills (end of results).
+    //
+    // CF also enforces index + pageSize <= 10_000; a deep-page request then
+    // returns HTTP 400, surfacing as a ModsNetwork error — acceptable, as CF's
+    // own catalogue stops paging there too.
+    let mut hits: Vec<ModpackHit> = Vec::with_capacity(want as usize);
+    let mut total = 0u32;
+    let mut fetched = 0u32;
+    while fetched < want {
+        let chunk = (want - fetched).min(CF_MAX_PAGE_SIZE);
+        let index = base_offset + fetched;
+        let mut params: Vec<(&str, String)> = vec![
+            ("gameId", GAME_MINECRAFT.to_string()),
+            ("classId", CLASS_MODPACKS.to_string()),
+            ("searchFilter", query.to_string()),
+            ("pageSize", chunk.to_string()),
+            ("index", index.to_string()),
+        ];
+        if let Some(mc) = mc_version {
+            params.push(("gameVersion", mc.to_string()));
+        }
+        if let Some(l) = loader {
+            if l != LoaderKind::Vanilla {
+                params.push(("modLoaderType", loader_type(l).to_string()));
+            }
+        }
+        // ModpackSort -> CurseForge sortField. Relevance = no sortField
+        // (CurseForge default relevance order). Codes per the CF API docs:
+        // 3 = LastUpdated, 6 = TotalDownloads, 11 = ReleaseDate.
+        match sort {
+            ModpackSort::Relevance => {}
+            ModpackSort::Downloads => {
+                params.push(("sortField", "6".into()));
+                params.push(("sortOrder", "desc".into()));
+            }
+            ModpackSort::Updated => {
+                params.push(("sortField", "3".into()));
+                params.push(("sortOrder", "desc".into()));
+            }
+            ModpackSort::Newest => {
+                params.push(("sortField", "11".into()));
+                params.push(("sortOrder", "desc".into()));
+            }
+        }
+        let url = format!("{base}/v1/mods/search?{}", encode_pairs(&params));
+        let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
+            .await
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
+        check_status(&resp, &url)?;
+        let env: ListEnv<CfMod> =
+            serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                platform: "curseforge".into(),
+                details: e.to_string(),
+            })?;
+        let got = env.data.len() as u32;
+        total = env
+            .pagination
+            .as_ref()
+            .map(|p| p.total_count)
+            .unwrap_or(fetched + got);
+        hits.extend(env.data.into_iter().map(|m| ModpackHit {
             project_id: m.id.to_string(),
             slug: m.slug,
             title: m.name,
@@ -269,13 +284,19 @@ pub async fn search(
             // are import-by-file only), so the author is left unset here
             // rather than adding CF-only deserialization.
             author: None,
-        })
-        .collect();
+        }));
+        fetched += got;
+        // A short window means the catalogue is exhausted — stop rather than
+        // firing a guaranteed-empty follow-up request.
+        if got < chunk {
+            break;
+        }
+    }
     Ok(ModpackSearchPage {
         hits,
         total,
-        offset,
-        limit,
+        offset: base_offset,
+        limit: page_size,
     })
 }
 
@@ -561,6 +582,101 @@ mod tests {
             }],
             "pagination": { "index": 0, "pageSize": 20, "resultCount": 2, "totalCount": 2 }
         })
+    }
+
+    /// Build `count` minimal CF modpack JSON entries, ids `start..start+count`.
+    fn pack_entries(start: u32, count: u32) -> Vec<serde_json::Value> {
+        (start..start + count)
+            .map(|i| {
+                serde_json::json!({
+                    "id": i, "slug": format!("p{i}"), "name": format!("Pack {i}"),
+                    "summary": "s", "downloadCount": 1, "logo": null
+                })
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn search_chunks_page_size_above_cf_max() {
+        // CurseForge rejects pageSize > 50 with HTTP 400. A request for 100
+        // packs/page must fan out into two ≤50 windows (index 0 + 50) and
+        // stitch them — never sending pageSize=100. The mocks only match
+        // pageSize=50, so a single pageSize=100 request would 404 and fail.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/search"))
+            .and(query_param("pageSize", "50"))
+            .and(query_param("index", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": pack_entries(0, 50),
+                "pagination": {"index": 0, "pageSize": 50, "resultCount": 50, "totalCount": 120}
+            })))
+            .mount(&s)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/search"))
+            .and(query_param("pageSize", "50"))
+            .and(query_param("index", "50"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": pack_entries(50, 50),
+                "pagination": {"index": 50, "pageSize": 50, "resultCount": 50, "totalCount": 120}
+            })))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let r = search(
+            &s.uri(),
+            Some("k"),
+            "",
+            0,
+            None,
+            None,
+            ModpackSort::Downloads,
+            100,
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(r.hits.len(), 100, "two 50-windows should stitch to 100");
+        assert_eq!(r.total, 120);
+        assert_eq!(r.limit, 100, "returns the requested page size");
+        assert_eq!(r.offset, 0);
+        assert_eq!(r.hits[0].project_id, "0");
+        assert_eq!(r.hits[99].project_id, "99");
+    }
+
+    #[tokio::test]
+    async fn search_stops_early_when_window_underfills() {
+        // Only 30 packs exist though 100 were requested: the first window
+        // returns < pageSize, so no second request is made.
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/search"))
+            .and(query_param("index", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": pack_entries(0, 30),
+                "pagination": {"index": 0, "pageSize": 50, "resultCount": 30, "totalCount": 30}
+            })))
+            .mount(&s)
+            .await;
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let r = search(
+            &s.uri(),
+            Some("k"),
+            "",
+            0,
+            None,
+            None,
+            ModpackSort::Relevance,
+            100,
+        )
+        .await
+        .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(r.hits.len(), 30);
+        assert_eq!(r.total, 30);
     }
 
     #[tokio::test]

@@ -117,7 +117,12 @@ pub struct ListEnvelope<T> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pagination {
+    // `index`/`page_size`/`result_count` echo the request; search() drives
+    // pagination from the requested offset/page_size and only reads back
+    // `total_count`.
+    #[allow(dead_code)]
     pub index: u32,
+    #[allow(dead_code)]
     pub page_size: u32,
     #[allow(dead_code)]
     pub result_count: u32,
