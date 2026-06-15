@@ -65,4 +65,28 @@ describe('computePopoverPlacement', () => {
     expect(p.left).toBe(18);
     expect(p.width).toBe(300);
   });
+
+  it('caps the width to the viewport in a narrow (compact) window', () => {
+    // Compact strip: ~240px window, trigger ~216px wide. The popover must not
+    // grow past the viewport, so long labels truncate and right-aligned row
+    // content (the trash) stays on screen.
+    const p = computePopoverPlacement(
+      { top: 100, bottom: 132, left: 12, width: 216 },
+      { width: 240, height: 560 },
+      OPTS,
+    );
+    expect(p.maxWidth).toBe(224); // 240 - 2*8
+    expect(p.width).toBe(216); // min(trigger 216, 224)
+    expect(p.left).toBe(12);
+  });
+
+  it('clamps min-width down when the trigger is wider than the viewport allows', () => {
+    const p = computePopoverPlacement(
+      { top: 100, bottom: 132, left: 4, width: 300 },
+      { width: 240, height: 560 },
+      OPTS,
+    );
+    expect(p.maxWidth).toBe(224);
+    expect(p.width).toBe(224); // min(300, 224) — never exceeds the ceiling
+  });
 });

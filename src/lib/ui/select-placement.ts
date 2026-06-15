@@ -33,7 +33,12 @@ export interface Placement {
    *  bottom is anchored here (caller computes `bottom = viewport.height - top`). */
   top: number;
   left: number;
+  /** Min-width (matches the trigger, but never wider than the viewport). */
   width: number;
+  /** Max-width ceiling: long option labels truncate instead of growing the
+   *  popover past the viewport edge. In a narrow window (the compact strip) this
+   *  keeps right-aligned per-row content (e.g. a trash button) on screen. */
+  maxWidth: number;
   /** Height ceiling for the list (it scrolls internally beyond this). */
   maxHeight: number;
 }
@@ -45,7 +50,13 @@ export function computePopoverPlacement(
 ): Placement {
   const { gap, margin, maxHeight } = opts;
 
-  const maxLeft = viewport.width - trigger.width - margin;
+  // Never let the popover be wider than the viewport (minus margins). Without
+  // this, a long option label (white-space: nowrap from truncate) grows the
+  // popover past a narrow window's right edge and clips right-aligned row
+  // content. The min-width still matches the trigger, capped to the same ceiling.
+  const maxWidth = Math.max(0, viewport.width - 2 * margin);
+  const width = Math.min(trigger.width, maxWidth);
+  const maxLeft = viewport.width - width - margin;
   const left = Math.min(Math.max(trigger.left, margin), Math.max(margin, maxLeft));
 
   const spaceBelow = viewport.height - trigger.bottom - gap - margin;
@@ -59,7 +70,8 @@ export function computePopoverPlacement(
     flipUp,
     top: flipUp ? trigger.top - gap : trigger.bottom + gap,
     left,
-    width: trigger.width,
+    width,
+    maxWidth,
     maxHeight: Math.max(0, Math.min(maxHeight, space)),
   };
 }

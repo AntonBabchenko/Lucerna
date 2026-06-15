@@ -87,6 +87,7 @@
   let popoverTop = $state(0);
   let popoverLeft = $state(0);
   let popoverWidth = $state(0);
+  let popoverMaxWidth = $state(0);
   let popoverMaxHeight = $state(MAX_POPOVER_HEIGHT);
   let flipUp = $state(false);
 
@@ -105,7 +106,8 @@
   const activeDescendant = $derived(open && activeIndex >= 0 ? optionId(activeIndex) : undefined);
   const popoverStyle = $derived(
     (flipUp ? `bottom: ${window.innerHeight - popoverTop}px;` : `top: ${popoverTop}px;`) +
-      ` left: ${popoverLeft}px; min-width: ${popoverWidth}px; max-height: ${popoverMaxHeight}px;`,
+      ` left: ${popoverLeft}px; min-width: ${popoverWidth}px; max-width: ${popoverMaxWidth}px;` +
+      ` max-height: ${popoverMaxHeight}px;`,
   );
 
   function positionPopover() {
@@ -125,6 +127,7 @@
     popoverTop = p.top;
     popoverLeft = p.left;
     popoverWidth = p.width;
+    popoverMaxWidth = p.maxWidth;
     popoverMaxHeight = p.maxHeight;
   }
 
