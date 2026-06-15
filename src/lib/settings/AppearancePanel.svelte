@@ -1,0 +1,64 @@
+<script lang="ts">
+  // Settings → Appearance. Theme, interface language, rainbow icon
+  // animation. All three persist via their own stores (setThemePref /
+  // setLocalePref / rainbowFx.set) — never through appSettingsSetGeneral.
+  import { type ThemePreference } from '$lib/ipc/bindings';
+  import { AVAILABLE_LOCALES, t } from '$lib/i18n';
+  import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
+  import Select from '$lib/ui/Select.svelte';
+  import { themeState, setThemePref } from '$lib/theme/state.svelte';
+  import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
+
+  const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
+
+  const languageOptions = $derived([
+    { value: 'system', label: $t('settings.general.appearance.languageSystem') },
+    ...AVAILABLE_LOCALES.map((code) => ({ value: code, label: LOCALE_LABELS[code] ?? code })),
+  ]);
+</script>
+
+<section class="flex flex-col gap-4">
+  <fieldset class="flex flex-col gap-2">
+    {#each [{ v: 'system' as ThemePreference, labelKey: 'settings.general.appearance.themeSystem' as const }, { v: 'light' as ThemePreference, labelKey: 'settings.general.appearance.themeLight' as const }, { v: 'dark' as ThemePreference, labelKey: 'settings.general.appearance.themeDark' as const }] as opt (opt.v)}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input
+          type="radio"
+          name="theme"
+          value={opt.v}
+          checked={themeState.pref === opt.v}
+          onchange={() => void setThemePref(opt.v)}
+          data-testid="theme-{opt.v}"
+        />
+        <span class="text-sm">{$t(opt.labelKey)}</span>
+      </label>
+    {/each}
+  </fieldset>
+
+  <div class="flex flex-col gap-1">
+    <span class="text-sm text-primary">{$t('settings.general.appearance.language')}</span>
+    <Select
+      class="text-sm"
+      dataTestid="language-select"
+      ariaLabel={$t('settings.general.appearance.language')}
+      value={langPref.value}
+      options={languageOptions}
+      onChange={(v) => void setLocalePref(String(v))}
+    />
+  </div>
+
+  <label class="flex items-start gap-2 cursor-pointer">
+    <input
+      type="checkbox"
+      class="mt-0.5"
+      checked={rainbowFx.enabled}
+      onchange={(e) => rainbowFx.set(e.currentTarget.checked)}
+      data-testid="rainbow-icons-toggle"
+    />
+    <span class="flex-1">
+      <span class="text-sm text-primary">{$t('settings.general.appearance.rainbowIcons')}</span>
+      <span class="block text-xs text-muted">
+        {$t('settings.general.appearance.rainbowIconsDescription')}
+      </span>
+    </span>
+  </label>
+</section>
