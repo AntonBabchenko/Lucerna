@@ -12,6 +12,7 @@ pub mod paths;
 pub mod platform;
 pub mod playtime;
 pub mod process;
+pub mod servers;
 pub mod tray;
 pub mod update;
 pub mod verify;
