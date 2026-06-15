@@ -870,6 +870,17 @@
     },
     "openFolder": {
       "errorToast": "Could not open logs folder"
+    },
+    "manage": {
+      "delete": "Delete",
+      "deleteConfirm": "Delete this log?",
+      "confirmYes": "Delete",
+      "confirmNo": "Cancel",
+      "clearOld": "Clear old",
+      "clearOldTitle": "Clear old logs",
+      "clearOldBody": "Delete {count} file(s) (frees ~{size})? latest.log and debug.log are kept.",
+      "clearOldNothing": "No old logs to clear.",
+      "cleared": "Cleared {count} log file(s) · {size} freed"
     }
   },
   "onboarding": {
@@ -1172,6 +1183,13 @@
         "power": "Power saving",
         "note": "Tells Lucerna's Java runtime which GPU to prefer. Default is automatic.",
         "appliedToast": "Applied GPU preference to the new Java runtime: {name}"
+      },
+      "logRetention": {
+        "title": "Log retention",
+        "enableLabel": "Automatically delete old logs",
+        "enableDescription": "Applied on game exit and when you open Logs. latest.log and debug.log are never removed.",
+        "keepLabel": "Keep newest logs (files)",
+        "sizeLabel": "Max total size (MB)"
       }
     },
     "storage": {
