@@ -10,6 +10,7 @@
     type ModCompat,
   } from '$lib/ipc/bindings';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
+  import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
@@ -345,6 +346,12 @@
     if (result.status === 'error') modalError = ipcErrorMessage(result.error);
   }
 
+  async function openSourceFolder() {
+    if (!selected?.imported_from) return;
+    const result = await commands.openImportedSourceFolder(selected.id);
+    if (result.status === 'error') modalError = ipcErrorMessage(result.error);
+  }
+
   async function deleteSelected() {
     if (!selected) return;
     if (instances.length <= 1) return; // belt-and-braces; the button is also disabled
@@ -586,6 +593,37 @@
             value={selected.extra_jvm_args}
             onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
           />
+
+          {#if selected.imported_from}
+            <div
+              class="mb-3 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs"
+              data-testid="imported-provenance"
+            >
+              <Icon name="folderOpen" size={14} class="mt-0.5 shrink-0 text-muted" />
+              <div class="min-w-0 flex-1">
+                <div class="text-secondary">
+                  {$t('instance.manage.importedFromLabel', {
+                    launcher: displayLauncher(selected.imported_from.launcher),
+                  })}
+                </div>
+                <div
+                  class="truncate font-mono text-muted"
+                  use:tooltip={{ text: selected.imported_from.source_path, whenOverflowing: true }}
+                >
+                  {selected.imported_from.source_path}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn-secondary btn-xs inline-flex shrink-0 items-center gap-1"
+                onclick={openSourceFolder}
+                data-testid="open-source-folder-btn"
+              >
+                <Icon name="folderOpen" size={12} />
+                {$t('instance.manage.openSourceFolderBtn')}
+              </button>
+            </div>
+          {/if}
 
           <IntegritySection
             instanceId={selected.id}

@@ -101,6 +101,8 @@
       "createBtn": "Create",
       "doneBtn": "Done",
       "openFolderBtn": "Open folder",
+      "importedFromLabel": "Imported from {launcher}",
+      "openSourceFolderBtn": "Open source folder",
       "deleteBtn": "Delete instance",
       "emptyState": "Pick an instance on the left, or click + New instance.",
       "memoryLabel": "Memory (max heap): {value}",
@@ -203,6 +205,8 @@
       "sourceCurseforge": "CurseForge",
       "sourceModrinth": "Modrinth App",
       "sourceAtlauncher": "ATLauncher",
+      "sourceMojang": "Minecraft Launcher",
+      "sourceTlauncher": "TLauncher",
       "sourceRaw": "Vanilla .minecraft",
       "mcLabel": "Minecraft {version}",
       "loaderLabel": "{loader} {version}",
@@ -1108,7 +1112,9 @@
     "quickPlayAddressInvalid": "Invalid server address \"{address}\": {reason}",
     "importInstanceUnreadable": "Couldn't read the {launcher} instance: {details}",
     "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
-    "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}"
+    "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}",
+    "importNoProvenance": "This instance wasn't imported from another launcher.",
+    "importSourceMissing": "The original source folder no longer exists: {path}"
   },
   "settings": {
     "title": "Settings",

@@ -89,6 +89,12 @@ pub enum Error {
     #[error("Instance {id} not found")]
     InstanceNotFound { id: String },
 
+    #[error("Instance {id} was not imported from another launcher")]
+    ImportNoProvenance { id: String },
+
+    #[error("The original source folder no longer exists: {path}")]
+    ImportSourceMissing { path: String },
+
     #[error("Forge promotions info unavailable for {flavor}")]
     ForgePromotionsUnavailable { flavor: String },
 

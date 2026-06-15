@@ -23,6 +23,10 @@ pub enum ForeignLauncher {
     ModrinthApp,
     Atlauncher,
     RawMinecraft,
+    /// Official Mojang / Microsoft launcher (profile model).
+    MojangLauncher,
+    /// TLauncher (profile model; detected via marker files).
+    Tlauncher,
 }
 
 /// Provenance written when an instance is created via launcher import.
@@ -746,6 +750,19 @@ mod tests {
         let s = sample();
         let json = serde_json::to_string(&s).unwrap();
         assert!(!json.contains("imported_from"), "got: {json}");
+    }
+
+    #[test]
+    fn foreign_launcher_serializes_new_variants_snake_case() {
+        use super::ForeignLauncher;
+        assert_eq!(
+            serde_json::to_string(&ForeignLauncher::MojangLauncher).unwrap(),
+            "\"mojang_launcher\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ForeignLauncher::Tlauncher).unwrap(),
+            "\"tlauncher\""
+        );
     }
 
     #[test]

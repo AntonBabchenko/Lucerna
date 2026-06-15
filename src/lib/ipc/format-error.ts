@@ -210,6 +210,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.importUnsupportedLoader', { loader: e.loader });
     case 'import_source_unrecognized':
       return translate('errors.importSourceUnrecognized', { path: e.path });
+    case 'import_no_provenance':
+      return translate('errors.importNoProvenance', { id: e.id });
+    case 'import_source_missing':
+      return translate('errors.importSourceMissing', { path: e.path });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

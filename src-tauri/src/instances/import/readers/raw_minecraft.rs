@@ -97,7 +97,7 @@ fn instance_name_for(dir: &Path, mc_version: &str) -> String {
 /// TLauncher launchers write it); otherwise the highest release-looking
 /// version. `None` when nothing version-shaped is present (e.g. the picked
 /// folder is itself a single game dir with no `versions/`).
-fn detect_mc_version_hint(dir: &Path) -> Option<String> {
+pub(crate) fn detect_mc_version_hint(dir: &Path) -> Option<String> {
     let names: Vec<String> = std::fs::read_dir(dir.join("versions"))
         .ok()?
         .flatten()
@@ -131,7 +131,7 @@ fn detect_mc_version_hint(dir: &Path) -> Option<String> {
 /// `true` for a folder name shaped like an MC version (`26.1.2`,
 /// `1.20.4`, `26.2-rc-2`) — leading dotted numeric segments, optional
 /// `-suffix`. Rejects loader-named dirs (`Forge 26.1.2`, `test`).
-fn is_version_like(name: &str) -> bool {
+pub(crate) fn is_version_like(name: &str) -> bool {
     let head = name.split('-').next().unwrap_or("");
     head.contains('.')
         && head

@@ -101,6 +101,8 @@
       "createBtn": "Создать",
       "doneBtn": "Готово",
       "openFolderBtn": "Открыть папку",
+      "importedFromLabel": "Импортировано из {launcher}",
+      "openSourceFolderBtn": "Открыть исходную папку",
       "deleteBtn": "Удалить профиль",
       "emptyState": "Выберите профиль слева или нажмите + Новый профиль.",
       "memoryLabel": "Память (макс. heap): {value}",
@@ -203,6 +205,8 @@
       "sourceCurseforge": "CurseForge",
       "sourceModrinth": "Modrinth App",
       "sourceAtlauncher": "ATLauncher",
+      "sourceMojang": "Minecraft Launcher",
+      "sourceTlauncher": "TLauncher",
       "sourceRaw": "Vanilla .minecraft",
       "mcLabel": "Minecraft {version}",
       "loaderLabel": "{loader} {version}",
@@ -1108,7 +1112,9 @@
     "quickPlayAddressInvalid": "Неверный адрес сервера «{address}»: {reason}",
     "importInstanceUnreadable": "Не удалось прочитать сборку {launcher}: {details}",
     "importUnsupportedLoader": "Неподдерживаемый загрузчик «{loader}» в импортируемой сборке",
-    "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}"
+    "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}",
+    "importNoProvenance": "Этот инстанс не был импортирован из другого лаунчера.",
+    "importSourceMissing": "Исходная папка больше не существует: {path}"
   },
   "settings": {
     "title": "Настройки",
