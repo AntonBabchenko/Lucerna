@@ -913,6 +913,15 @@ export type BlockingMod = {
 	 *  would break them; a non-empty list is a warning, not a block.
 	 */
 	breaks: string[],
+	/**
+	 *  Source + project id of the matched installed mod, when known. Present ⇒
+	 *  the card can list versions and offer "Replace version" (the common
+	 *  version-mismatch fix); both `None` (a manually-added jar) ⇒ guidance +
+	 *  Disable only. The reject log carries no target version, so the user picks
+	 *  it from the server's "Server has" column.
+	 */
+	source: ModSource | null,
+	project_id: string | null,
 };
 
 export type CategoryReport = {

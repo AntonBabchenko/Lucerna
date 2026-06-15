@@ -197,6 +197,13 @@ pub struct BlockingMod {
     /// on this one (read via `local::read_jar_dependency_ids`). Disabling this
     /// would break them; a non-empty list is a warning, not a block.
     pub breaks: Vec<String>,
+    /// Source + project id of the matched installed mod, when known. Present ⇒
+    /// the card can list versions and offer "Replace version" (the common
+    /// version-mismatch fix); both `None` (a manually-added jar) ⇒ guidance +
+    /// Disable only. The reject log carries no target version, so the user picks
+    /// it from the server's "Server has" column.
+    pub source: Option<crate::mods::platform::ModSource>,
+    pub project_id: Option<String>,
 }
 
 /// One side of a mod conflict the user can act on.
@@ -324,6 +331,8 @@ pub fn build_blocking_mods(
                 sha1: m.sha1.clone(),
                 name: m.name.clone(),
                 breaks,
+                source: m.source,
+                project_id: m.project_id.clone(),
             }
         })
         .collect()
@@ -399,6 +408,21 @@ mod tests {
         let ids: Vec<&str> = blocking.iter().map(|b| b.mod_id.as_str()).collect();
         assert_eq!(ids, vec!["alexsmobs", "citadel"]);
         assert!(blocking.iter().all(|b| b.breaks.is_empty()));
+        // source + project_id are carried from the matched installed mod so the
+        // card can offer "Replace version".
+        assert_eq!(blocking[0].source, Some(ModSource::Modrinth));
+        assert_eq!(blocking[0].project_id.as_deref(), Some("alexsmobs"));
+    }
+
+    #[test]
+    fn build_blocking_carries_none_source_for_sourceless_mod() {
+        // A manually-added jar (no source/project_id) yields None for both, so
+        // the card falls back to guidance instead of offering a version swap.
+        let installed = vec![inst("manualmod", "m", None, true, &[])];
+        let blocking = build_blocking_mods(&["manualmod".to_string()], &installed, &HashMap::new());
+        assert_eq!(blocking.len(), 1);
+        assert_eq!(blocking[0].source, None);
+        assert_eq!(blocking[0].project_id, None);
     }
 
     #[test]
