@@ -895,12 +895,13 @@
                 </h3>
                 <ul>
                   {#each group.items as f}
-                    <li class="group flex items-center">
+                    <li
+                      class="group flex items-center {selectedPath === f.path
+                        ? 'bg-accent-soft'
+                        : 'hover:bg-subtle'}"
+                    >
                       <button
-                        class="flex-1 min-w-0 text-left px-3 py-1 hover:bg-subtle {selectedPath ===
-                        f.path
-                          ? 'bg-accent-soft'
-                          : ''}"
+                        class="flex-1 min-w-0 text-left px-3 py-1"
                         onclick={() => void selectFile(f.path)}
                       >
                         <div class="font-mono text-xs truncate">{f.name}</div>
@@ -909,7 +910,7 @@
                         </div>
                       </button>
                       <button
-                        class="mr-1 shrink-0 rounded p-1.5 text-muted opacity-0 transition-opacity hover:bg-subtle hover:text-danger focus-visible:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        class="mr-1 shrink-0 rounded p-1.5 text-muted opacity-0 transition-opacity hover:text-danger focus-visible:text-danger focus-visible:opacity-100 group-hover:opacity-100"
                         aria-label={$t('logs.manage.delete')}
                         use:tooltip={$t('logs.manage.delete')}
                         onclick={() => (confirmingDeletePath = f.path)}
