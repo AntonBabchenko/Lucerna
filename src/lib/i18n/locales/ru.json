@@ -1117,7 +1117,7 @@
     "importNoProvenance": "Этот инстанс не был импортирован из другого лаунчера.",
     "importSourceMissing": "Исходная папка больше не существует: {path}",
     "serversDatParse": "Не удалось прочитать список серверов (servers.dat): {reason}",
-    "savedServerNameInvalid": "Недопустимое имя сервера: {reason}",
+    "savedServerNameInvalid": "«{name}» — недопустимое имя сервера: {reason}",
     "savedServerListChanged": "Список сохранённых серверов изменился — откройте окно заново и повторите."
   },
   "settings": {
@@ -1346,6 +1346,7 @@
     "save": "Сохранить",
     "saveAndConnect": "Сохранить и подключиться",
     "cancel": "Закрыть",
+    "invalidName": "Введите название сервера.",
     "invalidAddress": "Введите корректный адрес сервера (host или host:port).",
     "offlineHint": "Онлайн-серверы обычно отклоняют офлайн-аккаунты."
   },

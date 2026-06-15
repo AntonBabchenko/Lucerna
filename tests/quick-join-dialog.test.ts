@@ -63,6 +63,27 @@ describe('QuickJoinDialog', () => {
     expect(onSave).toHaveBeenCalledWith('New', 'new.example');
   });
 
+  it('keeps the add section collapsed when opened with saved servers', () => {
+    render(QuickJoinDialog, {
+      open: true,
+      savedServers: saved,
+      connectDisabledReason: null,
+      onConnect: vi.fn(),
+      onSave: vi.fn(),
+      onSaveAndConnect: vi.fn(),
+      onDelete: vi.fn(),
+      onClose: vi.fn(),
+    });
+    // Non-empty list → add section starts collapsed. The <details> wrapping
+    // the Name/Address inputs must not carry the `open` attribute, so the
+    // fields are hidden by default (a `<details>` keeps its content in the DOM
+    // even when closed, so assert on `open`, not DOM presence).
+    const summary = screen.getByText('Add a server');
+    const details = summary.closest('details');
+    expect(details).not.toBeNull();
+    expect((details as HTMLDetailsElement).open).toBe(false);
+  });
+
   it('delete asks for confirmation before firing onDelete', async () => {
     const onDelete = vi.fn();
     render(QuickJoinDialog, {

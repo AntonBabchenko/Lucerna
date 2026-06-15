@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { t } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -53,7 +54,7 @@
       address = '';
       touched = false;
       confirmingIndex = null;
-      addOpen = savedServers.length === 0;
+      addOpen = untrack(() => savedServers.length === 0);
     }
   });
 
@@ -145,12 +146,16 @@
         </label>
         <input
           id="server-name"
-          class="border rounded px-2 py-1 w-full mb-2"
+          class="border rounded px-2 py-1 w-full mb-1"
           bind:value={name}
           disabled={busy}
           placeholder={$t('quickJoin.namePlaceholder')}
           autocomplete="off"
+          aria-invalid={touched && trimmedName.length === 0}
         />
+        <p class="text-xs text-danger mb-2 min-h-4" role="alert">
+          {#if touched && trimmedName.length === 0}{$t('quickJoin.invalidName')}{/if}
+        </p>
 
         <label class="block text-xs text-secondary mb-1" for="server-address">
           {$t('quickJoin.addressLabel')}

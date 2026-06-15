@@ -936,6 +936,7 @@ export type TranslationKey =
   | 'quickJoin.deleteConfirmAction'
   | 'quickJoin.empty'
   | 'quickJoin.invalidAddress'
+  | 'quickJoin.invalidName'
   | 'quickJoin.nameLabel'
   | 'quickJoin.namePlaceholder'
   | 'quickJoin.offlineHint'
