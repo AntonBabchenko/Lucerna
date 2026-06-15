@@ -1144,10 +1144,13 @@
     "title": "Settings",
     "closeLabel": "Close settings",
     "closeBackdropLabel": "Close Settings",
-    "tabs": {
-      "general": "General",
+    "sections": {
+      "appearance": "Appearance",
+      "game": "Game",
+      "integrations": "Integrations",
       "storage": "Storage",
-      "curseforge": "CurseForge",
+      "updates": "Updates",
+      "help": "Help",
       "about": "About"
     },
     "general": {
