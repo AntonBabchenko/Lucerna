@@ -22,10 +22,10 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
+import { rainbowFx } from '../src/lib/fx/rainbow-fx.svelte';
 import { tourState } from '../src/lib/onboarding/state.svelte';
 import GeneralPanel from '../src/lib/settings/GeneralPanel.svelte';
 import { settingsOpen } from '../src/lib/settings/state.svelte';
-import { rainbowFx } from '../src/lib/fx/rainbow-fx.svelte';
 
 beforeEach(() => {
   tourState.active = false;

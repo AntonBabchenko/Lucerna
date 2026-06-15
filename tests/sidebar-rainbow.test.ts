@@ -1,7 +1,7 @@
 import { render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import Sidebar from '$lib/layout/Sidebar.svelte';
 import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
+import Sidebar from '$lib/layout/Sidebar.svelte';
 
 vi.mock('$lib/ipc/bindings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/ipc/bindings')>();
