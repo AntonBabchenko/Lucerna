@@ -411,12 +411,30 @@ button:active > .icon-spin-hover {
    that class when the rainbow preference is enabled. Icons use currentColor,
    so animating `color` recolors the stroke. The global prefers-reduced-motion
    block above already zeroes out all animation, so reduced-motion users never
-   see this regardless of the preference. */
+   see this regardless of the preference.
+   NOTE: the stops MUST span the spectrum explicitly. `color` interpolates in
+   sRGB, not by hue, so a bare hsl(0) -> hsl(360) collapses to a static red
+   (both endpoints are the same RGB). The intermediate hues force the sweep. */
 @keyframes lucerna-icon-rainbow {
-  from {
+  0% {
     color: hsl(0 85% 60%);
   }
-  to {
+  17% {
+    color: hsl(60 85% 60%);
+  }
+  33% {
+    color: hsl(120 85% 60%);
+  }
+  50% {
+    color: hsl(180 85% 60%);
+  }
+  67% {
+    color: hsl(240 85% 60%);
+  }
+  83% {
+    color: hsl(300 85% 60%);
+  }
+  100% {
     color: hsl(360 85% 60%);
   }
 }
