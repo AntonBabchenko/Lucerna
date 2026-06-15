@@ -387,7 +387,7 @@
       <button
         type="button"
         class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-        onclick={() => (settingsOpen.value = { tab: 'general' })}
+        onclick={() => (settingsOpen.value = { tab: 'appearance' })}
       >
         <Icon name="settings" size={14} />
         {$t('settings.title')}

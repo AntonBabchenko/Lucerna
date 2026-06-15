@@ -838,7 +838,7 @@
     </p>
   </div>
 {:else if needsCfKey}
-  <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
+  <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
 {:else}
   <div class="sticky top-0 z-10 bg-base border-b border-border-subtle">
     <BrowseFilterBar
