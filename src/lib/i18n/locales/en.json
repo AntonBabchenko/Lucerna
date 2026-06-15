@@ -853,7 +853,16 @@
         "reconnectHint": "Disable any mods the server lacks, then reconnect.",
         "allDisabled": "Disabled — reconnect to the server.",
         "disabledToast": "Disabled {name}",
-        "failedToast": "Couldn't disable {name}: {error}"
+        "failedToast": "Couldn't disable {name}: {error}",
+        "replaceVersion": "Replace version…",
+        "pickVersionLabel": "Pick the version shown under \"Server has\":",
+        "installThisVersion": "Install this version",
+        "replacing": "Replacing…",
+        "replacedReconnect": "Replaced — reconnect to check.",
+        "loadingVersions": "Loading versions…",
+        "noVersionsFound": "No versions found for this Minecraft + loader.",
+        "replacedToast": "Replaced {name} with {version}",
+        "replaceFailedToast": "Couldn't replace {name}: {error}"
       }
     },
     "empty": {

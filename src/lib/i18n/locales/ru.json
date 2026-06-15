@@ -853,7 +853,16 @@
         "reconnectHint": "Отключите моды, которых нет на сервере, затем переподключитесь.",
         "allDisabled": "Отключено — переподключитесь к серверу.",
         "disabledToast": "Отключён {name}",
-        "failedToast": "Не удалось отключить {name}: {error}"
+        "failedToast": "Не удалось отключить {name}: {error}",
+        "replaceVersion": "Заменить версию…",
+        "pickVersionLabel": "Выберите версию, указанную в колонке \"Server has\":",
+        "installThisVersion": "Поставить эту версию",
+        "replacing": "Заменяю…",
+        "replacedReconnect": "Заменено — переподключитесь, чтобы проверить.",
+        "loadingVersions": "Загружаю версии…",
+        "noVersionsFound": "Нет версий под эту версию Minecraft и загрузчик.",
+        "replacedToast": "{name} заменён на {version}",
+        "replaceFailedToast": "Не удалось заменить {name}: {error}"
       }
     },
     "empty": {
