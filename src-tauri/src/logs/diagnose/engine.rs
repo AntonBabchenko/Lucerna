@@ -450,6 +450,14 @@ mod tests {
     }
 
     #[test]
+    fn pattern_server_missing_mods_matches_missing_registry_data_reject() {
+        let content = "[Render thread/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Missing registry data for impl connection:\n\
+                       \tminecraft:item: naturescompass:naturescompass\n\
+                       [Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Failed to load registry, closing connection.";
+        assert_diag(content, LogSource::Game, "server-missing-mods");
+    }
+
+    #[test]
     fn pattern_server_missing_mods_does_not_match_generic_disconnect() {
         assert_no_diag(
             "[12:00:03] [Render thread/INFO]: Disconnected: Connection closed",
