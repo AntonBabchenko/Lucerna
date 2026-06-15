@@ -27,6 +27,7 @@
   import { Icon } from '$lib/ui/icons';
   import type { Snippet } from 'svelte';
   import { tooltip } from '$lib/ui/tooltip';
+  import { computePopoverPlacement } from './select-placement';
 
   type Primitive = string | number;
   type Option = SelectOption;
@@ -75,7 +76,7 @@
     onDeleteOption?: (option: Option) => void;
   } = $props();
 
-  const MAX_POPOVER_HEIGHT = 240; // keep in sync with max-h-60 on the list
+  const MAX_POPOVER_HEIGHT = 240; // preferred cap; clamped down to viewport room
   const GAP = 4;
   const MARGIN = 8;
 
@@ -86,6 +87,7 @@
   let popoverTop = $state(0);
   let popoverLeft = $state(0);
   let popoverWidth = $state(0);
+  let popoverMaxHeight = $state(MAX_POPOVER_HEIGHT);
   let flipUp = $state(false);
 
   // Unique ids so multiple Selects can coexist (filter rows stack several).
@@ -102,20 +104,28 @@
   const isPlaceholder = $derived(selectedLabel === null || value === '' || value === null);
   const activeDescendant = $derived(open && activeIndex >= 0 ? optionId(activeIndex) : undefined);
   const popoverStyle = $derived(
-    flipUp
-      ? `bottom: ${window.innerHeight - popoverTop}px; left: ${popoverLeft}px; min-width: ${popoverWidth}px;`
-      : `top: ${popoverTop}px; left: ${popoverLeft}px; min-width: ${popoverWidth}px;`,
+    (flipUp ? `bottom: ${window.innerHeight - popoverTop}px;` : `top: ${popoverTop}px;`) +
+      ` left: ${popoverLeft}px; min-width: ${popoverWidth}px; max-height: ${popoverMaxHeight}px;`,
   );
 
   function positionPopover() {
     if (!trigger) return;
     const r = trigger.getBoundingClientRect();
-    popoverWidth = r.width;
-    const maxLeft = window.innerWidth - r.width - MARGIN;
-    popoverLeft = Math.min(Math.max(r.left, MARGIN), Math.max(MARGIN, maxLeft));
-    const below = window.innerHeight - r.bottom;
-    flipUp = below < MAX_POPOVER_HEIGHT + GAP && r.top > below;
-    popoverTop = flipUp ? r.top - GAP : r.bottom + GAP;
+    // Clamp the list to whatever vertical room the viewport actually has. In
+    // compact mode the OS window shrinks to the sidebar's content height, so a
+    // position:fixed popover lives in a short viewport — without clamping its
+    // height (and scrolling internally) it spills past the window edge and gets
+    // clipped. See computePopoverPlacement for the maths.
+    const p = computePopoverPlacement(
+      { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+      { width: window.innerWidth, height: window.innerHeight },
+      { gap: GAP, margin: MARGIN, maxHeight: MAX_POPOVER_HEIGHT },
+    );
+    flipUp = p.flipUp;
+    popoverTop = p.top;
+    popoverLeft = p.left;
+    popoverWidth = p.width;
+    popoverMaxHeight = p.maxHeight;
   }
 
   // Walk from `start` in direction `dir` to the first non-disabled option.
@@ -320,7 +330,7 @@
     id={listboxId}
     role="listbox"
     tabindex="-1"
-    class="fixed z-50 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
+    class="fixed z-50 overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
     style={popoverStyle}
   >
     <!-- Keyed by `opt.value`: option values must be unique within a Select
