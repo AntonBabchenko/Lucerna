@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
 import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
 import Sidebar from '$lib/layout/Sidebar.svelte';
 
@@ -127,11 +127,44 @@ describe('Sidebar — account section buttons', () => {
     expect(btn).toHaveBtnSize('xs');
   });
 
-  it('Remove is btn-secondary btn-xs', () => {
+  it('there is no standalone "Remove" button; the trash lives inside the dropdown', async () => {
     render(Sidebar, { props: baseProps });
-    const btn = screen.getByRole('button', { name: /^remove$/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('xs');
+    // No standalone text "Remove" button in the closed sidebar.
+    expect(screen.queryByRole('button', { name: /^remove$/i })).toBeNull();
+    // The per-row trash only exists once the account dropdown is open.
+    expect(screen.queryByRole('button', { name: /remove steve/i })).toBeNull();
+    await fireEvent.click(screen.getByRole('combobox', { name: /account/i }));
+    expect(screen.getByRole('button', { name: /remove steve/i })).toBeTruthy();
+  });
+
+  it("a row's trash invokes onRemoveAccount with that account id, without selecting it", async () => {
+    const onRemoveAccount = vi.fn();
+    const onSelectAccount = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onRemoveAccount, onSelectAccount } });
+    await fireEvent.click(screen.getByRole('combobox', { name: /account/i }));
+    const trash = screen.getByRole('button', { name: /remove steve/i });
+    // mousedown is the row's commit trigger; the trash must swallow it so the
+    // click removes rather than selects.
+    await fireEvent.mouseDown(trash);
+    await fireEvent.click(trash);
+    expect(onRemoveAccount).toHaveBeenCalledWith('of-1');
+    expect(onSelectAccount).not.toHaveBeenCalled();
+  });
+
+  it('Delete on the active dropdown row removes that account', async () => {
+    const onRemoveAccount = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
+    const combobox = screen.getByRole('combobox', { name: /account/i });
+    await fireEvent.click(combobox); // opens; the selected row becomes active
+    await fireEvent.keyDown(combobox, { key: 'Delete' });
+    expect(onRemoveAccount).toHaveBeenCalledWith('of-1');
+  });
+
+  it('no trash anywhere when there are no accounts', async () => {
+    render(Sidebar, { props: { ...baseProps, accounts: [], activeAccount: null } });
+    // No selector to open and no trash to find.
+    expect(screen.queryByRole('combobox', { name: /account/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /remove/i })).toBeNull();
   });
 });
 
@@ -161,9 +194,10 @@ describe('Sidebar — button icons', () => {
     expect(btn.querySelector('svg')).not.toBeNull();
   });
 
-  it('Remove button shows an icon', () => {
+  it('Remove trash button (in the open dropdown) shows an icon', async () => {
     render(Sidebar, { props: baseProps });
-    const btn = screen.getByRole('button', { name: /^remove$/i });
+    await fireEvent.click(screen.getByRole('combobox', { name: /account/i }));
+    const btn = screen.getByRole('button', { name: /remove steve/i });
     expect(btn.querySelector('svg')).not.toBeNull();
   });
 

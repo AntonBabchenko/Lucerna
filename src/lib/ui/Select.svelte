@@ -27,6 +27,7 @@
   import { Icon } from '$lib/ui/icons';
   import type { Snippet } from 'svelte';
   import { tooltip } from '$lib/ui/tooltip';
+  import { computePopoverPlacement } from './select-placement';
 
   type Primitive = string | number;
   type Option = SelectOption;
@@ -43,6 +44,8 @@
     dataTestid,
     optionLeading,
     valueLeading,
+    optionTrailing,
+    onDeleteOption,
   }: {
     value: Primitive | null;
     options: Option[];
@@ -57,9 +60,23 @@
     // Falls back to the existing `icon` rendering when not provided.
     optionLeading?: Snippet<[Option]>;
     valueLeading?: Snippet<[Option]>;
+    // Optional trailing content per open-list option row (e.g. a per-row action
+    // button). Right-aligned. Each <li> carries a `group` class and an
+    // `is-active` class (when it is the hovered / keyboard-active row), so the
+    // snippet can reveal itself with those exact Tailwind variants:
+    //   class="opacity-0 group-hover:opacity-100 group-[.is-active]:opacity-100"
+    // (the literal strings must appear in the consumer's file for Tailwind's JIT
+    // scanner to emit them). A trailing interactive control must stop its own
+    // mousedown (stopPropagation + preventDefault) so it does not also commit
+    // the row; activate it on click.
+    optionTrailing?: Snippet<[Option]>;
+    // Keyboard parity for a trailing per-row action: when set, pressing Delete
+    // while the list is open invokes it for the active option (and closes the
+    // list). Generic enough for any "deletable options" list.
+    onDeleteOption?: (option: Option) => void;
   } = $props();
 
-  const MAX_POPOVER_HEIGHT = 240; // keep in sync with max-h-60 on the list
+  const MAX_POPOVER_HEIGHT = 240; // preferred cap; clamped down to viewport room
   const GAP = 4;
   const MARGIN = 8;
 
@@ -70,6 +87,8 @@
   let popoverTop = $state(0);
   let popoverLeft = $state(0);
   let popoverWidth = $state(0);
+  let popoverMaxWidth = $state(0);
+  let popoverMaxHeight = $state(MAX_POPOVER_HEIGHT);
   let flipUp = $state(false);
 
   // Unique ids so multiple Selects can coexist (filter rows stack several).
@@ -86,20 +105,30 @@
   const isPlaceholder = $derived(selectedLabel === null || value === '' || value === null);
   const activeDescendant = $derived(open && activeIndex >= 0 ? optionId(activeIndex) : undefined);
   const popoverStyle = $derived(
-    flipUp
-      ? `bottom: ${window.innerHeight - popoverTop}px; left: ${popoverLeft}px; min-width: ${popoverWidth}px;`
-      : `top: ${popoverTop}px; left: ${popoverLeft}px; min-width: ${popoverWidth}px;`,
+    (flipUp ? `bottom: ${window.innerHeight - popoverTop}px;` : `top: ${popoverTop}px;`) +
+      ` left: ${popoverLeft}px; min-width: ${popoverWidth}px; max-width: ${popoverMaxWidth}px;` +
+      ` max-height: ${popoverMaxHeight}px;`,
   );
 
   function positionPopover() {
     if (!trigger) return;
     const r = trigger.getBoundingClientRect();
-    popoverWidth = r.width;
-    const maxLeft = window.innerWidth - r.width - MARGIN;
-    popoverLeft = Math.min(Math.max(r.left, MARGIN), Math.max(MARGIN, maxLeft));
-    const below = window.innerHeight - r.bottom;
-    flipUp = below < MAX_POPOVER_HEIGHT + GAP && r.top > below;
-    popoverTop = flipUp ? r.top - GAP : r.bottom + GAP;
+    // Clamp the list to whatever vertical room the viewport actually has. In
+    // compact mode the OS window shrinks to the sidebar's content height, so a
+    // position:fixed popover lives in a short viewport — without clamping its
+    // height (and scrolling internally) it spills past the window edge and gets
+    // clipped. See computePopoverPlacement for the maths.
+    const p = computePopoverPlacement(
+      { top: r.top, bottom: r.bottom, left: r.left, width: r.width },
+      { width: window.innerWidth, height: window.innerHeight },
+      { gap: GAP, margin: MARGIN, maxHeight: MAX_POPOVER_HEIGHT },
+    );
+    flipUp = p.flipUp;
+    popoverTop = p.top;
+    popoverLeft = p.left;
+    popoverWidth = p.width;
+    popoverMaxWidth = p.maxWidth;
+    popoverMaxHeight = p.maxHeight;
   }
 
   // Walk from `start` in direction `dir` to the first non-disabled option.
@@ -200,6 +229,12 @@
       e.preventDefault();
       e.stopPropagation();
       closeList();
+    } else if (e.key === 'Delete' && onDeleteOption && activeIndex >= 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const opt = options[activeIndex];
+      closeList();
+      onDeleteOption(opt);
     } else if (e.key === 'Tab') {
       // Commit the active option, then let focus move on naturally.
       commit(activeIndex);
@@ -298,7 +333,7 @@
     id={listboxId}
     role="listbox"
     tabindex="-1"
-    class="fixed z-50 max-h-60 overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
+    class="fixed z-50 overflow-y-auto bg-surface border border-border-subtle rounded shadow-md py-1 text-sm"
     style={popoverStyle}
   >
     <!-- Keyed by `opt.value`: option values must be unique within a Select
@@ -309,7 +344,8 @@
         role="option"
         aria-selected={opt.value === value}
         aria-disabled={opt.disabled || undefined}
-        class="px-3 py-1.5 text-primary"
+        class="group flex items-center gap-2 px-3 py-1.5 text-primary"
+        class:is-active={i === activeIndex}
         class:cursor-pointer={!opt.disabled}
         class:cursor-not-allowed={opt.disabled}
         class:opacity-50={opt.disabled}
@@ -323,14 +359,17 @@
           if (!opt.disabled) activeIndex = i;
         }}
       >
-        <span class="inline-flex items-center gap-2">
+        <span class="inline-flex min-w-0 flex-1 items-center gap-2">
           {#if optionLeading}
             {@render optionLeading(opt)}
           {:else if opt.icon}
             <Icon name={opt.icon} class="flex-shrink-0" />
           {/if}
-          {opt.label}
+          <span class="truncate">{opt.label}</span>
         </span>
+        {#if optionTrailing}
+          {@render optionTrailing(opt)}
+        {/if}
       </li>
     {/each}
   </ul>

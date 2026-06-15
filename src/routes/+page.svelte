@@ -36,6 +36,7 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import RemoveAccountDialog from '$lib/accounts/RemoveAccountDialog.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
@@ -73,6 +74,13 @@
   let offlineNameError = $state<string | null>(null);
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
+  // Id of the account pending removal — gates the actual delete behind the
+  // confirm dialog (see RemoveAccountDialog). Set from the per-row trash in the
+  // account dropdown; any account can be removed, not just the active one.
+  let removeConfirmId = $state<string | null>(null);
+  const removeConfirmAccount = $derived(
+    removeConfirmId ? (accounts.find((a) => a.id === removeConfirmId) ?? null) : null,
+  );
 
   // Self-healing owner of the MC version manifest (fetch + online/backoff
   // recovery). Powers the Manage modal's version picker and publishes to the
@@ -390,10 +398,17 @@
     }
   }
 
-  async function onRemoveActive() {
-    if (!activeAccount) return;
+  function requestRemoveAccount(id: string) {
     removeError = null;
-    const result = await commands.removeAccount(activeAccount.id);
+    removeConfirmId = id;
+  }
+
+  async function confirmRemoveAccount() {
+    const id = removeConfirmId;
+    removeConfirmId = null;
+    if (!id) return;
+    removeError = null;
+    const result = await commands.removeAccount(id);
     if (result.status === 'ok') {
       await refreshAccounts();
     } else {
@@ -632,7 +647,7 @@
       onOpenLauncherImport={() => (launcherImportOpen = true)}
       onOpenQuickJoin={() => void openServersDialog()}
       {onSelectAccount}
-      onRemoveAccount={onRemoveActive}
+      onRemoveAccount={requestRemoveAccount}
       onAddOffline={async (name) => {
         if (!name) {
           offlineNameError = get(t)('page.offlineName.cannotBeEmpty');
@@ -852,6 +867,13 @@
   {/if}
   {#if launcherImportOpen}
     <LauncherImportDialog onClose={() => (launcherImportOpen = false)} />
+  {/if}
+  {#if removeConfirmAccount}
+    <RemoveAccountDialog
+      accountName={removeConfirmAccount.name}
+      onCancel={() => (removeConfirmId = null)}
+      onConfirm={confirmRemoveAccount}
+    />
   {/if}
 </main>
 <ToastHost />
