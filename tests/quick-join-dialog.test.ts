@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
@@ -8,21 +8,28 @@ const saved = [
   { name: 'Anom', address: 'mc.x:25566' },
 ];
 
+// onSave / onSaveAndConnect resolve `true` on success (the dialog clears +
+// collapses the add section on a truthy result).
+function baseProps(overrides: Record<string, unknown> = {}) {
+  return {
+    open: true,
+    savedServers: saved,
+    connectDisabledReason: null,
+    onConnect: vi.fn(),
+    onSave: vi.fn().mockResolvedValue(true),
+    onSaveAndConnect: vi.fn().mockResolvedValue(true),
+    onDelete: vi.fn(),
+    onClose: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe('QuickJoinDialog', () => {
   beforeAll(() => locale.set('en'));
 
   it('lists saved servers and connects on row click', async () => {
     const onConnect = vi.fn();
-    render(QuickJoinDialog, {
-      open: true,
-      savedServers: saved,
-      connectDisabledReason: null,
-      onConnect,
-      onSave: vi.fn(),
-      onSaveAndConnect: vi.fn(),
-      onDelete: vi.fn(),
-      onClose: vi.fn(),
-    });
+    render(QuickJoinDialog, baseProps({ onConnect }));
     expect(screen.getByText('SMP')).toBeTruthy();
     const connectButtons = screen.getAllByRole('button', { name: 'Connect' });
     await fireEvent.click(connectButtons[0]);
@@ -30,32 +37,14 @@ describe('QuickJoinDialog', () => {
   });
 
   it('disables connect when gated and shows the reason', () => {
-    render(QuickJoinDialog, {
-      open: true,
-      savedServers: saved,
-      connectDisabledReason: 'Quick Play requires 1.20+',
-      onConnect: vi.fn(),
-      onSave: vi.fn(),
-      onSaveAndConnect: vi.fn(),
-      onDelete: vi.fn(),
-      onClose: vi.fn(),
-    });
+    render(QuickJoinDialog, baseProps({ connectDisabledReason: 'Quick Play requires 1.20+' }));
     const connectButtons = screen.getAllByRole('button', { name: 'Connect' });
     expect((connectButtons[0] as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('Save calls onSave with name + address', async () => {
-    const onSave = vi.fn();
-    render(QuickJoinDialog, {
-      open: true,
-      savedServers: [],
-      connectDisabledReason: null,
-      onConnect: vi.fn(),
-      onSave,
-      onSaveAndConnect: vi.fn(),
-      onDelete: vi.fn(),
-      onClose: vi.fn(),
-    });
+    const onSave = vi.fn().mockResolvedValue(true);
+    render(QuickJoinDialog, baseProps({ savedServers: [], onSave }));
     // Empty list → add section is expanded; fields are visible.
     await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'New' } });
     await fireEvent.input(screen.getByLabelText('Address'), { target: { value: 'new.example' } });
@@ -63,17 +52,24 @@ describe('QuickJoinDialog', () => {
     expect(onSave).toHaveBeenCalledWith('New', 'new.example');
   });
 
-  it('keeps the add section collapsed when opened with saved servers', () => {
-    render(QuickJoinDialog, {
-      open: true,
-      savedServers: saved,
-      connectDisabledReason: null,
-      onConnect: vi.fn(),
-      onSave: vi.fn(),
-      onSaveAndConnect: vi.fn(),
-      onDelete: vi.fn(),
-      onClose: vi.fn(),
+  it('clears the form and collapses the add section after a successful save', async () => {
+    render(QuickJoinDialog, baseProps({ savedServers: [] }));
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+    const addressInput = screen.getByLabelText('Address') as HTMLInputElement;
+    await fireEvent.input(nameInput, { target: { value: 'New' } });
+    await fireEvent.input(addressInput, { target: { value: 'new.example' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    // The save resolves true → form clears and the <details> collapses.
+    await waitFor(() => {
+      expect(nameInput.value).toBe('');
+      expect(addressInput.value).toBe('');
+      const details = screen.getByText('Add a server').closest('details') as HTMLDetailsElement;
+      expect(details.open).toBe(false);
     });
+  });
+
+  it('keeps the add section collapsed when opened with saved servers', () => {
+    render(QuickJoinDialog, baseProps());
     // Non-empty list → add section starts collapsed. The <details> wrapping
     // the Name/Address inputs must not carry the `open` attribute, so the
     // fields are hidden by default (a `<details>` keeps its content in the DOM
@@ -86,16 +82,7 @@ describe('QuickJoinDialog', () => {
 
   it('delete asks for confirmation before firing onDelete', async () => {
     const onDelete = vi.fn();
-    render(QuickJoinDialog, {
-      open: true,
-      savedServers: saved,
-      connectDisabledReason: null,
-      onConnect: vi.fn(),
-      onSave: vi.fn(),
-      onSaveAndConnect: vi.fn(),
-      onDelete,
-      onClose: vi.fn(),
-    });
+    render(QuickJoinDialog, baseProps({ onDelete }));
     await fireEvent.click(screen.getAllByRole('button', { name: 'Delete server' })[0]);
     expect(onDelete).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));

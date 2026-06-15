@@ -28,8 +28,9 @@
     addDisabledReason?: string | null;
     showOfflineHint?: boolean;
     onConnect: (address: string) => void;
-    onSave: (name: string, address: string) => void;
-    onSaveAndConnect: (name: string, address: string) => void;
+    // Resolve `true` on a successful save so the dialog can clear + collapse.
+    onSave: (name: string, address: string) => Promise<boolean>;
+    onSaveAndConnect: (name: string, address: string) => Promise<boolean>;
     onDelete: (index: number, address: string) => void;
     onClose: () => void;
   } = $props();
@@ -58,11 +59,20 @@
     }
   });
 
-  function submitSave(connectAfter: boolean) {
+  async function submitSave(connectAfter: boolean) {
     touched = true;
     if (!canSave) return;
-    if (connectAfter) onSaveAndConnect(trimmedName, trimmedAddress);
-    else onSave(trimmedName, trimmedAddress);
+    const ok = connectAfter
+      ? await onSaveAndConnect(trimmedName, trimmedAddress)
+      : await onSave(trimmedName, trimmedAddress);
+    // On success, clear the form and collapse the add section so the next
+    // open / next add starts fresh and the saved list reads as the primary view.
+    if (ok) {
+      name = '';
+      address = '';
+      touched = false;
+      addOpen = false;
+    }
   }
 </script>
 
@@ -81,7 +91,9 @@
 
     {#if savedServers.length > 0}
       <p class="text-xs text-secondary mb-2">{$t('quickJoin.savedHeading')}</p>
-      <ul class="flex flex-col gap-2 mb-3">
+      <!-- Cap height + scroll so a long list stays inside the modal instead of
+           overflowing the viewport. -->
+      <ul class="flex flex-col gap-2 mb-3 max-h-72 overflow-y-auto pr-1">
         {#each savedServers as server, i (i)}
           <li class="flex items-center gap-2 bg-surface-subtle rounded px-3 py-2">
             {#if confirmingIndex === i}

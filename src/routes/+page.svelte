@@ -545,32 +545,34 @@
     }
   }
 
-  async function onServerSave(name: string, address: string) {
-    if (!activeInstance) return;
+  async function onServerSave(name: string, address: string): Promise<boolean> {
+    if (!activeInstance) return false;
     quickJoinBusy = true;
     installError = null;
     const r = await commands.addSavedServer(activeInstance.id, name, address);
     quickJoinBusy = false;
     if (r.status === 'error') {
       installError = formatError(r.error);
-    } else {
-      await loadSavedServers();
+      return false;
     }
+    await loadSavedServers();
+    return true;
   }
 
-  async function onServerSaveAndConnect(name: string, address: string) {
-    if (!activeInstance) return;
+  async function onServerSaveAndConnect(name: string, address: string): Promise<boolean> {
+    if (!activeInstance) return false;
     quickJoinBusy = true;
     installError = null;
     const r = await commands.addSavedServer(activeInstance.id, name, address);
     if (r.status === 'error') {
       quickJoinBusy = false;
       installError = formatError(r.error);
-      return;
+      return false;
     }
     await loadSavedServers();
     quickJoinBusy = false;
     await connectToAddress(address);
+    return true;
   }
 
   async function onServerDelete(index: number, address: string) {
@@ -822,8 +824,8 @@
     addDisabledReason={running !== null ? $t('worlds.quickPlay.disabledRunning') : null}
     showOfflineHint={activeAccount?.kind === 'offline'}
     onConnect={(address) => void connectToAddress(address)}
-    onSave={(name, address) => void onServerSave(name, address)}
-    onSaveAndConnect={(name, address) => void onServerSaveAndConnect(name, address)}
+    onSave={onServerSave}
+    onSaveAndConnect={onServerSaveAndConnect}
     onDelete={(index, address) => void onServerDelete(index, address)}
     onClose={() => (quickJoinOpen = false)}
   />
