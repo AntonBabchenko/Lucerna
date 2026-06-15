@@ -112,7 +112,9 @@
            overflowing the viewport. -->
       <ul class="flex flex-col gap-2 mb-3 max-h-72 overflow-y-auto pr-1">
         {#each savedServers as server, i (i)}
-          <li class="flex items-center gap-2 bg-surface-subtle rounded px-3 py-2">
+          <li
+            class="flex items-center gap-2 bg-surface-subtle border border-border-subtle rounded px-3 py-2"
+          >
             {#if confirmingIndex === i}
               <span class="flex-1 text-xs text-danger min-w-0">
                 {$t('quickJoin.deleteConfirm', { name: server.name })}
