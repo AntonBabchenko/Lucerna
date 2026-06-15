@@ -51,6 +51,21 @@ describe('BlockingModsRepairCard', () => {
     expect(screen.getByText('citadel')).toBeTruthy();
   });
 
+  it('points users at the disconnect screen "Server has" column for the version', () => {
+    render(BlockingModsRepairCard, {
+      props: {
+        plan: planOf([{ sha1: 'a', mod_id: 'alexsmobs', name: "Alex's Mobs", breaks: [] }]),
+        instanceId: 'inst-1',
+        onClose: vi.fn(),
+      },
+    });
+    // The version-mismatch path is only actionable if the user knows where to
+    // read the target version: the FML disconnect screen's "Server has" column.
+    // Pinning this literal is the feature contract, not incidental coupling — a
+    // reword that drops the pointer should fail here.
+    expect(screen.getByTestId('blocking-intro').textContent).toContain('Server has');
+  });
+
   it('keeps each Disable action behind a collapsed per-mod disclosure', () => {
     render(BlockingModsRepairCard, {
       props: {
