@@ -391,6 +391,7 @@ export type TranslationKey =
   | 'logs.share.uploadFailed'
   | 'logs.share.uploading'
   | 'logs.toolbar.collapseStacks'
+  | 'logs.toolbar.moreActions'
   | 'logs.toolbar.openFolder'
   | 'logs.toolbar.rawView'
   | 'logs.toolbar.readCap'

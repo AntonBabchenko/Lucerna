@@ -736,7 +736,8 @@
       "wrapLines": "Wrap lines",
       "collapseStacks": "Collapse stacks",
       "showLevels": "Show:",
-      "rawView": "Raw view"
+      "rawView": "Raw view",
+      "moreActions": "More actions"
     },
     "severity": {
       "game": "Game logs",
