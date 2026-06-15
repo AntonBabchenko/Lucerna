@@ -15,6 +15,7 @@
   import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
+  import { deferOrRunRepair } from '$lib/logs/deferred-repairs.svelte';
   import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -41,6 +42,7 @@
     instanceName = null as string | null,
     mcVersion = null as string | null,
     loader = null as LoaderKind | null,
+    gameRunning = false,
   }: {
     open: boolean;
     initialPath?: string | null;
@@ -51,6 +53,10 @@
     // (decideModInstall needs both). Null until an instance is selected.
     mcVersion?: string | null;
     loader?: LoaderKind | null;
+    // True while any Minecraft process is running. Repairs that mutate instance
+    // files can't run then (the JVM holds them open), so they're deferred until
+    // the game closes instead of failing with InstanceBusy.
+    gameRunning?: boolean;
   } = $props();
 
   // ---------------------------------------------------------------------------
@@ -318,7 +324,18 @@
     // close. A success/warning toast is emitted by the repair-ops store.
     repairApplying = true;
     try {
-      await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
+      if (gameRunning) {
+        // Game running → the file mutation can't happen now; queue it for after
+        // the game closes (deferOrRunRepair emits its own queued/done toast).
+        await deferOrRunRepair(true, {
+          instanceId,
+          sha1: null,
+          label: instanceName ?? instanceId,
+          choice,
+        });
+      } else {
+        await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
+      }
     } finally {
       repairApplying = false;
       repairPlan = null;
@@ -881,6 +898,7 @@
                       instanceId={instanceId ?? ''}
                       {mcVersion}
                       {loader}
+                      {gameRunning}
                       onClose={() => (repairPlan = null)}
                     />
                   {:else if repairPlan}
