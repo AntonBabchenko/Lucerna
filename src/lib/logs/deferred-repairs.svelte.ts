@@ -3,13 +3,14 @@
 // instance's files open (Windows), so instead of failing we hold the action and
 // run it on the next `processExited`. Same module-singleton rune idiom as
 // repair-ops.svelte / op-queue.svelte. Lost on launcher restart (session-only).
+
+import { SvelteSet } from 'svelte/reactivity';
 import { get } from 'svelte/store';
 import { t } from '$lib/i18n';
 import type { RepairChoice } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
-import { SvelteSet } from 'svelte/reactivity';
 
 type DeferredRepair = {
   id: string;

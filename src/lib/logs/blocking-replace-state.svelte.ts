@@ -1,8 +1,9 @@
 // Session-scoped memory for the blocking card's per-mod version UI, so a chosen
 // version (and the fetched version list) survives closing/reopening the Logs
 // window. Keyed by `${instanceId}::${sha1}`. Lost on launcher restart.
-import type { ModVersion } from '$lib/ipc/bindings';
+
 import { SvelteMap } from 'svelte/reactivity';
+import type { ModVersion } from '$lib/ipc/bindings';
 
 const loaded = new SvelteMap<string, ModVersion[]>();
 const chosen = new SvelteMap<string, string>();

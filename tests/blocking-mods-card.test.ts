@@ -20,11 +20,8 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 
 import type { RepairPlan } from '$lib/ipc/bindings';
 import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
-import {
-  __resetDeferredRepairsForTest,
-  isDeferred,
-} from '$lib/logs/deferred-repairs.svelte';
 import { __resetBlockingReplaceStateForTest } from '$lib/logs/blocking-replace-state.svelte';
+import { __resetDeferredRepairsForTest, isDeferred } from '$lib/logs/deferred-repairs.svelte';
 
 type BlockingPlan = Extract<RepairPlan, { kind: 'disable_blocking_mods' }>;
 type BlockingMod = BlockingPlan['mods'][number];
@@ -347,7 +344,13 @@ describe('BlockingModsRepairCard', () => {
           version_number: '3.24.53',
           mc_versions: ['1.20.1'],
           loaders: ['forge'],
-          primary_file: { filename: 'sb.jar', url: 'https://e/sb.jar', sha1: 'aa', size: 1, distribution_allowed: true },
+          primary_file: {
+            filename: 'sb.jar',
+            url: 'https://e/sb.jar',
+            sha1: 'aa',
+            size: 1,
+            distribution_allowed: true,
+          },
           deps: [],
           published_at: null,
         },
@@ -369,7 +372,9 @@ describe('BlockingModsRepairCard', () => {
     await fireEvent.click(screen.getByRole('combobox'));
     await fireEvent.mouseDown(screen.getByRole('option', { name: '3.24.53' }));
     await waitFor(() =>
-      expect((screen.getByTestId('blocking-install-version-qa') as HTMLButtonElement).disabled).toBe(false),
+      expect(
+        (screen.getByTestId('blocking-install-version-qa') as HTMLButtonElement).disabled,
+      ).toBe(false),
     );
     await fireEvent.click(screen.getByTestId('blocking-install-version-qa'));
 
@@ -391,7 +396,13 @@ describe('BlockingModsRepairCard', () => {
           version_number: '3.24.53',
           mc_versions: ['1.20.1'],
           loaders: ['forge'],
-          primary_file: { filename: 'sb.jar', url: 'u', sha1: 'a', size: 1, distribution_allowed: true },
+          primary_file: {
+            filename: 'sb.jar',
+            url: 'u',
+            sha1: 'a',
+            size: 1,
+            distribution_allowed: true,
+          },
           deps: [],
           published_at: null,
         },
@@ -411,7 +422,9 @@ describe('BlockingModsRepairCard', () => {
     await fireEvent.click(screen.getByRole('combobox'));
     await fireEvent.mouseDown(screen.getByRole('option', { name: '3.24.53' }));
     await waitFor(() =>
-      expect((screen.getByTestId('blocking-install-version-pa') as HTMLButtonElement).disabled).toBe(false),
+      expect(
+        (screen.getByTestId('blocking-install-version-pa') as HTMLButtonElement).disabled,
+      ).toBe(false),
     );
     unmount();
 
@@ -419,6 +432,8 @@ describe('BlockingModsRepairCard', () => {
     // re-clicking "Replace version" (loaded versions + choice came from the store).
     render(BlockingModsRepairCard, { props });
     expect(screen.getByTestId('blocking-version-select-pa')).toBeTruthy();
-    expect((screen.getByTestId('blocking-install-version-pa') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId('blocking-install-version-pa') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 });
