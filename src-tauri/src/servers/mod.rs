@@ -55,7 +55,12 @@ fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     }
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, bytes).map_err(|e| Error::io(tmp.display().to_string(), e))?;
-    std::fs::rename(&tmp, path).map_err(|e| Error::io(path.display().to_string(), e))
+    let renamed = std::fs::rename(&tmp, path).map_err(|e| Error::io(path.display().to_string(), e));
+    if renamed.is_err() {
+        // Don't leave a stale servers.tmp behind on a failed rename.
+        let _ = std::fs::remove_file(&tmp);
+    }
+    renamed
 }
 
 /// List the instance's saved servers. Missing file → empty Vec (not an error).
@@ -77,6 +82,7 @@ pub fn add_saved_server(
     name: &str,
     address: &str,
 ) -> Result<()> {
+    // Global single-process model: if any instance is running we block, because Minecraft rewrites servers.dat on exit.
     if crate::launch::is_running() {
         return Err(Error::InstanceBusy);
     }
@@ -101,6 +107,7 @@ pub fn remove_saved_server(
     index: usize,
     expected_address: &str,
 ) -> Result<()> {
+    // Global single-process model: if any instance is running we block, because Minecraft rewrites servers.dat on exit.
     if crate::launch::is_running() {
         return Err(Error::InstanceBusy);
     }

@@ -92,7 +92,7 @@ pub fn push_server(root: &mut Value, name: &str, address: &str) -> Result<()> {
 /// mismatch / out-of-bounds → `SavedServerListChanged`, file left unchanged.
 pub fn remove_server(root: &mut Value, index: usize, expected_address: &str) -> Result<()> {
     let list = servers_list_mut(root)?;
-    let matches = list
+    let address_matches = list
         .get(index)
         .and_then(|v| match v {
             Value::Compound(e) => e.get("ip"),
@@ -100,7 +100,7 @@ pub fn remove_server(root: &mut Value, index: usize, expected_address: &str) -> 
         })
         .map(|ip| matches!(ip, Value::String(s) if s == expected_address))
         .unwrap_or(false);
-    if !matches {
+    if !address_matches {
         return Err(Error::SavedServerListChanged);
     }
     list.remove(index);
