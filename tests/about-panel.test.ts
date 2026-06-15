@@ -40,11 +40,9 @@ describe('AboutPanel', () => {
     expect(screen.getByText(/Minecraft and Mojang are trademarks/)).toBeTruthy();
   });
 
-  it('tucks the changelog into a "What\'s new" disclosure', () => {
+  it('no longer renders the changelog (moved to the Updates section)', () => {
     render(AboutPanel);
-    // The disclosure summary, and the embedded changelog content (the 0.1.0
-    // first release is always present in CHANGELOG.md), are in the DOM.
-    expect(screen.getByText("What's new")).toBeTruthy();
-    expect(screen.getByText('v0.1.0')).toBeTruthy();
+    expect(screen.queryByText("What's new")).toBeNull();
+    expect(screen.queryByText('v0.1.0')).toBeNull();
   });
 });
