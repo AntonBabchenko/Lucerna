@@ -132,6 +132,8 @@
           </li>
         {/each}
       </ul>
+    {:else}
+      <p class="text-xs text-secondary mb-3">{$t('quickJoin.empty')}</p>
     {/if}
 
     <details class="border-t border-border-subtle pt-3" bind:open={addOpen}>
