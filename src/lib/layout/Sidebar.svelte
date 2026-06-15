@@ -37,7 +37,6 @@
     onMicrosoftError,
     compact = false,
     onToggleCompact = () => {},
-    quickPlaySupported = false,
     onOpenQuickJoin = () => {},
   }: {
     accounts: Account[];
@@ -72,7 +71,6 @@
     onMicrosoftError?: (err: unknown) => void;
     compact?: boolean;
     onToggleCompact?: () => void;
-    quickPlaySupported?: boolean;
     onOpenQuickJoin?: () => void;
   } = $props();
 
@@ -311,17 +309,15 @@
               <Icon name="play" size={16} />
               {$t('sidebar.play')}
             </button>
-            {#if quickPlaySupported}
-              <button
-                type="button"
-                class="btn-success btn-lg px-3"
-                aria-label={$t('sidebar.joinServer')}
-                use:tooltip={$t('sidebar.joinServer')}
-                onclick={onOpenQuickJoin}
-              >
-                <Icon name="globe" size={18} />
-              </button>
-            {/if}
+            <button
+              type="button"
+              class="btn-success btn-lg px-3"
+              aria-label={$t('sidebar.servers')}
+              use:tooltip={$t('sidebar.servers')}
+              onclick={onOpenQuickJoin}
+            >
+              <Icon name="globe" size={18} />
+            </button>
           </div>
         {/if}
       {/if}
