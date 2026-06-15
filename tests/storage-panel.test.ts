@@ -10,6 +10,11 @@ vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsCacheSizeBytes: vi.fn(),
     modsClearCache: vi.fn(),
+    appSettingsGet: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { general: { hide_to_tray_during_game: false, theme: 'system', check_updates_on_startup: true, gpu_preference: 'auto', log_retention: { enabled: false, max_files: 10, max_total_mb: 100 } } },
+    }),
+    appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
 
@@ -59,5 +64,14 @@ describe('StoragePanel', () => {
     render(StoragePanel);
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/permission denied/)).toBeTruthy();
+  });
+});
+
+describe('StoragePanel — log retention', () => {
+  it('renders the retention toggle and the two numeric inputs', () => {
+    const { container } = render(StoragePanel);
+    expect(container.querySelector('[data-testid="log-retention-toggle"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="log-retention-max-files"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="log-retention-max-mb"]')).not.toBeNull();
   });
 });
