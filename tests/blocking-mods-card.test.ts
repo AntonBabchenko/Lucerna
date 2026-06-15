@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const executeRepair = vi.fn();
 const modsVersions = vi.fn();
@@ -20,6 +20,11 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 
 import type { RepairPlan } from '$lib/ipc/bindings';
 import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
+import {
+  __resetDeferredRepairsForTest,
+  isDeferred,
+} from '$lib/logs/deferred-repairs.svelte';
+import { __resetBlockingReplaceStateForTest } from '$lib/logs/blocking-replace-state.svelte';
 
 type BlockingPlan = Extract<RepairPlan, { kind: 'disable_blocking_mods' }>;
 type BlockingMod = BlockingPlan['mods'][number];
@@ -51,6 +56,10 @@ function openDisclosure(sha1: string): void {
   if (summary) void fireEvent.click(summary);
 }
 
+beforeEach(() => {
+  __resetDeferredRepairsForTest();
+  __resetBlockingReplaceStateForTest();
+});
 afterEach(() => vi.clearAllMocks());
 
 describe('BlockingModsRepairCard', () => {
@@ -322,5 +331,94 @@ describe('BlockingModsRepairCard', () => {
     expect(screen.getByTestId('blocking-replace-a')).toBeTruthy();
     expect(screen.queryByTestId('blocking-version-select-a')).toBeNull();
     expect(executeRepair).not.toHaveBeenCalled();
+  });
+
+  // ── Deferred apply while a game runs (A) + persisted selection (B) ────────
+
+  it('defers the replace when a game is running (no immediate executeRepair)', async () => {
+    modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          source: 'modrinth',
+          project_id: 'sophisticatedbackpacks',
+          version_id: 'v-3245',
+          name: 'SB 3.24.53',
+          version_number: '3.24.53',
+          mc_versions: ['1.20.1'],
+          loaders: ['forge'],
+          primary_file: { filename: 'sb.jar', url: 'https://e/sb.jar', sha1: 'aa', size: 1, distribution_allowed: true },
+          deps: [],
+          published_at: null,
+        },
+      ],
+    });
+    render(BlockingModsRepairCard, {
+      props: {
+        plan: planOf([{ sha1: 'qa', mod_id: 'sophisticatedbackpacks', name: 'SB', breaks: [] }]),
+        instanceId: 'inst-queue',
+        mcVersion: '1.20.1',
+        loader: 'forge',
+        gameRunning: true,
+        onClose: vi.fn(),
+      },
+    });
+
+    await fireEvent.click(screen.getByTestId('blocking-replace-qa'));
+    await waitFor(() => expect(screen.getByTestId('blocking-version-select-qa')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('combobox'));
+    await fireEvent.mouseDown(screen.getByRole('option', { name: '3.24.53' }));
+    await waitFor(() =>
+      expect((screen.getByTestId('blocking-install-version-qa') as HTMLButtonElement).disabled).toBe(false),
+    );
+    await fireEvent.click(screen.getByTestId('blocking-install-version-qa'));
+
+    // Game running → queued, not applied: executeRepair NOT called; row queued.
+    await waitFor(() => expect(isDeferred('inst-queue', 'qa')).toBe(true));
+    expect(executeRepair).not.toHaveBeenCalled();
+    expect(screen.getByTestId('blocking-queued-qa')).toBeTruthy();
+  });
+
+  it('persists the chosen version across unmount/remount (Logs reopen)', async () => {
+    modsVersions.mockResolvedValue({
+      status: 'ok',
+      data: [
+        {
+          source: 'modrinth',
+          project_id: 'sophisticatedbackpacks',
+          version_id: 'v-1',
+          name: 'a',
+          version_number: '3.24.53',
+          mc_versions: ['1.20.1'],
+          loaders: ['forge'],
+          primary_file: { filename: 'sb.jar', url: 'u', sha1: 'a', size: 1, distribution_allowed: true },
+          deps: [],
+          published_at: null,
+        },
+      ],
+    });
+    const props = {
+      plan: planOf([{ sha1: 'pa', mod_id: 'sophisticatedbackpacks', name: 'SB', breaks: [] }]),
+      instanceId: 'inst-persist',
+      mcVersion: '1.20.1',
+      loader: 'forge',
+      gameRunning: false,
+      onClose: vi.fn(),
+    };
+    const { unmount } = render(BlockingModsRepairCard, { props });
+    await fireEvent.click(screen.getByTestId('blocking-replace-pa'));
+    await waitFor(() => expect(screen.getByTestId('blocking-version-select-pa')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('combobox'));
+    await fireEvent.mouseDown(screen.getByRole('option', { name: '3.24.53' }));
+    await waitFor(() =>
+      expect((screen.getByTestId('blocking-install-version-pa') as HTMLButtonElement).disabled).toBe(false),
+    );
+    unmount();
+
+    // Reopen Logs: the dropdown is shown again with the prior selection, without
+    // re-clicking "Replace version" (loaded versions + choice came from the store).
+    render(BlockingModsRepairCard, { props });
+    expect(screen.getByTestId('blocking-version-select-pa')).toBeTruthy();
+    expect((screen.getByTestId('blocking-install-version-pa') as HTMLButtonElement).disabled).toBe(false);
   });
 });

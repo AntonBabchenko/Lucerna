@@ -21,3 +21,9 @@ export function getChosenVersion(instanceId: string, sha1: string): string | nul
 export function setChosenVersion(instanceId: string, sha1: string, versionId: string): void {
   chosen.set(key(instanceId, sha1), versionId);
 }
+
+/** Test-only: clear all session state so tests don't leak into each other. */
+export function __resetBlockingReplaceStateForTest(): void {
+  loaded.clear();
+  chosen.clear();
+}

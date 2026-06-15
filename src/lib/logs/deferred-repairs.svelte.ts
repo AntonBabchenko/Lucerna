@@ -61,6 +61,13 @@ export async function deferOrRunRepair(
   return { deferred: false, ok };
 }
 
+/** Test-only: clear all session state so tests don't leak into each other. */
+export function __resetDeferredRepairsForTest(): void {
+  queue = [];
+  completed.clear();
+  seq = 0;
+}
+
 /** Apply every queued repair (serially). Call on processExited. */
 export async function drainDeferredRepairs(): Promise<void> {
   if (queue.length === 0) return;
