@@ -6,4 +6,5 @@
 pub mod diagnose;
 pub mod files;
 pub mod read;
+pub mod retention;
 pub mod share;

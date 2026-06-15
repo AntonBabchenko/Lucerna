@@ -175,6 +175,40 @@ fn default_language() -> String {
     "system".to_string()
 }
 
+/// Opt-in automatic cleanup of old log files. Applied per-instance on
+/// game exit and when the Logs window opens. `latest.log` and
+/// `debug.log` are always preserved. Two limits, both enforced: keep at
+/// most `max_files` non-protected files AND keep their total size under
+/// `max_total_mb`. Off by default — the launcher never deletes user logs
+/// without explicit opt-in.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type)]
+pub struct LogRetentionPolicy {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_max_files")]
+    pub max_files: u32,
+    #[serde(default = "default_max_total_mb")]
+    pub max_total_mb: u32,
+}
+
+fn default_max_files() -> u32 {
+    10
+}
+
+fn default_max_total_mb() -> u32 {
+    100
+}
+
+impl Default for LogRetentionPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_files: default_max_files(),
+            max_total_mb: default_max_total_mb(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
@@ -213,6 +247,10 @@ pub struct GeneralSettings {
     /// app.json written before this field deserializes to `Auto`.
     #[serde(default)]
     pub gpu_preference: GpuPreference,
+    /// Opt-in old-log auto-cleanup. `#[serde(default)]` → app.json
+    /// written before this field deserializes to a disabled policy.
+    #[serde(default)]
+    pub log_retention: LogRetentionPolicy,
 }
 
 impl Default for GeneralSettings {
@@ -225,6 +263,7 @@ impl Default for GeneralSettings {
             explanation_level: ExplanationLevel::default(),
             compact_mode: false,
             gpu_preference: GpuPreference::default(),
+            log_retention: LogRetentionPolicy::default(),
         }
     }
 }
@@ -273,6 +312,35 @@ impl InstanceWithStatus {
             integrity: file.integrity.clone(),
             imported_from: file.imported_from.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    #[test]
+    fn log_retention_default_is_off_with_sane_numbers() {
+        let p = LogRetentionPolicy::default();
+        assert!(!p.enabled, "retention must be opt-in (off by default)");
+        assert_eq!(p.max_files, 10);
+        assert_eq!(p.max_total_mb, 100);
+    }
+
+    #[test]
+    fn general_settings_default_has_retention_off() {
+        let g = GeneralSettings::default();
+        assert!(!g.log_retention.enabled);
+    }
+
+    #[test]
+    fn old_app_json_without_retention_deserializes_to_default() {
+        // Field added later → existing app.json files lack it. #[serde(default)]
+        // must fill it in rather than fail the whole GeneralSettings parse.
+        let json = r#"{"hide_to_tray_during_game":true}"#;
+        let g: GeneralSettings = serde_json::from_str(json).unwrap();
+        assert!(!g.log_retention.enabled);
+        assert_eq!(g.log_retention.max_files, 10);
     }
 }
 

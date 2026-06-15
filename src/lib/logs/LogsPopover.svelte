@@ -8,6 +8,7 @@
     type RepairChoice,
     type RepairPlan,
   } from '$lib/ipc/bindings';
+  import { SvelteSet } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
@@ -15,11 +16,12 @@
   import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
+  import { clearOldPreview } from '$lib/logs/manage';
   import { deferOrRunRepair } from '$lib/logs/deferred-repairs.svelte';
   import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
-  import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import Select from '$lib/ui/Select.svelte';
@@ -87,6 +89,12 @@
   let listError = $state<string | null>(null);
   let selectedPath = $state<string | null>(null);
   let selectedContent = $state<string>('');
+  // Log management: per-file delete (centered confirm dialog) + bulk "clear old".
+  let confirmingDeletePath = $state<string | null>(null);
+  let deletingPaths = $state(new SvelteSet<string>());
+  let clearOldOpen = $state(false);
+  let clearingOld = $state(false);
+  const clearOldStats = $derived(clearOldPreview(files));
   let diagnosis = $state<Diagnosis | null>(null);
   // Auto-repair: the concrete plan is fetched lazily on "Fix this" intent.
   let repairPlan = $state<RepairPlan | null>(null);
@@ -243,6 +251,11 @@
   // present) or the newest log. `selectFile` loads its content, refreshing a
   // rewritten `latest.log` from a prior run.
   async function openViewer(deepLink: string | null) {
+    // Best-effort: trim logs past the retention policy so the list shows the
+    // already-trimmed set. Silent — never surface errors from this pass.
+    if (instanceId) {
+      await commands.applyLogRetention(instanceId);
+    }
     await reloadList();
     const target = chooseOpenLog(files, deepLink);
     if (target) {
@@ -265,6 +278,50 @@
   async function selectFile(path: string) {
     selectedPath = path;
     await loadContent(path);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Log management: per-file delete + "clear old"
+  // ---------------------------------------------------------------------------
+
+  async function deleteFile(path: string) {
+    confirmingDeletePath = null;
+    deletingPaths.add(path);
+    const r = await commands.deleteLogFile(path);
+    deletingPaths.delete(path);
+    if (r.status !== 'ok') {
+      pushWarning($t('logs.manage.delete'), [formatError(r.error)]);
+      return;
+    }
+    if (selectedPath === path) {
+      selectedPath = null;
+      selectedContent = '';
+    }
+    await reloadList();
+  }
+
+  async function confirmClearOld() {
+    if (!instanceId) return;
+    clearingOld = true;
+    const r = await commands.clearOldLogs(instanceId);
+    clearingOld = false;
+    clearOldOpen = false;
+    if (r.status !== 'ok') {
+      pushWarning($t('logs.manage.clearOld'), [formatError(r.error)]);
+      return;
+    }
+    pushSuccess(
+      $t('logs.manage.cleared', {
+        count: r.data.deleted_count,
+        size: formatSize($t, r.data.freed_bytes),
+      }),
+    );
+    await reloadList();
+    // If the open file was swept away, clear the viewer.
+    if (selectedPath && !files.some((f) => f.path === selectedPath)) {
+      selectedPath = null;
+      selectedContent = '';
+    }
   }
 
   async function loadContent(path: string) {
@@ -664,6 +721,17 @@
               <Icon name="refresh" class="icon-spin-hover" />{$t('logs.toolbar.reload')}
             </button>
 
+            <!-- Clear old logs: deletes everything except protected files
+                 (latest.log / debug.log). Disabled when nothing is eligible. -->
+            <button
+              class="btn-secondary btn-xs inline-flex items-center gap-1.5"
+              disabled={clearOldStats.count === 0}
+              onclick={() => (clearOldOpen = true)}
+              data-testid="clear-old-logs"
+            >
+              <Icon name="eraser" size={14} />{$t('logs.manage.clearOld')}
+            </button>
+
             <!-- Open the directory containing the currently-selected log file
                  in the OS file manager. Disabled when no file is selected. -->
             <button
@@ -750,6 +818,63 @@
         </div>
       {/if}
 
+      <!-- Clear old logs confirm dialog -->
+      {#if clearOldOpen}
+        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
+            data-testid="clear-old-confirm"
+          >
+            <h3 class="font-semibold text-sm mb-2">{$t('logs.manage.clearOldTitle')}</h3>
+            <p class="text-xs text-muted mb-4">
+              {$t('logs.manage.clearOldBody', {
+                count: clearOldStats.count,
+                size: formatSize($t, clearOldStats.bytes),
+              })}
+            </p>
+            <div class="flex gap-2 justify-end">
+              <button class="btn-secondary btn-xs" onclick={() => (clearOldOpen = false)}>
+                {$t('logs.manage.confirmNo')}
+              </button>
+              <button
+                class="btn-warning btn-xs"
+                disabled={clearingOld}
+                onclick={() => void confirmClearOld()}
+              >
+                {$t('logs.manage.clearOld')}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Delete single log confirm dialog -->
+      {#if confirmingDeletePath}
+        {@const path = confirmingDeletePath}
+        {@const name = files.find((f) => f.path === path)?.name ?? ''}
+        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
+            data-testid="delete-log-confirm"
+          >
+            <h3 class="font-semibold text-sm mb-2">{$t('logs.manage.deleteConfirm')}</h3>
+            <p class="font-mono text-xs text-muted mb-4 break-all">{name}</p>
+            <div class="flex gap-2 justify-end">
+              <button class="btn-secondary btn-xs" onclick={() => (confirmingDeletePath = null)}>
+                {$t('logs.manage.confirmNo')}
+              </button>
+              <button
+                class="btn-warning btn-xs"
+                disabled={deletingPaths.has(path)}
+                onclick={() => void deleteFile(path)}
+              >
+                {$t('logs.manage.confirmYes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
       <!-- Share URL pill -->
       {#if shareUrl}
         <div
@@ -787,17 +912,27 @@
                 </h3>
                 <ul>
                   {#each group.items as f}
-                    <li>
+                    <li
+                      class="group flex items-center hover:bg-subtle {selectedPath === f.path
+                        ? 'bg-accent-soft'
+                        : ''}"
+                    >
                       <button
-                        class="w-full text-left px-3 py-1 hover:bg-subtle {selectedPath === f.path
-                          ? 'bg-accent-soft'
-                          : ''}"
+                        class="flex-1 min-w-0 text-left px-3 py-1"
                         onclick={() => void selectFile(f.path)}
                       >
                         <div class="font-mono text-xs truncate">{f.name}</div>
                         <div class="text-[10px] text-muted">
                           {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
                         </div>
+                      </button>
+                      <button
+                        class="mr-1 shrink-0 rounded p-1.5 text-muted opacity-0 transition-opacity hover:text-danger focus-visible:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        aria-label={$t('logs.manage.delete')}
+                        use:tooltip={$t('logs.manage.delete')}
+                        onclick={() => (confirmingDeletePath = f.path)}
+                      >
+                        <Icon name="trash" size={14} />
                       </button>
                     </li>
                   {/each}

@@ -370,6 +370,7 @@ pub async fn start(
     note_session_start(inst_root);
     maybe_schedule_hide_to_tray(app, pid);
 
+    let instance_id_for_retention = instance.id.to_string();
     let app_clone = app.clone();
     tokio::spawn(async move {
         let exit_code = child
@@ -396,6 +397,15 @@ pub async fn start(
         // (non-zero / -1) exits — the spec requires we always persist
         // the duration regardless of exit reason.
         note_session_end();
+        // Opt-in old-log cleanup. Runs after the session's logs have
+        // settled (MC rotates latest.log at START, so the full set is
+        // complete at exit). Non-fatal: a cleanup failure must never
+        // block process teardown or tray restore.
+        if let Err(e) =
+            crate::logs::retention::apply_from_settings(&app_clone, &instance_id_for_retention)
+        {
+            eprintln!("log-retention: cleanup failed for {instance_id_for_retention}: {e}");
+        }
         // Restore window from tray. Idempotent — no-op when the window
         // was never hidden (hide_to_tray_during_game was off).
         //

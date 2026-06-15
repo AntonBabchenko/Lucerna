@@ -59,6 +59,13 @@ vi.mock('$lib/ipc/bindings', () => ({
     shareLogToMclogs: vi.fn().mockResolvedValue({ status: 'ok', data: 'https://mclo.gs/abc123' }),
     latestCrash: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     openLogFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    applyLogRetention: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { deleted_count: 0, freed_bytes: 0 } }),
+    deleteLogFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    clearOldLogs: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { deleted_count: 0, freed_bytes: 0 } }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },
@@ -344,8 +351,8 @@ describe('LogsPopover — file-list error state uses text-danger', () => {
 
 // ── File-list sidebar file button (bare, not .btn-*) ─────────────────────────
 
-describe('LogsPopover — file sidebar button is bare hover:bg-subtle (not .btn-*)', () => {
-  it('file list button has hover:bg-subtle and is NOT a .btn-* variant', async () => {
+describe('LogsPopover — file sidebar row is bare hover:bg-subtle (not .btn-*)', () => {
+  it('file list row has hover:bg-subtle and the entry is NOT a .btn-* variant', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
       status: 'ok',
@@ -355,8 +362,12 @@ describe('LogsPopover — file sidebar button is bare hover:bg-subtle (not .btn-
     const btn = await screen.findByRole('button', {
       name: (name) => name.toLowerCase().includes('latest.log'),
     });
+    // The hover tint lives on the row <li> so it covers the whole row
+    // (select entry + trailing delete button), not just the select button.
+    const row = btn.closest('li');
+    expect(row?.className).toContain('hover:bg-subtle');
+    // The select entry stays a bare button, never a heavy .btn-* variant.
     const cls = btn.className;
-    expect(cls).toContain('hover:bg-subtle');
     expect(cls).not.toMatch(/\bbtn-primary\b/);
     expect(cls).not.toMatch(/\bbtn-secondary\b/);
     expect(cls).not.toMatch(/\bbtn-danger\b/);
@@ -768,6 +779,113 @@ describe('LogsPopover — Raw view checkbox appears for crash reports', () => {
     });
     const rawLabel = await screen.findByText(/raw view/i);
     expect(rawLabel).not.toBeNull();
+  });
+});
+
+// ── Clear old logs flow ───────────────────────────────────────────────────────
+
+describe('LogsPopover — clear-old-logs button and confirm flow', () => {
+  it('clear-old button is disabled when list contains only protected files', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        makeLogFileMeta({ path: '/inst-1/logs/latest.log', name: 'latest.log' }),
+        makeLogFileMeta({ path: '/inst-1/logs/debug.log', name: 'debug.log' }),
+      ],
+    });
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+    // Wait for the file list to load (sidebar shows the files).
+    await screen.findByText('latest.log');
+    const btn = screen.getByTestId('clear-old-logs') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('clear-old button is enabled and clicking it opens the confirm dialog', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        makeLogFileMeta({ path: '/inst-1/logs/latest.log', name: 'latest.log' }),
+        makeLogFileMeta({ path: '/inst-1/logs/2024-01-01-1.log.gz', name: '2024-01-01-1.log.gz' }),
+      ],
+    });
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+    await screen.findByText('latest.log');
+    const btn = screen.getByTestId('clear-old-logs') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    await fireEvent.click(btn);
+    // Confirm dialog should appear.
+    const confirmDialog = screen.getByTestId('clear-old-confirm');
+    expect(confirmDialog).not.toBeNull();
+  });
+
+  it('confirming clear-old calls clearOldLogs with the instance id', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [
+        makeLogFileMeta({ path: '/inst-1/logs/latest.log', name: 'latest.log' }),
+        makeLogFileMeta({ path: '/inst-1/logs/2024-01-01-1.log.gz', name: '2024-01-01-1.log.gz' }),
+      ],
+    });
+    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
+    await screen.findByText('latest.log');
+    await fireEvent.click(screen.getByTestId('clear-old-logs'));
+    // Click the primary "Clear old" action inside the confirm dialog.
+    const confirmDialog = screen.getByTestId('clear-old-confirm');
+    const clearBtn = confirmDialog.querySelector('button.btn-warning') as HTMLButtonElement;
+    expect(clearBtn).not.toBeNull();
+    await fireEvent.click(clearBtn);
+    await waitFor(() => {
+      expect(commands.clearOldLogs).toHaveBeenCalledWith('inst-1');
+    });
+  });
+
+  it('viewer is cleared when the open file is swept by clear-old', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    const oldFile = makeLogFileMeta({
+      path: '/inst-1/logs/2024-01-01-1.log.gz',
+      name: '2024-01-01-1.log.gz',
+    });
+    const protectedFile = makeLogFileMeta({ path: '/inst-1/logs/latest.log', name: 'latest.log' });
+
+    // First listLogFiles call (on open): both files present.
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [protectedFile, oldFile],
+    });
+    // The old file is opened, so readLogFile is called for it.
+    vi.mocked(commands.readLogFile).mockResolvedValueOnce({
+      status: 'ok',
+      data: '[12:00:00] [main/INFO]: old log content',
+    });
+    vi.mocked(commands.diagnoseLog).mockResolvedValueOnce({ status: 'ok', data: null });
+
+    // After clear-old, the second listLogFiles returns only the protected file.
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
+      status: 'ok',
+      data: [protectedFile],
+    });
+
+    render(LogsPopover, {
+      props: { open: true, instanceId: 'inst-1', initialPath: oldFile.path },
+    });
+
+    // Wait for the old file's content to appear in the viewer.
+    await screen.findByText(/old log content/i);
+
+    // Trigger clear-old and confirm.
+    await fireEvent.click(screen.getByTestId('clear-old-logs'));
+    const confirmDialog = screen.getByTestId('clear-old-confirm');
+    const clearBtn = confirmDialog.querySelector('button.btn-warning') as HTMLButtonElement;
+    await fireEvent.click(clearBtn);
+
+    // After the clear, the viewer should show the empty-state text because the
+    // open file was swept (selectedPath is set to null by confirmClearOld).
+    await waitFor(() => {
+      expect(screen.getByText(/select a file on the left/i)).not.toBeNull();
+    });
   });
 });
 

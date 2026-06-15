@@ -9,6 +9,7 @@
     type GeneralSettings,
     type GpuCapability,
     type GpuPreference,
+    type LogRetentionPolicy,
     type ThemePreference,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
@@ -58,12 +59,22 @@
       : [],
   );
 
+  const DEFAULT_RETENTION: Required<LogRetentionPolicy> = {
+    enabled: false,
+    max_files: 10,
+    max_total_mb: 100,
+  };
+
   let general = $state<GeneralSettings>({
     hide_to_tray_during_game: false,
     theme: 'system',
     check_updates_on_startup: true,
     gpu_preference: 'auto',
   });
+  // Retention is a separate concrete rune so markup can bind to its fields
+  // without optional-access TypeScript errors (LogRetentionPolicy has all
+  // fields optional in the generated bindings).
+  let retention = $state<Required<LogRetentionPolicy>>({ ...DEFAULT_RETENTION });
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
 
@@ -71,6 +82,7 @@
     const r = await commands.appSettingsGet();
     if (r.status === 'ok') {
       general = r.data.general;
+      retention = { ...DEFAULT_RETENTION, ...r.data.general.log_retention };
     } else {
       loadError = formatError(r.error);
     }
@@ -95,6 +107,15 @@
       hide_to_tray_during_game: general.hide_to_tray_during_game,
       check_updates_on_startup: general.check_updates_on_startup,
       gpu_preference: general.gpu_preference,
+      log_retention: {
+        enabled: retention.enabled,
+        max_files: Number.isFinite(retention.max_files as number)
+          ? Math.max(0, Math.trunc(retention.max_files as number))
+          : DEFAULT_RETENTION.max_files,
+        max_total_mb: Number.isFinite(retention.max_total_mb as number)
+          ? Math.max(1, Math.trunc(retention.max_total_mb as number))
+          : DEFAULT_RETENTION.max_total_mb,
+      },
     };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') {
@@ -306,6 +327,51 @@
         {$t('settings.general.onboarding.replayBtn')}
       </button>
       <p class="text-xs text-muted">{$t('settings.general.onboarding.replayDescription')}</p>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-3">
+    <h3 class="font-medium text-sm text-primary">{$t('settings.general.logRetention.title')}</h3>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        bind:checked={retention.enabled}
+        onchange={() => void save()}
+        data-testid="log-retention-toggle"
+      />
+      <span class="flex-1">
+        <span class="text-sm text-primary">{$t('settings.general.logRetention.enableLabel')}</span>
+        <span class="block text-xs text-muted">
+          {$t('settings.general.logRetention.enableDescription')}
+        </span>
+      </span>
+    </label>
+    <div class="flex flex-wrap items-end gap-4 pl-6">
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-primary">{$t('settings.general.logRetention.keepLabel')}</span>
+        <input
+          type="number"
+          min="0"
+          class="border rounded px-2 py-1 text-sm w-28"
+          bind:value={retention.max_files}
+          disabled={!retention.enabled}
+          onchange={() => void save()}
+          data-testid="log-retention-max-files"
+        />
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-primary">{$t('settings.general.logRetention.sizeLabel')}</span>
+        <input
+          type="number"
+          min="1"
+          class="border rounded px-2 py-1 text-sm w-28"
+          bind:value={retention.max_total_mb}
+          disabled={!retention.enabled}
+          onchange={() => void save()}
+          data-testid="log-retention-max-mb"
+        />
+      </label>
     </div>
   </div>
 </section>

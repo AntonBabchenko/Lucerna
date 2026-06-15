@@ -15,6 +15,7 @@ import {
   CircleX,
   Download,
   EllipsisVertical,
+  Eraser,
   Expand,
   ExternalLink,
   FolderOpen,
@@ -81,6 +82,7 @@ export const ICONS = {
   sliders: SlidersHorizontal, // 🎚 Manage instances (tune/adjust a profile)
   folderOpen: FolderOpen, // 📁 Open folder (instance dir, mods folder)
   trash: Trash2, // 🗑 Delete
+  eraser: Eraser, // ✏ Clear / wipe log content
   blocks: Blocks, // 📂 Mods content kind (Add-ons tab kind switch)
   scrollText: ScrollText, // 📜 Logs
   arrowUp: ArrowUp, // ↑ Updates filter

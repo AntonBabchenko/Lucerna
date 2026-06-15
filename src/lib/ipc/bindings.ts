@@ -234,6 +234,23 @@ export const commands = {
 	 */
 	openLogFolder: (path: string) => typedError<null, Error>(__TAURI_INVOKE("open_log_folder", { path })),
 	/**
+	 *  Delete a single log file. `path` must be under some instance's
+	 *  allowed log roots — anything else is rejected with `Error::Io`. Unlike
+	 *  auto-retention, this WILL delete `latest.log` / `debug.log` if the user
+	 *  explicitly picks them (they regenerate on next launch).
+	 */
+	deleteLogFile: (path: string) => typedError<null, Error>(__TAURI_INVOKE("delete_log_file", { path })),
+	/**
+	 *  Delete every old log for `instance_id` (all 3 roots) except
+	 *  `latest.log` / `debug.log`. Returns how many files / bytes were removed.
+	 */
+	clearOldLogs: (instanceId: string) => typedError<CleanupResult, Error>(__TAURI_INVOKE("clear_old_logs", { instanceId })),
+	/**
+	 *  Apply the global retention policy to `instance_id` now. Called by the
+	 *  Logs window on open. No-op (returns zeros) when the policy is disabled.
+	 */
+	applyLogRetention: (instanceId: string) => typedError<CleanupResult, Error>(__TAURI_INVOKE("apply_log_retention", { instanceId })),
+	/**
 	 *  List Fabric loader versions compatible with `mc_id`. Sorted
 	 *  newest-first by build. Empty list → `Error::LoaderUnavailable`.
 	 *  Cached 5 minutes per `mc_id`.
@@ -945,6 +962,12 @@ export type CitedMod = {
 	kind: CitedKind,
 };
 
+/**  What a cleanup removed. `f64` for the specta IPC boundary. */
+export type CleanupResult = {
+	deleted_count: number | null,
+	freed_bytes: number | null,
+};
+
 /**
  *  Compatibility verdict for a local mod jar against a target instance.
  *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
@@ -1263,6 +1286,11 @@ export type GeneralSettings = {
 	 *  app.json written before this field deserializes to `Auto`.
 	 */
 	gpu_preference?: GpuPreference,
+	/**
+	 *  Opt-in old-log auto-cleanup. `#[serde(default)]` → app.json
+	 *  written before this field deserializes to a disabled policy.
+	 */
+	log_retention?: LogRetentionPolicy,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */
@@ -1471,6 +1499,20 @@ export type LogFileMeta = {
 	/**  f64 because specta-typescript 0.0.12 forbids u64. */
 	size_bytes: number | null,
 	modified_unix_ms: number | null,
+};
+
+/**
+ *  Opt-in automatic cleanup of old log files. Applied per-instance on
+ *  game exit and when the Logs window opens. `latest.log` and
+ *  `debug.log` are always preserved. Two limits, both enforced: keep at
+ *  most `max_files` non-protected files AND keep their total size under
+ *  `max_total_mb`. Off by default — the launcher never deletes user logs
+ *  without explicit opt-in.
+ */
+export type LogRetentionPolicy = {
+	enabled?: boolean,
+	max_files?: number,
+	max_total_mb?: number,
 };
 
 export type LogSource = "game" | "crash" | "launcher";
