@@ -1263,7 +1263,11 @@
       "pendingApproval": "Microsoft sign-in pending approval",
       "signInFailed": "Microsoft sign-in failed",
       "noMinecraftTitle": "This account doesn't own Minecraft",
-      "buyMinecraft": "Buy Minecraft"
+      "buyMinecraft": "Buy Minecraft",
+      "removeTitle": "Remove account?",
+      "removeQuestion": "Remove {name}?",
+      "removeDescription": "Lucerna will sign out of this account and forget it. Your instances, worlds, and game files are not affected. To use it again you'll need to add it back.",
+      "removeConfirm": "Remove"
     },
     "overview": {
       "sectionConfiguration": "Configuration",

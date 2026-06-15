@@ -1263,7 +1263,11 @@
       "pendingApproval": "Вход через Microsoft ожидает одобрения",
       "signInFailed": "Не удалось войти через Microsoft",
       "noMinecraftTitle": "На этом аккаунте нет Minecraft",
-      "buyMinecraft": "Купить Minecraft"
+      "buyMinecraft": "Купить Minecraft",
+      "removeTitle": "Удалить аккаунт?",
+      "removeQuestion": "Удалить {name}?",
+      "removeDescription": "Lucerna выйдет из этого аккаунта и забудет его. Ваши сборки, миры и файлы игры не затрагиваются. Чтобы снова им пользоваться, нужно будет добавить его заново.",
+      "removeConfirm": "Удалить"
     },
     "overview": {
       "sectionConfiguration": "Конфигурация",

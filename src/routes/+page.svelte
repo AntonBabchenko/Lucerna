@@ -35,6 +35,7 @@
   import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
+  import RemoveAccountDialog from '$lib/accounts/RemoveAccountDialog.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
@@ -72,6 +73,9 @@
   let offlineNameError = $state<string | null>(null);
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
+  // Gates the actual account removal behind a confirm dialog (see
+  // RemoveAccountDialog) — a single click should not delete an account silently.
+  let removeConfirmOpen = $state(false);
 
   // Self-healing owner of the MC version manifest (fetch + online/backoff
   // recovery). Powers the Manage modal's version picker and publishes to the
@@ -371,10 +375,20 @@
     }
   }
 
-  async function onRemoveActive() {
+  function onRemoveActive() {
     if (!activeAccount) return;
     removeError = null;
+    removeConfirmOpen = true;
+  }
+
+  async function confirmRemoveActive() {
+    if (!activeAccount) {
+      removeConfirmOpen = false;
+      return;
+    }
+    removeError = null;
     const result = await commands.removeAccount(activeAccount.id);
+    removeConfirmOpen = false;
     if (result.status === 'ok') {
       await refreshAccounts();
     } else {
@@ -785,6 +799,13 @@
   {/if}
   {#if launcherImportOpen}
     <LauncherImportDialog onClose={() => (launcherImportOpen = false)} />
+  {/if}
+  {#if removeConfirmOpen && activeAccount}
+    <RemoveAccountDialog
+      accountName={activeAccount.name}
+      onCancel={() => (removeConfirmOpen = false)}
+      onConfirm={confirmRemoveActive}
+    />
   {/if}
 </main>
 <ToastHost />
