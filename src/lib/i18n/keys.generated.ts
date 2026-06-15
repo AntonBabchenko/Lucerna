@@ -313,7 +313,7 @@ export type TranslationKey =
   | 'logs.empty.truncated'
   | 'logs.openFolder.errorToast'
   | 'logs.repair.apply'
-  | 'logs.repair.blockingMods.allDisabled'
+  | 'logs.repair.blockingMods.allResolved'
   | 'logs.repair.blockingMods.breaks'
   | 'logs.repair.blockingMods.disable'
   | 'logs.repair.blockingMods.disableHint'

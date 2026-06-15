@@ -32,10 +32,13 @@
   const disablingSha1s = new SvelteSet<string>();
   const disabledSha1s = new SvelteSet<string>();
 
-  // The card's job is done once every listed mod has been disabled — switch the
-  // footer to a clear "you're done, reconnect" signal.
-  const allDisabled = $derived(
-    plan.mods.length > 0 && plan.mods.every((m) => disabledSha1s.has(m.sha1)),
+  // The card's job is done once every listed mod has been handled — either
+  // disabled or replaced with another version — so switch the footer to a clear
+  // "you're done, reconnect" signal. (`replacedSha1s` is declared below in the
+  // replace section; the closure reads it lazily at render time.)
+  const allResolved = $derived(
+    plan.mods.length > 0 &&
+      plan.mods.every((m) => disabledSha1s.has(m.sha1) || replacedSha1s.has(m.sha1)),
   );
 
   async function disableMod(sha1: string, name: string) {
@@ -237,9 +240,9 @@
     {/each}
   </div>
 
-  {#if allDisabled}
+  {#if allResolved}
     <p class="mt-3 text-xs font-semibold text-success" data-testid="blocking-all-disabled">
-      {$t('logs.repair.blockingMods.allDisabled')}
+      {$t('logs.repair.blockingMods.allResolved')}
     </p>
   {:else}
     <p class="mt-3 text-xs text-muted">{$t('logs.repair.blockingMods.reconnectHint')}</p>

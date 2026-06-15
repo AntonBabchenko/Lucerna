@@ -288,5 +288,39 @@ describe('BlockingModsRepairCard', () => {
         target: { source: 'modrinth', project_id: 'sophisticatedbackpacks', version_id: 'v-3245' },
       }),
     );
+
+    // After a successful replace the row shows the replaced signal and, since it
+    // was the only mod, the card's done footer fires (replace counts as resolved,
+    // not just disable).
+    await waitFor(() => expect(screen.getByTestId('blocking-replaced-a')).toBeTruthy());
+    expect(screen.getByTestId('blocking-all-disabled')).toBeTruthy();
+  });
+
+  it('keeps Replace retryable and warns when loading versions fails', async () => {
+    modsVersions.mockResolvedValue({ status: 'error', error: 'net::ERR' });
+    render(BlockingModsRepairCard, {
+      props: {
+        plan: planOf([
+          {
+            sha1: 'a',
+            mod_id: 'sophisticatedbackpacks',
+            name: 'Sophisticated Backpacks',
+            breaks: [],
+          },
+        ]),
+        instanceId: 'inst-1',
+        mcVersion: '1.20.1',
+        loader: 'forge',
+        onClose: vi.fn(),
+      },
+    });
+
+    await fireEvent.click(screen.getByTestId('blocking-replace-a'));
+    await waitFor(() => expect(pushWarning).toHaveBeenCalled());
+    // Load failed → no version list, and the Replace button stays so the user
+    // can retry. executeRepair must not have been called.
+    expect(screen.getByTestId('blocking-replace-a')).toBeTruthy();
+    expect(screen.queryByTestId('blocking-version-select-a')).toBeNull();
+    expect(executeRepair).not.toHaveBeenCalled();
   });
 });

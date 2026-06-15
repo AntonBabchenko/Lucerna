@@ -851,7 +851,7 @@
         "disabledLabel": "Disabled",
         "breaks": "Disabling this also breaks: {names} — they require it.",
         "reconnectHint": "Disable any mods the server lacks, then reconnect.",
-        "allDisabled": "Disabled — reconnect to the server.",
+        "allResolved": "Done — reconnect to the server.",
         "disabledToast": "Disabled {name}",
         "failedToast": "Couldn't disable {name}: {error}",
         "replaceVersion": "Replace version…",
