@@ -828,6 +828,7 @@
       "updateNamed": "Обновить {name} до {version}",
       "toastDone": "Исправление применено к {name}.",
       "toastError": "Не удалось исправить {name}: {error}",
+      "queuedToast": "{name} в очереди — применится после закрытия игры.",
       "missingMods": {
         "title": "Установить недостающие моды",
         "intro": "Серверу нужны эти моды. Точные совпадения отмечены; где совпадение неуверенное — выберите вручную.",
@@ -862,7 +863,8 @@
         "loadingVersions": "Загружаю версии…",
         "noVersionsFound": "Нет версий под эту версию Minecraft и загрузчик.",
         "replacedToast": "{name} заменён на {version}",
-        "replaceFailedToast": "Не удалось заменить {name}: {error}"
+        "replaceFailedToast": "Не удалось заменить {name}: {error}",
+        "queued": "В очереди — применится после закрытия игры."
       }
     },
     "empty": {

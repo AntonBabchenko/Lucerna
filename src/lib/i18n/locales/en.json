@@ -828,6 +828,7 @@
       "updateNamed": "Update {name} to {version}",
       "toastDone": "Repair applied to {name}.",
       "toastError": "Couldn't repair {name}: {error}",
+      "queuedToast": "Queued {name} — applies after you close the game.",
       "missingMods": {
         "title": "Install missing mods",
         "intro": "The server needs these mods. Confirmed matches are checked; pick from suggestions where the match is unsure.",
@@ -862,7 +863,8 @@
         "loadingVersions": "Loading versions…",
         "noVersionsFound": "No versions found for this Minecraft + loader.",
         "replacedToast": "Replaced {name} with {version}",
-        "replaceFailedToast": "Couldn't replace {name}: {error}"
+        "replaceFailedToast": "Couldn't replace {name}: {error}",
+        "queued": "Queued — applies after you close the game."
       }
     },
     "empty": {
