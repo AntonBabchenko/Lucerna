@@ -33,14 +33,16 @@ type ModInput = Pick<BlockingMod, 'sha1' | 'mod_id' | 'name' | 'breaks'> &
 function planOf(mods: ModInput[]): BlockingPlan {
   return {
     kind: 'disable_blocking_mods',
-    mods: mods.map((m): BlockingMod => ({
-      sha1: m.sha1,
-      mod_id: m.mod_id,
-      name: m.name,
-      breaks: m.breaks,
-      source: 'source' in m ? (m.source ?? null) : 'modrinth',
-      project_id: 'project_id' in m ? (m.project_id ?? null) : m.mod_id,
-    })),
+    mods: mods.map(
+      (m): BlockingMod => ({
+        sha1: m.sha1,
+        mod_id: m.mod_id,
+        name: m.name,
+        breaks: m.breaks,
+        source: 'source' in m ? (m.source ?? null) : 'modrinth',
+        project_id: 'project_id' in m ? (m.project_id ?? null) : m.mod_id,
+      }),
+    ),
   };
 }
 
@@ -175,7 +177,12 @@ describe('BlockingModsRepairCard', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
-          { sha1: 'a', mod_id: 'sophisticatedbackpacks', name: 'Sophisticated Backpacks', breaks: [] },
+          {
+            sha1: 'a',
+            mod_id: 'sophisticatedbackpacks',
+            name: 'Sophisticated Backpacks',
+            breaks: [],
+          },
         ]),
         instanceId: 'inst-1',
         mcVersion: '1.20.1',
@@ -190,7 +197,14 @@ describe('BlockingModsRepairCard', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
-          { sha1: 'a', mod_id: 'manualmod', name: 'Manual Mod', breaks: [], source: null, project_id: null },
+          {
+            sha1: 'a',
+            mod_id: 'manualmod',
+            name: 'Manual Mod',
+            breaks: [],
+            source: null,
+            project_id: null,
+          },
         ]),
         instanceId: 'inst-1',
         mcVersion: '1.20.1',
@@ -231,7 +245,12 @@ describe('BlockingModsRepairCard', () => {
     render(BlockingModsRepairCard, {
       props: {
         plan: planOf([
-          { sha1: 'a', mod_id: 'sophisticatedbackpacks', name: 'Sophisticated Backpacks', breaks: [] },
+          {
+            sha1: 'a',
+            mod_id: 'sophisticatedbackpacks',
+            name: 'Sophisticated Backpacks',
+            breaks: [],
+          },
         ]),
         instanceId: 'inst-1',
         mcVersion: '1.20.1',
