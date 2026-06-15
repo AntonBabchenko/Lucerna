@@ -37,6 +37,7 @@ pub fn parse_server_mod_rejection(log: &str) -> Vec<CitedMod> {
     let recognizers = [
         parse_forge_fml_channels(log),
         parse_forge_datapack_registries(log),
+        parse_forge_missing_registry_data(log),
     ];
     for mods in recognizers.into_iter().flatten() {
         for m in mods {
@@ -195,6 +196,65 @@ static FORGE_DATAPACK_REGISTRY_RE: Lazy<Regex> = Lazy::new(|| {
         .expect("forge datapack-registry regex compiles — covered by tests")
 });
 
+/// Modern Forge / FML registry-sync rejection (confirmed against 47.4.10): when
+/// the client is missing a mod whose content the server registers, FML can't
+/// load the registry and closes the connection. The client log reads, e.g.:
+///
+/// ```text
+/// ...HandshakeHandler/FMLHANDSHAKE]: Missing registry data for impl connection:
+/// 	minecraft:item: naturescompass:naturescompass
+/// ...HandshakeHandler/FMLHANDSHAKE]: Failed to load registry, closing connection.
+/// ```
+///
+/// Each indented entry is `<registry-id>: <namespace>:<path>`; the namespace of
+/// the *value* (`naturescompass`) is the missing mod's id — we cite distinct
+/// namespaces. The block ends at the first non-indented (or blank) line. No
+/// version is given (kind `Missing`). This is the third client-missing format
+/// alongside the channel reject and the datapack-registry reject.
+fn parse_forge_missing_registry_data(log: &str) -> Option<Vec<CitedMod>> {
+    if !log.contains("Missing registry data for impl connection") {
+        return None;
+    }
+    let mut out: Vec<CitedMod> = Vec::new();
+    let mut in_block = false;
+    for line in log.lines() {
+        if line.contains("Missing registry data for impl connection") {
+            in_block = true;
+            continue;
+        }
+        if !in_block {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        // An indented entry line keeps the block open; anything else ends it.
+        if trimmed.is_empty() || trimmed.len() == line.len() {
+            in_block = false;
+            continue;
+        }
+        // "<registry-id>: <namespace>:<path>" — the value namespace is the mod id.
+        let Some((_, value)) = trimmed.split_once(": ") else {
+            continue;
+        };
+        let ns = value.split(':').next().unwrap_or("").trim();
+        if ns.is_empty() {
+            continue;
+        }
+        if out.iter().any(|m| m.id.eq_ignore_ascii_case(ns)) {
+            continue; // dedup by id, first wins
+        }
+        out.push(CitedMod {
+            id: ns.to_string(),
+            version: None,
+            kind: CitedKind::Missing,
+        });
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +343,50 @@ mod tests {
         assert!(ids.iter().any(|s| s == "farmersdelight"), "got: {ids:?}");
         assert!(ids.iter().any(|s| s == "moonlight"), "got: {ids:?}");
         assert_eq!(ids.len(), 2);
+    }
+
+    // Real excerpt (47.4.10): client missing Nature's Compass; the server's
+    // registry entries can't be loaded, so FML closes the connection. The value
+    // namespace (`naturescompass`) is the missing mod-id.
+    const FORGE_MISSING_REGISTRY: &str = "\
+[15.06.2026 17:05:35.831] [Render thread/ERROR] [net.minecraftforge.registries.GameData/REGISTRIES]: Unidentified mapping from registry minecraft:item
+	naturescompass:naturescompass: 1829
+[15.06.2026 17:05:35.831] [Render thread/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Missing registry data for impl connection:
+	minecraft:item: naturescompass:naturescompass
+[15.06.2026 17:05:35.831] [Netty Client IO #1/ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Failed to load registry, closing connection.";
+
+    #[test]
+    fn parses_missing_registry_data_cites_value_namespace() {
+        let mods = parse_server_mod_rejection(FORGE_MISSING_REGISTRY);
+        assert_eq!(
+            mods.len(),
+            1,
+            "only the value namespace, not the registry id"
+        );
+        assert_eq!(mods[0].id, "naturescompass");
+        assert_eq!(mods[0].kind, CitedKind::Missing);
+        assert_eq!(mods[0].version, None);
+    }
+
+    #[test]
+    fn missing_registry_block_stops_at_non_indented_line() {
+        // The registry id side (`minecraft:item`) must NOT be cited, and parsing
+        // must stop at the next timestamped (non-indented) line.
+        let mods = parse_server_mod_rejection(FORGE_MISSING_REGISTRY);
+        let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["naturescompass"]);
+        assert!(!ids.contains(&"minecraft"), "registry id is not a mod");
+    }
+
+    #[test]
+    fn missing_registry_dedups_repeated_namespaces() {
+        let log = "[ERROR] [HandshakeHandler/FMLHANDSHAKE]: Missing registry data for impl connection:\n\
+                   \tminecraft:item: naturescompass:compass\n\
+                   \tminecraft:block: naturescompass:block\n\
+                   [ERROR] [HandshakeHandler/FMLHANDSHAKE]: Failed to load registry, closing connection.";
+        let mods = parse_server_mod_rejection(log);
+        let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["naturescompass"]);
     }
 
     // ── parse_blocking_client_mods (the "client has extra mods" reject) ──────

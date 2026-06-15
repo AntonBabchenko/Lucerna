@@ -91,6 +91,26 @@ describe('AddonsTab', () => {
     vi.clearAllMocks();
   });
 
+  it('rainbow-animates the Shaders tab icon (only) when the effect is enabled', async () => {
+    const { rainbowFx } = await import('$lib/fx/rainbow-fx.svelte');
+    rainbowFx.set(true);
+    render(AddonsTab, { props });
+    const shaderSvg = screen.getByRole('tab', { name: 'Shaders' }).querySelector('svg');
+    expect(shaderSvg?.classList.contains('icon-rainbow-hover')).toBe(true);
+    // The other kind tabs must NOT carry the effect.
+    const modSvg = screen.getByRole('tab', { name: 'Mods' }).querySelector('svg');
+    expect(modSvg?.classList.contains('icon-rainbow-hover')).toBe(false);
+  });
+
+  it('does not animate the Shaders tab icon when the effect is disabled', async () => {
+    const { rainbowFx } = await import('$lib/fx/rainbow-fx.svelte');
+    rainbowFx.set(false);
+    render(AddonsTab, { props });
+    const shaderSvg = screen.getByRole('tab', { name: 'Shaders' }).querySelector('svg');
+    expect(shaderSvg?.classList.contains('icon-rainbow-hover')).toBe(false);
+    rainbowFx.set(true); // restore default-on for other suites
+  });
+
   it('renders the content-kind switch with the three labels and the mod dropzone by default', () => {
     render(AddonsTab, { props });
     expect(screen.getByRole('tab', { name: 'Mods' })).toBeTruthy();

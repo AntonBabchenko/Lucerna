@@ -214,6 +214,12 @@ export function formatError(e: IpcError): string {
       return translate('errors.importNoProvenance', { id: e.id });
     case 'import_source_missing':
       return translate('errors.importSourceMissing', { path: e.path });
+    case 'servers_dat_parse':
+      return translate('errors.serversDatParse', { reason: e.reason });
+    case 'saved_server_name_invalid':
+      return translate('errors.savedServerNameInvalid', { name: e.name, reason: e.reason });
+    case 'saved_server_list_changed':
+      return translate('errors.savedServerListChanged');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

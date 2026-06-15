@@ -82,6 +82,7 @@
     "compactExpand": "Expand to full window",
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
+    "servers": "Servers",
     "importLauncher": "Import from launcher"
   },
   "instance": {
@@ -827,6 +828,7 @@
       "updateNamed": "Update {name} to {version}",
       "toastDone": "Repair applied to {name}.",
       "toastError": "Couldn't repair {name}: {error}",
+      "queuedToast": "Queued {name} — applies after you close the game.",
       "missingMods": {
         "title": "Install missing mods",
         "intro": "The server needs these mods. Confirmed matches are checked; pick from suggestions where the match is unsure.",
@@ -850,9 +852,19 @@
         "disabledLabel": "Disabled",
         "breaks": "Disabling this also breaks: {names} — they require it.",
         "reconnectHint": "Disable any mods the server lacks, then reconnect.",
-        "allDisabled": "Disabled — reconnect to the server.",
+        "allResolved": "Done — reconnect to the server.",
         "disabledToast": "Disabled {name}",
-        "failedToast": "Couldn't disable {name}: {error}"
+        "failedToast": "Couldn't disable {name}: {error}",
+        "replaceVersion": "Replace version…",
+        "pickVersionLabel": "Pick the version shown under \"Server has\":",
+        "installThisVersion": "Install this version",
+        "replacing": "Replacing…",
+        "replacedReconnect": "Replaced — reconnect to check.",
+        "loadingVersions": "Loading versions…",
+        "noVersionsFound": "No versions found for this Minecraft + loader.",
+        "replacedToast": "Replaced {name} with {version}",
+        "replaceFailedToast": "Couldn't replace {name}: {error}",
+        "queued": "Queued — applies after you close the game."
       }
     },
     "empty": {
@@ -1113,7 +1125,10 @@
     "importUnsupportedLoader": "Unsupported loader \"{loader}\" in the imported instance",
     "importSourceUnrecognized": "That folder isn't a recognized launcher instance: {path}",
     "importNoProvenance": "This instance wasn't imported from another launcher.",
-    "importSourceMissing": "The original source folder no longer exists: {path}"
+    "importSourceMissing": "The original source folder no longer exists: {path}",
+    "serversDatParse": "Could not read the server list (servers.dat): {reason}",
+    "savedServerNameInvalid": "“{name}” isn't a valid server name: {reason}",
+    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again."
   },
   "settings": {
     "title": "Settings",
@@ -1132,7 +1147,9 @@
         "languageSystem": "System",
         "themeSystem": "System",
         "themeLight": "Light",
-        "themeDark": "Dark"
+        "themeDark": "Dark",
+        "rainbowIcons": "Rainbow icon animation",
+        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting."
       },
       "playing": {
         "title": "Playing",
@@ -1329,11 +1346,25 @@
     }
   },
   "quickJoin": {
-    "title": "Join a server",
-    "addressLabel": "Server address",
+    "title": "Servers",
+    "savedHeading": "Saved servers",
+    "empty": "No saved servers yet. Add one below.",
+    "connect": "Connect",
+    "copyAddress": "Copy address",
+    "copied": "Copied",
+    "delete": "Delete server",
+    "deleteConfirm": "Delete \"{name}\" from the list?",
+    "deleteCancel": "Cancel",
+    "deleteConfirmAction": "Delete",
+    "addSection": "Add a server",
+    "nameLabel": "Name",
+    "namePlaceholder": "My server",
+    "addressLabel": "Address",
     "addressPlaceholder": "host or host:port",
-    "join": "Join",
-    "cancel": "Cancel",
+    "save": "Save",
+    "saveAndConnect": "Save and connect",
+    "cancel": "Close",
+    "invalidName": "Enter a server name.",
     "invalidAddress": "Enter a valid server address (host or host:port).",
     "offlineHint": "Online servers usually reject offline accounts."
   },

@@ -12,6 +12,7 @@ pub mod paths;
 pub mod platform;
 pub mod playtime;
 pub mod process;
+pub mod servers;
 pub mod tray;
 pub mod update;
 pub mod verify;
@@ -71,6 +72,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::delete_world,
             commands::open_saves_folder,
             commands::open_backups_folder,
+            commands::list_saved_servers,
+            commands::add_saved_server,
+            commands::remove_saved_server,
             commands::open_log_folder,
             commands::list_fabric_loaders,
             commands::list_quilt_loaders,

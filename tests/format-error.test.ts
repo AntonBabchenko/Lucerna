@@ -321,6 +321,13 @@ describe('formatError', () => {
       import_source_unrecognized: { kind: 'import_source_unrecognized', path: 'C:/tmp/x' },
       import_no_provenance: { kind: 'import_no_provenance', id: 'abc' },
       import_source_missing: { kind: 'import_source_missing', path: 'C:/x/y' },
+      servers_dat_parse: { kind: 'servers_dat_parse', reason: 'bad tag' },
+      saved_server_name_invalid: {
+        kind: 'saved_server_name_invalid',
+        name: 'x',
+        reason: 'empty name',
+      },
+      saved_server_list_changed: { kind: 'saved_server_list_changed' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
@@ -340,7 +347,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(75);
+      expect(Object.keys(samples)).toHaveLength(78);
     });
   });
 

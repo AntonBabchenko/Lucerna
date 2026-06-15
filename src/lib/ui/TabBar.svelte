@@ -5,7 +5,9 @@
   // readers; `testid` is handy when several tablists coexist.
   import { Icon, type IconName } from '$lib/ui/icons';
 
-  type Tab = { id: string; label: string; icon?: IconName };
+  // `iconClass` lets a caller opt a single tab's icon into an extra CSS class
+  // (e.g. the rainbow-hover effect on the Shaders tab) without affecting others.
+  type Tab = { id: string; label: string; icon?: IconName; iconClass?: string };
   let {
     tabs,
     active,
@@ -72,7 +74,7 @@
       class:text-muted={active !== tab.id}
       onclick={() => onChange(tab.id)}
     >
-      {#if tab.icon}<Icon name={tab.icon} size={14} />{/if}{tab.label}
+      {#if tab.icon}<Icon name={tab.icon} size={14} class={tab.iconClass ?? ''} />{/if}{tab.label}
     </button>
   {/each}
 </div>
