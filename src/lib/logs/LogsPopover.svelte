@@ -879,6 +879,8 @@
                     <BlockingModsRepairCard
                       plan={repairPlan}
                       instanceId={instanceId ?? ''}
+                      {mcVersion}
+                      {loader}
                       onClose={() => (repairPlan = null)}
                     />
                   {:else if repairPlan}
