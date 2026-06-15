@@ -21,4 +21,16 @@ describe('TabBar', () => {
     await fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
     expect(onChange).toHaveBeenCalledWith('versions');
   });
+
+  it("applies a per-tab iconClass to that tab's icon", () => {
+    render(TabBar, {
+      props: {
+        tabs: [{ id: 'a', label: 'Alpha', icon: 'shader', iconClass: 'icon-rainbow-hover' }],
+        active: 'a',
+        onChange: () => {},
+      },
+    });
+    const svg = screen.getByRole('tab', { name: 'Alpha' }).querySelector('svg');
+    expect(svg?.classList.contains('icon-rainbow-hover')).toBe(true);
+  });
 });

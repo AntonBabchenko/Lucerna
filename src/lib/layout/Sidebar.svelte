@@ -10,6 +10,7 @@
   import type { SelectOption } from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
 
@@ -341,13 +342,13 @@
     -->
     <button
       type="button"
-      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-accent-soft hover:border-accent"
+      class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
       data-tour="open-modpacks"
       data-testid="sidebar-open-modpacks"
       onclick={onOpenModpacks}
     >
       <span class="relative inline-flex items-center gap-1.5">
-        <Icon name="package" size={16} />
+        <Icon name="package" size={16} class={rainbowFx.enabled ? 'icon-rainbow-hover' : ''} />
         {$t('sidebar.browseModpacks')}
         {#if modpackUpdates.updateCount > 0}
           <span
@@ -362,7 +363,7 @@
     </button>
     <button
       type="button"
-      class="btn-secondary btn-sm flex items-center justify-center gap-1.5 hover:bg-accent-soft hover:border-accent"
+      class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
       data-testid="sidebar-open-launcher-import"
       onclick={onOpenLauncherImport}
     >

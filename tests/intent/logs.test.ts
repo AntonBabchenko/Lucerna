@@ -351,8 +351,8 @@ describe('LogsPopover — file-list error state uses text-danger', () => {
 
 // ── File-list sidebar file button (bare, not .btn-*) ─────────────────────────
 
-describe('LogsPopover — file sidebar button is bare hover:bg-subtle (not .btn-*)', () => {
-  it('file list button has hover:bg-subtle and is NOT a .btn-* variant', async () => {
+describe('LogsPopover — file sidebar row is bare hover:bg-subtle (not .btn-*)', () => {
+  it('file list row has hover:bg-subtle and the entry is NOT a .btn-* variant', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
       status: 'ok',
@@ -362,8 +362,12 @@ describe('LogsPopover — file sidebar button is bare hover:bg-subtle (not .btn-
     const btn = await screen.findByRole('button', {
       name: (name) => name.toLowerCase().includes('latest.log'),
     });
+    // The hover tint lives on the row <li> so it covers the whole row
+    // (select entry + trailing delete button), not just the select button.
+    const row = btn.closest('li');
+    expect(row?.className).toContain('hover:bg-subtle');
+    // The select entry stays a bare button, never a heavy .btn-* variant.
     const cls = btn.className;
-    expect(cls).toContain('hover:bg-subtle');
     expect(cls).not.toMatch(/\bbtn-primary\b/);
     expect(cls).not.toMatch(/\bbtn-secondary\b/);
     expect(cls).not.toMatch(/\bbtn-danger\b/);

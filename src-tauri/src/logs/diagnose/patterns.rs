@@ -81,8 +81,10 @@ static CORRUPT_JAR_RE: Lazy<Regex> = Lazy::new(|| {
 // lacks — is the `client-extra-mods` case below, not a missing-mods one. Without
 // this anchor that reject would mis-raise an "install missing mods" advisory.
 static SERVER_MISSING_MODS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"rejected their client side version number|Missing required datapack registr")
-        .expect("regex compiles — covered by `all_patterns_regexes_compile`")
+    Regex::new(
+        r"rejected their client side version number|Missing required datapack registr|Missing registry data for impl connection",
+    )
+    .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
 // The inverse reject: a `server side` channel rejection in a client log means

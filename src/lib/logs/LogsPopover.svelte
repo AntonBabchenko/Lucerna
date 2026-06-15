@@ -17,6 +17,7 @@
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
   import { clearOldPreview } from '$lib/logs/manage';
+  import { deferOrRunRepair } from '$lib/logs/deferred-repairs.svelte';
   import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -43,6 +44,7 @@
     instanceName = null as string | null,
     mcVersion = null as string | null,
     loader = null as LoaderKind | null,
+    gameRunning = false,
   }: {
     open: boolean;
     initialPath?: string | null;
@@ -53,6 +55,10 @@
     // (decideModInstall needs both). Null until an instance is selected.
     mcVersion?: string | null;
     loader?: LoaderKind | null;
+    // True while any Minecraft process is running. Repairs that mutate instance
+    // files can't run then (the JVM holds them open), so they're deferred until
+    // the game closes instead of failing with InstanceBusy.
+    gameRunning?: boolean;
   } = $props();
 
   // ---------------------------------------------------------------------------
@@ -83,7 +89,7 @@
   let listError = $state<string | null>(null);
   let selectedPath = $state<string | null>(null);
   let selectedContent = $state<string>('');
-  // Log management: per-file delete (confirm-in-row) + bulk "clear old".
+  // Log management: per-file delete (centered confirm dialog) + bulk "clear old".
   let confirmingDeletePath = $state<string | null>(null);
   let deletingPaths = $state(new SvelteSet<string>());
   let clearOldOpen = $state(false);
@@ -375,7 +381,18 @@
     // close. A success/warning toast is emitted by the repair-ops store.
     repairApplying = true;
     try {
-      await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
+      if (gameRunning) {
+        // Game running → the file mutation can't happen now; queue it for after
+        // the game closes (deferOrRunRepair emits its own queued/done toast).
+        await deferOrRunRepair(true, {
+          instanceId,
+          sha1: null,
+          label: instanceName ?? instanceId,
+          choice,
+        });
+      } else {
+        await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
+      }
     } finally {
       repairApplying = false;
       repairPlan = null;
@@ -896,9 +913,9 @@
                 <ul>
                   {#each group.items as f}
                     <li
-                      class="group flex items-center {selectedPath === f.path
+                      class="group flex items-center hover:bg-subtle {selectedPath === f.path
                         ? 'bg-accent-soft'
-                        : 'hover:bg-subtle'}"
+                        : ''}"
                     >
                       <button
                         class="flex-1 min-w-0 text-left px-3 py-1"
@@ -1014,6 +1031,9 @@
                     <BlockingModsRepairCard
                       plan={repairPlan}
                       instanceId={instanceId ?? ''}
+                      {mcVersion}
+                      {loader}
+                      {gameRunning}
                       onClose={() => (repairPlan = null)}
                     />
                   {:else if repairPlan}

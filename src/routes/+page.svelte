@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
+  import { drainDeferredRepairs } from '$lib/logs/deferred-repairs.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
@@ -289,6 +290,9 @@
     events.processExited
       .listen(async (event) => {
         running = null;
+        // Apply any repairs the user queued while the game was running (their
+        // files were locked); now the instance is free.
+        void drainDeferredRepairs();
         exited = {
           code: event.payload.code,
           user_requested: event.payload.user_requested,
@@ -723,6 +727,7 @@
     instanceName={activeInstance?.name ?? null}
     mcVersion={activeInstance?.mc_version ?? null}
     loader={activeInstance?.loader ?? null}
+    gameRunning={running !== null}
   />
 
   <ManageInstancesModal
