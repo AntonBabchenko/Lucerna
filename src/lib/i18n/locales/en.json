@@ -1133,7 +1133,9 @@
         "languageSystem": "System",
         "themeSystem": "System",
         "themeLight": "Light",
-        "themeDark": "Dark"
+        "themeDark": "Dark",
+        "rainbowIcons": "Rainbow icon animation",
+        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting."
       },
       "playing": {
         "title": "Playing",

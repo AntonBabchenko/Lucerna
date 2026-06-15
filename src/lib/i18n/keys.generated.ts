@@ -970,6 +970,8 @@ export type TranslationKey =
   | 'settings.curseforge.updateKey'
   | 'settings.general.appearance.language'
   | 'settings.general.appearance.languageSystem'
+  | 'settings.general.appearance.rainbowIcons'
+  | 'settings.general.appearance.rainbowIconsDescription'
   | 'settings.general.appearance.themeDark'
   | 'settings.general.appearance.themeLight'
   | 'settings.general.appearance.themeSystem'
