@@ -521,4 +521,64 @@ describe('ModBrowseView', () => {
       data: { hits: [], total: 0, offset: 0, page_size: 20 },
     });
   });
+
+  it('resets to page 0 when the source changes after paging forward', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    const search = mod.commands.modsSearch as unknown as ReturnType<typeof vi.fn>;
+    search.mockClear();
+    const oneHit = {
+      source: 'modrinth',
+      project_id: 'p1',
+      slug: 'p1',
+      name: 'Pager Mod',
+      summary: '',
+      icon_url: null,
+      downloads: 0,
+      author: '',
+      updated_at: null,
+    };
+    // 100 results at 20/page → 5 pages and a non-empty page, so the pager
+    // (and its Next button) render.
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [oneHit], total: 100, offset: 0, page_size: 20 },
+    });
+
+    const { rerender } = render(ModBrowseView, {
+      props: { source: 'modrinth', instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+
+    // Initial search lands on page 0 (offset 0).
+    await waitFor(() => expect(search.mock.calls.length).toBeGreaterThan(0));
+    await fireEvent.click(screen.getByTestId('pg-next'));
+    // Paged forward → offset = 1 * 20.
+    await waitFor(() =>
+      expect(search.mock.calls.some(([q]) => q.offset === 20 && q.source === 'modrinth')).toBe(
+        true,
+      ),
+    );
+
+    // Switch source. The carried-over page must NOT leak into the new source —
+    // the next request has to start from offset 0.
+    search.mockClear();
+    await rerender({
+      source: 'curseforge',
+      instanceId: 'i',
+      mcVersion: '1.20.1',
+      loader: 'fabric',
+    });
+    await waitFor(() =>
+      expect(search.mock.calls.some(([q]) => q.source === 'curseforge')).toBe(true),
+    );
+
+    const cfCalls = search.mock.calls.filter(([q]) => q.source === 'curseforge');
+    for (const [q] of cfCalls) {
+      expect(q.offset).toBe(0);
+    }
+
+    search.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [], total: 0, offset: 0, page_size: 20 },
+    });
+  });
 });
