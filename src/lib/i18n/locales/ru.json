@@ -62,7 +62,7 @@
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "офлайн",
     "addOffline": "Добавить офлайн",
-    "removeAccount": "Удалить",
+    "removeAccountLabel": "Удалить {name}",
     "playerNamePlaceholder": "Имя игрока",
     "addAccountConfirm": "Добавить",
     "instance": "Профиль",
@@ -82,7 +82,6 @@
     "compactExpand": "Развернуть на всё окно",
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
     "joinServer": "Подключиться к серверу",
-    "removeAccountDisabled": "Сначала войдите в аккаунт.",
     "importLauncher": "Импорт из лаунчера"
   },
   "instance": {

@@ -103,7 +103,27 @@
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
+
+  // Keyboard parity for the hover-revealed trash: pressing Delete while focus is
+  // anywhere in the account-selector group removes the active account (same
+  // confirm flow as the trash button). Handled on the window (not the wrapper
+  // div, which is non-interactive) and gated by a focus-containment check so it
+  // only fires when the selector or its trash button holds focus.
+  let selectorGroup: HTMLDivElement | undefined = $state();
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key !== 'Delete' || !activeAccount) return;
+    if (!selectorGroup?.contains(document.activeElement)) return;
+    // The Select keeps DOM focus on its trigger while its dropdown is open (the
+    // WAI-ARIA combobox model), so a Delete pressed mid-selection would pass the
+    // containment check above. Skip while the listbox is rendered so switching
+    // accounts never accidentally arms removal.
+    if (selectorGroup.querySelector('[role="listbox"]')) return;
+    e.preventDefault();
+    onRemoveAccount();
+  }
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <aside
   data-sidebar
@@ -133,43 +153,43 @@
           <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
         {/if}
       {/snippet}
-      <Select
-        class="w-full text-sm"
-        value={activeAccount?.id ?? ''}
-        options={accountOptions}
-        onChange={(v) => onSelectAccount(String(v))}
-        ariaLabel={$t('sidebar.account')}
-        optionLeading={accountLeading}
-        valueLeading={accountLeading}
-      />
+      <!-- The account selector pairs with a trash icon revealed on hover or
+           keyboard focus (group-hover / group-focus-within), replacing the old
+           standalone Remove button. Removal targets the active (selected)
+           account and is gated by the confirm dialog in +page.svelte. Space for
+           the trash is reserved so revealing it causes no layout shift. -->
+      <div class="group flex items-center gap-1" bind:this={selectorGroup}>
+        <Select
+          class="flex-1 min-w-0 text-sm"
+          value={activeAccount?.id ?? ''}
+          options={accountOptions}
+          onChange={(v) => onSelectAccount(String(v))}
+          ariaLabel={$t('sidebar.account')}
+          optionLeading={accountLeading}
+          valueLeading={accountLeading}
+        />
+        {#if activeAccount}
+          {@const removeLabel = $t('sidebar.removeAccountLabel', { name: activeAccount.name })}
+          <button
+            type="button"
+            class="btn-icon !text-danger hover:!bg-danger/10 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            aria-label={removeLabel}
+            use:tooltip={{ text: removeLabel, describe: false }}
+            onclick={onRemoveAccount}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        {/if}
+      </div>
     {/if}
-    <div class="flex gap-1">
-      <button
-        type="button"
-        class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
-        onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
-      >
-        <Icon name="userPlus" size={14} />
-        {$t('sidebar.addOffline')}
-      </button>
-      <span
-        class="inline-flex flex-1"
-        use:tooltip={{
-          text: !activeAccount ? $t('sidebar.removeAccountDisabled') : '',
-          describe: false,
-        }}
-      >
-        <button
-          type="button"
-          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-          disabled={!activeAccount}
-          onclick={onRemoveAccount}
-        >
-          <Icon name="trash" size={14} />
-          {$t('sidebar.removeAccount')}
-        </button>
-      </span>
-    </div>
+    <button
+      type="button"
+      class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+      onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
+    >
+      <Icon name="userPlus" size={14} />
+      {$t('sidebar.addOffline')}
+    </button>
     {#if showAddOfflineInput}
       <div class="flex flex-col gap-1 mt-1">
         <input

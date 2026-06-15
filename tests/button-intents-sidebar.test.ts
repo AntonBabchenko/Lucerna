@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
 import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
 import Sidebar from '$lib/layout/Sidebar.svelte';
 
@@ -127,11 +127,43 @@ describe('Sidebar — account section buttons', () => {
     expect(btn).toHaveBtnSize('xs');
   });
 
-  it('Remove is btn-secondary btn-xs', () => {
+  it('account removal is an icon-only trash button, not a standalone "Remove" button', () => {
     render(Sidebar, { props: baseProps });
-    const btn = screen.getByRole('button', { name: /^remove$/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('xs');
+    // The old standalone text "Remove" button is gone.
+    expect(screen.queryByRole('button', { name: /^remove$/i })).toBeNull();
+    // It is replaced by an icon-only trash button named for the active account.
+    const trash = screen.getByRole('button', { name: /remove steve/i });
+    expect(trash).toHaveBtnVariant('icon');
+  });
+
+  it('the trash button invokes onRemoveAccount', async () => {
+    const onRemoveAccount = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
+    await fireEvent.click(screen.getByRole('button', { name: /remove steve/i }));
+    expect(onRemoveAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('the trash button is absent when there is no active account', () => {
+    render(Sidebar, { props: { ...baseProps, activeAccount: null } });
+    expect(screen.queryByRole('button', { name: /remove/i })).toBeNull();
+  });
+
+  it('Delete on the focused account selector removes the active account', async () => {
+    const onRemoveAccount = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
+    (screen.getByRole('combobox', { name: /account/i }) as HTMLElement).focus();
+    await fireEvent.keyDown(window, { key: 'Delete' });
+    expect(onRemoveAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('Delete does not arm removal while the account dropdown is open', async () => {
+    const onRemoveAccount = vi.fn();
+    render(Sidebar, { props: { ...baseProps, onRemoveAccount } });
+    const combobox = screen.getByRole('combobox', { name: /account/i }) as HTMLElement;
+    await fireEvent.click(combobox); // open the listbox
+    combobox.focus(); // combobox keeps DOM focus while the dropdown is open
+    await fireEvent.keyDown(window, { key: 'Delete' });
+    expect(onRemoveAccount).not.toHaveBeenCalled();
   });
 });
 
@@ -161,9 +193,9 @@ describe('Sidebar — button icons', () => {
     expect(btn.querySelector('svg')).not.toBeNull();
   });
 
-  it('Remove button shows an icon', () => {
+  it('Remove trash button shows an icon', () => {
     render(Sidebar, { props: baseProps });
-    const btn = screen.getByRole('button', { name: /^remove$/i });
+    const btn = screen.getByRole('button', { name: /remove steve/i });
     expect(btn.querySelector('svg')).not.toBeNull();
   });
 

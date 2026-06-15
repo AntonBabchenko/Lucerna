@@ -62,7 +62,7 @@
     "accountKindMicrosoft": "Microsoft",
     "accountKindOffline": "offline",
     "addOffline": "Add offline",
-    "removeAccount": "Remove",
+    "removeAccountLabel": "Remove {name}",
     "playerNamePlaceholder": "Player name",
     "addAccountConfirm": "Add",
     "instance": "Instance",
@@ -82,7 +82,6 @@
     "compactExpand": "Expand to full window",
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
-    "removeAccountDisabled": "Sign in to an account first.",
     "importLauncher": "Import from launcher"
   },
   "instance": {
