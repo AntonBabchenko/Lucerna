@@ -21,6 +21,7 @@
   import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
   import { settingsOpen } from './state.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
 
   // Display label per locale code. New community languages fall back to
   // their raw code until a label is added here.
@@ -163,6 +164,21 @@
         onChange={(v) => void setLocalePref(String(v))}
       />
     </div>
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        class="mt-0.5"
+        checked={rainbowFx.enabled}
+        onchange={(e) => rainbowFx.set(e.currentTarget.checked)}
+        data-testid="rainbow-icons-toggle"
+      />
+      <span class="flex-1">
+        <span class="text-sm text-primary">{$t('settings.general.appearance.rainbowIcons')}</span>
+        <span class="block text-xs text-muted">
+          {$t('settings.general.appearance.rainbowIconsDescription')}
+        </span>
+      </span>
+    </label>
   </div>
 
   <div class="flex flex-col gap-3">

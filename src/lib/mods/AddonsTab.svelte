@@ -16,6 +16,7 @@
   import ModBrowseView from './ModBrowseView.svelte';
   import SourcePicker from './SourcePicker.svelte';
   import TabBar from '$lib/ui/TabBar.svelte';
+  import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { CONTENT_KINDS, canInstallContent } from './content-kind';
   import {
     detectInstalledShaderLoaders,
@@ -405,7 +406,14 @@
        Browse/Installed sub-tab row, not a clashing boxed segmented control. -->
   <div class="px-3 pt-1">
     <TabBar
-      tabs={kindOptions.map((o) => ({ id: o.value, label: o.label, icon: o.icon }))}
+      tabs={kindOptions.map((o) => ({
+        id: o.value,
+        label: o.label,
+        icon: o.icon,
+        // Rainbow-hover the Shaders icon only, gated by the same preference as
+        // the sidebar Browse-modpacks icon. Empty string = no effect.
+        iconClass: o.value === 'shader' && rainbowFx.enabled ? 'icon-rainbow-hover' : '',
+      }))}
       active={kind}
       ariaLabel={$t('addons.kindSwitchAria')}
       testid="addons-kind-switch"
