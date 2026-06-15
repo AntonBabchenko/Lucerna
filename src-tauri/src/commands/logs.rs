@@ -387,3 +387,42 @@ pub async fn open_log_folder(
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
     Ok(())
 }
+
+/// Delete a single log file. `path` must be under some instance's
+/// allowed log roots — anything else is rejected with `Error::Io`. Unlike
+/// auto-retention, this WILL delete `latest.log` / `debug.log` if the user
+/// explicitly picks them (they regenerate on next launch).
+#[tauri::command]
+#[specta::specta]
+pub fn delete_log_file(app: tauri::AppHandle, path: String) -> Result<(), crate::error::Error> {
+    let all = crate::instances::list_instances_with_status(&app)?;
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    for inst in &all {
+        let mut r = crate::logs::files::allowed_roots(&app, &inst.id)?;
+        roots.append(&mut r);
+    }
+    crate::logs::retention::delete_one(&std::path::PathBuf::from(&path), &roots)?;
+    Ok(())
+}
+
+/// Delete every old log for `instance_id` (all 3 roots) except
+/// `latest.log` / `debug.log`. Returns how many files / bytes were removed.
+#[tauri::command]
+#[specta::specta]
+pub fn clear_old_logs(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::logs::retention::CleanupResult, crate::error::Error> {
+    crate::logs::retention::clear_old(&app, &instance_id)
+}
+
+/// Apply the global retention policy to `instance_id` now. Called by the
+/// Logs window on open. No-op (returns zeros) when the policy is disabled.
+#[tauri::command]
+#[specta::specta]
+pub fn apply_log_retention(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::logs::retention::CleanupResult, crate::error::Error> {
+    crate::logs::retention::apply_from_settings(&app, &instance_id)
+}
