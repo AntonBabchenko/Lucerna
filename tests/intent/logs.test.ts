@@ -59,6 +59,13 @@ vi.mock('$lib/ipc/bindings', () => ({
     shareLogToMclogs: vi.fn().mockResolvedValue({ status: 'ok', data: 'https://mclo.gs/abc123' }),
     latestCrash: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     openLogFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    applyLogRetention: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { deleted_count: 0, freed_bytes: 0 } }),
+    deleteLogFile: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    clearOldLogs: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { deleted_count: 0, freed_bytes: 0 } }),
   },
   events: {
     processExited: { listen: vi.fn().mockResolvedValue(() => {}) },
