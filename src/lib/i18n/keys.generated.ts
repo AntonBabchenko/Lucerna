@@ -930,6 +930,8 @@ export type TranslationKey =
   | 'quickJoin.addressPlaceholder'
   | 'quickJoin.cancel'
   | 'quickJoin.connect'
+  | 'quickJoin.copied'
+  | 'quickJoin.copyAddress'
   | 'quickJoin.delete'
   | 'quickJoin.deleteCancel'
   | 'quickJoin.deleteConfirm'

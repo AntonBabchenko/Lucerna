@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -41,6 +41,22 @@
   let addOpen = $state(false);
   // Index awaiting delete confirmation, or null.
   let confirmingIndex = $state<number | null>(null);
+  // Index whose address was just copied (drives the transient ✓ feedback), or null.
+  let copiedIndex = $state<number | null>(null);
+
+  const COPIED_FEEDBACK_MS = 1200;
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function copyAddress(index: number, address: string) {
+    void navigator.clipboard.writeText(address);
+    copiedIndex = index;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => {
+      copiedIndex = null;
+    }, COPIED_FEEDBACK_MS);
+  }
+
+  onDestroy(() => clearTimeout(copyTimer));
 
   const trimmedAddress = $derived(address.trim());
   const trimmedName = $derived(name.trim());
@@ -55,6 +71,7 @@
       address = '';
       touched = false;
       confirmingIndex = null;
+      copiedIndex = null;
       addOpen = untrack(() => savedServers.length === 0);
     }
   });
@@ -130,6 +147,15 @@
               >
                 <Icon name="play" size={14} />
                 {$t('quickJoin.connect')}
+              </button>
+              <button
+                type="button"
+                class="btn-icon"
+                aria-label={$t('quickJoin.copyAddress')}
+                use:tooltip={$t(copiedIndex === i ? 'quickJoin.copied' : 'quickJoin.copyAddress')}
+                onclick={() => copyAddress(i, server.address)}
+              >
+                <Icon name={copiedIndex === i ? 'success' : 'copy'} size={15} />
               </button>
               <button
                 type="button"

@@ -1334,6 +1334,8 @@
     "savedHeading": "Saved servers",
     "empty": "No saved servers yet. Add one below.",
     "connect": "Connect",
+    "copyAddress": "Copy address",
+    "copied": "Copied",
     "delete": "Delete server",
     "deleteConfirm": "Delete \"{name}\" from the list?",
     "deleteCancel": "Cancel",

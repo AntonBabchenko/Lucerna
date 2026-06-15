@@ -80,6 +80,15 @@ describe('QuickJoinDialog', () => {
     expect((details as HTMLDetailsElement).open).toBe(false);
   });
 
+  it('copies the server address to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    render(QuickJoinDialog, baseProps());
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Copy address' })[0]);
+    expect(writeText).toHaveBeenCalledWith('play.example.net');
+    vi.unstubAllGlobals();
+  });
+
   it('delete asks for confirmation before firing onDelete', async () => {
     const onDelete = vi.fn();
     render(QuickJoinDialog, baseProps({ onDelete }));
