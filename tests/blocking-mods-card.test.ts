@@ -401,7 +401,7 @@ describe('BlockingModsRepairCard', () => {
       plan: planOf([{ sha1: 'pa', mod_id: 'sophisticatedbackpacks', name: 'SB', breaks: [] }]),
       instanceId: 'inst-persist',
       mcVersion: '1.20.1',
-      loader: 'forge',
+      loader: 'forge' as const,
       gameRunning: false,
       onClose: vi.fn(),
     };
