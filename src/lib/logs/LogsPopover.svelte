@@ -831,6 +831,33 @@
         </div>
       {/if}
 
+      <!-- Delete single log confirm dialog -->
+      {#if confirmingDeletePath}
+        {@const path = confirmingDeletePath}
+        {@const name = files.find((f) => f.path === path)?.name ?? ''}
+        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div
+            class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
+            data-testid="delete-log-confirm"
+          >
+            <h3 class="font-semibold text-sm mb-2">{$t('logs.manage.deleteConfirm')}</h3>
+            <p class="font-mono text-xs text-muted mb-4 break-all">{name}</p>
+            <div class="flex gap-2 justify-end">
+              <button class="btn-secondary btn-xs" onclick={() => (confirmingDeletePath = null)}>
+                {$t('logs.manage.confirmNo')}
+              </button>
+              <button
+                class="btn-warning btn-xs"
+                disabled={deletingPaths.has(path)}
+                onclick={() => void deleteFile(path)}
+              >
+                {$t('logs.manage.confirmYes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
       <!-- Share URL pill -->
       {#if shareUrl}
         <div
@@ -868,7 +895,7 @@
                 </h3>
                 <ul>
                   {#each group.items as f}
-                    <li class="group flex items-stretch">
+                    <li class="group flex items-center">
                       <button
                         class="flex-1 min-w-0 text-left px-3 py-1 hover:bg-subtle {selectedPath ===
                         f.path
@@ -881,35 +908,14 @@
                           {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
                         </div>
                       </button>
-                      {#if confirmingDeletePath === f.path}
-                        <span class="flex items-center gap-1 px-2">
-                          <span class="text-[10px] text-muted"
-                            >{$t('logs.manage.deleteConfirm')}</span
-                          >
-                          <button
-                            class="btn-warning btn-xs"
-                            disabled={deletingPaths.has(f.path)}
-                            onclick={() => void deleteFile(f.path)}
-                          >
-                            {$t('logs.manage.confirmYes')}
-                          </button>
-                          <button
-                            class="btn-secondary btn-xs"
-                            onclick={() => (confirmingDeletePath = null)}
-                          >
-                            {$t('logs.manage.confirmNo')}
-                          </button>
-                        </span>
-                      {:else}
-                        <button
-                          class="btn-icon px-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                          aria-label={$t('logs.manage.delete')}
-                          use:tooltip={$t('logs.manage.delete')}
-                          onclick={() => (confirmingDeletePath = f.path)}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      {/if}
+                      <button
+                        class="mr-1 shrink-0 rounded p-1.5 text-muted opacity-0 transition-opacity hover:bg-subtle hover:text-danger focus-visible:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        aria-label={$t('logs.manage.delete')}
+                        use:tooltip={$t('logs.manage.delete')}
+                        onclick={() => (confirmingDeletePath = f.path)}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
                     </li>
                   {/each}
                 </ul>
