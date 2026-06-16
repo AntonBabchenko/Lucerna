@@ -228,7 +228,7 @@
 
 <div class="px-4 pb-4">
   {#if caps.needs_api_key && needsCfKey}
-    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
+    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {:else if loading}
     <div class="flex justify-center py-8 text-secondary">
       <Spinner size="lg" label={$t('modpacks.browse.searching')} />

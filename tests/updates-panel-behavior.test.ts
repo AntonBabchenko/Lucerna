@@ -28,26 +28,24 @@ vi.mock('$lib/ipc/bindings', () => ({
     gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
 }));
-vi.mock('$lib/theme/state.svelte', () => ({
-  themeState: { pref: 'system' },
-  setThemePref: vi.fn(),
-}));
-vi.mock('$lib/onboarding/state.svelte', () => ({ replayTour: vi.fn() }));
 
-import GeneralPanel from '$lib/settings/GeneralPanel.svelte';
+import UpdatesPanel from '$lib/settings/UpdatesPanel.svelte';
 
-describe('GeneralPanel updates toggle', () => {
+describe('UpdatesPanel updates toggle', () => {
   it('persists check_updates_on_startup when toggled', async () => {
-    const { findByTestId } = render(GeneralPanel);
+    const { findByTestId } = render(UpdatesPanel);
     const cb = (await findByTestId('updates-toggle')) as HTMLInputElement;
     expect(cb.checked).toBe(true);
     await fireEvent.click(cb);
-    expect(setGeneral).toHaveBeenCalled();
+    // RMW: the panel re-reads settings before writing, so the persist resolves
+    // asynchronously after the click. Assert that it was called and the last
+    // call disabled the flag, rather than relying on synchronous ordering.
+    await vi.waitFor(() => expect(setGeneral).toHaveBeenCalled());
     expect(setGeneral.mock.calls.at(-1)?.[0].check_updates_on_startup).toBe(false);
   });
 
   it('manual check reports up-to-date inline', async () => {
-    const { findByTestId } = render(GeneralPanel);
+    const { findByTestId } = render(UpdatesPanel);
     const btn = await findByTestId('check-updates-btn');
     await fireEvent.click(btn);
     expect(updateCheck).toHaveBeenCalled();

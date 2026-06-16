@@ -34,16 +34,9 @@ vi.mock('$lib/ipc/bindings', () => ({
   },
 }));
 
-vi.mock('$lib/theme/state.svelte', () => ({
-  themeState: { pref: 'system' },
-  setThemePref: vi.fn(),
-}));
+import GamePanel from '$lib/settings/GamePanel.svelte';
 
-vi.mock('$lib/onboarding/state.svelte', () => ({ replayTour: vi.fn() }));
-
-import GeneralPanel from '$lib/settings/GeneralPanel.svelte';
-
-describe('GeneralPanel GPU dropdown', () => {
+describe('GamePanel GPU dropdown', () => {
   it('shows the gpu-select when capability is "available"', async () => {
     const available: GpuCapability = {
       kind: 'available',
@@ -53,7 +46,7 @@ describe('GeneralPanel GPU dropdown', () => {
     };
     gpuCapability.mockResolvedValueOnce({ status: 'ok', data: available });
 
-    const { findByTestId } = render(GeneralPanel);
+    const { findByTestId } = render(GamePanel);
     const select = await findByTestId('gpu-select');
     expect(select).toBeTruthy();
   });
@@ -62,7 +55,7 @@ describe('GeneralPanel GPU dropdown', () => {
     const singleGpu: GpuCapability = { kind: 'single_gpu' };
     gpuCapability.mockResolvedValueOnce({ status: 'ok', data: singleGpu });
 
-    const { queryByTestId } = render(GeneralPanel);
+    const { queryByTestId } = render(GamePanel);
     // Wait for onMount to complete.
     await new Promise((r) => setTimeout(r, 0));
     expect(queryByTestId('gpu-select')).toBeNull();
@@ -72,7 +65,7 @@ describe('GeneralPanel GPU dropdown', () => {
     const unsupported: GpuCapability = { kind: 'unsupported' };
     gpuCapability.mockResolvedValueOnce({ status: 'ok', data: unsupported });
 
-    const { queryByTestId } = render(GeneralPanel);
+    const { queryByTestId } = render(GamePanel);
     await new Promise((r) => setTimeout(r, 0));
     expect(queryByTestId('gpu-select')).toBeNull();
   });

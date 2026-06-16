@@ -5,11 +5,17 @@ import type { ContentKind, ModSource } from '$lib/ipc/bindings';
 // Pattern: a `.svelte.ts` module exporting a `$state(...)` rune is the
 // v0.5.0 sub-3 way to share writable reactive state across unrelated
 // components without a context tree. ModBrowseView writes
-// `settingsOpen.value = { tab: 'curseforge' }`; the SettingsModal
-// (lands in a later task) reads the same value to know whether to mount
-// and which tab to focus.
+// `settingsOpen.value = { tab: 'integrations' }`; the SettingsModal reads
+// the same value to know whether to mount and which section to focus.
 
-export type SettingsTab = 'curseforge' | 'storage' | 'about' | 'general';
+export type SettingsTab =
+  | 'appearance'
+  | 'game'
+  | 'integrations'
+  | 'storage'
+  | 'updates'
+  | 'help'
+  | 'about';
 
 export const settingsOpen = $state<{ value: { tab: SettingsTab } | null }>({
   value: null,

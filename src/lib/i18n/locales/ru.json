@@ -1144,10 +1144,13 @@
     "title": "Настройки",
     "closeLabel": "Закрыть настройки",
     "closeBackdropLabel": "Закрыть настройки",
-    "tabs": {
-      "general": "Основные",
+    "sections": {
+      "appearance": "Оформление",
+      "game": "Игра",
+      "integrations": "Интеграции",
       "storage": "Хранилище",
-      "curseforge": "CurseForge",
+      "updates": "Обновления",
+      "help": "Помощь",
       "about": "О программе"
     },
     "general": {

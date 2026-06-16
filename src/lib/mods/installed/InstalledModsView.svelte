@@ -286,7 +286,7 @@
     </div>
   {/if}
   {#if updates.showCfBanner}
-    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'curseforge' })} />
+    <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {/if}
 
   <PreflightPanel report={preflight.report} onUpdate={onPreflightUpdate} />

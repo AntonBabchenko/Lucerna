@@ -53,15 +53,24 @@ vi.mock('$lib/ipc/bindings', () => ({
     }),
     modpackImport: vi.fn(),
     modpackFetchToTemp: vi.fn(),
-    // GeneralPanel (now the default Settings tab) calls these on mount.
+    // The split settings panels call these on mount.
     appSettingsGet: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {
-        general: { hide_to_tray_on_launch: false, theme: 'system', replay_tour_pending: false },
+        general: {
+          hide_to_tray_during_game: false,
+          theme: 'system',
+          check_updates_on_startup: true,
+          gpu_preference: 'auto',
+          log_retention: { enabled: false, max_files: 10, max_total_mb: 100 },
+        },
       },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     appSettingsMarkTourCompleted: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    updateCheck: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
     gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
   events: {
@@ -105,12 +114,12 @@ afterEach(() => {
 });
 
 describe('SettingsModal tabs are not .btn-*', () => {
-  it('all 4 tabs (General, Storage, CurseForge, About) use underlined-tab style, not .btn-*', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+  it('all 7 section tabs use list style, not .btn-*', () => {
+    settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(7);
     for (const tab of tabs) {
       assertNotBtnVariant(tab);
     }
