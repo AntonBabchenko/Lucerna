@@ -8,6 +8,7 @@
     $props();
 
   const TEXT_KEY: Record<AttentionKind, TranslationKey> = {
+    log_issue: 'page.overview.attnLogIssue',
     pick_version: 'page.overview.attnPickVersion',
     missing_mods: 'page.overview.attnMissingMods',
     incompatible: 'page.overview.attnIncompatible',
@@ -16,6 +17,7 @@
   };
 
   const ICON_KEY: Record<AttentionKind, IconName> = {
+    log_issue: 'warning',
     pick_version: 'warning',
     missing_mods: 'warning',
     incompatible: 'warning',

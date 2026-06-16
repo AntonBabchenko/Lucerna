@@ -797,6 +797,10 @@
             versionsRetrying={mcv.loading}
             onDismissInstallError={() => (installError = null)}
             onDismissModsError={() => (modsError = null)}
+            onOpenLogs={() => {
+              logsInitialPath = null;
+              logsOpen = true;
+            }}
           />
         {/snippet}
       </MainTabs>

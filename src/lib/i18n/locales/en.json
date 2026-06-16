@@ -1336,6 +1336,7 @@
       "attnMissingMods": "{count, plural, one {# pack mod not installed} other {# pack mods not installed}}",
       "attnIncompatible": "{count, plural, one {# incompatible mod} other {# incompatible mods}}",
       "attnIntegrity": "{count, plural, one {# integrity problem} other {# integrity problems}}",
+      "attnLogIssue": "A recent launch reported a problem",
       "attnModpackUpdate": "A modpack update is available",
       "attentionView": "View",
       "pillRunning": "Running",
