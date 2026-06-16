@@ -114,37 +114,16 @@ pub fn extract_conflict_mods(log: &str) -> Vec<String> {
     seen
 }
 
-/// Floor for any heap suggestion (MB). Below this, modded MC reliably OOMs.
-const HEAP_FLOOR_MB: u32 = 4096;
-
-/// Suggest a new max-heap (MB) for an OOM, or `None` when no safe raise
-/// is possible. With known RAM: `clamp(current*2, FLOOR, RAM/2)`, but
-/// `None` if `current >= RAM/2` (no headroom). With unknown RAM: a
-/// conservative fixed bump to `FLOOR`, only when `current < FLOOR`.
+/// Suggest a new max-heap (MB) for an OOM: jump straight to the instance's
+/// recommended safe maximum (~75% of physical RAM, fallback 8192 when RAM is
+/// unknown). Returns `None` when the current heap is already at or above that
+/// target — the fix is idempotent and never proposes a decrease.
 pub fn suggest_heap_mb(current_mb: u32, total_ram_mb: Option<u64>) -> Option<u32> {
-    match total_ram_mb {
-        Some(ram) => {
-            let half = (ram / 2) as u32;
-            if current_mb >= half {
-                return None; // already at the safe ceiling
-            }
-            let doubled = current_mb.saturating_mul(2);
-            let proposed = doubled.max(HEAP_FLOOR_MB).min(half);
-            // min() against `half` can pull below current in pathological
-            // cases; guard so we never propose a *decrease*.
-            if proposed > current_mb {
-                Some(proposed)
-            } else {
-                None
-            }
-        }
-        None => {
-            if current_mb < HEAP_FLOOR_MB {
-                Some(HEAP_FLOOR_MB)
-            } else {
-                None
-            }
-        }
+    let target = crate::instances::memory::recommended_max_mb(total_ram_mb);
+    if target > current_mb {
+        Some(target)
+    } else {
+        None
     }
 }
 
@@ -612,30 +591,30 @@ mod tests {
     }
 
     #[test]
-    fn heap_doubles_current_clamped_to_min_4096() {
-        assert_eq!(suggest_heap_mb(2048, Some(16384)), Some(4096));
+    fn heap_jumps_straight_to_recommended_max() {
+        // recommended_max_mb(16384) == 12288 (75%); from a small heap we jump there.
+        assert_eq!(suggest_heap_mb(2048, Some(16384)), Some(12288));
+        assert_eq!(suggest_heap_mb(6144, Some(16384)), Some(12288));
     }
 
     #[test]
-    fn heap_doubles_above_floor_when_current_large() {
-        assert_eq!(suggest_heap_mb(4096, Some(16384)), Some(8192));
+    fn heap_idempotent_once_at_or_above_recommended() {
+        // Already at the recommended max -> nothing to raise.
+        assert_eq!(suggest_heap_mb(12288, Some(16384)), None);
+        // Manually set even higher -> still nothing to raise (never decreases).
+        assert_eq!(suggest_heap_mb(15000, Some(16384)), None);
     }
 
     #[test]
-    fn heap_capped_at_half_ram() {
-        assert_eq!(suggest_heap_mb(4096, Some(12288)), Some(6144));
+    fn heap_unknown_ram_uses_fallback_max() {
+        // recommended_max_mb(None) == 8192 (fallback). Raise only if below it.
+        assert_eq!(suggest_heap_mb(2048, None), Some(8192));
+        assert_eq!(suggest_heap_mb(8192, None), None);
     }
 
     #[test]
-    fn heap_none_when_already_at_or_above_half_ram() {
-        assert_eq!(suggest_heap_mb(8192, Some(16384)), None);
-        assert_eq!(suggest_heap_mb(9000, Some(16384)), None);
-    }
-
-    #[test]
-    fn heap_unknown_ram_conservative_bump_to_4096() {
-        assert_eq!(suggest_heap_mb(2048, None), Some(4096));
-        assert_eq!(suggest_heap_mb(4096, None), None);
-        assert_eq!(suggest_heap_mb(6144, None), None);
+    fn heap_tiny_ram_collapses_to_floor() {
+        // recommended_max_mb(Some(512)) == 1024 (slider floor); current already there.
+        assert_eq!(suggest_heap_mb(1024, Some(512)), None);
     }
 }
