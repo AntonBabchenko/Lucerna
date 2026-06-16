@@ -260,6 +260,27 @@ describe('CurseForgeKeyForm — Update key button is btn-primary btn-sm (status=
   });
 });
 
+// ── CurseForgeKeyForm — replace hint separator (status=set) ──────────────────
+
+describe('CurseForgeKeyForm — replace hint separates action from next sentence', () => {
+  it('renders ". " between the bold action and the "Get one at" sentence', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsGetCurseforgeKeyStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: 'set',
+    });
+    const { container } = render(CurseForgeKeyForm);
+    // Wait for the status=set branch (Clear key button only exists there).
+    await screen.findByRole('button', { name: /clear key/i });
+    // The bold action and the next sentence must be separated by ". " — not glued
+    // together (regression: "Update keyGet one at" with no period or space).
+    const hint = Array.from(container.querySelectorAll('p')).find((p) =>
+      /Get one at/.test(p.textContent ?? ''),
+    );
+    expect(hint?.textContent).toMatch(/Update key\.\s+Get one at/);
+  });
+});
+
 // ── CurseForgeKeyForm — Clear key button ─────────────────────────────────────
 
 describe('CurseForgeKeyForm — Clear key button is btn-secondary btn-sm (status=set)', () => {
