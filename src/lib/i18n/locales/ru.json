@@ -192,6 +192,7 @@
       "mcVersionPlaceholder": "напр. 1.20.1",
       "mcVersionHint": "Папка .minecraft не хранит свою версию — укажите её, чтобы включить импорт.",
       "loaderInputLabel": "Загрузчик модов",
+      "vanillaWithModsWarning": "В этом инстансе есть моды, но загрузчик не выбран — они не загрузятся. Выберите подходящий загрузчик выше.",
       "sourcePathLabel": "Исходная папка",
       "step2Title": "Импорт «{name}»",
       "discover": "Найти профили",

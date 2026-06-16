@@ -7,6 +7,7 @@
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import { enqueueLauncherImport } from '$lib/ops/op-queue.svelte';
+  import { shouldWarnVanillaWithMods } from '$lib/instances/import/vanilla-mods-warning';
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -122,6 +123,10 @@
 
   const availableCategories = $derived(
     chosen ? chosen.content.map((c) => c.category) : ([] as ContentCategory[]),
+  );
+
+  const showVanillaWithModsWarning = $derived(
+    shouldWarnVanillaWithMods(loaderInput, chosen?.content ?? []),
   );
 
   const allSelected = $derived(
@@ -378,6 +383,14 @@
             dataTestid="loader-select"
           />
         </div>
+        {#if showVanillaWithModsWarning}
+          <p
+            class="rounded-lg border border-warning-text bg-warning-bg px-3 py-2 text-sm text-warning-text"
+            data-testid="vanilla-mods-warning"
+          >
+            {$t('instances.import.vanillaWithModsWarning')}
+          </p>
+        {/if}
       {/if}
 
       <!-- Content categories -->
