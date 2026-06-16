@@ -4,6 +4,7 @@
 
 pub mod atlauncher;
 pub mod curseforge_app;
+pub mod modrinth_app;
 pub mod prism;
 pub mod profile;
 pub mod raw_minecraft;
