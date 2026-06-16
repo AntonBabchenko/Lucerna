@@ -565,6 +565,19 @@ mod tests {
     }
 
     #[test]
+    fn mods_platform_unreachable_serializes_with_tag() {
+        let e = Error::ModsPlatformUnreachable {
+            url: "https://api.curseforge.com/v1/mods/search".into(),
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(
+            j.contains(r#""kind":"mods_platform_unreachable""#),
+            "got: {j}"
+        );
+        assert!(j.contains(r#""url":"https://api.curseforge.com/v1/mods/search""#));
+    }
+
+    #[test]
     fn mods_platform_auth_carries_kind() {
         let e = Error::ModsPlatformAuth {
             kind: ModsAuthKind::Missing,
