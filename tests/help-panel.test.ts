@@ -2,8 +2,8 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { tourState } from '../src/lib/onboarding/state.svelte';
-import { settingsOpen } from '../src/lib/settings/state.svelte';
 import HelpPanel from '../src/lib/settings/HelpPanel.svelte';
+import { settingsOpen } from '../src/lib/settings/state.svelte';
 
 beforeEach(() => {
   tourState.active = false;

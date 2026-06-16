@@ -41,5 +41,4 @@
   <p class="text-xs text-muted">
     {$t('settings.about.keyring')}
   </p>
-
 </section>

@@ -12,7 +12,15 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsClearCache: vi.fn(),
     appSettingsGet: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { general: { hide_to_tray_during_game: false, theme: 'system', check_updates_on_startup: true, gpu_preference: 'auto', log_retention: { enabled: false, max_files: 10, max_total_mb: 100 } } },
+      data: {
+        general: {
+          hide_to_tray_during_game: false,
+          theme: 'system',
+          check_updates_on_startup: true,
+          gpu_preference: 'auto',
+          log_retention: { enabled: false, max_files: 10, max_total_mb: 100 },
+        },
+      },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },

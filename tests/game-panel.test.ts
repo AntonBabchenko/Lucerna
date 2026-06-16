@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const appSettingsGet = vi.fn().mockResolvedValue({
   status: 'ok',
-  data: { general: { hide_to_tray_during_game: false, theme: 'system', check_updates_on_startup: true, gpu_preference: 'auto' } },
+  data: {
+    general: {
+      hide_to_tray_during_game: false,
+      theme: 'system',
+      check_updates_on_startup: true,
+      gpu_preference: 'auto',
+    },
+  },
 });
 const appSettingsSetGeneral = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 

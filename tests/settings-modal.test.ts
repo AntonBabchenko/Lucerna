@@ -10,10 +10,20 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsClearCache: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     appSettingsGet: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: { general: { hide_to_tray_during_game: false, theme: 'system', check_updates_on_startup: true, gpu_preference: 'auto', log_retention: { enabled: false, max_files: 10, max_total_mb: 100 } } },
+      data: {
+        general: {
+          hide_to_tray_during_game: false,
+          theme: 'system',
+          check_updates_on_startup: true,
+          gpu_preference: 'auto',
+          log_retention: { enabled: false, max_files: 10, max_total_mb: 100 },
+        },
+      },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    updateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
+    updateCheck: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
     gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
 }));
@@ -38,14 +48,18 @@ describe('SettingsModal', () => {
   it('opens on the Appearance section by default and shows theme controls', () => {
     settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
-    expect(screen.getByRole('tab', { name: 'Appearance' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'Appearance' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
     expect(screen.getByTestId('theme-system')).toBeTruthy();
   });
 
   it('deep-links to Integrations and mounts the CurseForge form', () => {
     settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
-    expect(screen.getByRole('tab', { name: 'Integrations' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'Integrations' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
     expect(screen.getByText(/Status:/)).toBeTruthy();
   });
 
@@ -53,9 +67,7 @@ describe('SettingsModal', () => {
     settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
     await fireEvent.click(screen.getByRole('tab', { name: 'About' }));
-    expect(
-      screen.getByText(/NOT AN OFFICIAL MINECRAFT PRODUCT\./),
-    ).toBeTruthy();
+    expect(screen.getByText(/NOT AN OFFICIAL MINECRAFT PRODUCT\./)).toBeTruthy();
   });
 
   it('ArrowDown moves the active section to the next one', async () => {

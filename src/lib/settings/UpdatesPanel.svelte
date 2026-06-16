@@ -34,7 +34,10 @@
       saveError = formatError(cur.error);
       return;
     }
-    const next = { ...cur.data.general, check_updates_on_startup: general.check_updates_on_startup };
+    const next = {
+      ...cur.data.general,
+      check_updates_on_startup: general.check_updates_on_startup,
+    };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') saveError = formatError(r.error);
   }
