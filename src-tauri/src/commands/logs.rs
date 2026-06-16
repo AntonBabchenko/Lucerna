@@ -302,6 +302,89 @@ pub async fn build_repair_plan(
     }
 }
 
+/// Newest diagnosable log for an instance: scan the most-recent files and
+/// return the first that matches a pattern, with its meta. Bounded so a noisy
+/// log dir can't make this O(all files). `None` when nothing matches.
+const LATEST_SCAN_LIMIT: usize = 6;
+
+async fn latest_diagnosed_log(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<
+    Option<(
+        crate::logs::files::LogFileMeta,
+        crate::logs::diagnose::Diagnosis,
+    )>,
+    crate::error::Error,
+> {
+    let files = crate::logs::files::list_log_files(app, instance_id)?;
+    for meta in files.into_iter().take(LATEST_SCAN_LIMIT) {
+        let path = std::path::PathBuf::from(&meta.path);
+        if let Some(diag) = crate::logs::diagnose::diagnose(&path).await? {
+            return Ok(Some((meta, diag)));
+        }
+    }
+    Ok(None)
+}
+
+/// Signature of the latest diagnosable log, or `None` when none matches.
+/// Used by `execute_repair` to stamp `handled_log_sig`.
+async fn latest_diagnosable_signature(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Option<String>, crate::error::Error> {
+    Ok(latest_diagnosed_log(app, instance_id)
+        .await?
+        .map(|(meta, _)| crate::logs::files::log_signature(&meta)))
+}
+
+/// Diagnose the instance's LATEST log and classify a surface status for the
+/// persistent banner + indicators. Independent of any opened file. Applies the
+/// live-suppression guards, the OOM heap-vs-recommended rule, and the persisted
+/// handled-signature.
+#[tauri::command]
+#[specta::specta]
+pub async fn diagnose_latest(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::logs::diagnose::LatestDiagnosis, crate::error::Error> {
+    use crate::logs::diagnose::{classify_status, DiagnosisStatus, LatestDiagnosis};
+
+    let none = LatestDiagnosis {
+        status: DiagnosisStatus::None,
+        diagnosis: None,
+        path: None,
+        signature: None,
+    };
+
+    let Some((meta, diag)) = latest_diagnosed_log(&app, &instance_id).await? else {
+        return Ok(none);
+    };
+    let path_buf = std::path::PathBuf::from(&meta.path);
+    // Live guards: a since-resolved problem reports as None (nothing to show).
+    let Some(diag) = apply_live_suppression(&app, &instance_id, &path_buf, diag).await? else {
+        return Ok(none);
+    };
+
+    let signature = crate::logs::files::log_signature(&meta);
+    let instance = crate::instances::read_instance(&app, &instance_id)?;
+    let ram = crate::platform::total_system_ram_mb();
+    let status = classify_status(
+        &diag,
+        instance.max_heap_mb,
+        ram,
+        &signature,
+        instance.handled_log_sig.as_deref(),
+    );
+
+    Ok(LatestDiagnosis {
+        status,
+        diagnosis: Some(diag),
+        path: Some(meta.path),
+        signature: Some(signature),
+    })
+}
+
 /// Apply a user-confirmed repair choice by dispatching to the existing
 /// mutation commands. No resolution happens here — `build_repair_plan`
 /// already produced fully-formed parameters. Re-running a now-stale fix
@@ -331,15 +414,14 @@ pub async fn execute_repair(
     match choice {
         RepairChoice::RaiseHeap { to_mb } => {
             crate::instances::set_instance_memory(&app, &instance_id, to_mb)?;
-            Ok(())
         }
         RepairChoice::ReinstallLoader => {
             let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-            crate::versions::install_version(&effective_id, &app).await
+            crate::versions::install_version(&effective_id, &app).await?;
         }
         RepairChoice::DisableMod { sha1 } => {
             let inst_root = instance_root(&app, &instance_id)?;
-            crate::mods::install::disable(&inst_root, &sha1).await
+            crate::mods::install::disable(&inst_root, &sha1).await?;
         }
         RepairChoice::Reinstall { old_sha1, target } => {
             let inst_root = instance_root(&app, &instance_id)?;
@@ -356,9 +438,16 @@ pub async fn execute_repair(
             // collide on disk.
             crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
             mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
-            Ok(())
         }
     }
+
+    // Remember that this latest log has been acted on so the banner/indicator
+    // self-suppresses until the next run rotates the log. Best-effort: a failure
+    // to record must not fail the (already-applied) repair.
+    if let Ok(Some(sig)) = latest_diagnosable_signature(&app, &instance_id).await {
+        let _ = crate::instances::set_instance_handled_log_sig(&app, &instance_id, Some(sig));
+    }
+    Ok(())
 }
 
 /// Anonymise a log body and upload it to mclo.gs. Returns the
