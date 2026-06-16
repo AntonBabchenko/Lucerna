@@ -10,7 +10,7 @@
 
 use crate::error::{Error, Result};
 use crate::instances::schema::LogRetentionPolicy;
-use crate::logs::files::{allowed_roots, list_log_files, LogFileMeta};
+use crate::logs::files::{allowed_roots, list_log_files, LogFileMeta, LogSource};
 use serde::Serialize;
 use specta::Type;
 use std::path::{Path, PathBuf};
@@ -29,12 +29,22 @@ pub fn is_protected(name: &str) -> bool {
     PROTECTED.contains(&name)
 }
 
-/// Paths to delete for "clear old": every non-protected file across all
-/// three roots. Pure — caller supplies the enumerated files.
+/// True iff a file may be removed by auto-retention / "clear old". Excludes
+/// the protected game logs AND the launcher's own log (`LogSource::Launcher`,
+/// i.e. `lucerna.log`) — the launcher log is app-wide and self-rotates in the
+/// `diag` module; retention must never delete it (it would wipe the very log
+/// the user opened the viewer to read). Game-console (`launch-*.log`) files
+/// stay eligible — clearing those accumulating per-launch dumps is the point.
+fn is_retention_eligible(f: &LogFileMeta) -> bool {
+    !is_protected(&f.name) && f.source != LogSource::Launcher
+}
+
+/// Paths to delete for "clear old": every retention-eligible file across the
+/// roots. Pure — caller supplies the enumerated files.
 pub fn select_for_clear_old(files: &[LogFileMeta]) -> Vec<LogFileMeta> {
     files
         .iter()
-        .filter(|f| !is_protected(&f.name))
+        .filter(|f| is_retention_eligible(f))
         .cloned()
         .collect()
 }
@@ -51,7 +61,7 @@ pub fn select_for_policy(files: &[LogFileMeta], policy: &LogRetentionPolicy) -> 
     }
     let mut eligible: Vec<LogFileMeta> = files
         .iter()
-        .filter(|f| !is_protected(&f.name))
+        .filter(|f| is_retention_eligible(f))
         .cloned()
         .collect();
     eligible.sort_by(|a, b| {
@@ -106,7 +116,8 @@ fn delete_all(paths: &[LogFileMeta], roots: &[PathBuf]) -> CleanupResult {
     }
 }
 
-/// Delete every non-protected log for `instance_id` across all 3 roots.
+/// Delete every retention-eligible log for `instance_id` across the roots
+/// (excludes protected game logs and the launcher's own `lucerna.log`).
 pub fn clear_old(app: &tauri::AppHandle, instance_id: &str) -> Result<CleanupResult> {
     let files = list_log_files(app, instance_id)?;
     let roots = allowed_roots(app, instance_id)?;
@@ -167,6 +178,34 @@ mod tests {
         assert!(del.iter().any(|f| f.name == "2024-01-01-1.log.gz"));
         assert!(del.iter().any(|f| f.name == "crash-1.txt"));
         assert!(!del.iter().any(|f| is_protected(&f.name)));
+    }
+
+    #[test]
+    fn launcher_log_is_never_selected_for_deletion() {
+        // The app-wide launcher log (LogSource::Launcher) must survive both
+        // "clear old" and policy retention — it self-rotates in `diag`, and
+        // deleting it would wipe the log the user opened the viewer to read.
+        let launcher = LogFileMeta {
+            path: "/app/logs/lucerna.log".into(),
+            name: "lucerna.log".into(),
+            source: LogSource::Launcher,
+            size_bytes: 9_999_999.0,
+            modified_unix_ms: 1.0, // oldest → would be the first victim if eligible
+        };
+        let console = meta("/i/logs/2026-launch.log", "2026-launch.log", 10.0, 2.0);
+        let files = vec![launcher.clone(), console];
+
+        let cleared = select_for_clear_old(&files);
+        assert!(cleared.iter().all(|f| f.source != LogSource::Launcher));
+        assert!(cleared.iter().any(|f| f.name == "2026-launch.log"));
+
+        let policy = LogRetentionPolicy {
+            enabled: true,
+            max_files: 0,
+            max_total_mb: 0,
+        };
+        let by_policy = select_for_policy(&files, &policy);
+        assert!(by_policy.iter().all(|f| f.source != LogSource::Launcher));
     }
 
     #[test]

@@ -429,6 +429,8 @@
         return $t('logs.severity.gameConsole');
       case 'launcher':
         return $t('logs.severity.launcher');
+      default:
+        return s;
     }
   }
 

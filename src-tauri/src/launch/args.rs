@@ -371,10 +371,10 @@ pub(crate) fn sanitize_jvm_args(raw: &str) -> Vec<String> {
         total += tok.len() + 1;
         out.push(tok.to_string());
     }
-    // Dropping is silent in the argv. Emit a launcher diagnostic to stderr so
-    // the reason is recoverable when running from a console / dev build —
-    // matching the eprintln! diagnostics used elsewhere in the launch path.
-    // (This is a developer/console signal, not the in-app log viewer.)
+    // Dropping is silent in the argv. Emit a launcher diagnostic via `diag!` so
+    // the reason is recoverable from the launcher log (and stderr in a console /
+    // dev build) — matching the `diag!` diagnostics used elsewhere in the launch
+    // path. (This is a developer/diagnostic signal, not the game-log viewer.)
     if dropped > 0 {
         crate::diag!(
             "launch: dropped {dropped} extra_jvm_args token(s) (control chars or {MAX_JVM_ARGS_LEN}-byte cap)"
