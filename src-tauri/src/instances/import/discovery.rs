@@ -5,14 +5,56 @@ use crate::instances::import::readers::{
     raw_minecraft::RawMinecraftReader, structured_readers, LauncherReader,
 };
 
+/// Scan one `.minecraft`-shaped root: structured profile readers first, then
+/// the raw reader for a bare `.minecraft` (no `launcher_profiles.json`).
+/// Deduped by `minecraft_dir`; a structured entry beats a raw one.
+pub fn scan_minecraft_root(root: &Path) -> Vec<ForeignInstance> {
+    let mut out: Vec<ForeignInstance> = Vec::new();
+    for reader in structured_readers() {
+        for fi in reader.expand_root(root) {
+            if !out.iter().any(|e| e.minecraft_dir == fi.minecraft_dir) {
+                out.push(fi);
+            }
+        }
+    }
+    // Raw fallback: a `.minecraft` not already covered by a structured reader,
+    // with real content. ProfileReader already handles the
+    // launcher_profiles.json case.
+    if RawMinecraftReader.detect(root) {
+        if let Ok(fi) = RawMinecraftReader.read(root) {
+            let has_content = !fi.content.is_empty();
+            let covered = out.iter().any(|e| e.minecraft_dir == fi.minecraft_dir);
+            if has_content && !covered {
+                out.push(fi);
+            }
+        }
+    }
+    out
+}
+
 /// Scan all structured readers' default roots and return every readable
-/// instance. Best-effort: missing roots and unreadable instances are
-/// skipped silently (one bad instance never fails the whole scan).
+/// instance. `.minecraft`-shaped roots go through `scan_minecraft_root` so a
+/// bare vanilla install (no `launcher_profiles.json`) is found via the raw
+/// fallback, and every entry is globally deduped by `minecraft_dir`.
+/// Best-effort: missing roots and unreadable instances are skipped silently.
 pub fn discover_all() -> Vec<ForeignInstance> {
-    let mut out = Vec::new();
+    let mut out: Vec<ForeignInstance> = Vec::new();
     for reader in structured_readers() {
         for root in reader.default_roots() {
-            out.extend(reader.expand_root(&root));
+            // `.minecraft`-shaped roots go through the raw-aware sweep so a
+            // bare vanilla install is found and deduped; other roots use the
+            // reader's own expand_root.
+            let is_dot_mc = root.ends_with(".minecraft") || root.ends_with("minecraft");
+            let found = if is_dot_mc {
+                scan_minecraft_root(&root)
+            } else {
+                reader.expand_root(&root)
+            };
+            for fi in found {
+                if !out.iter().any(|e| e.minecraft_dir == fi.minecraft_dir) {
+                    out.push(fi);
+                }
+            }
         }
     }
     out
@@ -80,6 +122,26 @@ mod tests {
     #[test]
     fn detect_folder_rejects_unrelated_dir() {
         assert!(detect_folder(Path::new(env!("CARGO_MANIFEST_DIR"))).is_none());
+    }
+
+    #[test]
+    fn discover_dedups_same_dir_across_readers() {
+        // A profile-style shared .minecraft is also raw-shaped; it must
+        // appear once (the structured entry wins).
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("saves/W")).unwrap();
+        std::fs::write(mc.join("saves/W/level.dat"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+
+        let found = scan_minecraft_root(&mc);
+        let at_mc: Vec<_> = found.iter().filter(|f| f.minecraft_dir == mc).collect();
+        assert_eq!(at_mc.len(), 1, "deduped to one, got: {at_mc:?}");
+        assert_ne!(
+            at_mc[0].source,
+            crate::instances::schema::ForeignLauncher::RawMinecraft,
+            "structured (profile) entry should win over raw"
+        );
     }
 
     #[test]
