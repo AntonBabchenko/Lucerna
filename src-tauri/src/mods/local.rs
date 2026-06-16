@@ -495,11 +495,22 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
         return;
     };
+    let version = v.get("version").and_then(|x| x.as_str()).map(String::from);
     if let Some(id) = v.get("id").and_then(|x| x.as_str()) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
-            version: v.get("version").and_then(|x| x.as_str()).map(String::from),
+            version: version.clone(),
         });
+    }
+    // `provides`: alias mod-ids this jar satisfies (Fabric: array of strings).
+    // The alias inherits the declaring jar's version (best-effort).
+    if let Some(arr) = v.get("provides").and_then(|p| p.as_array()) {
+        for id in arr.iter().filter_map(|x| x.as_str()) {
+            out.provided.push(ProvidedMod {
+                mod_id: id.to_string(),
+                version: version.clone(),
+            });
+        }
     }
     if let Some(obj) = v.get("depends").and_then(|d| d.as_object()) {
         for (id, val) in obj {
@@ -519,14 +530,40 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
         return;
     };
     let ql = v.get("quilt_loader");
+    let own_version = ql
+        .and_then(|q| q.get("version"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
     if let Some(id) = ql.and_then(|q| q.get("id")).and_then(|x| x.as_str()) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
-            version: ql
-                .and_then(|q| q.get("version"))
-                .and_then(|x| x.as_str())
-                .map(String::from),
+            version: own_version.clone(),
         });
+    }
+    // `provides`: strings (own version) or { id, version? } objects.
+    if let Some(arr) = ql
+        .and_then(|q| q.get("provides"))
+        .and_then(|p| p.as_array())
+    {
+        for e in arr {
+            let (id, ver) = match e {
+                serde_json::Value::String(s) => (Some(s.clone()), own_version.clone()),
+                serde_json::Value::Object(o) => (
+                    o.get("id").and_then(|x| x.as_str()).map(String::from),
+                    o.get("version")
+                        .and_then(|x| x.as_str())
+                        .map(String::from)
+                        .or_else(|| own_version.clone()),
+                ),
+                _ => (None, own_version.clone()),
+            };
+            if let Some(id) = id {
+                out.provided.push(ProvidedMod {
+                    mod_id: id,
+                    version: ver,
+                });
+            }
+        }
     }
     let Some(arr) = ql.and_then(|q| q.get("depends")).and_then(|d| d.as_array()) else {
         return;
@@ -1440,6 +1477,36 @@ modId=\"evilseagull\"
                 .unwrap()
                 .required
         );
+    }
+
+    #[test]
+    fn fabric_manifest_registers_provides_aliases() {
+        let json =
+            r#"{"id":"sodium","version":"0.6.0","provides":["indium-compat","sodium-extra-shim"]}"#;
+        let j = jar(&[("fabric.mod.json", json)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        let ids: Vec<&str> = m.provided.iter().map(|p| p.mod_id.as_str()).collect();
+        assert!(ids.contains(&"sodium"), "{ids:?}");
+        assert!(ids.contains(&"indium-compat"), "{ids:?}");
+        assert!(ids.contains(&"sodium-extra-shim"), "{ids:?}");
+        // alias inherits the declaring jar's version
+        let alias = m
+            .provided
+            .iter()
+            .find(|p| p.mod_id == "indium-compat")
+            .unwrap();
+        assert_eq!(alias.version.as_deref(), Some("0.6.0"));
+    }
+
+    #[test]
+    fn quilt_manifest_registers_provides_strings_and_objects() {
+        let json = r#"{"quilt_loader":{"id":"qsl","version":"5.0.0","provides":["qsl-base",{"id":"qfapi","version":"7.1.0"}]}}"#;
+        let j = jar(&[("quilt.mod.json", json)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        let base = m.provided.iter().find(|p| p.mod_id == "qsl-base").unwrap();
+        assert_eq!(base.version.as_deref(), Some("5.0.0")); // string → own version
+        let qfapi = m.provided.iter().find(|p| p.mod_id == "qfapi").unwrap();
+        assert_eq!(qfapi.version.as_deref(), Some("7.1.0")); // object version wins
     }
 
     #[test]
