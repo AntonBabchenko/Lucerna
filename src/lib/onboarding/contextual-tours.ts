@@ -22,7 +22,7 @@ const STORAGE_KEY_SUFFIX = '.done';
 // localStorage as harmless cruft.
 const TOUR_VERSION: Record<ContextualTourId, string> = {
   manage: 'v1',
-  logs: 'v2', // bumped 2026-05-26 — log viewer v2 features added
+  logs: 'v3', // bumped 2026-06-15 — header redesign moved Share into the ⋯ menu
   modpacks: 'v1',
   worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
 };
@@ -90,7 +90,7 @@ export const LOGS_STEPS: ReadonlyArray<TourStep> = [
   {
     titleKey: 'onboarding.contextual.logs.shareMcloGs.title',
     bodyKey: 'onboarding.contextual.logs.shareMcloGs.body',
-    targetSelector: '[data-tour-ctx="logs-share"]',
+    targetSelector: '[data-tour-ctx="logs-overflow"]',
     anchor: 'below',
   },
   {

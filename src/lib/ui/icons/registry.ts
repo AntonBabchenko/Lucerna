@@ -38,6 +38,7 @@ import {
   Square,
   Trash2,
   TriangleAlert,
+  Upload,
   User,
   UserPlus,
   X,
@@ -59,6 +60,7 @@ export const ICONS = {
   info: Info, // informational marker (e.g. skipped-override notices)
   success: Check,
   download: Download,
+  upload: Upload, // share/upload action (Logs → Share to mclo.gs)
   update: RefreshCw, // static "update available" marker
   refresh: RefreshCw, // action variant — same icon as `update`, but spun via CSS on hover
   plus: Plus,

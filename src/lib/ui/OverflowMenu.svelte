@@ -1,33 +1,15 @@
-<script lang="ts" module>
-  import type { IconName } from '$lib/ui/icons';
-  export interface ContextMenuItem {
-    label: string;
-    icon?: IconName;
-    danger?: boolean;
-    disabled?: boolean;
-    separatorBefore?: boolean;
-    testId?: string;
-    onSelect: () => void;
-  }
-</script>
-
 <script lang="ts">
   import { Icon } from '$lib/ui/icons';
-  import type { Snippet } from 'svelte';
+  import { tooltip } from '$lib/ui/tooltip';
+  import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
 
-  // Reusable right-click / Shift+F10 menu. Wraps a target (children) in a
-  // display:contents div so it captures the contextmenu + keyboard-open events
-  // without affecting layout. The menu itself is position:fixed at the pointer
-  // (or the focused element for keyboard open), mirroring HelpPopover's approach
-  // for escaping a host's overflow box. The global +layout guard already blocks
-  // the native menu, so we only open our own.
-  let {
-    items,
-    ariaLabel,
-    children,
-  }: { items: ContextMenuItem[]; ariaLabel: string; children: Snippet } = $props();
+  // Left-click overflow menu. A trigger button (⋯) opens a position:fixed
+  // popover listing ContextMenuItems. The fixed positioning escapes any host
+  // overflow box (mirrors ContextMenu / HelpPopover). Keyboard nav, scrim
+  // close, scroll/resize close, and focus return are all handled here.
+  let { items, ariaLabel }: { items: ContextMenuItem[]; ariaLabel: string } = $props();
 
-  const WIDTH = 220;
+  const WIDTH = 230;
   const MARGIN = 8;
   const ROW = 34;
 
@@ -36,45 +18,35 @@
   let left = $state(0);
   let activeIndex = $state(-1);
   let menuEl: HTMLDivElement | undefined = $state();
-  let returnFocusEl: HTMLElement | null = null;
+  let triggerEl: HTMLButtonElement | undefined = $state();
 
   const enabledIndexes = $derived(
     items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0),
   );
 
-  function openAt(x: number, y: number) {
-    // Remember where focus was so we can return it when the menu closes.
-    returnFocusEl = document.activeElement as HTMLElement | null;
-    left = Math.min(Math.max(x, MARGIN), Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN));
+  function toggle() {
+    if (open) {
+      close();
+      return;
+    }
+    const r = triggerEl?.getBoundingClientRect();
+    // Anchor the popover's right edge under the trigger so it grows leftward.
+    const desiredLeft = r ? r.right - WIDTH : MARGIN;
+    left = Math.min(
+      Math.max(desiredLeft, MARGIN),
+      Math.max(MARGIN, window.innerWidth - WIDTH - MARGIN),
+    );
     const estH = items.length * ROW + 10;
-    top = Math.min(Math.max(y, MARGIN), Math.max(MARGIN, window.innerHeight - estH - MARGIN));
+    const desiredTop = r ? r.bottom + 4 : MARGIN;
+    top = Math.min(desiredTop, Math.max(MARGIN, window.innerHeight - estH - MARGIN));
     open = true;
     activeIndex = enabledIndexes[0] ?? -1;
-  }
-
-  function onContextMenu(e: MouseEvent) {
-    if (items.length === 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    openAt(e.clientX, e.clientY);
-  }
-
-  function onTriggerKeydown(e: KeyboardEvent) {
-    const isOpenKey = e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10');
-    if (!isOpenKey || items.length === 0) return;
-    e.preventDefault();
-    const el = document.activeElement as HTMLElement | null;
-    const r = el?.getBoundingClientRect();
-    openAt(r ? r.left + 8 : MARGIN, r ? r.bottom : MARGIN);
   }
 
   function close() {
     open = false;
     activeIndex = -1;
-    // Restore focus to wherever it was when the menu opened (e.g. the card),
-    // so keyboard users don't get dropped onto <body>.
-    returnFocusEl?.focus?.();
-    returnFocusEl = null;
+    triggerEl?.focus();
   }
 
   function select(it: ContextMenuItem) {
@@ -116,22 +88,22 @@
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="contents" oncontextmenu={onContextMenu} onkeydown={onTriggerKeydown}>
-  {@render children()}
-</div>
+<button
+  bind:this={triggerEl}
+  type="button"
+  class="btn-icon"
+  aria-haspopup="menu"
+  aria-expanded={open}
+  aria-label={ariaLabel}
+  use:tooltip={ariaLabel}
+  onclick={toggle}
+>
+  <Icon name="moreVertical" />
+</button>
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div
-    role="presentation"
-    class="fixed inset-0 z-40"
-    onclick={close}
-    oncontextmenu={(e) => {
-      e.preventDefault();
-      close();
-    }}
-  ></div>
+  <div role="presentation" class="fixed inset-0 z-40" onclick={close}></div>
   <div
     bind:this={menuEl}
     role="menu"

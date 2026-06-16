@@ -136,89 +136,57 @@ describe('LogsPopover — backdrop button aria-label="Close logs"', () => {
   });
 });
 
-// ── Reload button ─────────────────────────────────────────────────────────────
+// ── Reload button (icon + tooltip) ───────────────────────────────────────────
 
-describe('LogsPopover — Reload button is btn-secondary btn-xs', () => {
-  it('Reload button has btn-secondary and btn-xs', () => {
+describe('LogsPopover — Reload is an icon button with an accessible name', () => {
+  it('Reload button is btn-icon and named "Reload"', () => {
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
-    const btn = screen.getByRole('button', { name: /reload/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('xs');
+    const btn = screen.getByRole('button', { name: /^reload$/i });
+    expect(btn).toHaveBtnVariant('icon');
   });
 });
 
-// ── Open folder button (H11) ──────────────────────────────────────────────────
+// ── Open folder (overflow menu item) ─────────────────────────────────────────
 
-describe('LogsPopover — Open folder button is btn-tertiary', () => {
-  it('Open folder button has btn-tertiary class', () => {
+describe('LogsPopover — Open folder lives in the overflow menu', () => {
+  async function openMenu() {
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+  }
+
+  it('Open folder item is disabled when no file is selected', async () => {
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
-    const btn = screen.getByRole('button', { name: /open folder/i });
-    expect(btn).toHaveBtnVariant('tertiary');
+    await openMenu();
+    const item = screen.getByRole('menuitem', { name: /open folder/i }) as HTMLButtonElement;
+    expect(item.disabled).toBe(true);
   });
 
-  it('Open folder button is disabled when no file is selected', () => {
-    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
-    const btn = screen.getByRole('button', { name: /open folder/i });
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('Open folder button becomes enabled once a file is selected', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    const file = makeLogFileMeta({ name: 'latest.log' });
-    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
-      status: 'ok',
-      data: [file],
-    });
-    render(LogsPopover, {
-      props: { open: true, instanceId: 'inst-1', initialPath: file.path },
-    });
-    await waitFor(() => {
-      const btn = screen.getByRole('button', { name: /open folder/i });
-      if ((btn as HTMLButtonElement).disabled) throw new Error('still disabled');
-      return btn;
-    });
-    const btn = screen.getByRole('button', { name: /open folder/i });
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it('clicking Open folder invokes openLogFolder with the selected file path (H-a fix)', async () => {
+  it('clicking Open folder invokes openLogFolder with the selected file path', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const file = makeLogFileMeta({
       path: '/inst-1/.minecraft/logs/latest.log',
       name: 'latest.log',
     });
-    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({
-      status: 'ok',
-      data: [file],
-    });
+    vi.mocked(commands.listLogFiles).mockResolvedValueOnce({ status: 'ok', data: [file] });
     render(LogsPopover, {
       props: { open: true, instanceId: 'inst-1', initialPath: file.path },
     });
-    await waitFor(() => {
-      const btn = screen.getByRole('button', { name: /open folder/i });
-      if ((btn as HTMLButtonElement).disabled) throw new Error('still disabled');
-      return btn;
-    });
-    const btn = screen.getByRole('button', { name: /open folder/i });
-    await fireEvent.click(btn);
+    await screen.findByText('latest.log');
+    await openMenu();
+    const item = screen.getByRole('menuitem', { name: /open folder/i }) as HTMLButtonElement;
+    expect(item.disabled).toBe(false);
+    await fireEvent.click(item);
     expect(commands.openLogFolder).toHaveBeenCalledWith(file.path);
   });
 });
 
-// ── Share button ──────────────────────────────────────────────────────────────
+// ── Share (overflow menu item) ───────────────────────────────────────────────
 
-describe('LogsPopover — Share button is btn-secondary btn-xs', () => {
-  it('Share button has btn-secondary and btn-xs', () => {
+describe('LogsPopover — Share lives in the overflow menu', () => {
+  it('Share item is disabled when there is no selected content', async () => {
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
-    const btn = screen.getByRole('button', { name: /^share$/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('xs');
-  });
-
-  it('Share button is disabled when there is no selected content', () => {
-    render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
-    const btn = screen.getByRole('button', { name: /^share$/i });
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    const item = screen.getByRole('menuitem', { name: /share/i }) as HTMLButtonElement;
+    expect(item.disabled).toBe(true);
   });
 });
 
@@ -651,8 +619,8 @@ describe('LogsPopover — share-confirm dialog Cancel is btn-secondary btn-xs', 
     });
     // Wait for content to load, then click Share to open confirm dialog
     await screen.findByText(/some log content for sharing/i);
-    const shareBtn = screen.getByRole('button', { name: /^share$/i });
-    shareBtn.click();
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /share/i }));
     const cancelBtn = await screen.findByRole('button', { name: /^cancel$/i });
     expect(cancelBtn).toHaveBtnVariant('secondary');
     expect(cancelBtn).toHaveBtnSize('xs');
@@ -676,8 +644,8 @@ describe('LogsPopover — "Upload & share" button is btn-warning btn-xs', () => 
       props: { open: true, instanceId: 'inst-1', initialPath: logFile.path },
     });
     await screen.findByText(/ready to share/i);
-    const shareBtn = screen.getByRole('button', { name: /^share$/i });
-    shareBtn.click();
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /share/i }));
     const uploadBtn = await screen.findByRole('button', { name: /upload.*share/i });
     expect(uploadBtn).toHaveBtnVariant('warning');
     expect(uploadBtn).toHaveBtnSize('xs');
@@ -707,8 +675,8 @@ describe('LogsPopover — share-URL pill uses bg-warning-bg text-warning-text', 
       props: { open: true, instanceId: 'inst-1', initialPath: logFile.path },
     });
     await screen.findByText(/content to upload/i);
-    const shareBtn = screen.getByRole('button', { name: /^share$/i });
-    shareBtn.click();
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /share/i }));
     const uploadBtn = await screen.findByRole('button', { name: /upload.*share/i });
     uploadBtn.click();
     const pill = await waitFor(() => {
@@ -740,8 +708,8 @@ describe('LogsPopover — share-URL pill uses bg-warning-bg text-warning-text', 
       props: { open: true, instanceId: 'inst-1', initialPath: logFile.path },
     });
     await screen.findByText(/copy this link/i);
-    const shareBtn = screen.getByRole('button', { name: /^share$/i });
-    shareBtn.click();
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: /share/i }));
     const uploadBtn = await screen.findByRole('button', { name: /upload.*share/i });
     uploadBtn.click();
     const copyBtn = await screen.findByRole('button', { name: /^copy$/i });
@@ -797,6 +765,7 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     // Wait for the file list to load (sidebar shows the files).
     await screen.findByText('latest.log');
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
     const btn = screen.getByTestId('clear-old-logs') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
@@ -812,6 +781,7 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     });
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     await screen.findByText('latest.log');
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
     const btn = screen.getByTestId('clear-old-logs') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     await fireEvent.click(btn);
@@ -831,6 +801,7 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     });
     render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
     await screen.findByText('latest.log');
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
     await fireEvent.click(screen.getByTestId('clear-old-logs'));
     // Click the primary "Clear old" action inside the confirm dialog.
     const confirmDialog = screen.getByTestId('clear-old-confirm');
@@ -874,6 +845,7 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
 
     // Wait for the old file's content to appear in the viewer.
     await screen.findByText(/old log content/i);
+    await fireEvent.click(screen.getByRole('button', { name: /more actions/i }));
 
     // Trigger clear-old and confirm.
     await fireEvent.click(screen.getByTestId('clear-old-logs'));
