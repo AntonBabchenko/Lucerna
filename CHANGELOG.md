@@ -10,6 +10,67 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-06-16
+
+### Added
+- **Quick Play.** Launch straight into a single-player world or connect to a
+  multiplayer server by address, skipping the in-game menus.
+- **Saved servers.** Read, add, delete, and copy entries from your server list
+  directly in the Connect-to-server flow.
+- **Import an existing instance.** Bring instances in from another launcher —
+  Prism / MultiMC and a generic `.minecraft`, plus TLauncher and the official
+  launcher — and open an imported instance's original source folder.
+- **GPU selection.** Prefer a specific GPU for Minecraft, on both Windows and
+  Linux.
+- **Adaptive per-instance memory.** Heap defaults now scale to the machine's
+  physical RAM, with a full-RAM slider and a warning band when you push past a
+  safe share.
+- **Player profile avatar.** The signed-in account's Minecraft skin head now
+  appears in the account selector.
+- **Manual install for resource packs and shaders.** Install a local `.zip` for
+  resource packs and shaders, matching the existing manual mod install.
+- **Dependency version pre-flight.** An offline check flags dependencies that
+  are missing or whose installed version falls outside a mod's required range
+  before you launch.
+- **Server-join repair.** When a modded-server join fails, Lucerna diagnoses the
+  log and offers to install missing mods, replace mismatched versions, or
+  disable client-only mods the server rejects.
+- **Log management.** Delete individual log files, clear old logs, and opt in to
+  a retention policy that caps file count and total size.
+- **Unified action queue.** Long-running operations — integrity verify/repair
+  and modpack import — now run through a single serial queue you can cancel and
+  reorder.
+- **Confirm before removing an account.** Removing an account now asks first,
+  with a per-row delete affordance in the account list.
+
+### Changed
+- **Settings reorganized.** Settings is now a 7-section vertical-sidebar shell
+  (Appearance, Game, Integrations, Storage, Updates, Help, About).
+- **Modpack browsing.** Browse cards show the pack author and offer one-click
+  install of the latest version, and pack updates are now surfaced across the
+  launcher for every source.
+- **Unified card language.** Mods, resource packs, shaders, and modpacks share
+  one compact card design with consistent actions and context menus.
+- **Logs toolbar.** The log panel toolbar was redesigned around an icon reload
+  button, an overflow menu, and level-filter chips.
+- **Unified tooltips.** A single shared tooltip layer replaces scattered native
+  `title=` tooltips.
+- **Iconography & sidebar.** Consistent icons across the sidebar buttons, and
+  the sidebar mods button now reads clearly as "open folder".
+- **Import picker.** The modpack import picker selects all files by default, and
+  a pack's bundled resource packs and shaders now show up under Add-ons →
+  Installed.
+
+### Fixed
+- A maximized window stays maximized across an F5 reload, and browse error bars
+  gained a Reload retry.
+- The Overview's version-manifest fetch now self-heals — no more stale error
+  banner after the machine sleeps and resumes.
+- CurseForge search is paged in ≤50-item windows, fixing an HTTP 400 when
+  "100 / page" was selected.
+- The compact window now fits the status row instead of scrolling.
+- The modpacks browser stays open after an install completes.
+
 ## [0.12.0] — 2026-06-11
 
 ### Added
@@ -199,7 +260,8 @@ release is **0.9.0**.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.12.0...main
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.13.0...main
+[0.13.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.9.1...v0.10.0
