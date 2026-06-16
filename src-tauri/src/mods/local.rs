@@ -495,11 +495,22 @@ fn parse_fabric_manifest(json_text: &str, out: &mut ManifestDeps) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(json_text) else {
         return;
     };
+    let version = v.get("version").and_then(|x| x.as_str()).map(String::from);
     if let Some(id) = v.get("id").and_then(|x| x.as_str()) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
-            version: v.get("version").and_then(|x| x.as_str()).map(String::from),
+            version: version.clone(),
         });
+    }
+    // `provides`: alias mod-ids this jar satisfies (Fabric: array of strings).
+    // The alias inherits the declaring jar's version (best-effort).
+    if let Some(arr) = v.get("provides").and_then(|p| p.as_array()) {
+        for id in arr.iter().filter_map(|x| x.as_str()) {
+            out.provided.push(ProvidedMod {
+                mod_id: id.to_string(),
+                version: version.clone(),
+            });
+        }
     }
     if let Some(obj) = v.get("depends").and_then(|d| d.as_object()) {
         for (id, val) in obj {
@@ -519,14 +530,40 @@ fn parse_quilt_manifest(json_text: &str, out: &mut ManifestDeps) {
         return;
     };
     let ql = v.get("quilt_loader");
+    let own_version = ql
+        .and_then(|q| q.get("version"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
     if let Some(id) = ql.and_then(|q| q.get("id")).and_then(|x| x.as_str()) {
         out.provided.push(ProvidedMod {
             mod_id: id.to_string(),
-            version: ql
-                .and_then(|q| q.get("version"))
-                .and_then(|x| x.as_str())
-                .map(String::from),
+            version: own_version.clone(),
         });
+    }
+    // `provides`: strings (own version) or { id, version? } objects.
+    if let Some(arr) = ql
+        .and_then(|q| q.get("provides"))
+        .and_then(|p| p.as_array())
+    {
+        for e in arr {
+            let (id, ver) = match e {
+                serde_json::Value::String(s) => (Some(s.clone()), own_version.clone()),
+                serde_json::Value::Object(o) => (
+                    o.get("id").and_then(|x| x.as_str()).map(String::from),
+                    o.get("version")
+                        .and_then(|x| x.as_str())
+                        .map(String::from)
+                        .or_else(|| own_version.clone()),
+                ),
+                _ => (None, own_version.clone()),
+            };
+            if let Some(id) = id {
+                out.provided.push(ProvidedMod {
+                    mod_id: id,
+                    version: ver,
+                });
+            }
+        }
     }
     let Some(arr) = ql.and_then(|q| q.get("depends")).and_then(|d| d.as_array()) else {
         return;
@@ -577,7 +614,8 @@ fn entry_bytes(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<V
 }
 
 /// Read the JIJ (Jar-in-Jar) embedded jars from an outer jar's
-/// `META-INF/jarjar/` directory. For each `.jar` found there, recursively
+/// `META-INF/jarjar/` (Forge) or `META-INF/jars/` (Fabric/Quilt)
+/// directory. For each `.jar` found there, recursively
 /// calls `read_jar_manifest_deps` to get the inner jar's real `[[mods]]`
 /// `modId` + version (not the Maven artifact id from `metadata.json`, which
 /// is unreliable). Returns empty on any error — best-effort, never fails.
@@ -590,8 +628,10 @@ pub fn read_jar_embedded_providers(jar_bytes: &[u8]) -> Vec<ProvidedMod> {
         .filter_map(|i| {
             let entry = zip.by_index(i).ok()?;
             let name = entry.name().to_string();
-            // Match META-INF/jarjar/<something>.jar (no sub-directories)
-            if name.starts_with("META-INF/jarjar/")
+            // Match a nested jar one level under either nested-jar dir:
+            // META-INF/jarjar/<x>.jar (Forge/NeoForge) or
+            // META-INF/jars/<x>.jar (Fabric/Quilt). Both have exactly 2 slashes.
+            if (name.starts_with("META-INF/jarjar/") || name.starts_with("META-INF/jars/"))
                 && name.ends_with(".jar")
                 && name.matches('/').count() == 2
             {
@@ -1440,6 +1480,36 @@ modId=\"evilseagull\"
     }
 
     #[test]
+    fn fabric_manifest_registers_provides_aliases() {
+        let json =
+            r#"{"id":"sodium","version":"0.6.0","provides":["indium-compat","sodium-extra-shim"]}"#;
+        let j = jar(&[("fabric.mod.json", json)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        let ids: Vec<&str> = m.provided.iter().map(|p| p.mod_id.as_str()).collect();
+        assert!(ids.contains(&"sodium"), "{ids:?}");
+        assert!(ids.contains(&"indium-compat"), "{ids:?}");
+        assert!(ids.contains(&"sodium-extra-shim"), "{ids:?}");
+        // alias inherits the declaring jar's version
+        let alias = m
+            .provided
+            .iter()
+            .find(|p| p.mod_id == "indium-compat")
+            .unwrap();
+        assert_eq!(alias.version.as_deref(), Some("0.6.0"));
+    }
+
+    #[test]
+    fn quilt_manifest_registers_provides_strings_and_objects() {
+        let json = r#"{"quilt_loader":{"id":"qsl","version":"5.0.0","provides":["qsl-base",{"id":"qfapi","version":"7.1.0"}]}}"#;
+        let j = jar(&[("quilt.mod.json", json)]);
+        let m = read_jar_manifest_deps(&j).unwrap();
+        let base = m.provided.iter().find(|p| p.mod_id == "qsl-base").unwrap();
+        assert_eq!(base.version.as_deref(), Some("5.0.0")); // string → own version
+        let qfapi = m.provided.iter().find(|p| p.mod_id == "qfapi").unwrap();
+        assert_eq!(qfapi.version.as_deref(), Some("7.1.0")); // object version wins
+    }
+
+    #[test]
     fn jij_reader_extracts_embedded_jar_mod_id() {
         // Build inner jar declaring modId="embeddedlib" version="2.1.0"
         let inner_toml = "[[mods]]\nmodId=\"embeddedlib\"\nversion=\"2.1.0\"\n";
@@ -1462,6 +1532,67 @@ modId=\"evilseagull\"
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].mod_id, "embeddedlib");
         assert_eq!(providers[0].version.as_deref(), Some("2.1.0"));
+    }
+
+    #[test]
+    fn jij_reader_extracts_fabric_jars_dir_mod_id() {
+        // Fabric/Quilt bundle nested modules under META-INF/jars/, not jarjar.
+        let inner_bytes = jar(&[(
+            "fabric.mod.json",
+            r#"{"id":"fabric-renderer-api-v1","version":"3.2.0"}"#,
+        )]);
+        let outer = {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file(
+                    "META-INF/jars/fabric-renderer-api-v1.jar",
+                    SimpleFileOptions::default(),
+                )
+                .unwrap();
+                w.write_all(&inner_bytes).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        };
+        let providers = read_jar_embedded_providers(&outer);
+        assert!(
+            providers
+                .iter()
+                .any(|p| p.mod_id == "fabric-renderer-api-v1"
+                    && p.version.as_deref() == Some("3.2.0")),
+            "providers: {providers:?}"
+        );
+    }
+
+    #[test]
+    fn jij_reader_reads_both_jarjar_and_jars_dirs() {
+        // Forge jarjar AND Fabric jars in one outer jar — both inner ids captured.
+        let forge_inner = jar(&[("META-INF/mods.toml", "[[mods]]\nmodId=\"forgelib\"\n")]);
+        let fabric_inner = jar(&[("fabric.mod.json", r#"{"id":"fabriclib"}"#)]);
+        let outer = {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file("META-INF/jarjar/a.jar", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(&forge_inner).unwrap();
+                w.start_file("META-INF/jars/b.jar", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(&fabric_inner).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        };
+        let providers = read_jar_embedded_providers(&outer);
+        assert!(
+            providers.iter().any(|p| p.mod_id == "forgelib"),
+            "{providers:?}"
+        );
+        assert!(
+            providers.iter().any(|p| p.mod_id == "fabriclib"),
+            "{providers:?}"
+        );
     }
 
     #[test]

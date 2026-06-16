@@ -421,4 +421,120 @@ mod tests {
             ViolationKind::VersionOutOfRange
         ));
     }
+
+    /// Build an in-memory `.jar` (zip) from (name, raw-bytes) entries — needed
+    /// for the nested-jar case where an entry's body is itself a jar.
+    fn zip_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::{Cursor, Write};
+        use zip::write::SimpleFileOptions;
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+            for (name, body) in entries {
+                w.start_file(*name, SimpleFileOptions::default()).unwrap();
+                w.write_all(body).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        buf
+    }
+
+    fn installed_jar(
+        filename: &str,
+        sha1: &str,
+        name: &str,
+    ) -> crate::mods::platform::InstalledMod {
+        crate::mods::platform::InstalledMod {
+            filename: filename.into(),
+            sha1: sha1.into(),
+            source: None,
+            project_id: None,
+            version_id: None,
+            name: name.into(),
+            version_number: None,
+            installed_at: "2026-06-16T00:00:00Z".into(),
+            enabled: true,
+            enrich_attempted: false,
+            requires: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn fabric_api_bundled_submodule_satisfies_indium_dependency() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let inner = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"fabric-renderer-api-v1","version":"3.2.0"}"#,
+        )]);
+        let fabric_api = zip_bytes(&[
+            (
+                "fabric.mod.json",
+                br#"{"id":"fabric-api","version":"0.100.0"}"#,
+            ),
+            ("META-INF/jars/fabric-renderer-api-v1.jar", &inner),
+        ]);
+        let indium = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"indium","version":"1.0.35","depends":{"fabric-renderer-api-v1":"*"}}"#,
+        )]);
+
+        tokio::fs::write(dir.join("fabric-api.jar"), &fabric_api)
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("indium.jar"), &indium)
+            .await
+            .unwrap();
+        add(
+            td.path(),
+            installed_jar("fabric-api.jar", "sha-fabricapi", "Fabric API"),
+        )
+        .await
+        .unwrap();
+        add(
+            td.path(),
+            installed_jar("indium.jar", "sha-indium", "Indium"),
+        )
+        .await
+        .unwrap();
+
+        let report = dependency_preflight_for_root(td.path()).await.unwrap();
+        assert!(
+            report.violations.is_empty(),
+            "submodule bundled in Fabric API must satisfy the dep; got {:?}",
+            report.violations
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_fabric_api_still_flags_submodule_dependency() {
+        use crate::mods::installed::{add, mods_dir};
+        let td = tempfile::TempDir::new().unwrap();
+        let dir = mods_dir(td.path());
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let indium = zip_bytes(&[(
+            "fabric.mod.json",
+            br#"{"id":"indium","version":"1.0.35","depends":{"fabric-renderer-api-v1":"*"}}"#,
+        )]);
+        tokio::fs::write(dir.join("indium.jar"), &indium)
+            .await
+            .unwrap();
+        add(
+            td.path(),
+            installed_jar("indium.jar", "sha-indium", "Indium"),
+        )
+        .await
+        .unwrap();
+
+        let report = dependency_preflight_for_root(td.path()).await.unwrap();
+        assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+        assert_eq!(report.violations[0].dep_id, "fabric-renderer-api-v1");
+        assert!(matches!(
+            report.violations[0].kind,
+            ViolationKind::MissingRequired
+        ));
+    }
 }
