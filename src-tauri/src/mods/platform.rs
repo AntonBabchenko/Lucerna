@@ -276,6 +276,17 @@ pub struct VersionRef {
     pub version_id: String,
 }
 
+/// A hash-recovered identity from enrichment. `version_id` is `None` when
+/// the matched Modrinth version's loader/MC tags do not match the instance
+/// (a shared "universal" jar attached to several versions) — the project is
+/// recorded for icons/name, but a misleading version is not.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedIdentity {
+    pub source: ModSource,
+    pub project_id: String,
+    pub version_id: Option<String>,
+}
+
 /// The per-asset update classification (mirrors `ModUpdateState` for mods).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
