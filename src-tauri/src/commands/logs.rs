@@ -49,6 +49,59 @@ pub fn latest_crash(
     crate::logs::files::latest_crash(&app, &instance_id)
 }
 
+/// Apply the live "is this still a real problem?" guards to a freshly-matched
+/// diagnosis. Returns `None` when the problem has since been resolved by the
+/// user (cited mods installed / blocking mods disabled). Patterns without a
+/// live check pass through unchanged. Reads installed mods only when needed.
+async fn apply_live_suppression(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    path: &std::path::Path,
+    diag: crate::logs::diagnose::Diagnosis,
+) -> Result<Option<crate::logs::diagnose::Diagnosis>, crate::error::Error> {
+    // Stale-log guard: the missing-mods diagnosis is driven by historical log
+    // text that never changes. If the user has since installed the cited mods,
+    // suppress the now-resolved warning instead of nagging on the old log.
+    if diag.pattern_id == "server-missing-mods" {
+        let log = crate::logs::read::read_with_cap(path, 1024 * 1024)?;
+        let cited = crate::logs::diagnose::server_mods::parse_server_mod_rejection(&log);
+        if !cited.is_empty() {
+            let inst_root = instance_root(app, instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            if crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed).is_empty() {
+                return Ok(None);
+            }
+        }
+    }
+    // Symmetric guard for the inverse case: once the blocking mods are disabled
+    // (or removed), there's nothing left to act on — suppress the stale warning
+    // instead of nagging on the historical log.
+    if diag.pattern_id == "client-extra-mods" {
+        let log = crate::logs::read::read_with_cap(path, 1024 * 1024)?;
+        let ids = crate::logs::diagnose::server_mods::parse_blocking_client_mods(&log);
+        // Only suppress when blocking ids were actually parsed: an empty parse
+        // means the log doesn't truly match (e.g. truncated below the terminator),
+        // so leave the advisory rather than hide it. `build_repair_plan` returns
+        // `None` for an empty ids set, so the Fix button won't appear regardless.
+        if !ids.is_empty() {
+            let inst_root = instance_root(app, instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            // The emptiness check only needs the blocking list, not `breaks`, so
+            // an empty deps map is fine here (no jar reads at diagnose time).
+            if crate::logs::diagnose::repair::build_blocking_mods(
+                &ids,
+                &installed,
+                &std::collections::HashMap::new(),
+            )
+            .is_empty()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(diag))
+}
+
 /// Run the diagnoser over `path`. Returns `Ok(None)` when no known
 /// pattern matches or the file is empty/too short. Path must be
 /// under one of `instance_id`'s allowed log roots — anything else
@@ -67,47 +120,10 @@ pub async fn diagnose_log(
     let Some(diag) = crate::logs::diagnose::diagnose(&path_buf).await? else {
         return Ok(None);
     };
-    // Stale-log guard: the missing-mods diagnosis is driven by historical log
-    // text that never changes. If the user has since installed the cited mods,
-    // suppress the now-resolved warning instead of nagging on the old log.
-    if diag.pattern_id == "server-missing-mods" {
-        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
-        let cited = crate::logs::diagnose::server_mods::parse_server_mod_rejection(&log);
-        if !cited.is_empty() {
-            let inst_root = instance_root(&app, &instance_id)?;
-            let installed = crate::mods::installed::list(&inst_root).await?;
-            if crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed).is_empty() {
-                return Ok(None);
-            }
-        }
+    match apply_live_suppression(&app, &instance_id, &path_buf, diag).await? {
+        Some(d) => Ok(Some(d)),
+        None => Ok(None),
     }
-    // Symmetric guard for the inverse case: once the blocking mods are disabled
-    // (or removed), there's nothing left to act on — suppress the stale warning
-    // instead of nagging on the historical log.
-    if diag.pattern_id == "client-extra-mods" {
-        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
-        let ids = crate::logs::diagnose::server_mods::parse_blocking_client_mods(&log);
-        // Only suppress when blocking ids were actually parsed: an empty parse
-        // means the log doesn't truly match (e.g. truncated below the terminator),
-        // so leave the advisory rather than hide it. `build_repair_plan` returns
-        // `None` for an empty ids set, so the Fix button won't appear regardless.
-        if !ids.is_empty() {
-            let inst_root = instance_root(&app, &instance_id)?;
-            let installed = crate::mods::installed::list(&inst_root).await?;
-            // The emptiness check only needs the blocking list, not `breaks`, so
-            // an empty deps map is fine here (no jar reads at diagnose time).
-            if crate::logs::diagnose::repair::build_blocking_mods(
-                &ids,
-                &installed,
-                &std::collections::HashMap::new(),
-            )
-            .is_empty()
-            {
-                return Ok(None);
-            }
-        }
-    }
-    Ok(Some(diag))
 }
 
 /// Build a concrete, confirmable repair plan for a diagnosed log, or
