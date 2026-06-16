@@ -37,6 +37,7 @@ pub fn sniff_loader_from_mods(mods_dir: &Path) -> Option<LoaderKind> {
         let Ok(meta) = read_jar_meta(&bytes) else {
             continue; // not a zip / unreadable — skip
         };
+        // `read` counts successfully-parsed jars toward SNIFF_JAR_CAP.
         read += 1;
         // Only single-family jars vote: a multi-loader jar (both descriptors)
         // runs on either loader and tells us nothing about the instance's.
@@ -167,6 +168,15 @@ mod tests {
     fn forge_neoforge_tie_falls_back_to_forge() {
         let td = mods_dir_with(&[("a.jar", forge_jar()), ("b.jar", neoforge_jar())]);
         assert_eq!(sniff_loader_from_mods(td.path()), Some(LoaderKind::Forge));
+    }
+
+    #[test]
+    fn fabric_quilt_tie_falls_back_to_fabric() {
+        // One pure-Fabric jar + one Quilt jar: Fabric family wins (2 vs 0
+        // Forge), and the within-family tie (fabric == quilt) resolves to the
+        // base, Fabric.
+        let td = mods_dir_with(&[("a.jar", fabric_jar()), ("b.jar", quilt_jar())]);
+        assert_eq!(sniff_loader_from_mods(td.path()), Some(LoaderKind::Fabric));
     }
 
     #[test]
