@@ -1,12 +1,12 @@
 // Settings group intent coverage: SettingsModal (rows beyond D tabs-negative),
-// CurseForgeKeyForm, StoragePanel, AboutPanel, GeneralPanel, CurseForgeKeyBanner.
+// CurseForgeKeyForm, StoragePanel, AboutPanel, CurseForgeKeyBanner.
 //
 // Rows covered here per inventory:
 //   SettingsModal:       CloseButton header → btn-icon
 //                        backdrop aria-label="Close Settings"
 //                        dialog role="dialog" aria-modal aria-label="Settings"
-//                        tab POSITIVE: border-b-2 + border-accent (active)
-//                        tab POSITIVE: border-transparent + text-placeholder (inactive)
+//                        tab POSITIVE: border-l-2 + border-accent (active section)
+//                        tab POSITIVE: border-transparent + text-muted (inactive section)
 //   CurseForgeKeyForm:   status spans (text-success/danger/secondary/placeholder)
 //                        console link btn-tertiary font-mono (status=missing)
 //                        API Keys link btn-tertiary font-mono (status=missing)
@@ -21,9 +21,6 @@
 //                        aria-label present on GitHub button
 //                        DISCLAIMER_TEXT rendered as text-secondary
 //                        GPL license line text-xs text-muted
-//   GeneralPanel:        theme radio inputs data-testid present
-//                        tray-toggle checkbox data-testid present
-//                        Replay onboarding tour → btn-secondary btn-sm
 //   CurseForgeKeyBanner: bg-warning-bg border-warning-text/30 text-warning-text
 //                        Open Settings → CurseForge → btn-warning btn-sm
 
@@ -40,16 +37,25 @@ vi.mock('$lib/ipc/bindings', () => ({
     // StoragePanel
     modsCacheSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 1024 * 1024 }),
     modsClearCache: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
-    // GeneralPanel
+    // Split settings panels (Game / Updates / Storage)
     appSettingsGet: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {
         version: 1,
         onboarding: { tour_completed_version: null },
-        general: { hide_to_tray_during_game: false, theme: 'system' },
+        general: {
+          hide_to_tray_during_game: false,
+          theme: 'system',
+          check_updates_on_startup: true,
+          gpu_preference: 'auto',
+          log_retention: { enabled: false, max_files: 10, max_total_mb: 100 },
+        },
       },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    updateCheck: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
     gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
   events: {
@@ -69,7 +75,6 @@ import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
 import AboutPanel from '$lib/settings/AboutPanel.svelte';
 import CurseForgeKeyForm from '$lib/settings/CurseForgeKeyForm.svelte';
 import { DISCLAIMER_TEXT } from '$lib/settings/disclaimer';
-import GeneralPanel from '$lib/settings/GeneralPanel.svelte';
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import StoragePanel from '$lib/settings/StoragePanel.svelte';
 import { settingsOpen } from '$lib/settings/state.svelte';
@@ -82,13 +87,13 @@ afterEach(() => {
 
 describe('SettingsModal — dialog structure', () => {
   it('mounts when settingsOpen.value is set', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
     expect(screen.getByRole('dialog')).not.toBeNull();
   });
 
   it('dialog has aria-modal="true" and is labelled "Settings"', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
     // The shared Modal labels the dialog via aria-labelledby pointing at the
     // "Settings" heading, so the accessible name is "Settings".
@@ -97,7 +102,7 @@ describe('SettingsModal — dialog structure', () => {
   });
 
   it('CloseButton in header has btn-icon class', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
     // The header's × CloseButton is labelled "Close settings" (lowercase s).
     const closeBtn = screen.getByLabelText('Close settings');
@@ -110,7 +115,7 @@ describe('SettingsModal — dialog structure', () => {
   // (SettingsModal renders after ModpacksModal in +page.svelte). The scrim
   // must sit at z-50 so it isn't painted behind a base modal.
   it('scrim sits at z-50', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
     // The shared Modal renders the scrim as the dialog's parent backdrop div.
     const scrim = screen.getByRole('dialog', { name: 'Settings' }).parentElement;
@@ -121,23 +126,11 @@ describe('SettingsModal — dialog structure', () => {
 
 // ── SettingsModal — tab POSITIVE assertions (complement to D's negative) ─────
 
-describe('SettingsModal — active tab has canonical underline classes', () => {
-  it('active CurseForge tab has border-b-2 border-accent text-primary font-medium', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+describe('SettingsModal — active section has accent classes', () => {
+  it('active Integrations tab has border-accent text-primary font-medium', () => {
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
-    const tab = screen.getByRole('tab', { name: 'CurseForge' });
-    const cls = tab.className;
-    expect(cls).toContain('border-b-2');
-    expect(cls).toContain('border-accent');
-    expect(cls).toContain('text-primary');
-    expect(cls).toContain('font-medium');
-    expect(cls).toContain('-mb-px');
-  });
-
-  it('active Storage tab has border-b-2 border-accent when storage tab is active', () => {
-    settingsOpen.value = { tab: 'storage' };
-    render(SettingsModal);
-    const tab = screen.getByRole('tab', { name: 'Storage' });
+    const tab = screen.getByRole('tab', { name: 'Integrations' });
     const cls = tab.className;
     expect(cls).toContain('border-accent');
     expect(cls).toContain('text-primary');
@@ -145,42 +138,25 @@ describe('SettingsModal — active tab has canonical underline classes', () => {
   });
 });
 
-describe('SettingsModal — inactive tabs have border-transparent text-muted', () => {
-  it('inactive Storage/About/General tabs have border-transparent text-muted', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+describe('SettingsModal — inactive sections have border-transparent text-muted', () => {
+  it('inactive Storage/About/Appearance tabs have border-transparent text-muted', () => {
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
-    for (const name of ['Storage', 'About', 'General']) {
+    for (const name of ['Storage', 'About', 'Appearance']) {
       const tab = screen.getByRole('tab', { name });
       const cls = tab.className;
       expect(cls).toContain('border-transparent');
-      // Inactive tabs use text-muted (WCAG-AA legible) rather than the lower-
-      // contrast text-placeholder, which failed 4.5:1 in both themes.
       expect(cls).toContain('text-muted');
-      // Structural shape shared by all tabs.
-      expect(cls).toContain('border-b-2');
-      expect(cls).toContain('px-3');
-      expect(cls).toContain('py-1');
-      expect(cls).toContain('text-sm');
-      expect(cls).toContain('-mb-px');
     }
-  });
-
-  it('inactive CurseForge tab has border-transparent text-muted when another tab active', () => {
-    settingsOpen.value = { tab: 'storage' };
-    render(SettingsModal);
-    const tab = screen.getByRole('tab', { name: 'CurseForge' });
-    const cls = tab.className;
-    expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-muted');
   });
 });
 
 describe('SettingsModal — all tabs have aria-selected', () => {
-  it('each of the 4 tabs has aria-selected attribute', () => {
-    settingsOpen.value = { tab: 'curseforge' };
+  it('each of the 7 tabs has aria-selected attribute', () => {
+    settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(7);
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-selected')).not.toBeNull();
     }
@@ -433,41 +409,6 @@ describe('AboutPanel — GPL license line has text-xs text-muted', () => {
     const cls = para?.className ?? '';
     expect(cls).toContain('text-xs');
     expect(cls).toContain('text-muted');
-  });
-});
-
-// ── GeneralPanel — theme radio inputs ────────────────────────────────────────
-
-describe('GeneralPanel — theme radio inputs have data-testid', () => {
-  it('system/light/dark radio inputs are present with data-testid', () => {
-    const { container } = render(GeneralPanel);
-    for (const v of ['system', 'light', 'dark']) {
-      const input = container.querySelector(`[data-testid="theme-${v}"]`);
-      expect(input).not.toBeNull();
-      expect(input?.getAttribute('type')).toBe('radio');
-    }
-  });
-});
-
-// ── GeneralPanel — tray-toggle checkbox ──────────────────────────────────────
-
-describe('GeneralPanel — tray-toggle checkbox has data-testid', () => {
-  it('tray-toggle checkbox is present', () => {
-    const { container } = render(GeneralPanel);
-    const checkbox = container.querySelector('[data-testid="tray-toggle"]');
-    expect(checkbox).not.toBeNull();
-    expect(checkbox?.getAttribute('type')).toBe('checkbox');
-  });
-});
-
-// ── GeneralPanel — Replay onboarding tour button ─────────────────────────────
-
-describe('GeneralPanel — Replay onboarding tour button is btn-secondary btn-sm', () => {
-  it('"Replay onboarding tour" button has btn-secondary and btn-sm', () => {
-    render(GeneralPanel);
-    const btn = screen.getByRole('button', { name: /replay onboarding tour/i });
-    expect(btn).toHaveBtnVariant('secondary');
-    expect(btn).toHaveBtnSize('sm');
   });
 });
 
