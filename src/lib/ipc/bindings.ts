@@ -357,6 +357,13 @@ export const commands = {
 	 *  caller's job (the frontend writes GeneralSettings.compact_mode).
 	 */
 	windowSetCompact: (compact: boolean, contentHeight: number | null) => typedError<null, Error>(__TAURI_INVOKE("window_set_compact", { compact, contentHeight })),
+	/**
+	 *  Apply (and arm) the expanded window's min-height floor — the measured
+	 *  sidebar content height. `hug` is true only for the one-shot startup
+	 *  application (resize to the content height); later content-change
+	 *  applications pass false (grow only when buttons would clip).
+	 */
+	windowSetExpandedFloor: (height: number | null, hug: boolean) => typedError<null, Error>(__TAURI_INVOKE("window_set_expanded_floor", { height, hug })),
 	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),

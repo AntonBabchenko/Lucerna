@@ -14,6 +14,20 @@ pub async fn window_set_compact(
     crate::window::set_compact(&app, compact, content_height, &state)
 }
 
+/// Apply (and arm) the expanded window's min-height floor — the measured
+/// sidebar content height. `hug` is true only for the one-shot startup
+/// application (resize to the content height); later content-change
+/// applications pass false (grow only when buttons would clip).
+#[tauri::command]
+#[specta::specta]
+pub async fn window_set_expanded_floor(
+    app: tauri::AppHandle,
+    height: f64,
+    hug: bool,
+) -> Result<(), crate::error::Error> {
+    crate::window::set_expanded_floor(&app, height, hug)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn greet(name: String) -> Greeting {
