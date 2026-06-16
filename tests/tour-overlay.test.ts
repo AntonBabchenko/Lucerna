@@ -75,6 +75,15 @@ describe('TourOverlay', () => {
     expect(next.classList.contains('btn-sm')).toBe(true);
   });
 
+  test('Skip button never wraps to a second line (whitespace-nowrap)', () => {
+    tourState.currentStep = 1;
+    render(TourOverlay);
+    const skip = screen.getByRole('button', { name: /skip/i });
+    // Regression: a long label (RU "Пропустить обучение") wrapped to two lines
+    // in the narrow popover, making the footer row uneven. Keep it one line.
+    expect(skip.classList.contains('whitespace-nowrap')).toBe(true);
+  });
+
   test('On step 6, Next is replaced by Finish and clears active', async () => {
     tourState.currentStep = TOTAL_STEPS - 1;
     render(TourOverlay);
