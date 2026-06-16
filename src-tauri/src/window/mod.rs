@@ -99,6 +99,52 @@ fn plan_expanded(
     }
 }
 
+/// What `set_expanded_floor` should touch. Pure data, unit-testable without a
+/// live window. See `plan_expanded_floor`.
+#[derive(Debug, PartialEq)]
+struct ExpandedFloorPlan {
+    /// `set_min_size((width, height))`, or `None` to leave it (maximized).
+    min_size: Option<(f64, f64)>,
+    /// `set_size((width, height))`, or `None` to leave the current size.
+    resize_to: Option<(f64, f64)>,
+}
+
+/// Decide how to apply the expanded min-height floor.
+///
+/// On Windows/wry a programmatic `set_min_size` is not enforced on the live
+/// window until a subsequent `set_size` "arms" it. So the startup application
+/// (`hug = true`) resizes the window to exactly the content height — both
+/// hugging the sidebar's bottom buttons and arming the minimum. Later
+/// applications (`hug = false`, content changed) only grow the window when the
+/// content would otherwise clip, never shrinking a window the user enlarged.
+/// A maximized window is never touched (matches the F5-reload guard).
+fn plan_expanded_floor(
+    height: f64,
+    current_width: f64,
+    current_height: f64,
+    is_maximized: bool,
+    hug: bool,
+) -> ExpandedFloorPlan {
+    if is_maximized {
+        return ExpandedFloorPlan {
+            min_size: None,
+            resize_to: None,
+        };
+    }
+    let width = current_width.max(EXPANDED_MIN_WIDTH);
+    let resize_to = if hug || current_height < height {
+        Some((width, height))
+    } else if (width - current_width).abs() > f64::EPSILON {
+        Some((width, current_height))
+    } else {
+        None
+    };
+    ExpandedFloorPlan {
+        min_size: Some((EXPANDED_MIN_WIDTH, height)),
+        resize_to,
+    }
+}
+
 /// Resize the `main` window to/from the compact strip. No-op if the window is
 /// absent.
 ///
@@ -229,6 +275,44 @@ pub fn set_compact(
     Ok(())
 }
 
+/// Apply the expanded window's min-height floor (the measured sidebar content
+/// height) and arm it. See `plan_expanded_floor`. No-op if the window is absent
+/// or `height` is non-positive.
+pub fn set_expanded_floor(app: &AppHandle, height: f64, hug: bool) -> Result<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    if height <= 0.0 {
+        return Ok(());
+    }
+    let scale = window.scale_factor().map_err(|e| Error::WindowIo {
+        details: format!("scale_factor: {e}"),
+    })?;
+    let is_maximized = window.is_maximized().unwrap_or(false);
+    let phys = window.inner_size().map_err(|e| Error::WindowIo {
+        details: format!("inner_size floor: {e}"),
+    })?;
+    let current_width = phys.width as f64 / scale;
+    let current_height = phys.height as f64 / scale;
+    let plan = plan_expanded_floor(height, current_width, current_height, is_maximized, hug);
+
+    if let Some((w, h)) = plan.min_size {
+        window
+            .set_min_size(Some(LogicalSize::new(w, h)))
+            .map_err(|e| Error::WindowIo {
+                details: format!("set_min_size floor: {e}"),
+            })?;
+    }
+    if let Some((w, h)) = plan.resize_to {
+        window
+            .set_size(LogicalSize::new(w, h))
+            .map_err(|e| Error::WindowIo {
+                details: format!("set_size floor: {e}"),
+            })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +373,46 @@ mod tests {
                 resize_to: Some((DEFAULT_EXPANDED_WIDTH, DEFAULT_EXPANDED_HEIGHT)),
             }
         );
+    }
+
+    #[test]
+    fn floor_hug_sizes_to_content_and_arms() {
+        // Startup hug: resize to exactly the content height (a real set_size that
+        // arms the min-size on wry), min floored at the content height.
+        let plan = plan_expanded_floor(506.0, 820.0, 520.0, false, true);
+        assert_eq!(plan.min_size, Some((EXPANDED_MIN_WIDTH, 506.0)));
+        assert_eq!(plan.resize_to, Some((820.0, 506.0)));
+    }
+
+    #[test]
+    fn floor_grows_when_content_exceeds_window() {
+        // Not hug, content taller than the window → grow so buttons stay visible.
+        let plan = plan_expanded_floor(560.0, 900.0, 520.0, false, false);
+        assert_eq!(plan.min_size, Some((EXPANDED_MIN_WIDTH, 560.0)));
+        assert_eq!(plan.resize_to, Some((900.0, 560.0)));
+    }
+
+    #[test]
+    fn floor_only_updates_min_when_window_already_tall_enough() {
+        // Not hug, window already ≥ content → update the min, don't touch size
+        // (don't fight a window the user enlarged).
+        let plan = plan_expanded_floor(480.0, 1000.0, 700.0, false, false);
+        assert_eq!(plan.min_size, Some((EXPANDED_MIN_WIDTH, 480.0)));
+        assert_eq!(plan.resize_to, None);
+    }
+
+    #[test]
+    fn floor_clamps_width_below_minimum() {
+        // Width below the expanded minimum → clamp width up, keep height.
+        let plan = plan_expanded_floor(480.0, 700.0, 700.0, false, false);
+        assert_eq!(plan.resize_to, Some((EXPANDED_MIN_WIDTH, 700.0)));
+    }
+
+    #[test]
+    fn floor_noop_when_maximized() {
+        // Never disturb a maximized window (matches the F5 guard).
+        let plan = plan_expanded_floor(506.0, 1920.0, 1080.0, true, true);
+        assert_eq!(plan.min_size, None);
+        assert_eq!(plan.resize_to, None);
     }
 }

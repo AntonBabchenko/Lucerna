@@ -101,6 +101,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::repair_instance,
             commands::get_playtime,
             commands::window_set_compact,
+            commands::window_set_expanded_floor,
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,
