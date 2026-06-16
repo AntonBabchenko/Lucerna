@@ -162,4 +162,54 @@ describe('ModpackBrowseView', () => {
       data: { hits: [], total: 0, offset: 0, limit: 20 },
     });
   });
+
+  it('resets to page 0 when the source changes after paging forward', async () => {
+    const oneHit = {
+      project_id: 'p1',
+      slug: 'p1',
+      title: 'Pager Pack',
+      description: '',
+      icon_url: null,
+      downloads: 0,
+      latest_mc_version: null,
+      supported_loaders: [],
+      source: 'modrinth',
+      distribution_allowed: true,
+      author: null,
+    };
+    // 100 results at 20/page → 5 pages and a non-empty page, so the pager renders.
+    mockSearch.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [oneHit], total: 100, offset: 0, limit: 20 },
+    });
+
+    render(ModpackBrowseView, { props: { onPickHit: () => {} } });
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
+    await fireEvent.click(screen.getByTestId('pg-next'));
+    // Paged forward → pageNum (positional arg 2) is 1.
+    await waitFor(() => expect(mockSearch.mock.calls.some(([, , p]) => p === 1)).toBe(true), {
+      timeout: 1000,
+    });
+
+    // Switch source via the shared browse-state singleton (the picker lives in
+    // the parent tab). The carried-over page must NOT leak into the new source.
+    mockSearch.mockClear();
+    modpackBrowseState.source = 'curseforge';
+    await waitFor(
+      () => expect(mockSearch.mock.calls.some(([s]) => s === 'curseforge')).toBe(true),
+      {
+        timeout: 1000,
+      },
+    );
+
+    const cfCalls = mockSearch.mock.calls.filter(([s]) => s === 'curseforge');
+    for (const [, , pageNum] of cfCalls) {
+      expect(pageNum).toBe(0);
+    }
+
+    mockSearch.mockResolvedValue({
+      status: 'ok',
+      data: { hits: [], total: 0, offset: 0, limit: 20 },
+    });
+  });
 });
