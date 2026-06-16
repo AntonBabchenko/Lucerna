@@ -276,10 +276,10 @@ mod modrinth_root_tests {
     #[test]
     fn includes_modern_modrinth_app_profiles_root() {
         let roots = default_launcher_roots();
+        // `PathBuf::ends_with` matches whole path components, so this pins the
+        // exact `ModrinthApp/profiles` tail rather than loose substrings.
         assert!(
-            roots
-                .iter()
-                .any(|p| p.ends_with("profiles") && p.to_string_lossy().contains("ModrinthApp")),
+            roots.iter().any(|p| p.ends_with("ModrinthApp/profiles")),
             "missing %APPDATA%/ModrinthApp/profiles; got: {roots:?}"
         );
     }
