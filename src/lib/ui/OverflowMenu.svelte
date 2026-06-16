@@ -125,7 +125,7 @@
         role="menuitem"
         tabindex="-1"
         disabled={it.disabled}
-        data-testid={it.testId}
+        data-testid={it.testId ?? undefined}
         class={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left disabled:opacity-50 ${it.danger ? 'text-danger' : 'text-secondary'} ${activeIndex === i ? 'bg-subtle' : 'hover:bg-subtle'}`}
         onclick={() => select(it)}
         onmouseenter={() => (activeIndex = i)}

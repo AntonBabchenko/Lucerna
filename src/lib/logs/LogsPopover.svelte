@@ -752,6 +752,7 @@
           <h2 class="text-sm font-semibold text-primary">{$t('logs.toolbar.title')}</h2>
           <div class="flex items-center gap-1.5">
             <button
+              type="button"
               class="btn-icon"
               aria-label={$t('logs.toolbar.reload')}
               use:tooltip={$t('logs.toolbar.reload')}
