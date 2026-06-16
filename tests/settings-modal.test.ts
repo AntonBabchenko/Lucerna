@@ -1,11 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// SettingsModal mounts the real CurseForgeKeyForm (Task 19) on the
-// CurseForge tab and the real StoragePanel (Task 20) on the Storage
-// tab. Both fire IPC calls on mount, so stub every command they touch
-// — otherwise `__TAURI_INVOKE` (undefined in happy-dom) produces an
-// unhandled rejection in this shell-only test file.
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     modsGetCurseforgeKeyStatus: vi.fn().mockResolvedValue({ status: 'ok', data: 'missing' }),
@@ -13,15 +8,12 @@ vi.mock('$lib/ipc/bindings', () => ({
     modsClearCurseforgeKey: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsCacheSizeBytes: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
     modsClearCache: vi.fn().mockResolvedValue({ status: 'ok', data: 0 }),
-    // GeneralPanel (new default tab) calls these on mount.
     appSettingsGet: vi.fn().mockResolvedValue({
       status: 'ok',
-      data: {
-        general: { hide_to_tray_on_launch: false, theme: 'system', replay_tour_pending: false },
-      },
+      data: { general: { hide_to_tray_during_game: false, theme: 'system', check_updates_on_startup: true, gpu_preference: 'auto', log_retention: { enabled: false, max_files: 10, max_total_mb: 100 } } },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
-    appSettingsMarkTourCompleted: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    updateCheck: vi.fn().mockResolvedValue({ status: 'ok', data: { available: false, current: '0.0.0' } }),
     gpuCapability: vi.fn().mockResolvedValue({ status: 'ok', data: { kind: 'unsupported' } }),
   },
 }));
@@ -29,55 +21,54 @@ vi.mock('$lib/ipc/bindings', () => ({
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import { settingsOpen } from '$lib/settings/state.svelte';
 
-// `settingsOpen` is a module-level $state rune shared across all tests
-// in this file (same module instance). Reset it between cases so state
-// doesn't bleed from one test into the next.
 afterEach(() => {
   settingsOpen.value = null;
 });
 
 describe('SettingsModal', () => {
-  it('renders when settingsOpen is set and closes on Escape', async () => {
-    settingsOpen.value = { tab: 'curseforge' };
+  it('renders 7 section tabs and closes on Escape', async () => {
+    settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeTruthy();
+    expect(screen.getAllByRole('tab')).toHaveLength(7);
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(settingsOpen.value).toBe(null);
   });
 
-  it('switches tabs on click', async () => {
-    settingsOpen.value = { tab: 'curseforge' };
+  it('opens on the Appearance section by default and shows theme controls', () => {
+    settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
-    const storageTab = screen.getByRole('tab', { name: 'Storage' });
-    await fireEvent.click(storageTab);
-    expect(storageTab.getAttribute('aria-selected')).toBe('true');
-    // And the CurseForge tab is no longer selected.
-    expect(screen.getByRole('tab', { name: 'CurseForge' }).getAttribute('aria-selected')).toBe(
-      'false',
-    );
+    expect(screen.getByRole('tab', { name: 'Appearance' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('theme-system')).toBeTruthy();
   });
 
-  it('exposes an About tab that mounts the AboutPanel', async () => {
-    settingsOpen.value = { tab: 'curseforge' };
+  it('deep-links to Integrations and mounts the CurseForge form', () => {
+    settingsOpen.value = { tab: 'integrations' };
     render(SettingsModal);
-    const aboutTab = screen.getByRole('tab', { name: 'About' });
-    await fireEvent.click(aboutTab);
-    expect(aboutTab.getAttribute('aria-selected')).toBe('true');
-    // Disclaimer comes from the panel, sourced from the shared constant.
+    expect(screen.getByRole('tab', { name: 'Integrations' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText(/Status:/)).toBeTruthy();
+  });
+
+  it('switches to the About section on click and shows the disclaimer', async () => {
+    settingsOpen.value = { tab: 'appearance' };
+    render(SettingsModal);
+    await fireEvent.click(screen.getByRole('tab', { name: 'About' }));
     expect(
-      screen.getByText(
-        /NOT AN OFFICIAL MINECRAFT PRODUCT\. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT\./,
-      ),
+      screen.getByText(/NOT AN OFFICIAL MINECRAFT PRODUCT\./),
     ).toBeTruthy();
   });
 
-  it('tucks the changelog into a disclosure on the About tab', async () => {
-    settingsOpen.value = { tab: 'curseforge' };
+  it('ArrowDown moves the active section to the next one', async () => {
+    settingsOpen.value = { tab: 'appearance' };
     render(SettingsModal);
-    await fireEvent.click(screen.getByRole('tab', { name: 'About' }));
-    // The changelog lives in a <details> disclosure inside About; its summary
-    // and content (the 0.1.0 first release, always present in CHANGELOG.md)
-    // are in the DOM even while collapsed.
+    const tablist = screen.getByRole('tablist');
+    await fireEvent.keyDown(tablist, { key: 'ArrowDown' });
+    expect(screen.getByRole('tab', { name: 'Game' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('shows the changelog under Updates, not under About', async () => {
+    settingsOpen.value = { tab: 'updates' };
+    render(SettingsModal);
     expect(screen.getByText("What's new")).toBeTruthy();
     expect(screen.getByText('v0.1.0')).toBeTruthy();
   });
