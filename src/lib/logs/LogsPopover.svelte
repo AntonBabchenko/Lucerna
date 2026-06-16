@@ -548,6 +548,9 @@
       case 'fatal':
         return 'border-danger text-danger';
       case 'warn':
+        // /60 keeps this off the bare `.border-warning-text` selector that the
+        // warn log-line tests use (chips render before the body, so a full-tone
+        // class here would be matched first).
         return 'border-warning-text/60 text-warning-text';
       case 'debug':
       case 'trace':
