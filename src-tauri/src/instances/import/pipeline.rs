@@ -9,7 +9,7 @@ use sha1::{Digest, Sha1};
 
 use crate::error::{Error, Result};
 use crate::instances::import::model::{
-    ContentCategory, ForeignInstance, ImportPlan, ImportProgress,
+    is_injected_mod, ContentCategory, ForeignInstance, ImportPlan, ImportProgress,
 };
 use crate::instances::schema::ImportProvenance;
 use crate::mods::modpack::path_safety::is_safe_relative_path;
@@ -63,7 +63,7 @@ pub fn copy_category(
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if crate::instances::import::model::is_injected_mod(&fname) {
+            if is_injected_mod(&fname) {
                 continue;
             }
         }
