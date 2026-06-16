@@ -279,6 +279,7 @@ export type TranslationKey =
   | 'instances.import.sourceTlauncher'
   | 'instances.import.step1Title'
   | 'instances.import.step2Title'
+  | 'instances.import.vanillaWithModsWarning'
   | 'logs.close.popoverAriaLabel'
   | 'logs.close.scrimAriaLabel'
   | 'logs.diagnosis.patterns.clientExtraMods.explanation'

@@ -192,6 +192,7 @@
       "mcVersionPlaceholder": "e.g. 1.20.1",
       "mcVersionHint": "A plain .minecraft folder doesn't record its version — enter it to enable import.",
       "loaderInputLabel": "Mod loader",
+      "vanillaWithModsWarning": "This instance has mods, but no loader is selected — they won't load. Pick the matching loader above.",
       "sourcePathLabel": "Source folder",
       "step2Title": "Import \"{name}\"",
       "discover": "Search for instances",
