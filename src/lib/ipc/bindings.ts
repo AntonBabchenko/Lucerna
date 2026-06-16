@@ -727,8 +727,11 @@ export const commands = {
 	 *  success; the `Done` event carries the resolved output path.
 	 */
 	exportModpack: (instanceId: string, options: ExportOptions, destPath: string, onProgress: Channel<ModpackExportProgress>) => typedError<null, Error>(__TAURI_INVOKE("export_modpack", { instanceId, options, destPath, onProgress })),
-	/**  Auto-discover importable instances across known launcher install paths. */
-	launcherImportDiscover: () => typedError<ForeignInstance[], Error>(__TAURI_INVOKE("launcher_import_discover")),
+	/**
+	 *  Auto-discover importable instances across known launcher install paths,
+	 *  plus launchers found-but-empty (for the empty-state message).
+	 */
+	launcherImportDiscover: () => typedError<DiscoverResult, Error>(__TAURI_INVOKE("launcher_import_discover")),
 	/**
 	 *  Inspect a single user-picked folder (manual fallback). Returns the
 	 *  normalized instance, or an error if the folder is unrecognized.
@@ -1122,6 +1125,16 @@ export type Diagnosis = {
 	 *  plan is fetched lazily via `build_repair_plan`.
 	 */
 	repair: RepairKind | null,
+};
+
+/**
+ *  Result of an auto-discovery sweep. `empty_launchers` lists launchers whose
+ *  install root exists on disk but yielded no importable instance — so the UI
+ *  can say "found X, but nothing to import" instead of a generic empty state.
+ */
+export type DiscoverResult = {
+	instances: ForeignInstance[],
+	empty_launchers: ForeignLauncher[],
 };
 
 /**

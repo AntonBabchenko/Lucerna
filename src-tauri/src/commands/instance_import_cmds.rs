@@ -7,16 +7,17 @@ use tauri::ipc::Channel;
 use crate::error::Error;
 use crate::instances::import::discovery;
 use crate::instances::import::model::{
-    build_import_plan, ContentCategory, ForeignInstance, ImportProgress,
+    build_import_plan, ContentCategory, DiscoverResult, ForeignInstance, ImportProgress,
 };
 use crate::instances::import::pipeline;
 use crate::instances::schema::InstanceFile;
 
-/// Auto-discover importable instances across known launcher install paths.
+/// Auto-discover importable instances across known launcher install paths,
+/// plus launchers found-but-empty (for the empty-state message).
 #[tauri::command]
 #[specta::specta]
-pub async fn launcher_import_discover() -> Result<Vec<ForeignInstance>, Error> {
-    Ok(discovery::discover_all())
+pub async fn launcher_import_discover() -> Result<DiscoverResult, Error> {
+    Ok(discovery::discover_summary())
 }
 
 /// Inspect a single user-picked folder (manual fallback). Returns the

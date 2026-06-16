@@ -75,6 +75,15 @@ pub struct ForeignInstance {
     pub known_mods: Vec<KnownMod>,
 }
 
+/// Result of an auto-discovery sweep. `empty_launchers` lists launchers whose
+/// install root exists on disk but yielded no importable instance — so the UI
+/// can say "found X, but nothing to import" instead of a generic empty state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct DiscoverResult {
+    pub instances: Vec<ForeignInstance>,
+    pub empty_launchers: Vec<ForeignLauncher>,
+}
+
 /// Pure, resolved plan: mapped instance fields + the categories to copy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportPlan {

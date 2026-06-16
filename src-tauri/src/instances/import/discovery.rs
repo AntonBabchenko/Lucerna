@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::instances::import::model::ForeignInstance;
+use crate::instances::import::model::{DiscoverResult, ForeignInstance};
 use crate::instances::import::readers::{
     raw_minecraft::RawMinecraftReader, structured_readers, LauncherReader,
 };
@@ -86,6 +86,66 @@ pub fn detect_folder(dir: &Path) -> Option<ForeignInstance> {
     None
 }
 
+/// Build a `DiscoverResult` from explicit `(launcher, root)` pairs. A launcher
+/// whose root is a dir but contributes zero importable instances is reported
+/// in `empty_launchers`. Used by `discover_summary` and tests.
+pub fn summarize_roots(
+    roots: &[(
+        crate::instances::schema::ForeignLauncher,
+        std::path::PathBuf,
+    )],
+) -> DiscoverResult {
+    let mut instances: Vec<ForeignInstance> = Vec::new();
+    let mut empty: Vec<crate::instances::schema::ForeignLauncher> = Vec::new();
+    let readers = structured_readers();
+    for (launcher, root) in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        let is_dot_mc = root.ends_with(".minecraft") || root.ends_with("minecraft");
+        let recognized: Vec<ForeignInstance> = if is_dot_mc {
+            scan_minecraft_root(root)
+        } else {
+            readers
+                .iter()
+                .filter(|r| r.launcher() == *launcher)
+                .flat_map(|r| r.expand_root(root))
+                .collect()
+        };
+        let mut added = 0usize;
+        for fi in recognized {
+            if fi.content.is_empty() {
+                continue; // recognized but nothing to copy
+            }
+            if !instances
+                .iter()
+                .any(|e| e.minecraft_dir == fi.minecraft_dir)
+            {
+                instances.push(fi);
+            }
+            added += 1;
+        }
+        if added == 0 && !empty.contains(launcher) {
+            empty.push(*launcher);
+        }
+    }
+    DiscoverResult {
+        instances,
+        empty_launchers: empty,
+    }
+}
+
+/// Discover across all known launcher roots, with an empty-launcher summary.
+pub fn discover_summary() -> DiscoverResult {
+    let mut pairs = Vec::new();
+    for reader in structured_readers() {
+        for root in reader.default_roots() {
+            pairs.push((reader.launcher(), root));
+        }
+    }
+    summarize_roots(&pairs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +194,30 @@ mod tests {
     #[test]
     fn detect_folder_rejects_unrelated_dir() {
         assert!(detect_folder(Path::new(env!("CARGO_MANIFEST_DIR"))).is_none());
+    }
+
+    #[test]
+    fn summary_reports_empty_launcher_when_root_present_but_no_content() {
+        // A reader whose root exists but yields nothing importable lands in
+        // empty_launchers. Exercised via a CF root that holds a content-less
+        // instance (minecraftinstance.json but no mods/saves/etc).
+        let tmp = tempfile::tempdir().unwrap();
+        let inst = tmp.path().join("Instances/empty");
+        std::fs::create_dir_all(&inst).unwrap();
+        std::fs::write(
+            inst.join("minecraftinstance.json"),
+            r#"{"name":"empty","gameVersion":"1.21.1","baseModLoader":{"type":1,"name":"forge-52.1.0"}}"#,
+        )
+        .unwrap();
+
+        let summary = summarize_roots(&[(
+            crate::instances::schema::ForeignLauncher::CurseforgeApp,
+            tmp.path().join("Instances"),
+        )]);
+        assert!(summary.instances.is_empty());
+        assert!(summary
+            .empty_launchers
+            .contains(&crate::instances::schema::ForeignLauncher::CurseforgeApp));
     }
 
     #[test]
