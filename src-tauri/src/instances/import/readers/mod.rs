@@ -2,7 +2,7 @@
 //! `ForeignInstance`. The registry lists every reader for discovery and
 //! manual-folder detection.
 
-pub mod loader_sniff;
+pub(crate) mod loader_sniff;
 pub mod prism;
 pub mod profile;
 pub mod raw_minecraft;
