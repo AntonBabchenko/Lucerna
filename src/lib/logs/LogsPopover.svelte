@@ -801,9 +801,16 @@
               {$t('logs.toolbar.rawView')}
             </label>
           {/if}
+        </div>
 
-          {#if activeLevels.length > 0}
-            <span class="text-muted ml-auto">{$t('logs.toolbar.showLevels')}</span>
+        <!-- Header row 3: severity-level filters (own line — there can be many) -->
+        {#if activeLevels.length > 0}
+          <div
+            class="flex items-center gap-1.5 px-4 py-1.5 border-t text-xs flex-wrap"
+            role="group"
+            aria-label={$t('logs.toolbar.showLevels')}
+          >
+            <span class="text-muted mr-1">{$t('logs.toolbar.showLevels')}</span>
             {#each activeLevels as lv}
               <button
                 type="button"
@@ -817,8 +824,8 @@
                 <span class="opacity-70">{severityCounts.get(lv) ?? 0}</span>
               </button>
             {/each}
-          {/if}
-        </div>
+          </div>
+        {/if}
       </header>
 
       <!-- Share confirm dialog -->
