@@ -56,6 +56,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     listLogFiles: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     readLogFile: vi.fn().mockResolvedValue({ status: 'ok', data: '' }),
     diagnoseLog: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // diagnoseLatest is used by LogDiagnosisBanner (mounted inside LogsPopover) to
+    // fetch the latest-log diagnosis from the module-singleton store.
+    diagnoseLatest: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     shareLogToMclogs: vi.fn().mockResolvedValue({ status: 'ok', data: 'https://mclo.gs/abc123' }),
     latestCrash: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     openLogFolder: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

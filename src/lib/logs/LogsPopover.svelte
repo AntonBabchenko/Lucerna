@@ -5,19 +5,14 @@
     type LoaderKind,
     type LogFileMeta,
     type LogSource,
-    type RepairChoice,
-    type RepairPlan,
   } from '$lib/ipc/bindings';
   import { SvelteSet } from 'svelte/reactivity';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
-  import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
-  import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
-  import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
-  import { enqueueRepair } from '$lib/logs/repair-ops.svelte';
+  import LogDiagnosisBanner from '$lib/logs/LogDiagnosisBanner.svelte';
+  import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
   import { clearOldPreview } from '$lib/logs/manage';
-  import { deferOrRunRepair } from '$lib/logs/deferred-repairs.svelte';
   import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -98,11 +93,6 @@
   let clearingOld = $state(false);
   const clearOldStats = $derived(clearOldPreview(files));
   let diagnosis = $state<Diagnosis | null>(null);
-  // Auto-repair: the concrete plan is fetched lazily on "Fix this" intent.
-  let repairPlan = $state<RepairPlan | null>(null);
-  let repairLoading = $state(false);
-  let repairUnavailable = $state(false);
-  let repairApplying = $state(false);
   let contentError = $state<string | null>(null);
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
@@ -231,6 +221,12 @@
     void openViewer(deepLink);
   });
 
+  // Refresh the banner's latest diagnosis when the popover opens so it shows
+  // current state rather than whatever was last fetched.
+  $effect(() => {
+    if (open && instanceId) void refreshDiagnosis(instanceId);
+  });
+
   // ---------------------------------------------------------------------------
   // Data-loading functions
   // ---------------------------------------------------------------------------
@@ -330,9 +326,6 @@
     loadingContent = true;
     contentError = null;
     diagnosis = null;
-    repairPlan = null;
-    repairUnavailable = false;
-    repairApplying = false;
     const result = await commands.readLogFile(path, capBytes);
     loadingContent = false;
     if (result.status === 'ok') {
@@ -351,58 +344,6 @@
       contentError = JSON.stringify(result.error);
       selectedContent = '';
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Auto-repair (preview → confirm → apply)
-  // ---------------------------------------------------------------------------
-
-  async function startRepair() {
-    if (!diagnosis || !selectedPath || !instanceId) return;
-    repairLoading = true;
-    repairUnavailable = false;
-    repairPlan = null;
-    const res = await commands.buildRepairPlan(instanceId, selectedPath);
-    repairLoading = false;
-    if (res.status === 'ok' && res.data) {
-      repairPlan = res.data;
-    } else {
-      // No constructible plan → keep advisory text, show a soft note.
-      repairUnavailable = true;
-      if (res.status === 'error') {
-        // biome-ignore lint/suspicious/noConsole: best-effort UI degradation when IPC fails
-        console.warn('[LogsPopover] build_repair_plan failed:', res.error);
-      }
-    }
-  }
-
-  async function applyRepair(choice: RepairChoice) {
-    if (!instanceId) return;
-    // Keep the card open with a busy Apply button until the op reaches a
-    // terminal result (enqueueRepair resolves once it has drained), then
-    // close. A success/warning toast is emitted by the repair-ops store.
-    repairApplying = true;
-    try {
-      if (gameRunning) {
-        // Game running → the file mutation can't happen now; queue it for after
-        // the game closes (deferOrRunRepair emits its own queued/done toast).
-        await deferOrRunRepair(true, {
-          instanceId,
-          sha1: null,
-          label: instanceName ?? instanceId,
-          choice,
-        });
-      } else {
-        await enqueueRepair(instanceId, instanceName ?? instanceId, choice);
-      }
-    } finally {
-      repairApplying = false;
-      repairPlan = null;
-    }
-  }
-
-  function cancelRepair() {
-    repairPlan = null;
   }
 
   function onCapChange(value: number) {
@@ -974,6 +915,8 @@
 
         <!-- Main content area -->
         <section class="flex-1 flex flex-col overflow-hidden">
+          <!-- Latest-log diagnosis banner: always bound to latest, independent of selected file -->
+          <LogDiagnosisBanner {instanceId} {instanceName} {mcVersion} {loader} {gameRunning} />
           <!-- Search bar -->
           <div class="px-3 py-2 border-b flex items-center gap-2" data-tour-ctx="logs-search">
             <input
@@ -1048,48 +991,6 @@
                   <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
                   {copy ? $t(copy.recommendation) : diagnosis.recommendation}
                 </p>
-                {#if diagnosis.repair && instanceId}
-                  {#if repairPlan && repairPlan.kind === 'install_missing_mods' && mcVersion && loader}
-                    <MissingModsRepairCard
-                      plan={repairPlan}
-                      instanceId={instanceId ?? ''}
-                      {mcVersion}
-                      {loader}
-                      onClose={() => (repairPlan = null)}
-                    />
-                  {:else if repairPlan && repairPlan.kind === 'disable_blocking_mods'}
-                    <BlockingModsRepairCard
-                      plan={repairPlan}
-                      instanceId={instanceId ?? ''}
-                      {mcVersion}
-                      {loader}
-                      {gameRunning}
-                      onClose={() => (repairPlan = null)}
-                    />
-                  {:else if repairPlan}
-                    <RepairConfirmCard
-                      plan={repairPlan}
-                      busy={repairApplying}
-                      onConfirm={applyRepair}
-                      onCancel={cancelRepair}
-                    />
-                  {:else}
-                    <button
-                      type="button"
-                      class="btn-primary btn-sm mt-2"
-                      data-testid="repair-start"
-                      disabled={repairLoading}
-                      onclick={startRepair}
-                    >
-                      {repairLoading ? $t('logs.repair.checking') : $t('logs.repair.fixThis')}
-                    </button>
-                    {#if repairUnavailable}
-                      <p class="mt-1 text-xs text-warning-text/80">
-                        {$t('logs.repair.unavailable')}
-                      </p>
-                    {/if}
-                  {/if}
-                {/if}
                 {#if diagnosis.matched_excerpt}
                   <pre
                     class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
