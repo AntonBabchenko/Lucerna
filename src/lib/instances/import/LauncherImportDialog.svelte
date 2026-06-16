@@ -25,6 +25,7 @@
   // ── step 1: discovery ──────────────────────────────────────────────────────
   let discovering = $state(true); // auto-scan kicks off on mount
   let discovered = $state<ForeignInstance[]>([]);
+  let emptyLaunchers = $state<ForeignInstance['source'][]>([]);
   let discoverError = $state<string | null>(null);
 
   async function discover() {
@@ -33,7 +34,8 @@
     try {
       const res = await commands.launcherImportDiscover();
       if (res.status === 'ok') {
-        discovered = res.data;
+        discovered = res.data.instances;
+        emptyLaunchers = res.data.empty_launchers;
       } else {
         discoverError = formatError(res.error);
       }
@@ -241,13 +243,27 @@
           <span>{discoverError}</span>
         </div>
       {:else if discovered.length === 0}
-        <div
-          class="flex flex-col items-center justify-center gap-2 py-12 text-center"
-          data-testid="discover-empty"
-        >
-          <Icon name="package" size={30} class="text-placeholder" />
-          <p class="max-w-xs text-sm text-muted">{$t('instances.import.discoverEmpty')}</p>
-        </div>
+        {#if emptyLaunchers.length > 0}
+          <div
+            class="flex flex-col items-center justify-center gap-2 py-12 text-center"
+            data-testid="discover-empty-found"
+          >
+            <Icon name="package" size={30} class="text-placeholder" />
+            <p class="max-w-xs text-sm text-muted">
+              {$t('instances.import.discoverEmptyFound', {
+                launchers: emptyLaunchers.map(sourceLabel).join(', '),
+              })}
+            </p>
+          </div>
+        {:else}
+          <div
+            class="flex flex-col items-center justify-center gap-2 py-12 text-center"
+            data-testid="discover-empty"
+          >
+            <Icon name="package" size={30} class="text-placeholder" />
+            <p class="max-w-xs text-sm text-muted">{$t('instances.import.discoverEmpty')}</p>
+          </div>
+        {/if}
       {:else}
         <ul class="space-y-2" data-testid="discovered-list">
           {#each discovered as inst (inst.root)}

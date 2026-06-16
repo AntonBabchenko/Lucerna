@@ -59,7 +59,7 @@ describe('LauncherImportDialog', () => {
   beforeEach(() => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [],
+      data: { instances: [], empty_launchers: [] },
     });
   });
 
@@ -74,7 +74,7 @@ describe('LauncherImportDialog', () => {
   it('calls launcherImportDiscover and shows results', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mockForeign],
+      data: { instances: [mockForeign], empty_launchers: [] },
     });
 
     const { getByTestId } = render(LauncherImportDialog, {
@@ -92,7 +92,7 @@ describe('LauncherImportDialog', () => {
   it('shows empty state when discovery returns no instances', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [],
+      data: { instances: [], empty_launchers: [] },
     });
 
     const { getByTestId } = render(LauncherImportDialog, {
@@ -101,6 +101,19 @@ describe('LauncherImportDialog', () => {
 
     fireEvent.click(getByTestId('discover-btn'));
     await waitFor(() => expect(getByTestId('discover-empty')).toBeTruthy());
+  });
+
+  it('shows found-but-empty state when launchers exist but have no importable instances', async () => {
+    (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: { instances: [], empty_launchers: ['tlauncher'] },
+    });
+
+    const { findByTestId } = render(LauncherImportDialog, {
+      props: { onClose: vi.fn() },
+    });
+
+    await findByTestId('discover-empty-found');
   });
 
   it('shows error when discovery fails', async () => {
@@ -123,7 +136,7 @@ describe('LauncherImportDialog', () => {
   it('clicking an instance row advances to step 2', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mockForeign],
+      data: { instances: [mockForeign], empty_launchers: [] },
     });
 
     const { getByTestId } = render(LauncherImportDialog, {
@@ -145,7 +158,7 @@ describe('LauncherImportDialog', () => {
   it('step 2: categories are pre-checked and toggleable', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mockForeign],
+      data: { instances: [mockForeign], empty_launchers: [] },
     });
 
     const { getByTestId } = render(LauncherImportDialog, {
@@ -169,7 +182,7 @@ describe('LauncherImportDialog', () => {
   it('step 2: import button calls enqueueLauncherImport and closes dialog', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mockForeign],
+      data: { instances: [mockForeign], empty_launchers: [] },
     });
     const onClose = vi.fn();
 
@@ -192,7 +205,7 @@ describe('LauncherImportDialog', () => {
   it('step 2: back button returns to step 1', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mockForeign],
+      data: { instances: [mockForeign], empty_launchers: [] },
     });
 
     const { getByTestId, queryByTestId } = render(LauncherImportDialog, {
@@ -243,7 +256,7 @@ describe('LauncherImportDialog', () => {
     };
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mojangForeign],
+      data: { instances: [mojangForeign], empty_launchers: [] },
     });
 
     const { getByTestId } = render(LauncherImportDialog, { props: { onClose: vi.fn() } });
@@ -259,7 +272,7 @@ describe('LauncherImportDialog', () => {
   it('does not show the loader editor for a structured prism source', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
-      data: [mockForeign],
+      data: { instances: [mockForeign], empty_launchers: [] },
     });
     const { getByTestId, queryByTestId } = render(LauncherImportDialog, {
       props: { onClose: vi.fn() },
