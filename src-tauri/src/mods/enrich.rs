@@ -14,8 +14,9 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::Error;
+use crate::instances::schema::LoaderKind;
 use crate::mods::installed;
-use crate::mods::platform::{InstalledMod, ModSource, VersionRef};
+use crate::mods::platform::{InstalledMod, ModSource, ResolvedIdentity, VersionRef};
 
 const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
 
@@ -88,12 +89,67 @@ fn pick_identity(
     }
 }
 
-/// Only the two fields the resolve path needs from a Modrinth version
-/// object; serde ignores the rest of the (large) payload.
+/// The fields the resolve path needs from a Modrinth version object;
+/// serde ignores the rest of the (large) payload. `loaders` /
+/// `game_versions` drive the instance-compatibility check (a byte-identical
+/// jar can be attached to versions with different tags — see `MrMatch`).
 #[derive(Deserialize)]
 struct MrVersionLite {
     id: String,
     project_id: String,
+    #[serde(default)]
+    loaders: Vec<String>,
+    #[serde(default)]
+    game_versions: Vec<String>,
+}
+
+/// A Modrinth hash match: the identity plus the matched version's loader/MC
+/// tags, so the caller can detect when `version_files` returned a version
+/// that does not match the instance (a shared "universal" jar) and record
+/// the project without a misleading version.
+#[derive(Debug, Clone)]
+struct MrMatch {
+    project_id: String,
+    version_id: String,
+    loaders: Vec<String>,
+    game_versions: Vec<String>,
+}
+
+impl MrMatch {
+    fn version_ref(&self) -> VersionRef {
+        VersionRef {
+            source: ModSource::Modrinth,
+            project_id: self.project_id.clone(),
+            version_id: self.version_id.clone(),
+        }
+    }
+}
+
+/// `true` iff a Modrinth version's tags are compatible with the instance:
+/// the instance's loader slug appears in the version's `loaders` and the
+/// instance's MC version appears in its `game_versions`. A multi-loader
+/// "universal" version that lists the instance loader matches.
+fn modrinth_version_matches_instance(
+    version_loaders: &[String],
+    version_game_versions: &[String],
+    instance_loader: LoaderKind,
+    instance_mc: &str,
+) -> bool {
+    let slug = instance_loader.modrinth_slug();
+    let loader_ok = version_loaders.iter().any(|l| l.eq_ignore_ascii_case(slug));
+    let mc_ok = version_game_versions.iter().any(|g| g == instance_mc);
+    loader_ok && mc_ok
+}
+
+/// Read the instance's loader + MC version from `instance.json`, best-effort.
+/// `None` on any failure (missing/corrupt file) — the caller then keeps the
+/// hash-matched version verbatim, i.e. the pre-fix behavior.
+async fn read_instance_loader_mc(instance_root: &Path) -> Option<(LoaderKind, String)> {
+    let bytes = tokio::fs::read(instance_root.join("instance.json"))
+        .await
+        .ok()?;
+    let inst: crate::instances::schema::InstanceFile = serde_json::from_slice(&bytes).ok()?;
+    Some((inst.loader, inst.mc_version))
 }
 
 /// Batch-resolve SHA-1 hashes against Modrinth's `version_files`
@@ -105,7 +161,7 @@ struct MrVersionLite {
 /// `(empty, true)` — vacuous success, no failure occurred. Best-effort:
 /// any failure logs to stderr and is treated as "no matches." No API
 /// key required.
-async fn resolve_modrinth(base: &str, shas: &[String]) -> (HashMap<String, VersionRef>, bool) {
+async fn resolve_modrinth(base: &str, shas: &[String]) -> (HashMap<String, MrMatch>, bool) {
     let mut out = HashMap::new();
     if shas.is_empty() {
         return (out, true);
@@ -144,10 +200,11 @@ async fn resolve_modrinth(base: &str, shas: &[String]) -> (HashMap<String, Versi
     for (sha, v) in map {
         out.insert(
             sha.to_ascii_lowercase(),
-            VersionRef {
-                source: ModSource::Modrinth,
+            MrMatch {
                 project_id: v.project_id,
                 version_id: v.id,
+                loaders: v.loaders,
+                game_versions: v.game_versions,
             },
         );
     }
@@ -281,6 +338,7 @@ async fn enrich_selected(
     instance_root: &Path,
     in_scope: &[&InstalledMod],
     home: ModSource,
+    instance: Option<(LoaderKind, String)>,
     modrinth_base: &str,
     cf_base: &str,
     cf_key: Option<&str>,
@@ -323,12 +381,45 @@ async fn enrich_selected(
         None => (HashMap::new(), true),
     };
 
-    let mut resolved: HashMap<String, VersionRef> = HashMap::new();
+    let mut resolved: HashMap<String, ResolvedIdentity> = HashMap::new();
     for m in in_scope {
         let key = m.sha1.to_ascii_lowercase();
-        if let Some(id) = pick_identity(mr.get(&key).cloned(), cf.get(&key).cloned(), home) {
-            resolved.insert(key, id);
-        }
+        let mr_match = mr.get(&key);
+        let Some(picked) = pick_identity(
+            mr_match.map(MrMatch::version_ref),
+            cf.get(&key).cloned(),
+            home,
+        ) else {
+            continue;
+        };
+        // For a Modrinth pick, drop the version_id when the matched version's
+        // loader/MC tags don't match the instance: a byte-identical jar can be
+        // attached to several versions and `version_files` returns an arbitrary
+        // one, so the project is trustworthy but the version is not. CurseForge
+        // matches are per-file (unambiguous) and never downgraded. When the
+        // instance is unknown (instance.json unreadable) we keep the version —
+        // never worse than before.
+        let version_id = match (picked.source, instance.as_ref(), mr_match) {
+            (ModSource::Modrinth, Some((loader, mc)), Some(mm))
+                if !modrinth_version_matches_instance(
+                    &mm.loaders,
+                    &mm.game_versions,
+                    *loader,
+                    mc,
+                ) =>
+            {
+                None
+            }
+            _ => Some(picked.version_id),
+        };
+        resolved.insert(
+            key,
+            ResolvedIdentity {
+                source: picked.source,
+                project_id: picked.project_id,
+                version_id,
+            },
+        );
     }
 
     // `attempted` gates on whether every platform we TRIED in this pass
@@ -378,10 +469,12 @@ pub async fn enrich_instance(
         })
         .collect();
 
+    let instance = read_instance_loader_mc(instance_root).await;
     enrich_selected(
         instance_root,
         &in_scope,
         pack_origin.source,
+        instance,
         modrinth_base,
         cf_base,
         cf_key,
@@ -420,10 +513,12 @@ pub async fn enrich_untracked(
         .filter(|m| m.source.is_none() && !m.enrich_attempted)
         .collect();
 
+    let instance = read_instance_loader_mc(instance_root).await;
     enrich_selected(
         instance_root,
         &in_scope,
         ModSource::Modrinth,
+        instance,
         modrinth_base,
         cf_base,
         cf_key,
@@ -455,6 +550,18 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         tokio::fs::write(dir.join(filename), bytes).await.unwrap();
         hex::encode(Sha1::digest(bytes))
+    }
+
+    /// Write a minimal `instance.json` so `read_instance_loader_mc` can read the
+    /// instance's loader + MC. `loader` is the snake_case serde value
+    /// (`forge` / `fabric` / `quilt` / `neoforge` / `vanilla`).
+    async fn write_instance_json(instance_root: &Path, loader: &str, mc: &str) {
+        let json = format!(
+            r#"{{"id":"t","name":"t","mc_version":"{mc}","loader":"{loader}","loader_version":null,"max_heap_mb":2048,"extra_jvm_args":"","created_unix_ms":0.0}}"#
+        );
+        tokio::fs::write(instance_root.join("instance.json"), json)
+            .await
+            .unwrap();
     }
 
     /// A `pack_origin` declaring `files` as `mods/` override entries.
@@ -585,7 +692,12 @@ mod tests {
         let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
-            "abc123": { "id": "MR-VER", "project_id": "MR-PROJ" }
+            "abc123": {
+                "id": "MR-VER",
+                "project_id": "MR-PROJ",
+                "loaders": ["fabric"],
+                "game_versions": ["1.20.1"]
+            }
         });
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
@@ -597,9 +709,10 @@ mod tests {
         std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got.get("abc123").expect("hash should resolve");
-        assert_eq!(id.source, ModSource::Modrinth);
         assert_eq!(id.project_id, "MR-PROJ");
         assert_eq!(id.version_id, "MR-VER");
+        assert_eq!(id.loaders, vec!["fabric".to_string()]);
+        assert_eq!(id.game_versions, vec!["1.20.1".to_string()]);
     }
 
     #[tokio::test]
@@ -1216,6 +1329,164 @@ mod tests {
             .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
             .unwrap();
         assert!(m.source.is_none(), "no matches → source must remain None");
+        assert!(m.enrich_attempted);
+    }
+
+    #[test]
+    fn version_matches_instance_exact() {
+        assert!(modrinth_version_matches_instance(
+            &["forge".into()],
+            &["1.20.4".into()],
+            LoaderKind::Forge,
+            "1.20.4",
+        ));
+    }
+
+    #[test]
+    fn version_matches_instance_multi_loader_universal() {
+        // A "universal" version listing several loaders matches as long as it
+        // includes the instance loader.
+        assert!(modrinth_version_matches_instance(
+            &["fabric".into(), "forge".into(), "quilt".into()],
+            &["1.20.4".into(), "1.20.1".into()],
+            LoaderKind::Forge,
+            "1.20.4",
+        ));
+    }
+
+    #[test]
+    fn version_mismatch_on_loader() {
+        assert!(!modrinth_version_matches_instance(
+            &["fabric".into()],
+            &["1.20.4".into()],
+            LoaderKind::Forge,
+            "1.20.4",
+        ));
+    }
+
+    #[test]
+    fn version_mismatch_on_mc() {
+        assert!(!modrinth_version_matches_instance(
+            &["forge".into()],
+            &["1.20.1".into()],
+            LoaderKind::Forge,
+            "1.20.4",
+        ));
+    }
+
+    #[test]
+    fn version_mismatch_on_empty_loaders() {
+        assert!(!modrinth_version_matches_instance(
+            &[],
+            &["1.20.4".into()],
+            LoaderKind::Forge,
+            "1.20.4",
+        ));
+    }
+
+    #[tokio::test]
+    async fn enrich_instance_keeps_version_when_tags_match() {
+        // instance.json says Forge/1.20.1; the matched version lists forge +
+        // 1.20.1 → full identity (version_id recorded).
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
+        write_instance_json(td.path(), "forge", "1.20.1").await;
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Modrinth, &[(&sha, "sodium.jar")]),
+        )
+        .await
+        .unwrap();
+
+        let mr = MockServer::start().await;
+        let mut map = serde_json::Map::new();
+        map.insert(
+            sha.clone(),
+            serde_json::json!({
+                "id": "MR-VER",
+                "project_id": "MR-PROJ",
+                "loaders": ["forge"],
+                "game_versions": ["1.20.1"]
+            }),
+        );
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
+            .mount(&mr)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert_eq!(m.source, Some(ModSource::Modrinth));
+        assert_eq!(m.project_id.as_deref(), Some("MR-PROJ"));
+        assert_eq!(m.version_id.as_deref(), Some("MR-VER"));
+        assert!(m.enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn enrich_instance_records_project_only_on_loader_mismatch() {
+        // instance.json says Forge/1.20.1; version_files returned a fabric
+        // version (a shared "universal" jar). The project is recorded for the
+        // icon, but version_id is dropped so update-check stays honest.
+        let _g = test_lock();
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(td.path(), "universal.jar", b"universal-jar-bytes").await;
+        write_instance_json(td.path(), "forge", "1.20.1").await;
+        installed::set_pack_origin(
+            td.path(),
+            origin(ModSource::Modrinth, &[(&sha, "universal.jar")]),
+        )
+        .await
+        .unwrap();
+
+        let mr = MockServer::start().await;
+        let mut map = serde_json::Map::new();
+        map.insert(
+            sha.clone(),
+            serde_json::json!({
+                "id": "MR-VER",
+                "project_id": "MR-PROJ",
+                "loaders": ["fabric"],
+                "game_versions": ["1.20.1"]
+            }),
+        );
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
+            .mount(&mr)
+            .await;
+
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+
+        let mods = installed::list(td.path()).await.unwrap();
+        let m = mods
+            .iter()
+            .find(|m| m.sha1.eq_ignore_ascii_case(&sha))
+            .unwrap();
+        assert_eq!(
+            m.source,
+            Some(ModSource::Modrinth),
+            "project still recorded"
+        );
+        assert_eq!(m.project_id.as_deref(), Some("MR-PROJ"));
+        assert_eq!(
+            m.version_id, None,
+            "loader/MC-mismatched version must NOT be recorded"
+        );
         assert!(m.enrich_attempted);
     }
 }

@@ -377,7 +377,7 @@ pub async fn set_pack_origin(instance_root: &Path, origin: PackOrigin) -> Result
 /// SHA-1 matching is case-insensitive. Called by `enrich::enrich_instance`.
 pub async fn apply_enrichment(
     instance_root: &Path,
-    resolved: &HashMap<String, crate::mods::platform::VersionRef>,
+    resolved: &HashMap<String, crate::mods::platform::ResolvedIdentity>,
     attempted: &HashSet<String>,
 ) -> Result<(), Error> {
     let mut state = read_or_empty(instance_root).await?;
@@ -389,7 +389,9 @@ pub async fn apply_enrichment(
         if let Some(id) = resolved.get(&key) {
             m.source = Some(id.source);
             m.project_id = Some(id.project_id.clone());
-            m.version_id = Some(id.version_id.clone());
+            // `version_id` is `None` for a loader/MC-ambiguous Modrinth match:
+            // record the project (icon/name) but not a misleading version.
+            m.version_id = id.version_id.clone();
         }
     }
     write(instance_root, &state).await
@@ -1036,10 +1038,10 @@ mod tests {
         let mut resolved = HashMap::new();
         resolved.insert(
             sha.clone(),
-            crate::mods::platform::VersionRef {
+            crate::mods::platform::ResolvedIdentity {
                 source: ModSource::Modrinth,
                 project_id: "AANobbMI".into(),
-                version_id: "vvv".into(),
+                version_id: Some("vvv".into()),
             },
         );
         let mut attempted = std::collections::HashSet::new();
@@ -1051,6 +1053,34 @@ mod tests {
         assert_eq!(mods[0].source, Some(ModSource::Modrinth));
         assert_eq!(mods[0].project_id.as_deref(), Some("AANobbMI"));
         assert_eq!(mods[0].version_id.as_deref(), Some("vvv"));
+        assert!(mods[0].enrich_attempted);
+    }
+
+    #[tokio::test]
+    async fn apply_enrichment_records_project_without_version() {
+        // A loader/MC-ambiguous Modrinth match: project recorded for the icon,
+        // version_id left None so update-check stays honest (Unknown).
+        let td = TempDir::new().unwrap();
+        let sha = place_jar(&mods_dir(td.path()), "universal.jar", b"universal").await;
+        let _ = list(td.path()).await.unwrap();
+        let mut resolved = HashMap::new();
+        resolved.insert(
+            sha.clone(),
+            crate::mods::platform::ResolvedIdentity {
+                source: ModSource::Modrinth,
+                project_id: "AANobbMI".into(),
+                version_id: None,
+            },
+        );
+        let mut attempted = std::collections::HashSet::new();
+        attempted.insert(sha.clone());
+        apply_enrichment(td.path(), &resolved, &attempted)
+            .await
+            .unwrap();
+        let mods = list(td.path()).await.unwrap();
+        assert_eq!(mods[0].source, Some(ModSource::Modrinth));
+        assert_eq!(mods[0].project_id.as_deref(), Some("AANobbMI"));
+        assert_eq!(mods[0].version_id, None);
         assert!(mods[0].enrich_attempted);
     }
 
