@@ -300,6 +300,10 @@ body[data-tour-active] .tour-overlay {
                     View). Most "do a thing" buttons land here.
     .btn-tertiary   Text-only with hover underline. Inline links and
                     soft actions (Clear filters, "View installed").
+    .btn-ghost      Borderless neutral button — no fill at rest, soft
+                    hover background. Reads as a button (not a link) but
+                    sits below .btn-secondary in emphasis. For low-key
+                    actions next to a primary CTA (e.g. tour "Skip").
 
   Sizes are layered on top: .btn-sm (default density) or .btn-xs (for
   card actions / dense toolbars). Add `disabled:opacity-50` is baked
@@ -338,6 +342,9 @@ body[data-tour-active] .tour-overlay {
 }
 .btn-tertiary {
   @apply text-secondary hover:text-primary hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+}
+.btn-ghost {
+  @apply rounded font-medium text-secondary transition-colors hover:bg-subtle hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
 }
 .btn-sm {
   @apply px-3 py-1.5 text-sm;

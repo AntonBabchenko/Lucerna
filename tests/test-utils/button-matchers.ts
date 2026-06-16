@@ -7,6 +7,7 @@ type Variant =
   | 'secondary'
   | 'tertiary'
   | 'warning'
+  | 'ghost'
   | 'ghost-danger'
   | 'icon';
 type Size = 'xs' | 'sm' | 'lg';
