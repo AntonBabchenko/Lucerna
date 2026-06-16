@@ -2,6 +2,7 @@
 //! `ForeignInstance`. The registry lists every reader for discovery and
 //! manual-folder detection.
 
+pub mod atlauncher;
 pub mod curseforge_app;
 pub mod prism;
 pub mod profile;

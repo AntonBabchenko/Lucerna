@@ -1,0 +1,10 @@
+{
+  "uuid": "16993dca-4538-41fe-979e-b64ea1b5d6f8",
+  "launcher": {
+    "name": "Minecraft 1.20.4 with NeoForge",
+    "version": "1.20.4",
+    "loaderVersion": { "version": "20.4.251", "type": "NeoForge" },
+    "requiredMemory": 4096
+  },
+  "id": "1.20.4"
+}
