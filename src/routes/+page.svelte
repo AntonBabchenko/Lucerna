@@ -10,7 +10,7 @@
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import { drainDeferredRepairs } from '$lib/logs/deferred-repairs.svelte';
-  import { hasDiagnosisIndicator, refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
+  import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
   import { repairCompletionTick } from '$lib/logs/repair-ops.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
@@ -241,7 +241,7 @@
   });
   // Re-check when a repair completes (the log it wrote may now be analysed).
   $effect(() => {
-    repairCompletionTick(); // track the tick reactively
+    void repairCompletionTick(); // track the tick reactively
     const id = activeInstance?.id;
     if (id) void refreshDiagnosis(id);
   });
