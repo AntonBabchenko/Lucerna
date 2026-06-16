@@ -577,7 +577,8 @@ fn entry_bytes(zip: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Option<V
 }
 
 /// Read the JIJ (Jar-in-Jar) embedded jars from an outer jar's
-/// `META-INF/jarjar/` directory. For each `.jar` found there, recursively
+/// `META-INF/jarjar/` (Forge) or `META-INF/jars/` (Fabric/Quilt)
+/// directory. For each `.jar` found there, recursively
 /// calls `read_jar_manifest_deps` to get the inner jar's real `[[mods]]`
 /// `modId` + version (not the Maven artifact id from `metadata.json`, which
 /// is unreliable). Returns empty on any error — best-effort, never fails.
@@ -590,8 +591,10 @@ pub fn read_jar_embedded_providers(jar_bytes: &[u8]) -> Vec<ProvidedMod> {
         .filter_map(|i| {
             let entry = zip.by_index(i).ok()?;
             let name = entry.name().to_string();
-            // Match META-INF/jarjar/<something>.jar (no sub-directories)
-            if name.starts_with("META-INF/jarjar/")
+            // Match a nested jar one level under either nested-jar dir:
+            // META-INF/jarjar/<x>.jar (Forge/NeoForge) or
+            // META-INF/jars/<x>.jar (Fabric/Quilt). Both have exactly 2 slashes.
+            if (name.starts_with("META-INF/jarjar/") || name.starts_with("META-INF/jars/"))
                 && name.ends_with(".jar")
                 && name.matches('/').count() == 2
             {
@@ -1462,6 +1465,67 @@ modId=\"evilseagull\"
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].mod_id, "embeddedlib");
         assert_eq!(providers[0].version.as_deref(), Some("2.1.0"));
+    }
+
+    #[test]
+    fn jij_reader_extracts_fabric_jars_dir_mod_id() {
+        // Fabric/Quilt bundle nested modules under META-INF/jars/, not jarjar.
+        let inner_bytes = jar(&[(
+            "fabric.mod.json",
+            r#"{"id":"fabric-renderer-api-v1","version":"3.2.0"}"#,
+        )]);
+        let outer = {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file(
+                    "META-INF/jars/fabric-renderer-api-v1.jar",
+                    SimpleFileOptions::default(),
+                )
+                .unwrap();
+                w.write_all(&inner_bytes).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        };
+        let providers = read_jar_embedded_providers(&outer);
+        assert!(
+            providers
+                .iter()
+                .any(|p| p.mod_id == "fabric-renderer-api-v1"
+                    && p.version.as_deref() == Some("3.2.0")),
+            "providers: {providers:?}"
+        );
+    }
+
+    #[test]
+    fn jij_reader_reads_both_jarjar_and_jars_dirs() {
+        // Forge jarjar AND Fabric jars in one outer jar — both inner ids captured.
+        let forge_inner = jar(&[("META-INF/mods.toml", "[[mods]]\nmodId=\"forgelib\"\n")]);
+        let fabric_inner = jar(&[("fabric.mod.json", r#"{"id":"fabriclib"}"#)]);
+        let outer = {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file("META-INF/jarjar/a.jar", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(&forge_inner).unwrap();
+                w.start_file("META-INF/jars/b.jar", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(&fabric_inner).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        };
+        let providers = read_jar_embedded_providers(&outer);
+        assert!(
+            providers.iter().any(|p| p.mod_id == "forgelib"),
+            "{providers:?}"
+        );
+        assert!(
+            providers.iter().any(|p| p.mod_id == "fabriclib"),
+            "{providers:?}"
+        );
     }
 
     #[test]
