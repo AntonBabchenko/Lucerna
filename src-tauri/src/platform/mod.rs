@@ -24,6 +24,9 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
             roots.push(base.join("MultiMC").join("instances"));
             roots.push(base.join("PolyMC").join("instances"));
             roots.push(base.join("ATLauncher").join("instances"));
+            // Modern Modrinth App location; the legacy theseus path is kept
+            // as a fallback for installs that never migrated.
+            roots.push(base.join("ModrinthApp").join("profiles"));
             roots.push(base.join("com.modrinth.theseus").join("profiles"));
             roots.push(base.join(".minecraft"));
         }
@@ -265,6 +268,22 @@ pub async fn wait_for_window_ready(pid: u32) {
 
 #[cfg(not(windows))]
 pub async fn wait_for_window_ready(_pid: u32) {}
+
+#[cfg(all(test, windows))]
+mod modrinth_root_tests {
+    use super::default_launcher_roots;
+
+    #[test]
+    fn includes_modern_modrinth_app_profiles_root() {
+        let roots = default_launcher_roots();
+        assert!(
+            roots
+                .iter()
+                .any(|p| p.ends_with("profiles") && p.to_string_lossy().contains("ModrinthApp")),
+            "missing %APPDATA%/ModrinthApp/profiles; got: {roots:?}"
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {
