@@ -85,6 +85,12 @@ fn resolve_mc_version_with_libs(minecraft_root: &Path, vj: Option<&VersionJson>)
 /// the first `-` in the coordinate's version segment.
 fn mc_version_from_lib_coord(coord: &str) -> Option<String> {
     let version = coord.splitn(3, ':').nth(2)?;
+    // Only compound loader coords (`<mc>-<loader>`) carry the MC version. A
+    // plain dependency version (`com.mojang:logging:1.2.1`, no `-`) must NOT
+    // be mistaken for it, even though it is version-like.
+    if !version.contains('-') {
+        return None;
+    }
     let head = version.split('-').next()?;
     is_version_like(head).then(|| head.to_string())
 }
@@ -550,11 +556,13 @@ mod tests {
         std::fs::write(v.join("26.1.2.jar"), b"x").unwrap();
 
         let found = ProfileReader.expand_root(&mc);
-        assert!(
-            found.iter().any(|f| f.name.starts_with("Minecraft")),
-            "worlds-only shared dir expected, got: {:?}",
-            found.iter().map(|f| &f.name).collect::<Vec<_>>()
-        );
+        let shared = found
+            .iter()
+            .find(|f| f.minecraft_dir == mc)
+            .expect("worlds-only shared dir expected");
+        assert!(shared.name.starts_with("Minecraft"));
+        // Version resolves from the sole versions/<v>/<v>.json (id 26.1.2).
+        assert_eq!(shared.mc_version, "26.1.2");
     }
 
     #[test]
