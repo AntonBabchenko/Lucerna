@@ -47,8 +47,8 @@
     initialPath?: string | null;
     instanceId?: string | null;
     instanceName?: string | null;
-    // The active instance's MC version + loader, threaded straight through to
-    // the missing-mods repair card so it can run the mod-browser install flow
+    // The active instance's MC version + loader, threaded through to
+    // LogDiagnosisBanner so its repair cards can run the mod-browser install flow
     // (decideModInstall needs both). Null until an instance is selected.
     mcVersion?: string | null;
     loader?: LoaderKind | null;
