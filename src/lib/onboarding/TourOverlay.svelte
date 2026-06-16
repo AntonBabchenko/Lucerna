@@ -263,7 +263,7 @@
             {#if !isLast}
               <button
                 type="button"
-                class="btn-tertiary btn-sm inline-flex items-center whitespace-nowrap"
+                class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
                 onclick={() => void finishOrSkip()}
               >
                 {$t('onboarding.controls.skip')}

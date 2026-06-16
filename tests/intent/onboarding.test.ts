@@ -160,10 +160,13 @@ describe('ContextualTour — popover button variants', () => {
     expect(next).toHaveBtnSize('sm');
   });
 
-  it('Skip button is btn-tertiary', () => {
+  it('Skip button is btn-ghost (button-like, not a link)', () => {
     render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
     const skip = screen.getByRole('button', { name: /skip/i }) as HTMLElement;
-    expect(skip).toHaveBtnVariant('tertiary');
+    expect(skip).toHaveBtnVariant('ghost');
+    expect(skip).toHaveBtnSize('sm');
+    // Must not look like a hyperlink — btn-tertiary carries the hover underline.
+    expect(skip.classList.contains('btn-tertiary')).toBe(false);
   });
 
   it('popover step counter is text-xs text-muted', () => {
@@ -230,10 +233,13 @@ describe('TourOverlay — button variants', () => {
     expect(next).toHaveBtnSize('sm');
   });
 
-  it('Skip tour button is btn-tertiary', () => {
+  it('Skip tour button is btn-ghost (button-like, not a link)', () => {
     render(TourOverlay);
     const skip = screen.getByRole('button', { name: /skip/i }) as HTMLElement;
-    expect(skip).toHaveBtnVariant('tertiary');
+    expect(skip).toHaveBtnVariant('ghost');
+    expect(skip).toHaveBtnSize('sm');
+    // Must not look like a hyperlink — btn-tertiary carries the hover underline.
+    expect(skip.classList.contains('btn-tertiary')).toBe(false);
   });
 
   it('popover has bg-surface rounded shadow-xl', () => {

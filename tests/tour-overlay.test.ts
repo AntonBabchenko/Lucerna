@@ -79,8 +79,8 @@ describe('TourOverlay', () => {
     tourState.currentStep = 1;
     render(TourOverlay);
     const skip = screen.getByRole('button', { name: /skip/i });
-    // Regression: a long label (RU "Пропустить обучение") wrapped to two lines
-    // in the narrow popover, making the footer row uneven. Keep it one line.
+    // Regression: a long label wrapped to two lines in the narrow popover,
+    // making the footer row uneven. Keep it on one line.
     expect(skip.classList.contains('whitespace-nowrap')).toBe(true);
   });
 

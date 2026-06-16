@@ -181,7 +181,11 @@
       </button>
       <div class="flex gap-2">
         {#if !isLast}
-          <button type="button" class="btn-tertiary" onclick={finish}>
+          <button
+            type="button"
+            class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
+            onclick={finish}
+          >
             {$t('onboarding.controls.skipContextual')}
           </button>
         {/if}
