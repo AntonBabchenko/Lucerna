@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::error::Result;
 use crate::instances::import::model::{scan_content, ForeignInstance};
+use crate::instances::import::readers::loader_sniff::sniff_loader_from_mods;
 use crate::instances::import::readers::raw_minecraft::{detect_mc_version_hint, is_version_like};
 use crate::instances::import::readers::LauncherReader;
 use crate::instances::schema::{ForeignLauncher, LoaderKind};
@@ -192,10 +193,19 @@ impl LauncherReader for ProfileReader {
         let vj = read_version_json(dir);
         let minecraft_root = minecraft_root_of(dir);
         let mc_version = resolve_mc_version(&minecraft_root, vj.as_ref());
-        let (loader, loader_version) = vj
+        let (mut loader, loader_version) = vj
             .as_ref()
             .map(detect_loader)
             .unwrap_or((LoaderKind::Vanilla, None));
+        // When the version JSON names no loader, fall back to sniffing the
+        // mods folder. The sniffed loader carries no version (resolved
+        // downstream from kind + MC). A confident version-JSON loader is left
+        // untouched.
+        if loader == LoaderKind::Vanilla {
+            if let Some(sniffed) = sniff_loader_from_mods(&dir.join("mods")) {
+                loader = sniffed;
+            }
+        }
         let source = source_for_root(&minecraft_root);
         let name = instance_name_for(dir, &mc_version);
         Ok(ForeignInstance {
@@ -482,5 +492,36 @@ mod tests {
         std::fs::write(v.join("26.1.2.jar"), b"x").unwrap();
 
         assert!(ProfileReader.expand_root(&mc).is_empty());
+    }
+
+    #[test]
+    fn read_falls_back_to_mods_sniff_when_version_json_lacks_loader() {
+        use std::io::{Cursor, Write};
+        use zip::write::SimpleFileOptions;
+        fn fabric_jar() -> Vec<u8> {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file("fabric.mod.json", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(br#"{"id":"sodium","name":"Sodium"}"#).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let game = tmp.path().join(".minecraft/versions/test");
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/sodium.jar"), fabric_jar()).unwrap();
+        // version JSON inherits a version but names NO loader (lib/mainClass).
+        std::fs::write(
+            game.join("test.json"),
+            r#"{"id":"test","inheritsFrom":"1.20.1"}"#,
+        )
+        .unwrap();
+        let fi = ProfileReader.read(&game).unwrap();
+        assert_eq!(fi.mc_version, "1.20.1");
+        assert_eq!(fi.loader, LoaderKind::Fabric);
+        assert_eq!(fi.loader_version, None);
     }
 }
