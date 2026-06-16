@@ -10,6 +10,8 @@
   import PhaseStatusRow from '$lib/install/PhaseStatusRow.svelte';
   import LogsPopover from '$lib/logs/LogsPopover.svelte';
   import { drainDeferredRepairs } from '$lib/logs/deferred-repairs.svelte';
+  import { hasDiagnosisIndicator, refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
+  import { repairCompletionTick } from '$lib/logs/repair-ops.svelte';
   import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
   import SettingsModal from '$lib/settings/SettingsModal.svelte';
   import Sidebar from '$lib/layout/Sidebar.svelte';
@@ -232,6 +234,18 @@
     }
   });
 
+  // Keep the latest-log diagnosis indicator fresh whenever the active instance
+  // changes. The effect re-runs reactively because it reads activeInstance?.id.
+  $effect(() => {
+    void refreshDiagnosis(activeInstance?.id ?? null);
+  });
+  // Re-check when a repair completes (the log it wrote may now be analysed).
+  $effect(() => {
+    repairCompletionTick(); // track the tick reactively
+    const id = activeInstance?.id;
+    if (id) void refreshDiagnosis(id);
+  });
+
   // Any wide overlay opened while compact would be cramped in the strip-width
   // window, so auto-expand first. Covers the Settings button too (it sets
   // settingsOpen.value directly inside Sidebar). This is a real expand — it
@@ -316,6 +330,8 @@
         // Apply any repairs the user queued while the game was running (their
         // files were locked); now the instance is free.
         void drainDeferredRepairs();
+        // A new log was written — refresh the diagnosis indicator.
+        if (activeInstance) void refreshDiagnosis(activeInstance.id);
         exited = {
           code: event.payload.code,
           user_requested: event.payload.user_requested,
