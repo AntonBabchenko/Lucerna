@@ -30,7 +30,16 @@
          must not push the panel — or, in the launch gate, the dialog's footer
          buttons — past the window edge. Viewport-relative so it adapts to a
          compact window. -->
-    <div class="max-h-[min(22rem,45vh)] overflow-y-auto" data-testid="preflight-scroll">
+    <!-- A scrollable region must be focusable so keyboard users can scroll it
+         (WCAG 2.1.1); the noninteractive-tabindex rule is a false positive here. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div
+      class="max-h-[min(22rem,45vh)] overflow-y-auto"
+      tabindex="0"
+      role="region"
+      aria-label={$t('mods.preflight.panelTitle')}
+      data-testid="preflight-scroll"
+    >
       {#each violations as v (v.dependent_sha1 + ':' + v.dep_id)}
         <div
           class="px-4 py-2.5 flex items-center gap-3 border-b border-warning-text/30 last:border-b-0"

@@ -43,6 +43,9 @@ describe('PreflightPanel', () => {
     // The scroll container caps height and scrolls overflow.
     expect(scroll.className).toContain('overflow-y-auto');
     expect(scroll.className).toContain('max-h-');
+    // Keyboard users must be able to focus and scroll the region.
+    expect(scroll.getAttribute('tabindex')).toBe('0');
+    expect(scroll.getAttribute('role')).toBe('region');
   });
 
   it('keeps every violation row inside the scroll container', () => {
