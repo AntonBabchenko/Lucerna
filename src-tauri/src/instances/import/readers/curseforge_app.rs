@@ -53,6 +53,8 @@ struct InstalledFile {
 }
 
 /// CurseForge `modLoaderType`: 1=Forge, 4=Fabric, 5=Quilt, 6=NeoForge.
+/// Types 2 (Cauldron) and 3 (LiteLoader) are historical and unsupported here —
+/// they intentionally degrade to Vanilla (the user can correct in the wizard).
 fn loader_from_type(t: Option<i64>) -> LoaderKind {
     match t {
         Some(1) => LoaderKind::Forge,
@@ -185,6 +187,16 @@ mod tests {
         assert_eq!(km[0].source, ModSource::Curseforge);
         assert_eq!(km[0].project_id, "238222");
         assert_eq!(km[0].version_id.as_deref(), Some("5500001"));
+    }
+
+    #[test]
+    fn maps_loader_type_for_fabric_quilt_neoforge() {
+        assert_eq!(loader_from_type(Some(4)), LoaderKind::Fabric);
+        assert_eq!(loader_from_type(Some(5)), LoaderKind::Quilt);
+        assert_eq!(loader_from_type(Some(6)), LoaderKind::NeoForge);
+        // Unmapped (Cauldron/LiteLoader/absent) degrade to Vanilla.
+        assert_eq!(loader_from_type(Some(2)), LoaderKind::Vanilla);
+        assert_eq!(loader_from_type(None), LoaderKind::Vanilla);
     }
 
     #[test]
