@@ -163,6 +163,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from,
+            handled_log_sig: None,
         }
     }
 

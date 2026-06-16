@@ -100,6 +100,12 @@ pub struct InstanceFile {
     /// Additive — old instance.json without it deserialises to None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_from: Option<ImportProvenance>,
+    /// Signature (see `logs::files::log_signature`) of the latest diagnosable
+    /// log at the moment the user last applied a repair. While the latest log
+    /// still matches this, an otherwise-unverifiable diagnosis is shown as
+    /// "handled". Additive — old instance.json deserialises to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handled_log_sig: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
@@ -366,6 +372,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from: None,
+            handled_log_sig: None,
         }
     }
 
@@ -415,6 +422,18 @@ mod tests {
         let json = serde_json::to_string(&app).unwrap();
         let back: AppFile = serde_json::from_str(&json).unwrap();
         assert_eq!(app, back);
+    }
+
+    #[test]
+    fn handled_log_sig_defaults_to_none_for_old_json() {
+        // An instance.json written before this field existed must still parse.
+        let json = r#"{
+            "id": "abc", "name": "X", "mc_version": "1.20.1",
+            "loader": "vanilla", "loader_version": null, "max_heap_mb": 2048,
+            "extra_jvm_args": "", "created_unix_ms": 0
+        }"#;
+        let f: InstanceFile = serde_json::from_str(json).unwrap();
+        assert_eq!(f.handled_log_sig, None);
     }
 
     #[test]

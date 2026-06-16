@@ -104,6 +104,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from: None,
+            handled_log_sig: None,
         }
     }
 
