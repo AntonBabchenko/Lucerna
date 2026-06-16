@@ -7,10 +7,7 @@
   // popover listing ContextMenuItems. The fixed positioning escapes any host
   // overflow box (mirrors ContextMenu / HelpPopover). Keyboard nav, scrim
   // close, scroll/resize close, and focus return are all handled here.
-  let {
-    items,
-    ariaLabel,
-  }: { items: ContextMenuItem[]; ariaLabel: string } = $props();
+  let { items, ariaLabel }: { items: ContextMenuItem[]; ariaLabel: string } = $props();
 
   const WIDTH = 230;
   const MARGIN = 8;
