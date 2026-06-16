@@ -990,9 +990,9 @@
         },
         "shareMcloGs": {
           "title": "Share to mclo.gs",
-          "body": "Uploads the visible log to mclo.gs — the Minecraft community's de-facto paste service — and gives you a sharable link. Strips user paths, session tokens, and LAN IPs before upload so you can drop the link in Discord without leaking personal info.",
+          "body": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the visible log to mclo.gs — the Minecraft community's de-facto paste service — and gives you a sharable link. It strips user paths, session tokens, and LAN IPs before upload so you can drop the link in Discord without leaking personal info.",
           "titleBasic": "Share to mclo.gs",
-          "bodyBasic": "This uploads the log to mclo.gs, a website made for sharing Minecraft logs, and gives you a link. It removes your private info — like file paths and your network address — before uploading, so the link is safe to share (for example on Discord)."
+          "bodyBasic": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the log to mclo.gs, a website made for sharing Minecraft logs, and gives you a link. It removes your private info — like file paths and your network address — before uploading, so the link is safe to share (for example on Discord)."
         },
         "crashStructuredView": {
           "title": "Crash reports get a structured view",
