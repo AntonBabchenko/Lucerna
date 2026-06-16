@@ -199,6 +199,15 @@ describe('LauncherImportDialog', () => {
 
     fireEvent.click(getByTestId('import-btn'));
     await waitFor(() => expect(enqueueLauncherImport).toHaveBeenCalledOnce());
+    // The seeded (detected) version/loader flow through to the enqueue payload
+    // even for a reliable source like Prism — pre-filled + always sent.
+    expect(enqueueLauncherImport).toHaveBeenCalledWith(
+      mockForeign.name,
+      expect.objectContaining({
+        mcVersionOverride: mockForeign.mc_version,
+        loaderOverride: mockForeign.loader,
+      }),
+    );
     expect(onClose).toHaveBeenCalledOnce();
   });
 
