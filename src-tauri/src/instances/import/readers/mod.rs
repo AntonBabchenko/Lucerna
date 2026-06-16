@@ -4,6 +4,7 @@
 
 pub mod atlauncher;
 pub mod curseforge_app;
+pub(crate) mod loader_sniff;
 pub mod modrinth_app;
 pub mod prism;
 pub mod profile;

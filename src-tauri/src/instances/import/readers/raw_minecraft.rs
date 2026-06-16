@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 use crate::instances::import::model::{scan_content, ForeignInstance};
+use crate::instances::import::readers::loader_sniff::sniff_loader_from_mods;
 use crate::instances::import::readers::LauncherReader;
 use crate::instances::schema::{ForeignLauncher, LoaderKind};
 
@@ -42,7 +43,9 @@ impl LauncherReader for RawMinecraftReader {
             root: dir.to_path_buf(),
             minecraft_dir: dir.to_path_buf(),
             mc_version,
-            loader: LoaderKind::Vanilla, // user may override
+            // Best-effort loader from the mods folder; user may override in the
+            // wizard. `None` (no/ambiguous descriptors) stays Vanilla.
+            loader: sniff_loader_from_mods(&dir.join("mods")).unwrap_or(LoaderKind::Vanilla),
             loader_version: None,
             max_heap_mb: None,
             extra_jvm_args: None,
@@ -268,5 +271,29 @@ mod tests {
         std::fs::create_dir_all(mc.join("saves")).unwrap();
         let fi = RawMinecraftReader.read(&mc).unwrap();
         assert_eq!(fi.name, "Minecraft 1.20.4");
+    }
+
+    #[test]
+    fn read_sniffs_loader_from_mods() {
+        use std::io::{Cursor, Write};
+        use zip::write::SimpleFileOptions;
+        fn fabric_jar() -> Vec<u8> {
+            let mut buf = Vec::new();
+            {
+                let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+                w.start_file("fabric.mod.json", SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(br#"{"id":"sodium","name":"Sodium"}"#).unwrap();
+                w.finish().unwrap();
+            }
+            buf
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path();
+        std::fs::create_dir_all(mc.join("mods")).unwrap();
+        std::fs::write(mc.join("mods/sodium.jar"), fabric_jar()).unwrap();
+        let fi = RawMinecraftReader.read(mc).unwrap();
+        assert_eq!(fi.loader, LoaderKind::Fabric);
+        assert_eq!(fi.loader_version, None);
     }
 }

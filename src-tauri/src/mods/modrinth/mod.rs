@@ -27,13 +27,7 @@ impl ModrinthClient {
     }
 
     fn loader_facet(loader: LoaderKind) -> &'static str {
-        match loader {
-            LoaderKind::Fabric => "fabric",
-            LoaderKind::Quilt => "quilt",
-            LoaderKind::Forge => "forge",
-            LoaderKind::NeoForge => "neoforge",
-            LoaderKind::Vanilla => "minecraft",
-        }
+        loader.modrinth_slug()
     }
 
     fn sort_key(sort: ModSort) -> &'static str {
