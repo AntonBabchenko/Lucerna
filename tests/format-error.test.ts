@@ -218,6 +218,7 @@ describe('formatError', () => {
       instance_name_too_long: { kind: 'instance_name_too_long', max: 32, actual: 50 },
       mods_network: { kind: 'mods_network', url: 'https://x', details: 'd' },
       mods_platform_auth: { kind: 'mods_platform_auth', kind_detail: 'missing' },
+      mods_platform_unreachable: { kind: 'mods_platform_unreachable', url: 'https://api.curseforge.com' },
       mods_distribution_disabled: {
         kind: 'mods_distribution_disabled',
         source: 'curseforge',
@@ -347,7 +348,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(78);
+      expect(Object.keys(samples)).toHaveLength(79);
     });
   });
 
