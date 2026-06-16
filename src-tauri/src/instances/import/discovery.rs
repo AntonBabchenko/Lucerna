@@ -1,9 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::instances::import::model::{DiscoverResult, ForeignInstance};
 use crate::instances::import::readers::{
     raw_minecraft::RawMinecraftReader, structured_readers, LauncherReader,
 };
+use crate::instances::schema::ForeignLauncher;
 
 /// Scan one `.minecraft`-shaped root: structured profile readers first, then
 /// the raw reader for a bare `.minecraft` (no `launcher_profiles.json`).
@@ -89,14 +90,16 @@ pub fn detect_folder(dir: &Path) -> Option<ForeignInstance> {
 /// Build a `DiscoverResult` from explicit `(launcher, root)` pairs. A launcher
 /// whose root is a dir but contributes zero importable instances is reported
 /// in `empty_launchers`. Used by `discover_summary` and tests.
-pub fn summarize_roots(
-    roots: &[(
-        crate::instances::schema::ForeignLauncher,
-        std::path::PathBuf,
-    )],
-) -> DiscoverResult {
+///
+/// NOTE: the empty-launcher key is the pair's `launcher`, which for the
+/// profile model is always `MojangLauncher` (`ProfileReader::launcher()`
+/// serves both Mojang and TLauncher). So an *empty* TLauncher install is
+/// reported as `MojangLauncher`, not `Tlauncher` — accepted limitation: the
+/// message is generic and a non-empty TLauncher still carries the correct
+/// per-instance `source` (set in `read`).
+pub fn summarize_roots(roots: &[(ForeignLauncher, PathBuf)]) -> DiscoverResult {
     let mut instances: Vec<ForeignInstance> = Vec::new();
-    let mut empty: Vec<crate::instances::schema::ForeignLauncher> = Vec::new();
+    let mut empty: Vec<ForeignLauncher> = Vec::new();
     let readers = structured_readers();
     for (launcher, root) in roots {
         if !root.is_dir() {
@@ -112,7 +115,10 @@ pub fn summarize_roots(
                 .flat_map(|r| r.expand_root(root))
                 .collect()
         };
-        let mut added = 0usize;
+        // Count instances this root contributed that have copyable content.
+        // Counted pre-dedup on purpose: a content-bearing instance already
+        // seen from another root still means this launcher is NOT empty.
+        let mut recognized_non_empty = 0usize;
         for fi in recognized {
             if fi.content.is_empty() {
                 continue; // recognized but nothing to copy
@@ -123,9 +129,9 @@ pub fn summarize_roots(
             {
                 instances.push(fi);
             }
-            added += 1;
+            recognized_non_empty += 1;
         }
-        if added == 0 && !empty.contains(launcher) {
+        if recognized_non_empty == 0 && !empty.contains(launcher) {
             empty.push(*launcher);
         }
     }
