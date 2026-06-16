@@ -131,9 +131,8 @@
   {:else}
     <p class="text-xs text-secondary mb-3">
       {$t('settings.curseforge.replaceHintBefore')}
-      <span class="font-medium">{$t('settings.curseforge.replaceAction')}</span>{$t(
-        'settings.curseforge.replaceHintAfter',
-      )}
+      <span class="font-medium">{$t('settings.curseforge.replaceAction')}</span>.
+      {$t('settings.curseforge.replaceHintAfter')}
       <button
         type="button"
         class="btn-tertiary font-mono inline-flex items-center gap-1"
