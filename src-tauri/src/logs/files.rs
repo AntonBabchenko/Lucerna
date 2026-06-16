@@ -28,6 +28,17 @@ pub struct LogFileMeta {
     pub modified_unix_ms: f64,
 }
 
+/// Stable identity of a log file for "already handled" tracking. Combines path,
+/// mtime, and size so a new run (which rotates/rewrites the log) yields a
+/// different signature, while re-reading the same file does not. f64 fields are
+/// floored to integers so float formatting can't make two equal logs differ.
+pub fn log_signature(meta: &LogFileMeta) -> String {
+    format!(
+        "{}|{}|{}",
+        meta.path, meta.modified_unix_ms as u64, meta.size_bytes as u64
+    )
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct CrashReport {
     pub path: String,
@@ -251,6 +262,27 @@ mod tests {
             assert_under_allowed_roots(&traversal, &roots).is_err(),
             "../-traversal must be refused"
         );
+    }
+
+    #[test]
+    fn log_signature_is_stable_and_distinguishes_runs() {
+        let a = LogFileMeta {
+            path: "C:/i/.minecraft/logs/latest.log".into(),
+            name: "latest.log".into(),
+            source: LogSource::Game,
+            size_bytes: 1234.0,
+            modified_unix_ms: 1_700_000_000_000.0,
+        };
+        // Same inputs -> same signature.
+        assert_eq!(log_signature(&a), log_signature(&a));
+        // A new run (different mtime) -> different signature.
+        let mut b = a.clone();
+        b.modified_unix_ms = 1_700_000_500_000.0;
+        assert_ne!(log_signature(&a), log_signature(&b));
+        // Appended content (different size) -> different signature.
+        let mut c = a.clone();
+        c.size_bytes = 5678.0;
+        assert_ne!(log_signature(&a), log_signature(&c));
     }
 
     #[test]
