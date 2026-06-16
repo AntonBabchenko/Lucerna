@@ -51,6 +51,20 @@ pub enum LoaderKind {
     NeoForge,
 }
 
+impl LoaderKind {
+    /// The loader's Modrinth slug, as it appears in a version object's
+    /// `loaders` array and the search `loaders` facet.
+    pub(crate) fn modrinth_slug(self) -> &'static str {
+        match self {
+            LoaderKind::Fabric => "fabric",
+            LoaderKind::Quilt => "quilt",
+            LoaderKind::Forge => "forge",
+            LoaderKind::NeoForge => "neoforge",
+            LoaderKind::Vanilla => "minecraft",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InstanceFile {
     pub id: String,

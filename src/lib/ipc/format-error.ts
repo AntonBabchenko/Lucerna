@@ -100,6 +100,8 @@ export function formatError(e: IpcError): string {
       return e.kind_detail === 'invalid'
         ? translate('errors.modsPlatformAuthInvalid')
         : translate('errors.modsPlatformAuthMissing');
+    case 'mods_platform_unreachable':
+      return translate('errors.modsPlatformUnreachable');
     case 'mods_distribution_disabled':
       return translate('errors.modsDistributionDisabled', { source: e.source });
     case 'mods_not_found':

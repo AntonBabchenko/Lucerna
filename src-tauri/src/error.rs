@@ -129,6 +129,9 @@ pub enum Error {
     #[error("Network error talking to {url}: {details}")]
     ModsNetwork { url: String, details: String },
 
+    #[error("CurseForge appears unreachable (network or region block) at {url}")]
+    ModsPlatformUnreachable { url: String },
+
     #[error("Mod platform auth: {kind:?}")]
     ModsPlatformAuth {
         // Rust field stays `kind` per spec; serialized as `kind_detail`
@@ -559,6 +562,19 @@ mod tests {
         let j = serde_json::to_string(&e).unwrap();
         assert!(j.contains(r#""kind":"mods_network""#), "got: {j}");
         assert!(j.contains(r#""url":"https://api.modrinth.com/v2/search""#));
+    }
+
+    #[test]
+    fn mods_platform_unreachable_serializes_with_tag() {
+        let e = Error::ModsPlatformUnreachable {
+            url: "https://api.curseforge.com/v1/mods/search".into(),
+        };
+        let j = serde_json::to_string(&e).unwrap();
+        assert!(
+            j.contains(r#""kind":"mods_platform_unreachable""#),
+            "got: {j}"
+        );
+        assert!(j.contains(r#""url":"https://api.curseforge.com/v1/mods/search""#));
     }
 
     #[test]
