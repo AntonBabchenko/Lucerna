@@ -56,6 +56,17 @@ pub fn copy_category(
         if !is_safe_relative_path(&rel_str) {
             continue;
         }
+        // Skip launcher-injected mods (e.g. TLauncher's tl_skin_cape_*) — they
+        // are launcher cruft, not user content.
+        if cat == ContentCategory::Mods {
+            let fname = relpath
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if crate::instances::import::model::is_injected_mod(&fname) {
+                continue;
+            }
+        }
         let from = src.join(relpath);
         let to = dst.join(relpath);
         if let Some(parent) = to.parent() {
@@ -331,6 +342,30 @@ mod tests {
         assert!(
             src_mc.join("mods/a.jar").exists(),
             "source file must survive"
+        );
+    }
+
+    #[test]
+    fn mods_copy_skips_launcher_injected_mods() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_mc = tmp.path().join("src/.minecraft");
+        write(&src_mc.join("mods/sodium.jar"), "real");
+        write(
+            &src_mc.join("mods/tl_skin_cape_forge_1.21.1-1.39.jar"),
+            "junk",
+        );
+        let dst_mc = tmp.path().join("dst/.minecraft");
+
+        let copied =
+            copy_category(&src_mc, &dst_mc, ContentCategory::Mods, &mut |_, _| {}).unwrap();
+
+        assert_eq!(copied, 1, "only the real mod is copied");
+        assert!(dst_mc.join("mods/sodium.jar").exists());
+        assert!(
+            !dst_mc
+                .join("mods/tl_skin_cape_forge_1.21.1-1.39.jar")
+                .exists(),
+            "TLauncher-injected skin/cape mod must not be copied"
         );
     }
 

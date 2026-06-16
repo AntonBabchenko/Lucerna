@@ -162,6 +162,13 @@ pub fn build_import_plan(
 use std::fs;
 use std::path::Path;
 
+/// True for mods a launcher injects into its game dir that are launcher cruft,
+/// not user content — currently TLauncher's auto-added skin/cape mod
+/// (`tl_skin_cape_*`). Excluded from import so the new instance stays clean.
+pub fn is_injected_mod(filename: &str) -> bool {
+    filename.to_ascii_lowercase().starts_with("tl_skin_cape")
+}
+
 /// Inspect a `.minecraft`-shaped dir and report which content categories
 /// exist, with a recursive file count and byte total (for the preview).
 /// Never errors — a missing dir yields an empty list.
@@ -252,6 +259,12 @@ mod tests {
             ],
             known_mods: vec![],
         }
+    }
+
+    #[test]
+    fn flags_tlauncher_injected_mod_only() {
+        assert!(is_injected_mod("tl_skin_cape_forge_1.21.1-1.39.jar"));
+        assert!(!is_injected_mod("sodium-fabric-0.5.jar"));
     }
 
     #[test]
