@@ -120,6 +120,18 @@ mod tests {
     }
 
     #[test]
+    fn scan_minecraft_root_falls_back_to_raw_for_bare_dir() {
+        // A bare `.minecraft` with content but no structured markers surfaces
+        // exactly once, as a RawMinecraft entry.
+        let found = scan_minecraft_root(&fixtures().join("raw_minecraft"));
+        assert_eq!(found.len(), 1, "single raw entry, got: {found:?}");
+        assert_eq!(
+            found[0].source,
+            crate::instances::schema::ForeignLauncher::RawMinecraft
+        );
+    }
+
+    #[test]
     fn detect_folder_rejects_unrelated_dir() {
         assert!(detect_folder(Path::new(env!("CARGO_MANIFEST_DIR"))).is_none());
     }
