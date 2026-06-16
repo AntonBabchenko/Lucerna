@@ -257,6 +257,18 @@ pub fn run() {
         .expect("Failed to export TypeScript bindings");
 
     tauri::Builder::default()
+        // Single-instance guard MUST be the first plugin (Tauri requirement):
+        // when a second copy of Lucerna is launched, this callback runs in the
+        // already-running process and the new one exits. We surface the existing
+        // window via the tray-restore path, which shows + unminimizes + focuses
+        // it (and clears the tray icon if the launcher was hidden to tray during
+        // a Minecraft session). argv/cwd of the second launch are unused — we
+        // only ever want to bring the running window forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Err(e) = crate::tray::restore_from_tray(app) {
+                eprintln!("[single-instance] failed to restore window: {e}");
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
