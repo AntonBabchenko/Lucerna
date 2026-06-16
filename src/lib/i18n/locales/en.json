@@ -741,8 +741,13 @@
     },
     "severity": {
       "game": "Game logs",
+      "gameConsole": "Game console output",
       "crash": "Crash reports",
       "launcher": "Launcher logs"
+    },
+    "sourceHint": {
+      "gameConsole": "Raw game stdout/stderr captured by the launcher — shows crashes that never reach latest.log.",
+      "launcher": "Lucerna's own diagnostics."
     },
     "search": {
       "placeholder": "Find in file (case-insensitive)…",

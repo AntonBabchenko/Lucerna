@@ -168,7 +168,7 @@ pub async fn get_account_skin(
     let dir = match crate::paths::skins_dir(app) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("account_skin: cannot resolve skins dir: {e}");
+            crate::diag!("account_skin: cannot resolve skins dir: {e}");
             return None;
         }
     };
@@ -181,13 +181,13 @@ pub async fn get_account_skin(
     match fetch_skin(uuid).await {
         Ok(Some(skin)) => {
             if let Err(e) = write_cached_skin(&dir, &skin, now) {
-                eprintln!("account_skin: cache write failed for {uuid}: {e}");
+                crate::diag!("account_skin: cache write failed for {uuid}: {e}");
             }
             Some(skin)
         }
         Ok(None) => None,
         Err(e) => {
-            eprintln!("account_skin: fetch failed for {uuid}: {e}");
+            crate::diag!("account_skin: fetch failed for {uuid}: {e}");
             None
         }
     }

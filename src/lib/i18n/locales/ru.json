@@ -741,8 +741,13 @@
     },
     "severity": {
       "game": "Логи игры",
+      "gameConsole": "Вывод консоли игры",
       "crash": "Отчёты об ошибках",
       "launcher": "Логи лаунчера"
+    },
+    "sourceHint": {
+      "gameConsole": "Сырой stdout/stderr игры, перехваченный лаунчером — показывает краши, которых нет в latest.log.",
+      "launcher": "Собственная диагностика Lucerna."
     },
     "search": {
       "placeholder": "Поиск в файле (без учёта регистра)…",

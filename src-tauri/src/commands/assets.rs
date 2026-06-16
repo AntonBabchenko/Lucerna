@@ -19,7 +19,7 @@ pub async fn assets_list(
     // registry file exists). Best-effort: a backfill error must not block the
     // list, so log and continue.
     if let Err(e) = crate::mods::assets::backfill_from_pack_origin_if_missing(&inst_root).await {
-        eprintln!("[assets_list] backfill failed (non-fatal): {e}");
+        crate::diag!("[assets_list] backfill failed (non-fatal): {e}");
     }
     crate::mods::assets::list(&inst_root, kind).await
 }

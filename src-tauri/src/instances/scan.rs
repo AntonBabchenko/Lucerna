@@ -23,7 +23,7 @@ pub fn list_all(instances_dir: &Path) -> Vec<InstanceFile> {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
         Err(e) => {
-            eprintln!(
+            crate::diag!(
                 "[instances::scan] cannot read {}: {e}",
                 instances_dir.display()
             );
@@ -40,7 +40,7 @@ pub fn list_all(instances_dir: &Path) -> Vec<InstanceFile> {
         match read_instance_json(&json_path) {
             Ok(file) => out.push(file),
             Err(e) => {
-                eprintln!("[instances::scan] skipping {}: {e}", json_path.display());
+                crate::diag!("[instances::scan] skipping {}: {e}", json_path.display());
             }
         }
     }

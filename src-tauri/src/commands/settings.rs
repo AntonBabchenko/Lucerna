@@ -73,7 +73,7 @@ fn sweep_installed_jres_gpu(app: &tauri::AppHandle, pref: crate::instances::sche
         let exe = e.path().join("bin").join("java");
         if exe.exists() {
             if let Err(err) = crate::platform::gpu::sync_for_exe(&exe, pref) {
-                eprintln!("gpu: sweep sync failed for {}: {err}", exe.display());
+                crate::diag!("gpu: sweep sync failed for {}: {err}", exe.display());
             }
         }
     }

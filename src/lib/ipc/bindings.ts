@@ -1522,7 +1522,15 @@ export type LogRetentionPolicy = {
 	max_total_mb?: number,
 };
 
-export type LogSource = "game" | "crash" | "launcher";
+export type LogSource = "game" | "crash" | 
+/**
+ *  The game process's captured stdout/stderr (`instances/<id>/logs/`) —
+ *  not the launcher's own log. Catches early/JVM-level crashes that never
+ *  reach the game's `latest.log`.
+ */
+"game_console" | 
+/**  The launcher's own diagnostics (`<app_data>/logs/lucerna.log`). */
+"launcher";
 
 /**
  *  Return value of `change_instance_mc`: the updated instance plus a

@@ -376,7 +376,7 @@ pub(crate) fn sanitize_jvm_args(raw: &str) -> Vec<String> {
     // matching the eprintln! diagnostics used elsewhere in the launch path.
     // (This is a developer/console signal, not the in-app log viewer.)
     if dropped > 0 {
-        eprintln!(
+        crate::diag!(
             "launch: dropped {dropped} extra_jvm_args token(s) (control chars or {MAX_JVM_ARGS_LEN}-byte cap)"
         );
     }

@@ -1,5 +1,6 @@
 pub mod accounts;
 mod commands;
+pub mod diag;
 pub mod error;
 pub mod forge;
 pub mod instances;
@@ -208,7 +209,7 @@ fn maybe_export_bindings_from_args(builder: &Builder<tauri::Wry>) -> Option<i32>
     if std::env::args().any(|a| a == "--check") {
         let tmp = std::env::temp_dir().join("lucerna-bindings-freshness-check.ts");
         if let Err(e) = builder.export(Typescript::default(), &tmp) {
-            eprintln!("Failed to export bindings for --check: {e}");
+            crate::diag!("Failed to export bindings for --check: {e}");
             return Some(1);
         }
         let fresh = std::fs::read_to_string(&tmp).ok();
@@ -217,7 +218,7 @@ fn maybe_export_bindings_from_args(builder: &Builder<tauri::Wry>) -> Option<i32>
             println!("bindings.ts is up to date.");
             return Some(0);
         }
-        eprintln!(
+        crate::diag!(
             "bindings.ts is STALE — a Rust command/type changed without regenerating.\n\
              Run: cargo run --manifest-path src-tauri/Cargo.toml -- --export-bindings"
         );
@@ -230,7 +231,7 @@ fn maybe_export_bindings_from_args(builder: &Builder<tauri::Wry>) -> Option<i32>
             Some(0)
         }
         Err(e) => {
-            eprintln!("Failed to regenerate bindings: {e}");
+            crate::diag!("Failed to regenerate bindings: {e}");
             Some(1)
         }
     }
@@ -267,7 +268,7 @@ pub fn run() {
         // only ever want to bring the running window forward.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Err(e) = crate::tray::restore_from_tray(app) {
-                eprintln!("[single-instance] failed to restore window: {e}");
+                crate::diag!("[single-instance] failed to restore window: {e}");
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -275,11 +276,15 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .manage(window::WindowSizeState::default())
         .setup(move |app| {
+            // Open the launcher's own diagnostic log (lucerna.log) first, so
+            // subsequent `diag!` lines in setup are captured. Best-effort.
+            diag::init(app.handle());
+
             // One-shot instance migration. Non-fatal on error — the UI has
             // an empty-state fallback that lets the user manually recover
             // by creating an instance through the Manage modal.
             if let Err(e) = instances::migrate::migrate_or_seed(app.handle()) {
-                eprintln!("[setup] instances::migrate_or_seed failed: {e}");
+                crate::diag!("[setup] instances::migrate_or_seed failed: {e}");
             }
             builder.mount_events(app);
 
@@ -299,7 +304,7 @@ pub fn run() {
                     let accounts = match crate::accounts::list_accounts(&app_handle) {
                         Ok(xs) => xs,
                         Err(e) => {
-                            eprintln!("microsoft refresh: list_accounts failed: {e}");
+                            crate::diag!("microsoft refresh: list_accounts failed: {e}");
                             continue;
                         }
                     };
@@ -313,7 +318,7 @@ pub fn run() {
                         if exp <= now + 300.0 {
                             let res = crate::accounts::microsoft::refresh(&app_handle, &a.id).await;
                             if let Err(e) = res {
-                                eprintln!("microsoft refresh: failed for account {}: {e}", a.id);
+                                crate::diag!("microsoft refresh: failed for account {}: {e}", a.id);
                             }
                         }
                     }

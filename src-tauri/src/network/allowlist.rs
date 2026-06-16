@@ -111,7 +111,7 @@ pub fn check_url_allowed(url: &str, initiator: &str) -> crate::error::Result<()>
     match host {
         Some(h) if is_host_allowed(&h) => Ok(()),
         _ => {
-            eprintln!("network: {initiator} refused — host not on allowlist: {url}");
+            crate::diag!("network: {initiator} refused — host not on allowlist: {url}");
             Err(crate::error::Error::HostNotAllowed {
                 url: url.to_string(),
             })

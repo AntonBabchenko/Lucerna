@@ -208,12 +208,12 @@ pub async fn verify_instance_report(
                     // Unparseable index: we can't enumerate objects, so the
                     // assets can't be verified. Mark recoverable so the report
                     // is unhealthy and repair re-fetches the index via install.
-                    eprintln!("verify: asset index {} unparseable: {e}", ai.id);
+                    crate::diag!("verify: asset index {} unparseable: {e}", ai.id);
                     manifest_recoverable = true;
                 }
             },
             Err(e) => {
-                eprintln!("verify: asset index {} unreadable: {e}", ai.id);
+                crate::diag!("verify: asset index {} unreadable: {e}", ai.id);
                 manifest_recoverable = true;
             }
         }

@@ -97,7 +97,7 @@ fn delete_all(paths: &[LogFileMeta], roots: &[PathBuf]) -> CleanupResult {
                 count += 1;
                 freed = freed.saturating_add(bytes);
             }
-            Err(e) => eprintln!("log-retention: could not delete {}: {e}", f.path),
+            Err(e) => crate::diag!("log-retention: could not delete {}: {e}", f.path),
         }
     }
     CleanupResult {

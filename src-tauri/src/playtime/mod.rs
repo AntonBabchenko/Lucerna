@@ -33,7 +33,7 @@ pub fn get_stats_at(instance_root: &Path) -> Result<PlaytimeStats> {
         Ok(bytes) => match serde_json::from_slice::<PlaytimeStats>(&bytes) {
             Ok(stats) => Ok(stats),
             Err(e) => {
-                eprintln!(
+                crate::diag!(
                     "playtime: {} malformed ({e}); resetting to zero stats",
                     path.display()
                 );
