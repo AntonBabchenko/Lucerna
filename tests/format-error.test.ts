@@ -218,7 +218,10 @@ describe('formatError', () => {
       instance_name_too_long: { kind: 'instance_name_too_long', max: 32, actual: 50 },
       mods_network: { kind: 'mods_network', url: 'https://x', details: 'd' },
       mods_platform_auth: { kind: 'mods_platform_auth', kind_detail: 'missing' },
-      mods_platform_unreachable: { kind: 'mods_platform_unreachable', url: 'https://api.curseforge.com' },
+      mods_platform_unreachable: {
+        kind: 'mods_platform_unreachable',
+        url: 'https://api.curseforge.com',
+      },
       mods_distribution_disabled: {
         kind: 'mods_distribution_disabled',
         source: 'curseforge',
