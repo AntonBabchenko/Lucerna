@@ -192,13 +192,20 @@
   function doImport() {
     if (!chosen || !canImport) return;
     importing = true;
+    // Preserve the reader-detected loader build when the user keeps the
+    // detected loader; the backend applies loaderVersionOverride verbatim, so
+    // sending null here would wipe a detected build (e.g. NeoForge 20.4.251)
+    // and leave a modded import unlaunchable. A changed loader has no known
+    // build → null (resolution picks one later).
+    const loaderVersionOverride =
+      loaderInput === chosen.loader ? (chosen.loader_version ?? null) : null;
     enqueueLauncherImport(targetName.trim(), {
       foreign: chosen,
       selected: [...selected],
       targetName: targetName.trim(),
       mcVersionOverride: mcVersionInput.trim(),
       loaderOverride: loaderInput,
-      loaderVersionOverride: null,
+      loaderVersionOverride,
     });
     onClose();
   }

@@ -206,6 +206,9 @@ describe('LauncherImportDialog', () => {
       expect.objectContaining({
         mcVersionOverride: mockForeign.mc_version,
         loaderOverride: mockForeign.loader,
+        // Regression: the detected loader build must survive import (kept
+        // loader) — otherwise the imported instance is unlaunchable.
+        loaderVersionOverride: mockForeign.loader_version,
       }),
     );
     expect(onClose).toHaveBeenCalledOnce();
