@@ -84,6 +84,10 @@
       <div class="flex-1">
         <p class="font-semibold text-warning-text">{copy ? $t(copy.title) : diag.title}</p>
         <p class="mt-1 text-sm">{copy ? $t(copy.explanation) : diag.explanation}</p>
+        <p class="mt-1 text-sm">
+          <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
+          {copy ? $t(copy.recommendation) : diag.recommendation}
+        </p>
 
         {#if status === 'actionable'}
           {#if repairPlan && repairPlan.kind === 'install_missing_mods' && mcVersion && loader}
