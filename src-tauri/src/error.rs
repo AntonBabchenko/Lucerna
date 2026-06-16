@@ -129,6 +129,9 @@ pub enum Error {
     #[error("Network error talking to {url}: {details}")]
     ModsNetwork { url: String, details: String },
 
+    #[error("CurseForge appears unreachable (network or region block) at {url}")]
+    ModsPlatformUnreachable { url: String },
+
     #[error("Mod platform auth: {kind:?}")]
     ModsPlatformAuth {
         // Rust field stays `kind` per spec; serialized as `kind_detail`
