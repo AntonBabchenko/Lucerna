@@ -54,4 +54,19 @@ describe('log-diagnosis store', () => {
     expect(diagnosisStatus()).toBe('none');
     expect(latestDiagnosis()).toBeNull();
   });
+
+  it('a null-clear invalidates an in-flight fetch (no stale write-back)', async () => {
+    let resolveFetch: (v: ReturnType<typeof ok>) => void = () => {};
+    vi.mocked(commands.diagnoseLatest).mockReturnValue(
+      new Promise<ReturnType<typeof ok>>((r) => {
+        resolveFetch = r;
+      }),
+    );
+    const inFlight = refreshDiagnosis('inst-1'); // starts the fetch, not yet resolved
+    await refreshDiagnosis(null); // clears + bumps seq while fetch is pending
+    resolveFetch(ok({ status: 'actionable', diagnosis: null, path: 'p', signature: 's' }));
+    await inFlight; // the now-stale response must NOT overwrite the cleared state
+    expect(diagnosisStatus()).toBe('none');
+    expect(latestDiagnosis()).toBeNull();
+  });
 });

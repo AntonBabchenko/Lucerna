@@ -12,6 +12,9 @@ let seq = 0;
 /** Fetch the latest diagnosis for `instanceId`, or clear when null. */
 export async function refreshDiagnosis(instanceId: string | null): Promise<void> {
   if (!instanceId) {
+    // Bump seq so an in-flight fetch for a previous instance can't write its
+    // (now-stale) result back over the cleared state once it resolves.
+    seq++;
     current = null;
     forInstance = null;
     return;
