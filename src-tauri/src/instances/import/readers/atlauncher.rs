@@ -71,13 +71,11 @@ impl LauncherReader for AtlauncherReader {
     }
 
     fn detect(&self, dir: &Path) -> bool {
-        let path = dir.join("instance.json");
-        let Ok(raw) = std::fs::read_to_string(&path) else {
-            return false;
-        };
-        // ATLauncher's instance.json always has a `launcher` object — this
-        // distinguishes it from other launchers' files of the same name.
-        serde_json::from_str::<InstanceJson>(&raw).is_ok()
+        // `instance.json` is unique to ATLauncher among supported launchers
+        // (Prism uses mmc-pack.json, CurseForge minecraftinstance.json). A
+        // sentinel check keeps discovery's detect->read cheap; `read` enforces
+        // the `launcher`-object shape and fails gracefully on a foreign file.
+        dir.join("instance.json").is_file()
     }
 
     fn read(&self, dir: &Path) -> Result<ForeignInstance> {
@@ -165,6 +163,7 @@ mod tests {
         assert_eq!(loader_from_type(Some("NeoForge")), LoaderKind::NeoForge);
         assert_eq!(loader_from_type(Some("Forge")), LoaderKind::Forge);
         assert_eq!(loader_from_type(Some("Fabric")), LoaderKind::Fabric);
+        assert_eq!(loader_from_type(Some("Quilt")), LoaderKind::Quilt);
         assert_eq!(loader_from_type(None), LoaderKind::Vanilla);
     }
 }
