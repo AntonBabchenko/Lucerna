@@ -24,6 +24,8 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
+  import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -513,6 +515,48 @@
     hiddenLevels = next;
   }
 
+  // Overflow (⋯) menu: Share / Open folder / Clear old. Each item reuses the
+  // exact handler + disabled guard the old header buttons used.
+  const overflowItems = $derived<ContextMenuItem[]>([
+    {
+      label: $t('logs.share.shareBtn'),
+      icon: 'upload',
+      disabled: !selectedContent || shareUploading,
+      onSelect: () => (shareConfirm = true),
+    },
+    {
+      label: $t('logs.toolbar.openFolder'),
+      icon: 'folderOpen',
+      disabled: !selectedPath,
+      onSelect: () => void openLogFolder(),
+    },
+    {
+      label: $t('logs.manage.clearOld'),
+      icon: 'eraser',
+      danger: true,
+      separatorBefore: true,
+      disabled: clearOldStats.count === 0,
+      testId: 'clear-old-logs',
+      onSelect: () => (clearOldOpen = true),
+    },
+  ]);
+
+  // Tailwind tone per severity for the level filter chips.
+  function levelChipTone(lv: Severity): string {
+    switch (lv) {
+      case 'error':
+      case 'fatal':
+        return 'border-danger text-danger';
+      case 'warn':
+        return 'border-warning-text/60 text-warning-text';
+      case 'debug':
+      case 'trace':
+        return 'border-border-subtle text-muted';
+      default:
+        return 'border-border-emphasis text-secondary';
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Search navigation
   // ---------------------------------------------------------------------------
@@ -699,60 +743,23 @@
     <aside
       class="relative bg-surface rounded shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col m-4"
     >
-      <!-- Header row 1: Read cap / Share / Reload / Close -->
+      <!-- Header row 1: action bar -->
       <header class="flex flex-col border-b">
         <div class="flex items-center justify-between px-4 py-2">
           <h2 class="text-sm font-semibold text-primary">{$t('logs.toolbar.title')}</h2>
-          <div class="flex items-center gap-3 flex-wrap">
-            <div class="text-xs flex items-center gap-1" data-tour-ctx="logs-cap">
-              {$t('logs.toolbar.readCap')}
-              <Select
-                class="text-xs"
-                ariaLabel={$t('logs.toolbar.readCap')}
-                value={capBytes}
-                options={CAP_OPTIONS}
-                onChange={(v) => onCapChange(Number(v))}
-              />
-            </div>
+          <div class="flex items-center gap-1.5">
             <button
-              class="btn-secondary btn-xs inline-flex items-center gap-1.5"
+              class="btn-icon"
+              aria-label={$t('logs.toolbar.reload')}
+              use:tooltip={$t('logs.toolbar.reload')}
               onclick={() => void reload()}
             >
-              <Icon name="refresh" class="icon-spin-hover" />{$t('logs.toolbar.reload')}
+              <Icon name="refresh" class="icon-spin-hover" />
             </button>
 
-            <!-- Clear old logs: deletes everything except protected files
-                 (latest.log / debug.log). Disabled when nothing is eligible. -->
-            <button
-              class="btn-secondary btn-xs inline-flex items-center gap-1.5"
-              disabled={clearOldStats.count === 0}
-              onclick={() => (clearOldOpen = true)}
-              data-testid="clear-old-logs"
-            >
-              <Icon name="eraser" size={14} />{$t('logs.manage.clearOld')}
-            </button>
-
-            <!-- Open the directory containing the currently-selected log file
-                 in the OS file manager. Disabled when no file is selected. -->
-            <button
-              class="btn-tertiary text-xs inline-flex items-center gap-1"
-              data-tour-ctx="logs-open-folder"
-              disabled={!selectedPath}
-              onclick={() => void openLogFolder()}
-            >
-              {$t('logs.toolbar.openFolder')}
-              <Icon name="folderOpen" size={14} />
-            </button>
-
-            <!-- Share button -->
-            <button
-              class="btn-secondary btn-xs"
-              data-tour-ctx="logs-share"
-              disabled={!selectedContent || shareUploading}
-              onclick={() => (shareConfirm = true)}
-            >
-              {shareUploading ? $t('logs.share.uploading') : $t('logs.share.shareBtn')}
-            </button>
+            <span data-tour-ctx="logs-overflow">
+              <OverflowMenu items={overflowItems} ariaLabel={$t('logs.toolbar.moreActions')} />
+            </span>
 
             <CloseButton
               onClick={() => (open = false)}
@@ -761,11 +768,21 @@
           </div>
         </div>
 
-        <!-- Header row 2: toolbar (wrap / fold / level filters) -->
+        <!-- Header row 2: view settings (left) + level filters (right) -->
         <div
           class="flex items-center gap-4 px-4 py-1.5 border-t text-xs flex-wrap"
           data-tour-ctx="logs-toolbar"
         >
+          <span class="text-muted">{$t('logs.toolbar.readCap')}</span>
+          <div data-tour-ctx="logs-cap">
+            <Select
+              class="text-xs"
+              ariaLabel={$t('logs.toolbar.readCap')}
+              value={capBytes}
+              options={CAP_OPTIONS}
+              onChange={(v) => onCapChange(Number(v))}
+            />
+          </div>
           <label class="flex items-center gap-1 cursor-pointer select-none">
             <input type="checkbox" bind:checked={wrap} class="accent-primary" />
             {$t('logs.toolbar.wrapLines')}
@@ -774,26 +791,28 @@
             <input type="checkbox" bind:checked={fold} class="accent-primary" />
             {$t('logs.toolbar.collapseStacks')}
           </label>
-          {#if activeLevels.length > 0}
-            <span class="text-muted">{$t('logs.toolbar.showLevels')}</span>
-            {#each activeLevels as lv}
-              <label class="flex items-center gap-1 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={!hiddenLevels.has(lv)}
-                  onchange={() => toggleLevel(lv)}
-                  class="accent-primary"
-                />
-                {levelLabel(lv)}
-                <span class="text-muted">({severityCounts.get(lv) ?? 0})</span>
-              </label>
-            {/each}
-          {/if}
           {#if crashSections !== null}
-            <label class="flex items-center gap-1 cursor-pointer select-none ml-auto">
+            <label class="flex items-center gap-1 cursor-pointer select-none">
               <input type="checkbox" bind:checked={rawView} class="accent-primary" />
               {$t('logs.toolbar.rawView')}
             </label>
+          {/if}
+
+          {#if activeLevels.length > 0}
+            <span class="text-muted ml-auto">{$t('logs.toolbar.showLevels')}</span>
+            {#each activeLevels as lv}
+              <button
+                type="button"
+                class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-opacity ${levelChipTone(
+                  lv,
+                )} ${hiddenLevels.has(lv) ? 'opacity-40' : ''}`}
+                aria-pressed={!hiddenLevels.has(lv)}
+                onclick={() => toggleLevel(lv)}
+              >
+                {levelLabel(lv)}
+                <span class="opacity-70">{severityCounts.get(lv) ?? 0}</span>
+              </button>
+            {/each}
           {/if}
         </div>
       </header>

@@ -6,6 +6,7 @@
     danger?: boolean;
     disabled?: boolean;
     separatorBefore?: boolean;
+    testId?: string;
     onSelect: () => void;
   }
 </script>
