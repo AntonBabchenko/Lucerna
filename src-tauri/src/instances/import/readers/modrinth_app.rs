@@ -58,6 +58,8 @@ fn read_rows(db: &Path) -> Vec<ProfileRow> {
             game_version: r.get(2)?,
             mod_loader: r.get(3)?,
             mod_loader_version: r.get(4)?,
+            // Stored as a signed integer (megabytes); clamp negatives and
+            // narrow to the u32 the rest of the import pipeline expects.
             override_mc_memory_max: r.get::<_, Option<i64>>(5)?.map(|v| v.max(0) as u32),
         })
     });
@@ -69,14 +71,22 @@ fn read_rows(db: &Path) -> Vec<ProfileRow> {
 
 fn build(profiles_root: &Path, row: &ProfileRow) -> ForeignInstance {
     let game_dir = profiles_root.join(&row.path);
+    let loader = loader_from_str(&row.mod_loader);
+    // A Vanilla profile carries no meaningful loader version even if the DB
+    // left a residual string (mirrors the CurseForge/ATLauncher readers).
+    let loader_version = if loader == LoaderKind::Vanilla {
+        None
+    } else {
+        row.mod_loader_version.clone().filter(|s| !s.is_empty())
+    };
     ForeignInstance {
         source: ForeignLauncher::ModrinthApp,
         name: row.name.clone(),
         root: game_dir.clone(),
         minecraft_dir: game_dir.clone(),
         mc_version: row.game_version.clone(),
-        loader: loader_from_str(&row.mod_loader),
-        loader_version: row.mod_loader_version.clone().filter(|s| !s.is_empty()),
+        loader,
+        loader_version,
         max_heap_mb: row.override_mc_memory_max,
         extra_jvm_args: None,
         content: scan_content(&game_dir),
@@ -93,8 +103,8 @@ impl LauncherReader for ModrinthAppReader {
         crate::platform::default_launcher_roots()
             .into_iter()
             .filter(|p| {
-                let s = p.to_string_lossy();
-                p.ends_with("profiles") && (s.contains("ModrinthApp") || s.contains("theseus"))
+                let s = p.to_string_lossy().to_lowercase();
+                p.ends_with("profiles") && (s.contains("modrinthapp") || s.contains("theseus"))
             })
             .collect()
     }
@@ -102,6 +112,9 @@ impl LauncherReader for ModrinthAppReader {
     fn detect(&self, dir: &Path) -> bool {
         // A manually-picked Modrinth profile dir: its parent is `profiles`
         // with a sibling `app.db` holding a row whose `path` is this folder.
+        // Re-opens the DB (read-only, cheap) per call — only the manual
+        // folder-pick path uses `detect`; auto-scan goes via `expand_root`,
+        // which reads the DB once. Do not call this per-entry in a loop.
         let Some(profiles_root) = dir.parent() else {
             return false;
         };
@@ -196,6 +209,34 @@ mod tests {
         let dir = profiles.join("Fabric 1.21.1");
         assert!(ModrinthAppReader.detect(&dir));
         assert_eq!(ModrinthAppReader.read(&dir).unwrap().mc_version, "1.21.1");
+    }
+
+    #[test]
+    fn vanilla_profile_has_no_loader_version() {
+        // A vanilla profile with a residual mod_loader_version must report None.
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("ModrinthApp");
+        let profiles = app.join("profiles");
+        std::fs::create_dir_all(profiles.join("Vanilla 1.21/saves")).unwrap();
+        std::fs::write(profiles.join("Vanilla 1.21/saves/w.dat"), b"x").unwrap();
+        let conn = rusqlite::Connection::open(app.join("app.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE profiles (
+                path TEXT, install_stage TEXT, name TEXT, game_version TEXT,
+                mod_loader TEXT, mod_loader_version TEXT, override_mc_memory_max INTEGER
+             );
+             INSERT INTO profiles VALUES
+               ('Vanilla 1.21','installed','Vanilla 1.21','1.21','vanilla','0.16.5',NULL);",
+        )
+        .unwrap();
+
+        let found = ModrinthAppReader.expand_root(&profiles);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].loader, LoaderKind::Vanilla);
+        assert_eq!(
+            found[0].loader_version, None,
+            "vanilla clears residual version"
+        );
     }
 
     #[test]
