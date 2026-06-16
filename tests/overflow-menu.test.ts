@@ -60,4 +60,27 @@ describe('OverflowMenu', () => {
     await fireEvent.keyDown(menu, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it('ArrowDown moves the active highlight to the next enabled item', async () => {
+    render(OverflowMenu, { props: { items: items(), ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }));
+    const menu = screen.getByRole('menu');
+    const menuitems = screen.getAllByRole('menuitem');
+    // The active item carries the exact `bg-subtle` token; inactive items carry
+    // `hover:bg-subtle` (a distinct token), so classList.contains discriminates.
+    expect(menuitems[0].classList.contains('bg-subtle')).toBe(true);
+    await fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(menuitems[1].classList.contains('bg-subtle')).toBe(true);
+    expect(menuitems[0].classList.contains('bg-subtle')).toBe(false);
+  });
+
+  it('Enter activates the active item and closes', async () => {
+    const its = items();
+    render(OverflowMenu, { props: { items: its, ariaLabel: 'More' } });
+    await fireEvent.click(screen.getByRole('button', { name: /more/i }));
+    // Opens with the first enabled item active.
+    await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' });
+    expect(its[0].onSelect).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 });
