@@ -64,6 +64,17 @@ describe('TourOverlay', () => {
     expect(tourState.active).toBe(false);
   });
 
+  test('Skip button shares the btn-sm size of its row siblings (Back/Next)', () => {
+    tourState.currentStep = 1;
+    render(TourOverlay);
+    const skip = screen.getByRole('button', { name: /skip/i });
+    const next = screen.getByRole('button', { name: /next/i });
+    // Regression: Skip used to be a bare `btn-tertiary` with no size class, so
+    // it had no padding and a different font-size, breaking the footer row.
+    expect(skip.classList.contains('btn-sm')).toBe(true);
+    expect(next.classList.contains('btn-sm')).toBe(true);
+  });
+
   test('On step 6, Next is replaced by Finish and clears active', async () => {
     tourState.currentStep = TOTAL_STEPS - 1;
     render(TourOverlay);

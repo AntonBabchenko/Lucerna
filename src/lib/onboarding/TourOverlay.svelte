@@ -261,7 +261,11 @@
           </button>
           <div class="flex gap-2">
             {#if !isLast}
-              <button type="button" class="btn-tertiary" onclick={() => void finishOrSkip()}>
+              <button
+                type="button"
+                class="btn-tertiary btn-sm inline-flex items-center"
+                onclick={() => void finishOrSkip()}
+              >
                 {$t('onboarding.controls.skip')}
               </button>
             {/if}
