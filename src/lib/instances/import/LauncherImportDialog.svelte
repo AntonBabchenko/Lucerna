@@ -83,18 +83,11 @@
   let seededFor: ForeignInstance | null = null;
   let targetName = $state('');
 
-  // Generic `.minecraft` carries no version/loader metadata — the user
-  // supplies them. Seeded from the chosen instance (blank for raw).
+  // Version and loader fields are always shown pre-filled with detected values.
+  // For raw_minecraft they arrive blank; the user fills them in.
+  // All other sources arrive pre-seeded via $effect.pre below.
   let mcVersionInput = $state('');
   let loaderInput = $state<LoaderKind>('vanilla');
-  // Sources whose version/loader are unknown or only best-effort: the user
-  // confirms/corrects them. raw_minecraft arrives blank; the profile sources
-  // (Minecraft Launcher / TLauncher) arrive pre-seeded with detection.
-  const allowsVersionLoaderEdit = $derived(
-    chosen?.source === 'raw_minecraft' ||
-      chosen?.source === 'mojang_launcher' ||
-      chosen?.source === 'tlauncher',
-  );
   const LOADER_OPTIONS: { value: string; label: string }[] = [
     { value: 'vanilla', label: 'Vanilla' },
     { value: 'fabric', label: 'Fabric' },
@@ -193,7 +186,7 @@
       selected.size > 0 &&
       targetName.trim() !== '' &&
       !importing &&
-      (!allowsVersionLoaderEdit || mcVersionInput.trim() !== ''),
+      mcVersionInput.trim() !== '',
   );
 
   function doImport() {
@@ -203,8 +196,8 @@
       foreign: chosen,
       selected: [...selected],
       targetName: targetName.trim(),
-      mcVersionOverride: allowsVersionLoaderEdit ? mcVersionInput.trim() : null,
-      loaderOverride: allowsVersionLoaderEdit ? loaderInput : null,
+      mcVersionOverride: mcVersionInput.trim(),
+      loaderOverride: loaderInput,
       loaderVersionOverride: null,
     });
     onClose();
@@ -363,38 +356,35 @@
         />
       </label>
 
-      <!-- Generic .minecraft: user supplies version + loader -->
-      {#if allowsVersionLoaderEdit}
-        <label class="block">
-          <span class="text-sm font-medium text-secondary"
-            >{$t('instances.import.mcVersionInputLabel')}</span
-          >
-          <div class="mt-1">
-            <McVersionCombobox
-              bind:value={mcVersionInput}
-              placeholder={$t('instances.import.mcVersionPlaceholder')}
-              dataTestid="mc-version-input"
-            />
-          </div>
-          {#if chosen?.source === 'raw_minecraft'}
-            <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span
-            >
-          {/if}
-        </label>
-        <div class="block">
-          <span class="text-sm font-medium text-secondary"
-            >{$t('instances.import.loaderInputLabel')}</span
-          >
-          <Select
-            class="mt-1 w-full"
-            value={loaderInput}
-            options={LOADER_OPTIONS}
-            onChange={(v) => (loaderInput = v as LoaderKind)}
-            ariaLabel={$t('instances.import.loaderInputLabel')}
-            dataTestid="loader-select"
+      <!-- Version + loader: always shown pre-filled; raw_minecraft arrives blank. -->
+      <label class="block">
+        <span class="text-sm font-medium text-secondary"
+          >{$t('instances.import.mcVersionInputLabel')}</span
+        >
+        <div class="mt-1">
+          <McVersionCombobox
+            bind:value={mcVersionInput}
+            placeholder={$t('instances.import.mcVersionPlaceholder')}
+            dataTestid="mc-version-input"
           />
         </div>
-      {/if}
+        {#if chosen?.source === 'raw_minecraft'}
+          <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span>
+        {/if}
+      </label>
+      <div class="block">
+        <span class="text-sm font-medium text-secondary"
+          >{$t('instances.import.loaderInputLabel')}</span
+        >
+        <Select
+          class="mt-1 w-full"
+          value={loaderInput}
+          options={LOADER_OPTIONS}
+          onChange={(v) => (loaderInput = v as LoaderKind)}
+          ariaLabel={$t('instances.import.loaderInputLabel')}
+          dataTestid="loader-select"
+        />
+      </div>
 
       <!-- Content categories -->
       <div>

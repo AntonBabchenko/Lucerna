@@ -269,21 +269,16 @@ describe('LauncherImportDialog', () => {
     expect(getByTestId('mc-version-input')).toBeTruthy();
   });
 
-  it('does not show the loader editor for a structured prism source', async () => {
+  it('shows pre-filled editable version/loader for a reliable source (prism)', async () => {
     (commands.launcherImportDiscover as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 'ok',
       data: { instances: [mockForeign], empty_launchers: [] },
     });
-    const { getByTestId, queryByTestId } = render(LauncherImportDialog, {
-      props: { onClose: vi.fn() },
-    });
-    fireEvent.click(getByTestId('discover-btn'));
-    await waitFor(() => expect(getByTestId('discovered-list')).toBeTruthy());
-    fireEvent.click(
-      getByTestId('discovered-list').querySelector('[data-testid="instance-row"]') as Element,
-    );
-    await waitFor(() => expect(getByTestId('import-btn')).toBeTruthy());
-    expect(queryByTestId('loader-select')).toBeNull();
+    const { findByTestId } = render(LauncherImportDialog, { props: { onClose: vi.fn() } });
+    fireEvent.click(await findByTestId('instance-row'));
+    // Both fields must render for prism (a reliable source), pre-filled with detected values
+    expect(await findByTestId('mc-version-input')).toBeTruthy();
+    expect(await findByTestId('loader-select')).toBeTruthy();
   });
 
   it('browse-to-folder: cancelled picker does nothing', async () => {
