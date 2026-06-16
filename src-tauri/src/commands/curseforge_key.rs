@@ -41,10 +41,17 @@ pub async fn mods_set_curseforge_key(
             url: url.into(),
             details: e.to_string(),
         })?;
-    if !(200..300).contains(&resp.status) {
-        return Err(crate::error::Error::ModsPlatformAuth {
-            kind: crate::error::ModsAuthKind::Invalid,
-        });
+    use crate::mods::curseforge::{classify_key_check, KeyCheckOutcome};
+    match classify_key_check(resp.status, &resp.body) {
+        KeyCheckOutcome::Ok => {}
+        KeyCheckOutcome::Invalid => {
+            return Err(crate::error::Error::ModsPlatformAuth {
+                kind: crate::error::ModsAuthKind::Invalid,
+            });
+        }
+        KeyCheckOutcome::Unreachable => {
+            return Err(crate::error::Error::ModsPlatformUnreachable { url: url.into() });
+        }
     }
     cf_keyring::set(&key)?;
 

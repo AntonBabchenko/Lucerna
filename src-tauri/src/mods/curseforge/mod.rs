@@ -789,3 +789,102 @@ mod tests {
         assert!(page.hits.is_empty());
     }
 }
+
+/// Outcome of validating a candidate CurseForge API key against the
+/// `/v1/games/432` ping. Pure classification of an already-received
+/// response — transport failures are handled by the caller before this.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum KeyCheckOutcome {
+    /// 2xx — key accepted.
+    Ok,
+    /// The API genuinely rejected the key (non-2xx with a real API body).
+    Invalid,
+    /// Reached the edge but Cloudflare / a region block intercepted the
+    /// request (protective status, or a 403 carrying an HTML/CF body).
+    /// The key's validity is unknown.
+    Unreachable,
+}
+
+/// Cloudflare / region-block status codes that are never the key's fault.
+const EDGE_BLOCK_STATUSES: &[u16] = &[429, 503, 520, 521, 522, 523, 524, 525, 526];
+
+/// Markers that a non-2xx body came from Cloudflare / an HTML interstitial
+/// rather than the CurseForge JSON API.
+const CF_BODY_MARKERS: &[&str] = &[
+    "cloudflare",
+    "cf-ray",
+    "<!doctype html",
+    "<html",
+    "just a moment",
+    "attention required",
+    "access denied",
+];
+
+/// Classify a key-validation response. See `KeyCheckOutcome`.
+pub(crate) fn classify_key_check(status: u16, body: &[u8]) -> KeyCheckOutcome {
+    if (200..=299).contains(&status) {
+        return KeyCheckOutcome::Ok;
+    }
+    if EDGE_BLOCK_STATUSES.contains(&status) {
+        return KeyCheckOutcome::Unreachable;
+    }
+    if status == 403 {
+        let hay = String::from_utf8_lossy(body).to_ascii_lowercase();
+        if CF_BODY_MARKERS.iter().any(|m| hay.contains(m)) {
+            return KeyCheckOutcome::Unreachable;
+        }
+    }
+    KeyCheckOutcome::Invalid
+}
+
+#[cfg(test)]
+mod key_check_tests {
+    use super::{classify_key_check, KeyCheckOutcome};
+
+    #[test]
+    fn success_status_is_ok() {
+        assert_eq!(classify_key_check(200, b"{}"), KeyCheckOutcome::Ok);
+        assert_eq!(classify_key_check(204, b""), KeyCheckOutcome::Ok);
+    }
+
+    #[test]
+    fn genuine_api_rejection_is_invalid() {
+        // CurseForge returns JSON on a bad/missing key.
+        let body = br#"{"error":"API key invalid"}"#;
+        assert_eq!(classify_key_check(403, body), KeyCheckOutcome::Invalid);
+        assert_eq!(classify_key_check(401, body), KeyCheckOutcome::Invalid);
+        assert_eq!(classify_key_check(404, b"{}"), KeyCheckOutcome::Invalid);
+    }
+
+    #[test]
+    fn cloudflare_html_403_is_unreachable() {
+        let body = b"<!DOCTYPE html><html><head><title>Just a moment...</title>\
+                     </head><body>cf-ray: 1234</body></html>";
+        assert_eq!(classify_key_check(403, body), KeyCheckOutcome::Unreachable);
+    }
+
+    #[test]
+    fn attention_required_403_is_unreachable() {
+        let body = b"<html><body>Attention Required! | Cloudflare</body></html>";
+        assert_eq!(classify_key_check(403, body), KeyCheckOutcome::Unreachable);
+    }
+
+    #[test]
+    fn protective_statuses_are_unreachable() {
+        for s in [429u16, 503, 520, 521, 522, 523, 524, 525, 526] {
+            assert_eq!(
+                classify_key_check(s, b"whatever"),
+                KeyCheckOutcome::Unreachable,
+                "status {s} should be Unreachable"
+            );
+        }
+    }
+
+    #[test]
+    fn case_insensitive_body_match() {
+        assert_eq!(
+            classify_key_check(403, b"CLOUDFLARE blocked this request"),
+            KeyCheckOutcome::Unreachable
+        );
+    }
+}

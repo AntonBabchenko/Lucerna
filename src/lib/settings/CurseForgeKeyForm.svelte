@@ -17,8 +17,9 @@
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
   import { cfKeyVersion } from './state.svelte';
+  import { cfKeyErrorStatus } from './cf-key-status';
 
-  let status = $state<KeyStatus | 'loading'>('loading');
+  let status = $state<KeyStatus | 'loading' | 'unverified'>('loading');
   let pendingKey = $state('');
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -50,10 +51,18 @@
       cfKeyVersion.value++;
     } else {
       error = formatError(result.error);
-      status = 'invalid';
-      // Also notify watchers — the key went bad and the banner should
-      // come back.
-      cfKeyVersion.value++;
+      const pill = cfKeyErrorStatus(result.error);
+      if (pill === 'invalid') {
+        // The key was genuinely rejected — reflect that and re-arm the banner.
+        status = 'invalid';
+        cfKeyVersion.value++;
+      } else {
+        // Reachability failure (region/Cloudflare/network): we don't know if
+        // the key is valid. Show 'unverified' without calling refresh() —
+        // refresh() would overwrite status with the stored 'set'/'missing'.
+        // Leave the stored status and dependent banners (cfKeyVersion) untouched.
+        status = 'unverified';
+      }
     }
     saving = false;
   }
@@ -92,6 +101,9 @@
       <span class="text-success font-medium">{$t('settings.curseforge.statusOk')}</span>
     {:else if status === 'invalid'}
       <span class="text-danger font-medium">{$t('settings.curseforge.statusInvalid')}</span>
+    {:else if status === 'unverified'}
+      <span class="text-warning-text font-medium">{$t('settings.curseforge.statusUnverified')}</span
+      >
     {:else if status === 'missing'}
       <span class="text-secondary">{$t('settings.curseforge.statusMissing')}</span>
     {:else}
