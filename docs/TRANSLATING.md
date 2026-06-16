@@ -28,7 +28,7 @@ Partial translations are fine — any untranslated string falls back to English.
 3. Open a pull request. The file is auto-discovered — no registration needed.
 
 > Add a display label for your language in `LOCALE_LABELS` in
-> `src/lib/settings/GeneralPanel.svelte` (otherwise the picker shows the raw
+> `src/lib/settings/AppearancePanel.svelte` (otherwise the picker shows the raw
 > code). Optional but nice.
 
 ## Status
