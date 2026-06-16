@@ -29,6 +29,7 @@
 
   async function save() {
     saveError = null;
+    const startupCheck = general.check_updates_on_startup; // snapshot before await
     const cur = await commands.appSettingsGet();
     if (cur.status !== 'ok') {
       saveError = formatError(cur.error);
@@ -36,7 +37,7 @@
     }
     const next = {
       ...cur.data.general,
-      check_updates_on_startup: general.check_updates_on_startup,
+      check_updates_on_startup: startupCheck,
     };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') saveError = formatError(r.error);

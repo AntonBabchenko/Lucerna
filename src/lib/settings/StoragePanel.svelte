@@ -37,6 +37,7 @@
 
   async function saveRetention() {
     retentionError = null;
+    const snap = { ...retention }; // snapshot before await
     const cur = await commands.appSettingsGet();
     if (cur.status !== 'ok') {
       retentionError = formatError(cur.error);
@@ -45,12 +46,12 @@
     const next = {
       ...cur.data.general,
       log_retention: {
-        enabled: retention.enabled,
-        max_files: Number.isFinite(retention.max_files as number)
-          ? Math.max(0, Math.trunc(retention.max_files as number))
+        enabled: snap.enabled,
+        max_files: Number.isFinite(snap.max_files as number)
+          ? Math.max(0, Math.trunc(snap.max_files as number))
           : DEFAULT_RETENTION.max_files,
-        max_total_mb: Number.isFinite(retention.max_total_mb as number)
-          ? Math.max(1, Math.trunc(retention.max_total_mb as number))
+        max_total_mb: Number.isFinite(snap.max_total_mb as number)
+          ? Math.max(1, Math.trunc(snap.max_total_mb as number))
           : DEFAULT_RETENTION.max_total_mb,
       },
     };
