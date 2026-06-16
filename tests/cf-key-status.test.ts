@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { cfKeyErrorStatus } from '$lib/settings/cf-key-status';
+import { describe, expect, it } from 'vitest';
 import type { Error as IpcError } from '$lib/ipc/bindings';
+import { cfKeyErrorStatus } from '$lib/settings/cf-key-status';
 
 describe('cfKeyErrorStatus', () => {
   it('maps a genuine bad key to invalid', () => {
