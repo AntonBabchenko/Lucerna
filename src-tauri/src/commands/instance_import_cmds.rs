@@ -81,7 +81,7 @@ pub async fn launcher_import_run(
     // Base URLs + CF key mirror the established mod/modpack pattern
     // (`mods_enrich_pack_mods`): production passes the canonical hosts as
     // literals; the network layer / tests handle env overrides downstream.
-    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    let cf_key = crate::mods::curseforge::keyring::resolve();
 
     let emit = move |p: ImportProgress| {
         let _ = on_progress.send(p);

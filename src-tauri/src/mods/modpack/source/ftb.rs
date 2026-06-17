@@ -477,7 +477,7 @@ pub(crate) async fn stage_impl(
     let mut summary = ftb_map::map_version(&detail.name, &version_name, &manifest);
 
     // Resolve any CurseForge-ref files (empty-url placeholders with source=Curseforge).
-    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    let cf_key = crate::mods::curseforge::keyring::resolve();
     resolve_cf_refs(&mut summary, CF_BASE, cf_key.as_deref()).await;
 
     // Serialise ModpackSummary and write to temp sidecar.

@@ -77,7 +77,7 @@ pub async fn resolve_download_url(
                 .map(|f| f.url.clone()))
         }
         ModSource::Curseforge => {
-            let key = crate::mods::curseforge::keyring::get().ok().flatten();
+            let key = crate::mods::curseforge::keyring::resolve();
             match crate::mods::modpack::cf_api::resolve_file_download(
                 "https://api.curseforge.com",
                 key.as_deref(),

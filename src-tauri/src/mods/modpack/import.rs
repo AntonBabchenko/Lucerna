@@ -580,7 +580,7 @@ pub async fn install_resolved_pack(
             ) => {
                 // Browse-flow CF import: backfill the pack's project name +
                 // short summary. Best-effort — failure keeps them None.
-                let key = crate::mods::curseforge::keyring::get().ok().flatten();
+                let key = crate::mods::curseforge::keyring::resolve();
                 let (cf_name, cf_summary) =
                     crate::mods::modpack::cf_api::fetch_summary(cf_base, key.as_deref(), pid)
                         .await
@@ -877,7 +877,7 @@ pub async fn install_resolved_pack(
     // import (instance + mods on disk) is already complete; a failure
     // here only delays enrichment to the Installed-view backfill.
     on_progress(ModpackProgress::Enriching);
-    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    let cf_key = crate::mods::curseforge::keyring::resolve();
     if let Err(e) = crate::mods::enrich::enrich_instance(
         &instance_root,
         "https://api.modrinth.com",
