@@ -151,3 +151,37 @@ pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     store::delete_server(&base, &id)
 }
+
+/// Прочитать `server.properties` сервера как сырой текст. Возвращает пустую
+/// строку если файл ещё не создан (первый запуск сервера).
+#[tauri::command]
+#[specta::specta]
+pub fn server_read_properties(app: AppHandle, id: String) -> Result<String> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let path = crate::paths::server_paths(&base, &id)
+        .runtime
+        .join("server.properties");
+    Ok(std::fs::read_to_string(&path).unwrap_or_default())
+}
+
+/// Записать `server.properties` сервера. Входной текст парсится и валидируется
+/// (только курируемые ключи); неизвестные ключи проходят без проверки.
+#[tauri::command]
+#[specta::specta]
+pub fn server_write_properties(app: AppHandle, id: String, raw: String) -> Result<()> {
+    if raw.len() > 64 * 1024 {
+        return Err(crate::error::Error::ServerInvalidProperty {
+            key: "<file>".into(),
+            value: "<raw>".into(),
+            reason: "too large".into(),
+        });
+    }
+    let props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+    props.validate()?;
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    std::fs::create_dir_all(&p.runtime)
+        .map_err(|e| crate::error::Error::io(p.runtime.display().to_string(), e))?;
+    std::fs::write(p.runtime.join("server.properties"), props.serialize())
+        .map_err(|e| crate::error::Error::io("<server.properties>", e))
+}

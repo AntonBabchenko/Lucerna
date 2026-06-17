@@ -829,6 +829,16 @@ export const commands = {
 	serverRestart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_restart", { id })),
 	/**  Отправить консольную команду на stdin работающего сервера. */
 	serverSendCommand: (id: string, line: string) => typedError<null, Error>(__TAURI_INVOKE("server_send_command", { id, line })),
+	/**
+	 *  Прочитать `server.properties` сервера как сырой текст. Возвращает пустую
+	 *  строку если файл ещё не создан (первый запуск сервера).
+	 */
+	serverReadProperties: (id: string) => typedError<string, Error>(__TAURI_INVOKE("server_read_properties", { id })),
+	/**
+	 *  Записать `server.properties` сервера. Входной текст парсится и валидируется
+	 *  (только курируемые ключи); неизвестные ключи проходят без проверки.
+	 */
+	serverWriteProperties: (id: string, raw: string) => typedError<null, Error>(__TAURI_INVOKE("server_write_properties", { id, raw })),
 };
 
 /** Events */

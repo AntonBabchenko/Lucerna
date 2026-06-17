@@ -56,10 +56,9 @@ impl ServerProperties {
         });
     }
 
-    /// Установить курируемое значение с валидацией по ключу. Неизвестные
-    /// ключи допускаются как есть (raw-редактор пишет напрямую через `set`).
-    pub fn set_validated(&mut self, key: &str, value: &str) -> crate::error::Result<()> {
-        let ok = match key {
+    /// Check whether a curated key's value is valid. Unknown keys always return `true`.
+    fn is_valid(key: &str, value: &str) -> bool {
+        match key {
             "server-port" | "query.port" | "rcon.port" => {
                 value.parse::<u16>().map(|n| n >= 1).unwrap_or(false)
             }
@@ -73,8 +72,24 @@ impl ServerProperties {
             | "allow-flight"
             | "enable-command-block" => matches!(value, "true" | "false"),
             _ => true,
-        };
-        if !ok {
+        }
+    }
+
+    /// Collect all key-value pairs as owned tuples (in document order).
+    pub fn pairs(&self) -> Vec<(String, String)> {
+        self.lines
+            .iter()
+            .filter_map(|l| match l {
+                Line::Pair { key, value } => Some((key.clone(), value.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Установить курируемое значение с валидацией по ключу. Неизвестные
+    /// ключи допускаются как есть (raw-редактор пишет напрямую через `set`).
+    pub fn set_validated(&mut self, key: &str, value: &str) -> crate::error::Result<()> {
+        if !Self::is_valid(key, value) {
             return Err(crate::error::Error::ServerInvalidProperty {
                 key: key.to_string(),
                 value: value.to_string(),
@@ -82,6 +97,20 @@ impl ServerProperties {
             });
         }
         self.set(key, value);
+        Ok(())
+    }
+
+    /// Validate every curated key currently present. Unknown keys pass.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        for (k, v) in self.pairs() {
+            if !Self::is_valid(&k, &v) {
+                return Err(crate::error::Error::ServerInvalidProperty {
+                    key: k,
+                    value: v,
+                    reason: "value out of range or not allowed".into(),
+                });
+            }
+        }
         Ok(())
     }
 
@@ -170,5 +199,17 @@ mod tests {
         let mut p = ServerProperties::default();
         assert!(p.set_validated("pvp", "true").is_ok());
         assert!(p.set_validated("pvp", "maybe").is_err());
+    }
+
+    #[test]
+    fn validate_flags_bad_curated_value() {
+        let mut p = ServerProperties::default();
+        p.set("server-port", "70000");
+        p.set("motd", "hi");
+        assert!(p.validate().is_err());
+        let mut ok = ServerProperties::default();
+        ok.set("server-port", "25565");
+        ok.set("custom-unknown", "whatever");
+        assert!(ok.validate().is_ok());
     }
 }

@@ -179,6 +179,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_stop,
             commands::server_restart,
             commands::server_send_command,
+            // Own server (Plan 3: properties read/write):
+            commands::server_read_properties,
+            commands::server_write_properties,
         ])
         .events(collect_events![
             network::DownloadProgress,
