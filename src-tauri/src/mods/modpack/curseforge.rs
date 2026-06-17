@@ -114,7 +114,7 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
     let (loader, loader_version) = parse_cf_loader_id(&primary.id)?;
 
     // Bulk-resolve every fileID.
-    let key = keyring::get()?.ok_or(Error::ModsPlatformAuth {
+    let key = keyring::resolve().ok_or(Error::ModsPlatformAuth {
         kind: crate::error::ModsAuthKind::Missing,
     })?;
     let url = format!("{}/v1/mods/files", base_url);

@@ -21,6 +21,33 @@ const USERNAME: &str = "curseforge-api-key";
 #[cfg(test)]
 const USERNAME: &str = "curseforge-api-key-test";
 
+/// The CurseForge API key baked into the binary at compile time, when the
+/// `LUCERNA_CURSEFORGE_API_KEY` env var is set during the build. Resolved by
+/// `option_env!`, so the value is embedded in the shipped binary: release
+/// builds carry the maintainer's key (injected from a CI secret in
+/// `release.yml`), while self-built/dev binaries without the env var have
+/// `None` here and fall back to a user-entered key. Mirrors `CLIENT_ID` in
+/// `accounts::microsoft::oauth`. NOT a true secret — it is extractable from
+/// the binary; see docs/SECURITY.md.
+const EMBEDDED_KEY: Option<&str> = option_env!("LUCERNA_CURSEFORGE_API_KEY");
+
+/// Precedence logic for the effective CurseForge key: a personal key the user
+/// stored in the OS keyring wins; the build's embedded key is the fallback; an
+/// empty embedded value (an unset CI secret expanding to "") counts as absent.
+/// Pure — split from `resolve()` so the precedence is unit-tested without a
+/// compile-time env var.
+pub fn resolve_with(stored: Option<String>, embedded: Option<&str>) -> Option<String> {
+    stored.or_else(|| embedded.filter(|k| !k.is_empty()).map(str::to_string))
+}
+
+/// The effective CurseForge API key for outbound requests: the user's stored
+/// key if present, else the build's embedded key. `None` only when neither
+/// exists (a keyless self-build) — callers then surface the existing
+/// "key missing" path.
+pub fn resolve() -> Option<String> {
+    resolve_with(get().ok().flatten(), EMBEDDED_KEY)
+}
+
 // --- production backend -------------------------------------------------
 
 #[cfg(not(test))]
@@ -100,11 +127,58 @@ mod tests {
         // Smoke-test that the test backend honors set/get/clear.
         // Serialized via the global TEST_KEY mutex; safe to interleave
         // with other tests (each sets then clears).
+        let _g = crate::test_env_lock();
         clear().unwrap();
         assert_eq!(get().unwrap(), None);
         set("smoke").unwrap();
         assert_eq!(get().unwrap().as_deref(), Some("smoke"));
         clear().unwrap();
         assert_eq!(get().unwrap(), None);
+    }
+
+    #[test]
+    fn resolve_with_prefers_personal_over_embedded() {
+        assert_eq!(
+            resolve_with(Some("personal".into()), Some("embedded")),
+            Some("personal".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_with_uses_personal_when_no_embedded() {
+        assert_eq!(
+            resolve_with(Some("personal".into()), None),
+            Some("personal".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_with_falls_back_to_embedded() {
+        assert_eq!(
+            resolve_with(None, Some("embedded")),
+            Some("embedded".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_with_none_when_neither() {
+        assert_eq!(resolve_with(None, None), None);
+    }
+
+    #[test]
+    fn resolve_with_treats_empty_embedded_as_absent() {
+        assert_eq!(resolve_with(None, Some("")), None);
+    }
+
+    #[test]
+    fn resolve_returns_stored_key_from_keyring() {
+        // EMBEDDED_KEY is None in a normal test build (env unset at compile),
+        // so resolve() reflects the in-memory keyring. Serialize against other
+        // keyring-touching tests via the shared lock.
+        let _g = crate::test_env_lock();
+        clear().unwrap();
+        set("stored-key").unwrap();
+        assert_eq!(resolve(), Some("stored-key".to_string()));
+        clear().unwrap();
     }
 }

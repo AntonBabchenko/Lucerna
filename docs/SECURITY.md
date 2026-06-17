@@ -55,3 +55,11 @@ The repository root contains a short [`SECURITY.md`](../SECURITY.md) with the co
 
 - **Coordinated disclosure window:** 90 days by default. Expedited for actively exploited issues.
 - **CVE assignment** is requested for confirmed vulnerabilities; credit is given to the reporter unless they request otherwise. Release notes for the fix mention the CVE ID.
+
+## Part E — Bundled credentials
+
+1. **The CurseForge API key is embedded in release binaries, by necessity.** CurseForge's Eternal API requires an `x-api-key` header on every request; there is no anonymous access. Lucerna's official release binaries carry a CurseForge **application** key, injected at compile time from a GitHub Actions secret (`CURSEFORGE_API_KEY`) in `release.yml` and **never committed to the repository**. This mirrors how open-source launchers such as Prism ship CurseForge support.
+
+2. **This key is extractable, and we say so.** Unlike a server-side secret, a key compiled into a distributed binary can be recovered by anyone who inspects it. It is therefore treated as an *application identity*, not a user secret: it is rate-limited per application (shared across release users) and can be rotated by the maintainer (which requires a new release). A user who prefers their own key can enter one in Settings → Integrations; a personal key takes precedence over the embedded one, so a user is never forced onto the shared key and can self-heal if the embedded key is ever revoked.
+
+3. **Self-built and forked binaries carry no key unless one is supplied.** Builds without the `LUCERNA_CURSEFORGE_API_KEY` env var set at compile time fall back to the manual key-entry flow — no key is hidden in source. See `CONTRIBUTING.md` for how a fork bakes in its own key.

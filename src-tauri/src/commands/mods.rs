@@ -582,7 +582,7 @@ pub async fn mods_enrich_pack_mods(
     instance_id: String,
 ) -> crate::error::Result<u32> {
     let inst_root = instance_root(&app, &instance_id)?;
-    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    let cf_key = crate::mods::curseforge::keyring::resolve();
     crate::mods::enrich::enrich_instance(
         &inst_root,
         "https://api.modrinth.com",
