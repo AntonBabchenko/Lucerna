@@ -18,6 +18,27 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
+/// Maximum number of automatic retries after an initial 429 (so up to
+/// `MAX_RETRIES + 1` total sends).
+const MAX_RETRIES: u32 = 3;
+
+/// Upper bound on the wait between 429 retries, regardless of what the
+/// `X-Ratelimit-Reset` header asks for or how far the exponential backoff has
+/// climbed.
+const MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Seconds to wait after a 429: `X-Ratelimit-Reset` (Modrinth) if present and
+/// sane, else exponential backoff (1s, 2s, 4s) by attempt. Capped at MAX_BACKOFF.
+fn backoff_after_429(headers: &reqwest::header::HeaderMap, attempt: u32) -> std::time::Duration {
+    let from_header = headers
+        .get("x-ratelimit-reset")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_secs);
+    let dur = from_header.unwrap_or_else(|| std::time::Duration::from_secs(1u64 << attempt.min(6)));
+    dur.min(MAX_BACKOFF)
+}
+
 /// Send a built request and return the response for any HTTP status.
 /// `Err` only on a transport-level failure (send failure, or a body-read
 /// failure after a status was received).
@@ -28,36 +49,82 @@ async fn send(
     initiator: &str,
 ) -> Result<HttpResponse> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
-    // Throttle: pace per host, with the current task's priority.
-    if let Some(host) = host_of(url) {
-        let gate = crate::network::throttle::gate_for(&host);
-        gate.acquire(crate::network::throttle::current_priority())
-            .await;
+    let host = host_of(url);
+    // `RequestBuilder` is consumed by `.send()`, so to retry on a 429 we hold
+    // the builder in an `Option` and `try_clone()` it for non-final attempts,
+    // moving the original out on the final attempt (or when it can't be cloned).
+    let mut req = Some(req);
+    for attempt in 0..=MAX_RETRIES {
+        // Throttle: pace per host, with the current task's priority. Re-paced
+        // per attempt so a retry takes a fresh token rather than reusing one.
+        if let Some(h) = &host {
+            crate::network::throttle::gate_for(h)
+                .acquire(crate::network::throttle::current_priority())
+                .await;
+        }
+        // Take a builder for this attempt: clone for non-final attempts so we
+        // can retry; move the original on the final attempt (or if not cloneable).
+        let this = if attempt < MAX_RETRIES {
+            match req.as_ref().and_then(|r| r.try_clone()) {
+                Some(c) => c,
+                None => match req.take() {
+                    Some(r) => r,
+                    None => break,
+                },
+            }
+        } else {
+            match req.take() {
+                Some(r) => r,
+                None => break,
+            }
+        };
+        let resp = this.send().await.map_err(|e| {
+            crate::diag!(
+                "network: {initiator} {method} {url} — request failed (source unreachable?): {e}"
+            );
+            Error::network(url, e)
+        })?;
+        let status = resp.status().as_u16();
+        // On a 429, freeze the host gate and back off before retrying — but only
+        // while we still have a builder for the next attempt. `X-Ratelimit-Reset`
+        // (Modrinth) drives the wait; otherwise exponential backoff applies.
+        if status == 429 && attempt < MAX_RETRIES && req.is_some() {
+            let wait = backoff_after_429(resp.headers(), attempt);
+            if let Some(h) = &host {
+                crate::network::throttle::gate_for(h).freeze(wait);
+            }
+            crate::diag!(
+                "network: {initiator} {method} {url} — HTTP 429, retry in {:?}",
+                wait
+            );
+            tokio::time::sleep(wait).await;
+            continue;
+        }
+        // A body-read failure (mid-body drop, read timeout) is still a transport-level
+        // failure.
+        let body = resp.bytes().await.map_err(|e| {
+            crate::diag!("network: {initiator} {method} {url} — response body read failed: {e}");
+            Error::network(url, e)
+        })?;
+        // Record notable non-success statuses in the launcher log (rate limits =
+        // HTTP 429, auth = 401/403, server outages = 5xx). 404 is excluded — callers
+        // routinely treat it as "not found / no match" (loader probes, hash
+        // enrichment) where it is expected, not a failure worth logging.
+        if should_log_status(status) {
+            crate::diag!("network: {initiator} {method} {url} — HTTP {status}");
+        }
+        return Ok(HttpResponse {
+            status,
+            body: body.to_vec(),
+        });
     }
-    let resp = req.send().await.map_err(|e| {
-        crate::diag!(
-            "network: {initiator} {method} {url} — request failed (source unreachable?): {e}"
-        );
-        Error::network(url, e)
-    })?;
-    let status = resp.status().as_u16();
-    // A body-read failure (mid-body drop, read timeout) is still a transport-level
-    // failure.
-    let body = resp.bytes().await.map_err(|e| {
-        crate::diag!("network: {initiator} {method} {url} — response body read failed: {e}");
-        Error::network(url, e)
-    })?;
-    // Record notable non-success statuses in the launcher log (rate limits =
-    // HTTP 429, auth = 401/403, server outages = 5xx). 404 is excluded — callers
-    // routinely treat it as "not found / no match" (loader probes, hash
-    // enrichment) where it is expected, not a failure worth logging.
-    if should_log_status(status) {
-        crate::diag!("network: {initiator} {method} {url} — HTTP {status}");
-    }
-    Ok(HttpResponse {
-        status,
-        body: body.to_vec(),
-    })
+    // Unreachable in practice: the final attempt always takes `req` and returns
+    // (success path) or propagates a transport error. Surface a clear error if
+    // the loop ever exits without producing a response.
+    Err(Error::network(
+        url,
+        "retry loop exhausted without a response",
+    ))
 }
 
 /// Whether a received HTTP status is worth recording in the launcher log.
@@ -240,6 +307,67 @@ mod tests {
             Some("api.modrinth.com")
         );
         assert_eq!(host_of("not a url"), None);
+    }
+
+    #[tokio::test]
+    async fn retries_on_429_then_succeeds() {
+        let _g = test_lock();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rl"))
+            .respond_with(ResponseTemplate::new(429).insert_header("x-ratelimit-reset", "0"))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rl"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+        let url = format!("{}/rl", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let r = get(&url, &[], "test").await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(r.status, 200, "should have retried past the 429");
+    }
+
+    #[test]
+    fn backoff_prefers_reset_header_then_falls_back() {
+        use reqwest::header::HeaderMap;
+        let mut h = HeaderMap::new();
+        h.insert("x-ratelimit-reset", "3".parse().unwrap());
+        assert_eq!(backoff_after_429(&h, 0), std::time::Duration::from_secs(3));
+        let empty = HeaderMap::new();
+        assert_eq!(
+            backoff_after_429(&empty, 0),
+            std::time::Duration::from_secs(1)
+        );
+        assert_eq!(
+            backoff_after_429(&empty, 2),
+            std::time::Duration::from_secs(4)
+        );
+        let mut big = HeaderMap::new();
+        big.insert("x-ratelimit-reset", "9999".parse().unwrap());
+        assert_eq!(backoff_after_429(&big, 0), MAX_BACKOFF);
+    }
+
+    #[tokio::test]
+    async fn sustained_429_gives_up_and_returns_429() {
+        let _g = test_lock();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/always"))
+            .respond_with(ResponseTemplate::new(429).insert_header("x-ratelimit-reset", "0"))
+            .mount(&server)
+            .await;
+        let url = format!("{}/always", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let r = get(&url, &[], "test").await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(
+            r.status, 429,
+            "sustained 429 must return 429, not hang/loop"
+        );
     }
 
     #[tokio::test]
