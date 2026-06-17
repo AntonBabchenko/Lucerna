@@ -82,8 +82,9 @@ pub async fn server_create(
                     "neoforge",
                 )
             };
-            let java_bin =
-                crate::jre::java_executable_path(crate::jre::DEFAULT_LEGACY_COMPONENT, &app)?;
+            let component = create::resolve_server_java_component(&file.mc_version).await?;
+            crate::jre::ensure_jre(&component, &app, |_, _, _| {}).await?;
+            let java_bin = crate::jre::java_executable_path(&component, &app)?;
             create::create_installer_server(&base, &file, &url, &java_bin, label).await?;
         }
     }
