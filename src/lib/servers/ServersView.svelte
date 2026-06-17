@@ -5,6 +5,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
+  import ServerCreateWizard from './ServerCreateWizard.svelte';
 
   let { instances }: { instances: InstanceWithStatus[] } = $props();
   let selected = $state<string | null>(null);
@@ -17,8 +18,14 @@
 </script>
 
 {#if creating}
-  <!-- TODO(Task 6): <ServerCreateWizard {instances} onDone={() => { creating = false; void serverState.refresh(); }} onCancel={() => (creating = false)} /> -->
-  <div class="p-4 text-muted">{$t('servers.create')}…</div>
+  <ServerCreateWizard
+    {instances}
+    onDone={() => {
+      creating = false;
+      void serverState.refresh();
+    }}
+    onCancel={() => (creating = false)}
+  />
 {:else if selected}
   <!-- TODO(Task 7): <ServerManageView serverId={selected} onBack={() => (selected = null)} /> -->
   <div class="p-4">

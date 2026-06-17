@@ -1444,6 +1444,23 @@
     "status": {
       "running": "Running",
       "stopped": "Stopped"
+    },
+    "wizard": {
+      "title": "New server",
+      "fromInstance": "From instance",
+      "fromInstanceHint": "Version, loader and mods from a chosen instance",
+      "standalone": "From scratch",
+      "standaloneHint": "Pick version and loader manually",
+      "name": "Name",
+      "instance": "Instance",
+      "version": "Minecraft version",
+      "loader": "Loader",
+      "loaderVersion": "Loader version (optional)",
+      "memory": "Memory (MB)",
+      "eula": "I accept the Minecraft EULA",
+      "eulaRequired": "Required to create a server",
+      "create": "Create",
+      "cancel": "Cancel"
     }
   }
 }

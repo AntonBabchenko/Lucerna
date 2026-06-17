@@ -1444,6 +1444,23 @@
     "status": {
       "running": "Запущен",
       "stopped": "Остановлен"
+    },
+    "wizard": {
+      "title": "Новый сервер",
+      "fromInstance": "Из инстанса",
+      "fromInstanceHint": "Версия, загрузчик и моды из выбранного инстанса",
+      "standalone": "С нуля",
+      "standaloneHint": "Выберите версию и загрузчик вручную",
+      "name": "Название",
+      "instance": "Инстанс",
+      "version": "Версия Minecraft",
+      "loader": "Загрузчик",
+      "loaderVersion": "Версия загрузчика (необяз.)",
+      "memory": "Память (МБ)",
+      "eula": "Я принимаю Minecraft EULA",
+      "eulaRequired": "Нужно для создания сервера",
+      "create": "Создать",
+      "cancel": "Отмена"
     }
   }
 }
