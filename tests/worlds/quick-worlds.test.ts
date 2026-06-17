@@ -81,4 +81,14 @@ describe('createQuickWorlds', () => {
     expect(q.worlds.map((w) => w.folder_name)).toContain('NewWorld');
     q.dispose();
   });
+
+  it('dispose() before the listen promise resolves still tears the listener down', async () => {
+    unlistenMock.mockReset();
+    const q = createQuickWorlds();
+    // dispose synchronously, before the (already-resolved) listen promise's
+    // .then handler runs — the early-dispose branch must call unlisten itself.
+    q.dispose();
+    await flush();
+    expect(unlistenMock).toHaveBeenCalledTimes(1);
+  });
 });

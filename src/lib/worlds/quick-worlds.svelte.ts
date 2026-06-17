@@ -55,7 +55,7 @@ export function createQuickWorlds() {
     },
     dispose(): void {
       disposed = true;
-      seq++;
+      seq++; // belt-and-suspenders; the `disposed` guard already drops in-flight writes
       if (unlisten) unlisten();
     },
   };
