@@ -1147,7 +1147,14 @@
     "importSourceMissing": "The original source folder no longer exists: {path}",
     "serversDatParse": "Could not read the server list (servers.dat): {reason}",
     "savedServerNameInvalid": "“{name}” isn't a valid server name: {reason}",
-    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again."
+    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again.",
+    "serverInvalidProperty": "Invalid server setting {key} = {value}",
+    "serverEulaNotAccepted": "You must accept the Minecraft EULA before starting this server",
+    "serverJarUnavailable": "Could not find a server download for {loader} {mcVersion}",
+    "serverInstallerFailed": "The {loader} server installer failed",
+    "serverSpawnFailed": "Failed to start the server process: {details}",
+    "serverAlreadyRunning": "This server is already running",
+    "serverNotRunning": "This server is not running"
   },
   "settings": {
     "title": "Settings",

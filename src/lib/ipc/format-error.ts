@@ -222,6 +222,20 @@ export function formatError(e: IpcError): string {
       return translate('errors.savedServerNameInvalid', { name: e.name, reason: e.reason });
     case 'saved_server_list_changed':
       return translate('errors.savedServerListChanged');
+    case 'server_invalid_property':
+      return translate('errors.serverInvalidProperty', { key: e.key, value: e.value });
+    case 'server_eula_not_accepted':
+      return translate('errors.serverEulaNotAccepted');
+    case 'server_jar_unavailable':
+      return translate('errors.serverJarUnavailable', { loader: e.loader, mcVersion: e.mc_version });
+    case 'server_installer_failed':
+      return translate('errors.serverInstallerFailed', { loader: e.loader });
+    case 'server_spawn_failed':
+      return translate('errors.serverSpawnFailed', { details: e.details });
+    case 'server_already_running':
+      return translate('errors.serverAlreadyRunning');
+    case 'server_not_running':
+      return translate('errors.serverNotRunning');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of
