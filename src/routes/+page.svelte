@@ -867,7 +867,12 @@
     />
   </ModpacksModal>
 
-  <ServersModal open={serversModalOpen} onClose={() => (serversModalOpen = false)} {instances} />
+  <ServersModal
+    open={serversModalOpen}
+    onClose={() => (serversModalOpen = false)}
+    {instances}
+    versions={mcv.value}
+  />
   <!-- SettingsModal renders AFTER ModpacksModal on purpose. Both now use the
        shared Modal primitive, which fixes the backdrop at z-50, so relative
        stacking is decided by DOM order. Settings can be summoned from inside

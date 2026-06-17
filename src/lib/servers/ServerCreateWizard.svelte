@@ -1,23 +1,31 @@
 <script lang="ts">
-  import { commands, type InstanceWithStatus, type LoaderKind } from '$lib/ipc/bindings';
+  import {
+    commands,
+    type InstanceWithStatus,
+    type LoaderKind,
+    type MemoryBounds,
+    type VersionEntry,
+  } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { displayLoader } from '$lib/instances/loader-display';
+  import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
+  import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
 
   let {
     instances,
+    versions,
     onDone,
     onCancel,
   }: {
     instances: InstanceWithStatus[];
+    versions: VersionEntry[];
     onDone: () => void;
     onCancel: () => void;
   } = $props();
-
-  const ALL_LOADERS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];
 
   // svelte-ignore state_referenced_locally
   let mode = $state<'instance' | 'standalone'>(instances.length > 0 ? 'instance' : 'standalone');
@@ -25,12 +33,49 @@
   // svelte-ignore state_referenced_locally
   let instanceId = $state<string | null>(instances.length > 0 ? instances[0].id : null);
   let mcVersion = $state('');
-  let loader = $state<LoaderKind>('fabric');
-  let loaderVersion = $state('');
-  let memoryMb = $state(4096);
+  let loader = $state<LoaderKind>('vanilla');
+  let loaderVersion = $state<string | null>(null);
   let eula = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
+
+  // Snapshots hidden by default — most users want stable releases. Mirrors the
+  // instance create form's MC-version picker.
+  let showSnapshots = $state(false);
+  const visibleVersions = $derived(
+    versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
+  );
+  const mcVersionOptions = $derived([
+    { value: '', label: $t('instance.manage.chooseMcOption') },
+    ...visibleVersions.map((v) => ({ value: v.id, label: v.id })),
+  ]);
+
+  // Adaptive memory bounds — same source/control as instance create. Static
+  // fallback keeps the slider usable before the command resolves or if it fails.
+  const FALLBACK_BOUNDS: MemoryBounds = {
+    min_mb: 1024,
+    max_mb: 8192,
+    recommended_max_mb: 8192,
+    step_mb: 256,
+    ram_known: false,
+  };
+  let memBounds = $state<MemoryBounds>(FALLBACK_BOUNDS);
+  let memoryMb = $state(4096);
+  let memBoundsLoaded = false;
+  $effect(() => {
+    if (memBoundsLoaded) return;
+    memBoundsLoaded = true;
+    commands
+      .instanceMemoryBounds()
+      .then((b) => {
+        memBounds = b;
+        // Clamp the default into this machine's real adaptive range.
+        memoryMb = Math.min(Math.max(memoryMb, b.min_mb), b.max_mb);
+      })
+      .catch(() => {
+        // Graceful degradation: keep FALLBACK_BOUNDS so the slider stays usable.
+      });
+  });
 
   const instanceOptions = $derived(
     instances.map((i) => ({
@@ -39,12 +84,12 @@
     })),
   );
 
-  const loaderOptions = $derived(ALL_LOADERS.map((k) => ({ value: k, label: displayLoader(k) })));
-
   const canCreate = $derived(
     name.trim().length > 0 &&
       eula &&
-      (mode === 'instance' ? instanceId !== null : mcVersion.trim().length > 0),
+      (mode === 'instance'
+        ? instanceId !== null
+        : mcVersion.trim().length > 0 && (loader === 'vanilla' || loaderVersion !== null)),
   );
 
   async function handleCreate() {
@@ -65,7 +110,7 @@
     } else {
       effectiveMcVersion = mcVersion.trim();
       effectiveLoader = loader;
-      effectiveLoaderVersion = loaderVersion.trim() || null;
+      effectiveLoaderVersion = loaderVersion;
       createdFromInstance = null;
     }
 
@@ -129,10 +174,14 @@
 
   <!-- Name -->
   <div class="flex flex-col gap-1">
-    <label for="wizard-name" class="text-sm font-medium">{$t('servers.wizard.name')}</label>
+    <div class="flex items-center justify-between">
+      <label for="wizard-name" class="text-sm font-medium">{$t('servers.wizard.name')}</label>
+      <span class="text-xs text-muted">{name.length}/32</span>
+    </div>
     <input
       id="wizard-name"
       type="text"
+      maxlength="32"
       class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={name}
     />
@@ -151,53 +200,58 @@
       />
     </div>
   {:else}
-    <!-- Standalone: MC version, loader, loader version -->
+    <!-- Standalone: MC version (dropdown) + loader (with its own version) -->
     <div class="flex flex-col gap-1">
-      <label for="wizard-mc-version" class="text-sm font-medium"
-        >{$t('servers.wizard.version')}</label
-      >
-      <input
-        id="wizard-mc-version"
-        type="text"
-        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-        bind:value={mcVersion}
-        placeholder="1.21.1"
+      <!-- svelte-ignore a11y_label_has_associated_control -->
+      <label class="text-sm font-medium">{$t('servers.wizard.version')}</label>
+      <Select
+        value={mcVersion}
+        options={mcVersionOptions}
+        onChange={(v) => (mcVersion = String(v))}
+        ariaLabel={$t('servers.wizard.version')}
       />
+      <label class="flex items-center gap-1 text-xs">
+        <input type="checkbox" bind:checked={showSnapshots} />
+        {$t('instance.manage.showSnapshots')}
+      </label>
     </div>
     <div class="flex flex-col gap-1">
       <!-- svelte-ignore a11y_label_has_associated_control -->
       <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
-      <Select
-        value={loader}
-        options={loaderOptions}
-        onChange={(v) => (loader = v as LoaderKind)}
-        ariaLabel={$t('servers.wizard.loader')}
-      />
-    </div>
-    <div class="flex flex-col gap-1">
-      <label for="wizard-loader-version" class="text-sm font-medium"
-        >{$t('servers.wizard.loaderVersion')}</label
-      >
-      <input
-        id="wizard-loader-version"
-        type="text"
-        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-        bind:value={loaderVersion}
+      <LoaderPicker
+        mc={mcVersion}
+        {loader}
+        {loaderVersion}
+        onchange={(l, v) => {
+          loader = l;
+          loaderVersion = v;
+        }}
       />
     </div>
   {/if}
 
-  <!-- Memory -->
+  <!-- Memory: adaptive slider (same control as instance settings) -->
   <div class="flex flex-col gap-1">
-    <label for="wizard-memory" class="text-sm font-medium">{$t('servers.wizard.memory')}</label>
+    <!-- svelte-ignore a11y_label_has_associated_control -->
+    <label class="text-sm font-medium"
+      >{$t('servers.wizard.memory')} · {formatHeapLabel(memoryMb)}</label
+    >
     <input
-      id="wizard-memory"
-      type="number"
-      min="512"
-      step="256"
-      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-      bind:value={memoryMb}
+      type="range"
+      min={memBounds.min_mb}
+      max={memBounds.max_mb}
+      step={memBounds.step_mb}
+      value={memoryMb}
+      oninput={(e) => (memoryMb = parseInt((e.currentTarget as HTMLInputElement).value, 10))}
+      class="w-full"
     />
+    {#if isAboveRecommended(memoryMb, memBounds.recommended_max_mb, memBounds.ram_known)}
+      <p class="text-xs text-warning-text">
+        {$t('instance.manage.memoryWarnHigh', {
+          recommended: formatHeapLabel(memBounds.recommended_max_mb),
+        })}
+      </p>
+    {/if}
   </div>
 
   <!-- EULA -->

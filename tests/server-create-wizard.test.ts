@@ -7,6 +7,13 @@ import ServerCreateWizard from '$lib/servers/ServerCreateWizard.svelte';
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
     serverCreate: vi.fn().mockResolvedValue({ status: 'ok', data: {} }),
+    instanceMemoryBounds: vi.fn().mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    }),
   },
 }));
 
@@ -39,6 +46,7 @@ const mockInstance: InstanceWithStatus = {
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
     instances: [mockInstance],
+    versions: [],
     onDone: vi.fn(),
     onCancel: vi.fn(),
     ...overrides,

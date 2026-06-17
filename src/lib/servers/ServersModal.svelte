@@ -1,7 +1,7 @@
 <script lang="ts">
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
-  import type { InstanceWithStatus } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import ServersView from './ServersView.svelte';
 
@@ -9,10 +9,12 @@
     open = false,
     onClose,
     instances,
+    versions,
   }: {
     open?: boolean;
     onClose: () => void;
     instances: InstanceWithStatus[];
+    versions: VersionEntry[];
   } = $props();
 </script>
 
@@ -33,7 +35,7 @@
       <CloseButton onClick={onClose} ariaLabel={$t('common.close')} />
     </header>
     <div class="flex-1 overflow-hidden flex flex-col min-h-0">
-      <ServersView {instances} />
+      <ServersView {instances} {versions} />
     </div>
   </Modal>
 {/if}

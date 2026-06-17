@@ -55,7 +55,7 @@
     {#if lines.length === 0}
       <span class="text-muted">{$t('servers.console.empty')}</span>
     {:else}
-      {#each lines as line (line)}
+      {#each lines as line, i (i)}
         <div class="whitespace-pre-wrap break-all leading-5">{line}</div>
       {/each}
     {/if}

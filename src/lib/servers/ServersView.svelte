@@ -3,12 +3,13 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import { Icon } from '$lib/ui/icons';
   import { displayLoader } from '$lib/instances/loader-display';
-  import type { InstanceWithStatus } from '$lib/ipc/bindings';
+  import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import ServerCreateWizard from './ServerCreateWizard.svelte';
   import ServerManageView from './ServerManageView.svelte';
 
-  let { instances }: { instances: InstanceWithStatus[] } = $props();
+  let { instances, versions }: { instances: InstanceWithStatus[]; versions: VersionEntry[] } =
+    $props();
   let selected = $state<string | null>(null);
   let creating = $state(false);
 
@@ -21,6 +22,7 @@
 {#if creating}
   <ServerCreateWizard
     {instances}
+    {versions}
     onDone={() => {
       creating = false;
       void serverState.refresh();

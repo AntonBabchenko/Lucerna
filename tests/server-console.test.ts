@@ -40,6 +40,21 @@ describe('ServerConsole', () => {
     expect(screen.getByText('[INFO] Done!')).toBeTruthy();
   });
 
+  it('renders duplicate log lines without crashing (keyed by index)', () => {
+    // Minecraft servers emit byte-identical lines constantly ("Can't keep up!",
+    // repeated chat, blank lines). Keying the {#each} by the line string throws
+    // svelte each_key_duplicate; keying by index must render both copies.
+    mockLines['srv-dup'] = [
+      "Can't keep up! Is the server overloaded?",
+      "Can't keep up! Is the server overloaded?",
+    ];
+    mockRunning['srv-dup'] = true;
+
+    render(ServerConsole, { props: { serverId: 'srv-dup' } });
+
+    expect(screen.getAllByText("Can't keep up! Is the server overloaded?")).toHaveLength(2);
+  });
+
   it('shows empty state when no lines', () => {
     mockLines['srv-2'] = [];
     mockRunning['srv-2'] = true;
