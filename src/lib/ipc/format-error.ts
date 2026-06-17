@@ -227,7 +227,10 @@ export function formatError(e: IpcError): string {
     case 'server_eula_not_accepted':
       return translate('errors.serverEulaNotAccepted');
     case 'server_jar_unavailable':
-      return translate('errors.serverJarUnavailable', { loader: e.loader, mcVersion: e.mc_version });
+      return translate('errors.serverJarUnavailable', {
+        loader: e.loader,
+        mcVersion: e.mc_version,
+      });
     case 'server_installer_failed':
       return translate('errors.serverInstallerFailed', { loader: e.loader });
     case 'server_spawn_failed':

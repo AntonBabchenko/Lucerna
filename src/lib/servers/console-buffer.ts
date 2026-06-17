@@ -6,6 +6,6 @@ export const MAX_CONSOLE_LINES = 500;
  * oldest. Always returns a new array (immutable update).
  */
 export function appendCapped(arr: string[], line: string, max: number): string[] {
-	const next = [...arr, line];
-	return next.length > max ? next.slice(next.length - max) : next;
+  const next = [...arr, line];
+  return next.length > max ? next.slice(next.length - max) : next;
 }

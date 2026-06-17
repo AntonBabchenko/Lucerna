@@ -40,6 +40,7 @@
     compact = false,
     onToggleCompact = () => {},
     onOpenQuickJoin = () => {},
+    onOpenServers = () => {},
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -74,6 +75,7 @@
     compact?: boolean;
     onToggleCompact?: () => void;
     onOpenQuickJoin?: () => void;
+    onOpenServers?: () => void;
   } = $props();
 
   let showAddOfflineInput = $state(false);
@@ -380,6 +382,15 @@
       >
         <Icon name="download" size={16} />
         {$t('sidebar.importLauncher')}
+      </button>
+      <button
+        type="button"
+        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+        data-testid="sidebar-open-servers"
+        onclick={onOpenServers}
+      >
+        <Icon name="server" size={16} />
+        {$t('sidebar.servers')}
       </button>
       <div class="flex gap-1">
         <button

@@ -345,7 +345,11 @@ describe('formatError', () => {
         mc_version: '1.21',
         reason: 'no server download in manifest',
       },
-      server_installer_failed: { kind: 'server_installer_failed', loader: 'forge', details: 'exit 1' },
+      server_installer_failed: {
+        kind: 'server_installer_failed',
+        loader: 'forge',
+        details: 'exit 1',
+      },
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
       server_not_running: { kind: 'server_not_running', id: 'srv-1' },
