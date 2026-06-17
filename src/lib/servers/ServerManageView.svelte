@@ -6,6 +6,8 @@
   import { Icon } from '$lib/ui/icons';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import ServerConsole from './ServerConsole.svelte';
+  import ServerSettings from './ServerSettings.svelte';
+  import ServerMods from './ServerMods.svelte';
 
   let { serverId, onBack }: { serverId: string; onBack: () => void } = $props();
 
@@ -127,9 +129,9 @@
     {#if tab === 'console'}
       <ServerConsole {serverId} />
     {:else if tab === 'settings'}
-      <div class="text-muted text-sm">{$t('servers.tab.settings')}…</div>
+      <ServerSettings {serverId} />
     {:else}
-      <div class="text-muted text-sm">{$t('servers.tab.mods')}…</div>
+      <ServerMods {serverId} />
     {/if}
   </div>
 </div>

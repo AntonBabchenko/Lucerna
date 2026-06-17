@@ -1480,6 +1480,26 @@
       "eulaRequired": "Required to create a server",
       "create": "Create",
       "cancel": "Cancel"
+    },
+    "settings": {
+      "save": "Save",
+      "saved": "Saved",
+      "raw": "Advanced (raw file)",
+      "port": "Port",
+      "motd": "MOTD",
+      "gamemode": "Game mode",
+      "difficulty": "Difficulty",
+      "maxPlayers": "Max players",
+      "onlineMode": "Online mode",
+      "pvp": "PvP",
+      "whitelist": "Whitelist"
+    },
+    "mods": {
+      "empty": "No mods",
+      "delete": "Delete",
+      "openFolder": "Open folder",
+      "deleteConfirm": "Delete {name}?",
+      "note": "Add or remove mods in the server's mods folder."
     }
   }
 }

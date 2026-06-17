@@ -1480,6 +1480,26 @@
       "eulaRequired": "Нужно для создания сервера",
       "create": "Создать",
       "cancel": "Отмена"
+    },
+    "settings": {
+      "save": "Сохранить",
+      "saved": "Сохранено",
+      "raw": "Дополнительно (сырой файл)",
+      "port": "Порт",
+      "motd": "MOTD",
+      "gamemode": "Режим игры",
+      "difficulty": "Сложность",
+      "maxPlayers": "Макс. игроков",
+      "onlineMode": "Online-режим",
+      "pvp": "PvP",
+      "whitelist": "Белый список"
+    },
+    "mods": {
+      "empty": "Модов нет",
+      "delete": "Удалить",
+      "openFolder": "Открыть папку",
+      "deleteConfirm": "Удалить {name}?",
+      "note": "Добавляйте и удаляйте моды в папке mods сервера."
     }
   }
 }
