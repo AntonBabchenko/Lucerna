@@ -210,4 +210,30 @@ describe('compact auto-resize observer', () => {
 
     dispose();
   });
+
+  it('expanded floor excludes the status row — no window growth when an install footer appears', () => {
+    // Variant A: in expanded mode the sidebar spans BOTH grid rows, so the
+    // status row sits only under the content column and never steals sidebar
+    // height. The floor is measured from the sidebar alone, and the status row
+    // appearing must NOT grow the window (which previously squeezed the sidebar
+    // into a scrollbar). Contrast the compact case above, where it grows to 428.
+    void initCompact(false); // arm hug deterministically; measure is null (no DOM yet)
+    const { phaseRow } = mountCompactDom({ sidebarBottom: 400, phaseHeight: 0 });
+    compactState.value = false;
+    const dispose = observeCompactContent();
+
+    // First fire establishes the floor at the sidebar height ALONE (400, not 428).
+    resizeCallback?.([], {} as ResizeObserver);
+    expect(windowSetExpandedFloor).toHaveBeenCalledTimes(1);
+    expect(windowSetExpandedFloor.mock.calls.at(-1)?.[0]).toBe(400);
+    windowSetExpandedFloor.mockClear();
+
+    // Status row appears (0 -> 28). Expanded mode must IGNORE it: no resize,
+    // because the sidebar spans the full height regardless of the footer.
+    phaseRow!.getBoundingClientRect = () => ({ height: 28 }) as DOMRect;
+    resizeCallback?.([], {} as ResizeObserver);
+    expect(windowSetExpandedFloor).not.toHaveBeenCalled();
+
+    dispose();
+  });
 });
