@@ -167,11 +167,78 @@ pub async fn mods_install_with_deps(
     .await?
     .required;
 
-    // Project IDs of the primary's transitive required closure — persisted
-    // onto the primary's registry entry for offline orphan detection.
+    // Best-effort: read the primary jar's manifest and fold in required
+    // libraries the platform metadata omitted (e.g. Waystones requires Balm,
+    // but CF metadata doesn't list it). Unlike the dialog, each extra candidate
+    // is provides-verified over its DOWNLOADED jar before being committed:
+    // verify-fail → skip + log, so we never install a wrong mod. Reading the
+    // primary jar is best-effort — any failure yields no extras and preserves
+    // the prior behaviour. Computed BEFORE `primary_required_ids` and
+    // `install_seq` because both fold these extras in.
+    let extras_raw = manifest_extra_root_versions(&dd, &primary_v, &mc_version, loader).await;
+    let extras = dedup_extra_candidates(
+        extras_raw,
+        &installed,
+        &installed_filenames,
+        &primary_required,
+    );
+    let mut extra_install: Vec<ModVersion> = Vec::new();
+    {
+        use crate::mods::dep_resolve::jar_provides;
+        let mut excl: std::collections::HashSet<ProjectKey> = installed.clone();
+        for v in &primary_required {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for (needed_id, cand) in extras {
+            if excl.contains(&ProjectKey::of_version(&cand)) {
+                continue;
+            }
+            let sha = match cand.primary_file.sha1.as_deref() {
+                Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
+                _ => continue,
+            };
+            let Ok(cached) = crate::mods::install::fetch_to_cache(
+                &dd,
+                &cand.primary_file.url,
+                &sha,
+                cand.primary_file.size,
+                "mods",
+                &prog,
+            )
+            .await
+            else {
+                continue;
+            };
+            let Ok(bytes) = tokio::fs::read(&cached).await else {
+                continue;
+            };
+            if !jar_provides(&bytes, &needed_id) {
+                crate::diag!("dep_resolve: skipping '{needed_id}' — candidate did not provide it");
+                continue;
+            }
+            excl.insert(ProjectKey::of_version(&cand));
+            let sub = resolve_closure(
+                std::slice::from_ref(&cand),
+                &excl,
+                &installed_filenames,
+                make_fetch(),
+            )
+            .await?;
+            for v in &sub.required {
+                excl.insert(ProjectKey::of_version(v));
+            }
+            extra_install.extend(sub.required);
+            extra_install.push(cand);
+        }
+    }
+
+    // Project IDs of the primary's transitive required closure plus any
+    // manifest-discovered extras — persisted onto the primary's registry entry
+    // for offline orphan detection.
     let primary_required_ids: Vec<String> = {
         let mut ids: Vec<String> = primary_required
             .iter()
+            .chain(extra_install.iter())
             .map(|v| v.project_id.clone())
             .collect();
         ids.sort();
@@ -190,6 +257,9 @@ pub async fn mods_install_with_deps(
         for v in &dep_versions {
             excl.insert(ProjectKey::of_version(v));
         }
+        for v in &extra_install {
+            excl.insert(ProjectKey::of_version(v));
+        }
         for v in &chosen_optionals {
             excl.insert(ProjectKey::of_version(v));
         }
@@ -206,8 +276,11 @@ pub async fn mods_install_with_deps(
     }
     let dep_versions = dedup_versions(dep_versions.into_iter());
 
-    // Install sequence: required deps first, then primary, then chosen optionals.
+    // Install sequence: required deps + manifest-discovered extras first (both
+    // before the primary, so the libs are present when the primary loads), then
+    // primary, then chosen optionals.
     let mut install_seq = dep_versions.clone();
+    install_seq.extend(extra_install.iter().cloned());
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
@@ -342,7 +415,43 @@ pub async fn mods_resolve_install_plan(
     .await?;
     // The transitive closure already includes the primary's direct requireds,
     // is deduplicated, and has installed mods pruned by `resolve_closure`.
-    let required = primary_closure.required;
+    let mut required = primary_closure.required;
+
+    // 2b. Best-effort: read the primary jar's manifest and fold in required
+    //     libraries the platform metadata omitted (e.g. Waystones requires Balm,
+    //     but CF metadata doesn't list it). Each resolved candidate brings its
+    //     own transitive required sub-closure. Unresolved manifest ids are
+    //     intentionally NOT surfaced here (InstallPlan.unresolvable carries
+    //     DepProjectRefs, which a bare loader-id can't populate) — the preflight
+    //     panel catches those. Reading the jar is best-effort: any failure
+    //     yields no extras and preserves the prior behaviour.
+    let extras_raw =
+        manifest_extra_root_versions(&data_dir(&app)?, &primary, &mc_version, loader).await;
+    let extras = dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required);
+    if !extras.is_empty() {
+        let mut excl = installed.clone();
+        for v in &required {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for (_needed_id, cand) in extras {
+            if excl.contains(&ProjectKey::of_version(&cand)) {
+                continue;
+            }
+            excl.insert(ProjectKey::of_version(&cand));
+            let sub = resolve_closure(
+                std::slice::from_ref(&cand),
+                &excl,
+                &installed_filenames,
+                make_fetch(),
+            )
+            .await?;
+            for v in sub.required {
+                excl.insert(ProjectKey::of_version(&v));
+                required.push(v);
+            }
+            required.push(cand);
+        }
+    }
 
     // 3. Each direct optional + its transitive required sub-closure,
     //    excluding primary's requireds + installed.
@@ -813,6 +922,80 @@ pub async fn mods_find_orphans(
     Ok(crate::mods::orphans::find_orphans(&mods, &removing))
 }
 
+/// Best-effort: read `primary`'s jar manifest and resolve required libraries
+/// the platform metadata omitted. Returns `(needed_id, candidate)` pairs. Any
+/// error (no sha1, download failure, unreadable jar) yields an empty vec so the
+/// install/plan proceeds exactly as before.
+async fn manifest_extra_root_versions(
+    dd: &std::path::Path,
+    primary: &ModVersion,
+    mc: &str,
+    loader: LoaderKind,
+) -> Vec<(String, ModVersion)> {
+    use std::sync::Arc;
+    let Some(sha) = primary
+        .primary_file
+        .sha1
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_ascii_lowercase())
+    else {
+        return Vec::new();
+    };
+    let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+    let Ok(cached) = crate::mods::install::fetch_to_cache(
+        dd,
+        &primary.primary_file.url,
+        &sha,
+        primary.primary_file.size,
+        "mods",
+        &nop,
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    let Ok(bytes) = tokio::fs::read(&cached).await else {
+        return Vec::new();
+    };
+
+    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
+    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(ModSource::Curseforge).into();
+    let (extras, _unresolved) = crate::mods::dep_resolve::manifest_extra_roots(&bytes, |id| {
+        let mr = mr.clone();
+        let cf = cf.clone();
+        let mc = mc.to_string();
+        async move { resolve_dep_id(mr, cf, &id, &mc, loader).await }
+    })
+    .await;
+    extras
+        .into_iter()
+        .map(|e| (e.needed_id, e.candidate))
+        .collect()
+}
+
+/// Drop extra candidates already installed or already in the required set
+/// (by source-specific ProjectKey or by lowercased jar filename). Pure/testable.
+fn dedup_extra_candidates(
+    extras: Vec<(String, ModVersion)>,
+    installed: &std::collections::HashSet<ProjectKey>,
+    installed_filenames: &std::collections::HashSet<String>,
+    already_required: &[ModVersion],
+) -> Vec<(String, ModVersion)> {
+    let mut excl = installed.clone();
+    for v in already_required {
+        excl.insert(ProjectKey::of_version(v));
+    }
+    extras
+        .into_iter()
+        .filter(|(_id, c)| {
+            let fresh = excl.insert(ProjectKey::of_version(c));
+            fresh && !installed_filenames.contains(&c.primary_file.filename.to_ascii_lowercase())
+        })
+        .collect()
+}
+
 /// Resolve a loader mod-id to an installable candidate using both platforms,
 /// Modrinth-slug-first then CurseForge (search -> exact-slug -> newest version).
 async fn resolve_dep_id(
@@ -1097,4 +1280,98 @@ pub async fn instance_dependency_preflight(
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
     let root = instance_root(&app, &instance_id)?;
     crate::mods::preflight::dependency_preflight_for_root(&root).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mods::deps::ProjectKey;
+    use crate::mods::platform::{LoaderKind, ModFile, ModSource, ModVersion};
+    use std::collections::HashSet;
+
+    /// Mirror the `mv` helper from `dep_resolve.rs` tests: a minimal Modrinth
+    /// `ModVersion` whose `project_id` and jar filename derive from `slug`.
+    fn mv(slug: &str) -> ModVersion {
+        ModVersion {
+            source: ModSource::Modrinth,
+            project_id: slug.into(),
+            version_id: format!("{slug}-v"),
+            name: slug.into(),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.20.4".into()],
+            loaders: vec![LoaderKind::NeoForge],
+            primary_file: ModFile {
+                filename: format!("{slug}.jar"),
+                url: format!("https://cdn/{slug}.jar"),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn dedup_prunes_already_installed_and_required_extras() {
+        let balm = mv("balm");
+        let curios = mv("curios");
+
+        // `balm` is already installed; a duplicate `curios` is in the input.
+        let mut installed: HashSet<ProjectKey> = HashSet::new();
+        installed.insert(ProjectKey::of_version(&balm));
+        let installed_filenames: HashSet<String> = HashSet::new();
+        let already_required: Vec<ModVersion> = Vec::new();
+
+        let extras = vec![
+            ("balm".to_string(), balm.clone()),
+            ("curios".to_string(), curios.clone()),
+            ("curios".to_string(), curios.clone()),
+        ];
+
+        let kept =
+            dedup_extra_candidates(extras, &installed, &installed_filenames, &already_required);
+
+        // `balm` pruned (installed); `curios` kept exactly once (deduped).
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(kept[0].0, "curios");
+        assert_eq!(kept[0].1.project_id, "curios");
+    }
+
+    #[test]
+    fn dedup_prunes_candidate_already_in_required_set() {
+        let balm = mv("balm");
+
+        let installed: HashSet<ProjectKey> = HashSet::new();
+        let installed_filenames: HashSet<String> = HashSet::new();
+        // `balm` is already in the primary's required closure.
+        let already_required = vec![balm.clone()];
+
+        let kept = dedup_extra_candidates(
+            vec![("balm".to_string(), balm.clone())],
+            &installed,
+            &installed_filenames,
+            &already_required,
+        );
+        assert!(kept.is_empty(), "{kept:?}");
+    }
+
+    #[test]
+    fn dedup_prunes_candidate_matching_installed_filename() {
+        let balm = mv("balm");
+
+        let installed: HashSet<ProjectKey> = HashSet::new();
+        // A copy of balm.jar is already on disk under a *different* source id.
+        let mut installed_filenames: HashSet<String> = HashSet::new();
+        installed_filenames.insert("balm.jar".to_string());
+        let already_required: Vec<ModVersion> = Vec::new();
+
+        let kept = dedup_extra_candidates(
+            vec![("balm".to_string(), balm)],
+            &installed,
+            &installed_filenames,
+            &already_required,
+        );
+        assert!(kept.is_empty(), "{kept:?}");
+    }
 }
