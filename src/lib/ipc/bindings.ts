@@ -810,17 +810,25 @@ export const commands = {
 	 */
 	updateDismiss: (version: string) => typedError<null, Error>(__TAURI_INVOKE("update_dismiss", { version })),
 	/**
-	 *  Создать vanilla-сервер: разрешить jar через манифест Mojang, скачать,
-	 *  записать `server.json` + `eula.txt`. Другие лоадеры добавляются в Задаче 12.
+	 *  Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
+	 *  записать `server.json` + `eula.txt`.
 	 */
 	serverCreate: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerWithStatus, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
 	/**
-	 *  Перечислить все серверы в `<app_data>/servers/`. Живой статус (running/pid/port)
-	 *  будет добавлен в Задаче 14 (процессный менеджер); сейчас всегда `false/None/None`.
+	 *  Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
+	 *  (running / pid / port) из процессного менеджера.
 	 */
 	serverList: () => typedError<ServerWithStatus[], Error>(__TAURI_INVOKE("server_list")),
 	/**  Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok). */
 	serverDelete: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete", { id })),
+	/**  Запустить сервер. Возвращает PID запущенного процесса. */
+	serverStart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_start", { id })),
+	/**  Остановить сервер (graceful stop, затем принудительное завершение при необходимости). */
+	serverStop: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_stop", { id })),
+	/**  Перезапустить сервер (stop если запущен, затем start). */
+	serverRestart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_restart", { id })),
+	/**  Отправить консольную команду на stdin работающего сервера. */
+	serverSendCommand: (id: string, line: string) => typedError<null, Error>(__TAURI_INVOKE("server_send_command", { id, line })),
 };
 
 /** Events */
@@ -835,6 +843,9 @@ export const events = {
 	modUninstalled: makeEvent<ModUninstalled>("mod-uninstalled"),
 	processExited: makeEvent<ProcessExited>("process-exited"),
 	processSpawned: makeEvent<ProcessSpawned>("process-spawned"),
+	serverExited: makeEvent<ServerExited>("server-exited"),
+	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
+	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
 };
 
@@ -1204,7 +1215,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
  */
 { kind: "server_jar_unavailable"; loader: string; mc_version: string; reason: string } | 
 /**  installServer (Forge/NeoForge) упал или не запустился. */
-{ kind: "server_installer_failed"; loader: string; details: string };
+{ kind: "server_installer_failed"; loader: string; details: string } | 
+/**  Серверный процесс не удалось запустить. */
+{ kind: "server_spawn_failed"; details: string } | 
+/**  Сервер уже запущен. */
+{ kind: "server_already_running"; id: string } | 
+/**  Операция требует запущенного сервера, но он не запущен. */
+{ kind: "server_not_running"; id: string };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -2394,6 +2411,24 @@ export type RestoredWorld = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+/**  Emitted when a server process exits. `code` is -1 if signal-terminated. */
+export type ServerExited = {
+	server_id: string,
+	code: number,
+};
+
+/**  One line of server console output (stdout or stderr), streamed to the UI. */
+export type ServerLogLine = {
+	server_id: string,
+	line: string,
+};
+
+/**  Emitted when a server process starts. */
+export type ServerSpawned = {
+	server_id: string,
+	pid: number,
 };
 
 /**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */

@@ -97,17 +97,50 @@ pub async fn server_create(
     Ok(ServerWithStatus::from_file(&file, false, None, None))
 }
 
-/// Перечислить все серверы в `<app_data>/servers/`. Живой статус (running/pid/port)
-/// будет добавлен в Задаче 14 (процессный менеджер); сейчас всегда `false/None/None`.
+/// Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
+/// (running / pid / port) из процессного менеджера.
 #[tauri::command]
 #[specta::specta]
 pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    let files = store::list_all(&base)?;
-    Ok(files
+    Ok(store::list_all(&base)?
         .iter()
-        .map(|f| ServerWithStatus::from_file(f, false, None, None))
+        .map(|f| {
+            let rp = crate::paths::server_paths(&base, &f.id);
+            let running = crate::servers_runtime::runtime::is_running(&f.id);
+            let pid = crate::servers_runtime::runtime::running_pid(&f.id);
+            let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
+            ServerWithStatus::from_file(f, running, pid, port)
+        })
         .collect())
+}
+
+/// Запустить сервер. Возвращает PID запущенного процесса.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
+    crate::servers_runtime::runtime::start(&app, &id).await
+}
+
+/// Остановить сервер (graceful stop, затем принудительное завершение при необходимости).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_stop(id: String) -> Result<()> {
+    crate::servers_runtime::runtime::stop(&id).await
+}
+
+/// Перезапустить сервер (stop если запущен, затем start).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_restart(app: AppHandle, id: String) -> Result<u32> {
+    crate::servers_runtime::runtime::restart(&app, &id).await
+}
+
+/// Отправить консольную команду на stdin работающего сервера.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_send_command(id: String, line: String) -> Result<()> {
+    crate::servers_runtime::runtime::send_command(&id, &line).await
 }
 
 /// Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).

@@ -284,6 +284,14 @@ pub async fn stop(server_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Read `server-port` from `runtime/server.properties` if present/parseable.
+pub fn read_port(runtime: &Path) -> Option<u16> {
+    let raw = std::fs::read_to_string(runtime.join("server.properties")).ok()?;
+    crate::servers_runtime::properties::ServerProperties::parse(&raw)
+        .get("server-port")
+        .and_then(|v| v.parse().ok())
+}
+
 /// Restart = graceful stop (if running) then start.
 pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
     if is_running(server_id) {
@@ -383,5 +391,14 @@ mod tests {
             java_component_or_legacy(Some("java-runtime-delta")),
             "java-runtime-delta"
         );
+    }
+
+    #[test]
+    fn read_port_parses_server_properties() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("server.properties"), "server-port=25570\n").unwrap();
+        assert_eq!(read_port(dir.path()), Some(25570));
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(read_port(empty.path()), None);
     }
 }
