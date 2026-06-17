@@ -90,6 +90,15 @@ impl HostGate {
                 Priority::Background => inner.background.push_back(me.clone()),
             }
         }
+        // RAII guard: removes `me` from its queue by identity on EVERY exit of
+        // this future — a successful grant (return below) and, crucially, a
+        // mid-wait cancellation (the future being dropped). On drop it also
+        // wakes the new head, so the slot this waiter held is never stranded.
+        let _guard = WaiterGuard {
+            gate: self,
+            me: me.clone(),
+            priority,
+        };
         loop {
             let wait = {
                 let mut inner = self.inner.lock().unwrap();
@@ -113,15 +122,10 @@ impl HostGate {
 
                 if is_front && !frozen && inner.tokens >= 1.0 {
                     inner.tokens -= 1.0;
-                    match priority {
-                        Priority::Interactive => {
-                            inner.interactive.pop_front();
-                        }
-                        Priority::Background => {
-                            inner.background.pop_front();
-                        }
-                    }
-                    Self::wake_next_front(&inner);
+                    // Don't remove `me` or wake here: `_guard`'s Drop is the
+                    // single removal+wake site for every exit (grant + cancel).
+                    // Returning runs Drop, which removes `me` by identity and
+                    // wakes the new head — same effect as the old pop_front.
                     return;
                 }
 
@@ -139,6 +143,9 @@ impl HostGate {
                     .min()
                     .unwrap_or(Duration::from_millis(50))
             };
+            // `Notify::notify_one` stores a permit if it races ahead of this
+            // `notified()`, so a wake delivered between loop iterations is not
+            // lost — the next `notified()` returns immediately.
             tokio::select! {
                 _ = me.notified() => {}
                 _ = tokio::time::sleep(wait) => {}
@@ -154,6 +161,32 @@ impl HostGate {
         } else if let Some(f) = inner.background.front() {
             f.notify_one();
         }
+    }
+}
+
+/// Removes this waiter from its queue when the `acquire` future is dropped —
+/// on cancellation OR after a grant. Keyed by `Arc::ptr_eq` so removal is
+/// identity-based, not positional. On drop it also wakes the new head so a slot
+/// freed by this waiter's departure is never stranded (the cancellation case
+/// where a phantom interactive head would otherwise block all background work).
+struct WaiterGuard<'a> {
+    gate: &'a HostGate,
+    me: Arc<Notify>,
+    priority: Priority,
+}
+
+impl Drop for WaiterGuard<'_> {
+    fn drop(&mut self) {
+        let mut inner = self.gate.inner.lock().unwrap();
+        let q = match self.priority {
+            Priority::Interactive => &mut inner.interactive,
+            Priority::Background => &mut inner.background,
+        };
+        if let Some(pos) = q.iter().position(|n| Arc::ptr_eq(n, &self.me)) {
+            q.remove(pos);
+        }
+        // If we were the head others were blocked behind, wake the new front.
+        HostGate::wake_next_front(&inner);
     }
 }
 
@@ -264,6 +297,29 @@ mod tests {
         assert!(!h.is_finished(), "frozen host must hold even with tokens");
         tokio::time::advance(Duration::from_millis(600)).await;
         h.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_interactive_waiter_unblocks_background() {
+        let gate = Arc::new(HostGate::new(5.0, 1.0, Instant::now())); // 1 burst token
+        gate.acquire(Priority::Background).await; // drain the only token
+
+        // An interactive waiter enqueues at the head, then is cancelled (dropped).
+        let g = gate.clone();
+        let interactive = tokio::spawn(async move { g.acquire(Priority::Interactive).await });
+        tokio::time::sleep(Duration::from_millis(1)).await; // let it enqueue at head
+        interactive.abort(); // drops the acquire future mid-wait → must remove the phantom
+        let _ = interactive.await; // joins (cancelled)
+
+        // A background waiter must now be able to proceed once tokens refill.
+        // Without the drop guard, the phantom interactive head blocks it forever.
+        let g2 = gate.clone();
+        let bg = tokio::spawn(async move { g2.acquire(Priority::Background).await });
+        tokio::time::advance(Duration::from_secs(1)).await; // refill tokens
+        tokio::time::timeout(Duration::from_secs(5), bg)
+            .await
+            .expect("background acquire must not hang after the interactive waiter was cancelled")
+            .unwrap();
     }
 
     #[tokio::test]
