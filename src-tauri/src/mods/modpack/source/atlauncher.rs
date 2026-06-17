@@ -226,7 +226,7 @@ impl ModpackSource for AtlauncherModpackSource {
             atl_api::nodecdn_base(),
             &configs,
         );
-        let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+        let cf_key = crate::mods::curseforge::keyring::resolve();
         crate::mods::modpack::source::ftb::resolve_cf_refs(
             &mut summary,
             CF_BASE,

@@ -547,9 +547,12 @@ export const commands = {
 	 */
 	modsInstallLocal: (instanceId: string, jarPath: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("mods_install_local", { instanceId, jarPath })),
 	/**
-	 *  Report whether a CurseForge API key is currently stored in the OS
-	 *  keyring. `Invalid` is reserved for future "key was rejected" surfacing —
-	 *  today this command only distinguishes Missing vs Set.
+	 *  Report whether CurseForge is usable — i.e. whether a key is resolvable.
+	 *  A key resolves from the user's OS-keyring entry, or (on a release build)
+	 *  from the key embedded at compile time. So a release user who never entered
+	 *  a key still reports `Set`, which suppresses the setup guide and the
+	 *  "add a key" banners. `Invalid` is reserved for future "key was rejected"
+	 *  surfacing — today this command only distinguishes Missing vs Set.
 	 */
 	modsGetCurseforgeKeyStatus: () => typedError<KeyStatus, Error>(__TAURI_INVOKE("mods_get_curseforge_key_status")),
 	/**

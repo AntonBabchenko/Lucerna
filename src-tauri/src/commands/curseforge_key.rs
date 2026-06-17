@@ -4,15 +4,19 @@ use super::*;
 // CurseForge key management + shared cache management (v0.5.0 sub-feature 3)
 // =========================================================================
 
-/// Report whether a CurseForge API key is currently stored in the OS
-/// keyring. `Invalid` is reserved for future "key was rejected" surfacing —
-/// today this command only distinguishes Missing vs Set.
+/// Report whether CurseForge is usable — i.e. whether a key is resolvable.
+/// A key resolves from the user's OS-keyring entry, or (on a release build)
+/// from the key embedded at compile time. So a release user who never entered
+/// a key still reports `Set`, which suppresses the setup guide and the
+/// "add a key" banners. `Invalid` is reserved for future "key was rejected"
+/// surfacing — today this command only distinguishes Missing vs Set.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_get_curseforge_key_status() -> crate::error::Result<KeyStatus> {
-    Ok(match cf_keyring::get()? {
-        Some(_) => KeyStatus::Set,
-        None => KeyStatus::Missing,
+    Ok(if cf_keyring::resolve().is_some() {
+        KeyStatus::Set
+    } else {
+        KeyStatus::Missing
     })
 }
 
@@ -116,4 +120,29 @@ pub async fn mods_clear_cache(app: tauri::AppHandle) -> crate::error::Result<f64
     let dd = data_dir(&app)?;
     let n = crate::mods::cache::clear(&dd).await?;
     Ok(n as f64)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mods::curseforge::keyring;
+    use crate::mods::platform::KeyStatus;
+
+    #[tokio::test]
+    async fn status_is_set_when_key_resolvable() {
+        // EMBEDDED_KEY is None in a test build; a stored keyring key drives Set.
+        let _g = crate::test_env_lock();
+        keyring::clear().unwrap();
+        keyring::set("k").unwrap();
+        let s = super::mods_get_curseforge_key_status().await.unwrap();
+        keyring::clear().unwrap();
+        assert_eq!(s, KeyStatus::Set);
+    }
+
+    #[tokio::test]
+    async fn status_is_missing_when_no_key() {
+        let _g = crate::test_env_lock();
+        keyring::clear().unwrap();
+        let s = super::mods_get_curseforge_key_status().await.unwrap();
+        assert_eq!(s, KeyStatus::Missing);
+    }
 }
