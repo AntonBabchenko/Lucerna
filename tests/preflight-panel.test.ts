@@ -5,8 +5,8 @@
  *
  * i18n resolves to real EN strings in the test environment.
  */
-import { render } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
 import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
 
@@ -58,5 +58,27 @@ describe('PreflightPanel', () => {
     for (const row of rows) {
       expect(scroll.contains(row)).toBe(true);
     }
+  });
+
+  it('renders an install button on missing_required rows and calls onInstallMissing', async () => {
+    const onInstallMissing = vi.fn();
+    const report: PreflightReport = {
+      violations: [
+        {
+          dependent_sha1: 'a',
+          dependent_name: 'Waystones',
+          dep_id: 'balm',
+          dep_display_name: null,
+          kind: 'missing_required',
+          installed_version: null,
+          needed: '',
+          provider_project: null,
+        },
+      ],
+    };
+    render(PreflightPanel, { props: { report, onUpdate: () => {}, onInstallMissing } });
+    const btn = screen.getByRole('button', { name: /balm/i });
+    await fireEvent.click(btn);
+    expect(onInstallMissing).toHaveBeenCalledWith(report.violations[0]);
   });
 });
