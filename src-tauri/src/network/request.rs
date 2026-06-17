@@ -28,6 +28,12 @@ async fn send(
     initiator: &str,
 ) -> Result<HttpResponse> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
+    // Throttle: pace per host, with the current task's priority.
+    if let Some(host) = host_of(url) {
+        let gate = crate::network::throttle::gate_for(&host);
+        gate.acquire(crate::network::throttle::current_priority())
+            .await;
+    }
     let resp = req.send().await.map_err(|e| {
         crate::diag!(
             "network: {initiator} {method} {url} — request failed (source unreachable?): {e}"
@@ -90,6 +96,14 @@ pub async fn post(
         req = req.header(*name, *value);
     }
     send(req, "POST", url, initiator).await
+}
+
+/// Parse the host out of a URL for gate lookup. Returns None for an unparseable
+/// URL (the request still proceeds, just unthrottled).
+fn host_of(url: &str) -> Option<String> {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
 }
 
 #[cfg(test)]
@@ -217,5 +231,30 @@ mod tests {
         // be a transport error instead; we assert specifically HostNotAllowed.
         let r = get("https://evil.example/x", &[], "test").await;
         assert!(matches!(r, Err(Error::HostNotAllowed { .. })), "got: {r:?}");
+    }
+
+    #[test]
+    fn host_of_parses_api_host() {
+        assert_eq!(
+            host_of("https://api.modrinth.com/v2/project/x/version?a=b").as_deref(),
+            Some("api.modrinth.com")
+        );
+        assert_eq!(host_of("not a url"), None);
+    }
+
+    #[tokio::test]
+    async fn get_still_succeeds_through_throttle() {
+        let _g = test_lock();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/t"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+        let url = format!("{}/t", server.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let r = get(&url, &[], "test").await.unwrap(); // 127.0.0.1 = unlimited host
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(r.status, 200);
     }
 }
