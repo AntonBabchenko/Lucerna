@@ -130,6 +130,29 @@ pub fn spawn_minecraft(
     })
 }
 
+/// Spawn a long-lived server JVM. stdin is PIPED (console command channel),
+/// stdout+stderr are PIPED (the caller spawns reader tasks to tee them to a
+/// log file and emit line events). Unlike `spawn_minecraft`, stdin is NOT
+/// closed. Caller must use the CONSOLE java (`java`, not `javaw`) so stdout
+/// is actually produced on Windows.
+pub fn spawn_server(
+    java_bin: &Path,
+    argv: &[String],
+    work_dir: &Path,
+) -> Result<tokio::process::Child> {
+    let mut cmd = tokio::process::Command::new(java_bin);
+    cmd.args(argv)
+        .current_dir(work_dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    cmd.process_group(0);
+    cmd.spawn().map_err(|e| Error::ServerSpawnFailed {
+        details: format!("spawn {}: {e}", java_bin.display()),
+    })
+}
+
 /// Launch the downloaded NSIS installer and return immediately. The
 /// caller exits the app right after so the installer can replace the
 /// locked launcher binary. The wizard runs visibly (transparency; and
@@ -245,6 +268,20 @@ mod tests {
         assert!(
             matches!(r, Err(Error::UpdateInstallFailed { .. })),
             "got {r:?}"
+        );
+    }
+
+    #[test]
+    fn spawn_server_missing_binary_errors() {
+        let dir = tempdir().unwrap();
+        let r = spawn_server(
+            Path::new("nonexistent-java-xyz"),
+            &["-version".to_string()],
+            dir.path(),
+        );
+        assert!(
+            matches!(r, Err(Error::ServerSpawnFailed { .. })),
+            "got: {r:?}"
         );
     }
 }
