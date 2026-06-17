@@ -7,7 +7,10 @@ use super::*;
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_search(query: ModSearchQuery) -> crate::error::Result<ModSearchPage> {
-    platform_for(query.source).search(&query).await
+    crate::network::throttle::with_interactive(async move {
+        platform_for(query.source).search(&query).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -69,6 +72,7 @@ pub async fn mods_install_with_deps(
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
 ) -> crate::error::Result<crate::mods::platform::InstallSummary> {
+    crate::network::throttle::with_interactive(async move {
     use crate::mods::deps::{resolve_closure, ProjectKey};
     use std::sync::Arc;
 
@@ -249,6 +253,8 @@ pub async fn mods_install_with_deps(
         primary_name: primary_v.name.clone(),
         installed_dependencies,
     })
+    })
+    .await
 }
 
 // =========================================================================
@@ -271,6 +277,7 @@ pub async fn mods_resolve_install_plan(
     mc_version: String,
     loader: LoaderKind,
 ) -> crate::error::Result<InstallPlan> {
+    crate::network::throttle::with_interactive(async move {
     use crate::mods::deps::{resolve_closure, ProjectKey};
     use std::sync::Arc;
 
@@ -389,6 +396,8 @@ pub async fn mods_resolve_install_plan(
         unresolvable: top.unresolvable,
         loader_requirements,
     })
+    })
+    .await
 }
 
 /// Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
