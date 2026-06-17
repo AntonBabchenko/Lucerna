@@ -81,4 +81,48 @@ describe('PlayWithWorlds', () => {
     await fireEvent.keyDown(item, { key: 'Escape' });
     expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
   });
+
+  it('ArrowUp opens the menu', async () => {
+    render(PlayWithWorlds, { props: base() });
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'ArrowUp' });
+    expect(screen.getByTestId('play-worlds-menu')).toBeTruthy();
+  });
+
+  it('Enter on an item launches that world and closes the menu', async () => {
+    const props = base();
+    render(PlayWithWorlds, { props });
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'ArrowDown' });
+    const item = screen.getByRole('menuitem', { name: 'Beta' });
+    await fireEvent.keyDown(item, { key: 'Enter' });
+    expect(props.onQuickPlayWorld).toHaveBeenCalledWith('Beta');
+    expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
+  });
+
+  it('a pointer-down outside the control closes the menu', async () => {
+    render(PlayWithWorlds, { props: base() });
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'ArrowDown' });
+    expect(screen.getByTestId('play-worlds-menu')).toBeTruthy();
+    await fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
+  });
+
+  it('moving the mouse out of the control closes the menu', async () => {
+    vi.useFakeTimers();
+    render(PlayWithWorlds, { props: base() });
+    const wrap = screen.getByRole('button', { name: 'Play' }).parentElement as HTMLElement;
+    await fireEvent.mouseEnter(wrap);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(screen.getByTestId('play-worlds-menu')).toBeTruthy();
+    await fireEvent.mouseLeave(wrap);
+    expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
+  });
+
+  it('closes when the instance becomes ineligible while open', async () => {
+    const { rerender } = render(PlayWithWorlds, { props: base() });
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'ArrowDown' });
+    expect(screen.getByTestId('play-worlds-menu')).toBeTruthy();
+    // e.g. the game launched → page flips menuEnabled to false.
+    await rerender(base({ menuEnabled: false }));
+    expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
+  });
 });

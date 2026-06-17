@@ -15,17 +15,20 @@
     onQuickPlayWorld,
     menuEnabled,
     label,
+    menuLabel,
   }: {
     worlds: WorldQuickEntry[];
     onPlay: () => void;
     onQuickPlayWorld: (folderName: string) => void;
     menuEnabled: boolean;
     label: string;
+    // Accessible name for the popup itself. Should describe the choices
+    // ("launch into a world"), not echo the button verb. Falls back to `label`.
+    menuLabel?: string;
   } = $props();
 
   const HOVER_DELAY_MS = 200;
   const MARGIN = 8;
-  const GAP = 4;
   const MIN_WIDTH = 220;
 
   let open = $state(false);
@@ -35,7 +38,9 @@
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
   let triggerEl = $state<HTMLButtonElement>();
   let menuEl = $state<HTMLDivElement>();
-  let itemEls = $state<HTMLButtonElement[]>([]);
+  // Slots are set to null by Svelte when a row unmounts; type honestly so the
+  // `?.` guards below are not a lie (mirrors TabBar.svelte's bind:this array).
+  let itemEls = $state<(HTMLButtonElement | null)[]>([]);
 
   const canOpen = $derived(menuEnabled && worlds.length > 0);
 
@@ -44,8 +49,11 @@
     if (!r) return;
     width = Math.max(r.width, MIN_WIDTH);
     left = Math.min(Math.max(r.left, MARGIN), Math.max(MARGIN, window.innerWidth - width - MARGIN));
-    // Anchor the menu's bottom edge just above the trigger → opens upward.
-    bottom = Math.max(MARGIN, window.innerHeight - r.top + GAP);
+    // Anchor the menu's bottom edge flush to the trigger's top → opens upward.
+    // No gap on purpose: any dead space between the menu and the button would
+    // sit OUTSIDE this wrapper, so moving the cursor up into the menu would
+    // fire the wrapper's mouseleave and close it before the pointer arrives.
+    bottom = Math.max(MARGIN, window.innerHeight - r.top);
   }
 
   function openMenu(focusFirst: boolean) {
@@ -125,6 +133,13 @@
     }
   }
 
+  // If the instance becomes ineligible (game launches, worlds vanish) while
+  // the menu is open, close it so the rendered DOM and aria-expanded stay
+  // truthful — no close event is otherwise guaranteed in that case.
+  $effect(() => {
+    if (!canOpen) close();
+  });
+
   // While open: close on outside pointer / scroll / resize / focus leaving.
   $effect(() => {
     if (!open) return;
@@ -169,7 +184,7 @@
     <div
       bind:this={menuEl}
       role="menu"
-      aria-label={label}
+      aria-label={menuLabel ?? label}
       tabindex="-1"
       data-testid="play-worlds-menu"
       class="fixed z-50 overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
@@ -181,7 +196,7 @@
           type="button"
           role="menuitem"
           tabindex="-1"
-          class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-secondary hover:bg-subtle focus:bg-subtle outline-none"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-secondary hover:bg-subtle focus-visible:bg-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2"
           onclick={() => selectWorld(w.folder_name)}
           onkeydown={(e) => onItemKeydown(e, i, w.folder_name)}
         >
