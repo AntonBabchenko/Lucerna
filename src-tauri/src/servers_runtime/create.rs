@@ -161,6 +161,27 @@ pub async fn resolve_vanilla_jar(mc_version: &str) -> Result<(String, String)> {
     Ok((server.url, server.sha1))
 }
 
+/// MC version's required Java component (e.g. "java-runtime-delta"), via the
+/// Mojang manifest + version JSON. Falls back to the legacy component when the
+/// version JSON has no `javaVersion`.
+pub async fn resolve_server_java_component(mc_version: &str) -> Result<String> {
+    let manifest = crate::versions::manifest::list_manifest().await?;
+    let entry = manifest
+        .iter()
+        .find(|e| e.id == mc_version)
+        .ok_or_else(|| Error::ServerJarUnavailable {
+            loader: "vanilla".into(),
+            mc_version: mc_version.to_string(),
+            reason: "version not in manifest".into(),
+        })?;
+    let json = crate::network::get_text(&entry.url, "servers").await?;
+    let details = crate::versions::version_json::parse(&json)
+        .map_err(|e| Error::io("<version_json>", format!("parse: {e}")))?;
+    Ok(crate::servers_runtime::runtime::java_component_or_legacy(
+        details.java_version.as_ref().map(|j| j.component.as_str()),
+    ))
+}
+
 /// Скопировать модовые файлы (`.jar`, `.jar.disabled`) из `src` в `dest`.
 /// Отсутствующий `src` — не ошибка (0 скопировано). Возвращает число файлов.
 pub fn copy_instance_mods(src: &Path, dest: &Path) -> Result<usize> {
