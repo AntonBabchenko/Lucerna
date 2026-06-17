@@ -339,6 +339,14 @@ pub enum Error {
     /// Серверный процесс не удалось запустить.
     #[error("server process spawn failed: {details}")]
     ServerSpawnFailed { details: String },
+
+    /// Сервер уже запущен.
+    #[error("server already running: {id}")]
+    ServerAlreadyRunning { id: String },
+
+    /// Операция требует запущенного сервера, но он не запущен.
+    #[error("server not running: {id}")]
+    ServerNotRunning { id: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

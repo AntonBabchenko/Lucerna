@@ -1,8 +1,12 @@
 //! Долгоживущий серверный процесс: состояние, консоль-стрим, команды, стоп.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+
+use tauri::AppHandle;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use serde::Serialize;
 use specta::Type;
@@ -129,6 +133,106 @@ fn find_loader_args_file(runtime: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// Start an assembled server. Resolves the MC Java component, ensures the JRE,
+/// builds per-loader argv, spawns with piped stdio, tees stdout+stderr to
+/// `runtime/logs/server-latest.log` while emitting `ServerLogLine`, and
+/// registers an exit watcher that emits `ServerExited` and clears state.
+/// Returns the OS pid. Errors `ServerAlreadyRunning` if already up.
+pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
+    if is_running(server_id) {
+        return Err(Error::ServerAlreadyRunning {
+            id: server_id.to_string(),
+        });
+    }
+
+    let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, server_id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
+
+    let component =
+        crate::servers_runtime::create::resolve_server_java_component(&file.mc_version).await?;
+    crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
+    let javaw = crate::jre::java_executable_path(&component, app)?;
+    let java = console_java_path(&javaw);
+
+    let argv = build_launch_argv(file.loader, &p.runtime, file.max_heap_mb)?;
+
+    std::fs::create_dir_all(&p.logs).map_err(|e| Error::io(p.logs.display().to_string(), e))?;
+    let log_path = p.logs.join("server-latest.log");
+    let log_file = std::fs::File::create(&log_path)
+        .map_err(|e| Error::io(log_path.display().to_string(), e))?;
+    let log = Arc::new(Mutex::new(log_file));
+
+    let mut child = crate::process::spawn_server(&java, &argv, &p.runtime)?;
+    let pid = child.id().ok_or_else(|| Error::ServerSpawnFailed {
+        details: "spawned but no pid".into(),
+    })?;
+    let stdin = child.stdin.take().ok_or_else(|| Error::ServerSpawnFailed {
+        details: "no stdin handle".into(),
+    })?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    state().lock().expect("server state poisoned").insert(
+        server_id.to_string(),
+        RunningServer {
+            pid,
+            stdin: Arc::new(tokio::sync::Mutex::new(stdin)),
+        },
+    );
+    let _ = ServerSpawned {
+        server_id: server_id.to_string(),
+        pid,
+    }
+    .emit(app);
+
+    if let Some(out) = stdout {
+        spawn_pump(out, app.clone(), server_id.to_string(), log.clone());
+    }
+    if let Some(err) = stderr {
+        spawn_pump(err, app.clone(), server_id.to_string(), log.clone());
+    }
+
+    let app_exit = app.clone();
+    let id_exit = server_id.to_string();
+    tokio::spawn(async move {
+        let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
+        state()
+            .lock()
+            .expect("server state poisoned")
+            .remove(&id_exit);
+        let _ = ServerExited {
+            server_id: id_exit,
+            code,
+        }
+        .emit(&app_exit);
+    });
+
+    Ok(pid)
+}
+
+/// Spawn a task that reads `r` line-by-line, appends each line to `log`, and
+/// emits a `ServerLogLine`. Works for both ChildStdout and ChildStderr.
+fn spawn_pump<R>(r: R, app: AppHandle, id: String, log: Arc<Mutex<std::fs::File>>)
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(r).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(mut f) = log.lock() {
+                let _ = writeln!(f, "{line}");
+            }
+            let _ = ServerLogLine {
+                server_id: id.clone(),
+                line,
+            }
+            .emit(&app);
+        }
+    });
 }
 
 #[cfg(test)]
