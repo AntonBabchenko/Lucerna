@@ -118,6 +118,26 @@ pub fn dir_mtime_recursive(path: &Path) -> Result<u64, Error> {
     Ok(latest_ms)
 }
 
+/// Cheap "last played" proxy for a world directory: the mtime of its
+/// `level.dat` (Minecraft rewrites it on every save/exit), falling back to
+/// the world directory's own mtime. A single `stat` — no recursive walk
+/// (that's `dir_mtime_recursive`, reserved for the Worlds tab). Returns 0
+/// when neither path can be stat'd. Milliseconds since the UNIX epoch.
+pub fn world_recency_ms(world_dir: &Path) -> u64 {
+    let level_dat = world_dir.join("level.dat");
+    let target = if level_dat.exists() {
+        level_dat
+    } else {
+        world_dir.to_path_buf()
+    };
+    std::fs::metadata(&target)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +294,37 @@ mod tests {
     fn dir_mtime_recursive_returns_zero_for_missing_dir() {
         let td = tempdir().unwrap();
         assert_eq!(dir_mtime_recursive(&td.path().join("missing")).unwrap(), 0);
+    }
+
+    #[test]
+    fn world_recency_prefers_level_dat_mtime() {
+        let td = tempdir().unwrap();
+        // An older file, then level.dat written later — recency must track level.dat.
+        fs::write(td.path().join("region.bin"), b"x").unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        let level = td.path().join("level.dat");
+        fs::write(&level, b"y").unwrap();
+        let got = world_recency_ms(td.path());
+        let level_mt = std::fs::metadata(&level)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert_eq!(got, level_mt);
+    }
+
+    #[test]
+    fn world_recency_falls_back_to_dir_mtime_without_level_dat() {
+        let td = tempdir().unwrap();
+        // No level.dat — must use the directory's own mtime (non-zero).
+        assert!(world_recency_ms(td.path()) > 0);
+    }
+
+    #[test]
+    fn world_recency_zero_for_missing_path() {
+        let td = tempdir().unwrap();
+        assert_eq!(world_recency_ms(&td.path().join("nope")), 0);
     }
 }
