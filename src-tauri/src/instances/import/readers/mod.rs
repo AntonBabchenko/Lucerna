@@ -2,7 +2,10 @@
 //! `ForeignInstance`. The registry lists every reader for discovery and
 //! manual-folder detection.
 
+pub mod atlauncher;
+pub mod curseforge_app;
 pub(crate) mod loader_sniff;
+pub mod modrinth_app;
 pub mod prism;
 pub mod profile;
 pub mod raw_minecraft;
@@ -43,5 +46,31 @@ pub fn structured_readers() -> Vec<Box<dyn LauncherReader>> {
     vec![
         Box::new(prism::PrismReader),
         Box::new(profile::ProfileReader),
+        Box::new(curseforge_app::CurseforgeAppReader),
+        Box::new(atlauncher::AtlauncherReader),
+        Box::new(modrinth_app::ModrinthAppReader),
     ]
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::structured_readers;
+    use crate::instances::schema::ForeignLauncher;
+
+    #[test]
+    fn registry_includes_all_supported_launchers() {
+        let kinds: Vec<_> = structured_readers().iter().map(|r| r.launcher()).collect();
+        for expected in [
+            ForeignLauncher::Prism,
+            ForeignLauncher::MojangLauncher,
+            ForeignLauncher::CurseforgeApp,
+            ForeignLauncher::Atlauncher,
+            ForeignLauncher::ModrinthApp,
+        ] {
+            assert!(
+                kinds.contains(&expected),
+                "missing {expected:?} in {kinds:?}"
+            );
+        }
+    }
 }

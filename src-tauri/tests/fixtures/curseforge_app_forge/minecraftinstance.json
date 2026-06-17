@@ -1,0 +1,16 @@
+{
+  "name": "My CF Pack",
+  "gameVersion": "1.21.1",
+  "baseModLoader": {
+    "name": "forge-52.1.0",
+    "type": 1,
+    "minecraftVersion": "1.21.1",
+    "forgeVersion": "52.1.0"
+  },
+  "installedAddons": [
+    {
+      "addonID": 238222,
+      "installedFile": { "id": 5500001, "fileName": "jei-1.21.1.jar" }
+    }
+  ]
+}

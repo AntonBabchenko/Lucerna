@@ -26,6 +26,7 @@
   // ── step 1: discovery ──────────────────────────────────────────────────────
   let discovering = $state(true); // auto-scan kicks off on mount
   let discovered = $state<ForeignInstance[]>([]);
+  let emptyLaunchers = $state<ForeignInstance['source'][]>([]);
   let discoverError = $state<string | null>(null);
 
   async function discover() {
@@ -34,7 +35,8 @@
     try {
       const res = await commands.launcherImportDiscover();
       if (res.status === 'ok') {
-        discovered = res.data;
+        discovered = res.data.instances;
+        emptyLaunchers = res.data.empty_launchers;
       } else {
         discoverError = formatError(res.error);
       }
@@ -82,18 +84,11 @@
   let seededFor: ForeignInstance | null = null;
   let targetName = $state('');
 
-  // Generic `.minecraft` carries no version/loader metadata — the user
-  // supplies them. Seeded from the chosen instance (blank for raw).
+  // Version and loader fields are always shown pre-filled with detected values.
+  // For raw_minecraft they arrive blank; the user fills them in.
+  // All other sources arrive pre-seeded via $effect.pre below.
   let mcVersionInput = $state('');
   let loaderInput = $state<LoaderKind>('vanilla');
-  // Sources whose version/loader are unknown or only best-effort: the user
-  // confirms/corrects them. raw_minecraft arrives blank; the profile sources
-  // (Minecraft Launcher / TLauncher) arrive pre-seeded with detection.
-  const allowsVersionLoaderEdit = $derived(
-    chosen?.source === 'raw_minecraft' ||
-      chosen?.source === 'mojang_launcher' ||
-      chosen?.source === 'tlauncher',
-  );
   const LOADER_OPTIONS: { value: string; label: string }[] = [
     { value: 'vanilla', label: 'Vanilla' },
     { value: 'fabric', label: 'Fabric' },
@@ -196,19 +191,26 @@
       selected.size > 0 &&
       targetName.trim() !== '' &&
       !importing &&
-      (!allowsVersionLoaderEdit || mcVersionInput.trim() !== ''),
+      mcVersionInput.trim() !== '',
   );
 
   function doImport() {
     if (!chosen || !canImport) return;
     importing = true;
+    // Preserve the reader-detected loader build when the user keeps the
+    // detected loader; the backend applies loaderVersionOverride verbatim, so
+    // sending null here would wipe a detected build (e.g. NeoForge 20.4.251)
+    // and leave a modded import unlaunchable. A changed loader has no known
+    // build → null (resolution picks one later).
+    const loaderVersionOverride =
+      loaderInput === chosen.loader ? (chosen.loader_version ?? null) : null;
     enqueueLauncherImport(targetName.trim(), {
       foreign: chosen,
       selected: [...selected],
       targetName: targetName.trim(),
-      mcVersionOverride: allowsVersionLoaderEdit ? mcVersionInput.trim() : null,
-      loaderOverride: allowsVersionLoaderEdit ? loaderInput : null,
-      loaderVersionOverride: null,
+      mcVersionOverride: mcVersionInput.trim(),
+      loaderOverride: loaderInput,
+      loaderVersionOverride,
     });
     onClose();
   }
@@ -246,13 +248,27 @@
           <span>{discoverError}</span>
         </div>
       {:else if discovered.length === 0}
-        <div
-          class="flex flex-col items-center justify-center gap-2 py-12 text-center"
-          data-testid="discover-empty"
-        >
-          <Icon name="package" size={30} class="text-placeholder" />
-          <p class="max-w-xs text-sm text-muted">{$t('instances.import.discoverEmpty')}</p>
-        </div>
+        {#if emptyLaunchers.length > 0}
+          <div
+            class="flex flex-col items-center justify-center gap-2 py-12 text-center"
+            data-testid="discover-empty-found"
+          >
+            <Icon name="package" size={30} class="text-placeholder" />
+            <p class="max-w-xs text-sm text-muted">
+              {$t('instances.import.discoverEmptyFound', {
+                launchers: emptyLaunchers.map(sourceLabel).join(', '),
+              })}
+            </p>
+          </div>
+        {:else}
+          <div
+            class="flex flex-col items-center justify-center gap-2 py-12 text-center"
+            data-testid="discover-empty"
+          >
+            <Icon name="package" size={30} class="text-placeholder" />
+            <p class="max-w-xs text-sm text-muted">{$t('instances.import.discoverEmpty')}</p>
+          </div>
+        {/if}
       {:else}
         <ul class="space-y-2" data-testid="discovered-list">
           {#each discovered as inst (inst.root)}
@@ -352,45 +368,42 @@
         />
       </label>
 
-      <!-- Generic .minecraft: user supplies version + loader -->
-      {#if allowsVersionLoaderEdit}
-        <label class="block">
-          <span class="text-sm font-medium text-secondary"
-            >{$t('instances.import.mcVersionInputLabel')}</span
-          >
-          <div class="mt-1">
-            <McVersionCombobox
-              bind:value={mcVersionInput}
-              placeholder={$t('instances.import.mcVersionPlaceholder')}
-              dataTestid="mc-version-input"
-            />
-          </div>
-          {#if chosen?.source === 'raw_minecraft'}
-            <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span
-            >
-          {/if}
-        </label>
-        <div class="block">
-          <span class="text-sm font-medium text-secondary"
-            >{$t('instances.import.loaderInputLabel')}</span
-          >
-          <Select
-            class="mt-1 w-full"
-            value={loaderInput}
-            options={LOADER_OPTIONS}
-            onChange={(v) => (loaderInput = v as LoaderKind)}
-            ariaLabel={$t('instances.import.loaderInputLabel')}
-            dataTestid="loader-select"
+      <!-- Version + loader: always shown pre-filled; raw_minecraft arrives blank. -->
+      <label class="block">
+        <span class="text-sm font-medium text-secondary"
+          >{$t('instances.import.mcVersionInputLabel')}</span
+        >
+        <div class="mt-1">
+          <McVersionCombobox
+            bind:value={mcVersionInput}
+            placeholder={$t('instances.import.mcVersionPlaceholder')}
+            dataTestid="mc-version-input"
           />
         </div>
-        {#if showVanillaWithModsWarning}
-          <p
-            class="rounded-lg border border-warning-text bg-warning-bg px-3 py-2 text-sm text-warning-text"
-            data-testid="vanilla-mods-warning"
-          >
-            {$t('instances.import.vanillaWithModsWarning')}
-          </p>
+        {#if chosen?.source === 'raw_minecraft'}
+          <span class="mt-1 block text-xs text-muted">{$t('instances.import.mcVersionHint')}</span>
         {/if}
+      </label>
+      <div class="block">
+        <span class="text-sm font-medium text-secondary"
+          >{$t('instances.import.loaderInputLabel')}</span
+        >
+        <Select
+          class="mt-1 w-full"
+          value={loaderInput}
+          options={LOADER_OPTIONS}
+          onChange={(v) => (loaderInput = v as LoaderKind)}
+          ariaLabel={$t('instances.import.loaderInputLabel')}
+          dataTestid="loader-select"
+        />
+      </div>
+      {#if showVanillaWithModsWarning}
+        <p
+          class="rounded-lg border border-warning-text bg-warning-bg px-3 py-2 text-sm text-warning-text"
+          data-testid="vanilla-mods-warning"
+        >
+          {$t('instances.import.vanillaWithModsWarning')}
+        </p>
       {/if}
 
       <!-- Content categories -->

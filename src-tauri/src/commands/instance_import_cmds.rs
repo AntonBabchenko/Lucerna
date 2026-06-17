@@ -7,16 +7,17 @@ use tauri::ipc::Channel;
 use crate::error::Error;
 use crate::instances::import::discovery;
 use crate::instances::import::model::{
-    build_import_plan, ContentCategory, ForeignInstance, ImportProgress,
+    build_import_plan, ContentCategory, DiscoverResult, ForeignInstance, ImportProgress,
 };
 use crate::instances::import::pipeline;
 use crate::instances::schema::InstanceFile;
 
-/// Auto-discover importable instances across known launcher install paths.
+/// Auto-discover importable instances across known launcher install paths,
+/// plus launchers found-but-empty (for the empty-state message).
 #[tauri::command]
 #[specta::specta]
-pub async fn launcher_import_discover() -> Result<Vec<ForeignInstance>, Error> {
-    Ok(discovery::discover_all())
+pub async fn launcher_import_discover() -> Result<DiscoverResult, Error> {
+    Ok(discovery::discover_summary())
 }
 
 /// Inspect a single user-picked folder (manual fallback). Returns the
@@ -28,10 +29,11 @@ pub async fn launcher_import_inspect_folder(path: String) -> Result<ForeignInsta
         .ok_or(Error::ImportSourceUnrecognized { path })
 }
 
-/// Run the import. `mc_version_override` / `loader_override` are used for
-/// the generic `.minecraft` reader (which leaves them blank); for
-/// structured readers (Prism/MultiMC/PolyMC) the foreign instance already
-/// carries a version + loader and the overrides are ignored.
+/// Run the import. The wizard shows pre-filled, editable version/loader
+/// fields for every source, so `mc_version_override` / `loader_override`
+/// arrive populated (seeded from the detected values, possibly user-edited)
+/// and are applied when present. They are blank only for a bare `.minecraft`
+/// the user never filled — guarded below by the empty-version check.
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]

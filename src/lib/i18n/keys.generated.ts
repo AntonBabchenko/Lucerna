@@ -249,6 +249,7 @@ export type TranslationKey =
   | 'instances.import.dialogAriaLabel'
   | 'instances.import.discover'
   | 'instances.import.discoverEmpty'
+  | 'instances.import.discoverEmptyFound'
   | 'instances.import.discoverError'
   | 'instances.import.discoverSubtitle'
   | 'instances.import.discovering'

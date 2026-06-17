@@ -741,18 +741,22 @@ export const commands = {
 	 *  success; the `Done` event carries the resolved output path.
 	 */
 	exportModpack: (instanceId: string, options: ExportOptions, destPath: string, onProgress: Channel<ModpackExportProgress>) => typedError<null, Error>(__TAURI_INVOKE("export_modpack", { instanceId, options, destPath, onProgress })),
-	/**  Auto-discover importable instances across known launcher install paths. */
-	launcherImportDiscover: () => typedError<ForeignInstance[], Error>(__TAURI_INVOKE("launcher_import_discover")),
+	/**
+	 *  Auto-discover importable instances across known launcher install paths,
+	 *  plus launchers found-but-empty (for the empty-state message).
+	 */
+	launcherImportDiscover: () => typedError<DiscoverResult, Error>(__TAURI_INVOKE("launcher_import_discover")),
 	/**
 	 *  Inspect a single user-picked folder (manual fallback). Returns the
 	 *  normalized instance, or an error if the folder is unrecognized.
 	 */
 	launcherImportInspectFolder: (path: string) => typedError<ForeignInstance, Error>(__TAURI_INVOKE("launcher_import_inspect_folder", { path })),
 	/**
-	 *  Run the import. `mc_version_override` / `loader_override` are used for
-	 *  the generic `.minecraft` reader (which leaves them blank); for
-	 *  structured readers (Prism/MultiMC/PolyMC) the foreign instance already
-	 *  carries a version + loader and the overrides are ignored.
+	 *  Run the import. The wizard shows pre-filled, editable version/loader
+	 *  fields for every source, so `mc_version_override` / `loader_override`
+	 *  arrive populated (seeded from the detected values, possibly user-edited)
+	 *  and are applied when present. They are blank only for a bare `.minecraft`
+	 *  the user never filled — guarded below by the empty-version check.
 	 */
 	launcherImportRun: (foreign: ForeignInstance, selected: ContentCategory[], targetName: string, mcVersionOverride: string | null, loaderOverride: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null, loaderVersionOverride: string | null, onProgress: Channel<ImportProgress>) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("launcher_import_run", { foreign, selected, targetName, mcVersionOverride, loaderOverride, loaderVersionOverride, onProgress })),
 	/**
@@ -1148,6 +1152,16 @@ export type DiagnosisStatus =
 "advisory" | 
 /**  A fix was already applied for the current latest log. */
 "handled";
+
+/**
+ *  Result of an auto-discovery sweep. `empty_launchers` lists launchers whose
+ *  install root exists on disk but yielded no importable instance — so the UI
+ *  can say "found X, but nothing to import" instead of a generic empty state.
+ */
+export type DiscoverResult = {
+	instances: ForeignInstance[],
+	empty_launchers: ForeignLauncher[],
+};
 
 /**
  *  Progress event emitted during a download. The UI subscribes via

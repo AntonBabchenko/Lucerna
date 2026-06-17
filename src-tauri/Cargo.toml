@@ -88,6 +88,14 @@ ammonia = "4"
 # RustCrypto + sigstore-rs subtree (der/spki/x509-cert/p256/sha2/rustls-pki),
 # largely overlapping the existing reqwest-rustls tree; no new license class.
 sigstore-verify = "0.8.0"
+# Read-only access to Modrinth App's profile metadata (game version, loader)
+# which lives only in its SQLite `app.db` (WAL mode — a hand-rolled parser
+# would read stale frames, so a real driver is required). Opened
+# SQLITE_OPEN_READ_ONLY by the Modrinth import reader. cargo-deny
+# justification: rusqlite is mature and widely used; `bundled` compiles
+# SQLite from vendored C source (CI runners have a C toolchain), so there is
+# no system-sqlite dependency. License MIT.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process has
 # created its window before we hide the launcher to the tray. Used from

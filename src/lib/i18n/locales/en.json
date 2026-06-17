@@ -200,6 +200,7 @@
       "noContent": "Nothing importable was found in this folder.",
       "discovering": "Searching…",
       "discoverEmpty": "No launcher instances found. Try browsing to a specific folder.",
+      "discoverEmptyFound": "Found {launchers}, but there is nothing to import. Add a mod or world there, or browse to a folder.",
       "discoverError": "Could not discover instances",
       "browseFolder": "Browse to folder…",
       "sourcePrism": "Prism Launcher",

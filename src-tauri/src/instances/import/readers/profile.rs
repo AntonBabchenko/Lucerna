@@ -61,6 +61,41 @@ fn resolve_mc_version(minecraft_root: &Path, vj: Option<&VersionJson>) -> String
     detect_mc_version_hint(minecraft_root).unwrap_or_default()
 }
 
+/// Like `resolve_mc_version` but, when the JSON's own fields don't yield a
+/// version, mine the MC version from a loader library coordinate
+/// (`net.minecraftforge:forge:1.21.1-52.1.0` → `1.21.1`).
+fn resolve_mc_version_with_libs(minecraft_root: &Path, vj: Option<&VersionJson>) -> String {
+    let base = resolve_mc_version(minecraft_root, vj);
+    if !base.is_empty() {
+        return base;
+    }
+    if let Some(vj) = vj {
+        for lib in &vj.libraries {
+            if let Some(name) = lib.name.as_deref() {
+                if let Some(mc) = mc_version_from_lib_coord(name) {
+                    return mc;
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+/// MC version embedded in a loader library coordinate
+/// (`group:artifact:<mc>-<loader>`). Returns the version-like prefix before
+/// the first `-` in the coordinate's version segment.
+fn mc_version_from_lib_coord(coord: &str) -> Option<String> {
+    let version = coord.splitn(3, ':').nth(2)?;
+    // Only compound loader coords (`<mc>-<loader>`) carry the MC version. A
+    // plain dependency version (`com.mojang:logging:1.2.1`, no `-`) must NOT
+    // be mistaken for it, even though it is version-like.
+    if !version.contains('-') {
+        return None;
+    }
+    let head = version.split('-').next()?;
+    is_version_like(head).then(|| head.to_string())
+}
+
 /// Best-effort loader + version from a version JSON. Library coordinates
 /// give an exact version; `mainClass` / `id` markers give the kind only.
 /// Order matters: NeoForge before Forge ("neoforge" contains "forge").
@@ -140,11 +175,40 @@ fn source_for_root(minecraft_root: &Path) -> ForeignLauncher {
     }
 }
 
-/// True iff `<dir>/mods` exists and contains at least one entry.
-fn mods_dir_nonempty(dir: &Path) -> bool {
-    std::fs::read_dir(dir.join("mods"))
-        .map(|mut rd| rd.next().is_some())
-        .unwrap_or(false)
+/// True iff `dir` has any importable content (mods / saves / resourcepacks /
+/// shaderpacks). `config`/`options.txt`-only installs are intentionally
+/// excluded — they would clutter the list with essentially-empty folders.
+fn has_real_content(dir: &Path) -> bool {
+    use crate::instances::import::model::ContentCategory;
+    scan_content(dir).iter().any(|c| {
+        matches!(
+            c.category,
+            ContentCategory::Mods
+                | ContentCategory::Saves
+                | ContentCategory::ResourcePacks
+                | ContentCategory::Shaderpacks
+        )
+    })
+}
+
+/// Locate the single resolvable `versions/<name>/<name>.json` for a shared
+/// `.minecraft`: used when there is exactly one version dir carrying a JSON.
+/// Returns its parsed JSON. `None` when zero or many candidates exist.
+fn sole_version_json(minecraft_root: &Path) -> Option<VersionJson> {
+    let mut hit: Option<VersionJson> = None;
+    let rd = std::fs::read_dir(minecraft_root.join("versions")).ok()?;
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            if let Some(vj) = read_version_json(&p) {
+                if hit.is_some() {
+                    return None; // ambiguous: more than one
+                }
+                hit = Some(vj);
+            }
+        }
+    }
+    hit
 }
 
 /// A sensible instance name: a meaningful folder name (e.g. `test`) used
@@ -190,9 +254,17 @@ impl LauncherReader for ProfileReader {
     }
 
     fn read(&self, dir: &Path) -> Result<ForeignInstance> {
-        let vj = read_version_json(dir);
         let minecraft_root = minecraft_root_of(dir);
-        let mc_version = resolve_mc_version(&minecraft_root, vj.as_ref());
+        let vj = read_version_json(dir).or_else(|| {
+            // Shared `.minecraft` (no per-dir <name>.json): borrow the sole
+            // version JSON under versions/ for version + loader.
+            if dir.join("launcher_profiles.json").is_file() {
+                sole_version_json(&minecraft_root)
+            } else {
+                None
+            }
+        });
+        let mc_version = resolve_mc_version_with_libs(&minecraft_root, vj.as_ref());
         let (mut loader, loader_version) = vj
             .as_ref()
             .map(detect_loader)
@@ -227,10 +299,10 @@ impl LauncherReader for ProfileReader {
         let mut out = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
-        // The shared `.minecraft` itself — only when it carries mods directly
-        // (the TLauncher + Forge pattern). Vanilla worlds in a bare
-        // `.minecraft/saves` stay on the manual-pick RawMinecraft path.
-        if mods_dir_nonempty(root) && self.detect(root) {
+        // The shared `.minecraft` itself — when it carries any importable
+        // content directly (worlds-only vanilla as well as the modded
+        // TLauncher pattern). Bare/config-only installs stay hidden.
+        if has_real_content(root) && self.detect(root) {
             if let Ok(fi) = self.read(root) {
                 if seen.insert(fi.minecraft_dir.clone()) {
                     out.push(fi);
@@ -480,7 +552,9 @@ mod tests {
     }
 
     #[test]
-    fn expand_root_skips_shared_dir_without_mods() {
+    fn expand_root_surfaces_shared_dir_with_only_saves() {
+        // Previously skipped (only mods triggered import); now worlds-only
+        // installs must be detected too (the whole point of Task B1).
         let tmp = tempfile::tempdir().unwrap();
         let mc = tmp.path().join(".minecraft");
         std::fs::create_dir_all(mc.join("saves/New World")).unwrap();
@@ -491,7 +565,70 @@ mod tests {
         std::fs::write(v.join("26.1.2.json"), r#"{"id":"26.1.2"}"#).unwrap();
         std::fs::write(v.join("26.1.2.jar"), b"x").unwrap();
 
+        let found = ProfileReader.expand_root(&mc);
+        let shared = found
+            .iter()
+            .find(|f| f.minecraft_dir == mc)
+            .expect("worlds-only shared dir expected");
+        assert!(shared.name.starts_with("Minecraft"));
+        // Version resolves from the sole versions/<v>/<v>.json (id 26.1.2).
+        assert_eq!(shared.mc_version, "26.1.2");
+    }
+
+    #[test]
+    fn expand_root_skips_shared_dir_with_no_real_content() {
+        // A shared dir with only config/options.txt (no mods, saves, RPs, or
+        // shaders) must remain hidden — it's effectively a bare install.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("config")).unwrap();
+        std::fs::write(mc.join("config/some.cfg"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+
         assert!(ProfileReader.expand_root(&mc).is_empty());
+    }
+
+    #[test]
+    fn expand_root_includes_shared_dir_with_only_a_world() {
+        // A worlds-only TLauncher/official .minecraft (no mods) must surface.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("saves/World")).unwrap();
+        std::fs::write(mc.join("saves/World/level.dat"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+
+        let found = ProfileReader.expand_root(&mc);
+        assert!(
+            found.iter().any(|f| f.name.starts_with("Minecraft")),
+            "worlds-only shared dir expected, got: {:?}",
+            found.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn shared_dir_resolves_version_and_loader_from_single_version_json() {
+        // TLauncher: version dir name is not version-like and the JSON has no
+        // inheritsFrom; MC version comes from the forge library coordinate.
+        let tmp = tempfile::tempdir().unwrap();
+        let mc = tmp.path().join(".minecraft");
+        std::fs::create_dir_all(mc.join("mods")).unwrap();
+        std::fs::write(mc.join("mods/a.jar"), b"x").unwrap();
+        std::fs::write(mc.join("launcher_profiles.json"), "{}").unwrap();
+        let v = mc.join("versions/Forge 1.21.1");
+        std::fs::create_dir_all(&v).unwrap();
+        std::fs::write(
+            v.join("Forge 1.21.1.json"),
+            r#"{"id":"Forge 1.21.1","mainClass":"net.minecraftforge.bootstrap.ForgeBootstrap","libraries":[{"name":"net.minecraftforge:forge:1.21.1-52.1.0"}]}"#,
+        )
+        .unwrap();
+
+        let found = ProfileReader.expand_root(&mc);
+        let shared = found
+            .iter()
+            .find(|f| f.minecraft_dir == mc)
+            .expect("shared dir present");
+        assert_eq!(shared.mc_version, "1.21.1");
+        assert_eq!(shared.loader, LoaderKind::Forge);
     }
 
     #[test]
