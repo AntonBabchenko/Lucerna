@@ -10,6 +10,42 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-06-17
+
+### Added
+- **Real launcher log.** The "Launcher logs" group now captures a genuine
+  app-wide launcher log (`lucerna.log`); the game's captured stdout/stderr is
+  relabeled "Game console" so the two are no longer confused. Network errors
+  (429 / 5xx / unreachable host) are logged centrally at the network chokepoint.
+- **Wider import auto-detection.** Importing an existing instance now also
+  auto-detects the CurseForge App, ATLauncher, and the Modrinth App, plus a
+  Roaming `.minecraft`, with an empty-state when nothing is found.
+- **Auto-detect loader on import.** When importing a launcher instance, the mod
+  loader is now inferred from the `mods/` folder instead of defaulting to
+  Vanilla, with a warning when a Vanilla import still carries mods.
+- **Latest-bound crash diagnosis.** Log diagnosis now binds to the most recent
+  log, the out-of-memory fix is idempotent (no more repeated doubling), and the
+  result surfaces consistently in a banner, a sidebar badge, and Overview.
+- **Single-instance guard.** Launching Lucerna while it is already running now
+  focuses the existing window instead of opening a second copy.
+
+### Changed
+- **Honest CurseForge key errors.** A failing CurseForge key check now
+  distinguishes an unreachable host and a region block (Cloudflare) from an
+  actually invalid key, instead of always reporting "invalid key".
+
+### Fixed
+- Dependency pre-flight now reads Fabric/Quilt nested jars and their `provides`,
+  fixing a false "not installed" for bundled dependencies.
+- The compatibility-check list scrolls instead of overflowing the window.
+- Hash-enrichment no longer backfills a loader/MC-mismatched version.
+- The expanded window's minimum-height floor holds from a cold start.
+- The onboarding tour's Skip button is a real, properly aligned button with the
+  full "Пропустить обучение" label and an even footer gap — no more link-style
+  or wrapped text.
+- Settings shows a proper ". " separator between the CurseForge replace-key
+  action and its hint.
+
 ## [0.13.0] — 2026-06-16
 
 ### Added
