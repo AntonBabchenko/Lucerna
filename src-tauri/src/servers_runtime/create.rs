@@ -6,17 +6,11 @@ use crate::error::{Error, Result};
 use crate::servers_runtime::schema::ServerFile;
 use std::path::Path;
 
-/// Собрать vanilla-сервер по уже разрешённым `jar_url`/`sha1`.
-///
-/// Последовательность:
-/// 1. Проверить согласие с EULA (иначе `ServerEulaNotAccepted`).
-/// 2. Создать директорию `<base>/servers/<id>/runtime/`.
-/// 3. Записать `server.json`.
-/// 4. Скачать `server.jar` в `runtime/server.jar`, проверив SHA-1.
-/// 5. Записать `eula.txt`.
-///
-/// `base` = корень app-data (например, `%APPDATA%/com.lucerna.app`).
-pub async fn create_vanilla_server(
+// ---------------------------------------------------------------- shared helpers
+
+/// Общая сборка «готовый jar»: server.json + скачать jar + eula.txt.
+/// `sha1` = "" означает пропустить SHA-верификацию (Fabric/Quilt не предоставляют).
+async fn create_prebuilt_server(
     base: &Path,
     file: &ServerFile,
     jar_url: &str,
@@ -34,6 +28,97 @@ pub async fn create_vanilla_server(
         "servers",
     )
     .await?;
+    crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------- vanilla
+
+/// Собрать vanilla-сервер по уже разрешённым `jar_url`/`sha1`.
+///
+/// Последовательность:
+/// 1. Проверить согласие с EULA (иначе `ServerEulaNotAccepted`).
+/// 2. Создать директорию `<base>/servers/<id>/runtime/`.
+/// 3. Записать `server.json`.
+/// 4. Скачать `server.jar` в `runtime/server.jar`, проверив SHA-1.
+/// 5. Записать `eula.txt`.
+///
+/// `base` = корень app-data (например, `%APPDATA%/com.lucerna.app`).
+pub async fn create_vanilla_server(
+    base: &Path,
+    file: &ServerFile,
+    jar_url: &str,
+    sha1: &str,
+) -> Result<()> {
+    create_prebuilt_server(base, file, jar_url, sha1).await
+}
+
+// ---------------------------------------------------------------- Fabric / Quilt
+
+/// Fabric: server-launcher jar готов с meta-эндпоинта (sha не предоставляется → "").
+pub async fn create_fabric_server(base: &Path, file: &ServerFile, jar_url: &str) -> Result<()> {
+    create_prebuilt_server(base, file, jar_url, "").await
+}
+
+/// Quilt: идентично Fabric, другой URL.
+pub async fn create_quilt_server(base: &Path, file: &ServerFile, jar_url: &str) -> Result<()> {
+    create_prebuilt_server(base, file, jar_url, "").await
+}
+
+// ---------------------------------------------------------------- installer version fetchers
+
+#[derive(serde::Deserialize)]
+struct InstallerEntry {
+    version: String,
+    #[serde(default)]
+    stable: bool,
+}
+
+fn pick_installer(json: &str) -> Result<String> {
+    let list: Vec<InstallerEntry> = serde_json::from_str(json)
+        .map_err(|e| Error::io("<installer-meta>", format!("parse: {e}")))?;
+    list.iter()
+        .find(|e| e.stable)
+        .or_else(|| list.first())
+        .map(|e| e.version.clone())
+        .ok_or_else(|| Error::ServerJarUnavailable {
+            loader: "fabric/quilt".into(),
+            mc_version: String::new(),
+            reason: "no installer versions returned".into(),
+        })
+}
+
+async fn latest_installer(meta_url: &str) -> Result<String> {
+    let body = crate::network::get_text(meta_url, "servers").await?;
+    pick_installer(&body)
+}
+
+pub async fn latest_fabric_installer() -> Result<String> {
+    latest_installer("https://meta.fabricmc.net/v2/versions/installer").await
+}
+
+pub async fn latest_quilt_installer() -> Result<String> {
+    latest_installer("https://meta.quiltmc.org/v3/versions/installer").await
+}
+
+// ---------------------------------------------------------------- Forge / NeoForge
+
+/// Forge/NeoForge: качаем installer, запускаем `--installServer` в runtime/.
+pub async fn create_installer_server(
+    base: &Path,
+    file: &ServerFile,
+    installer_url: &str,
+    java_bin: &std::path::Path,
+    loader_label: &str,
+) -> Result<()> {
+    crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
+    let p = crate::paths::server_paths(base, &file.id);
+    std::fs::create_dir_all(&p.runtime)
+        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
+    crate::servers_runtime::store::write_server_json(&p.json, file)?;
+    let installer = p.runtime.join("installer.jar");
+    crate::network::download::download_no_emit(installer_url, &installer, "", "servers").await?;
+    crate::process::install_server(java_bin, &installer, &p.runtime, loader_label).await?;
     crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
     Ok(())
 }
@@ -94,6 +179,18 @@ pub fn copy_instance_mods(src: &Path, dest: &Path) -> Result<usize> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn pick_installer_prefers_stable() {
+        let json = r#"[{"version":"1.0.2","stable":false},{"version":"1.0.1","stable":true}]"#;
+        assert_eq!(super::pick_installer(json).unwrap(), "1.0.1");
+    }
+
+    #[test]
+    fn pick_installer_falls_back_to_first() {
+        let json = r#"[{"version":"9.9","stable":false}]"#;
+        assert_eq!(super::pick_installer(json).unwrap(), "9.9");
+    }
 
     #[test]
     fn copies_only_jars_into_dest_mods() {

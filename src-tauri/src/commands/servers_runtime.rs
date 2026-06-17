@@ -1,13 +1,23 @@
 //! Tauri-команды фичи «Свой сервер» (План 1: создание/список/удаление).
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
 use crate::servers_runtime::schema::{ServerFile, ServerWithStatus};
 use crate::servers_runtime::{create, store};
 use tauri::AppHandle;
 
-/// Создать vanilla-сервер: разрешить jar через манифест Mojang, скачать,
-/// записать `server.json` + `eula.txt`. Другие лоадеры добавляются в Задаче 12.
+fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
+    file.loader_version
+        .clone()
+        .ok_or_else(|| Error::ServerJarUnavailable {
+            loader: loader.to_string(),
+            mc_version: file.mc_version.clone(),
+            reason: "loader_version required".into(),
+        })
+}
+
+/// Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
+/// записать `server.json` + `eula.txt`.
 #[tauri::command]
 #[specta::specta]
 pub async fn server_create(
@@ -20,7 +30,7 @@ pub async fn server_create(
     eula_accepted: bool,
     created_from_instance: Option<String>,
 ) -> Result<ServerWithStatus> {
-    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let id = format!("srv-{}", crate::instances::ids::new_id());
     let file = ServerFile {
         id,
@@ -34,9 +44,49 @@ pub async fn server_create(
         eula_accepted,
         created_from_instance,
     };
-    // Plan 1: vanilla only. Other loaders will be wired in Task 12.
-    let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
-    create::create_vanilla_server(&base, &file, &jar_url, &sha1).await?;
+    match file.loader {
+        LoaderKind::Vanilla => {
+            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
+            create::create_vanilla_server(&base, &file, &jar_url, &sha1).await?;
+        }
+        LoaderKind::Fabric => {
+            let installer = create::latest_fabric_installer().await?;
+            let lv = require_loader_version(&file, "fabric")?;
+            let url = crate::servers_runtime::jar::fabric_server_jar_url(
+                &file.mc_version,
+                &lv,
+                &installer,
+            );
+            create::create_fabric_server(&base, &file, &url).await?;
+        }
+        LoaderKind::Quilt => {
+            let installer = create::latest_quilt_installer().await?;
+            let lv = require_loader_version(&file, "quilt")?;
+            let url = crate::servers_runtime::jar::quilt_server_jar_url(
+                &file.mc_version,
+                &lv,
+                &installer,
+            );
+            create::create_quilt_server(&base, &file, &url).await?;
+        }
+        LoaderKind::Forge | LoaderKind::NeoForge => {
+            let lv = require_loader_version(&file, "forge/neoforge")?;
+            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
+                (
+                    crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
+                    "forge",
+                )
+            } else {
+                (
+                    crate::servers_runtime::jar::neoforge_installer_url(&lv),
+                    "neoforge",
+                )
+            };
+            let java_bin =
+                crate::jre::java_executable_path(crate::jre::DEFAULT_LEGACY_COMPONENT, &app)?;
+            create::create_installer_server(&base, &file, &url, &java_bin, label).await?;
+        }
+    }
     Ok(ServerWithStatus::from_file(&file, false, None, None))
 }
 
