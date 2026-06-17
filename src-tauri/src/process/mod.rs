@@ -58,6 +58,45 @@ pub async fn run_java_processor(
     Ok(())
 }
 
+/// Запустить Forge/NeoForge installer: `java -jar <installer> --installServer`
+/// в `work_dir`, дождаться, смапить spawn-failure/non-zero в
+/// `Error::ServerInstallerFailed`. Installer генерирует серверную раскладку
+/// (`libraries/`, run-скрипты / `@args`) прямо в `work_dir`.
+pub async fn install_server(
+    java_bin: &Path,
+    installer_jar: &Path,
+    work_dir: &Path,
+    loader_label: &str,
+) -> Result<()> {
+    let mut cmd = tokio::process::Command::new(java_bin);
+    cmd.arg("-jar")
+        .arg(installer_jar)
+        .arg("--installServer")
+        .current_dir(work_dir);
+
+    eprintln!(
+        "process: install_server ({loader_label}) {} in {}",
+        installer_jar.display(),
+        work_dir.display()
+    );
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| Error::ServerInstallerFailed {
+            loader: loader_label.to_string(),
+            details: format!("spawn java: {e}"),
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::ServerInstallerFailed {
+            loader: loader_label.to_string(),
+            details: format!("installer exit {}: {}", output.status, stderr.trim()),
+        });
+    }
+    Ok(())
+}
+
 /// Spawn the Minecraft client (`javaw`/`java`). Returns the `Child` so
 /// the caller owns lifecycle and the exit watcher. stdout+stderr are
 /// redirected to the launch-log file handles supplied by the caller;
@@ -129,7 +168,24 @@ pub fn taskkill_tree(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn install_server_missing_java_errors() {
+        let dir = tempdir().unwrap();
+        let r = install_server(
+            Path::new("nonexistent-java-xyz"),
+            Path::new("installer.jar"),
+            dir.path(),
+            "forge",
+        )
+        .await;
+        assert!(
+            matches!(r, Err(Error::ServerInstallerFailed { .. })),
+            "got: {r:?}"
+        );
+    }
 
     #[tokio::test]
     async fn run_java_processor_missing_binary_errors() {

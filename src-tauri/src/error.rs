@@ -331,6 +331,10 @@ pub enum Error {
         mc_version: String,
         reason: String,
     },
+
+    /// installServer (Forge/NeoForge) упал или не запустился.
+    #[error("server installer failed for {loader}: {details}")]
+    ServerInstallerFailed { loader: String, details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
