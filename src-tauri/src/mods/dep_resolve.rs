@@ -4,8 +4,9 @@
 
 use std::future::Future;
 
-use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps};
+use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps, DepSide};
 use crate::mods::platform::ModVersion;
+use std::collections::HashSet;
 
 /// Case- and `_`/`-`-insensitive id normalization for cross-source matching.
 fn norm_id(id: &str) -> String {
@@ -98,6 +99,55 @@ where
     DepResolution::Unresolved {
         query: dep_id.to_string(),
     }
+}
+
+/// A manifest-discovered required dependency the platform metadata omitted,
+/// resolved to an installable candidate. `needed_id` is verified against the
+/// downloaded jar at install time.
+#[derive(Debug, Clone)]
+pub struct ExtraRoot {
+    pub needed_id: String,
+    pub candidate: ModVersion,
+}
+
+/// Read a primary jar's manifest and resolve every *required* dependency it
+/// declares (dropping server-only and loader/MC ids — the latter already
+/// excluded by `read_jar_manifest_deps`). `resolve` is called once per distinct
+/// dep-id. Returns resolved candidates and the dep-ids that could not be
+/// resolved. Best-effort: an unreadable jar yields empty vecs.
+pub async fn manifest_extra_roots<F, Fut>(
+    primary_bytes: &[u8],
+    mut resolve: F,
+) -> (Vec<ExtraRoot>, Vec<String>)
+where
+    F: FnMut(String) -> Fut,
+    Fut: Future<Output = DepResolution>,
+{
+    let Ok(manifest) = read_jar_manifest_deps(primary_bytes) else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut resolved = Vec::new();
+    let mut unresolved = Vec::new();
+    for dep in manifest.deps {
+        if !dep.required || dep.side == DepSide::Server {
+            continue;
+        }
+        if !seen.insert(norm_id(&dep.dep_id)) {
+            continue;
+        }
+        match resolve(dep.dep_id.clone()).await {
+            DepResolution::Resolved {
+                candidate,
+                needed_id,
+            } => resolved.push(ExtraRoot {
+                needed_id,
+                candidate,
+            }),
+            DepResolution::Unresolved { query } => unresolved.push(query),
+        }
+    }
+    (resolved, unresolved)
 }
 
 #[cfg(test)]
@@ -247,5 +297,64 @@ mod tests {
         )
         .await;
         assert!(matches!(r, DepResolution::Unresolved { .. }));
+    }
+
+    #[tokio::test]
+    async fn manifest_extra_roots_resolves_only_unforgotten_required_deps() {
+        let waystones = jar(&[(
+            "META-INF/neoforge.mods.toml",
+            b"[[mods]]\nmodId=\"waystones\"\n\
+              [[dependencies.waystones]]\nmodId=\"balm\"\ntype=\"required\"\nversionRange=\"[9.0.0,)\"\n\
+              [[dependencies.waystones]]\nmodId=\"jei\"\ntype=\"optional\"\n\
+              [[dependencies.waystones]]\nmodId=\"srv\"\ntype=\"required\"\nside=\"SERVER\"\n",
+        )]);
+
+        let (resolved, unresolved) = manifest_extra_roots(&waystones, |id| {
+            let id2 = id.clone();
+            async move {
+                if id2 == "balm" {
+                    DepResolution::Resolved {
+                        candidate: mv(crate::mods::platform::ModSource::Modrinth, "balm"),
+                        needed_id: "balm".into(),
+                    }
+                } else {
+                    DepResolution::Unresolved { query: id2 }
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(resolved.len(), 1, "{resolved:?}");
+        assert_eq!(resolved[0].needed_id, "balm");
+        assert_eq!(resolved[0].candidate.project_id, "balm");
+        assert!(unresolved.is_empty(), "{unresolved:?}");
+    }
+
+    #[tokio::test]
+    async fn manifest_extra_roots_collects_unresolved_ids() {
+        let m = jar(&[(
+            "fabric.mod.json",
+            br#"{"id":"mymod","depends":{"weirdlib":"*"}}"#,
+        )]);
+        let (resolved, unresolved) =
+            manifest_extra_roots(
+                &m,
+                |id| async move { DepResolution::Unresolved { query: id } },
+            )
+            .await;
+        assert!(resolved.is_empty());
+        assert_eq!(unresolved, vec!["weirdlib"]);
+    }
+
+    #[tokio::test]
+    async fn manifest_extra_roots_empty_for_descriptorless_jar() {
+        let m = jar(&[("foo.txt", b"x")]);
+        let (resolved, unresolved) =
+            manifest_extra_roots(
+                &m,
+                |id| async move { DepResolution::Unresolved { query: id } },
+            )
+            .await;
+        assert!(resolved.is_empty() && unresolved.is_empty());
     }
 }
