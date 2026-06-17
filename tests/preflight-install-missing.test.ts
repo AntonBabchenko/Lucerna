@@ -11,7 +11,7 @@ describe('installMissing', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns installed outcome on success', async () => {
-    (commands.modsInstallMissingRequired as any).mockResolvedValue({
+    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
       status: 'ok',
       data: { kind: 'installed', name: 'Balm' },
     });
@@ -21,7 +21,7 @@ describe('installMissing', () => {
   });
 
   it('returns open_search outcome so the caller can open search', async () => {
-    (commands.modsInstallMissingRequired as any).mockResolvedValue({
+    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
       status: 'ok',
       data: { kind: 'open_search', query: 'balm' },
     });
@@ -30,7 +30,7 @@ describe('installMissing', () => {
   });
 
   it('maps an IPC error to an open_search fallback (never throws)', async () => {
-    (commands.modsInstallMissingRequired as any).mockResolvedValue({
+    vi.mocked(commands.modsInstallMissingRequired).mockResolvedValue({
       status: 'error',
       error: { kind: 'mods_network', url: 'x', details: 'y' },
     });
