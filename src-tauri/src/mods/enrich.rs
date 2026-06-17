@@ -182,18 +182,18 @@ async fn resolve_modrinth(base: &str, shas: &[String]) -> (HashMap<String, MrMat
     {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[enrich] modrinth version_files query failed: {e}");
+            crate::diag!("[enrich] modrinth version_files query failed: {e}");
             return (out, false);
         }
     };
     if !(200..300).contains(&resp.status) {
-        eprintln!("[enrich] modrinth version_files HTTP {}", resp.status);
+        crate::diag!("[enrich] modrinth version_files HTTP {}", resp.status);
         return (out, false);
     }
     let map: HashMap<String, MrVersionLite> = match serde_json::from_slice(&resp.body) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("[enrich] modrinth version_files decode failed: {e}");
+            crate::diag!("[enrich] modrinth version_files decode failed: {e}");
             return (out, false);
         }
     };
@@ -290,18 +290,18 @@ async fn resolve_curseforge(
     {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[enrich] curseforge fingerprints query failed: {e}");
+            crate::diag!("[enrich] curseforge fingerprints query failed: {e}");
             return (out, false);
         }
     };
     if !(200..300).contains(&resp.status) {
-        eprintln!("[enrich] curseforge fingerprints HTTP {}", resp.status);
+        crate::diag!("[enrich] curseforge fingerprints HTTP {}", resp.status);
         return (out, false);
     }
     let parsed: CfFingerprintEnvelope = match serde_json::from_slice(&resp.body) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("[enrich] curseforge fingerprints decode failed: {e}");
+            crate::diag!("[enrich] curseforge fingerprints decode failed: {e}");
             return (out, false);
         }
     };
@@ -366,7 +366,7 @@ async fn enrich_selected(
                 fingerprints.push((curseforge_fingerprint(&bytes), m.sha1.to_ascii_lowercase()));
             }
             Err(e) => {
-                eprintln!(
+                crate::diag!(
                     "[enrich] cannot read {} for fingerprinting: {e}",
                     path.display()
                 );

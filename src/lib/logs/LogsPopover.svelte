@@ -366,8 +366,25 @@
         return $t('logs.severity.game');
       case 'crash':
         return $t('logs.severity.crash');
+      case 'game_console':
+        return $t('logs.severity.gameConsole');
       case 'launcher':
         return $t('logs.severity.launcher');
+      default:
+        return s;
+    }
+  }
+
+  /** Optional one-line hint shown under a group header. Empty for groups that
+   *  need no explanation. */
+  function sourceHint(s: LogSource): string {
+    switch (s) {
+      case 'game_console':
+        return $t('logs.sourceHint.gameConsole');
+      case 'launcher':
+        return $t('logs.sourceHint.launcher');
+      default:
+        return '';
     }
   }
 
@@ -394,9 +411,10 @@
   // ---------------------------------------------------------------------------
 
   let groupedFiles = $derived(
-    (['game', 'crash', 'launcher'] as LogSource[]).map((src) => ({
+    (['game', 'game_console', 'crash', 'launcher'] as LogSource[]).map((src) => ({
       source: src,
       label: sourceLabel(src),
+      hint: sourceHint(src),
       items: files.filter((f) => f.source === src),
     })),
   );
@@ -878,9 +896,12 @@
           {:else}
             {#each groupedFiles as group}
               {#if group.items.length > 0}
-                <h3 class="px-3 pt-2 pb-1 text-xs font-semibold uppercase text-muted">
+                <h3 class="px-3 pt-2 pb-0.5 text-xs font-semibold uppercase text-muted">
                   {group.label}
                 </h3>
+                {#if group.hint}
+                  <p class="px-3 pb-1 text-[11px] leading-snug text-muted/80">{group.hint}</p>
+                {/if}
                 <ul>
                   {#each group.items as f}
                     <li

@@ -100,7 +100,7 @@ pub async fn verify_instance(
     // Best-effort: a successful verify/repair is valuable even if we can't
     // persist the badge status. Log, don't fail the command.
     if let Err(e) = persist_integrity(&app, &instance_id, &report) {
-        eprintln!("verify: failed to persist integrity for {instance_id}: {e}");
+        crate::diag!("verify: failed to persist integrity for {instance_id}: {e}");
     }
     Ok(report)
 }
@@ -126,7 +126,7 @@ pub async fn repair_instance(
     // Best-effort: a successful verify/repair is valuable even if we can't
     // persist the badge status. Log, don't fail the command.
     if let Err(e) = persist_integrity(&app, &instance_id, &report) {
-        eprintln!("verify: failed to persist integrity for {instance_id}: {e}");
+        crate::diag!("verify: failed to persist integrity for {instance_id}: {e}");
     }
     Ok(report)
 }

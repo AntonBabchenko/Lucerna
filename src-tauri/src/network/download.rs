@@ -57,14 +57,19 @@ pub(crate) async fn download_inner(
     mut emit: impl FnMut(DownloadProgress),
 ) -> Result<String> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
-    let resp = http()
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| Error::network(url, e))?;
+    let resp = http().get(url).send().await.map_err(|e| {
+        crate::diag!(
+            "network: {initiator} download {url} — request failed (source unreachable?): {e}"
+        );
+        Error::network(url, e)
+    })?;
 
     let status = resp.status();
     if !status.is_success() {
+        // A download is fetching a concrete artifact, so any non-success
+        // (incl. 404 = missing file, 429 = rate-limited, 5xx = outage) is a
+        // real failure worth recording.
+        crate::diag!("network: {initiator} download {url} — HTTP {status}");
         return Err(Error::network(url, format!("HTTP {status}")));
     }
 
@@ -84,7 +89,10 @@ pub(crate) async fn download_inner(
     let mut bytes_done: f64 = 0.0;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| Error::network(url, e))?;
+        let chunk = chunk.map_err(|e| {
+            crate::diag!("network: {initiator} download {url} — interrupted mid-stream: {e}");
+            Error::network(url, e)
+        })?;
         sha1_hasher.update(&chunk);
         if matches!(checksum, Checksum::Md5(_)) {
             md5_hasher.update(&chunk);

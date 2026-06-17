@@ -250,7 +250,7 @@ fn inject_patched_library_if_missing(
     // but the bootstrap auto-discovery makes our injection redundant
     // for all NeoForge versions.
     if patched_coord.starts_with("net.neoforged:") {
-        eprintln!(
+        crate::diag!(
             "neoforge: skipping {{PATCHED}} injection ({patched_coord}) — bootstrap auto-discovers"
         );
         return Ok(());
@@ -274,7 +274,7 @@ fn inject_patched_library_if_missing(
         natives: None,
         rules: None,
     });
-    eprintln!("forge: injected {{PATCHED}} library entry ({patched_coord}) (ADDENDUM D)");
+    crate::diag!("forge: injected {{PATCHED}} library entry ({patched_coord}) (ADDENDUM D)");
     Ok(())
 }
 

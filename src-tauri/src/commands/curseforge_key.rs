@@ -61,7 +61,7 @@ pub async fn mods_set_curseforge_key(
     let instances = match crate::instances::list_instances_with_status(&app) {
         Ok(xs) => xs,
         Err(e) => {
-            eprintln!("[mods_set_curseforge_key] could not list instances for reset: {e}");
+            crate::diag!("[mods_set_curseforge_key] could not list instances for reset: {e}");
             return Ok(());
         }
     };
@@ -69,7 +69,7 @@ pub async fn mods_set_curseforge_key(
         let root = match crate::paths::instance_dir(&app, &inst.id) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!(
+                crate::diag!(
                     "[mods_set_curseforge_key] no instance_dir for {}: {e}",
                     inst.id
                 );
@@ -79,7 +79,7 @@ pub async fn mods_set_curseforge_key(
         if let Err(e) =
             crate::mods::installed::reset_enrichment_attempts_for_unresolved(&root).await
         {
-            eprintln!(
+            crate::diag!(
                 "[mods_set_curseforge_key] reset failed for {}: {e}",
                 inst.id
             );

@@ -1,6 +1,6 @@
 //! Scan `<app_data_dir>/instances/` and return every parseable
 //! `instance.json`. Corrupted entries (unparseable JSON, missing file)
-//! are logged with `eprintln!` and skipped — the UI sees a smaller list
+//! are logged with `diag!` and skipped — the UI sees a smaller list
 //! rather than an error.
 //!
 //! Filesystem is the source of truth for "which instances exist". No
@@ -17,13 +17,13 @@ use std::path::Path;
 ///
 /// Missing `instances_dir` → empty vec (fresh install, no instances
 /// folder created yet). I/O errors enumerating the dir → empty vec
-/// with `eprintln!` warning.
+/// with `diag!` warning.
 pub fn list_all(instances_dir: &Path) -> Vec<InstanceFile> {
     let entries = match std::fs::read_dir(instances_dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
         Err(e) => {
-            eprintln!(
+            crate::diag!(
                 "[instances::scan] cannot read {}: {e}",
                 instances_dir.display()
             );
@@ -40,7 +40,7 @@ pub fn list_all(instances_dir: &Path) -> Vec<InstanceFile> {
         match read_instance_json(&json_path) {
             Ok(file) => out.push(file),
             Err(e) => {
-                eprintln!("[instances::scan] skipping {}: {e}", json_path.display());
+                crate::diag!("[instances::scan] skipping {}: {e}", json_path.display());
             }
         }
     }

@@ -60,7 +60,7 @@ async fn register_asset_if_applicable(
         chrono::Utc::now().to_rfc3339(),
     );
     if let Err(e) = crate::mods::assets::add(instance_root, asset).await {
-        eprintln!("[modpack::import] asset registry add failed (non-fatal): {e}");
+        crate::diag!("[modpack::import] asset registry add failed (non-fatal): {e}");
     }
 }
 
@@ -869,7 +869,7 @@ pub async fn install_resolved_pack(
     // event below only reaches the live import toast).
     origin.skipped_overrides = skipped_overrides.clone();
     if let Err(e) = crate::mods::installed::set_pack_origin(&instance_root, origin).await {
-        eprintln!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
+        crate::diag!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
     }
 
     // Final phase: hash-enrich the override-bundled mods so the
@@ -886,7 +886,7 @@ pub async fn install_resolved_pack(
     )
     .await
     {
-        eprintln!("[modpack::import] enrich_instance failed (non-fatal): {e}");
+        crate::diag!("[modpack::import] enrich_instance failed (non-fatal): {e}");
     }
 
     on_progress(ModpackProgress::Done {

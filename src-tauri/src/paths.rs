@@ -18,6 +18,13 @@ pub fn versions_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("versions"))
 }
 
+/// App-wide directory for the launcher's own log (`lucerna.log`). Distinct
+/// from the per-instance `instance_logs_dir` (which holds the captured game
+/// console output). Surfaced as the "Launcher logs" group in the Logs viewer.
+pub fn app_logs_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("logs"))
+}
+
 pub fn jres_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("jres"))
 }

@@ -125,14 +125,14 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
     let path = match crate::paths::app_file(app) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("tray: skipping hide — no app.json path: {e}");
+            crate::diag!("tray: skipping hide — no app.json path: {e}");
             return;
         }
     };
     let settings = match crate::instances::store::read_app_json(&path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("tray: skipping hide — read failed: {e}");
+            crate::diag!("tray: skipping hide — read failed: {e}");
             return;
         }
     };
@@ -153,11 +153,11 @@ fn maybe_schedule_hide_to_tray(app: &tauri::AppHandle, pid: u32) {
         let app_for_hide = app_clone.clone();
         let res = app_clone.run_on_main_thread(move || {
             if let Err(e) = crate::tray::hide_to_tray(&app_for_hide) {
-                eprintln!("tray: hide failed — leaving window visible: {e}");
+                crate::diag!("tray: hide failed — leaving window visible: {e}");
             }
         });
         if let Err(e) = res {
-            eprintln!("tray: run_on_main_thread failed: {e}");
+            crate::diag!("tray: run_on_main_thread failed: {e}");
         }
     });
 }
@@ -174,7 +174,7 @@ fn note_session_end() {
     let delta_ms = (end - start.started_unix_ms).max(0) as u64;
     let seconds = delta_ms / 1000;
     if let Err(e) = crate::playtime::record_session_at(&start.instance_root, seconds) {
-        eprintln!(
+        crate::diag!(
             "playtime: failed to record session at {}: {e}",
             start.instance_root.display()
         );
@@ -322,7 +322,7 @@ pub async fn start(
         .unwrap_or_default();
     // Windows: keep the registry entry for THIS javaw in sync with the setting.
     if let Err(e) = crate::platform::gpu::sync_for_exe(&java_path, gpu_pref) {
-        eprintln!("gpu: registry sync failed for {}: {e}", java_path.display());
+        crate::diag!("gpu: registry sync failed for {}: {e}", java_path.display());
     }
     // Linux: env vars on the child (empty elsewhere).
     let gpu_env = crate::platform::gpu::launch_env(gpu_pref);
@@ -404,7 +404,7 @@ pub async fn start(
         if let Err(e) =
             crate::logs::retention::apply_from_settings(&app_clone, &instance_id_for_retention)
         {
-            eprintln!("log-retention: cleanup failed for {instance_id_for_retention}: {e}");
+            crate::diag!("log-retention: cleanup failed for {instance_id_for_retention}: {e}");
         }
         // Restore window from tray. Idempotent — no-op when the window
         // was never hidden (hide_to_tray_during_game was off).
@@ -419,11 +419,11 @@ pub async fn start(
         let app_for_restore = app_clone.clone();
         let res = app_clone.run_on_main_thread(move || {
             if let Err(e) = crate::tray::restore_from_tray(&app_for_restore) {
-                eprintln!("tray: restore failed: {e}");
+                crate::diag!("tray: restore failed: {e}");
             }
         });
         if let Err(e) = res {
-            eprintln!("tray: run_on_main_thread (restore) failed: {e}");
+            crate::diag!("tray: run_on_main_thread (restore) failed: {e}");
         }
     });
 

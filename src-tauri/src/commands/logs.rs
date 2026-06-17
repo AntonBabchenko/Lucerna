@@ -510,8 +510,9 @@ pub fn delete_log_file(app: tauri::AppHandle, path: String) -> Result<(), crate:
     Ok(())
 }
 
-/// Delete every old log for `instance_id` (all 3 roots) except
-/// `latest.log` / `debug.log`. Returns how many files / bytes were removed.
+/// Delete every old log for `instance_id` across the log roots except the
+/// protected game logs (`latest.log` / `debug.log`) and the launcher's own
+/// `lucerna.log`. Returns how many files / bytes were removed.
 #[tauri::command]
 #[specta::specta]
 pub fn clear_old_logs(

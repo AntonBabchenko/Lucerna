@@ -248,8 +248,9 @@ export const commands = {
 	 */
 	deleteLogFile: (path: string) => typedError<null, Error>(__TAURI_INVOKE("delete_log_file", { path })),
 	/**
-	 *  Delete every old log for `instance_id` (all 3 roots) except
-	 *  `latest.log` / `debug.log`. Returns how many files / bytes were removed.
+	 *  Delete every old log for `instance_id` across the log roots except the
+	 *  protected game logs (`latest.log` / `debug.log`) and the launcher's own
+	 *  `lucerna.log`. Returns how many files / bytes were removed.
 	 */
 	clearOldLogs: (instanceId: string) => typedError<CleanupResult, Error>(__TAURI_INVOKE("clear_old_logs", { instanceId })),
 	/**
@@ -1565,7 +1566,15 @@ export type LogRetentionPolicy = {
 	max_total_mb?: number,
 };
 
-export type LogSource = "game" | "crash" | "launcher";
+export type LogSource = "game" | "crash" | 
+/**
+ *  The game process's captured stdout/stderr (`instances/<id>/logs/`) —
+ *  not the launcher's own log. Catches early/JVM-level crashes that never
+ *  reach the game's `latest.log`.
+ */
+"game_console" | 
+/**  The launcher's own diagnostics (`<app_data>/logs/lucerna.log`). */
+"launcher";
 
 /**
  *  Return value of `change_instance_mc`: the updated instance plus a

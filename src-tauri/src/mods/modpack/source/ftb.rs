@@ -91,7 +91,7 @@ pub(crate) async fn search_impl(
         match ftb_api::pack_detail(base, id).await {
             Err(e) => {
                 // One bad pack shouldn't kill the page — skip and log.
-                eprintln!("[ftb] skipping pack {id}: {e}");
+                crate::diag!("[ftb] skipping pack {id}: {e}");
                 continue;
             }
             Ok(detail) => {

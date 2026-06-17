@@ -1,9 +1,12 @@
-//! File enumeration + crash detection — scoped to a single instance.
+//! File enumeration + crash detection.
 //!
-//! Three roots under `<app_data_dir>/instances/<id>/`:
-//! - `.minecraft/logs/`         → LogSource::Game
-//! - `.minecraft/crash-reports/` → LogSource::Crash
-//! - `logs/`                    → LogSource::Launcher
+//! Four roots:
+//! - `instances/<id>/.minecraft/logs/`          → LogSource::Game (latest.log, debug.log)
+//! - `instances/<id>/.minecraft/crash-reports/` → LogSource::Crash
+//! - `instances/<id>/logs/`                     → LogSource::GameConsole (captured
+//!   stdout/stderr of the game process — `<stamp>-launch.log`)
+//! - `<app_data>/logs/`                         → LogSource::Launcher (the launcher's
+//!   own `lucerna.log`; app-wide, shown under every instance)
 
 use crate::error::{Error, Result};
 use serde::Serialize;
@@ -15,6 +18,11 @@ use std::path::{Path, PathBuf};
 pub enum LogSource {
     Game,
     Crash,
+    /// The game process's captured stdout/stderr (`instances/<id>/logs/`) —
+    /// not the launcher's own log. Catches early/JVM-level crashes that never
+    /// reach the game's `latest.log`.
+    GameConsole,
+    /// The launcher's own diagnostics (`<app_data>/logs/lucerna.log`).
     Launcher,
 }
 
@@ -49,20 +57,23 @@ pub struct CrashReport {
 
 const CRASH_PREVIEW_CHARS: usize = 500;
 
-/// Return the three log roots under `instance_id`. Roots that don't
-/// exist on disk yet (fresh install) are NOT created — callers must
-/// treat absence as "no files," not an error.
+/// Return the four log roots (three per-instance + the app-wide launcher
+/// log dir). Roots that don't exist on disk yet (fresh install) are NOT
+/// created — callers must treat absence as "no files," not an error.
 pub fn allowed_roots(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<PathBuf>> {
     let inst =
         crate::paths::instance_dir(app, instance_id).map_err(|e| Error::io("<instance_dir>", e))?;
+    let app_logs = crate::paths::app_logs_dir(app).map_err(|e| Error::io("<app_logs_dir>", e))?;
+    // Order matters: it maps to LogSource by index in `list_log_files`.
     Ok(vec![
         inst.join(".minecraft").join("logs"),
         inst.join(".minecraft").join("crash-reports"),
         inst.join("logs"),
+        app_logs,
     ])
 }
 
-/// Enumerate every log file across the three roots. Missing roots are
+/// Enumerate every log file across the four roots. Missing roots are
 /// silently skipped. Sorted by mtime descending (newest first).
 pub fn list_log_files(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<LogFileMeta>> {
     let roots = allowed_roots(app, instance_id)?;
@@ -71,6 +82,7 @@ pub fn list_log_files(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<L
         let source = match i {
             0 => LogSource::Game,
             1 => LogSource::Crash,
+            2 => LogSource::GameConsole,
             _ => LogSource::Launcher,
         };
         list_root_into(root, source, &mut out);
@@ -202,6 +214,27 @@ mod tests {
         assert_eq!(out[0].name, "a.log");
         assert_eq!(out[0].source, LogSource::Game);
         assert!(out[0].size_bytes >= 2.0);
+    }
+
+    #[test]
+    fn list_root_tags_the_new_sources() {
+        // The GameConsole (per-instance captured stdout/stderr) and Launcher
+        // (app-wide lucerna.log) sources tag their files correctly — the
+        // index→source mapping in list_log_files relies on these variants.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("2026-launch.log"), b"console").unwrap();
+        let mut console = Vec::new();
+        list_root_into(tmp.path(), LogSource::GameConsole, &mut console);
+        assert_eq!(console.len(), 1);
+        assert_eq!(console[0].source, LogSource::GameConsole);
+
+        let tmp2 = tempfile::tempdir().unwrap();
+        std::fs::write(tmp2.path().join("lucerna.log"), b"launcher diag").unwrap();
+        let mut launcher = Vec::new();
+        list_root_into(tmp2.path(), LogSource::Launcher, &mut launcher);
+        assert_eq!(launcher.len(), 1);
+        assert_eq!(launcher[0].source, LogSource::Launcher);
+        assert_eq!(launcher[0].name, "lucerna.log");
     }
 
     #[test]

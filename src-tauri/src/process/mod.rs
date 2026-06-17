@@ -31,7 +31,7 @@ pub async fn run_java_processor(
     cmd.arg(main_class);
     cmd.args(args);
 
-    eprintln!(
+    crate::diag!(
         "process: spawning {} ({processor_label}) with {} classpath entries",
         java_bin.display(),
         classpath.len(),

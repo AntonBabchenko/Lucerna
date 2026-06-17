@@ -524,7 +524,7 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
                 if p.patch_payload.is_empty() {
                     continue;
                 }
-                eprintln!(
+                crate::diag!(
                     "binarypatcher: applying patch to {} (clean: {} bytes, patch: {} bytes)",
                     class_key,
                     buf.len(),
@@ -560,7 +560,7 @@ async fn run_impl(args: Vec<String>, ctx: &ProcessorContext, is_neoforge: bool) 
         if p.patch_payload.is_empty() {
             continue;
         } // empty + unmatched = no-op
-        eprintln!(
+        crate::diag!(
             "binarypatcher: emitting NEW class {} from patch (payload: {} bytes)",
             p.target_class,
             p.patch_payload.len()

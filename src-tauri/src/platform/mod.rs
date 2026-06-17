@@ -251,14 +251,14 @@ pub async fn wait_for_window_ready(pid: u32) {
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, 0, pid);
             if handle.is_null() {
-                eprintln!("tray: OpenProcess failed for pid {pid} — hiding immediately");
+                crate::diag!("tray: OpenProcess failed for pid {pid} — hiding immediately");
                 return;
             }
             // 0 = input idle reached, 0x102 = WAIT_TIMEOUT — both
             // fall through to hide. 0xFFFFFFFF = WAIT_FAILED.
             let result = WaitForInputIdle(handle, 30_000);
             if result == 0xFFFFFFFF {
-                eprintln!("tray: WaitForInputIdle failed for pid {pid}");
+                crate::diag!("tray: WaitForInputIdle failed for pid {pid}");
             }
             CloseHandle(handle);
         }

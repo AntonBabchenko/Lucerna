@@ -28,15 +28,38 @@ async fn send(
     initiator: &str,
 ) -> Result<HttpResponse> {
     crate::network::allowlist::check_url_allowed(url, initiator)?;
-    let resp = req.send().await.map_err(|e| Error::network(url, e))?;
+    let resp = req.send().await.map_err(|e| {
+        crate::diag!(
+            "network: {initiator} {method} {url} — request failed (source unreachable?): {e}"
+        );
+        Error::network(url, e)
+    })?;
     let status = resp.status().as_u16();
     // A body-read failure (mid-body drop, read timeout) is still a transport-level
     // failure.
-    let body = resp.bytes().await.map_err(|e| Error::network(url, e))?;
+    let body = resp.bytes().await.map_err(|e| {
+        crate::diag!("network: {initiator} {method} {url} — response body read failed: {e}");
+        Error::network(url, e)
+    })?;
+    // Record notable non-success statuses in the launcher log (rate limits =
+    // HTTP 429, auth = 401/403, server outages = 5xx). 404 is excluded — callers
+    // routinely treat it as "not found / no match" (loader probes, hash
+    // enrichment) where it is expected, not a failure worth logging.
+    if should_log_status(status) {
+        crate::diag!("network: {initiator} {method} {url} — HTTP {status}");
+    }
     Ok(HttpResponse {
         status,
         body: body.to_vec(),
     })
+}
+
+/// Whether a received HTTP status is worth recording in the launcher log.
+/// Non-2xx is notable (429 rate-limit, 401/403 auth, 5xx outage) — except 404,
+/// which callers routinely use as an expected "not found / no match" signal
+/// (loader probes, hash enrichment) rather than a real failure.
+fn should_log_status(status: u16) -> bool {
+    !(200..300).contains(&status) && status != 404
 }
 
 /// GET `url` on the shared chokepoint client with `headers` applied.
@@ -77,6 +100,17 @@ mod tests {
 
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_env_lock()
+    }
+
+    #[test]
+    fn should_log_status_flags_errors_but_not_ok_or_404() {
+        assert!(!should_log_status(200));
+        assert!(!should_log_status(204));
+        assert!(!should_log_status(404)); // expected "not found / no match"
+        assert!(should_log_status(429)); // rate limited
+        assert!(should_log_status(403)); // auth / region block
+        assert!(should_log_status(500)); // server outage
+        assert!(should_log_status(503));
     }
 
     #[tokio::test]
