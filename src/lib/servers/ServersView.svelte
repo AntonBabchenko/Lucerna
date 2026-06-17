@@ -6,6 +6,7 @@
   import type { InstanceWithStatus } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import ServerCreateWizard from './ServerCreateWizard.svelte';
+  import ServerManageView from './ServerManageView.svelte';
 
   let { instances }: { instances: InstanceWithStatus[] } = $props();
   let selected = $state<string | null>(null);
@@ -27,13 +28,7 @@
     onCancel={() => (creating = false)}
   />
 {:else if selected}
-  <!-- TODO(Task 7): <ServerManageView serverId={selected} onBack={() => (selected = null)} /> -->
-  <div class="p-4">
-    <button class="btn-tertiary btn-sm" onclick={() => (selected = null)}
-      >&lt; {$t('servers.title')}</button
-    >
-    <p class="text-muted mt-2">{selected}</p>
-  </div>
+  <ServerManageView serverId={selected} onBack={() => (selected = null)} />
 {:else}
   <div class="flex flex-col gap-3 p-4 overflow-y-auto">
     <div class="flex items-center justify-between">

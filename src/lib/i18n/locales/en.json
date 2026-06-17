@@ -1445,6 +1445,25 @@
       "running": "Running",
       "stopped": "Stopped"
     },
+    "manage": {
+      "back": "Servers"
+    },
+    "tab": {
+      "console": "Console",
+      "settings": "Settings",
+      "mods": "Mods"
+    },
+    "action": {
+      "start": "Start",
+      "stop": "Stop",
+      "restart": "Restart"
+    },
+    "console": {
+      "inputPlaceholder": "Type a command (e.g. say hi, op Steve, stop)",
+      "send": "Send",
+      "notRunning": "Start the server to use the console",
+      "empty": "No output yet"
+    },
     "wizard": {
       "title": "New server",
       "fromInstance": "From instance",

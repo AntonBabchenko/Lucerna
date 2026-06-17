@@ -1445,7 +1445,26 @@
       "running": "Запущен",
       "stopped": "Остановлен"
     },
-    "wizard": {
+    "manage": {
+      "back": "Серверы"
+    },
+    "tab": {
+      "console": "Консоль",
+      "settings": "Настройки",
+      "mods": "Моды"
+    },
+    "action": {
+      "start": "Запустить",
+      "stop": "Остановить",
+      "restart": "Перезапустить"
+    },
+    "console": {
+      "inputPlaceholder": "Введите команду (напр., say hi, op Steve, stop)",
+      "send": "Отправить",
+      "notRunning": "Запустите сервер, чтобы пользоваться консолью",
+      "empty": "Вывода пока нет"
+    },
+        "wizard": {
       "title": "Новый сервер",
       "fromInstance": "Из инстанса",
       "fromInstanceHint": "Версия, загрузчик и моды из выбранного инстанса",
