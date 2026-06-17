@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tauri::AppHandle;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use serde::Serialize;
 use specta::Type;
@@ -235,10 +235,76 @@ where
     });
 }
 
+/// Write `line` + newline to the running server's stdin (a console command,
+/// e.g. `say hi`, `op Steve`, `stop`). The stdin handle is cloned out from
+/// under the (std) map lock, the lock is released, THEN the async write
+/// happens under the per-server tokio Mutex — never awaiting while holding
+/// the map lock.
+pub async fn send_command(server_id: &str, line: &str) -> Result<()> {
+    let stdin = {
+        let guard = state().lock().expect("server state poisoned");
+        let rs = guard
+            .get(server_id)
+            .ok_or_else(|| Error::ServerNotRunning {
+                id: server_id.to_string(),
+            })?;
+        rs.stdin.clone()
+    };
+    let payload = format!("{}\n", line.trim_end());
+    let mut s = stdin.lock().await;
+    s.write_all(payload.as_bytes())
+        .await
+        .map_err(|e| Error::ServerSpawnFailed {
+            details: format!("stdin write: {e}"),
+        })?;
+    s.flush().await.map_err(|e| Error::ServerSpawnFailed {
+        details: format!("stdin flush: {e}"),
+    })?;
+    Ok(())
+}
+
+/// Graceful stop: send `stop` to the console, wait up to ~10s for the exit
+/// watcher to clear state, then force-kill the process tree as a fallback.
+pub async fn stop(server_id: &str) -> Result<()> {
+    if !is_running(server_id) {
+        return Err(Error::ServerNotRunning {
+            id: server_id.to_string(),
+        });
+    }
+    let _ = send_command(server_id, "stop").await;
+    for _ in 0..50 {
+        if !is_running(server_id) {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    if let Some(pid) = running_pid(server_id) {
+        crate::platform::kill_process_tree(pid);
+    }
+    Ok(())
+}
+
+/// Restart = graceful stop (if running) then start.
+pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
+    if is_running(server_id) {
+        stop(server_id).await?;
+    }
+    start(app, server_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[tokio::test]
+    async fn send_command_errors_when_not_running() {
+        let r = send_command("nope-xyz", "say hi").await;
+        assert!(
+            matches!(r, Err(Error::ServerNotRunning { .. })),
+            "got: {r:?}"
+        );
+    }
 
     #[test]
     fn is_running_false_for_unknown() {
