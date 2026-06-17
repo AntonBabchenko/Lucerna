@@ -1,10 +1,65 @@
 //! Долгоживущий серверный процесс: состояние, консоль-стрим, команды, стоп.
-//! (Состояние/события/старт добавляются в следующих задачах Плана 2.)
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use serde::Serialize;
+use specta::Type;
+use tauri_specta::Event;
 
 use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
+
+/// One line of server console output (stdout or stderr), streamed to the UI.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ServerLogLine {
+    pub server_id: String,
+    pub line: String,
+}
+
+/// Emitted when a server process starts.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ServerSpawned {
+    pub server_id: String,
+    pub pid: u32,
+}
+
+/// Emitted when a server process exits. `code` is -1 if signal-terminated.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ServerExited {
+    pub server_id: String,
+    pub code: i32,
+}
+
+/// Live handle for a running server. `stdin` is shared so `send_command` can
+/// write to it asynchronously without holding the map lock across an await.
+pub(crate) struct RunningServer {
+    pub pid: u32,
+    pub stdin: Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>,
+}
+
+fn state() -> &'static Mutex<HashMap<String, RunningServer>> {
+    static S: OnceLock<Mutex<HashMap<String, RunningServer>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// True iff a server with this id currently has a running process.
+pub fn is_running(id: &str) -> bool {
+    state()
+        .lock()
+        .expect("server state poisoned")
+        .contains_key(id)
+}
+
+/// PID of the running server, if any.
+pub fn running_pid(id: &str) -> Option<u32> {
+    state()
+        .lock()
+        .expect("server state poisoned")
+        .get(id)
+        .map(|r| r.pid)
+}
 
 /// Console JVM: on Windows `jre::java_executable_path` returns `javaw.exe`
 /// (no console → no stdout). Servers stream stdout, so swap to `java.exe`.
@@ -80,6 +135,12 @@ fn find_loader_args_file(runtime: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn is_running_false_for_unknown() {
+        assert!(!is_running("nope-xyz"));
+        assert_eq!(running_pid("nope-xyz"), None);
+    }
 
     #[test]
     fn launch_argv_vanilla_uses_jar_nogui() {
