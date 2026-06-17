@@ -114,7 +114,7 @@
   // rather than its top — otherwise a target near the bottom (e.g.
   // sidebar's Browse modpacks for step 6) pushes the popover off the
   // screen. Same idea horizontally for `anchor: 'below'`.
-  const POPOVER_WIDTH = 320;
+  const POPOVER_WIDTH = 384; // keep in sync with the popover's w-96
   const MARGIN = 16;
 
   function popoverStyle(r: DOMRect | null, anchor: string): string {
@@ -197,7 +197,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="tour-popover-title"
-      class="fixed z-50 bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
+      class="fixed z-50 bg-surface rounded shadow-xl p-4 w-96 max-w-[80vw]"
       style={popoverStyle(rect, step.anchor)}
     >
       {#if !tourState.contextual}
@@ -249,7 +249,10 @@
           </button>
         </div>
       {:else}
-        <div class="flex justify-between gap-2">
+        <!-- Back / Skip / Next are three direct children so justify-between
+             gives Skip an equal gap from each neighbour. All three carry the
+             same btn-sm px-3, so the visible spacing stays symmetric too. -->
+        <div class="flex items-center justify-between gap-2">
           <button
             type="button"
             class="btn-secondary btn-sm inline-flex items-center gap-1"
@@ -259,31 +262,29 @@
             <Icon name="arrowLeft" size={14} />
             {$t('onboarding.controls.back')}
           </button>
-          <div class="flex gap-2">
-            {#if !isLast}
-              <button
-                type="button"
-                class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
-                onclick={() => void finishOrSkip()}
-              >
-                {$t('onboarding.controls.skip')}
-              </button>
-            {/if}
+          {#if !isLast}
             <button
               type="button"
-              data-tour-primary
-              class="btn-primary btn-sm inline-flex items-center gap-1"
-              onclick={() => (isLast ? void finishOrSkip() : next())}
+              class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
+              onclick={() => void finishOrSkip()}
             >
-              {#if isLast}
-                {$t('onboarding.controls.finish')}
-                <Icon name="success" size={14} />
-              {:else}
-                {$t('onboarding.controls.next')}
-                <Icon name="arrowRight" size={14} />
-              {/if}
+              {$t('onboarding.controls.skip')}
             </button>
-          </div>
+          {/if}
+          <button
+            type="button"
+            data-tour-primary
+            class="btn-primary btn-sm inline-flex items-center gap-1"
+            onclick={() => (isLast ? void finishOrSkip() : next())}
+          >
+            {#if isLast}
+              {$t('onboarding.controls.finish')}
+              <Icon name="success" size={14} />
+            {:else}
+              {$t('onboarding.controls.next')}
+              <Icon name="arrowRight" size={14} />
+            {/if}
+          </button>
         </div>
       {/if}
     </div>
