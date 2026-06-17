@@ -536,6 +536,14 @@ export const commands = {
 	 */
 	instanceDependencyPreflight: (instanceId: string) => typedError<PreflightReport, Error>(__TAURI_INVOKE("instance_dependency_preflight", { instanceId })),
 	/**
+	 *  One-click install of a missing required dependency identified only by its
+	 *  loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first -> CF), verifies
+	 *  the downloaded jar actually provides that id, then installs it. On any
+	 *  resolution/verification miss returns `OpenSearch` so the UI can offer a
+	 *  pre-filled search instead of guessing.
+	 */
+	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
+	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
 	 *  compatibility against the target instance. No filesystem writes.
 	 */
@@ -1388,6 +1396,16 @@ export type ImportProvenance = {
 	/**  f64 to satisfy specta-typescript (no u64); within JS safe-int range. */
 	imported_unix_ms: number | null,
 };
+
+/**  Result of a one-click "install the missing required dependency" action. */
+export type InstallMissingOutcome = 
+/**  The dependency was resolved, verified, and installed. `name` is its display name. */
+{ kind: "installed"; name: string } | 
+/**
+ *  Could not resolve/verify with confidence — the UI opens a pre-filled
+ *  search for `query` (the loader mod-id) so the user can pick it manually.
+ */
+{ kind: "open_search"; query: string };
 
 export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | "assets" | "client" | "complete";
 

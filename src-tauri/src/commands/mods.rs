@@ -813,6 +813,128 @@ pub async fn mods_find_orphans(
     Ok(crate::mods::orphans::find_orphans(&mods, &removing))
 }
 
+/// Resolve a loader mod-id to an installable candidate using both platforms,
+/// Modrinth-slug-first then CurseForge (search -> exact-slug -> newest version).
+async fn resolve_dep_id(
+    mr: std::sync::Arc<dyn crate::mods::platform::ModPlatform>,
+    cf: std::sync::Arc<dyn crate::mods::platform::ModPlatform>,
+    dep_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+) -> crate::mods::dep_resolve::DepResolution {
+    use crate::mods::platform::{ContentKind, ModSearchQuery, ModSort, ModSource};
+
+    let mc_owned = mc.to_string();
+    crate::mods::dep_resolve::resolve_missing_dep(
+        dep_id,
+        |slug| {
+            let mr = mr.clone();
+            let mc = mc_owned.clone();
+            async move { mr.versions(&slug, Some(&mc), Some(loader)).await }
+        },
+        |id| {
+            let cf = cf.clone();
+            let mc = mc_owned.clone();
+            async move {
+                let page = cf
+                    .search(&ModSearchQuery {
+                        source: ModSource::Curseforge,
+                        kind: ContentKind::Mod,
+                        query: id.clone(),
+                        mc_version: Some(mc.clone()),
+                        loader: Some(loader),
+                        sort: ModSort::Relevance,
+                        page_size: 20,
+                        offset: 0,
+                    })
+                    .await?;
+                let Some(hit) = page.hits.into_iter().find(|h| {
+                    h.slug
+                        .as_deref()
+                        .map(|s| s.eq_ignore_ascii_case(&id))
+                        .unwrap_or(false)
+                }) else {
+                    return Ok(None);
+                };
+                let mut versions = cf
+                    .versions(&hit.project_id, Some(&mc), Some(loader))
+                    .await?;
+                versions.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+                Ok(versions.into_iter().next())
+            }
+        },
+    )
+    .await
+}
+
+/// One-click install of a missing required dependency identified only by its
+/// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first -> CF), verifies
+/// the downloaded jar actually provides that id, then installs it. On any
+/// resolution/verification miss returns `OpenSearch` so the UI can offer a
+/// pre-filled search instead of guessing.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_install_missing_required(
+    app: tauri::AppHandle,
+    instance_id: String,
+    dep_id: String,
+) -> crate::error::Result<crate::mods::platform::InstallMissingOutcome> {
+    use crate::mods::dep_resolve::{jar_provides, DepResolution};
+    use crate::mods::platform::InstallMissingOutcome;
+    use std::sync::Arc;
+
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+
+    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
+    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(ModSource::Curseforge).into();
+
+    let resolution = resolve_dep_id(mr, cf, &dep_id, &mc_version, loader).await;
+    let DepResolution::Resolved {
+        candidate,
+        needed_id,
+    } = resolution
+    else {
+        return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+    };
+
+    let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+    let sha = match candidate.primary_file.sha1.as_deref() {
+        Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
+        _ => return Ok(InstallMissingOutcome::OpenSearch { query: dep_id }),
+    };
+    let cached = crate::mods::install::fetch_to_cache(
+        &dd,
+        &candidate.primary_file.url,
+        &sha,
+        candidate.primary_file.size,
+        "mods",
+        &nop,
+    )
+    .await?;
+    let bytes = tokio::fs::read(&cached)
+        .await
+        .map_err(|e| crate::error::Error::io("<dep-candidate-cache>", e))?;
+    if !jar_provides(&bytes, &needed_id) {
+        crate::diag!(
+            "dep_resolve: candidate for '{needed_id}' did not provide it; degrading to search"
+        );
+        return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+    }
+
+    let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, &nop).await?;
+    let _ = ModInstalled {
+        instance_id: instance_id.clone(),
+        sha1: inst.sha1,
+        filename: inst.filename,
+        name: inst.name.clone(),
+    }
+    .emit(&app);
+    Ok(InstallMissingOutcome::Installed { name: inst.name })
+}
+
 /// Build a full nested dependency graph for all platform-identified mods in
 /// `instance_id`. Each installed mod is a root; its required and optional
 /// subtrees are walked recursively (cycle-guarded, memoized). Each node is
