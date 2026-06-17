@@ -2,7 +2,10 @@
 //! project, and verify a downloaded candidate actually provides that id.
 //! The platform calls are injected so the orchestration is unit-testable.
 
+use std::future::Future;
+
 use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps};
+use crate::mods::platform::ModVersion;
 
 /// Case- and `_`/`-`-insensitive id normalization for cross-source matching.
 fn norm_id(id: &str) -> String {
@@ -44,6 +47,57 @@ pub fn slug_candidates(dep_id: &str) -> Vec<String> {
     push(base.replace('_', "-"));
     push(base.replace('-', "_"));
     out
+}
+
+/// Outcome of resolving a bare loader mod-id to an installable project.
+#[derive(Debug, Clone)]
+pub enum DepResolution {
+    /// A concrete installable candidate. `needed_id` is the original loader id
+    /// the candidate must `provide` (verified over the downloaded jar at install).
+    Resolved {
+        candidate: ModVersion,
+        needed_id: String,
+    },
+    /// No confident match — the surface degrades to a pre-filled search.
+    Unresolved { query: String },
+}
+
+/// Resolve `dep_id` to an installable candidate, Modrinth-slug-first then
+/// CurseForge. Network is injected:
+/// - `mr_versions(slug)` -> Modrinth versions for that slug, already filtered to
+///   the target mc+loader, newest-first (`Err` is treated as a miss).
+/// - `cf_lookup(dep_id)` -> best CurseForge candidate (search -> exact-slug match
+///   -> newest version), `None` when none (`Err` is treated as a miss).
+pub async fn resolve_missing_dep<MF, MFut, CF, CFut>(
+    dep_id: &str,
+    mut mr_versions: MF,
+    mut cf_lookup: CF,
+) -> DepResolution
+where
+    MF: FnMut(String) -> MFut,
+    MFut: Future<Output = Result<Vec<ModVersion>, crate::error::Error>>,
+    CF: FnMut(String) -> CFut,
+    CFut: Future<Output = Result<Option<ModVersion>, crate::error::Error>>,
+{
+    for slug in slug_candidates(dep_id) {
+        if let Ok(versions) = mr_versions(slug).await {
+            if let Some(candidate) = versions.into_iter().next() {
+                return DepResolution::Resolved {
+                    candidate,
+                    needed_id: dep_id.to_string(),
+                };
+            }
+        }
+    }
+    if let Ok(Some(candidate)) = cf_lookup(dep_id.to_string()).await {
+        return DepResolution::Resolved {
+            candidate,
+            needed_id: dep_id.to_string(),
+        };
+    }
+    DepResolution::Unresolved {
+        query: dep_id.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -106,5 +160,92 @@ mod tests {
     #[test]
     fn jar_provides_false_on_unreadable_jar() {
         assert!(!jar_provides(b"not a zip", "anything"));
+    }
+
+    use crate::mods::platform::{LoaderKind, ModFile, ModSource, ModVersion};
+    use std::future::ready;
+
+    fn mv(source: ModSource, project_id: &str) -> ModVersion {
+        ModVersion {
+            source,
+            project_id: project_id.into(),
+            version_id: format!("{project_id}-v"),
+            name: project_id.into(),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.20.4".into()],
+            loaders: vec![LoaderKind::NeoForge],
+            primary_file: ModFile {
+                filename: format!("{project_id}.jar"),
+                url: format!("https://cdn/{project_id}.jar"),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_prefers_modrinth_slug_match() {
+        let r = resolve_missing_dep(
+            "balm",
+            |slug| {
+                ready(Ok(if slug == "balm" {
+                    vec![mv(ModSource::Modrinth, "balm")]
+                } else {
+                    vec![]
+                }))
+            },
+            |_id| ready(Ok(None)),
+        )
+        .await;
+        match r {
+            DepResolution::Resolved {
+                candidate,
+                needed_id,
+            } => {
+                assert_eq!(candidate.source, ModSource::Modrinth);
+                assert_eq!(candidate.project_id, "balm");
+                assert_eq!(needed_id, "balm");
+            }
+            other => panic!("expected Resolved, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_curseforge_when_modrinth_empty() {
+        let r = resolve_missing_dep(
+            "balm",
+            |_slug| ready(Ok(vec![])),
+            |_id| ready(Ok(Some(mv(ModSource::Curseforge, "531761")))),
+        )
+        .await;
+        assert!(matches!(
+            r,
+            DepResolution::Resolved { candidate, .. } if candidate.source == ModSource::Curseforge
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_unresolved_when_neither_platform_finds_it() {
+        let r = resolve_missing_dep(
+            "totally-unknown-lib",
+            |_slug| ready(Ok(vec![])),
+            |_id| ready(Ok(None)),
+        )
+        .await;
+        assert!(matches!(r, DepResolution::Unresolved { query } if query == "totally-unknown-lib"));
+    }
+
+    #[tokio::test]
+    async fn resolve_treats_platform_error_as_a_miss() {
+        let r = resolve_missing_dep(
+            "balm",
+            |_slug| ready(Err(crate::error::Error::ModsSha1Unavailable)),
+            |_id| ready(Ok(None)),
+        )
+        .await;
+        assert!(matches!(r, DepResolution::Unresolved { .. }));
     }
 }
