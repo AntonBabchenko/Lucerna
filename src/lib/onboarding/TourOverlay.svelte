@@ -261,9 +261,12 @@
           </button>
           <div class="flex gap-2">
             {#if !isLast}
+              <!-- Pull the ghost button's invisible trailing padding back so its
+                   resting label sits a normal gap from Next, not px-3 + gap-2
+                   adrift. The padding stays for the hover surface. -->
               <button
                 type="button"
-                class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
+                class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap -mr-2"
                 onclick={() => void finishOrSkip()}
               >
                 {$t('onboarding.controls.skip')}
