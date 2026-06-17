@@ -1435,5 +1435,15 @@
     "unit": {
       "megabyte": "MB"
     }
+  },
+  "servers": {
+    "title": "Servers",
+    "create": "Create server",
+    "empty": "No servers yet",
+    "lanHint": "The server listens locally and on your LAN. Internet access requires a host (separate).",
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped"
+    }
   }
 }
