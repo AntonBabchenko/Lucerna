@@ -74,7 +74,7 @@ pub async fn install_server(
         .arg("--installServer")
         .current_dir(work_dir);
 
-    eprintln!(
+    crate::diag!(
         "process: install_server ({loader_label}) {} in {}",
         installer_jar.display(),
         work_dir.display()

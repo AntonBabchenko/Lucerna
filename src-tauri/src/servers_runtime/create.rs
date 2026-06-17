@@ -74,31 +74,39 @@ struct InstallerEntry {
     stable: bool,
 }
 
-fn pick_installer(json: &str) -> Result<String> {
-    let list: Vec<InstallerEntry> = serde_json::from_str(json)
-        .map_err(|e| Error::io("<installer-meta>", format!("parse: {e}")))?;
+fn pick_installer(json: &str) -> Option<String> {
+    let list: Vec<InstallerEntry> = serde_json::from_str(json).ok()?;
     list.iter()
         .find(|e| e.stable)
         .or_else(|| list.first())
         .map(|e| e.version.clone())
-        .ok_or_else(|| Error::ServerJarUnavailable {
-            loader: "fabric/quilt".into(),
-            mc_version: String::new(),
-            reason: "no installer versions returned".into(),
-        })
 }
 
-async fn latest_installer(meta_url: &str) -> Result<String> {
+async fn latest_installer(meta_url: &str, loader_label: &str, mc_version: &str) -> Result<String> {
     let body = crate::network::get_text(meta_url, "servers").await?;
-    pick_installer(&body)
+    pick_installer(&body).ok_or_else(|| Error::ServerJarUnavailable {
+        loader: loader_label.into(),
+        mc_version: mc_version.into(),
+        reason: "no installer versions returned".into(),
+    })
 }
 
-pub async fn latest_fabric_installer() -> Result<String> {
-    latest_installer("https://meta.fabricmc.net/v2/versions/installer").await
+pub async fn latest_fabric_installer(mc_version: &str) -> Result<String> {
+    latest_installer(
+        "https://meta.fabricmc.net/v2/versions/installer",
+        "fabric",
+        mc_version,
+    )
+    .await
 }
 
-pub async fn latest_quilt_installer() -> Result<String> {
-    latest_installer("https://meta.quiltmc.org/v3/versions/installer").await
+pub async fn latest_quilt_installer(mc_version: &str) -> Result<String> {
+    latest_installer(
+        "https://meta.quiltmc.org/v3/versions/installer",
+        "quilt",
+        mc_version,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------- Forge / NeoForge

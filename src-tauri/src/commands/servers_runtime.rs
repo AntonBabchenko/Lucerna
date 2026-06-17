@@ -50,7 +50,7 @@ pub async fn server_create(
             create::create_vanilla_server(&base, &file, &jar_url, &sha1).await?;
         }
         LoaderKind::Fabric => {
-            let installer = create::latest_fabric_installer().await?;
+            let installer = create::latest_fabric_installer(&file.mc_version).await?;
             let lv = require_loader_version(&file, "fabric")?;
             let url = crate::servers_runtime::jar::fabric_server_jar_url(
                 &file.mc_version,
@@ -60,7 +60,7 @@ pub async fn server_create(
             create::create_fabric_server(&base, &file, &url).await?;
         }
         LoaderKind::Quilt => {
-            let installer = create::latest_quilt_installer().await?;
+            let installer = create::latest_quilt_installer(&file.mc_version).await?;
             let lv = require_loader_version(&file, "quilt")?;
             let url = crate::servers_runtime::jar::quilt_server_jar_url(
                 &file.mc_version,
@@ -86,6 +86,13 @@ pub async fn server_create(
                 crate::jre::java_executable_path(crate::jre::DEFAULT_LEGACY_COMPONENT, &app)?;
             create::create_installer_server(&base, &file, &url, &java_bin, label).await?;
         }
+    }
+    if let Some(inst_id) = &file.created_from_instance {
+        let src = crate::paths::mods_dir(&app, inst_id)
+            .map_err(|e| crate::error::Error::io("<instance_mods_dir>", e))?;
+        let dest = crate::paths::server_paths(&base, &file.id).mods;
+        let copied = crate::servers_runtime::create::copy_instance_mods(&src, &dest)?;
+        eprintln!("servers: copied {copied} mods from instance {inst_id}");
     }
     Ok(ServerWithStatus::from_file(&file, false, None, None))
 }
