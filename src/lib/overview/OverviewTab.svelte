@@ -5,6 +5,7 @@
   import { relativeTime } from '$lib/format/relative-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+  import { hasDiagnosisIndicator } from '$lib/logs/log-diagnosis.svelte';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -38,6 +39,7 @@
     versionsRetrying = false,
     onDismissInstallError,
     onDismissModsError,
+    onOpenLogs,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -60,6 +62,7 @@
     versionsRetrying?: boolean;
     onDismissInstallError: () => void;
     onDismissModsError: () => void;
+    onOpenLogs: () => void;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -79,12 +82,14 @@
           incompatibleCount,
           integrityProblemCount,
           hasModpackUpdate: modpackUpdates.hasUpdate(activeInstance.id),
+          hasLogIssue: hasDiagnosisIndicator(),
         })
       : [],
   );
 
   function onAttention(kind: AttentionKind) {
-    if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
+    if (kind === 'log_issue') onOpenLogs();
+    else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
     else if (kind === 'incompatible') onNavInstalled();
     else onManage(); // pick_version + integrity
   }

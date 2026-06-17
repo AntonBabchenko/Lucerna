@@ -1,4 +1,5 @@
 export type AttentionKind =
+  | 'log_issue'
   | 'pick_version'
   | 'missing_mods'
   | 'incompatible'
@@ -19,11 +20,14 @@ export interface AttentionInputs {
   integrityProblemCount: number;
   /** Whether the active instance's modpack has an update available. */
   hasModpackUpdate: boolean;
+  /** Whether the latest log contains an unresolved problem worth surfacing. */
+  hasLogIssue: boolean;
 }
 
 /** Build the ordered "needs attention" list from instance signals. */
 export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
   const items: AttentionItem[] = [];
+  if (input.hasLogIssue) items.push({ kind: 'log_issue', count: 0 });
   if (input.mcVersionMissing) items.push({ kind: 'pick_version', count: 0 });
   if (input.missingModsCount > 0) {
     items.push({ kind: 'missing_mods', count: input.missingModsCount });

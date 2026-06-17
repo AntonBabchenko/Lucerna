@@ -49,6 +49,59 @@ pub fn latest_crash(
     crate::logs::files::latest_crash(&app, &instance_id)
 }
 
+/// Apply the live "is this still a real problem?" guards to a freshly-matched
+/// diagnosis. Returns `None` when the problem has since been resolved by the
+/// user (cited mods installed / blocking mods disabled). Patterns without a
+/// live check pass through unchanged. Reads installed mods only when needed.
+async fn apply_live_suppression(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    path: &std::path::Path,
+    diag: crate::logs::diagnose::Diagnosis,
+) -> Result<Option<crate::logs::diagnose::Diagnosis>, crate::error::Error> {
+    // Stale-log guard: the missing-mods diagnosis is driven by historical log
+    // text that never changes. If the user has since installed the cited mods,
+    // suppress the now-resolved warning instead of nagging on the old log.
+    if diag.pattern_id == "server-missing-mods" {
+        let log = crate::logs::read::read_with_cap(path, 1024 * 1024)?;
+        let cited = crate::logs::diagnose::server_mods::parse_server_mod_rejection(&log);
+        if !cited.is_empty() {
+            let inst_root = instance_root(app, instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            if crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed).is_empty() {
+                return Ok(None);
+            }
+        }
+    }
+    // Symmetric guard for the inverse case: once the blocking mods are disabled
+    // (or removed), there's nothing left to act on — suppress the stale warning
+    // instead of nagging on the historical log.
+    if diag.pattern_id == "client-extra-mods" {
+        let log = crate::logs::read::read_with_cap(path, 1024 * 1024)?;
+        let ids = crate::logs::diagnose::server_mods::parse_blocking_client_mods(&log);
+        // Only suppress when blocking ids were actually parsed: an empty parse
+        // means the log doesn't truly match (e.g. truncated below the terminator),
+        // so leave the advisory rather than hide it. `build_repair_plan` returns
+        // `None` for an empty ids set, so the Fix button won't appear regardless.
+        if !ids.is_empty() {
+            let inst_root = instance_root(app, instance_id)?;
+            let installed = crate::mods::installed::list(&inst_root).await?;
+            // The emptiness check only needs the blocking list, not `breaks`, so
+            // an empty deps map is fine here (no jar reads at diagnose time).
+            if crate::logs::diagnose::repair::build_blocking_mods(
+                &ids,
+                &installed,
+                &std::collections::HashMap::new(),
+            )
+            .is_empty()
+            {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(diag))
+}
+
 /// Run the diagnoser over `path`. Returns `Ok(None)` when no known
 /// pattern matches or the file is empty/too short. Path must be
 /// under one of `instance_id`'s allowed log roots — anything else
@@ -67,47 +120,10 @@ pub async fn diagnose_log(
     let Some(diag) = crate::logs::diagnose::diagnose(&path_buf).await? else {
         return Ok(None);
     };
-    // Stale-log guard: the missing-mods diagnosis is driven by historical log
-    // text that never changes. If the user has since installed the cited mods,
-    // suppress the now-resolved warning instead of nagging on the old log.
-    if diag.pattern_id == "server-missing-mods" {
-        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
-        let cited = crate::logs::diagnose::server_mods::parse_server_mod_rejection(&log);
-        if !cited.is_empty() {
-            let inst_root = instance_root(&app, &instance_id)?;
-            let installed = crate::mods::installed::list(&inst_root).await?;
-            if crate::mods::cited_resolve::unsatisfied_cited(&cited, &installed).is_empty() {
-                return Ok(None);
-            }
-        }
+    match apply_live_suppression(&app, &instance_id, &path_buf, diag).await? {
+        Some(d) => Ok(Some(d)),
+        None => Ok(None),
     }
-    // Symmetric guard for the inverse case: once the blocking mods are disabled
-    // (or removed), there's nothing left to act on — suppress the stale warning
-    // instead of nagging on the historical log.
-    if diag.pattern_id == "client-extra-mods" {
-        let log = crate::logs::read::read_with_cap(&path_buf, 1024 * 1024)?;
-        let ids = crate::logs::diagnose::server_mods::parse_blocking_client_mods(&log);
-        // Only suppress when blocking ids were actually parsed: an empty parse
-        // means the log doesn't truly match (e.g. truncated below the terminator),
-        // so leave the advisory rather than hide it. `build_repair_plan` returns
-        // `None` for an empty ids set, so the Fix button won't appear regardless.
-        if !ids.is_empty() {
-            let inst_root = instance_root(&app, &instance_id)?;
-            let installed = crate::mods::installed::list(&inst_root).await?;
-            // The emptiness check only needs the blocking list, not `breaks`, so
-            // an empty deps map is fine here (no jar reads at diagnose time).
-            if crate::logs::diagnose::repair::build_blocking_mods(
-                &ids,
-                &installed,
-                &std::collections::HashMap::new(),
-            )
-            .is_empty()
-            {
-                return Ok(None);
-            }
-        }
-    }
-    Ok(Some(diag))
 }
 
 /// Build a concrete, confirmable repair plan for a diagnosed log, or
@@ -286,6 +302,89 @@ pub async fn build_repair_plan(
     }
 }
 
+/// Newest diagnosable log for an instance: scan the most-recent files and
+/// return the first that matches a pattern, with its meta. Bounded so a noisy
+/// log dir can't make this O(all files). `None` when nothing matches.
+const LATEST_SCAN_LIMIT: usize = 6;
+
+async fn latest_diagnosed_log(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<
+    Option<(
+        crate::logs::files::LogFileMeta,
+        crate::logs::diagnose::Diagnosis,
+    )>,
+    crate::error::Error,
+> {
+    let files = crate::logs::files::list_log_files(app, instance_id)?;
+    for meta in files.into_iter().take(LATEST_SCAN_LIMIT) {
+        let path = std::path::PathBuf::from(&meta.path);
+        if let Some(diag) = crate::logs::diagnose::diagnose(&path).await? {
+            return Ok(Some((meta, diag)));
+        }
+    }
+    Ok(None)
+}
+
+/// Signature of the latest diagnosable log, or `None` when none matches.
+/// Used by `execute_repair` to stamp `handled_log_sig`.
+async fn latest_diagnosable_signature(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Option<String>, crate::error::Error> {
+    Ok(latest_diagnosed_log(app, instance_id)
+        .await?
+        .map(|(meta, _)| crate::logs::files::log_signature(&meta)))
+}
+
+/// Diagnose the instance's LATEST log and classify a surface status for the
+/// persistent banner + indicators. Independent of any opened file. Applies the
+/// live-suppression guards, the OOM heap-vs-recommended rule, and the persisted
+/// handled-signature.
+#[tauri::command]
+#[specta::specta]
+pub async fn diagnose_latest(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<crate::logs::diagnose::LatestDiagnosis, crate::error::Error> {
+    use crate::logs::diagnose::{classify_status, DiagnosisStatus, LatestDiagnosis};
+
+    let none = LatestDiagnosis {
+        status: DiagnosisStatus::None,
+        diagnosis: None,
+        path: None,
+        signature: None,
+    };
+
+    let Some((meta, diag)) = latest_diagnosed_log(&app, &instance_id).await? else {
+        return Ok(none);
+    };
+    let path_buf = std::path::PathBuf::from(&meta.path);
+    // Live guards: a since-resolved problem reports as None (nothing to show).
+    let Some(diag) = apply_live_suppression(&app, &instance_id, &path_buf, diag).await? else {
+        return Ok(none);
+    };
+
+    let signature = crate::logs::files::log_signature(&meta);
+    let instance = crate::instances::read_instance(&app, &instance_id)?;
+    let ram = crate::platform::total_system_ram_mb();
+    let status = classify_status(
+        &diag,
+        instance.max_heap_mb,
+        ram,
+        &signature,
+        instance.handled_log_sig.as_deref(),
+    );
+
+    Ok(LatestDiagnosis {
+        status,
+        diagnosis: Some(diag),
+        path: Some(meta.path),
+        signature: Some(signature),
+    })
+}
+
 /// Apply a user-confirmed repair choice by dispatching to the existing
 /// mutation commands. No resolution happens here — `build_repair_plan`
 /// already produced fully-formed parameters. Re-running a now-stale fix
@@ -315,15 +414,14 @@ pub async fn execute_repair(
     match choice {
         RepairChoice::RaiseHeap { to_mb } => {
             crate::instances::set_instance_memory(&app, &instance_id, to_mb)?;
-            Ok(())
         }
         RepairChoice::ReinstallLoader => {
             let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
-            crate::versions::install_version(&effective_id, &app).await
+            crate::versions::install_version(&effective_id, &app).await?;
         }
         RepairChoice::DisableMod { sha1 } => {
             let inst_root = instance_root(&app, &instance_id)?;
-            crate::mods::install::disable(&inst_root, &sha1).await
+            crate::mods::install::disable(&inst_root, &sha1).await?;
         }
         RepairChoice::Reinstall { old_sha1, target } => {
             let inst_root = instance_root(&app, &instance_id)?;
@@ -340,9 +438,16 @@ pub async fn execute_repair(
             // collide on disk.
             crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
             mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
-            Ok(())
         }
     }
+
+    // Remember that this latest log has been acted on so the banner/indicator
+    // self-suppresses until the next run rotates the log. Best-effort: a failure
+    // to record must not fail the (already-applied) repair.
+    if let Ok(Some(sig)) = latest_diagnosable_signature(&app, &instance_id).await {
+        let _ = crate::instances::set_instance_handled_log_sig(&app, &instance_id, Some(sig));
+    }
+    Ok(())
 }
 
 /// Anonymise a log body and upload it to mclo.gs. Returns the

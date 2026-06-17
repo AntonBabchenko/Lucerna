@@ -895,6 +895,7 @@ export type TranslationKey =
   | 'page.overview.attentionView'
   | 'page.overview.attnIncompatible'
   | 'page.overview.attnIntegrity'
+  | 'page.overview.attnLogIssue'
   | 'page.overview.attnMissingMods'
   | 'page.overview.attnModpackUpdate'
   | 'page.overview.attnPickVersion'

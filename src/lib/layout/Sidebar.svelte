@@ -2,6 +2,7 @@
   import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+  import { hasDiagnosisIndicator } from '$lib/logs/log-diagnosis.svelte';
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
@@ -383,11 +384,19 @@
       <div class="flex gap-1">
         <button
           type="button"
-          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
+          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1 relative"
+          data-testid="sidebar-open-logs"
           onclick={onOpenLogs}
         >
           <Icon name="scrollText" size={14} />
           {$t('sidebar.logs')}
+          {#if hasDiagnosisIndicator()}
+            <span
+              class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-warning-text"
+              data-testid="logs-button-badge"
+              aria-hidden="true"
+            ></span>
+          {/if}
         </button>
         <button
           type="button"

@@ -60,6 +60,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::read_log_file,
             commands::latest_crash,
             commands::diagnose_log,
+            commands::diagnose_latest,
             commands::build_repair_plan,
             commands::execute_repair,
             commands::share_log_to_mclogs,

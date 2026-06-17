@@ -60,6 +60,7 @@ const baseProps = {
   onRetryError: () => {},
   onDismissInstallError: () => {},
   onDismissModsError: () => {},
+  onOpenLogs: () => {},
 };
 
 describe('OverviewTab', () => {

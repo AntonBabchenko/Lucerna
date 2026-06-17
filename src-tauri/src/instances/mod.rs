@@ -156,6 +156,7 @@ pub fn create_instance(
         mrpack_version_id,
         integrity: None,
         imported_from,
+        handled_log_sig: None,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
     store::write_instance_json(&json_path, &inst)?;
@@ -244,6 +245,14 @@ pub fn set_instance_jvm_args(
     extra_jvm_args: String,
 ) -> Result<InstanceWithStatus> {
     mutate(app, id, |i| i.extra_jvm_args = extra_jvm_args)
+}
+
+pub fn set_instance_handled_log_sig(
+    app: &tauri::AppHandle,
+    id: &str,
+    sig: Option<String>,
+) -> Result<InstanceWithStatus> {
+    mutate(app, id, |i| i.handled_log_sig = sig)
 }
 
 /// Rewrite an instance's modpack-version metadata after an in-place
@@ -409,6 +418,7 @@ mod tests {
             mrpack_version_id: Some("vyRB9jtS".into()),
             integrity: None,
             imported_from: None,
+            handled_log_sig: None,
         }
     }
 
@@ -430,6 +440,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from: None,
+            handled_log_sig: None,
         }
     }
 

@@ -147,6 +147,13 @@ export const commands = {
 	repair: RepairKind | null,
 } | null, Error>(__TAURI_INVOKE("diagnose_log", { instanceId, path })),
 	/**
+	 *  Diagnose the instance's LATEST log and classify a surface status for the
+	 *  persistent banner + indicators. Independent of any opened file. Applies the
+	 *  live-suppression guards, the OOM heap-vs-recommended rule, and the persisted
+	 *  handled-signature.
+	 */
+	diagnoseLatest: (instanceId: string) => typedError<LatestDiagnosis, Error>(__TAURI_INVOKE("diagnose_latest", { instanceId })),
+	/**
 	 *  Build a concrete, confirmable repair plan for a diagnosed log, or
 	 *  `None` when no safe fix can be constructed (the UI then keeps the
 	 *  advisory recommendation text). Lazy: called only when the user
@@ -1131,6 +1138,17 @@ export type Diagnosis = {
 	repair: RepairKind | null,
 };
 
+/**  Surface state of the active instance's latest-log diagnosis. */
+export type DiagnosisStatus = 
+/**  Latest log has no known problem (or there are no logs). */
+"none" | 
+/**  A diagnosis with a constructible repair plan. */
+"actionable" | 
+/**  A diagnosis with guidance only (no fix button). */
+"advisory" | 
+/**  A fix was already applied for the current latest log. */
+"handled";
+
 /**
  *  Progress event emitted during a download. The UI subscribes via
  *  `listen<DownloadProgress>("download:progress", ...)`.
@@ -1486,6 +1504,17 @@ export type KnownMod = {
 	source: ModSource,
 	project_id: string,
 	version_id: string | null,
+};
+
+/**
+ *  What `diagnose_latest` returns. `diagnosis`/`path`/`signature` are absent
+ *  only when `status == None` with no diagnosable log.
+ */
+export type LatestDiagnosis = {
+	status: DiagnosisStatus,
+	diagnosis: Diagnosis | null,
+	path: string | null,
+	signature: string | null,
 };
 
 export type LoaderKind = "vanilla" | "fabric" | "quilt" | "forge" | "neoforge";
