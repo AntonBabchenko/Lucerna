@@ -318,6 +318,10 @@ pub enum Error {
         value: String,
         reason: String,
     },
+
+    /// Попытка собрать/запустить сервер без принятого EULA.
+    #[error("Minecraft EULA not accepted for this server")]
+    ServerEulaNotAccepted,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
