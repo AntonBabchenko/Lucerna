@@ -322,6 +322,15 @@ pub enum Error {
     /// Попытка собрать/запустить сервер без принятого EULA.
     #[error("Minecraft EULA not accepted for this server")]
     ServerEulaNotAccepted,
+
+    /// Не удалось определить источник серверного jar (нет server-download
+    /// в манифесте, или лоадер/версия без серверной сборки).
+    #[error("server jar unavailable for {loader} {mc_version}: {reason}")]
+    ServerJarUnavailable {
+        loader: String,
+        mc_version: String,
+        reason: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
