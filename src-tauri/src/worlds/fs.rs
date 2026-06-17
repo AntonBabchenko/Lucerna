@@ -120,17 +120,16 @@ pub fn dir_mtime_recursive(path: &Path) -> Result<u64, Error> {
 
 /// Cheap "last played" proxy for a world directory: the mtime of its
 /// `level.dat` (Minecraft rewrites it on every save/exit), falling back to
-/// the world directory's own mtime. A single `stat` — no recursive walk
+/// the world directory's own mtime. At most two `stat`s — no recursive walk
 /// (that's `dir_mtime_recursive`, reserved for the Worlds tab). Returns 0
 /// when neither path can be stat'd. Milliseconds since the UNIX epoch.
 pub fn world_recency_ms(world_dir: &Path) -> u64 {
     let level_dat = world_dir.join("level.dat");
-    let target = if level_dat.exists() {
-        level_dat
-    } else {
-        world_dir.to_path_buf()
-    };
-    std::fs::metadata(&target)
+    // Try level.dat first; on any failure (absent, or removed by a concurrent
+    // save between two stats) fall back to the directory's own mtime. Avoids a
+    // separate exists() probe and the to_path_buf allocation.
+    std::fs::metadata(&level_dat)
+        .or_else(|_| std::fs::metadata(world_dir))
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -318,8 +317,16 @@ mod tests {
     #[test]
     fn world_recency_falls_back_to_dir_mtime_without_level_dat() {
         let td = tempdir().unwrap();
-        // No level.dat — must use the directory's own mtime (non-zero).
-        assert!(world_recency_ms(td.path()) > 0);
+        // No level.dat — must return the directory's own mtime, not just any
+        // non-zero value.
+        let dir_mt = std::fs::metadata(td.path())
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert_eq!(world_recency_ms(td.path()), dir_mt);
     }
 
     #[test]
