@@ -4,7 +4,7 @@
 //! construction outside this file is forbidden by `CLAUDE.md` forbidden
 //! patterns.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 /// Root of the launcher's persistent data, resolved from the platform's
@@ -79,6 +79,38 @@ pub fn skins_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
 /// Lives under the app dir; cleared/overwritten per update attempt.
 pub fn update_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("updates"))
+}
+
+/// Все пути одного сервера, выведенные из базовой app-data директории.
+/// Чистая функция — тестируется без `AppHandle`.
+pub struct ServerPaths {
+    pub root: PathBuf,
+    pub json: PathBuf,
+    pub runtime: PathBuf,
+    pub mods: PathBuf,
+    pub logs: PathBuf,
+}
+
+pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
+    let root = base.join("servers").join(id);
+    let runtime = root.join("runtime");
+    ServerPaths {
+        json: root.join("server.json"),
+        mods: runtime.join("mods"),
+        logs: runtime.join("logs"),
+        runtime,
+        root,
+    }
+}
+
+/// `<app_data>/servers`.
+pub fn servers_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("servers"))
+}
+
+/// Пути конкретного сервера, привязанные к реальной app-data директории.
+pub fn server_dir_paths(app: &tauri::AppHandle, id: &str) -> tauri::Result<ServerPaths> {
+    Ok(server_paths(&app_dir(app)?, id))
 }
 
 #[cfg(test)]
@@ -166,5 +198,22 @@ mod tests {
             instance_logs_dir_from(root, id),
             PathBuf::from("C:/fake/appdata/instances/3f4a-bbbb/logs"),
         );
+    }
+}
+
+#[cfg(test)]
+mod server_path_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn server_paths_layout_under_base() {
+        let base = Path::new("/data");
+        let p = server_paths(base, "srv-1");
+        assert_eq!(p.root, Path::new("/data/servers/srv-1"));
+        assert_eq!(p.json, Path::new("/data/servers/srv-1/server.json"));
+        assert_eq!(p.runtime, Path::new("/data/servers/srv-1/runtime"));
+        assert_eq!(p.mods, Path::new("/data/servers/srv-1/runtime/mods"));
+        assert_eq!(p.logs, Path::new("/data/servers/srv-1/runtime/logs"));
     }
 }
