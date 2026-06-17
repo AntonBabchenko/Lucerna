@@ -310,6 +310,14 @@ pub enum Error {
 
     #[error("The saved server list changed — refresh and try again")]
     SavedServerListChanged,
+
+    /// Курируемое поле server.properties не прошло валидацию.
+    #[error("invalid server property {key}={value}: {reason}")]
+    ServerInvalidProperty {
+        key: String,
+        value: String,
+        reason: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
