@@ -839,6 +839,24 @@ export const commands = {
 	 *  (только курируемые ключи); неизвестные ключи проходят без проверки.
 	 */
 	serverWriteProperties: (id: string, raw: string) => typedError<null, Error>(__TAURI_INVOKE("server_write_properties", { id, raw })),
+	/**
+	 *  Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера.
+	 *  Возвращает отсортированный список имён файлов. Если папка отсутствует —
+	 *  возвращает пустой список.
+	 */
+	serverListMods: (id: string) => typedError<string[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
+	/**
+	 *  Удалить мод из папки `mods/` сервера по имени файла.
+	 *  Идемпотентно: файл уже удалён → `Ok`.
+	 *  Отклоняет небезопасные имена (path traversal).
+	 */
+	serverDeleteMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete_mod", { id, filename })),
+	/**
+	 *  Открыть папку `runtime/` сервера в системном файловом менеджере.
+	 *  Создаёт папку, если она ещё не существует. Использует тот же
+	 *  механизм, что и `open_saves_folder` (`tauri_plugin_opener`).
+	 */
+	serverOpenFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_folder", { id })),
 };
 
 /** Events */

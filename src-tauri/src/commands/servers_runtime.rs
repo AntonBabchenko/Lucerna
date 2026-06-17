@@ -185,3 +185,61 @@ pub fn server_write_properties(app: AppHandle, id: String, raw: String) -> Resul
     std::fs::write(p.runtime.join("server.properties"), props.serialize())
         .map_err(|e| crate::error::Error::io("<server.properties>", e))
 }
+
+/// Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера.
+/// Возвращает отсортированный список имён файлов. Если папка отсутствует —
+/// возвращает пустой список.
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_mods(app: AppHandle, id: String) -> Result<Vec<String>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&mods) {
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            let low = n.to_ascii_lowercase();
+            if low.ends_with(".jar") || low.ends_with(".jar.disabled") {
+                out.push(n);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// Удалить мод из папки `mods/` сервера по имени файла.
+/// Идемпотентно: файл уже удалён → `Ok`.
+/// Отклоняет небезопасные имена (path traversal).
+#[tauri::command]
+#[specta::specta]
+pub fn server_delete_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(crate::error::Error::io("<mod>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let path = crate::paths::server_paths(&base, &id).mods.join(&filename);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(crate::error::Error::io(path.display().to_string(), e)),
+    }
+}
+
+/// Открыть папку `runtime/` сервера в системном файловом менеджере.
+/// Создаёт папку, если она ещё не существует. Использует тот же
+/// механизм, что и `open_saves_folder` (`tauri_plugin_opener`).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_open_folder(app: AppHandle, id: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).runtime;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}

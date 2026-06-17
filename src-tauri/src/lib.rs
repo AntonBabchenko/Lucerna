@@ -182,6 +182,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 3: properties read/write):
             commands::server_read_properties,
             commands::server_write_properties,
+            // Own server (Plan 3: mod management + folder open):
+            commands::server_list_mods,
+            commands::server_delete_mod,
+            commands::server_open_folder,
         ])
         .events(collect_events![
             network::DownloadProgress,

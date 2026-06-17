@@ -300,6 +300,13 @@ pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
     start(app, server_id).await
 }
 
+/// Returns `true` iff `name` is a safe bare filename for a server mod:
+/// non-empty and containing no path separators or `..` sequences.
+/// Used to guard `server_delete_mod` against path traversal.
+pub(crate) fn is_safe_mod_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\\') && !name.contains("..")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +398,17 @@ mod tests {
             java_component_or_legacy(Some("java-runtime-delta")),
             "java-runtime-delta"
         );
+    }
+
+    #[test]
+    fn is_safe_mod_name_rejects_traversal() {
+        assert!(is_safe_mod_name("cool-mod.jar"));
+        assert!(is_safe_mod_name("a.jar.disabled"));
+        assert!(!is_safe_mod_name("../evil.jar"));
+        assert!(!is_safe_mod_name("a/b.jar"));
+        assert!(!is_safe_mod_name("a\\b.jar"));
+        assert!(!is_safe_mod_name(".."));
+        assert!(!is_safe_mod_name(""));
     }
 
     #[test]
