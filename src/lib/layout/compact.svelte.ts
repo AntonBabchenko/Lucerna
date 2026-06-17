@@ -37,15 +37,20 @@ let needsExpandedHug = false;
  * can hug it (compact) or floor its minimum at it (expanded). The compact
  * layout is two grid rows: the sidebar (row 1) and the page-level install/mod
  * status row (row 2, `[data-phase-row]`), which appears and disappears
- * dynamically. Both must be counted — sizing to the sidebar alone leaves the
- * status row with no room, squeezing the sidebar into a scrollbar.
+ * dynamically. In compact mode it must be counted — the status row is stacked
+ * below the sidebar in the single column, so omitting it leaves the row no room
+ * and squeezes the sidebar into a scrollbar. In expanded mode the sidebar spans
+ * BOTH grid rows (the status row sits only under the content column), so the
+ * status row never steals sidebar height and is excluded from the floor —
+ * otherwise the window would twitch taller every time an install footer appears.
  *
  * Returns null when nothing can be measured (no DOM / sidebar not mounted), in
  * which case the caller keeps the current height. The `<aside>` is `h-full` and
  * taller than its content when expanded, so `scrollHeight` reports the container
  * height, not the content — instead we measure from the sidebar's top to its
  * last child's bottom plus bottom padding (the last child is the
- * `[data-sidebar-content]` wrapper), then add the status row's rendered height.
+ * `[data-sidebar-content]` wrapper), then — in compact mode only — add the
+ * status row's rendered height.
  */
 function measureCompactContentHeight(): number | null {
   if (typeof document === 'undefined') return null;
@@ -58,12 +63,16 @@ function measureCompactContentHeight(): number | null {
   const padBottom = Number.parseFloat(getComputedStyle(aside).paddingBottom) || 0;
   let height = contentBottom - asideTop + padBottom;
 
-  // Grid row 2: the install/mod progress strip beneath the sidebar. Present
-  // only while an install/mod pipeline reports progress; its `auto` row means
-  // its rendered height is its content height (0 when it renders nothing).
-  const phaseRow = document.querySelector('[data-phase-row]');
-  if (phaseRow instanceof HTMLElement) {
-    height += phaseRow.getBoundingClientRect().height;
+  // Grid row 2: the install/mod progress strip. In compact mode it's stacked
+  // below the sidebar in the single column, so its height is part of the window
+  // height. In expanded mode the sidebar spans both rows and the strip sits only
+  // under the content column, so it must NOT be added — else the floor (and the
+  // window) grows when an install footer appears, squeezing the sidebar.
+  if (compactState.value) {
+    const phaseRow = document.querySelector('[data-phase-row]');
+    if (phaseRow instanceof HTMLElement) {
+      height += phaseRow.getBoundingClientRect().height;
+    }
   }
 
   const rounded = Math.ceil(height);

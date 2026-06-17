@@ -651,7 +651,14 @@
     ? '1fr'
     : '240px 1fr'}; grid-template-rows: 1fr auto;"
 >
-  <div class="col-start-1 row-start-1 overflow-hidden">
+  <!--
+    Expanded: the sidebar spans BOTH grid rows (`grid-row: 1 / -1`) so the
+    install/mod status row (row 2, content column only) never steals its height.
+    The sidebar is sized exactly to its content via the min-height floor, so
+    losing any row height would force it into a scrollbar. Compact: single
+    column, the status row stacks below the sidebar, so it stays in row 1.
+  -->
+  <div class="col-start-1 overflow-hidden" style="grid-row: {compactState.value ? '1' : '1 / -1'};">
     <Sidebar
       {accounts}
       {activeAccount}
@@ -807,7 +814,17 @@
     </div>
   {/if}
 
-  <div class="row-start-2" style="grid-column: 1 / -1;" data-phase-row>
+  <!--
+    Expanded: the footer lives only under the content column (`grid-column: 2`),
+    not beneath the full-height sidebar. Compact: single column, so it spans it
+    (`1 / -1`). See the sidebar wrapper above; the floor measurement in
+    `compact.svelte.ts` mirrors this (status row counted only when compact).
+  -->
+  <div
+    class="row-start-2"
+    style="grid-column: {compactState.value ? '1 / -1' : '2'};"
+    data-phase-row
+  >
     <PhaseStatusRow />
   </div>
 
