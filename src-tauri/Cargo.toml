@@ -1,6 +1,6 @@
 [package]
 name = "lucerna"
-version = "0.13.0"
+version = "0.14.0"
 description = "Lucerna — a clean, transparent open-source Minecraft launcher for Windows. No telemetry, no ad injection, no hidden processes, no bundled adware."
 authors = ["AntonBabchenko"]
 license = "GPL-3.0-or-later"
