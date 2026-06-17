@@ -2,3 +2,4 @@
 //! Сущность отдельная от инстанса; артефакты живут в `<app_data>/servers/<id>/`.
 
 pub mod schema;
+pub mod store;
