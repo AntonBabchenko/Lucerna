@@ -239,6 +239,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverAlreadyRunning');
     case 'server_not_running':
       return translate('errors.serverNotRunning');
+    case 'upload_not_configured':
+      return translate('errors.uploadNotConfigured');
+    case 'sftp_connect_failed':
+      return translate('errors.sftpConnectFailed', { details: e.details });
+    case 'sftp_auth_failed':
+      return translate('errors.sftpAuthFailed');
+    case 'sftp_host_key_mismatch':
+      return translate('errors.sftpHostKeyMismatch');
+    case 'sftp_transfer_failed':
+      return translate('errors.sftpTransferFailed', { details: e.details });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

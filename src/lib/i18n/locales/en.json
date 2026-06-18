@@ -1155,7 +1155,12 @@
     "serverInstallerFailed": "The {loader} server installer failed",
     "serverSpawnFailed": "Failed to start the server process: {details}",
     "serverAlreadyRunning": "This server is already running",
-    "serverNotRunning": "This server is not running"
+    "serverNotRunning": "This server is not running",
+    "uploadNotConfigured": "Set up the hosting connection first",
+    "sftpConnectFailed": "Couldn't connect to the host: {details}",
+    "sftpAuthFailed": "Login failed — check the username and password",
+    "sftpHostKeyMismatch": "The host's key changed — upload blocked for safety. Re-confirm only if you trust it.",
+    "sftpTransferFailed": "Upload failed: {details}"
   },
   "settings": {
     "title": "Settings",

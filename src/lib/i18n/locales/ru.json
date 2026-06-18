@@ -1155,7 +1155,12 @@
     "serverInstallerFailed": "Установщик сервера {loader} завершился с ошибкой",
     "serverSpawnFailed": "Не удалось запустить процесс сервера: {details}",
     "serverAlreadyRunning": "Этот сервер уже запущен",
-    "serverNotRunning": "Этот сервер не запущен"
+    "serverNotRunning": "Этот сервер не запущен",
+    "uploadNotConfigured": "Сначала настройте подключение к хостингу",
+    "sftpConnectFailed": "Не удалось подключиться к хосту: {details}",
+    "sftpAuthFailed": "Вход не удался — проверьте логин и пароль",
+    "sftpHostKeyMismatch": "Ключ хоста изменился — заливка заблокирована для безопасности. Подтвердите повторно, только если доверяете.",
+    "sftpTransferFailed": "Заливка не удалась: {details}"
   },
   "settings": {
     "title": "Настройки",
