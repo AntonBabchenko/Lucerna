@@ -6,7 +6,13 @@
     "loading": "Loading…",
     "dismissNotification": "Dismiss notification",
     "previousImage": "Previous image",
-    "nextImage": "Next image"
+    "nextImage": "Next image",
+    "install": "Install",
+    "installVersion": "Install {version}",
+    "installCount": "Install {count} selected",
+    "switchToVersion": "Switch to this version",
+    "installed": "Installed",
+    "restricted": "Restricted — open the page to download"
   },
   "pagination": {
     "first": "First",
@@ -1204,7 +1210,9 @@
         "themeLight": "Light",
         "themeDark": "Dark",
         "rainbowIcons": "Rainbow icon animation",
-        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting."
+        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting.",
+        "iconZoom": "Icon hover zoom",
+        "iconZoomDescription": "Icons grow slightly when you point at them."
       },
       "playing": {
         "title": "Playing",
