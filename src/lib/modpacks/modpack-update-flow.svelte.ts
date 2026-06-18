@@ -77,6 +77,8 @@ export function createModpackUpdateFlow() {
 
   function cancel(): void {
     diff = null;
+    progress = null;
+    error = null;
     tempPath = null;
     versionId = null;
     phase = 'idle';

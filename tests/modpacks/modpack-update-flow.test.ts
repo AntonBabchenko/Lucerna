@@ -59,6 +59,16 @@ describe('createModpackUpdateFlow', () => {
     expect(flow.diff).toBeNull();
   });
 
+  it('prepare() surfaces a compute-diff error and returns to idle', async () => {
+    computeUpdate.mockResolvedValue({ status: 'error', error: { kind: 'io' } });
+    const flow = createModpackUpdateFlow();
+    await flow.prepare(inst, entry);
+    expect(fetchToTemp).toHaveBeenCalled();
+    expect(flow.error).toBe('formatted:io');
+    expect(flow.phase).toBe('idle');
+    expect(flow.diff).toBeNull();
+  });
+
   it('confirm() applies, maps installing_file into progress mid-flight, returns true', async () => {
     let release: (v: unknown) => void = () => {};
     let phaseCh: { onmessage: (m: unknown) => void } | null = null;
