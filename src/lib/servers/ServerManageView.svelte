@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
@@ -8,6 +9,7 @@
   import ServerConsole from './ServerConsole.svelte';
   import ServerSettings from './ServerSettings.svelte';
   import ServerMods from './ServerMods.svelte';
+  import ServerDiagnosisBanner from './ServerDiagnosisBanner.svelte';
 
   let { serverId, onBack }: { serverId: string; onBack: () => void } = $props();
 
@@ -21,6 +23,24 @@
   let busyStop = $state(false);
   let busyRestart = $state(false);
   let actionError = $state<string | null>(null);
+
+  // Diagnose on mount and whenever the server transitions from running → stopped.
+  onMount(() => {
+    void serverState.diagnose(serverId);
+  });
+
+  // Re-diagnose when the server stops (running → false transition).
+  // We track the previous value in a $state variable so the $effect
+  // can read both the old and new value reactively.
+  // svelte-ignore state_referenced_locally
+  let _prevRunning = $state(serverState.running(serverId));
+  $effect(() => {
+    const isRunning = serverState.running(serverId);
+    if (_prevRunning && !isRunning) {
+      void serverState.diagnose(serverId);
+    }
+    _prevRunning = isRunning;
+  });
 
   async function start() {
     busyStart = true;
@@ -100,6 +120,11 @@
   {#if actionError}
     <p class="px-4 pt-2 text-sm text-danger">{actionError}</p>
   {/if}
+
+  <!-- Diagnosis banner (shown when the server crash-diagnosed after stop) -->
+  <div class="px-4 pt-2">
+    <ServerDiagnosisBanner {serverId} />
+  </div>
 
   <!-- Sub-tabs -->
   <!-- svelte-ignore a11y_interactive_supports_focus -->
