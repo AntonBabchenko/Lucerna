@@ -230,7 +230,7 @@
   {#if caps.needs_api_key && needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {:else if loading}
-    <LoadingPanel label={$t('modpacks.browse.searching')} />
+    <LoadingPanel label={$t('modpacks.browse.searching')} delayMs={0} />
   {:else if error}
     <div class="mt-4 text-sm text-danger flex items-center justify-between gap-3">
       <span>{error}</span>

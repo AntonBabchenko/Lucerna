@@ -899,7 +899,7 @@
       </div>
     {/if}
     {#if loading}
-      <LoadingPanel label={$t('mods.browse.searching')} />
+      <LoadingPanel label={$t('mods.browse.searching')} delayMs={0} />
     {:else if hits.length > 0}
       {#if pageHits.length > 0}
         <ModResultsGrid

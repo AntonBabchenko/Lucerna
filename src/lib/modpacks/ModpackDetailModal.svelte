@@ -193,7 +193,7 @@
           {/if}
         </div>
       {:else if loading}
-        <LoadingPanel label={$t('modpacks.detail.loadingVersions')} size="md" />
+        <LoadingPanel label={$t('modpacks.detail.loadingVersions')} size="md" delayMs={0} />
       {:else if visibleVersions.length === 0}
         <div class="text-sm text-muted">
           {#if mcFilter}
