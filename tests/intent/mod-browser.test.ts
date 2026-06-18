@@ -982,8 +982,8 @@ describe('ModDetailModal — error block uses bg-danger-bg border-danger text-da
 
 // ── ModDetailModal — version row buttons ────────────────────────────────────
 
-describe('ModDetailModal — version row Install button is btn-xs btn-primary', () => {
-  it('installable version row button has btn-xs and btn-primary classes', async () => {
+describe('ModDetailModal — version row Install button is an accent icon button', () => {
+  it('installable version row button is an icon button tinted accent', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({ version_id: 'v2.0', version_number: '2.0' });
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
@@ -1003,14 +1003,17 @@ describe('ModDetailModal — version row Install button is btn-xs btn-primary', 
       },
     });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
+    // Icon-only by state: the per-state text moved to the tooltip/aria-label,
+    // so the accessible name is now common.install ("Install").
     const installBtn = await screen.findByRole('button', { name: /^install$/i });
-    expect(installBtn).toHaveBtnVariant('primary');
-    expect(installBtn).toHaveBtnSize('xs');
+    expect(installBtn).toHaveBtnVariant('icon');
+    expect(installBtn.className).toContain('btn-icon-sm');
+    expect(installBtn.className).toContain('!text-accent');
   });
 });
 
-describe('ModDetailModal — installed version row button has btn-xs base + success colours', () => {
-  it('installed version button has btn-xs border-success text-success', async () => {
+describe('ModDetailModal — installed version row button is a disabled success icon', () => {
+  it('installed version button is an icon tinted success and disabled', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({ version_id: 'v1.0', version_number: '1.0' });
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
@@ -1032,16 +1035,16 @@ describe('ModDetailModal — installed version row button has btn-xs base + succ
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const installedBtn = await screen.findByRole('button', { name: /installed/i });
     const cls = installedBtn.className;
-    expect(cls).toContain('btn-xs');
-    expect(cls).toContain('border-success');
-    expect(cls).toContain('text-success');
+    expect(cls).toContain('btn-icon');
+    expect(cls).toContain('!text-success');
+    expect(installedBtn.hasAttribute('disabled')).toBe(true);
     // Installed variant should NOT use btn-primary.
     expect(cls).not.toMatch(/\bbtn-primary\b/);
   });
 });
 
-describe('ModDetailModal — restricted version row button has btn-xs text-muted', () => {
-  it('restricted version button has btn-xs and text-muted', async () => {
+describe('ModDetailModal — restricted version row button is a disabled muted icon', () => {
+  it('restricted version button is an icon tinted muted and disabled', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({
       version_id: 'v1.0',
@@ -1072,8 +1075,9 @@ describe('ModDetailModal — restricted version row button has btn-xs text-muted
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const restrictedBtn = await screen.findByRole('button', { name: /restricted/i });
     const cls = restrictedBtn.className;
-    expect(cls).toContain('btn-xs');
-    expect(cls).toContain('text-muted');
+    expect(cls).toContain('btn-icon');
+    expect(cls).toContain('!text-muted');
+    expect(restrictedBtn.hasAttribute('disabled')).toBe(true);
     expect(cls).not.toMatch(/\bbtn-primary\b/);
   });
 });

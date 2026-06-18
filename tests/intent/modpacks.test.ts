@@ -1098,8 +1098,8 @@ describe('ModpackDetailModal — empty state renders "No versions available."', 
   });
 });
 
-describe('ModpackDetailModal — Install button is btn-primary btn-xs', () => {
-  it('Install button is btn-primary btn-xs when versions are present', async () => {
+describe('ModpackDetailModal — per-version Install button is an accent icon', () => {
+  it('Install button is an icon tinted accent when versions are present', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modpackGetVersions).mockResolvedValueOnce({
       status: 'ok',
@@ -1109,9 +1109,11 @@ describe('ModpackDetailModal — Install button is btn-primary btn-xs', () => {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
+    // Icon-only install: the accessible name is common.install ("Install").
     const installBtn = await screen.findByRole('button', { name: /^install$/i });
-    expect(installBtn).toHaveBtnVariant('primary');
-    expect(installBtn).toHaveBtnSize('xs');
+    expect(installBtn).toHaveBtnVariant('icon');
+    expect(installBtn.className).toContain('btn-icon-sm');
+    expect(installBtn.className).toContain('!text-accent');
   });
 });
 
