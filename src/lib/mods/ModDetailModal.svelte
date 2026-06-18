@@ -276,6 +276,14 @@
             {@const isInstalled = v.version_id === installedVersionId}
             {@const hasOtherInstalled =
               installedVersionId !== null && installedVersionId !== v.version_id}
+            {@const distAllowed = v.primary_file.distribution_allowed}
+            {@const rowTooltip = isInstalled
+              ? $t('common.installed')
+              : !distAllowed
+                ? $t('common.restricted')
+                : hasOtherInstalled
+                  ? $t('common.switchToVersion')
+                  : $t('common.install')}
             <div
               class="border-t py-2 flex items-center gap-2 text-sm {isInstalled
                 ? 'bg-success-bg'
@@ -300,33 +308,26 @@
                   </span>
                 {/if}
               </div>
-              <span
-                class="inline-flex"
-                use:tooltip={hasOtherInstalled
-                  ? $t('mods.detail.switchVersionTitle', {
-                      installedId: installedVersionId ?? '',
-                    })
-                  : null}
-              >
+              <span class="inline-flex" use:tooltip={rowTooltip}>
                 <BusyButton
                   busy={installingVersionId === v.version_id}
-                  class="btn-xs {isInstalled
-                    ? 'btn-secondary border-success text-success'
-                    : !v.primary_file.distribution_allowed
-                      ? 'btn-secondary text-muted'
-                      : 'btn-primary'}"
-                  disabled={!v.primary_file.distribution_allowed || isInstalled}
+                  class={`btn-icon btn-icon-sm ${isInstalled
+                    ? '!text-success'
+                    : !distAllowed
+                      ? '!text-muted'
+                      : '!text-accent'}`}
+                  disabled={!distAllowed || isInstalled}
+                  aria-label={rowTooltip}
                   onclick={() => onInstall(v)}
                 >
                   {#if isInstalled}
-                    <Icon name="success" size={14} />
-                    {$t('mods.detail.btnInstalled')}
-                  {:else if !v.primary_file.distribution_allowed}
-                    {$t('mods.detail.btnRestricted')}
+                    <Icon name="success" size={15} />
+                  {:else if !distAllowed}
+                    <Icon name="lock" size={15} />
                   {:else if hasOtherInstalled}
-                    {$t('mods.detail.btnSwitch')}
+                    <Icon name="switch" size={15} />
                   {:else}
-                    {$t('mods.detail.btnInstall')}
+                    <Icon name="download" size={15} />
                   {/if}
                 </BusyButton>
               </span>
@@ -356,7 +357,8 @@
           {:else if !recommended.primary_file.distribution_allowed}
             {$t('mods.detail.footerRestricted')}
           {:else}
-            {$t('mods.detail.footerInstall', { version: recommended.version_number })}
+            <Icon name="download" size={14} />
+            {$t('common.installVersion', { version: recommended.version_number })}
           {/if}
         </BusyButton>
       {:else}
