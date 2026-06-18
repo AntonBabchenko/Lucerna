@@ -85,7 +85,7 @@
         >
           <button
             type="button"
-            class="text-accent hover:underline"
+            class="btn-tertiary"
             onclick={() => onOpenDetail(e.source, e.projectId)}>{e.name}</button
           >
           <button
