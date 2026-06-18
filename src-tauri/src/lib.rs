@@ -130,6 +130,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::mods_find_orphans,
             commands::mods_dependency_graph,
             commands::instance_dependency_preflight,
+            commands::mods_install_missing_required,
             commands::mods_inspect_local,
             commands::mods_install_local,
             commands::mods_get_curseforge_key_status,

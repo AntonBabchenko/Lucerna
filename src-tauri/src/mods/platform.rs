@@ -269,6 +269,17 @@ pub struct InstallSummary {
     pub installed_dependencies: Vec<String>,
 }
 
+/// Result of a one-click "install the missing required dependency" action.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InstallMissingOutcome {
+    /// The dependency was resolved, verified, and installed. `name` is its display name.
+    Installed { name: String },
+    /// Could not resolve/verify with confidence — the UI opens a pre-filled
+    /// search for `query` (the loader mod-id) so the user can pick it manually.
+    OpenSearch { query: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct VersionRef {
     pub source: ModSource,
