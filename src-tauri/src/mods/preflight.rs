@@ -19,10 +19,25 @@ pub struct ParsedMod {
     pub manifest: ManifestDeps,
 }
 
+/// Canonical id form for provider matching: lowercase, `-` → `_`. Mod ecosystems
+/// use the two interchangeably (`fabric-api` vs `fabric_api`).
+fn canon_id(id: &str) -> String {
+    id.trim().to_ascii_lowercase().replace('-', "_")
+}
+
+/// Umbrella/loader-bundled libraries: a required id (canon) is satisfied if the
+/// instance provides ANY of the listed canon ids. Keep tiny + well-commented;
+/// additive only — can clear a false "missing", never create a new one.
+const PROVIDES_ALIASES: &[(&str, &[&str])] = &[
+    // Sinytra Connector ships fabric-api as forgified-fabric-api (+ its JIJ
+    // submodules); a Fabric mod's `fabric-api` dep is satisfied by either.
+    ("fabric_api", &["forgified_fabric_api", "fabric"]),
+];
+
 /// What a provider id maps to: its declared version (if known).
 #[derive(Debug, Clone, Default)]
 pub struct ProviderIndex {
-    by_id: HashMap<String, Option<String>>, // lowercased mod_id -> version
+    by_id: HashMap<String, Option<String>>, // canon mod_id -> version
 }
 
 impl ProviderIndex {
@@ -32,17 +47,30 @@ impl ProviderIndex {
         for m in mods {
             for p in &m.manifest.provided {
                 by_id
-                    .entry(p.mod_id.to_ascii_lowercase())
+                    .entry(canon_id(&p.mod_id))
                     .or_insert(p.version.clone());
             }
         }
         for (id, ver) in jij {
-            by_id.entry(id.to_ascii_lowercase()).or_insert(ver.clone());
+            by_id.entry(canon_id(id)).or_insert(ver.clone());
         }
         Self { by_id }
     }
+
     fn get(&self, id: &str) -> Option<&Option<String>> {
-        self.by_id.get(&id.to_ascii_lowercase())
+        self.by_id.get(&canon_id(id))
+    }
+
+    /// True iff `dep_id` is provided directly or via a known umbrella alias.
+    fn is_provided(&self, dep_id: &str) -> bool {
+        let key = canon_id(dep_id);
+        if self.by_id.contains_key(&key) {
+            return true;
+        }
+        PROVIDES_ALIASES
+            .iter()
+            .find(|(name, _)| *name == key)
+            .is_some_and(|(_, aliases)| aliases.iter().any(|a| self.by_id.contains_key(*a)))
     }
 }
 
@@ -70,27 +98,27 @@ pub fn resolve(mods: &[ParsedMod], index: &ProviderIndex) -> Vec<Violation> {
             if !dep.required || dep.side == DepSide::Server {
                 continue;
             }
-            match index.get(&dep.dep_id) {
-                None => out.push(Violation::MissingRequired {
+            if !index.is_provided(&dep.dep_id) {
+                out.push(Violation::MissingRequired {
                     dependent_sha1: m.sha1.clone(),
                     dependent_name: m.name.clone(),
                     dep_id: dep.dep_id.clone(),
-                }),
-                Some(version) => {
-                    if let Some(v) = version {
-                        if satisfies(v, &dep.range, dep.family) == Satisfaction::Violated {
-                            out.push(Violation::VersionOutOfRange {
-                                dependent_sha1: m.sha1.clone(),
-                                dependent_name: m.name.clone(),
-                                dep_id: dep.dep_id.clone(),
-                                needed: dep.range.clone(),
-                                installed: v.clone(),
-                            });
-                        }
-                    }
-                    // version None => provider present but version unknown => silent
+                });
+                continue;
+            }
+            // present — range-check only if a concrete version is known via direct lookup
+            if let Some(Some(v)) = index.get(&dep.dep_id) {
+                if satisfies(v, &dep.range, dep.family) == Satisfaction::Violated {
+                    out.push(Violation::VersionOutOfRange {
+                        dependent_sha1: m.sha1.clone(),
+                        dependent_name: m.name.clone(),
+                        dep_id: dep.dep_id.clone(),
+                        needed: dep.range.clone(),
+                        installed: v.clone(),
+                    });
                 }
             }
+            // version None or satisfied-via-alias-only => provider present but version unknown => silent
         }
     }
     out
@@ -506,6 +534,43 @@ mod tests {
             report.violations.is_empty(),
             "submodule bundled in Fabric API must satisfy the dep; got {:?}",
             report.violations
+        );
+    }
+
+    #[test]
+    fn provider_index_matches_across_underscore_hyphen() {
+        // forgified-fabric-api provides `fabric_api`; a mod requires `fabric-api`.
+        let mods = vec![
+            modz("a", vec![prov("fabric_api", "0.116.7")], vec![]),
+            modz(
+                "b",
+                vec![prov("continuity", "3.0.0")],
+                vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+            ),
+        ];
+        let index = ProviderIndex::build(&mods, &[]);
+        assert!(
+            resolve(&mods, &index).is_empty(),
+            "fabric-api must match fabric_api"
+        );
+    }
+
+    #[test]
+    fn provider_index_umbrella_alias_for_forgified_fabric_api() {
+        // Only forgified-fabric-api's own id is provided; a mod requires the
+        // `fabric-api` umbrella. The alias table must treat it as satisfied.
+        let mods = vec![
+            modz("a", vec![prov("forgified_fabric_api", "2.2.4")], vec![]),
+            modz(
+                "b",
+                vec![prov("continuity", "3.0.0")],
+                vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+            ),
+        ];
+        let index = ProviderIndex::build(&mods, &[]);
+        assert!(
+            resolve(&mods, &index).is_empty(),
+            "fabric-api satisfied by forgified_fabric_api via alias"
         );
     }
 
