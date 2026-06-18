@@ -127,7 +127,7 @@
       <span class="font-bold text-lg text-primary">Lucerna</span>
       <button
         type="button"
-        class="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-muted hover:border-accent hover:text-accent"
+        class="btn-icon btn-icon-sm"
         aria-label={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
         use:tooltip={compact ? $t('sidebar.compactExpand') : $t('sidebar.compactCollapse')}
         onclick={onToggleCompact}
@@ -147,12 +147,12 @@
             <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
           {/if}
         {/snippet}
-        <!-- Per-row trash inside the open dropdown: revealed on row hover and on
-           the keyboard-active row (group-hover / group-[.is-active] via the
-           markers Select puts on each <li>). Removes that specific account
-           (gated by the confirm dialog in +page.svelte). onmousedown is stopped
-           so clicking the trash does not also commit/select the row; Delete on
-           the active row routes through Select's onDeleteOption. -->
+        <!-- Per-row trash inside the open dropdown: always visible, neutral at
+           rest, red on hover/focus (btn-icon-danger, §6 delete-icon model).
+           Removes that specific account (gated by the confirm dialog in
+           +page.svelte). onmousedown is stopped so clicking the trash does not
+           also commit/select the row; Delete on the active row routes through
+           Select's onDeleteOption. -->
         {#snippet accountTrailing(opt: SelectOption)}
           {@const acc = accounts.find((a) => a.id === opt.value)}
           {#if acc}
@@ -160,7 +160,7 @@
             <button
               type="button"
               tabindex="-1"
-              class="inline-flex flex-shrink-0 items-center justify-center rounded p-1 text-danger opacity-0 transition-opacity hover:bg-danger/10 group-hover:opacity-100 group-[.is-active]:opacity-100"
+              class="btn-icon btn-icon-sm btn-icon-danger flex-shrink-0"
               aria-label={removeLabel}
               use:tooltip={{ text: removeLabel, describe: false }}
               onmousedown={(e) => {
