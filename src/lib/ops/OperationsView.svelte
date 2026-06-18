@@ -4,6 +4,7 @@
   import type { ModpackProgress } from '$lib/ipc/bindings';
   import { cancelQueued, moveQueued, opQueue, opRunning, type QueuedOp } from './op-queue.svelte';
   import { tooltip } from '$lib/ui/tooltip';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   // Unified page-level "Operations" widget. Replaces IntegrityProgressView +
   // ImportProgressView: one corner card showing the running op's progress plus
@@ -71,11 +72,14 @@
     <h3 class="font-semibold text-sm text-primary mb-1">{$t('ops.heading')}</h3>
 
     {#if running}
-      <div
-        class="text-sm text-secondary truncate"
-        use:tooltip={{ text: runningLabel(running.op), whenOverflowing: true }}
-      >
-        {runningLabel(running.op)}
+      <div class="flex items-center gap-2">
+        <Spinner size="sm" />
+        <div
+          class="text-sm text-secondary truncate flex-1"
+          use:tooltip={{ text: runningLabel(running.op), whenOverflowing: true }}
+        >
+          {runningLabel(running.op)}
+        </div>
       </div>
       {#if running.progress.kind !== 'import' && running.progress.kind !== 'launcher-import'}
         <div class="text-xs text-muted">
