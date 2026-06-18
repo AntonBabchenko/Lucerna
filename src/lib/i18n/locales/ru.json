@@ -135,6 +135,7 @@
     "loader": {
       "label": "Загрузчик",
       "versionLabel": "Версия загрузчика",
+      "loadingVersions": "Загрузка версий…",
       "recommended": "{version} (рекомендуется)",
       "errorUnavailable": "{loader} не поддерживает Minecraft {mc}",
       "errorNetwork": "Ошибка сети при запросе {url}: {details}",
@@ -1382,6 +1383,7 @@
   "quickJoin": {
     "title": "Серверы",
     "savedHeading": "Сохранённые серверы",
+    "loading": "Загрузка серверов…",
     "empty": "Пока нет сохранённых серверов. Добавьте ниже.",
     "connect": "Подключиться",
     "copyAddress": "Копировать адрес",

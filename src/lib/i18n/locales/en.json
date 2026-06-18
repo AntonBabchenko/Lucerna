@@ -135,6 +135,7 @@
     "loader": {
       "label": "Loader",
       "versionLabel": "Loader version",
+      "loadingVersions": "Loading versions…",
       "recommended": "{version} (recommended)",
       "errorUnavailable": "{loader} does not support Minecraft {mc}",
       "errorNetwork": "Network error fetching {url}: {details}",
@@ -1382,6 +1383,7 @@
   "quickJoin": {
     "title": "Servers",
     "savedHeading": "Saved servers",
+    "loading": "Loading servers…",
     "empty": "No saved servers yet. Add one below.",
     "connect": "Connect",
     "copyAddress": "Copy address",
