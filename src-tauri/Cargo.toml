@@ -96,6 +96,8 @@ sigstore-verify = "0.8.0"
 # SQLite from vendored C source (CI runners have a C toolchain), so there is
 # no system-sqlite dependency. License MIT.
 rusqlite = { version = "0.32", features = ["bundled"] }
+russh = { version = "0.61.2", default-features = false, features = ["aws-lc-rs", "flate2"] }
+russh-sftp = "2.3.0"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process has
 # created its window before we hide the launcher to the tray. Used from
