@@ -132,7 +132,7 @@
       {#if sourceUrl}
         <button
           type="button"
-          class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
+          class="btn-link text-xs mt-0.5 inline-flex items-center gap-1"
           onclick={() => openExternal(sourceUrl)}
         >
           {$t('modpacks.detail.viewOn', { platform: platformName })}
