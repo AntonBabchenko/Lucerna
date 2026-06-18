@@ -21,6 +21,10 @@ pub enum RepairKind {
     ResolveConflict,
     InstallMissingMods,
     DisableBlockingMods,
+    /// A client-only mod crashed the dedicated server. Handled by the
+    /// server-specific `server_remove_mods` command, not the instance repair
+    /// pipeline — `build_repair_plan` returns `Ok(None)` for this variant.
+    RemoveClientServerMods,
 }
 
 /// Map a diagnoser `pattern_id` to its repair kind, or `None` for the

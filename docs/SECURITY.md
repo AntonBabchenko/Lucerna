@@ -63,3 +63,13 @@ The repository root contains a short [`SECURITY.md`](../SECURITY.md) with the co
 2. **This key is extractable, and we say so.** Unlike a server-side secret, a key compiled into a distributed binary can be recovered by anyone who inspects it. It is therefore treated as an *application identity*, not a user secret: it is rate-limited per application (shared across release users) and can be rotated by the maintainer (which requires a new release). A user who prefers their own key can enter one in Settings → Integrations; a personal key takes precedence over the embedded one, so a user is never forced onto the shared key and can self-heal if the embedded key is ever revoked.
 
 3. **Self-built and forked binaries carry no key unless one is supplied.** Builds without the `LUCERNA_CURSEFORGE_API_KEY` env var set at compile time fall back to the manual key-entry flow — no key is hidden in source. See `CONTRIBUTING.md` for how a fork bakes in its own key.
+
+## Part F — SFTP dependency and credential handling (own-server upload)
+
+The "own server" feature (slice 3) introduces two new Rust crates: `russh` and `russh-sftp` (pure-Rust SSH/SFTP client; Apache-2.0; `cargo deny check` clean as of the crate versions pinned in `Cargo.lock`).
+
+1. **Cryptography configuration.** `russh` is compiled with `default-features = false`, enabling only the `aws-lc-rs` and `flate2` features. This explicitly excludes the `rsa` feature, which would pull in the `rsa` crate affected by RUSTSEC-2023-0071 (Marvin timing side-channel). As a result, RSA host keys are unsupported; only ed25519 and ECDSA host keys are accepted.
+
+2. **SFTP credential handling.** The user's SFTP password is stored in the OS keyring via the same keychain abstraction used for Microsoft OAuth tokens — never written to `server.json`, configuration files, or log output. Host identity is verified via TOFU (trust-on-first-use): the server's SHA-256 fingerprint is persisted on first connect; a changed fingerprint blocks subsequent uploads and prompts the user to re-confirm.
+
+3. **Module isolation and structural guard.** All `russh`/`russh-sftp` usage is confined to `src-tauri/src/servers_runtime/transfer.rs`. The structural guard `src-tauri/tests/structural_no_raw_sftp.rs` fails the build if SSH/SFTP client construction appears anywhere else — mirroring the `structural_no_raw_http.rs` and `structural_no_raw_spawn.rs` guards. For the product rationale of this sanctioned outbound channel, see `docs/PRINCIPLES.md` Part A, commitment 3.

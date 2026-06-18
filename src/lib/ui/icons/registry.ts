@@ -32,6 +32,7 @@ import {
   Puzzle,
   RefreshCw,
   ScrollText,
+  Server,
   Settings,
   Shrink,
   SlidersHorizontal,
@@ -100,6 +101,7 @@ export const ICONS = {
   // Content kinds (Add-ons tab): picker options + per-kind placeholder avatars.
   resourcePack: Image, // resource-pack kind
   shader: Aperture, // shader kind
+  server: Server, // own-server entry point (sidebar + server list rows)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

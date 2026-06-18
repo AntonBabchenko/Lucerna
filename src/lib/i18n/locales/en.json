@@ -1168,7 +1168,19 @@
     "importSourceMissing": "The original source folder no longer exists: {path}",
     "serversDatParse": "Could not read the server list (servers.dat): {reason}",
     "savedServerNameInvalid": "“{name}” isn't a valid server name: {reason}",
-    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again."
+    "savedServerListChanged": "The saved server list changed — reopen the dialog and try again.",
+    "serverInvalidProperty": "Invalid server setting {key} = {value}",
+    "serverEulaNotAccepted": "You must accept the Minecraft EULA before starting this server",
+    "serverJarUnavailable": "Could not find a server download for {loader} {mcVersion}",
+    "serverInstallerFailed": "The {loader} server installer failed",
+    "serverSpawnFailed": "Failed to start the server process: {details}",
+    "serverAlreadyRunning": "This server is already running",
+    "serverNotRunning": "This server is not running",
+    "uploadNotConfigured": "Set up the hosting connection first",
+    "sftpConnectFailed": "Couldn't connect to the host: {details}",
+    "sftpAuthFailed": "Login failed — check the username and password",
+    "sftpHostKeyMismatch": "The host's key changed — upload blocked for safety. Re-confirm only if you trust it.",
+    "sftpTransferFailed": "Upload failed: {details}"
   },
   "settings": {
     "title": "Settings",
@@ -1450,6 +1462,124 @@
     },
     "unit": {
       "megabyte": "MB"
+    }
+  },
+  "servers": {
+    "title": "Servers",
+    "create": "Create server",
+    "empty": "No servers yet",
+    "lanHint": "The server listens locally and on your LAN. Internet access requires a host (separate).",
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "manage": {
+      "back": "Servers"
+    },
+    "tab": {
+      "console": "Console",
+      "settings": "Settings",
+      "mods": "Mods"
+    },
+    "action": {
+      "start": "Start",
+      "stop": "Stop",
+      "restart": "Restart"
+    },
+    "console": {
+      "inputPlaceholder": "Type a command (e.g. say hi, op Steve, stop)",
+      "send": "Send",
+      "notRunning": "Start the server to use the console",
+      "empty": "No output yet"
+    },
+    "wizard": {
+      "title": "New server",
+      "fromInstance": "From instance",
+      "fromInstanceHint": "Version, loader and mods from a chosen instance",
+      "standalone": "From scratch",
+      "standaloneHint": "Pick version and loader manually",
+      "name": "Name",
+      "instance": "Instance",
+      "version": "Minecraft version",
+      "loader": "Loader",
+      "loaderVersion": "Loader version (optional)",
+      "memory": "Memory (MB)",
+      "eula": "I accept the Minecraft EULA",
+      "eulaRequired": "Required to create a server",
+      "create": "Create",
+      "cancel": "Cancel"
+    },
+    "settings": {
+      "save": "Save",
+      "saved": "Saved",
+      "raw": "Advanced (raw file)",
+      "port": "Port",
+      "motd": "MOTD",
+      "gamemode": "Game mode",
+      "difficulty": "Difficulty",
+      "maxPlayers": "Max players",
+      "onlineMode": "Online mode",
+      "pvp": "PvP",
+      "whitelist": "Whitelist"
+    },
+    "mods": {
+      "empty": "No mods",
+      "delete": "Delete",
+      "openFolder": "Open folder",
+      "deleteConfirm": "Delete {name}?",
+      "note": "Add or remove mods in the server's mods folder."
+    },
+    "hosting": {
+      "tab": "Hosting",
+      "host": "Host",
+      "port": "Port",
+      "user": "User",
+      "password": "Password",
+      "remotePath": "Remote folder",
+      "save": "Save",
+      "saved": "Saved",
+      "upload": "Upload to host",
+      "uploading": "Uploading {done}/{total}…",
+      "uploaded": "Upload complete",
+      "exportZip": "Export .zip",
+      "exported": "Exported",
+      "runningBlock": "Stop the server before uploading",
+      "passwordStored": "Password saved",
+      "hostKeyTitle": "Host key changed",
+      "hostKeyBody": "This host's key has changed since you last connected. That can happen if the server was reinstalled — but it can also mean the connection is being intercepted. Only continue if you trust this host.",
+      "hostKeyTrust": "Trust & upload",
+      "cancel": "Cancel"
+    },
+    "diagnose": {
+      "clientOnly": {
+        "title": "A client-only mod crashed the server",
+        "explanation": "A mod meant for the game client was loaded on the dedicated server.",
+        "recommendation": "Remove the client-only mods below, then start the server again."
+      },
+      "portInUse": {
+        "title": "The server port is already in use",
+        "explanation": "Another program or server is already using this port.",
+        "recommendation": "Stop the other server, or change the port in Settings."
+      },
+      "eula": {
+        "title": "The Minecraft EULA is not accepted",
+        "explanation": "The server won't run until the Minecraft EULA is accepted.",
+        "recommendation": "Recreate the server with the EULA checkbox ticked."
+      },
+      "showClientMods": "Show client-only mods",
+      "removeSelected": "Remove selected",
+      "reason": {
+        "manifestClient": "client-only (mod info)",
+        "crash": "named in the crash"
+      },
+      "confidence": {
+        "high": "Likely client-only",
+        "medium": "Possibly client-only"
+      },
+      "forgeSkipNote": "Forge already skipped {count} client-only mods.",
+      "diagnoseBtn": "Diagnose",
+      "removed": "Removed {count} mods",
+      "restartHint": "Restart the server to apply the changes."
     }
   }
 }

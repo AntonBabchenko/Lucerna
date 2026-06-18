@@ -157,10 +157,10 @@ pub async fn download_with_sha(
     .map(|_| ())
 }
 
-/// Same as `download_with_sha` but without event emission. Exposed for
-/// integration tests that cannot construct a real `tauri::AppHandle`.
-/// Not registered as a Tauri command; production callers always use
-/// `download_with_sha`.
+/// Same as `download_with_sha` but without event emission. Used by integration
+/// tests (which cannot construct a `tauri::AppHandle`) and by AppHandle-free
+/// production helpers that don't need progress events (e.g. server assembly,
+/// forge installer tooling). Still routes through the allowlist chokepoint.
 #[doc(hidden)]
 pub async fn download_no_emit(
     url: &str,

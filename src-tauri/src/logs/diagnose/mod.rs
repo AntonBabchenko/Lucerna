@@ -6,11 +6,13 @@
 pub mod engine;
 pub mod patterns;
 pub mod repair;
+pub mod server;
 pub mod server_mods;
 
 use crate::error::Result;
 use crate::logs::files::LogSource;
 use serde::Serialize;
+use sha1::{Digest, Sha1};
 use specta::Type;
 use std::path::Path;
 
@@ -61,6 +63,16 @@ pub struct LatestDiagnosis {
     pub signature: Option<String>,
 }
 
+/// SHA-1 hex digest of raw log content. Used as a stable identity for a
+/// specific server log read, so the UI can remember that a diagnosis was
+/// already acted on without depending on filesystem metadata.
+///
+/// Distinct from `crate::logs::files::log_signature`, which is based on
+/// `LogFileMeta` (path + mtime + size) rather than content.
+pub fn log_signature(content: &str) -> String {
+    hex::encode(Sha1::digest(content.as_bytes()))
+}
+
 /// Pure status decision for a *found* diagnosis. I/O (reading logs, the
 /// instance) happens in the command; this is the testable core.
 pub fn classify_status(
@@ -103,6 +115,18 @@ pub async fn diagnose(path: &Path) -> Result<Option<Diagnosis>> {
 mod tests {
     use super::*;
     use crate::logs::diagnose::repair::RepairKind;
+
+    #[test]
+    fn log_signature_stable_and_distinguishing() {
+        let a = "some log content\n";
+        let b = "different log content\n";
+        assert_eq!(log_signature(a), log_signature(a), "same input → same sig");
+        assert_ne!(
+            log_signature(a),
+            log_signature(b),
+            "different input → different sig"
+        );
+    }
 
     fn diag(pattern: &str, repair: Option<RepairKind>) -> Diagnosis {
         Diagnosis {

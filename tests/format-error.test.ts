@@ -336,6 +336,32 @@ describe('formatError', () => {
         reason: 'empty name',
       },
       saved_server_list_changed: { kind: 'saved_server_list_changed' },
+      server_invalid_property: {
+        kind: 'server_invalid_property',
+        key: 'max-players',
+        value: '-1',
+        reason: 'must be positive',
+      },
+      server_eula_not_accepted: { kind: 'server_eula_not_accepted' },
+      server_jar_unavailable: {
+        kind: 'server_jar_unavailable',
+        loader: 'fabric',
+        mc_version: '1.21',
+        reason: 'no server download in manifest',
+      },
+      server_installer_failed: {
+        kind: 'server_installer_failed',
+        loader: 'forge',
+        details: 'exit 1',
+      },
+      server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
+      server_already_running: { kind: 'server_already_running', id: 'srv-1' },
+      server_not_running: { kind: 'server_not_running', id: 'srv-1' },
+      upload_not_configured: { kind: 'upload_not_configured' },
+      sftp_connect_failed: { kind: 'sftp_connect_failed', details: 'connection refused' },
+      sftp_auth_failed: { kind: 'sftp_auth_failed', details: 'wrong password' },
+      sftp_host_key_mismatch: { kind: 'sftp_host_key_mismatch', expected: 'aabbcc', got: 'ddeeff' },
+      sftp_transfer_failed: { kind: 'sftp_transfer_failed', details: 'disk full' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
@@ -355,7 +381,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(83);
+      expect(Object.keys(samples)).toHaveLength(95);
     });
   });
 

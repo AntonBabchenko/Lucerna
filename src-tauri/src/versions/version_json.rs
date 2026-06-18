@@ -69,8 +69,12 @@ pub struct AssetIndexRef {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Downloads {
     pub client: DownloadEntry,
-    /// Optional — `client_mappings`, `server`, `server_mappings` exist
-    /// in modern manifests but we don't need them.
+    /// Серверный jar. Присутствует для современных версий; `None` для очень
+    /// старых. Добавлено для фичи «Свой сервер».
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<DownloadEntry>,
+    /// Optional — `client_mappings`, `server_mappings` exist in modern
+    /// manifests but we don't need them.
     #[serde(flatten, default)]
     pub other: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -409,6 +413,23 @@ mod tests {
         assert!(v.asset_index.is_none(), "loader profile has no assetIndex");
         assert!(v.assets.is_none(), "loader profile has no assets");
         assert!(v.downloads.is_none(), "loader profile has no downloads");
+    }
+
+    #[test]
+    fn parses_server_download_entry() {
+        let raw = r#"{
+          "id": "1.20.4",
+          "mainClass": "net.minecraft.client.main.Main",
+          "downloads": {
+            "client": { "url": "https://piston-data.example/client.jar", "sha1": "aaaa", "size": 1 },
+            "server": { "url": "https://piston-data.example/server.jar", "sha1": "bbbb", "size": 2 }
+          },
+          "libraries": []
+        }"#;
+        let v = parse(raw).unwrap();
+        let server = v.downloads.unwrap().server.expect("server present");
+        assert_eq!(server.url, "https://piston-data.example/server.jar");
+        assert_eq!(server.sha1, "bbbb");
     }
 
     #[test]
