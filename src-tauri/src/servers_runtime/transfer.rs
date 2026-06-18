@@ -3,11 +3,27 @@
 //! outbound channel to the user's OWN server, sanctioned per docs/PRINCIPLES.md.
 
 use crate::error::{Error, Result};
+use crate::servers_runtime::schema::UploadConfig;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
+use specta::Type;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tauri::AppHandle;
+use tauri_specta::Event;
+use tokio::io::AsyncWriteExt;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
+
+/// Progress for an in-flight SFTP server upload, emitted once per file as it is
+/// written. `files_done` counts files completed including the current one.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ServerUploadProgress {
+    pub server_id: String,
+    pub current_file: String,
+    pub files_done: u32,
+    pub files_total: u32,
+}
 
 /// Files to upload: recursively under `runtime`, EXCLUDING the `logs/` dir and
 /// the one-shot `installer.jar`. Returns (local absolute path, remote relative
@@ -70,6 +86,181 @@ pub(crate) fn host_key_decision(known: Option<&str>, current: &str) -> bool {
     match known {
         None => true,
         Some(k) => k == current,
+    }
+}
+
+/// SSH client handler. Captures the server's host-key fingerprint at key
+/// exchange so the caller can make the TOFU decision *after* the transport is
+/// up but *before* any password is sent. `check_server_key` accepts the
+/// transport unconditionally (returns `Ok(true)`) — the trust decision is the
+/// caller's, not the transport's; rejecting here would tear the connection
+/// down before we could surface a useful host-key-mismatch error.
+struct CaptureHostKey {
+    captured_fp: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+impl russh::client::Handler for CaptureHostKey {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
+    ) -> std::result::Result<bool, Self::Error> {
+        // SSH wire-format encoding of the public key → stable SHA-256 hex
+        // fingerprint. `to_bytes` only fails on an encoding bug, not on
+        // attacker input; treat a failure as "no fingerprint" so the caller's
+        // TOFU check rejects rather than silently trusting.
+        let fp = server_public_key
+            .to_bytes()
+            .ok()
+            .map(|bytes| host_key_fingerprint(&bytes));
+        if let Ok(mut slot) = self.captured_fp.lock() {
+            *slot = fp;
+        }
+        Ok(true)
+    }
+}
+
+/// Upload the server `runtime` directory to the configured SFTP target.
+///
+/// Security ordering is load-bearing: connect → capture host-key fingerprint →
+/// TOFU decision → (only then) send the password → open SFTP → upload. On a
+/// changed/unknown host key with `accept_new_host_key == false` we bail with
+/// [`Error::SftpHostKeyMismatch`] **before** the password leaves the process.
+///
+/// Returns `Some(fingerprint)` when the host key is being trusted for the first
+/// time or re-trusted (so the caller can persist it in `UploadConfig`), or
+/// `None` when the already-known fingerprint matched. The password is never
+/// logged, emitted, or stored by this function.
+pub async fn upload_server(
+    app: &AppHandle,
+    server_id: &str,
+    cfg: &UploadConfig,
+    password: &str,
+    accept_new_host_key: bool,
+) -> Result<Option<String>> {
+    let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
+    let runtime = crate::paths::server_paths(&base, server_id).runtime;
+    let files = enumerate_upload_files(&runtime)?;
+
+    // --- connect + capture host-key fingerprint ---
+    let captured_fp = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let handler = CaptureHostKey {
+        captured_fp: captured_fp.clone(),
+    };
+    let config = std::sync::Arc::new(russh::client::Config::default());
+    let mut session = russh::client::connect(config, (cfg.host.as_str(), cfg.port), handler)
+        .await
+        .map_err(|e| Error::SftpConnectFailed {
+            details: e.to_string(),
+        })?;
+
+    let seen_fp = captured_fp
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .ok_or_else(|| Error::SftpConnectFailed {
+            details: "server presented no usable host key".to_string(),
+        })?;
+
+    // --- TOFU decision BEFORE sending the password ---
+    if !host_key_decision(cfg.known_host_fp.as_deref(), &seen_fp) && !accept_new_host_key {
+        return Err(Error::SftpHostKeyMismatch {
+            expected: cfg.known_host_fp.clone().unwrap_or_default(),
+            got: seen_fp,
+        });
+    }
+    let new_fp = if cfg.known_host_fp.as_deref() != Some(seen_fp.as_str()) {
+        Some(seen_fp)
+    } else {
+        None
+    };
+
+    // --- authenticate (password) ---
+    let auth = session
+        .authenticate_password(&cfg.user, password)
+        .await
+        .map_err(|e| Error::SftpAuthFailed {
+            details: e.to_string(),
+        })?;
+    if !auth.success() {
+        return Err(Error::SftpAuthFailed {
+            details: "password rejected by server".to_string(),
+        });
+    }
+
+    // --- open the SFTP subsystem ---
+    let channel = session
+        .channel_open_session()
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: e.to_string(),
+        })?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: e.to_string(),
+        })?;
+    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: e.to_string(),
+        })?;
+
+    // --- upload each file, creating remote dirs as needed ---
+    let remote_root = cfg.remote_path.trim_end_matches('/');
+    let total = files.len() as u32;
+    for (i, (local, rel)) in files.iter().enumerate() {
+        ensure_remote_dirs(&sftp, remote_root, rel).await;
+
+        let data = std::fs::read(local).map_err(|e| Error::io(local.display().to_string(), e))?;
+        let remote = format!("{remote_root}/{rel}");
+        let mut file =
+            sftp.create(remote.clone())
+                .await
+                .map_err(|e| Error::SftpTransferFailed {
+                    details: format!("{remote}: {e}"),
+                })?;
+        file.write_all(&data)
+            .await
+            .map_err(|e| Error::SftpTransferFailed {
+                details: format!("{remote}: {e}"),
+            })?;
+        file.shutdown()
+            .await
+            .map_err(|e| Error::SftpTransferFailed {
+                details: format!("{remote}: {e}"),
+            })?;
+
+        let _ = ServerUploadProgress {
+            server_id: server_id.to_string(),
+            current_file: rel.clone(),
+            files_done: i as u32 + 1,
+            files_total: total,
+        }
+        .emit(app);
+    }
+
+    Ok(new_fp)
+}
+
+/// Best-effort `mkdir -p` of the parent directories for `rel` under
+/// `remote_root`. SFTP has no atomic recursive mkdir, so we create each segment
+/// in turn and ignore errors: an already-existing directory reports `Failure`
+/// on most servers, and a directory we truly cannot create surfaces later as a
+/// real error when the file `create` fails.
+async fn ensure_remote_dirs(sftp: &russh_sftp::client::SftpSession, remote_root: &str, rel: &str) {
+    let mut segments: Vec<&str> = rel.split('/').collect();
+    segments.pop(); // drop the file name; keep only directory components
+    let mut acc = remote_root.to_string();
+    for seg in segments {
+        if seg.is_empty() {
+            continue;
+        }
+        acc.push('/');
+        acc.push_str(seg);
+        let _ = sftp.create_dir(acc.clone()).await;
     }
 }
 

@@ -347,6 +347,26 @@ pub enum Error {
     /// Операция требует запущенного сервера, но он не запущен.
     #[error("server not running: {id}")]
     ServerNotRunning { id: String },
+
+    /// Загрузка сервера по SFTP не настроена (нет `UploadConfig`).
+    #[error("server upload not configured")]
+    UploadNotConfigured,
+
+    /// Не удалось установить SSH/SFTP-соединение с сервером пользователя.
+    #[error("SFTP connect failed: {details}")]
+    SftpConnectFailed { details: String },
+
+    /// Аутентификация по паролю на SFTP-сервере не прошла.
+    #[error("SFTP authentication failed: {details}")]
+    SftpAuthFailed { details: String },
+
+    /// Отпечаток host-ключа изменился относительно ранее доверенного (TOFU).
+    #[error("SFTP host key changed (possible MITM) — expected {expected}, got {got}")]
+    SftpHostKeyMismatch { expected: String, got: String },
+
+    /// Ошибка во время передачи файлов по SFTP (создание каталога/запись).
+    #[error("SFTP transfer failed: {details}")]
+    SftpTransferFailed { details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

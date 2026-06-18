@@ -206,6 +206,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             servers_runtime::runtime::ServerLogLine,
             servers_runtime::runtime::ServerSpawned,
             servers_runtime::runtime::ServerExited,
+            servers_runtime::transfer::ServerUploadProgress,
         ])
 }
 
