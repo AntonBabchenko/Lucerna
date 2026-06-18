@@ -1,4 +1,4 @@
-import { commands, events, type ServerWithStatus } from '$lib/ipc/bindings';
+import { commands, events, type ServerDiagnosis, type ServerWithStatus } from '$lib/ipc/bindings';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 
 // Single source of truth for own-server runtime state.
@@ -7,6 +7,7 @@ import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 
 let list = $state<ServerWithStatus[]>([]);
 let lines = $state<Map<string, string[]>>(new Map());
+let diagnoses = $state<Map<string, ServerDiagnosis>>(new Map());
 let initialized = false;
 
 async function refresh(): Promise<void> {
@@ -32,13 +33,46 @@ function clearLines(id: string): void {
   lines = m;
 }
 
+async function diagnose(id: string): Promise<void> {
+  const r = await commands.serverDiagnose(id);
+  if (r.status === 'ok') {
+    const m = new Map(diagnoses);
+    m.set(id, r.data);
+    diagnoses = m;
+  }
+}
+
+function diagnosisFor(id: string): ServerDiagnosis | undefined {
+  return diagnoses.get(id);
+}
+
+async function removeClientMods(
+  id: string,
+  filenames: string[],
+  logSignature: string | null,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverRemoveMods(id, filenames, logSignature);
+  if (r.status === 'ok') {
+    const m = new Map(diagnoses);
+    m.delete(id);
+    diagnoses = m;
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
 
   void events.serverLogLine.listen((e) => pushLine(e.payload.server_id, e.payload.line));
   void events.serverSpawned.listen(() => void refresh());
-  void events.serverExited.listen(() => void refresh());
+  void events.serverExited.listen((e) => {
+    void refresh();
+    if (e.payload.code !== 0) {
+      void diagnose(e.payload.server_id);
+    }
+  });
 }
 
 export const serverState = {
@@ -48,6 +82,9 @@ export const serverState = {
   lines: lineFor,
   refresh,
   clearLines,
+  diagnose,
+  diagnosisFor,
+  removeClientMods,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
