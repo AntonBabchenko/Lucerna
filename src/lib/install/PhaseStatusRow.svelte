@@ -9,6 +9,7 @@
   } from '$lib/ipc/bindings';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   let progress = $state<InstallProgress | null>(null);
   let modProgress = $state<ModInstallProgress | null>(null);
@@ -113,6 +114,7 @@
 
 {#if modProgress}
   <div class="border-t bg-base px-4 py-1 flex items-center gap-3 text-xs">
+    <Spinner size="sm" />
     <span class="font-medium text-primary">{modPhaseLabel(modProgress.phase)}</span>
     {#if modProgress.phase === 'downloading' && modProgress.bytes_total && modProgress.bytes_total > 0}
       <span class="text-secondary font-mono">
@@ -128,6 +130,7 @@
   </div>
 {:else if progress}
   <div class="border-t bg-base px-4 py-1 flex items-center gap-3 text-xs">
+    <Spinner size="sm" />
     <span class="font-medium text-primary">{phaseLabel(progress.phase)}</span>
     <span class="text-secondary font-mono">
       {progress.files_done}/{progress.files_total}
