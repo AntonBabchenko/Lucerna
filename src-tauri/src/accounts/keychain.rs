@@ -24,6 +24,7 @@ use crate::error::Result;
 
 const SERVICE_REFRESH: &str = "lucerna-microsoft-refresh";
 const SERVICE_MC_ACCESS: &str = "lucerna-mc-access";
+const SERVICE_SFTP_PASSWORD: &str = "lucerna-sftp-password";
 
 pub fn refresh_token_key(account_id: &str) -> Key {
     Key {
@@ -36,6 +37,14 @@ pub fn mc_access_key(account_id: &str) -> Key {
     Key {
         service: SERVICE_MC_ACCESS,
         account: account_id.to_string(),
+    }
+}
+
+/// Keyring key for a server's SFTP upload password, namespaced by server id.
+pub fn sftp_password_key(server_id: &str) -> Key {
+    Key {
+        service: SERVICE_SFTP_PASSWORD,
+        account: server_id.to_string(),
     }
 }
 
@@ -148,6 +157,13 @@ mod tests {
         assert_eq!(retrieve(&k).unwrap().as_deref(), Some("mc_abc123"));
         delete(&k).unwrap();
         assert_eq!(retrieve(&k).unwrap(), None);
+    }
+
+    #[test]
+    fn sftp_password_key_namespaced_per_server() {
+        let k = sftp_password_key("srv-1");
+        assert_eq!(k.service, "lucerna-sftp-password");
+        assert_eq!(k.account, "srv-1");
     }
 
     #[test]
