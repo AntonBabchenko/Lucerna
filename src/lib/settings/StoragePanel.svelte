@@ -12,6 +12,8 @@
   import { commands, type LogRetentionPolicy } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import Spinner from '$lib/ui/Spinner.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let bytes = $state<number | null>(null);
   let clearing = $state(false);
@@ -25,6 +27,7 @@
   };
   let retention = $state<Required<LogRetentionPolicy>>({ ...DEFAULT_RETENTION });
   let retentionError = $state<string | null>(null);
+  let retentionSaving = $state(false);
 
   async function loadRetention() {
     const r = await commands.appSettingsGet();
@@ -32,6 +35,15 @@
       retention = { ...DEFAULT_RETENTION, ...r.data.general.log_retention };
     } else {
       retentionError = formatError(r.error);
+    }
+  }
+
+  async function saveRetentionTracked() {
+    retentionSaving = true;
+    try {
+      await saveRetention();
+    } finally {
+      retentionSaving = false;
     }
   }
 
@@ -119,14 +131,15 @@
     </div>
   {/if}
 
-  <button
+  <BusyButton
     type="button"
     class="btn-secondary btn-sm"
-    disabled={clearing || bytes === 0 || bytes === null}
+    busy={clearing}
+    disabled={bytes === 0 || bytes === null}
     onclick={clear}
   >
     {$t('settings.storage.clearBtn')}
-  </button>
+  </BusyButton>
 
   <div class="flex flex-col gap-3 border-t mt-4 pt-4">
     <h3 class="font-medium text-sm text-primary">{$t('settings.general.logRetention.title')}</h3>
@@ -138,7 +151,7 @@
         type="checkbox"
         class="mt-0.5"
         bind:checked={retention.enabled}
-        onchange={() => void saveRetention()}
+        onchange={() => void saveRetentionTracked()}
         data-testid="log-retention-toggle"
       />
       <span class="flex-1">
@@ -149,6 +162,11 @@
       </span>
     </label>
     <div class="flex flex-wrap items-end gap-4 pl-6">
+      {#if retentionSaving}
+        <div class="flex items-center text-xs text-secondary">
+          <Spinner size="sm" />
+        </div>
+      {/if}
       <label class="flex flex-col gap-1">
         <span class="text-xs text-primary">{$t('settings.general.logRetention.keepLabel')}</span>
         <input
@@ -157,7 +175,7 @@
           class="border rounded px-2 py-1 text-sm w-28"
           bind:value={retention.max_files}
           disabled={!retention.enabled}
-          onchange={() => void saveRetention()}
+          onchange={() => void saveRetentionTracked()}
           data-testid="log-retention-max-files"
         />
       </label>
@@ -169,7 +187,7 @@
           class="border rounded px-2 py-1 text-sm w-28"
           bind:value={retention.max_total_mb}
           disabled={!retention.enabled}
-          onchange={() => void saveRetention()}
+          onchange={() => void saveRetentionTracked()}
           data-testid="log-retention-max-mb"
         />
       </label>

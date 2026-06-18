@@ -9,6 +9,7 @@
   import { deriveSearchQuery, isPlausibleAlternative } from './alternative-match';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
 
@@ -151,9 +152,9 @@
     {/if}
 
     {#if candidates === null && !searchError}
-      <p class="text-sm text-muted" data-testid="find-alt-loading">
-        {$t('mods.findAlt.searching')}
-      </p>
+      <div data-testid="find-alt-loading">
+        <LoadingPanel label={$t('mods.findAlt.searching')} />
+      </div>
     {:else if searchError}
       <p class="text-sm text-danger" data-testid="find-alt-search-error">{searchError}</p>
     {:else if candidates && candidates.length === 0}
