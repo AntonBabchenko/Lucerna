@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
 
@@ -94,6 +94,36 @@ describe('LoaderPicker', () => {
     // Stable label renders as "{version} (recommended)" — contains 0.16.0.
     const trigger = (await findByLabelText(/loader version/i)) as HTMLElement;
     expect(trigger.textContent).toContain('0.16.0');
+  });
+
+  it('shows a spinner (role=status) while loader versions are loading, then shows the Select', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    // Use a deferred promise so we can assert while the fetch is in flight.
+    let resolveFabric!: (v: unknown) => void;
+    const pendingFabric = new Promise((resolve) => {
+      resolveFabric = resolve;
+    });
+    (mod.commands.listFabricLoaders as ReturnType<typeof vi.fn>).mockReturnValueOnce(pendingFabric);
+
+    const { getByText, queryByRole, findByLabelText } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'vanilla', loaderVersion: null },
+    });
+
+    // Switch to Fabric — triggers the load, which is now pending.
+    await fireEvent.click(getByText('Fabric'));
+
+    // While the fetch is in flight the spinner should be visible.
+    // The Spinner has delayMs=150 so we check immediately (before delay
+    // fires) and after the delay — either way the status role appears once
+    // the state is set. Since we use waitFor here we poll until it appears.
+    await waitFor(() => {
+      expect(queryByRole('status')).not.toBeNull();
+    });
+
+    // Resolve the fetch so the Select appears.
+    resolveFabric({ status: 'ok', data: [{ version: '0.16.0', stable: true }] });
+    const trigger = await findByLabelText(/loader version/i);
+    expect(trigger).toBeTruthy();
   });
 
   it('resets to the new loader stable on switch, even when versions overlap', async () => {
