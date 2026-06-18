@@ -1329,7 +1329,8 @@ pub async fn instance_dependency_preflight(
     instance_id: String,
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
     let root = instance_root(&app, &instance_id)?;
-    crate::mods::preflight::dependency_preflight_for_root(&root).await
+    let loader = crate::instances::read_instance(&app, &instance_id)?.loader;
+    crate::mods::preflight::dependency_preflight_for_root(&root, loader).await
 }
 
 #[cfg(test)]
