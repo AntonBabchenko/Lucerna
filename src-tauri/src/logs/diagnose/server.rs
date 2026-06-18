@@ -7,6 +7,8 @@ use crate::logs::diagnose::repair::RepairKind;
 use crate::logs::diagnose::Diagnosis;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::Serialize;
+use specta::Type;
 
 /// First matching server-log diagnosis, if any. Order = specificity.
 pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
@@ -73,6 +75,86 @@ pub fn dist_crash_tokens(log: &str) -> Vec<String> {
     out
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    High,
+    Medium,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ClientModFinding {
+    pub filename: String,
+    /// i18n reason key: "manifest_client" | "crash".
+    pub reason: String,
+    pub confidence: Confidence,
+}
+
+/// Combine per-jar declared environment + crash owner tokens into findings.
+/// High = manifest says client; Medium = matched a crash owner token. A jar
+/// matching both is High (reason manifest_client). `Both`/`Server`/`Unknown`
+/// jars with no token match are NOT flagged.
+pub fn classify_client_only_mods(
+    mods: &[(String, crate::mods::local::ModEnvironment)],
+    crash_tokens: &[String],
+) -> Vec<ClientModFinding> {
+    use crate::mods::local::ModEnvironment;
+    let mut out: Vec<ClientModFinding> = Vec::new();
+    for (filename, env) in mods {
+        if *env == ModEnvironment::Client {
+            out.push(ClientModFinding {
+                filename: filename.clone(),
+                reason: "manifest_client".into(),
+                confidence: Confidence::High,
+            });
+        } else if crash_tokens
+            .iter()
+            .any(|t| filename_matches_token(filename, t))
+        {
+            out.push(ClientModFinding {
+                filename: filename.clone(),
+                reason: "crash".into(),
+                confidence: Confidence::Medium,
+            });
+        }
+    }
+    out
+}
+
+/// Does `filename` plausibly correspond to crash owner `token`?
+fn filename_matches_token(filename: &str, token: &str) -> bool {
+    let t = normalize(token);
+    if t.len() < 2 {
+        return false;
+    }
+    normalize(filename).contains(&t) || leading_initials(filename) == t
+}
+
+fn normalize(s: &str) -> String {
+    s.to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
+/// First letter of each leading alphabetic word, stopping at the first
+/// all-digit word. `entity_texture_features_1.20.1-…` → "etf".
+fn leading_initials(filename: &str) -> String {
+    let mut out = String::new();
+    for word in filename.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if word.is_empty() {
+            continue;
+        }
+        if word.chars().all(|c| c.is_ascii_digit()) {
+            break;
+        }
+        if let Some(c) = word.chars().next() {
+            out.push(c.to_ascii_lowercase());
+        }
+    }
+    out
+}
+
 /// One log line containing `needle` (trimmed, capped at 200 chars).
 fn excerpt(log: &str, needle: &str) -> String {
     log.lines()
@@ -91,6 +173,57 @@ fn excerpt(log: &str, needle: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mods::local::ModEnvironment;
+
+    #[test]
+    fn leading_initials_etf() {
+        assert_eq!(
+            super::leading_initials("entity_texture_features_1.20.1-forge-7.1.jar"),
+            "etf"
+        );
+        assert_eq!(super::leading_initials("create-1.20.1-6.0.8.jar"), "c");
+    }
+    #[test]
+    fn classifier_flags_fabric_client_and_crash_token() {
+        let mods = vec![
+            (
+                "entity_texture_features_1.20.1-forge-7.1.jar".to_string(),
+                ModEnvironment::Unknown,
+            ),
+            ("betterf3.jar".to_string(), ModEnvironment::Client),
+            ("create-1.20.1-6.0.8.jar".to_string(), ModEnvironment::Both),
+        ];
+        let tokens = vec!["etf".to_string()];
+        let found = classify_client_only_mods(&mods, &tokens);
+        let bf3 = found
+            .iter()
+            .find(|f| f.filename == "betterf3.jar")
+            .expect("betterf3 flagged");
+        assert_eq!(bf3.confidence, Confidence::High);
+        assert_eq!(bf3.reason, "manifest_client");
+        let etf = found
+            .iter()
+            .find(|f| f.filename.contains("entity_texture_features"))
+            .expect("etf flagged");
+        assert_eq!(etf.confidence, Confidence::Medium);
+        assert_eq!(etf.reason, "crash");
+        assert!(
+            !found.iter().any(|f| f.filename.starts_with("create")),
+            "Both must not be flagged"
+        );
+    }
+    #[test]
+    fn classifier_high_wins_when_both_signals() {
+        // a jar that is BOTH manifest-client AND crash-token → High, reason manifest_client
+        let mods = vec![(
+            "entity_texture_features-fabric.jar".to_string(),
+            ModEnvironment::Client,
+        )];
+        let found = classify_client_only_mods(&mods, &["etf".to_string()]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].confidence, Confidence::High);
+    }
+
     const ETF_CRASH: &str = "Caused by: java.lang.RuntimeException: Attempted to load class net/minecraft/client/gui/screens/Screen for invalid dist DEDICATED_SERVER\n\tat TRANSFORMER/minecraft@1.20.1/net.minecraft.resources.ResourceLocation.handler$zpl000$etf$illegalPathOverride(ResourceLocation.java:525)\n";
     const PORT: &str = "[Server thread/WARN]: **** FAILED TO BIND TO PORT!\njava.net.BindException: Address already in use: bind\n";
     const EULA: &str = "[main/WARN]: You need to agree to the EULA in order to run the server. Go to eula.txt for more info.\n";
