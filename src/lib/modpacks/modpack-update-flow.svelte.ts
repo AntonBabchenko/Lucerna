@@ -4,11 +4,7 @@
 // card) so neither re-implements the flow. Runes-based factory — same shape
 // as createQuickWorlds / createMcVersions.
 
-import type {
-  InstanceWithStatus,
-  ModpackUpdateDiff,
-  ModpackVersionEntry,
-} from '$lib/ipc/bindings';
+import type { InstanceWithStatus, ModpackUpdateDiff, ModpackVersionEntry } from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { runUpdate } from './update-runner';

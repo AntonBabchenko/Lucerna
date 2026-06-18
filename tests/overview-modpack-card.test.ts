@@ -155,10 +155,19 @@ describe('ModpackCard', () => {
   });
 
   it('shows an Update button when an update is available and starts the flow on click', async () => {
-    vi.mocked(commands.modpackFetchToTemp).mockResolvedValue({ status: 'ok', data: '/tmp/p.mrpack' });
+    vi.mocked(commands.modpackFetchToTemp).mockResolvedValue({
+      status: 'ok',
+      data: '/tmp/p.mrpack',
+    });
     vi.mocked(commands.modpackComputeUpdate).mockResolvedValue({
       status: 'ok',
-      data: { added: [], removed: [], updated: [], new_version_number: '0.2.64', version_bump: null },
+      data: {
+        added: [],
+        removed: [],
+        updated: [],
+        new_version_number: '0.2.64',
+        version_bump: null,
+      },
     });
     vi.mocked(commands.modpacksCheckUpdates).mockResolvedValue(
       okData([

@@ -147,7 +147,9 @@
     </div>
   {/if}
   {#if updateFlow.error}
-    <span class="text-xs text-danger" data-testid="modpack-update-apply-error">{updateFlow.error}</span>
+    <span class="text-xs text-danger" data-testid="modpack-update-apply-error"
+      >{updateFlow.error}</span
+    >
   {/if}
 </div>
 
