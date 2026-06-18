@@ -3,11 +3,13 @@
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import Self from './DepTree.svelte';
 
   let {
     nodes,
     outOfRangeKeys = new Set(),
+    installingKeys = new Set(),
     hoveredKey,
     onHover,
     onInstall,
@@ -17,6 +19,9 @@
   }: {
     nodes: DepTreeNode[];
     outOfRangeKeys?: Set<string>;
+    // Keys (`source:project_id`) whose install is in flight — drives the
+    // per-node BusyButton spinner. Empty in the common read-only render.
+    installingKeys?: Set<string>;
     hoveredKey: string | null;
     onHover: (key: string | null) => void;
     onInstall: (node: DepTreeNode) => void;
@@ -76,20 +81,26 @@
           <span class="inline-flex items-center gap-1 text-danger"
             ><Icon name="circleX" size={12} />{$t('mods.deps.missingStatus')}</span
           >
-          <button
-            type="button"
-            class="btn-primary btn-xs"
-            aria-label={$t('mods.deps.installAriaLabel', { name: n.name })}
-            onclick={() => onInstall(n)}>{$t('mods.card.install')}</button
-          >
+          <span class="inline-flex" use:tooltip={$t('mods.deps.installAriaLabel', { name: n.name })}>
+            <BusyButton
+              busy={installingKeys.has(keyOf(n))}
+              class="btn-icon btn-icon-sm !text-accent"
+              aria-label={$t('mods.deps.installAriaLabel', { name: n.name })}
+              onclick={() => onInstall(n)}
+            >
+              <Icon name="download" size={12} />
+            </BusyButton>
+          </span>
         {:else}
           <span class="text-muted italic">{$t('mods.deps.optionalStatus')}</span>
-          <button
-            type="button"
-            class="btn-secondary btn-xs"
-            aria-label={$t('mods.deps.addAriaLabel', { name: n.name })}
-            onclick={() => onAdd(n)}>{$t('mods.deps.addBtn')}</button
-          >
+          <span class="inline-flex" use:tooltip={$t('mods.deps.addAriaLabel', { name: n.name })}>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              aria-label={$t('mods.deps.addAriaLabel', { name: n.name })}
+              onclick={() => onAdd(n)}><Icon name="plus" size={12} /></button
+            >
+          </span>
         {/if}
         {#if n.cycle}<span class="inline-flex items-center gap-1 text-placeholder"
             ><Icon name="refresh" size={12} />{$t('mods.deps.cycleStatus')}</span
@@ -100,6 +111,7 @@
           <Self
             nodes={n.children}
             {outOfRangeKeys}
+            {installingKeys}
             {hoveredKey}
             {onHover}
             {onInstall}
