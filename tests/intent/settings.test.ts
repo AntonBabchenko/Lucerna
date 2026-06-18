@@ -17,7 +17,7 @@
 //                        Clear cache button → btn-secondary btn-sm
 //                        error block bg-danger-bg border-danger text-danger
 //                        success toast bg-success/10 border-success text-success
-//   AboutPanel:          View on GitHub → btn-tertiary
+//   AboutPanel:          View on GitHub → btn-link (external link + arrow)
 //                        aria-label present on GitHub button
 //                        DISCLAIMER_TEXT rendered as text-secondary
 //                        GPL license line text-xs text-muted
@@ -386,8 +386,8 @@ describe('StoragePanel — success toast uses bg-success-bg border-success text-
 
 // ── AboutPanel ────────────────────────────────────────────────────────────────
 
-describe('AboutPanel — "View on GitHub" is btn-tertiary', () => {
-  it('"View on GitHub" button has btn-tertiary class', () => {
+describe('AboutPanel — "View on GitHub" is btn-link', () => {
+  it('"View on GitHub" button has btn-link class', () => {
     const { container } = render(AboutPanel);
     // Button text is "View on GitHub"; accessible name is the full aria-label.
     // Query by text content to be robust against aria-label changes.
@@ -395,7 +395,7 @@ describe('AboutPanel — "View on GitHub" is btn-tertiary', () => {
       (b) => b.textContent?.trim() === 'View on GitHub',
     );
     expect(btn).not.toBeUndefined();
-    expect(btn).toHaveBtnVariant('tertiary');
+    expect(btn).toHaveBtnVariant('link');
   });
 
   it('"View on GitHub" button has aria-label containing repo URL', () => {
