@@ -42,7 +42,7 @@ describe('Modal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('a backdrop click calls onClose; a panel click does not', async () => {
+  it('a press+release both on the backdrop closes; a press+release on the panel does not', async () => {
     const onClose = vi.fn();
     const { getByRole } = render(Modal, {
       props: { onClose, ariaLabel: 'x', children: body() },
@@ -50,22 +50,55 @@ describe('Modal', () => {
     const dialog = getByRole('dialog');
     const backdrop = dialog.parentElement as HTMLElement;
 
-    // Click on the panel — must NOT close (target !== backdrop).
-    await fireEvent.click(dialog);
+    // Press and release on the panel — must NOT close.
+    await fireEvent.mouseDown(dialog);
+    await fireEvent.mouseUp(dialog);
     expect(onClose).not.toHaveBeenCalled();
 
-    // Click directly on the backdrop — closes.
-    await fireEvent.click(backdrop);
+    // Press and release directly on the backdrop — closes.
+    await fireEvent.mouseDown(backdrop);
+    await fireEvent.mouseUp(backdrop);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('backdrop click is ignored when closeOnBackdrop is false', async () => {
+  it('a drag-select that starts in the panel and releases on the backdrop does NOT close', async () => {
+    // Regression: selecting text inside the panel and dragging past its edge
+    // releases the mouse on the backdrop. That must keep the modal open — the
+    // press did not start outside.
+    const onClose = vi.fn();
+    const { getByRole } = render(Modal, {
+      props: { onClose, ariaLabel: 'x', children: body() },
+    });
+    const dialog = getByRole('dialog');
+    const backdrop = dialog.parentElement as HTMLElement;
+
+    await fireEvent.mouseDown(dialog); // press begins inside the panel
+    await fireEvent.mouseUp(backdrop); // release lands on the backdrop
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a press on the backdrop that releases on the panel does NOT close', async () => {
+    // The inverse drag: both ends must be outside the panel to dismiss.
+    const onClose = vi.fn();
+    const { getByRole } = render(Modal, {
+      props: { onClose, ariaLabel: 'x', children: body() },
+    });
+    const dialog = getByRole('dialog');
+    const backdrop = dialog.parentElement as HTMLElement;
+
+    await fireEvent.mouseDown(backdrop);
+    await fireEvent.mouseUp(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('backdrop press+release is ignored when closeOnBackdrop is false', async () => {
     const onClose = vi.fn();
     const { getByRole } = render(Modal, {
       props: { onClose, ariaLabel: 'x', closeOnBackdrop: false, children: body() },
     });
     const backdrop = getByRole('dialog').parentElement as HTMLElement;
-    await fireEvent.click(backdrop);
+    await fireEvent.mouseDown(backdrop);
+    await fireEvent.mouseUp(backdrop);
     expect(onClose).not.toHaveBeenCalled();
   });
 

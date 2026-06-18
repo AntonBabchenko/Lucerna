@@ -66,30 +66,38 @@
     }
   }
 
-  function onBackdropClick(e: MouseEvent) {
+  // A backdrop dismissal must be a deliberate click *outside* the panel: the
+  // press and the release both land directly on the backdrop. We track the
+  // press origin instead of reacting to `click`, because a `click` fires on the
+  // backdrop (the common ancestor) even when the press began inside the panel —
+  // e.g. a drag text-selection released past the panel edge. Closing there would
+  // silently discard the user's selection. Requiring both ends on the backdrop
+  // also fixes the inverse: a genuine backdrop click is no longer blocked just
+  // because some text happens to remain selected in the panel.
+  let pressOnBackdrop = false;
+
+  function onBackdropMouseDown(e: MouseEvent) {
+    pressOnBackdrop = e.target === e.currentTarget;
+  }
+
+  function onBackdropMouseUp(e: MouseEvent) {
+    const startedOnBackdrop = pressOnBackdrop;
+    pressOnBackdrop = false;
     if (!closeOnBackdrop) return;
-    // Only a click landing directly on the backdrop (not one bubbling up from
-    // the panel) closes.
-    if (e.target !== e.currentTarget) return;
-    // Guard the drag-select case: a text selection that starts inside the panel
-    // and ends on the backdrop dispatches `click` with the backdrop as target.
-    // Closing there would discard the user's selection, so bail if a non-empty
-    // selection exists. A null/absent selection API falls through to close.
-    const selection = window.getSelection();
-    if (selection && !selection.isCollapsed) return;
-    onClose();
+    if (startedOnBackdrop && e.target === e.currentTarget) onClose();
   }
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
 <!-- Backdrop is a mouse convenience; keyboard users close via Escape, so it
-     needs no key handler. -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
+     needs no key handler. Dismissal uses mousedown+mouseup (not click) so it can
+     require the press AND release to land on the backdrop. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-  onclick={onBackdropClick}
+  onmousedown={onBackdropMouseDown}
+  onmouseup={onBackdropMouseUp}
 >
   <div
     use:trapFocus
