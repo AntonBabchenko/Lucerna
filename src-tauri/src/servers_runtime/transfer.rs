@@ -3,6 +3,7 @@
 //! outbound channel to the user's OWN server, sanctioned per docs/PRINCIPLES.md.
 
 use crate::error::{Error, Result};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// Files to upload: recursively under `runtime`, EXCLUDING the `logs/` dir and
@@ -33,6 +34,21 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()>
         }
     }
     Ok(())
+}
+
+/// SHA-256 hex fingerprint of a host public key's raw bytes.
+pub(crate) fn host_key_fingerprint(public_key_bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(public_key_bytes))
+}
+
+/// TOFU decision: accept iff first use (`known` is None) or the fingerprint
+/// matches the stored one. A changed key is rejected (caller surfaces
+/// `SftpHostKeyMismatch`; the user may explicitly re-trust).
+pub(crate) fn host_key_decision(known: Option<&str>, current: &str) -> bool {
+    match known {
+        None => true,
+        Some(k) => k == current,
+    }
 }
 
 #[cfg(test)]
@@ -69,5 +85,20 @@ mod tests {
         let d = tempdir().unwrap();
         let r = enumerate_upload_files(&d.path().join("nope"));
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn fingerprint_is_stable_sha256_hex() {
+        let key = b"ssh-ed25519 AAAArealkeybytes";
+        let fp = host_key_fingerprint(key);
+        assert_eq!(fp.len(), 64);
+        assert_eq!(fp, host_key_fingerprint(key));
+        assert_ne!(fp, host_key_fingerprint(b"different"));
+    }
+    #[test]
+    fn host_key_decision_tofu() {
+        assert!(host_key_decision(None, "abc")); // first use → accept
+        assert!(host_key_decision(Some("abc"), "abc")); // same → accept
+        assert!(!host_key_decision(Some("abc"), "xyz")); // changed → reject
     }
 }
