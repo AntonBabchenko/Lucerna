@@ -15,7 +15,7 @@
   import CurseForgeKeyBanner from '$lib/mods/CurseForgeKeyBanner.svelte';
   import PageSizePicker from '$lib/mods/PageSizePicker.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
-  import Spinner from '$lib/ui/Spinner.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { prioritizeByTitle } from '$lib/mods/search-rank';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
   import { activeCount } from '$lib/browse/filter-model';
@@ -230,9 +230,7 @@
   {#if caps.needs_api_key && needsCfKey}
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {:else if loading}
-    <div class="flex justify-center py-8 text-secondary">
-      <Spinner size="lg" label={$t('modpacks.browse.searching')} />
-    </div>
+    <LoadingPanel label={$t('modpacks.browse.searching')} />
   {:else if error}
     <div class="mt-4 text-sm text-danger flex items-center justify-between gap-3">
       <span>{error}</span>
