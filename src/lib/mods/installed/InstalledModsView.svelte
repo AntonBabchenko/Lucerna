@@ -101,6 +101,17 @@
   let pickerViolation = $state<DepViolation | null>(null);
   let findAltViolation = $state<DepViolation | null>(null);
 
+  // Reset per-row remediation state on instance switch. The keys are dep-based
+  // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
+  // dead-end could otherwise bleed onto a same-named dep in another instance.
+  $effect(() => {
+    void instanceId;
+    preflightBusy.clear();
+    preflightDeadEnd.clear();
+    pickerViolation = null;
+    findAltViolation = null;
+  });
+
   async function refreshAfterRemediate(): Promise<void> {
     preflight.invalidate();
     deps.invalidateGraph();
@@ -114,21 +125,26 @@
     if (!instanceId || !mcVersion || !loader) return;
     const key = violationKey(v);
     preflightBusy.add(key);
-    const result = await remediateViolation(instanceId, v, mcVersion, loader);
-    preflightBusy.delete(key);
-    if (result.ok) {
-      preflightDeadEnd.delete(key);
-      pushSuccess(
-        get(t)('mods.preflight.installedVersion', {
-          dep: v.dep_display_name ?? v.dep_id,
-          version: result.installedVersion ?? '',
-        }),
-      );
-      await refreshAfterRemediate();
-    } else if (result.reason === 'no-satisfying') {
-      preflightDeadEnd.add(key);
-    } else {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'));
+    // finally clears the busy key even if an IPC call throws (bridge teardown),
+    // so a row can never get stuck showing a spinner.
+    try {
+      const result = await remediateViolation(instanceId, v, mcVersion, loader);
+      if (result.ok) {
+        preflightDeadEnd.delete(key);
+        pushSuccess(
+          get(t)('mods.preflight.installedVersion', {
+            dep: v.dep_display_name ?? v.dep_id,
+            version: result.installedVersion ?? '',
+          }),
+        );
+        await refreshAfterRemediate();
+      } else if (result.reason === 'no-satisfying') {
+        preflightDeadEnd.add(key);
+      } else {
+        pushWarning(get(t)('mods.browse.toastInstallFailed'));
+      }
+    } finally {
+      preflightBusy.delete(key);
     }
   };
 

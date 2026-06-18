@@ -53,6 +53,7 @@ pub fn mods_filter_satisfying(
     let refs: Vec<&str> = versions.iter().map(String::as_str).collect();
     crate::mods::version_range::satisfying_indices(&refs, &needed, family)
         .into_iter()
+        // safe: a Vec<String> of version strings cannot approach 2^32 entries.
         .map(|i| i as u32)
         .collect()
 }

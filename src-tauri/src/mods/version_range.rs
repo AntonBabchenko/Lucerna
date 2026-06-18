@@ -79,9 +79,7 @@ fn compare_numeric(a: &str, b: &str) -> Cmp {
 }
 
 /// Which grammar a raw range string uses.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum RangeFamily {
     Maven,
@@ -117,7 +115,11 @@ pub fn satisfies(installed: &str, range: &str, family: RangeFamily) -> Satisfact
 /// under `family`. Only `Satisfaction::Satisfied` is kept — `Violated` and
 /// `Unknown` are both excluded (we never auto-pick a version we cannot prove
 /// fits). Input order is preserved (callers pass newest-first).
-pub fn satisfying_indices(version_numbers: &[&str], range: &str, family: RangeFamily) -> Vec<usize> {
+pub fn satisfying_indices(
+    version_numbers: &[&str],
+    range: &str,
+    family: RangeFamily,
+) -> Vec<usize> {
     version_numbers
         .iter()
         .enumerate()

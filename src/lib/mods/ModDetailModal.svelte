@@ -150,14 +150,20 @@
       satisfyingIds = new Set();
       return;
     }
+    // Guard against a stale resolve overwriting a newer one (e.g. fast show-all
+    // toggles fire two concurrent filters): only the latest run may commit.
+    let cancelled = false;
     void (async () => {
       const idx = await commands.modsFilterSatisfying(
         list.map((v) => v.version_number),
         needed,
         family,
       );
-      satisfyingIds = new Set(idx.map((i) => list[i].version_id));
+      if (!cancelled) satisfyingIds = new Set(idx.map((i) => list[i].version_id));
     })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   function openExternal(url: string) {

@@ -21,6 +21,9 @@
     onChooseVersion?: (v: DepViolation) => void;
     onFindAlternative?: (v: DepViolation) => void;
     onOpenModPage?: (v: DepViolation) => void;
+    // Row keys (violationKey) currently mid-remediation / with no satisfying
+    // version. Pass a SvelteSet for live updates — a plain Set is read once and
+    // won't reactively re-render the row on mutation.
     busyKeys?: Set<string>;
     deadEndKeys?: Set<string>;
     // The launch gate mutes per-row actions (it remediates via its own
