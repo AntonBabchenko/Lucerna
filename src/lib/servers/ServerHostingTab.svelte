@@ -56,7 +56,7 @@
         remote_path: remotePath.trim(),
         known_host_fp: existingUpload?.known_host_fp ?? null,
       };
-      const r = await serverState.setUploadConfig(serverId, cfg, password.trim() || null);
+      const r = await serverState.setUploadConfig(serverId, cfg, password === '' ? null : password);
       if (r.status === 'ok') {
         savedVisible = true;
         await serverState.refresh();
@@ -71,6 +71,7 @@
   async function handleUpload(acceptNewHostKey: boolean) {
     uploadError = null;
     uploadedVisible = false;
+    serverState.clearUploadProgress(serverId);
     busyUpload = true;
     try {
       const r = await serverState.upload(serverId, acceptNewHostKey);

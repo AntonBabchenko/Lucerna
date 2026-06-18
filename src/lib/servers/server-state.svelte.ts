@@ -94,6 +94,12 @@ function uploadProgressFor(id: string): { done: number; total: number; file: str
   return uploadProgress.get(id);
 }
 
+function clearUploadProgress(id: string): void {
+  const m = new Map(uploadProgress);
+  m.delete(id);
+  uploadProgress = m;
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
@@ -131,6 +137,7 @@ export const serverState = {
   upload,
   exportZip,
   uploadProgressFor,
+  clearUploadProgress,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;

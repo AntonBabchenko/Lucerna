@@ -39,6 +39,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     },
     running: (_id: string) => mockRunning,
     uploadProgressFor: (_id: string) => mockProgress,
+    clearUploadProgress: vi.fn(),
     setUploadConfig: (...args: unknown[]) => setUploadConfigMock(...args),
     upload: (...args: unknown[]) => uploadMock(...args),
     exportZip: (...args: unknown[]) => exportZipMock(...args),
@@ -171,7 +172,7 @@ describe('ServerHostingTab', () => {
     await fireEvent.click(uploadBtn);
 
     expect(screen.getByTestId('host-key-confirm')).toBeTruthy();
-    expect(screen.getByText('Unrecognized host key')).toBeTruthy();
+    expect(screen.getByText('Host key changed')).toBeTruthy();
     expect(screen.getByText('Trust & upload')).toBeTruthy();
   });
 });

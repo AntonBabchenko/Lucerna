@@ -39,7 +39,13 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()>
     for entry in rd.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if path.is_dir() {
+        let ft = entry
+            .file_type()
+            .map_err(|e| Error::io(path.display().to_string(), e))?;
+        if ft.is_symlink() {
+            continue; // don't follow symlinks (cycle/escape safety)
+        }
+        if ft.is_dir() {
             if name == "logs" {
                 continue;
             }
@@ -313,6 +319,51 @@ mod tests {
         assert!(host_key_decision(None, "abc")); // first use → accept
         assert!(host_key_decision(Some("abc"), "abc")); // same → accept
         assert!(!host_key_decision(Some("abc"), "xyz")); // changed → reject
+    }
+
+    /// Regular files still enumerate correctly and symlinks inside the runtime
+    /// directory are not descended or included.
+    ///
+    /// On platforms that support symlink creation (all major OS) we create a
+    /// real symlink and assert it is absent from the output. On any platform
+    /// where symlink creation fails (e.g. Windows without the SeCreateSymbolicLink
+    /// privilege) we fall back to asserting that the regular file still appears,
+    /// confirming the core enumeration path is unaffected by the symlink-skip branch.
+    #[test]
+    fn enumerate_skips_symlinks() {
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::write(rt.join("real.jar"), b"r").unwrap();
+
+        // Attempt to create a symlink file; ignore if the OS/privilege denies it.
+        #[cfg(unix)]
+        let symlink_created =
+            std::os::unix::fs::symlink(rt.join("real.jar"), rt.join("link.jar")).is_ok();
+        #[cfg(windows)]
+        let symlink_created =
+            std::os::windows::fs::symlink_file(rt.join("real.jar"), rt.join("link.jar")).is_ok();
+        #[cfg(not(any(unix, windows)))]
+        let symlink_created = false;
+
+        let got: Vec<String> = enumerate_upload_files(rt)
+            .unwrap()
+            .into_iter()
+            .map(|(_local, rel)| rel)
+            .collect();
+
+        // The real file must always appear.
+        assert!(
+            got.iter().any(|r| r.ends_with("real.jar")),
+            "real file missing from output"
+        );
+
+        // If the symlink was created, it must NOT appear in the output.
+        if symlink_created {
+            assert!(
+                !got.iter().any(|r| r.ends_with("link.jar")),
+                "symlink should not appear in upload enumeration"
+            );
+        }
     }
 
     #[test]
