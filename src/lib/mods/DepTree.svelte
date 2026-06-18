@@ -52,7 +52,7 @@
              separate ↗ button jumps to the mod's own row in the list. -->
         <button
           type="button"
-          class="text-accent hover:underline text-left"
+          class="btn-tertiary text-left"
           onclick={() => onOpenDetail(n.source, n.project_id)}>{n.name}</button
         >
         {#if isInstalled(n)}
