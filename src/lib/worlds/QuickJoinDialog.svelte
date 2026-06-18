@@ -168,7 +168,7 @@
               </button>
               <button
                 type="button"
-                class="btn-icon !text-danger"
+                class="btn-icon btn-icon-sm btn-icon-danger"
                 aria-label={$t('quickJoin.delete')}
                 use:tooltip={$t('quickJoin.delete')}
                 disabled={busy}
