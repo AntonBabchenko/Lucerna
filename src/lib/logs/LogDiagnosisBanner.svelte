@@ -13,6 +13,7 @@
   import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
   import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import { Icon } from '$lib/ui/icons';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let {
     instanceId,
@@ -115,15 +116,15 @@
               onCancel={() => (repairPlan = null)}
             />
           {:else}
-            <button
+            <BusyButton
               type="button"
               class="btn-primary btn-sm mt-2"
               data-testid="diagnosis-fix"
-              disabled={repairLoading}
+              busy={repairLoading}
               onclick={startRepair}
             >
               {repairLoading ? $t('logs.repair.checking') : $t('logs.repair.fixThis')}
-            </button>
+            </BusyButton>
             {#if repairUnavailable}
               <p class="mt-2 text-xs text-secondary">{$t('logs.repair.unavailable')}</p>
             {/if}
