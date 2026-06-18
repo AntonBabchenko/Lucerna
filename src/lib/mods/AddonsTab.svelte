@@ -178,6 +178,16 @@
     }
   }
 
+  // Cross-view hand-off: the Installed view's pre-flight panel couldn't auto-
+  // resolve a missing dependency, so jump to the Browse sub-tab with the dep id
+  // pre-filled as the search query. ModBrowseView consumes the seed once and
+  // calls back to clear it.
+  let browseSeedQuery = $state<string | null>(null);
+  function browseForDependency(query: string) {
+    browseSeedQuery = query;
+    selectView('browse');
+  }
+
   // Props come from +page.svelte's activeInstance and are forwarded to
   // ModBrowseView and the Installed sub-view. When no instance is selected
   // the Browse pane still works for read-only browsing — only Install needs
@@ -541,13 +551,22 @@
       <!-- Re-key per kind so switching content type resets the browse
            filters/results instead of leaking the previous kind's state. -->
       {#key kind}
-        <ModBrowseView {kind} {source} {instanceId} {instanceName} {mcVersion} {loader} />
+        <ModBrowseView
+          {kind}
+          {source}
+          {instanceId}
+          {instanceName}
+          {mcVersion}
+          {loader}
+          seedQuery={browseSeedQuery}
+          onSeedConsumed={() => (browseSeedQuery = null)}
+        />
       {/key}
     </div>
     {#if installedMounted}
       <div class:hidden={view !== 'installed'}>
         {#if kind === 'mod'}
-          <InstalledModsView {instanceId} {mcVersion} {loader} />
+          <InstalledModsView {instanceId} {mcVersion} {loader} onBrowseFor={browseForDependency} />
         {:else}
           <InstalledAssetsView {instanceId} {kind} {mcVersion} {loader} />
         {/if}

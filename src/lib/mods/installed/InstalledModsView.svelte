@@ -23,7 +23,12 @@
   import { createInstalledFilters } from './installed-filters.svelte';
   import { createUpdateCheck } from './update-check.svelte';
   import { createDepGraph } from './dep-graph.svelte';
-  import { createPreflight, remediateViolation, toOverlayKeys } from '$lib/mods/preflight.svelte';
+  import {
+    createPreflight,
+    installMissing,
+    remediateViolation,
+    toOverlayKeys,
+  } from '$lib/mods/preflight.svelte';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
@@ -37,10 +42,12 @@
     instanceId,
     mcVersion,
     loader,
+    onBrowseFor = (_q: string) => {},
   }: {
     instanceId: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    onBrowseFor?: (query: string) => void;
   } = $props();
 
   // --- composables (creation order matters; thunks keep cross-refs lazy) ---
@@ -96,6 +103,27 @@
     preflight.invalidate();
     deps.invalidateGraph();
     await data.refresh();
+  };
+
+  // One-click install of a missing required dependency from the pre-flight
+  // panel. Resolves the dep by its loader mod-id and installs it; on success
+  // the panel + graph refresh. When the dep can't be auto-resolved the helper
+  // returns an open_search outcome — hand the query up to the Add-ons shell so
+  // it switches to Browse with the search pre-filled.
+  const onInstallMissingDep = async (v: DepViolation): Promise<void> => {
+    if (!instanceId) return;
+    const outcome = await installMissing(instanceId, v.dep_id);
+    if (outcome.kind === 'installed') {
+      pushSuccess(get(t)('mods.browse.toastInstalledMod', { name: outcome.name }));
+      preflight.invalidate();
+      deps.invalidateGraph();
+      await data.refresh();
+    } else {
+      pushWarning(
+        get(t)('mods.preflight.installSearchFallback', { dep: v.dep_display_name ?? v.dep_id }),
+      );
+      onBrowseFor(outcome.query);
+    }
   };
 
   // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
@@ -289,7 +317,11 @@
     <CurseForgeKeyBanner onOpenSettings={() => (settingsOpen.value = { tab: 'integrations' })} />
   {/if}
 
-  <PreflightPanel report={preflight.report} onUpdate={onPreflightUpdate} />
+  <PreflightPanel
+    report={preflight.report}
+    onUpdate={onPreflightUpdate}
+    onInstallMissing={onInstallMissingDep}
+  />
 
   {#if !instanceId}
     <div class="text-placeholder text-sm py-8 text-center">

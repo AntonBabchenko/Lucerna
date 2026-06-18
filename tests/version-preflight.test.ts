@@ -16,6 +16,7 @@ const report: PreflightReport = {
       needed: '[1.3.51,)',
       installed_version: '1.3.50.2005',
       provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
+      provider_sha1: null,
     },
   ],
 };
@@ -43,6 +44,7 @@ describe('toOverlayKeys edge cases', () => {
           needed: '',
           installed_version: null,
           provider_project: null,
+          provider_sha1: null,
         },
       ],
     };
@@ -61,6 +63,7 @@ describe('toOverlayKeys edge cases', () => {
           needed: '[1.0,)',
           installed_version: '0.9',
           provider_project: null,
+          provider_sha1: null,
         },
       ],
     };
@@ -79,6 +82,7 @@ describe('toOverlayKeys edge cases', () => {
           needed: '[2.0,)',
           installed_version: '1.9',
           provider_project: { source: 'curseforge', mod_id: 12345, file_id: null },
+          provider_sha1: null,
         },
       ],
     };
@@ -103,6 +107,7 @@ const outOfRangeViolation: DepViolation = {
   needed: '[1.3.51,)',
   installed_version: '1.3.50.2005',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
+  provider_sha1: null,
 };
 
 const missingViolation: DepViolation = {
@@ -114,6 +119,7 @@ const missingViolation: DepViolation = {
   needed: '',
   installed_version: null,
   provider_project: null,
+  provider_sha1: null,
 };
 
 describe('PreflightPanel', () => {
@@ -154,14 +160,17 @@ describe('PreflightPanel', () => {
     expect(rowText).toContain('missingmod');
   });
 
-  it('renders an Update button only for version_out_of_range with a provider_project', () => {
+  it('renders an Update button for version_out_of_range and an Install button for missing_required', () => {
     const reportWithBoth: PreflightReport = { violations: [outOfRangeViolation, missingViolation] };
-    const { getAllByRole } = render(PreflightPanel, {
-      props: { report: reportWithBoth, onUpdate: () => {} },
+    const { getAllByRole, getByRole } = render(PreflightPanel, {
+      props: { report: reportWithBoth, onUpdate: () => {}, onInstallMissing: () => {} },
     });
-    const updateButtons = getAllByRole('button');
-    // Only outOfRangeViolation has a provider_project, so one Update button
-    expect(updateButtons).toHaveLength(1);
+    const buttons = getAllByRole('button');
+    // outOfRangeViolation → one "Update" button; missingViolation → one
+    // "Install {dep}" button. Two action buttons, one per row.
+    expect(buttons).toHaveLength(2);
+    expect(getByRole('button', { name: /update/i })).toBeTruthy();
+    expect(getByRole('button', { name: /missingmod/i })).toBeTruthy();
   });
 });
 

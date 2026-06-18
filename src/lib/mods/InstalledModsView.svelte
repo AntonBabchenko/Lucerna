@@ -9,11 +9,13 @@
     instanceId,
     mcVersion,
     loader,
+    onBrowseFor = (_q: string) => {},
   }: {
     instanceId: string | null;
     mcVersion: string | null;
     loader: LoaderKind | null;
+    onBrowseFor?: (query: string) => void;
   } = $props();
 </script>
 
-<Installed {instanceId} {mcVersion} {loader} />
+<Installed {instanceId} {mcVersion} {loader} {onBrowseFor} />

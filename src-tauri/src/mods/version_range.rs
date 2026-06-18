@@ -13,11 +13,36 @@ enum Cmp {
     Unknown,
 }
 
+/// If `v` is `<mcver>-<modver>` where mcver is `1.<minor>[.patch]` (all numeric)
+/// and modver starts with a digit, return modver. Else `None`. Used to drop the
+/// Minecraft-version prefix that Forge/NeoForge mods embed in their versions
+/// (e.g. `1.19.2-5.1.3.0`), which otherwise poisons a token-wise comparison.
+fn strip_mc_prefix(v: &str) -> Option<&str> {
+    let (mc, rest) = v.split_once('-')?;
+    let mut parts = mc.split('.');
+    if parts.next()? != "1" {
+        return None; // modern Minecraft is 1.x
+    }
+    if parts.next()?.parse::<u32>().is_err() {
+        return None; // minor must be numeric
+    }
+    if let Some(patch) = parts.next() {
+        if patch.parse::<u32>().is_err() {
+            return None;
+        }
+    }
+    if parts.next().is_some() {
+        return None; // more than 3 components — not an MC version
+    }
+    rest.starts_with(|c: char| c.is_ascii_digit())
+        .then_some(rest)
+}
+
 /// Split a version into tokens on `.` and `-`, then compare position by
 /// position. Confident only while both tokens are all-ASCII-digits; the first
 /// position where either side is non-numeric and they are not byte-equal
 /// yields `Unknown`. Trailing all-zero / missing tokens compare equal.
-fn compare_numeric(a: &str, b: &str) -> Cmp {
+fn compare_tokens(a: &str, b: &str) -> Cmp {
     let split = |s: &str| -> Vec<String> { s.split(['.', '-']).map(|t| t.to_string()).collect() };
     let at = split(a);
     let bt = split(b);
@@ -41,6 +66,16 @@ fn compare_numeric(a: &str, b: &str) -> Cmp {
         }
     }
     Cmp::Equal
+}
+
+/// Token-wise version comparison. When BOTH sides carry an MC-version prefix
+/// (`<mc>-<modver>`), compares only the mod-version part — the MC segments can
+/// differ (e.g. `1.19.2` vs `1.19`) and would otherwise misalign the tokens.
+fn compare_numeric(a: &str, b: &str) -> Cmp {
+    if let (Some(am), Some(bm)) = (strip_mc_prefix(a), strip_mc_prefix(b)) {
+        return compare_tokens(am, bm);
+    }
+    compare_tokens(a, b)
 }
 
 /// Which grammar a raw range string uses.
@@ -536,5 +571,54 @@ mod tests {
             satisfies("1.0.0", ">=2.0 ||", FabricPredicate),
             Satisfaction::Unknown
         );
+    }
+
+    #[test]
+    fn strip_mc_prefix_detects_mc_prefixed_versions() {
+        assert_eq!(strip_mc_prefix("1.19.2-5.1.3.0"), Some("5.1.3.0"));
+        assert_eq!(strip_mc_prefix("1.21-2.29.0"), Some("2.29.0"));
+        assert_eq!(strip_mc_prefix("1.19-77"), Some("77"));
+        assert_eq!(strip_mc_prefix("1.5.2-pre"), None); // rest non-numeric (qualifier)
+        assert_eq!(strip_mc_prefix("1.3.50.2005"), None); // no dash
+        assert_eq!(strip_mc_prefix("5.0.7.1"), None); // no dash
+        assert_eq!(strip_mc_prefix("1.19.2"), None); // no dash
+        assert_eq!(strip_mc_prefix("2.0.0-1.0.0"), None); // mc must start with "1."
+        assert_eq!(strip_mc_prefix("1.19.2.3-5.0"), None); // >3 mc components
+    }
+
+    #[test]
+    fn mc_prefixed_mod_versions_compare_by_mod_version() {
+        assert_eq!(
+            satisfies("1.19.2-5.1.3.0", "[1.19-5.0.7.1,]", Maven),
+            Satisfaction::Satisfied
+        ); // curios
+        assert_eq!(
+            satisfies("1.21.1-3.0.9", "[1.21-2.29.0,]", Maven),
+            Satisfaction::Satisfied
+        ); // moonlight
+        assert_eq!(
+            satisfies("1.19.2-77", "[1.19-77,]", Maven),
+            Satisfaction::Satisfied
+        ); // patchouli (equal, inclusive)
+        assert_eq!(
+            satisfies("1.21.1-3.0.9", "[1.21-2.30.0,]", Maven),
+            Satisfaction::Satisfied
+        ); // supplementaries
+    }
+
+    #[test]
+    fn mc_prefix_fix_does_not_create_false_negatives() {
+        assert_eq!(
+            satisfies("1.3.50.2005", "[1.3.51,)", Maven),
+            Satisfaction::Violated
+        ); // sophisticatedcore (real)
+        assert_eq!(
+            satisfies("1.19.2-1.0.0", "[1.19-2.0.0,]", Maven),
+            Satisfaction::Violated
+        ); // genuine out-of-range
+        assert_eq!(
+            satisfies("1.19.2-5.0.0", "(1.19-5.0.0,]", Maven),
+            Satisfaction::Violated
+        ); // equal, exclusive lower
     }
 }

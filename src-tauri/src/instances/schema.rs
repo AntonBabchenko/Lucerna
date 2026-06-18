@@ -40,7 +40,7 @@ pub struct ImportProvenance {
     pub imported_unix_ms: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum LoaderKind {
     Vanilla,
