@@ -1134,6 +1134,14 @@ export type DepViolation = {
 	 *  Powers a "View on Modrinth / CurseForge" link in the UI.
 	 */
 	provider_project: DepProjectRef | null,
+	/**
+	 *  SHA-1 of the installed jar that currently provides `dep_id`.
+	 *  Present only for `VersionOutOfRange` violations where the provider
+	 *  is a tracked installed mod. Used by the UI to route "Обновить"
+	 *  through `mods_update_one` (remove-old + install-new) instead of a
+	 *  bare `mods_install_with_deps` that would leave duplicate jars.
+	 */
+	provider_sha1: string | null,
 };
 
 export type DependencyGraph = {

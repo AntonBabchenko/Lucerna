@@ -15,6 +15,7 @@ import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 const mocks = vi.hoisted(() => ({
   modsVersions: vi.fn(),
   modsInstallWithDeps: vi.fn(),
+  modsUpdateOne: vi.fn(),
   instanceDependencyPreflight: vi.fn(),
 }));
 
@@ -40,6 +41,7 @@ const modrinthViolation: DepViolation = {
   needed: '[1.3.51,)',
   installed_version: '1.3.50',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
+  provider_sha1: null,
 };
 
 const curseforgeViolation: DepViolation = {
@@ -51,6 +53,7 @@ const curseforgeViolation: DepViolation = {
   needed: '[2.0,)',
   installed_version: '1.9',
   provider_project: { source: 'curseforge', mod_id: 99999, file_id: null },
+  provider_sha1: null,
 };
 
 const noProviderViolation: DepViolation = {
@@ -62,6 +65,7 @@ const noProviderViolation: DepViolation = {
   needed: '[1.0,)',
   installed_version: '0.9',
   provider_project: null,
+  provider_sha1: null,
 };
 
 const missingViolation: DepViolation = {
@@ -73,6 +77,7 @@ const missingViolation: DepViolation = {
   needed: '',
   installed_version: null,
   provider_project: null,
+  provider_sha1: null,
 };
 
 const fakeVersion = {
@@ -101,6 +106,7 @@ describe('remediateViolation', () => {
   beforeEach(() => {
     mocks.modsVersions.mockReset();
     mocks.modsInstallWithDeps.mockReset();
+    mocks.modsUpdateOne.mockReset();
   });
 
   it('returns { ok: false, reason: "no-provider" } when provider_project is null', async () => {
@@ -182,13 +188,33 @@ describe('remediateViolation', () => {
     expect(result).toEqual({ ok: true, reason: undefined });
   });
 
-  it('returns { ok: false, reason: "install-failed" } when modsInstallWithDeps errors', async () => {
+  it('returns { ok: false, reason: "update-failed" } when the install/update command errors', async () => {
     mocks.modsVersions.mockResolvedValue({ status: 'ok', data: [fakeVersion] });
     mocks.modsInstallWithDeps.mockResolvedValue({ status: 'error', error: 'disk full' });
 
     const result = await remediateViolation('inst-1', modrinthViolation, '1.20.1', 'fabric');
 
-    expect(result).toEqual({ ok: false, reason: 'install-failed' });
+    expect(result).toEqual({ ok: false, reason: 'update-failed' });
+  });
+
+  it('updates in place via modsUpdateOne when provider_sha1 is present', async () => {
+    vi.mocked(mocks.modsVersions).mockResolvedValue({ status: 'ok', data: [fakeVersion] } as any);
+    vi.mocked(mocks.modsUpdateOne).mockResolvedValue({ status: 'ok', data: null } as any);
+    const v = { ...modrinthViolation, provider_sha1: 'OLDSHA' };
+    const r = await remediateViolation('inst', v as any, '1.20.1', 'forge');
+    expect(r.ok).toBe(true);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLDSHA', fakeVersion);
+    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
+  });
+
+  it('falls back to install when provider_sha1 is absent', async () => {
+    vi.mocked(mocks.modsVersions).mockResolvedValue({ status: 'ok', data: [fakeVersion] } as any);
+    vi.mocked(mocks.modsInstallWithDeps).mockResolvedValue({ status: 'ok', data: {} } as any);
+    const v = { ...modrinthViolation, provider_sha1: null };
+    const r = await remediateViolation('inst', v as any, '1.20.1', 'forge');
+    expect(r.ok).toBe(true);
+    expect(mocks.modsUpdateOne).not.toHaveBeenCalled();
+    expect(mocks.modsInstallWithDeps).toHaveBeenCalled();
   });
 });
 
