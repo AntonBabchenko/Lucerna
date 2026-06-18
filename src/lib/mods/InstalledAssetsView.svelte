@@ -19,6 +19,7 @@
   import { t } from '$lib/i18n';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
   import CardShell from '$lib/ui/cards/CardShell.svelte';
   import CardMedia from '$lib/ui/cards/CardMedia.svelte';
@@ -255,9 +256,7 @@
       {$t('addons.installed.pickInstance')}
     </div>
   {:else if loading && assets.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">
-      {$t('addons.installed.loading')}
-    </div>
+    <LoadingPanel label={$t('addons.installed.loading')} size="md" />
   {:else if assets.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">{$t('addons.installed.empty')}</div>
   {:else}

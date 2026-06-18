@@ -3,19 +3,30 @@
   // place it inside a `text-*` context to colour it (e.g. text-secondary).
   //
   // `delayMs` implements the standard anti-flicker pattern: the spinner is
-  // not rendered until the load has run longer than `delayMs`, so fast
-  // responses never flash a spinner. Callers just render `{#if loading}` —
-  // when the load finishes before the delay, the component unmounts and the
-  // pending timeout is cleared, so nothing ever appears.
+  // not rendered until the load has run longer than `delayMs`.
+  //
+  // `labelPlacement` controls the label:
+  //   'sr-only' (default) — circle only; label is screen-reader-only (legacy).
+  //   'right'             — circle + visible label to the right (inline/buttons).
+  //   'below'             — circle + visible label centered underneath (panels).
+  // The wrapper always carries one role="status" + aria-label, and any VISIBLE
+  // label is aria-hidden, so assistive tech announces the state exactly once.
   import { t } from '$lib/i18n';
 
   interface Props {
     size?: 'sm' | 'md' | 'lg';
     delayMs?: number;
     label?: string;
+    labelPlacement?: 'sr-only' | 'right' | 'below';
     class?: string;
   }
-  let { size = 'md', delayMs = 0, label, class: klass = '' }: Props = $props();
+  let {
+    size = 'md',
+    delayMs = 0,
+    label,
+    labelPlacement = 'sr-only',
+    class: klass = '',
+  }: Props = $props();
 
   const resolvedLabel = $derived(label ?? $t('common.loading'));
 
@@ -25,31 +36,30 @@
     lg: 'h-8 w-8 border-[3px]',
   };
 
-  // `elapsed` flips true once the delay timer fires. `visible` is derived so
-  // that with no delay it is true on the very first render (synchronous, no
-  // post-mount flash) and with a delay it follows the timer.
+  const WRAPPER: Record<NonNullable<Props['labelPlacement']>, string> = {
+    'sr-only': 'inline-flex items-center justify-center',
+    right: 'inline-flex items-center gap-2',
+    below: 'inline-flex flex-col items-center justify-center gap-2',
+  };
+
   let elapsed = $state(false);
   $effect(() => {
     if (delayMs <= 0) return;
     elapsed = false;
-    const t = setTimeout(() => (elapsed = true), delayMs);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => (elapsed = true), delayMs);
+    return () => clearTimeout(timer);
   });
   const visible = $derived(delayMs <= 0 || elapsed);
 </script>
 
 {#if visible}
-  <span
-    role="status"
-    aria-label={resolvedLabel}
-    class="inline-flex items-center justify-center {klass}"
-  >
-    <span
+  <span role="status" aria-label={resolvedLabel} class="{WRAPPER[labelPlacement]} {klass}"
+    ><span
       class="inline-block animate-spin rounded-full border-current border-r-transparent {SIZES[
         size
       ]}"
       aria-hidden="true"
-    ></span>
-    <span class="sr-only">{resolvedLabel}</span>
-  </span>
+    ></span>{#if labelPlacement === 'sr-only'}<span class="sr-only">{resolvedLabel}</span
+      >{:else}<span class="text-sm" aria-hidden="true">{resolvedLabel}</span>{/if}</span
+  >
 {/if}

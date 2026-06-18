@@ -17,7 +17,9 @@
   import { t } from '$lib/i18n';
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -559,17 +561,15 @@
           {/each}
         </ul>
         {#if status.removed_files.some((f) => f.url === '')}
-          <button
+          <BusyButton
             type="button"
             class="btn-secondary btn-xs mt-2 ml-4"
             onclick={() => void reimportPackFiles()}
-            disabled={reimporting}
+            busy={reimporting}
             data-testid="imported-detail-reimport"
           >
-            {reimporting
-              ? $t('modpacks.imported.detail.reimporting')
-              : $t('modpacks.imported.detail.reimportBtn')}
-          </button>
+            {$t('modpacks.imported.detail.reimportBtn')}
+          </BusyButton>
         {/if}
       </details>
     {/if}
@@ -606,8 +606,8 @@
         $t('modpacks.imported.detail.modsHeading', { count: mods?.length ?? 0 }),
       )}
       {#if mods === null}
-        <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-loading">
-          {$t('modpacks.imported.detail.loading')}
+        <div class="pl-4" data-testid="imported-detail-mods-loading">
+          <LoadingPanel label={$t('modpacks.imported.detail.loading')} size="md" />
         </div>
       {:else if mods.length === 0}
         <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-empty">

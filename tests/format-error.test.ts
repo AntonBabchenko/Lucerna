@@ -307,6 +307,10 @@ describe('formatError', () => {
         filename: 'b.zip',
       },
       backup_corrupt: { kind: 'backup_corrupt', filename: 'b.zip', details: 'd' },
+      world_import_not_a_world: { kind: 'world_import_not_a_world' },
+      world_import_unsupported_source: { kind: 'world_import_unsupported_source' },
+      world_import_invalid_archive: { kind: 'world_import_invalid_archive', details: 'd' },
+      world_import_too_large: { kind: 'world_import_too_large', size: 3, cap: 2 },
       playtime_io: { kind: 'playtime_io', details: 'd' },
       tray_io: { kind: 'tray_io', details: 'd' },
       window_io: { kind: 'window_io', details: 'd' },
@@ -377,7 +381,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(91);
+      expect(Object.keys(samples)).toHaveLength(95);
     });
   });
 

@@ -1,10 +1,34 @@
-import { fireEvent, render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import BusyButton from '../src/lib/ui/BusyButton.svelte';
 
 const label = (text: string) => createRawSnippet(() => ({ render: () => `<span>${text}</span>` }));
+
+const labelSnippet = createRawSnippet(() => ({ render: () => `<span>Save</span>` }));
+
+describe('BusyButton — prop forwarding', () => {
+  it('forwards data-testid and data-tour onto the button', () => {
+    render(BusyButton, {
+      props: { children: labelSnippet, 'data-testid': 'save-btn', 'data-tour': 'x' },
+    });
+    const btn = screen.getByTestId('save-btn');
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.getAttribute('data-tour')).toBe('x');
+  });
+
+  it('shows a spinner and disables when busy', () => {
+    render(BusyButton, {
+      props: { children: labelSnippet, busy: true, 'data-testid': 'save-btn' },
+    });
+    const btn = screen.getByTestId('save-btn');
+    expect(btn.getAttribute('aria-busy')).toBe('true');
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(btn.querySelector('[role="status"]')).not.toBeNull();
+    expect(btn.textContent).toContain('Save');
+  });
+});
 
 describe('BusyButton', () => {
   it('renders the label and fires onclick when idle', async () => {

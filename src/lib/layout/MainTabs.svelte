@@ -9,6 +9,7 @@
     modBrowserNav,
     droppedMods,
     droppedAssets,
+    droppedWorld,
     addonsKind,
     dragActive,
   } from '$lib/settings/state.svelte';
@@ -79,8 +80,10 @@
   // off the active `addonsKind`.
   onMount(() => {
     const pending = getCurrentWebview().onDragDropEvent((event) => {
-      const t = (event as { payload: { type: string; paths?: string[] } }).payload.type;
-      if (active !== 'mod_browser') {
+      const payload = (event as { payload: { type: string; paths?: string[] } }).payload;
+      const t = payload.type;
+      // Only the Add-ons and Worlds tabs accept drops.
+      if (active !== 'mod_browser' && active !== 'worlds') {
         dragActive.value = false;
         return;
       }
@@ -90,17 +93,21 @@
         dragActive.value = false;
       } else if (t === 'drop') {
         dragActive.value = false;
-        const paths =
-          (event as { payload: { type: string; paths?: string[] } }).payload.paths ?? [];
+        const paths = payload.paths ?? [];
+        if (active === 'worlds') {
+          // A world is a `.zip` or a folder; the backend disambiguates and
+          // returns a typed error per path. Pass everything through.
+          if (paths.length > 0 && instanceId !== null) {
+            droppedWorld.value = paths;
+          }
+          return;
+        }
         if (addonsKind.value === 'mod') {
           const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'));
           if (jars.length > 0 && canInstall) {
             droppedMods.value = jars;
           }
         } else {
-          // Resource-pack / shader segment — accept .zip. Any selected instance
-          // qualifies (resource packs run on vanilla; a shader pack file installs
-          // regardless of loader).
           const zips = paths.filter((p) => p.toLowerCase().endsWith('.zip'));
           if (zips.length > 0 && instanceId !== null) {
             droppedAssets.value = { kind: addonsKind.value, paths: zips };

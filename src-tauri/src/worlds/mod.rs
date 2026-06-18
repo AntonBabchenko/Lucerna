@@ -8,6 +8,7 @@
 
 pub mod backup;
 pub mod fs;
+pub mod import;
 pub mod restore;
 pub mod zip;
 

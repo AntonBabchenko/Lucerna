@@ -204,7 +204,7 @@
         {$t('logs.repair.missingMods.installedLabel')}
       {:else if isCandidateBusy(pid)}
         <span class="inline-flex items-center gap-1.5"
-          ><Spinner size="sm" label={$t('logs.repair.working')} />{$t('logs.repair.working')}</span
+          ><Spinner size="sm" />{$t('logs.repair.working')}</span
         >
       {:else}
         {$t('logs.repair.missingMods.install')}

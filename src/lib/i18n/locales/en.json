@@ -135,6 +135,7 @@
     "loader": {
       "label": "Loader",
       "versionLabel": "Loader version",
+      "loadingVersions": "Loading versions…",
       "recommended": "{version} (recommended)",
       "errorUnavailable": "{loader} does not support Minecraft {mc}",
       "errorNetwork": "Network error fetching {url}: {details}",
@@ -705,6 +706,11 @@
       "deleteWorld": "Delete world…",
       "toastBackedUp": "Backed up {name} ({size})"
     },
+    "import": {
+      "dropzoneLabel": "Drop a world .zip or folder here, or click to choose a .zip",
+      "fromFolder": "From folder…",
+      "toastAdded": "Added world \"{name}\""
+    },
     "backups": {
       "title": "Backups for \"{world}\"",
       "loading": "Loading backups…",
@@ -1137,6 +1143,10 @@
     "worldNameUnresolvable": "Couldn't find a free name for \"{folderName}\" — too many similarly-named copies exist",
     "backupNotFound": "Backup \"{filename}\" not found",
     "backupCorrupt": "Backup \"{filename}\" is unreadable or corrupted: {details}",
+    "worldImportNotAWorld": "That .zip or folder isn't a Minecraft world — no level.dat found inside.",
+    "worldImportUnsupportedSource": "Choose a .zip file or a world folder to import.",
+    "worldImportInvalidArchive": "Couldn't read that world archive: {details}",
+    "worldImportTooLarge": "That world is too large to import safely.",
     "playtimeIo": "Couldn't read or write playtime stats: {details}",
     "trayIo": "Couldn't show or hide the tray icon: {details}",
     "windowIo": "Couldn't resize the launcher window: {details}",
@@ -1396,6 +1406,7 @@
   "quickJoin": {
     "title": "Servers",
     "savedHeading": "Saved servers",
+    "loading": "Loading servers…",
     "empty": "No saved servers yet. Add one below.",
     "connect": "Connect",
     "copyAddress": "Copy address",

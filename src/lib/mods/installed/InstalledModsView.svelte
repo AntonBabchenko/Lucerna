@@ -37,6 +37,7 @@
   import InstalledToolbar from './InstalledToolbar.svelte';
   import BulkActionBar from './BulkActionBar.svelte';
   import InstalledModRow from './InstalledModRow.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
 
   let {
     instanceId,
@@ -328,7 +329,7 @@
       {$t('mods.installed.pickInstanceFirst')}
     </div>
   {:else if data.loading && data.rows.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.loading')}</div>
+    <LoadingPanel label={$t('mods.installed.loading')} />
   {:else if data.rows.length === 0}
     <div class="text-placeholder text-sm py-8 text-center">{$t('mods.installed.empty')}</div>
   {:else}

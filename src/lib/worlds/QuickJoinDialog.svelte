@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Icon from '$lib/ui/icons/Icon.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { isValidServerAddress } from '$lib/worlds/quick-join';
@@ -11,6 +12,7 @@
   let {
     open,
     savedServers = [],
+    savedServersLoading = false,
     busy = false,
     connectDisabledReason = null,
     addDisabledReason = null,
@@ -23,6 +25,7 @@
   }: {
     open: boolean;
     savedServers?: SavedServer[];
+    savedServersLoading?: boolean;
     busy?: boolean;
     connectDisabledReason?: string | null;
     addDisabledReason?: string | null;
@@ -106,7 +109,9 @@
       {$t('quickJoin.title')}
     </h3>
 
-    {#if savedServers.length > 0}
+    {#if savedServersLoading}
+      <LoadingPanel label={$t('quickJoin.loading')} />
+    {:else if savedServers.length > 0}
       <p class="text-xs text-secondary mb-2">{$t('quickJoin.savedHeading')}</p>
       <!-- Cap height + scroll so a long list stays inside the modal instead of
            overflowing the viewport. -->
