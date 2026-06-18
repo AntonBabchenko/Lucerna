@@ -924,7 +924,7 @@
                         </div>
                       </button>
                       <button
-                        class="mr-1 shrink-0 rounded p-1.5 text-muted opacity-0 transition-opacity hover:text-danger focus-visible:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
                         aria-label={$t('logs.manage.delete')}
                         use:tooltip={$t('logs.manage.delete')}
                         onclick={() => (confirmingDeletePath = f.path)}
