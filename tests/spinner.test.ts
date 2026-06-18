@@ -1,4 +1,4 @@
-import { render } from '@testing-library/svelte';
+import { render, screen } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,6 +6,31 @@ import Spinner from '../src/lib/ui/Spinner.svelte';
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('Spinner labelPlacement', () => {
+  it('sr-only (default): one role=status, label not visible', () => {
+    render(Spinner, { props: { label: 'Loading mods' } });
+    const status = screen.getByRole('status');
+    expect(status.getAttribute('aria-label')).toBe('Loading mods');
+    expect(status.querySelector('.sr-only')?.textContent).toBe('Loading mods');
+    expect(status.textContent).toBe('Loading mods');
+  });
+
+  it('right: renders a visible (aria-hidden) label beside the circle', () => {
+    render(Spinner, { props: { label: 'Loading', labelPlacement: 'right' } });
+    const status = screen.getByRole('status');
+    const visible = status.querySelector('[aria-hidden="true"].text-sm');
+    expect(visible?.textContent).toBe('Loading');
+    expect(status.className).toContain('items-center');
+  });
+
+  it('below: stacks the visible label under the circle', () => {
+    render(Spinner, { props: { label: 'Loading', labelPlacement: 'below' } });
+    const status = screen.getByRole('status');
+    expect(status.className).toContain('flex-col');
+    expect(status.querySelector('[aria-hidden="true"].text-sm')?.textContent).toBe('Loading');
+  });
 });
 
 describe('Spinner', () => {
