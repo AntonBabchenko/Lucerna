@@ -11,6 +11,7 @@
   import { Icon } from '$lib/ui/icons';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { tooltip } from '$lib/ui/tooltip';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import ModCard from '../ModCard.svelte';
   import DepSection from './DepSection.svelte';
   import type { RequiredByEntry } from './dep-graph.svelte';
@@ -146,7 +147,9 @@
           </span>
         {/if}
         {#if graphLoading && !root}
-          <span class="text-placeholder">{$t('mods.installed.resolvingShort')}</span>
+          <span class="text-placeholder">
+            <Spinner size="sm" labelPlacement="right" label={$t('mods.installed.resolvingShort')} delayMs={150} />
+          </span>
         {:else if depTotal > 0 || requiredBy.length > 0}
           <!-- Single toggle for the whole relation. Accent (actionable) when the
                mod has its own deps; muted when it is only required-by. -->
