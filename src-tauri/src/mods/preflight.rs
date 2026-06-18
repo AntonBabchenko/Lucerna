@@ -31,7 +31,7 @@ fn canon_id(id: &str) -> String {
 const PROVIDES_ALIASES: &[(&str, &[&str])] = &[
     // Sinytra Connector ships fabric-api as forgified-fabric-api (+ its JIJ
     // submodules); a Fabric mod's `fabric-api` dep is satisfied by either.
-    ("fabric_api", &["forgified_fabric_api", "fabric"]),
+    ("fabric_api", &["forgified_fabric_api"]),
 ];
 
 /// What a provider id maps to: its declared version (if known).
