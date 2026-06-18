@@ -24,6 +24,15 @@ pub struct World {
     pub backup_count: u32,
 }
 
+/// Lightweight world entry for the sidebar Play-button dropdown: folder
+/// name + a recency proxy only. Cheaper than `World` (no recursive size or
+/// backup-count walk), so it is safe to load on every instance switch.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct WorldQuickEntry {
+    pub folder_name: String,
+    pub modified_unix_ms: f64,
+}
+
 /// One on-disk backup zip for a world.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct Backup {
@@ -105,6 +114,53 @@ pub fn list_worlds(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<Worl
     Ok(out)
 }
 
+/// Pure core of `list_world_names`: enumerate world folders directly under
+/// a concrete `saves/` dir, newest-played first. Testable without a Tauri
+/// `AppHandle`. Missing dir → empty Vec (not an error), matching
+/// `list_worlds`. Same `validate_segment` filter so stray/hidden entries
+/// never surface.
+pub fn list_world_names_in(saves_dir: &std::path::Path) -> Result<Vec<WorldQuickEntry>> {
+    if !saves_dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut out = Vec::new();
+    for entry in
+        std::fs::read_dir(saves_dir).map_err(|e| Error::io(saves_dir.display().to_string(), e))?
+    {
+        let entry = entry.map_err(|e| Error::io(saves_dir.display().to_string(), e))?;
+        let meta = entry
+            .metadata()
+            .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
+        if !meta.is_dir() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        if fs::validate_segment(&name).is_err() {
+            continue;
+        }
+        let modified_unix_ms = fs::world_recency_ms(&entry.path()) as f64;
+        out.push(WorldQuickEntry {
+            folder_name: name,
+            modified_unix_ms,
+        });
+    }
+    out.sort_by(|a, b| {
+        b.modified_unix_ms
+            .partial_cmp(&a.modified_unix_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(out)
+}
+
+/// Lightweight world list for the sidebar Play dropdown. Resolves the
+/// instance's `saves/` dir then defers to `list_world_names_in`.
+pub fn list_world_names(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<WorldQuickEntry>> {
+    let saves_dir = saves_dir(app, instance_id)?;
+    list_world_names_in(&saves_dir)
+}
+
 /// `<instance>/.minecraft/saves/`. Created lazily on first MC launch;
 /// may not exist on a fresh install (handled by caller).
 pub fn saves_dir(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf> {
@@ -164,4 +220,51 @@ fn count_backups(backups_root: &std::path::Path, world_folder: &str) -> Result<u
         }
     }
     Ok(n)
+}
+
+#[cfg(test)]
+mod quick_list_tests {
+    use super::*;
+    use std::fs;
+    use std::time::Duration;
+    use tempfile::tempdir;
+
+    fn make_world(saves: &std::path::Path, name: &str) {
+        let dir = saves.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("level.dat"), b"x").unwrap();
+    }
+
+    #[test]
+    fn missing_saves_dir_is_empty() {
+        let td = tempdir().unwrap();
+        let saves = td.path().join("saves"); // not created
+        assert!(list_world_names_in(&saves).unwrap().is_empty());
+    }
+
+    #[test]
+    fn lists_world_folders_newest_first() {
+        let td = tempdir().unwrap();
+        let saves = td.path().join("saves");
+        fs::create_dir_all(&saves).unwrap();
+        make_world(&saves, "Older");
+        std::thread::sleep(Duration::from_millis(50));
+        make_world(&saves, "Newer");
+        let got = list_world_names_in(&saves).unwrap();
+        let names: Vec<&str> = got.iter().map(|w| w.folder_name.as_str()).collect();
+        assert_eq!(names, vec!["Newer", "Older"]);
+    }
+
+    #[test]
+    fn skips_stray_files_and_invalid_segments() {
+        let td = tempdir().unwrap();
+        let saves = td.path().join("saves");
+        fs::create_dir_all(&saves).unwrap();
+        make_world(&saves, "Good");
+        fs::write(saves.join("loose.txt"), b"x").unwrap(); // a file, not a world
+        fs::create_dir_all(saves.join(".hidden")).unwrap(); // rejected by validate_segment
+        let got = list_world_names_in(&saves).unwrap();
+        let names: Vec<&str> = got.iter().map(|w| w.folder_name.as_str()).collect();
+        assert_eq!(names, vec!["Good"]);
+    }
 }
