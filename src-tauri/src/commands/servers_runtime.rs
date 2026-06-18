@@ -227,6 +227,119 @@ pub fn server_delete_mod(app: AppHandle, id: String, filename: String) -> Result
     }
 }
 
+/// Диагностировать сервер: читает `server-latest.log`, прогоняет паттерны
+/// (`diagnose_server_log`, `dist_crash_tokens`, `classify_client_only_mods`),
+/// и возвращает полную диагностику вместе с классификацией статуса.
+///
+/// Если лог отсутствует или пуст — возвращает `ServerDiagnosis` со статусом `None`
+/// и пустыми срезами (не ошибку).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_diagnose(
+    app: AppHandle,
+    id: String,
+) -> Result<crate::logs::diagnose::server::ServerDiagnosis> {
+    use crate::logs::diagnose::server::{
+        classify_client_only_mods, diagnose_server_log, dist_crash_tokens, forge_client_skip_count,
+        ServerDiagnosis,
+    };
+
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let content = crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), 1024 * 1024)
+        .unwrap_or_default();
+    if content.is_empty() {
+        return Ok(ServerDiagnosis {
+            status: crate::logs::diagnose::DiagnosisStatus::None,
+            diagnosis: None,
+            client_mods: Vec::new(),
+            forge_skip_count: None,
+            log_signature: None,
+        });
+    }
+    let signature = crate::logs::diagnose::log_signature(&content);
+    let diagnosis = diagnose_server_log(&content);
+
+    let mut mods: Vec<(String, crate::mods::local::ModEnvironment)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&p.mods) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !name.to_ascii_lowercase().ends_with(".jar") {
+                continue;
+            }
+            let env = std::fs::read(e.path())
+                .ok()
+                .map(|b| crate::mods::local::read_jar_environment(&b))
+                .unwrap_or(crate::mods::local::ModEnvironment::Unknown);
+            mods.push((name, env));
+        }
+    }
+    let tokens = dist_crash_tokens(&content);
+    let is_client_crash = diagnosis
+        .as_ref()
+        .map(|d| d.pattern_id == "server-client-only-mod-crash")
+        .unwrap_or(false);
+    let client_mods = if is_client_crash {
+        classify_client_only_mods(&mods, &tokens)
+    } else {
+        Vec::new()
+    };
+
+    let handled = crate::servers_runtime::store::read_server_json(&p.json)
+        .ok()
+        .and_then(|f| f.handled_log_sig);
+    let status = match &diagnosis {
+        Some(d) => {
+            crate::logs::diagnose::classify_status(d, 0, None, &signature, handled.as_deref())
+        }
+        None => crate::logs::diagnose::DiagnosisStatus::None,
+    };
+
+    Ok(ServerDiagnosis {
+        status,
+        diagnosis,
+        client_mods,
+        forge_skip_count: forge_client_skip_count(&content),
+        log_signature: Some(signature),
+    })
+}
+
+/// Удалить список модов из папки `mods/` сервера по именам файлов.
+/// Если задан `log_signature` — записывает его в `server.json` как
+/// подпись обработанного лога (идемпотентный маркер «диагноз применён»).
+///
+/// Идемпотентно: уже удалённый файл → `Ok`. Отклоняет небезопасные имена
+/// файлов (защита от path traversal).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_remove_mods(
+    app: AppHandle,
+    id: String,
+    filenames: Vec<String>,
+    log_signature: Option<String>,
+) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    for f in &filenames {
+        if !crate::servers_runtime::runtime::is_safe_mod_name(f) {
+            return Err(Error::io("<mod>", "invalid filename"));
+        }
+        let path = p.mods.join(f);
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::io(path.display().to_string(), e)),
+        }
+    }
+    if let Some(sig) = log_signature {
+        if let Ok(mut file) = crate::servers_runtime::store::read_server_json(&p.json) {
+            file.handled_log_sig = Some(sig);
+            crate::servers_runtime::store::write_server_json(&p.json, &file)?;
+        }
+    }
+    Ok(())
+}
+
 /// Открыть папку `runtime/` сервера в системном файловом менеджере.
 /// Создаёт папку, если она ещё не существует. Использует тот же
 /// механизм, что и `open_saves_folder` (`tauri_plugin_opener`).

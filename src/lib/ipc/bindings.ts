@@ -860,6 +860,24 @@ export const commands = {
 	 *  механизм, что и `open_saves_folder` (`tauri_plugin_opener`).
 	 */
 	serverOpenFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_folder", { id })),
+	/**
+	 *  Диагностировать сервер: читает `server-latest.log`, прогоняет паттерны
+	 *  (`diagnose_server_log`, `dist_crash_tokens`, `classify_client_only_mods`),
+	 *  и возвращает полную диагностику вместе с классификацией статуса.
+	 * 
+	 *  Если лог отсутствует или пуст — возвращает `ServerDiagnosis` со статусом `None`
+	 *  и пустыми срезами (не ошибку).
+	 */
+	serverDiagnose: (id: string) => typedError<ServerDiagnosis, Error>(__TAURI_INVOKE("server_diagnose", { id })),
+	/**
+	 *  Удалить список модов из папки `mods/` сервера по именам файлов.
+	 *  Если задан `log_signature` — записывает его в `server.json` как
+	 *  подпись обработанного лога (идемпотентный маркер «диагноз применён»).
+	 * 
+	 *  Идемпотентно: уже удалённый файл → `Ok`. Отклоняет небезопасные имена
+	 *  файлов (защита от path traversal).
+	 */
+	serverRemoveMods: (id: string, filenames: string[], logSignature: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_remove_mods", { id, filenames, logSignature })),
 };
 
 /** Events */
@@ -1041,6 +1059,13 @@ export type CleanupResult = {
 	freed_bytes: number | null,
 };
 
+export type ClientModFinding = {
+	filename: string,
+	/**  i18n reason key: "manifest_client" | "crash". */
+	reason: string,
+	confidence: Confidence,
+};
+
 /**
  *  Compatibility verdict for a local mod jar against a target instance.
  *  Crosses the IPC boundary. A jar is "compatible" iff neither flag is set.
@@ -1060,6 +1085,8 @@ export type CompatVerdict = {
 	/**  The jar's declared MC `major.minor` differs from the instance's. */
 	mc_mismatch: boolean,
 };
+
+export type Confidence = "high" | "medium";
 
 /**  One side of a mod conflict the user can act on. */
 export type ConflictCandidate = {
@@ -2370,7 +2397,13 @@ export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "rein
  *  input — no instance I/O. Real precondition gating happens later in
  *  `build_repair_plan`.
  */
-export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict" | "install_missing_mods" | "disable_blocking_mods";
+export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | "resolve_conflict" | "install_missing_mods" | "disable_blocking_mods" | 
+/**
+ *  A client-only mod crashed the dedicated server. Handled by the
+ *  server-specific `server_remove_mods` command, not the instance repair
+ *  pipeline — `build_repair_plan` returns `Ok(None)` for this variant.
+ */
+"remove_client_server_mods";
 
 /**
  *  The concrete, parameterised fix proposal returned by
@@ -2442,6 +2475,18 @@ export type RestoredWorld = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+/**
+ *  Full diagnosis result for a server log. Returned by the `server_diagnose`
+ *  Tauri command and consumed directly by the UI.
+ */
+export type ServerDiagnosis = {
+	status: DiagnosisStatus,
+	diagnosis: Diagnosis | null,
+	client_mods: ClientModFinding[],
+	forge_skip_count: number | null,
+	log_signature: string | null,
 };
 
 /**  Emitted when a server process exits. `code` is -1 if signal-terminated. */

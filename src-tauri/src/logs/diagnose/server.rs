@@ -10,6 +10,17 @@ use regex::Regex;
 use serde::Serialize;
 use specta::Type;
 
+/// Full diagnosis result for a server log. Returned by the `server_diagnose`
+/// Tauri command and consumed directly by the UI.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ServerDiagnosis {
+    pub status: crate::logs::diagnose::DiagnosisStatus,
+    pub diagnosis: Option<Diagnosis>,
+    pub client_mods: Vec<ClientModFinding>,
+    pub forge_skip_count: Option<u32>,
+    pub log_signature: Option<String>,
+}
+
 /// First matching server-log diagnosis, if any. Order = specificity.
 pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
     if log.contains("invalid dist DEDICATED_SERVER") || log.contains("RuntimeDistCleaner") {

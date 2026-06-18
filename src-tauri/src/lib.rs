@@ -186,6 +186,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_mods,
             commands::server_delete_mod,
             commands::server_open_folder,
+            // Own server (Plan 4: diagnosis + repair):
+            commands::server_diagnose,
+            commands::server_remove_mods,
         ])
         .events(collect_events![
             network::DownloadProgress,
