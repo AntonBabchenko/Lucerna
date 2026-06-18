@@ -459,7 +459,14 @@
       "checkFailed": "Не удалось проверить совместимость",
       "updateFailed": "Совместимое обновление не найдено — ничего не изменилось.",
       "install": "Установить {dep}",
-      "installSearchFallback": "Не удалось определить {dep} автоматически — открываю поиск"
+      "installSearchFallback": "Не удалось определить {dep} автоматически — открываю поиск",
+      "chooseVersion": "Выбрать версию",
+      "noCompatible": "Совместимой версии нет",
+      "openModPage": "Открыть страницу мода",
+      "findAlternative": "Найти альтернативу",
+      "installedVersion": "Установлен {dep} {version}",
+      "pickerFits": "подходит",
+      "pickerUnfit": "вне диапазона"
     }
   },
   "addons": {

@@ -38,6 +38,26 @@ pub async fn mods_search(query: ModSearchQuery) -> crate::error::Result<ModSearc
     .await
 }
 
+/// Pure (no network): given version-number strings and a required range +
+/// family, return the indices that satisfy it (input order preserved, so the
+/// first index is the newest satisfying version). The frontend already fetched
+/// the versions via `mods_versions`; this avoids a second round-trip and powers
+/// both smart-Update and the picker's satisfies badges.
+#[tauri::command]
+#[specta::specta]
+pub fn mods_filter_satisfying(
+    versions: Vec<String>,
+    needed: String,
+    family: crate::mods::version_range::RangeFamily,
+) -> Vec<u32> {
+    let refs: Vec<&str> = versions.iter().map(String::as_str).collect();
+    crate::mods::version_range::satisfying_indices(&refs, &needed, family)
+        .into_iter()
+        // safe: a Vec<String> of version strings cannot approach 2^32 entries.
+        .map(|i| i as u32)
+        .collect()
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_project(

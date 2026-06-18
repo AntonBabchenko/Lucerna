@@ -7,6 +7,7 @@
     type ModProject,
     type ModSource,
     type ModVersion,
+    type RangeFamily,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { modProjectUrl } from '$lib/mods/project-url';
@@ -35,6 +36,8 @@
     kind = 'mod',
     installedVersionId = null,
     installingVersionId = null,
+    needed = null,
+    family = null,
     onClose,
     onInstall,
   }: {
@@ -52,6 +55,11 @@
     // version_id whose install is currently in flight; parent-owned. The
     // matching version row / recommended CTA renders as a busy spinner.
     installingVersionId?: string | null;
+    // When opened from the preflight picker: the dependency's declared range +
+    // grammar. Drives a "fits range / out of range" badge per version. Both null
+    // in normal mod-detail usage (no badge).
+    needed?: string | null;
+    family?: RangeFamily | null;
     onClose: () => void;
     onInstall: (v: ModVersion) => void;
   } = $props();
@@ -130,6 +138,32 @@
         else error = formatError(v.error);
       })();
     }
+  });
+
+  // When opened from the preflight picker (needed + family set), badge each
+  // listed version with whether it satisfies the dependency's declared range.
+  // Pure backend filter — reuses the already-fetched list, no extra network.
+  let satisfyingIds = $state<Set<string>>(new Set());
+  $effect(() => {
+    const list = versionList;
+    if (!needed || !family || list === null || list.length === 0) {
+      satisfyingIds = new Set();
+      return;
+    }
+    // Guard against a stale resolve overwriting a newer one (e.g. fast show-all
+    // toggles fire two concurrent filters): only the latest run may commit.
+    let cancelled = false;
+    void (async () => {
+      const idx = await commands.modsFilterSatisfying(
+        list.map((v) => v.version_number),
+        needed,
+        family,
+      );
+      if (!cancelled) satisfyingIds = new Set(idx.map((i) => list[i].version_id));
+    })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   function openExternal(url: string) {
@@ -252,6 +286,19 @@
                   {v.version_number}{isInstalled ? $t('mods.detail.versionInstalled') : ''}
                 </div>
                 <div class="text-xs text-muted truncate">MC: {v.mc_versions.join(', ')}</div>
+                {#if needed}
+                  <span
+                    class="mt-0.5 inline-block text-[10px] px-1 rounded {satisfyingIds.has(
+                      v.version_id,
+                    )
+                      ? 'bg-success-bg text-success'
+                      : 'bg-warning-text/10 text-warning-text'}"
+                  >
+                    {satisfyingIds.has(v.version_id)
+                      ? $t('mods.preflight.pickerFits')
+                      : $t('mods.preflight.pickerUnfit')}
+                  </span>
+                {/if}
               </div>
               <span
                 class="inline-flex"

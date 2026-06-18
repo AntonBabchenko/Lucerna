@@ -21,6 +21,23 @@ function missing(i: number): DepViolation {
     installed_version: null,
     provider_project: null,
     provider_sha1: null,
+    family: null,
+  };
+}
+
+/** An actionable out-of-range violation (provider linked, family known). */
+function outOfRange(): DepViolation {
+  return {
+    kind: 'version_out_of_range',
+    dependent_name: 'indium',
+    dependent_sha1: 'dep-sha',
+    dep_id: 'sodium',
+    dep_display_name: null,
+    needed: '0.5.11',
+    installed_version: '0.9.0-beta.1',
+    provider_project: { source: 'modrinth', project_id: 'AANobbMI', version_id: null },
+    provider_sha1: 'old-sha',
+    family: 'fabric_predicate',
   };
 }
 
@@ -75,6 +92,7 @@ describe('PreflightPanel', () => {
           needed: '',
           provider_project: null,
           provider_sha1: null,
+          family: null,
         },
       ],
     };
@@ -82,5 +100,62 @@ describe('PreflightPanel', () => {
     const btn = screen.getByRole('button', { name: /balm/i });
     await fireEvent.click(btn);
     expect(onInstallMissing).toHaveBeenCalledWith(report.violations[0]);
+  });
+
+  it('shows Update + Choose-version on an actionable out-of-range row', () => {
+    const report: PreflightReport = { violations: [outOfRange()] };
+    const { getByText } = render(PreflightPanel, { props: { report, onUpdate: () => {} } });
+    expect(getByText('Update')).toBeTruthy();
+    expect(getByText('Choose version')).toBeTruthy();
+  });
+
+  it('calls onChooseVersion when Choose-version is clicked', async () => {
+    const onChooseVersion = vi.fn();
+    const v = outOfRange();
+    const report: PreflightReport = { violations: [v] };
+    render(PreflightPanel, { props: { report, onUpdate: () => {}, onChooseVersion } });
+    await fireEvent.click(screen.getByText('Choose version'));
+    expect(onChooseVersion).toHaveBeenCalledWith(v);
+  });
+
+  it('shows the dead-end actions (no Update) when the row is in deadEndKeys', () => {
+    const v = outOfRange();
+    const report: PreflightReport = { violations: [v] };
+    const { getByText, queryByText } = render(PreflightPanel, {
+      props: {
+        report,
+        onUpdate: () => {},
+        deadEndKeys: new Set([`${v.dependent_sha1}:${v.dep_id}`]),
+      },
+    });
+    expect(queryByText('Update')).toBeNull();
+    expect(getByText('No compatible version')).toBeTruthy();
+    expect(getByText('Open mod page')).toBeTruthy();
+    expect(getByText('Find alternative')).toBeTruthy();
+  });
+
+  it('renders a busy spinner (no action buttons) when the row is in busyKeys', () => {
+    const v = outOfRange();
+    const report: PreflightReport = { violations: [v] };
+    const { queryByText, getByRole } = render(PreflightPanel, {
+      props: {
+        report,
+        onUpdate: () => {},
+        busyKeys: new Set([`${v.dependent_sha1}:${v.dep_id}`]),
+      },
+    });
+    expect(queryByText('Update')).toBeNull();
+    expect(queryByText('Choose version')).toBeNull();
+    expect(getByRole('status')).toBeTruthy();
+  });
+
+  it('hides all per-row actions when showRowActions is false (launch-gate mode)', () => {
+    const report: PreflightReport = { violations: [outOfRange(), missing(0)] };
+    const { queryByText, queryAllByRole } = render(PreflightPanel, {
+      props: { report, onUpdate: () => {}, showRowActions: false },
+    });
+    expect(queryByText('Update')).toBeNull();
+    expect(queryByText('Choose version')).toBeNull();
+    expect(queryAllByRole('button')).toHaveLength(0);
   });
 });

@@ -32,12 +32,12 @@
     {$t('mods.preflight.gateTitle')}
   </h3>
 
-  <!-- Reuse PreflightPanel for the violation list. The panel's onUpdate and
-       onInstallMissing are both no-ops here — at the launch gate, remediation
-       is handled by the "Update & launch" button at the dialog level, never
-       per-row, so the gate never offers a missing-dependency install. -->
+  <!-- Reuse PreflightPanel for the violation list. At the launch gate,
+       remediation is handled by the "Update & launch" button at the dialog
+       level, never per-row, so we mute the panel's per-row actions entirely
+       (showRowActions=false): the gate just shows what's wrong. -->
   <div class="mb-4">
-    <PreflightPanel {report} onUpdate={() => {}} onInstallMissing={() => {}} />
+    <PreflightPanel {report} onUpdate={() => {}} showRowActions={false} />
   </div>
 
   <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">

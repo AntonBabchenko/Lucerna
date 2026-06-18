@@ -87,6 +87,7 @@ pub enum Violation {
         dep_id: String,
         needed: String,
         installed: String,
+        family: crate::mods::version_range::RangeFamily,
     },
 }
 
@@ -147,6 +148,7 @@ pub fn resolve(
                         dep_id: dep.dep_id.clone(),
                         needed: dep.range.clone(),
                         installed: v.clone(),
+                        family: dep.family,
                     });
                 }
             }
@@ -198,6 +200,10 @@ pub struct DepViolation {
     /// through `mods_update_one` (remove-old + install-new) instead of a
     /// bare `mods_install_with_deps` that would leave duplicate jars.
     pub provider_sha1: Option<String>,
+    /// Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
+    /// `MissingRequired` (no range to interpret). Lets the UI pick a version
+    /// that actually satisfies `needed` via `mods_filter_satisfying`.
+    pub family: Option<crate::mods::version_range::RangeFamily>,
 }
 
 /// Aggregated result of the dependency pre-flight scan.
@@ -254,6 +260,7 @@ fn enrich(
             needed: String::new(),
             provider_project: None,
             provider_sha1: None,
+            family: None,
         },
         Violation::VersionOutOfRange {
             dependent_sha1,
@@ -261,6 +268,7 @@ fn enrich(
             dep_id,
             needed,
             installed,
+            family,
         } => {
             let key = dep_id.to_ascii_lowercase();
             let provider_project = provider_owner.get(&key).cloned();
@@ -275,6 +283,7 @@ fn enrich(
                 needed,
                 provider_project,
                 provider_sha1,
+                family: Some(family),
             }
         }
     }
@@ -560,6 +569,7 @@ mod tests {
                     version_id: None,
                 }),
                 provider_sha1: Some("abc123".into()),
+                family: Some(crate::mods::version_range::RangeFamily::Maven),
             }],
         };
         let json = serde_json::to_string(&report).unwrap();
@@ -707,12 +717,18 @@ mod tests {
             dep_id: "sophisticatedcore".into(),
             needed: "[1.3.51,)".into(),
             installed: "1.3.50".into(),
+            family: crate::mods::version_range::RangeFamily::Maven,
         };
         let owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
         let mut sha = HashMap::new();
         sha.insert("sophisticatedcore".to_string(), "PROVIDERSHA".to_string());
         let dv = enrich(v, &owner, &sha);
         assert_eq!(dv.provider_sha1.as_deref(), Some("PROVIDERSHA"));
+        // family round-trips from the declared dep into the IPC violation.
+        assert_eq!(
+            dv.family,
+            Some(crate::mods::version_range::RangeFamily::Maven)
+        );
     }
 
     #[test]

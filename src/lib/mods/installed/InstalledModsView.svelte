@@ -26,9 +26,14 @@
   import {
     createPreflight,
     installMissing,
+    remediatePickedVersion,
     remediateViolation,
     toOverlayKeys,
+    violationKey,
   } from '$lib/mods/preflight.svelte';
+  import FindAlternativeDialog from '../FindAlternativeDialog.svelte';
+  import { modProjectUrl } from '$lib/mods/project-url';
+  import { SvelteSet } from 'svelte/reactivity';
   import { createInstalledSelection } from './installed-selection.svelte';
   import PreflightPanel from '$lib/mods/PreflightPanel.svelte';
   import { createCompatCheck } from './compat-check.svelte';
@@ -88,22 +93,101 @@
     deps.invalidateGraph,
   );
 
-  // One-click remediation from the pre-flight panel: resolve newest compatible
-  // version for the violation's provider project and install it, then refresh
-  // the panel. Shows a toast on success or failure (mirrors installDepNode).
-  const onPreflightUpdate = async (v: DepViolation): Promise<void> => {
-    if (!instanceId || !mcVersion || !loader) return;
-    const result = await remediateViolation(instanceId, v, mcVersion, loader);
-    if (result.ok) {
-      pushSuccess(
-        get(t)('mods.browse.toastInstalledMod', { name: v.dep_display_name ?? v.dep_id }),
-      );
-    } else {
-      pushWarning(get(t)('mods.browse.toastInstallFailed'));
-    }
+  // Per-row pre-flight remediation state, keyed by violationKey. `busy` shows a
+  // spinner on the row; `deadEnd` flips it to the no-satisfying affordances
+  // (open mod page / find alternative). The picker + find-alternative dialogs
+  // are driven by the *Violation holders below.
+  let preflightBusy = $state(new SvelteSet<string>());
+  let preflightDeadEnd = $state(new SvelteSet<string>());
+  let pickerViolation = $state<DepViolation | null>(null);
+  let findAltViolation = $state<DepViolation | null>(null);
+
+  // Reset per-row remediation state on instance switch. The keys are dep-based
+  // (dependent_sha1:dep_id), not instance-scoped, so a stale busy spinner or
+  // dead-end could otherwise bleed onto a same-named dep in another instance.
+  $effect(() => {
+    void instanceId;
+    preflightBusy.clear();
+    preflightDeadEnd.clear();
+    pickerViolation = null;
+    findAltViolation = null;
+  });
+
+  async function refreshAfterRemediate(): Promise<void> {
     preflight.invalidate();
     deps.invalidateGraph();
     await data.refresh();
+  }
+
+  // Smart one-click update: install the newest version that satisfies the dep
+  // range AND the instance MC/loader. On a no-satisfying dead-end the row flips
+  // to the open-page / find-alternative affordances instead of a useless retry.
+  const onPreflightUpdate = async (v: DepViolation): Promise<void> => {
+    if (!instanceId || !mcVersion || !loader) return;
+    const key = violationKey(v);
+    preflightBusy.add(key);
+    // finally clears the busy key even if an IPC call throws (bridge teardown),
+    // so a row can never get stuck showing a spinner.
+    try {
+      const result = await remediateViolation(instanceId, v, mcVersion, loader);
+      if (result.ok) {
+        preflightDeadEnd.delete(key);
+        pushSuccess(
+          get(t)('mods.preflight.installedVersion', {
+            dep: v.dep_display_name ?? v.dep_id,
+            version: result.installedVersion ?? '',
+          }),
+        );
+        await refreshAfterRemediate();
+      } else if (result.reason === 'no-satisfying') {
+        preflightDeadEnd.add(key);
+      } else {
+        pushWarning(get(t)('mods.browse.toastInstallFailed'));
+      }
+    } finally {
+      preflightBusy.delete(key);
+    }
+  };
+
+  // Open the dependency's version list so the user can install any version
+  // (including a downgrade) — routed in place via remediatePickedVersion.
+  const onPreflightChooseVersion = (v: DepViolation): void => {
+    pickerViolation = v;
+  };
+
+  // Open the find-alternative search for a dependency with no satisfying version.
+  const onPreflightFindAlternative = (v: DepViolation): void => {
+    findAltViolation = v;
+  };
+
+  // Open the dependency's platform page in the browser.
+  const onPreflightOpenModPage = (v: DepViolation): void => {
+    const ref = v.provider_project;
+    if (!ref) return;
+    const slugOrId = ref.source === 'modrinth' ? ref.project_id : String(ref.mod_id);
+    void import('@tauri-apps/plugin-opener').then((m) =>
+      m.openUrl(modProjectUrl(ref.source, slugOrId)),
+    );
+  };
+
+  // Install a user-chosen version from the picker (manual pick / downgrade).
+  const onPreflightPickInstall = async (chosen: ModVersion): Promise<void> => {
+    if (!instanceId || !pickerViolation) return;
+    const v = pickerViolation;
+    const r = await remediatePickedVersion(instanceId, v, chosen);
+    if (r.ok) {
+      preflightDeadEnd.delete(violationKey(v));
+      pickerViolation = null;
+      pushSuccess(
+        get(t)('mods.preflight.installedVersion', {
+          dep: v.dep_display_name ?? v.dep_id,
+          version: r.installedVersion ?? '',
+        }),
+      );
+      await refreshAfterRemediate();
+    } else {
+      pushWarning(get(t)('mods.browse.toastInstallFailed'));
+    }
   };
 
   // One-click install of a missing required dependency from the pre-flight
@@ -125,6 +209,15 @@
       );
       onBrowseFor(outcome.query);
     }
+  };
+
+  // A find-alternative install resolves the original violation (the alternative
+  // now provides the dep) — clear its dead-end state and refresh. The dialog
+  // shows its own success toast.
+  const onPreflightAltInstalled = async (): Promise<void> => {
+    if (findAltViolation) preflightDeadEnd.delete(violationKey(findAltViolation));
+    findAltViolation = null;
+    await refreshAfterRemediate();
   };
 
   // Map a mod's compat hint to a tooltip string (needs the instance loader/mc
@@ -322,6 +415,11 @@
     report={preflight.report}
     onUpdate={onPreflightUpdate}
     onInstallMissing={onInstallMissingDep}
+    onChooseVersion={onPreflightChooseVersion}
+    onFindAlternative={onPreflightFindAlternative}
+    onOpenModPage={onPreflightOpenModPage}
+    busyKeys={preflightBusy}
+    deadEndKeys={preflightDeadEnd}
   />
 
   {#if !instanceId}
@@ -412,6 +510,33 @@
       installedVersionId={detailInstalledVersionId}
       onClose={() => (detail = null)}
       onInstall={installDetailVersion}
+    />
+  {/if}
+
+  {#if pickerViolation && pickerViolation.provider_project && instanceId}
+    {@const pp = pickerViolation.provider_project}
+    <ModDetailModal
+      source={pp.source}
+      projectId={pp.source === 'modrinth' ? pp.project_id : String(pp.mod_id)}
+      kind="mod"
+      {mcVersion}
+      {loader}
+      installedVersionId={null}
+      needed={pickerViolation.needed}
+      family={pickerViolation.family}
+      onClose={() => (pickerViolation = null)}
+      onInstall={onPreflightPickInstall}
+    />
+  {/if}
+
+  {#if findAltViolation && instanceId && mcVersion && loader}
+    <FindAlternativeDialog
+      modName={findAltViolation.dep_display_name ?? findAltViolation.dep_id}
+      {mcVersion}
+      {loader}
+      {instanceId}
+      onClose={() => (findAltViolation = null)}
+      onInstalled={onPreflightAltInstalled}
     />
   {/if}
 

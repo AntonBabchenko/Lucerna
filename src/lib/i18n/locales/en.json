@@ -459,7 +459,14 @@
       "checkFailed": "Couldn't check compatibility",
       "updateFailed": "No compatible update was available — nothing was changed.",
       "install": "Install {dep}",
-      "installSearchFallback": "Couldn't find {dep} automatically — opening search"
+      "installSearchFallback": "Couldn't find {dep} automatically — opening search",
+      "chooseVersion": "Choose version",
+      "noCompatible": "No compatible version",
+      "openModPage": "Open mod page",
+      "findAlternative": "Find alternative",
+      "installedVersion": "Installed {dep} {version}",
+      "pickerFits": "fits range",
+      "pickerUnfit": "out of range"
     }
   },
   "addons": {
