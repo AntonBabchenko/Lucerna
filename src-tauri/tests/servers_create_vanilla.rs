@@ -51,6 +51,7 @@ async fn vanilla_server_assembled_into_runtime() {
         eula_accepted: true,
         created_from_instance: None,
         handled_log_sig: None,
+        upload: None,
     };
     let jar_url = format!("{}/server.jar", server.uri());
 
@@ -94,6 +95,7 @@ async fn vanilla_server_eula_gate_rejects_unaccepted() {
         eula_accepted: false,
         created_from_instance: None,
         handled_log_sig: None,
+        upload: None,
     };
 
     let err = create_vanilla_server(base.path(), &file, "https://example.com/x.jar", "")

@@ -44,6 +44,7 @@ pub async fn server_create(
         eula_accepted,
         created_from_instance,
         handled_log_sig: None,
+        upload: None,
     };
     match file.loader {
         LoaderKind::Vanilla => {
@@ -96,7 +97,7 @@ pub async fn server_create(
         let copied = crate::servers_runtime::create::copy_instance_mods(&src, &dest)?;
         eprintln!("servers: copied {copied} mods from instance {inst_id}");
     }
-    Ok(ServerWithStatus::from_file(&file, false, None, None))
+    Ok(ServerWithStatus::from_file(&file, false, None, None, false))
 }
 
 /// Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
@@ -112,7 +113,7 @@ pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
             let running = crate::servers_runtime::runtime::is_running(&f.id);
             let pid = crate::servers_runtime::runtime::running_pid(&f.id);
             let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
-            ServerWithStatus::from_file(f, running, pid, port)
+            ServerWithStatus::from_file(f, running, pid, port, false)
         })
         .collect())
 }

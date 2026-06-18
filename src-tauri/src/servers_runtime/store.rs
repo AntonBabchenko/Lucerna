@@ -74,6 +74,7 @@ mod tests {
             eula_accepted: false,
             created_from_instance: None,
             handled_log_sig: None,
+            upload: None,
         }
     }
 
