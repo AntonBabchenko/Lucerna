@@ -67,4 +67,16 @@ describe('InstalledToolbar — busy spinners on async actions', () => {
     expect(spinnerIn(screen.getByRole('button', { name: /compat/i }))).toBeNull();
     expect(spinnerIn(screen.getByRole('button', { name: /update all/i }))).toBeNull();
   });
+
+  it('recheck-deps button shows a spinner while graphLoading, and none at rest', () => {
+    const { rerender } = render(InstalledToolbar, { props: { ...base(), graphLoading: false } });
+    // At rest: recheck-deps button has no spinner
+    expect(spinnerIn(screen.getByRole('button', { name: /recheck|check.*dep/i }))).toBeNull();
+
+    rerender({ ...base(), graphLoading: true });
+    // While loading: button now contains a role="status" spinner
+    expect(
+      spinnerIn(screen.getByRole('button', { name: /resolving/i })),
+    ).not.toBeNull();
+  });
 });

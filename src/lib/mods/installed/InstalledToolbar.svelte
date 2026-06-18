@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
@@ -190,8 +191,12 @@
       disabled={graphLoading}
       onclick={onRecheckDeps}
     >
-      <Icon name="refresh" class="icon-spin-hover" />
-      {graphLoading ? $t('mods.installed.resolvingDeps') : $t('mods.installed.recheckDeps')}
+      {#if graphLoading}
+        <Spinner size="sm" labelPlacement="right" label={$t('mods.installed.resolvingDeps')} />
+      {:else}
+        <Icon name="refresh" class="icon-spin-hover" />
+        {$t('mods.installed.recheckDeps')}
+      {/if}
     </button>
     {#if updateCount > 0}
       <BusyButton {busy} class="btn-warning btn-xs" onclick={onUpdateAll}>
