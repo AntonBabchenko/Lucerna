@@ -7,7 +7,7 @@
   import { WORLDS_STEPS } from '$lib/onboarding/contextual-tours';
   import BackupsDialog from '$lib/worlds/BackupsDialog.svelte';
   import DeleteWorldDialog from '$lib/worlds/DeleteWorldDialog.svelte';
-  import Spinner from '$lib/ui/Spinner.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
@@ -136,9 +136,7 @@
   {#if !instanceId}
     <p class="text-sm text-muted">{$t('worlds.tab.noInstance')}</p>
   {:else if loading}
-    <div class="flex justify-center py-8 text-secondary">
-      <Spinner delayMs={150} label={$t('worlds.tab.loading')} />
-    </div>
+    <LoadingPanel label={$t('worlds.tab.loading')} />
   {:else if listError}
     <p class="text-sm text-danger">{listError}</p>
   {:else if worlds.length === 0}
