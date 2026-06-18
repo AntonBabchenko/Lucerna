@@ -46,7 +46,7 @@
   import PageSizePicker from './PageSizePicker.svelte';
   import ModDetailModal from './ModDetailModal.svelte';
   import ModResultsGrid from './ModResultsGrid.svelte';
-  import Spinner from '$lib/ui/Spinner.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Pagination from '$lib/ui/Pagination.svelte';
   import BrowseFilterBar from '$lib/browse/BrowseFilterBar.svelte';
   import { activeCount } from '$lib/browse/filter-model';
@@ -899,9 +899,7 @@
       </div>
     {/if}
     {#if loading}
-      <div class="flex justify-center py-8 text-secondary">
-        <Spinner size="lg" label={$t('mods.browse.searching')} />
-      </div>
+      <LoadingPanel label={$t('mods.browse.searching')} />
     {:else if hits.length > 0}
       {#if pageHits.length > 0}
         <ModResultsGrid
