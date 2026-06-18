@@ -19,7 +19,9 @@ describe('BusyButton — prop forwarding', () => {
   });
 
   it('shows a spinner and disables when busy', () => {
-    render(BusyButton, { props: { children: labelSnippet, busy: true, 'data-testid': 'save-btn' } });
+    render(BusyButton, {
+      props: { children: labelSnippet, busy: true, 'data-testid': 'save-btn' },
+    });
     const btn = screen.getByTestId('save-btn');
     expect(btn.getAttribute('aria-busy')).toBe('true');
     expect((btn as HTMLButtonElement).disabled).toBe(true);

@@ -53,10 +53,13 @@
 </script>
 
 {#if visible}
-  <span role="status" aria-label={resolvedLabel} class="{WRAPPER[labelPlacement]} {klass}"><span
+  <span role="status" aria-label={resolvedLabel} class="{WRAPPER[labelPlacement]} {klass}"
+    ><span
       class="inline-block animate-spin rounded-full border-current border-r-transparent {SIZES[
         size
       ]}"
       aria-hidden="true"
-    ></span>{#if labelPlacement === 'sr-only'}<span class="sr-only">{resolvedLabel}</span>{:else}<span class="text-sm" aria-hidden="true">{resolvedLabel}</span>{/if}</span>
+    ></span>{#if labelPlacement === 'sr-only'}<span class="sr-only">{resolvedLabel}</span
+      >{:else}<span class="text-sm" aria-hidden="true">{resolvedLabel}</span>{/if}</span
+  >
 {/if}
