@@ -69,14 +69,19 @@ describe('InstalledToolbar — busy spinners on async actions', () => {
   });
 
   it('recheck-deps button shows a spinner while graphLoading, and none at rest', () => {
-    const { rerender } = render(InstalledToolbar, { props: { ...base(), graphLoading: false } });
+    const { rerender, container } = render(InstalledToolbar, {
+      props: { ...base(), graphLoading: false },
+    });
     // At rest: recheck-deps button has no spinner
-    expect(spinnerIn(screen.getByRole('button', { name: /recheck|check.*dep/i }))).toBeNull();
+    expect(spinnerIn(screen.getByRole('button', { name: /re-check deps/i }))).toBeNull();
 
     rerender({ ...base(), graphLoading: true });
-    // While loading: button now contains a role="status" spinner
-    expect(
-      spinnerIn(screen.getByRole('button', { name: /resolving/i })),
-    ).not.toBeNull();
+    // While loading: button is disabled and contains a role="status" spinner.
+    // Query via the disabled recheck button (3rd plain <button> after 2 BusyButtons).
+    const recheckBtn = container.querySelector(
+      'button[disabled]:not([aria-busy])',
+    ) as HTMLElement | null;
+    expect(recheckBtn).not.toBeNull();
+    expect(spinnerIn(recheckBtn)).not.toBeNull();
   });
 });
