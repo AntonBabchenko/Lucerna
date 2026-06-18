@@ -8,6 +8,7 @@
   import ImportedDetailDrawer from './ImportedDetailDrawer.svelte';
   import { modpackUpdates } from './modpack-updates.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   // Filtered grid of instances that originated from a modpack import
   // (i.e. `mrpack_name` is set on the metadata). The toolbar above the
@@ -181,17 +182,17 @@
         {$t('modpacks.imported.view.updatesAvailable', { count: modpackUpdates.updateCount })}
       </span>
     {/if}
-    <button
+    <BusyButton
       type="button"
       class="btn-tertiary btn-xs ml-auto"
-      disabled={checkingUpdates}
+      busy={checkingUpdates}
       onclick={forceCheckUpdates}
       data-testid="imported-check-updates"
     >
       {checkingUpdates
         ? $t('modpacks.imported.view.checkingUpdates')
         : $t('modpacks.imported.view.checkUpdates')}
-    </button>
+    </BusyButton>
   </div>
 
   <div class="p-4 pb-2 flex flex-wrap gap-2">
