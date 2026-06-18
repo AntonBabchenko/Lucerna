@@ -20,6 +20,7 @@ function missing(i: number): DepViolation {
     needed: '',
     installed_version: null,
     provider_project: null,
+    provider_sha1: null,
   };
 }
 

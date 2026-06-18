@@ -16,6 +16,7 @@ const report: PreflightReport = {
       needed: '[1.3.51,)',
       installed_version: '1.3.50.2005',
       provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
+      provider_sha1: null,
     },
   ],
 };
@@ -43,6 +44,7 @@ describe('toOverlayKeys edge cases', () => {
           needed: '',
           installed_version: null,
           provider_project: null,
+          provider_sha1: null,
         },
       ],
     };
@@ -61,6 +63,7 @@ describe('toOverlayKeys edge cases', () => {
           needed: '[1.0,)',
           installed_version: '0.9',
           provider_project: null,
+          provider_sha1: null,
         },
       ],
     };
@@ -79,6 +82,7 @@ describe('toOverlayKeys edge cases', () => {
           needed: '[2.0,)',
           installed_version: '1.9',
           provider_project: { source: 'curseforge', mod_id: 12345, file_id: null },
+          provider_sha1: null,
         },
       ],
     };
@@ -103,6 +107,7 @@ const outOfRangeViolation: DepViolation = {
   needed: '[1.3.51,)',
   installed_version: '1.3.50.2005',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
+  provider_sha1: null,
 };
 
 const missingViolation: DepViolation = {
@@ -114,6 +119,7 @@ const missingViolation: DepViolation = {
   needed: '',
   installed_version: null,
   provider_project: null,
+  provider_sha1: null,
 };
 
 describe('PreflightPanel', () => {

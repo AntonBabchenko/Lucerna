@@ -160,6 +160,12 @@ pub struct DepViolation {
     /// Platform project reference for the provider, if we could link it.
     /// Powers a "View on Modrinth / CurseForge" link in the UI.
     pub provider_project: Option<crate::mods::platform::DepProjectRef>,
+    /// SHA-1 of the installed jar that currently provides `dep_id`.
+    /// Present only for `VersionOutOfRange` violations where the provider
+    /// is a tracked installed mod. Used by the UI to route "Обновить"
+    /// through `mods_update_one` (remove-old + install-new) instead of a
+    /// bare `mods_install_with_deps` that would leave duplicate jars.
+    pub provider_sha1: Option<String>,
 }
 
 /// Aggregated result of the dependency pre-flight scan.
@@ -195,10 +201,11 @@ fn dep_project_ref(
 }
 
 /// Convert a raw `Violation` into a `DepViolation`, enriching the
-/// `provider_project` field from the `provider_owner` map built earlier.
+/// `provider_project` and `provider_sha1` fields from the maps built earlier.
 fn enrich(
     v: Violation,
     provider_owner: &std::collections::HashMap<String, crate::mods::platform::DepProjectRef>,
+    provider_sha1_map: &std::collections::HashMap<String, String>,
 ) -> DepViolation {
     match v {
         Violation::MissingRequired {
@@ -214,6 +221,7 @@ fn enrich(
             installed_version: None,
             needed: String::new(),
             provider_project: None,
+            provider_sha1: None,
         },
         Violation::VersionOutOfRange {
             dependent_sha1,
@@ -222,7 +230,9 @@ fn enrich(
             needed,
             installed,
         } => {
-            let provider_project = provider_owner.get(&dep_id.to_ascii_lowercase()).cloned();
+            let key = dep_id.to_ascii_lowercase();
+            let provider_project = provider_owner.get(&key).cloned();
+            let provider_sha1 = provider_sha1_map.get(&key).cloned();
             DepViolation {
                 dependent_sha1,
                 dependent_name,
@@ -232,6 +242,7 @@ fn enrich(
                 installed_version: Some(installed),
                 needed,
                 provider_project,
+                provider_sha1,
             }
         }
     }
@@ -252,6 +263,9 @@ pub async fn dependency_preflight_for_root(
     // Map lowercased provided mod_id → DepProjectRef for violation enrichment
     // (powers the "view on platform" link). Built from mods with source identity.
     let mut provider_owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
+    // Map lowercased provided mod_id → SHA-1 of the jar that provides it.
+    // Used to route "Обновить" through mods_update_one (remove-old + install-new).
+    let mut provider_sha1: HashMap<String, String> = HashMap::new();
 
     let mut parsed: Vec<ParsedMod> = Vec::new();
     let mut jij: Vec<(String, Option<String>)> = Vec::new();
@@ -285,9 +299,16 @@ pub async fn dependency_preflight_for_root(
             jij.push((p.mod_id, p.version));
         }
 
-        // Register provided mod-ids → platform identity for violation enrichment.
-        // Only insert when dep_project_ref returns Some; FTB/ATLauncher sources
-        // return None (no per-mod browser) and must not create a spurious link.
+        // Register provided mod-ids → platform identity and SHA-1 for enrichment.
+        // provider_sha1 is populated regardless of source so that even FTB/ATL
+        // mods (which yield no DepProjectRef) can still route updates correctly.
+        for p in &manifest.provided {
+            let key = p.mod_id.to_ascii_lowercase();
+            provider_sha1.entry(key).or_insert_with(|| m.sha1.clone());
+        }
+        // Only insert a DepProjectRef when dep_project_ref returns Some;
+        // FTB/ATLauncher sources return None (no per-mod browser) and must
+        // not create a spurious link.
         if let (Some(source), Some(project_id)) = (m.source, m.project_id.as_deref()) {
             if let Some(ref_) = dep_project_ref(source, project_id) {
                 for p in &manifest.provided {
@@ -309,7 +330,7 @@ pub async fn dependency_preflight_for_root(
     let raw = resolve(&parsed, &index);
     let violations = raw
         .into_iter()
-        .map(|v| enrich(v, &provider_owner))
+        .map(|v| enrich(v, &provider_owner, &provider_sha1))
         .collect();
     Ok(PreflightReport { violations })
 }
@@ -438,6 +459,7 @@ mod tests {
                     project_id: "sc".into(),
                     version_id: None,
                 }),
+                provider_sha1: Some("abc123".into()),
             }],
         };
         let json = serde_json::to_string(&report).unwrap();
@@ -572,6 +594,35 @@ mod tests {
             resolve(&mods, &index).is_empty(),
             "fabric-api satisfied by forgified_fabric_api via alias"
         );
+    }
+
+    #[test]
+    fn version_out_of_range_carries_provider_sha1() {
+        use std::collections::HashMap;
+        let v = Violation::VersionOutOfRange {
+            dependent_sha1: "dep".into(),
+            dependent_name: "Backpacks".into(),
+            dep_id: "sophisticatedcore".into(),
+            needed: "[1.3.51,)".into(),
+            installed: "1.3.50".into(),
+        };
+        let owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
+        let mut sha = HashMap::new();
+        sha.insert("sophisticatedcore".to_string(), "PROVIDERSHA".to_string());
+        let dv = enrich(v, &owner, &sha);
+        assert_eq!(dv.provider_sha1.as_deref(), Some("PROVIDERSHA"));
+    }
+
+    #[test]
+    fn missing_required_has_no_provider_sha1() {
+        use std::collections::HashMap;
+        let v = Violation::MissingRequired {
+            dependent_sha1: "a".into(),
+            dependent_name: "A".into(),
+            dep_id: "balm".into(),
+        };
+        let dv = enrich(v, &HashMap::new(), &HashMap::new());
+        assert_eq!(dv.provider_sha1, None);
     }
 
     #[tokio::test]

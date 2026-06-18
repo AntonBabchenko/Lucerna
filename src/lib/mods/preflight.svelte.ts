@@ -87,14 +87,16 @@ export async function remediateViolation(
     return { ok: false, reason: 'no-version' };
   }
   const primary = vr.data[0];
-  const res = await commands.modsInstallWithDeps(
-    instanceId,
-    { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
-    [],
-  );
+  const res = v.provider_sha1
+    ? await commands.modsUpdateOne(instanceId, v.provider_sha1, primary)
+    : await commands.modsInstallWithDeps(
+        instanceId,
+        { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
+        [],
+      );
   return {
     ok: res.status === 'ok',
-    reason: res.status === 'ok' ? undefined : 'install-failed',
+    reason: res.status === 'ok' ? undefined : 'update-failed',
   };
 }
 
