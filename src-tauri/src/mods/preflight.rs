@@ -103,6 +103,8 @@ fn dep_applies_to_loader(
     use crate::mods::version_range::RangeFamily as F;
     match loader {
         L::Forge | L::NeoForge => family == F::Maven,
+        // Fabric reads only fabric.mod.json — a Quilt mod on a Fabric instance is
+        // a loader-compat issue (handled elsewhere), not a missing-dependency one.
         L::Fabric => family == F::FabricPredicate,
         // Quilt runs Fabric mods too, so it reads both descriptors.
         L::Quilt => matches!(family, F::QuiltPredicate | F::FabricPredicate),
@@ -419,6 +421,23 @@ mod tests {
         assert_eq!(fabric.len(), 1);
         assert!(
             matches!(&fabric[0], Violation::MissingRequired { dep_id, .. } if dep_id == "fabric-api")
+        );
+    }
+
+    #[test]
+    fn quilt_enforces_fabric_deps() {
+        // Quilt runs Fabric mods, so a Fabric-family dep IS real on a Quilt
+        // instance and must still be flagged when missing.
+        let mods = vec![modz(
+            "aa",
+            vec![],
+            vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+        )];
+        let index = ProviderIndex::build(&mods, &[]);
+        let quilt = resolve(&mods, &index, LoaderKind::Quilt);
+        assert_eq!(quilt.len(), 1);
+        assert!(
+            matches!(&quilt[0], Violation::MissingRequired { dep_id, .. } if dep_id == "fabric-api")
         );
     }
 
