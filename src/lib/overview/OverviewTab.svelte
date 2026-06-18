@@ -32,6 +32,7 @@
     onManage,
     onExport,
     onOpenPackDrawer,
+    onPackUpdated,
     onNavInstalled,
     onNavBrowse,
     onDismissError,
@@ -55,6 +56,7 @@
     onManage: () => void;
     onExport: () => void;
     onOpenPackDrawer: () => void;
+    onPackUpdated?: () => void;
     onNavInstalled: () => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
@@ -208,7 +210,11 @@
       <!-- Modpack (pack instances only, full width) -->
       {#if activeInstance.mrpack_name}
         <div style="grid-column:1 / -1;">
-          <ModpackCard instance={activeInstance} onOpenPack={onOpenPackDrawer} />
+          <ModpackCard
+            instance={activeInstance}
+            onOpenPack={onOpenPackDrawer}
+            onUpdated={onPackUpdated}
+          />
         </div>
       {/if}
 

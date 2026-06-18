@@ -815,6 +815,9 @@
             onOpenPackDrawer={() => {
               if (activeInstance) modpacksNav.value = { openDrawerForInstance: activeInstance.id };
             }}
+            onPackUpdated={() => {
+              void refreshInstances();
+            }}
             onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
             onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
             onDismissError={(key) => {
