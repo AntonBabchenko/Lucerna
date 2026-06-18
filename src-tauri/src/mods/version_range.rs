@@ -79,7 +79,10 @@ fn compare_numeric(a: &str, b: &str) -> Cmp {
 }
 
 /// Which grammar a raw range string uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum RangeFamily {
     Maven,
     FabricPredicate,
@@ -108,6 +111,19 @@ pub fn satisfies(installed: &str, range: &str, family: RangeFamily) -> Satisfact
         RangeFamily::FabricPredicate => predicate_satisfies(installed, range, false),
         RangeFamily::QuiltPredicate => predicate_satisfies(installed, range, true),
     }
+}
+
+/// Return the indices of `version_numbers` whose version satisfies `range`
+/// under `family`. Only `Satisfaction::Satisfied` is kept — `Violated` and
+/// `Unknown` are both excluded (we never auto-pick a version we cannot prove
+/// fits). Input order is preserved (callers pass newest-first).
+pub fn satisfying_indices(version_numbers: &[&str], range: &str, family: RangeFamily) -> Vec<usize> {
+    version_numbers
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| satisfies(v, range, family) == Satisfaction::Satisfied)
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// One Maven restriction: lower/upper bounds with inclusivity. `None` bound =
@@ -370,6 +386,30 @@ fn caret_or_tilde(installed: &str, base: &str, caret: bool) -> Satisfaction {
 mod tests {
     use super::*;
     use RangeFamily::{FabricPredicate, Maven, QuiltPredicate};
+
+    #[test]
+    fn satisfying_indices_keeps_only_in_range_newest_first() {
+        // versions are newest-first (as modsVersions returns them); indium needs
+        // sodium "0.5.11" (Fabric bare = exact equality), so only index 2 fits.
+        let versions = ["0.9.0-beta.1", "0.6.0", "0.5.11", "0.4.0"];
+        let idx = satisfying_indices(&versions, "0.5.11", FabricPredicate);
+        assert_eq!(idx, vec![2]);
+    }
+
+    #[test]
+    fn satisfying_indices_excludes_unknown_and_violated() {
+        // dev sentinel => Unknown (index 1) must be excluded, not auto-picked.
+        let versions = ["1.0.0", "0.0NONE", "2.0.0"];
+        let idx = satisfying_indices(&versions, "[1.0,)", Maven);
+        assert_eq!(idx, vec![0, 2]);
+    }
+
+    #[test]
+    fn satisfying_indices_empty_when_none_fit() {
+        let versions = ["0.9.0-beta.1", "0.8.0"];
+        let idx = satisfying_indices(&versions, "0.5.11", FabricPredicate);
+        assert!(idx.is_empty());
+    }
 
     #[test]
     fn numeric_compare_orders_the_real_bug_case() {

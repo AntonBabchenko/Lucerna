@@ -381,6 +381,14 @@ export const commands = {
 	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
+	/**
+	 *  Pure (no network): given version-number strings and a required range +
+	 *  family, return the indices that satisfy it (input order preserved, so the
+	 *  first index is the newest satisfying version). The frontend already fetched
+	 *  the versions via `mods_versions`; this avoids a second round-trip and powers
+	 *  both smart-Update and the picker's satisfies badges.
+	 */
+	modsFilterSatisfying: (versions: string[], needed: string, family: RangeFamily) => __TAURI_INVOKE<number[]>("mods_filter_satisfying", { versions, needed, family }),
 	modsResolveDeps: (version: ModVersion, mcVersion: string, loader: LoaderKind) => typedError<ResolvedDeps, Error>(__TAURI_INVOKE("mods_resolve_deps", { version, mcVersion, loader })),
 	/**
 	 *  Resolve the full `InstallPlan` for `primary`:
@@ -1142,6 +1150,12 @@ export type DepViolation = {
 	 *  bare `mods_install_with_deps` that would leave duplicate jars.
 	 */
 	provider_sha1: string | null,
+	/**
+	 *  Range grammar for `needed` (Maven / Fabric / Quilt). `None` for
+	 *  `MissingRequired` (no range to interpret). Lets the UI pick a version
+	 *  that actually satisfies `needed` via `mods_filter_satisfying`.
+	 */
+	family: RangeFamily | null,
 };
 
 export type DependencyGraph = {
@@ -2307,6 +2321,9 @@ export type ProgressTick = {
  *  address (`host` or `host:port`).
  */
 export type QuickPlay = { kind: "singleplayer"; world: string } | { kind: "multiplayer"; address: string };
+
+/**  Which grammar a raw range string uses. */
+export type RangeFamily = "maven" | "fabric_predicate" | "quilt_predicate";
 
 /**
  *  One downloadable release asset. `size` is `f64` because specta maps
