@@ -12,7 +12,7 @@
 // Inventory rows covered:
 //   ModpacksTab:
 //     Browse sub-tab active state (border-accent text-primary font-semibold border-b-2 -mb-px)
-//     Imported sub-tab inactive state (border-transparent text-placeholder)
+//     Imported sub-tab inactive state (border-transparent text-muted)
 //     aria-selected attributes on both sub-tabs
 //     error block — bg-danger-bg border-danger text-danger (post-H1 fix; NOT bg-danger/10)
 //   ModpackBrowseView:
@@ -279,12 +279,15 @@ describe('ModpacksTab — Browse sub-tab is active by default (underline pattern
     expect(cls).toContain('font-semibold');
   });
 
-  it('Imported tab has border-transparent text-placeholder when inactive', () => {
+  it('Imported tab has border-transparent text-muted when inactive', () => {
     render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
     const importedTab = screen.getByRole('tab', { name: 'Imported' });
     const cls = importedTab.className;
+    // The sub-tabs now render via the shared TabBar primitive, whose inactive
+    // tab is de-emphasised with `text-muted` (the previous hand-rolled markup
+    // used `text-placeholder`); the transparent border is unchanged.
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 
   it('both sub-tabs carry aria-selected attribute', () => {
