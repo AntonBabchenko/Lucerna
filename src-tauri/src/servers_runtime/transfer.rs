@@ -4,7 +4,10 @@
 
 use crate::error::{Error, Result};
 use sha2::{Digest, Sha256};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use zip::write::SimpleFileOptions;
+use zip::CompressionMethod;
 
 /// Files to upload: recursively under `runtime`, EXCLUDING the `logs/` dir and
 /// the one-shot `installer.jar`. Returns (local absolute path, remote relative
@@ -39,6 +42,25 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()>
 /// SHA-256 hex fingerprint of a host public key's raw bytes.
 pub(crate) fn host_key_fingerprint(public_key_bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(public_key_bytes))
+}
+
+/// Zip the server `runtime` directory (minus `logs/` and `installer.jar`) into
+/// `dest`. Entry names are forward-slash relative paths, matching the set
+/// produced by [`enumerate_upload_files`].
+pub(crate) fn export_zip(runtime: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::create(dest).map_err(|e| Error::io(dest.display().to_string(), e))?;
+    let mut zw = zip::ZipWriter::new(std::io::BufWriter::new(file));
+    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (local, rel) in enumerate_upload_files(runtime)? {
+        zw.start_file(&rel, opts)
+            .map_err(|e| Error::io(rel.clone(), format!("zip start: {e}")))?;
+        let bytes = std::fs::read(&local).map_err(|e| Error::io(local.display().to_string(), e))?;
+        zw.write_all(&bytes)
+            .map_err(|e| Error::io(rel.clone(), format!("zip write: {e}")))?;
+    }
+    zw.finish()
+        .map_err(|e| Error::io(dest.display().to_string(), format!("zip finish: {e}")))?;
+    Ok(())
 }
 
 /// TOFU decision: accept iff first use (`known` is None) or the fingerprint
@@ -100,5 +122,25 @@ mod tests {
         assert!(host_key_decision(None, "abc")); // first use → accept
         assert!(host_key_decision(Some("abc"), "abc")); // same → accept
         assert!(!host_key_decision(Some("abc"), "xyz")); // changed → reject
+    }
+
+    #[test]
+    fn export_zip_excludes_logs_and_installer() {
+        let d = tempdir().unwrap();
+        let rt = d.path().join("runtime");
+        std::fs::create_dir_all(rt.join("logs")).unwrap();
+        std::fs::write(rt.join("server.jar"), b"j").unwrap();
+        std::fs::write(rt.join("installer.jar"), b"i").unwrap();
+        std::fs::write(rt.join("logs/x.log"), b"l").unwrap();
+        let dest = d.path().join("export.zip");
+        export_zip(&rt, &dest).unwrap();
+        let f = std::fs::File::open(&dest).unwrap();
+        let mut z = zip::ZipArchive::new(f).unwrap();
+        let names: Vec<String> = (0..z.len())
+            .map(|i| z.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(names.iter().any(|n| n.ends_with("server.jar")));
+        assert!(!names.iter().any(|n| n.contains("logs/")));
+        assert!(!names.iter().any(|n| n.ends_with("installer.jar")));
     }
 }
