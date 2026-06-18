@@ -219,7 +219,11 @@ pub fn server_delete_mod(app: AppHandle, id: String, filename: String) -> Result
         return Err(crate::error::Error::io("<mod>", "invalid filename"));
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    let path = crate::paths::server_paths(&base, &id).mods.join(&filename);
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    let path = mods.join(&filename);
+    if !path.starts_with(&mods) {
+        return Err(crate::error::Error::io("<mod>", "path escapes mods dir"));
+    }
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -325,6 +329,9 @@ pub async fn server_remove_mods(
             return Err(Error::io("<mod>", "invalid filename"));
         }
         let path = p.mods.join(f);
+        if !path.starts_with(&p.mods) {
+            return Err(Error::io("<mod>", "path escapes mods dir"));
+        }
         match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

@@ -85,6 +85,9 @@ pub fn dist_crash_tokens(log: &str) -> Vec<String> {
     }
     out
 }
+// NOTE: dist_crash_tokens retains the ≥2 filter so that very short tokens still
+// pass through for the `leading_initials` exact-match path (e.g. "etf" = 3 chars
+// is fine either way). The substring floor is raised to 3 in filename_matches_token.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
@@ -118,9 +121,10 @@ pub fn classify_client_only_mods(
                 reason: "manifest_client".into(),
                 confidence: Confidence::High,
             });
-        } else if crash_tokens
-            .iter()
-            .any(|t| filename_matches_token(filename, t))
+        } else if *env != ModEnvironment::Server
+            && crash_tokens
+                .iter()
+                .any(|t| filename_matches_token(filename, t))
         {
             out.push(ClientModFinding {
                 filename: filename.clone(),
@@ -133,12 +137,16 @@ pub fn classify_client_only_mods(
 }
 
 /// Does `filename` plausibly correspond to crash owner `token`?
+///
+/// Exact `leading_initials` match always wins (covers 3-letter acronyms like
+/// "etf"). Substring match requires ≥ 3 normalized chars to avoid false
+/// positives from very short 2-char tokens that appear in many jar names.
 fn filename_matches_token(filename: &str, token: &str) -> bool {
     let t = normalize(token);
-    if t.len() < 2 {
-        return false;
+    if leading_initials(filename) == t {
+        return true;
     }
-    normalize(filename).contains(&t) || leading_initials(filename) == t
+    t.len() >= 3 && normalize(filename).contains(&t)
 }
 
 fn normalize(s: &str) -> String {
@@ -270,5 +278,50 @@ mod tests {
     fn parses_dist_crash_tokens() {
         let toks = dist_crash_tokens(ETF_CRASH);
         assert!(toks.iter().any(|t| t == "etf"), "tokens: {toks:?}");
+    }
+
+    /// A 2-char token must NOT substring-match an unrelated jar (over-match guard).
+    #[test]
+    fn short_token_does_not_substring_flag_unrelated_jar() {
+        // "io" is 2 chars — should not match "biome-1.20.jar" via substring
+        let mods = vec![("biome-1.20.jar".to_string(), ModEnvironment::Unknown)];
+        let tokens = vec!["io".to_string()];
+        let found = classify_client_only_mods(&mods, &tokens);
+        assert!(
+            found.is_empty(),
+            "2-char token 'io' must not substring-flag 'biome-1.20.jar'"
+        );
+    }
+
+    /// A 3-char acronym token still matches via leading_initials even though it
+    /// is short (exact-match path bypasses the substring floor).
+    #[test]
+    fn etf_acronym_still_matches_via_leading_initials() {
+        // leading_initials("entity_texture_features_1.20.1-forge-7.1.jar") == "etf"
+        let mods = vec![(
+            "entity_texture_features_1.20.1-forge-7.1.jar".to_string(),
+            ModEnvironment::Unknown,
+        )];
+        let tokens = vec!["etf".to_string()];
+        let found = classify_client_only_mods(&mods, &tokens);
+        assert_eq!(
+            found.len(),
+            1,
+            "etf should still match via leading_initials"
+        );
+    }
+
+    /// A jar that declares ModEnvironment::Server must NOT be flagged even if a
+    /// crash token would substring-match its filename.
+    #[test]
+    fn server_declared_mod_not_flagged_by_token() {
+        let mods = vec![("someservermod.jar".to_string(), ModEnvironment::Server)];
+        // "someservermod" substring-matches "someservermod.jar" (≥3 chars)
+        let tokens = vec!["someservermod".to_string()];
+        let found = classify_client_only_mods(&mods, &tokens);
+        assert!(
+            found.is_empty(),
+            "Server-declared mod must not be flagged by crash-token classifier"
+        );
     }
 }

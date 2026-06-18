@@ -300,11 +300,14 @@ pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
     start(app, server_id).await
 }
 
-/// Returns `true` iff `name` is a safe bare filename for a server mod:
-/// non-empty and containing no path separators or `..` sequences.
-/// Used to guard `server_delete_mod` against path traversal.
+/// True iff `name` is a single safe path component (no separators, no `..`,
+/// no drive/root prefix). Rejecting anything that isn't exactly one
+/// `Component::Normal` blocks `/`, `\`, `..`, AND Windows drive-relative names
+/// like `C:evil.jar` (which `Path::join` would otherwise resolve OUTSIDE the
+/// mods dir by discarding the base).
 pub(crate) fn is_safe_mod_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains('/') && !name.contains('\\') && !name.contains("..")
+    let mut comps = std::path::Path::new(name).components();
+    matches!(comps.next(), Some(std::path::Component::Normal(_))) && comps.next().is_none()
 }
 
 #[cfg(test)]
@@ -409,6 +412,10 @@ mod tests {
         assert!(!is_safe_mod_name("a\\b.jar"));
         assert!(!is_safe_mod_name(".."));
         assert!(!is_safe_mod_name(""));
+        // Windows drive-relative names: Path::join would discard the base dir
+        assert!(!is_safe_mod_name("C:evil.jar"));
+        assert!(!is_safe_mod_name("D:payload.jar"));
+        assert!(!is_safe_mod_name("/abs.jar"));
     }
 
     #[test]
