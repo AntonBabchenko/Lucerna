@@ -130,7 +130,7 @@
   </div>
 {:else if progress}
   <div class="border-t bg-base px-4 py-1 flex items-center gap-3 text-xs">
-    <Spinner size="sm" />
+    {#if progress.phase !== 'complete'}<Spinner size="sm" />{/if}
     <span class="font-medium text-primary">{phaseLabel(progress.phase)}</span>
     <span class="text-secondary font-mono">
       {progress.files_done}/{progress.files_total}
