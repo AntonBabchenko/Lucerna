@@ -187,6 +187,12 @@ export const commands = {
 	 */
 	listWorlds: (instanceId: string) => typedError<World[], Error>(__TAURI_INVOKE("list_worlds", { instanceId })),
 	/**
+	 *  Lightweight world list (folder name + recency proxy) for the sidebar
+	 *  Play-button dropdown. Cheaper than `list_worlds` — no size/backup walk —
+	 *  so the UI can call it on every instance switch.
+	 */
+	listWorldNames: (instanceId: string) => typedError<WorldQuickEntry[], Error>(__TAURI_INVOKE("list_world_names", { instanceId })),
+	/**
 	 *  Create a new backup zip of `world_folder_name` under
 	 *  `<instance>/backups/<world>/`. Returns the new Backup descriptor.
 	 */
@@ -535,6 +541,14 @@ export const commands = {
 	 *  no detected problems.
 	 */
 	instanceDependencyPreflight: (instanceId: string) => typedError<PreflightReport, Error>(__TAURI_INVOKE("instance_dependency_preflight", { instanceId })),
+	/**
+	 *  One-click install of a missing required dependency identified only by its
+	 *  loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first -> CF), verifies
+	 *  the downloaded jar actually provides that id, then installs it. On any
+	 *  resolution/verification miss returns `OpenSearch` so the UI can offer a
+	 *  pre-filled search instead of guessing.
+	 */
+	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
 	/**
 	 *  Inspect a local mod `.jar`: read its descriptor and judge loader/MC
 	 *  compatibility against the target instance. No filesystem writes.
@@ -1399,6 +1413,16 @@ export type ImportProvenance = {
 	/**  f64 to satisfy specta-typescript (no u64); within JS safe-int range. */
 	imported_unix_ms: number | null,
 };
+
+/**  Result of a one-click "install the missing required dependency" action. */
+export type InstallMissingOutcome = 
+/**  The dependency was resolved, verified, and installed. `name` is its display name. */
+{ kind: "installed"; name: string } | 
+/**
+ *  Could not resolve/verify with confidence — the UI opens a pre-filled
+ *  search for `query` (the loader mod-id) so the user can pick it manually.
+ */
+{ kind: "open_search"; query: string };
 
 export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | "assets" | "client" | "complete";
 
@@ -2522,6 +2546,16 @@ export type World = {
 	size_bytes: number | null,
 	modified_unix_ms: number | null,
 	backup_count: number,
+};
+
+/**
+ *  Lightweight world entry for the sidebar Play-button dropdown: folder
+ *  name + a recency proxy only. Cheaper than `World` (no recursive size or
+ *  backup-count walk), so it is safe to load on every instance switch.
+ */
+export type WorldQuickEntry = {
+	folder_name: string,
+	modified_unix_ms: number | null,
 };
 
 /* Tauri Specta runtime */

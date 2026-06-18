@@ -1,13 +1,41 @@
 use super::*;
 
 // =========================================================================
+// TTL-cached versions helper (used by background sweeps only)
+// =========================================================================
+
+/// `platform.versions(...)` with a TTL cache in front. Used by the background
+/// sweeps (compat check, update check, dependency graph) so repeat scans don't
+/// re-hit the network. NOT used by the per-install resolution (installs want a
+/// fresh canonical version).
+async fn cached_versions(
+    platform: &dyn crate::mods::platform::ModPlatform,
+    source: crate::mods::platform::ModSource,
+    project_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+) -> crate::error::Result<Vec<crate::mods::platform::ModVersion>> {
+    if let Some(hit) = crate::mods::version_cache::get(source, project_id, mc, loader) {
+        return Ok(hit);
+    }
+    let v = platform
+        .versions(project_id, Some(mc), Some(loader))
+        .await?;
+    crate::mods::version_cache::put(source, project_id, mc, loader, v.clone());
+    Ok(v)
+}
+
+// =========================================================================
 // Mod browser commands (v0.5.0 sub-feature 3)
 // =========================================================================
 
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_search(query: ModSearchQuery) -> crate::error::Result<ModSearchPage> {
-    platform_for(query.source).search(&query).await
+    crate::network::throttle::with_interactive(async move {
+        platform_for(query.source).search(&query).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -69,6 +97,7 @@ pub async fn mods_install_with_deps(
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
 ) -> crate::error::Result<crate::mods::platform::InstallSummary> {
+    crate::network::throttle::with_interactive(async move {
     use crate::mods::deps::{resolve_closure, ProjectKey};
     use std::sync::Arc;
 
@@ -167,11 +196,78 @@ pub async fn mods_install_with_deps(
     .await?
     .required;
 
-    // Project IDs of the primary's transitive required closure — persisted
-    // onto the primary's registry entry for offline orphan detection.
+    // Best-effort: read the primary jar's manifest and fold in required
+    // libraries the platform metadata omitted (e.g. Waystones requires Balm,
+    // but CF metadata doesn't list it). Unlike the dialog, each extra candidate
+    // is provides-verified over its DOWNLOADED jar before being committed:
+    // verify-fail → skip + log, so we never install a wrong mod. Reading the
+    // primary jar is best-effort — any failure yields no extras and preserves
+    // the prior behaviour. Computed BEFORE `primary_required_ids` and
+    // `install_seq` because both fold these extras in.
+    let extras_raw = manifest_extra_root_versions(&dd, &primary_v, &mc_version, loader).await;
+    let extras = dedup_extra_candidates(
+        extras_raw,
+        &installed,
+        &installed_filenames,
+        &primary_required,
+    );
+    let mut extra_install: Vec<ModVersion> = Vec::new();
+    {
+        use crate::mods::dep_resolve::jar_provides;
+        let mut excl: std::collections::HashSet<ProjectKey> = installed.clone();
+        for v in &primary_required {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for (needed_id, cand) in extras {
+            if excl.contains(&ProjectKey::of_version(&cand)) {
+                continue;
+            }
+            let sha = match cand.primary_file.sha1.as_deref() {
+                Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
+                _ => continue,
+            };
+            let Ok(cached) = crate::mods::install::fetch_to_cache(
+                &dd,
+                &cand.primary_file.url,
+                &sha,
+                cand.primary_file.size,
+                "mods",
+                &prog,
+            )
+            .await
+            else {
+                continue;
+            };
+            let Ok(bytes) = tokio::fs::read(&cached).await else {
+                continue;
+            };
+            if !jar_provides(&bytes, &needed_id) {
+                crate::diag!("dep_resolve: skipping '{needed_id}' — candidate did not provide it");
+                continue;
+            }
+            excl.insert(ProjectKey::of_version(&cand));
+            let sub = resolve_closure(
+                std::slice::from_ref(&cand),
+                &excl,
+                &installed_filenames,
+                make_fetch(),
+            )
+            .await?;
+            for v in &sub.required {
+                excl.insert(ProjectKey::of_version(v));
+            }
+            extra_install.extend(sub.required);
+            extra_install.push(cand);
+        }
+    }
+
+    // Project IDs of the primary's transitive required closure plus any
+    // manifest-discovered extras — persisted onto the primary's registry entry
+    // for offline orphan detection.
     let primary_required_ids: Vec<String> = {
         let mut ids: Vec<String> = primary_required
             .iter()
+            .chain(extra_install.iter())
             .map(|v| v.project_id.clone())
             .collect();
         ids.sort();
@@ -190,6 +286,9 @@ pub async fn mods_install_with_deps(
         for v in &dep_versions {
             excl.insert(ProjectKey::of_version(v));
         }
+        for v in &extra_install {
+            excl.insert(ProjectKey::of_version(v));
+        }
         for v in &chosen_optionals {
             excl.insert(ProjectKey::of_version(v));
         }
@@ -206,8 +305,11 @@ pub async fn mods_install_with_deps(
     }
     let dep_versions = dedup_versions(dep_versions.into_iter());
 
-    // Install sequence: required deps first, then primary, then chosen optionals.
+    // Install sequence: required deps + manifest-discovered extras first (both
+    // before the primary, so the libs are present when the primary loads), then
+    // primary, then chosen optionals.
     let mut install_seq = dep_versions.clone();
+    install_seq.extend(extra_install.iter().cloned());
     install_seq.push(primary_v.clone());
     install_seq.extend(chosen_optionals.iter().cloned());
 
@@ -249,6 +351,8 @@ pub async fn mods_install_with_deps(
         primary_name: primary_v.name.clone(),
         installed_dependencies,
     })
+    })
+    .await
 }
 
 // =========================================================================
@@ -271,6 +375,7 @@ pub async fn mods_resolve_install_plan(
     mc_version: String,
     loader: LoaderKind,
 ) -> crate::error::Result<InstallPlan> {
+    crate::network::throttle::with_interactive(async move {
     use crate::mods::deps::{resolve_closure, ProjectKey};
     use std::sync::Arc;
 
@@ -342,7 +447,43 @@ pub async fn mods_resolve_install_plan(
     .await?;
     // The transitive closure already includes the primary's direct requireds,
     // is deduplicated, and has installed mods pruned by `resolve_closure`.
-    let required = primary_closure.required;
+    let mut required = primary_closure.required;
+
+    // 2b. Best-effort: read the primary jar's manifest and fold in required
+    //     libraries the platform metadata omitted (e.g. Waystones requires Balm,
+    //     but CF metadata doesn't list it). Each resolved candidate brings its
+    //     own transitive required sub-closure. Unresolved manifest ids are
+    //     intentionally NOT surfaced here (InstallPlan.unresolvable carries
+    //     DepProjectRefs, which a bare loader-id can't populate) — the preflight
+    //     panel catches those. Reading the jar is best-effort: any failure
+    //     yields no extras and preserves the prior behaviour.
+    let extras_raw =
+        manifest_extra_root_versions(&data_dir(&app)?, &primary, &mc_version, loader).await;
+    let extras = dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required);
+    if !extras.is_empty() {
+        let mut excl = installed.clone();
+        for v in &required {
+            excl.insert(ProjectKey::of_version(v));
+        }
+        for (_needed_id, cand) in extras {
+            if excl.contains(&ProjectKey::of_version(&cand)) {
+                continue;
+            }
+            excl.insert(ProjectKey::of_version(&cand));
+            let sub = resolve_closure(
+                std::slice::from_ref(&cand),
+                &excl,
+                &installed_filenames,
+                make_fetch(),
+            )
+            .await?;
+            for v in sub.required {
+                excl.insert(ProjectKey::of_version(&v));
+                required.push(v);
+            }
+            required.push(cand);
+        }
+    }
 
     // 3. Each direct optional + its transitive required sub-closure,
     //    excluding primary's requireds + installed.
@@ -389,6 +530,8 @@ pub async fn mods_resolve_install_plan(
         unresolvable: top.unresolvable,
         loader_requirements,
     })
+    })
+    .await
 }
 
 /// Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
@@ -516,36 +659,38 @@ pub async fn mods_check_updates(
     // Bounded-concurrency platform poll. Identical per-mod semantics to the
     // prior sequential loop: one `ModUpdateCheck` per eligible mod, same
     // `classify_update`, same `CheckFailed`-on-error.
-    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
-        .map(|(i, m, source, project_id, version_id)| {
-            let mc = mc_version.clone();
-            async move {
-                let state = match platform_for(source)
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await
-                {
-                    Ok(versions) => classify_update(&m, &versions),
-                    Err(e) => ModUpdateState::CheckFailed {
-                        reason: e.to_string(),
-                    },
-                };
-                (
-                    i,
-                    ModUpdateCheck {
-                        sha1: m.sha1.clone(),
-                        name: m.name.clone(),
-                        source,
-                        project_id,
-                        current_version_id: version_id,
-                        current_version_number: m.version_number.clone(),
-                        state,
-                    },
-                )
-            }
-        })
-        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-        .collect()
-        .await;
+    let mut results: Vec<(usize, ModUpdateCheck)> =
+        stream::iter(eligible)
+            .map(|(i, m, source, project_id, version_id)| {
+                let mc = mc_version.clone();
+                async move {
+                    let platform = platform_for(source);
+                    let state =
+                        match cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
+                            .await
+                        {
+                            Ok(versions) => classify_update(&m, &versions),
+                            Err(e) => ModUpdateState::CheckFailed {
+                                reason: e.to_string(),
+                            },
+                        };
+                    (
+                        i,
+                        ModUpdateCheck {
+                            sha1: m.sha1.clone(),
+                            name: m.name.clone(),
+                            source,
+                            project_id,
+                            current_version_id: version_id,
+                            current_version_number: m.version_number.clone(),
+                            state,
+                        },
+                    )
+                }
+            })
+            .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+            .collect()
+            .await;
 
     // Restore installed-list order: `buffer_unordered` yields completions
     // out of order, so re-sort by the paired original index.
@@ -607,72 +752,85 @@ pub async fn mods_update_one(
     old_sha1: String,
     target: ModVersion,
 ) -> crate::error::Result<()> {
-    let inst_root = instance_root(&app, &instance_id)?;
-    let dd = data_dir(&app)?;
-    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    crate::network::throttle::with_interactive(async move {
+        let inst_root = instance_root(&app, &instance_id)?;
+        let dd = data_dir(&app)?;
+        let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    // Required dependencies of the target version (optional deps skipped).
-    let platform = platform_for(target.source);
-    let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
-    let required_deps: Vec<ModVersion> = resolved.required.into_iter().map(|r| r.version).collect();
+        // Required dependencies of the target version (optional deps skipped).
+        let platform = platform_for(target.source);
+        let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
+        let required_deps: Vec<ModVersion> =
+            resolved.required.into_iter().map(|r| r.version).collect();
 
-    // Progress events tagged with the target's project_id so the UI can
-    // route the bar to the right card (same pattern as install).
-    let app_for_progress = app.clone();
-    let instance_id_for_progress = instance_id.clone();
-    let project_id_for_progress = target.project_id.clone();
-    let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
-        let payload = match phase {
-            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
-                instance_id: instance_id_for_progress.clone(),
-                project_id: project_id_for_progress.clone(),
-                bytes_done: done as f64,
-                bytes_total: total.map(|t| t as f64),
-            },
-            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
-                instance_id: instance_id_for_progress.clone(),
-                project_id: project_id_for_progress.clone(),
-                bytes_done: done as f64,
-            },
-            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
-                instance_id: instance_id_for_progress.clone(),
-                project_id: project_id_for_progress.clone(),
-            },
-        };
-        let _ = payload.emit(&app_for_progress);
-    });
+        // Progress events tagged with the target's project_id so the UI can
+        // route the bar to the right card (same pattern as install).
+        let app_for_progress = app.clone();
+        let instance_id_for_progress = instance_id.clone();
+        let project_id_for_progress = target.project_id.clone();
+        let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+            let payload = match phase {
+                crate::mods::install::ModInstallPhase::Downloading => {
+                    ModInstallProgress::Downloading {
+                        instance_id: instance_id_for_progress.clone(),
+                        project_id: project_id_for_progress.clone(),
+                        bytes_done: done as f64,
+                        bytes_total: total.map(|t| t as f64),
+                    }
+                }
+                crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
+                    instance_id: instance_id_for_progress.clone(),
+                    project_id: project_id_for_progress.clone(),
+                    bytes_done: done as f64,
+                },
+                crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
+                    instance_id: instance_id_for_progress.clone(),
+                    project_id: project_id_for_progress.clone(),
+                },
+            };
+            let _ = payload.emit(&app_for_progress);
+        });
 
-    let target_project_id = target.project_id.clone();
-    match crate::mods::install::update_one(&dd, &inst_root, &old_sha1, target, required_deps, &prog)
+        let target_project_id = target.project_id.clone();
+        match crate::mods::install::update_one(
+            &dd,
+            &inst_root,
+            &old_sha1,
+            target,
+            required_deps,
+            &prog,
+        )
         .await
-    {
-        Ok(outcome) => {
-            let _ = ModUninstalled {
-                instance_id: instance_id.clone(),
-                sha1: outcome.removed_sha1,
-            }
-            .emit(&app);
-            for inst in std::iter::once(outcome.primary).chain(outcome.deps) {
-                let _ = ModInstalled {
+        {
+            Ok(outcome) => {
+                let _ = ModUninstalled {
                     instance_id: instance_id.clone(),
-                    sha1: inst.sha1,
-                    filename: inst.filename,
-                    name: inst.name,
+                    sha1: outcome.removed_sha1,
                 }
                 .emit(&app);
+                for inst in std::iter::once(outcome.primary).chain(outcome.deps) {
+                    let _ = ModInstalled {
+                        instance_id: instance_id.clone(),
+                        sha1: inst.sha1,
+                        filename: inst.filename,
+                        name: inst.name,
+                    }
+                    .emit(&app);
+                }
+                Ok(())
             }
-            Ok(())
-        }
-        Err(e) => {
-            let _ = ModInstallFailed {
-                instance_id: instance_id.clone(),
-                project_id: target_project_id,
-                error: e.clone(),
+            Err(e) => {
+                let _ = ModInstallFailed {
+                    instance_id: instance_id.clone(),
+                    project_id: target_project_id,
+                    error: e.clone(),
+                }
+                .emit(&app);
+                Err(e)
             }
-            .emit(&app);
-            Err(e)
         }
-    }
+    })
+    .await
 }
 
 /// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
@@ -771,11 +929,12 @@ pub async fn check_instance_mod_compat(
     for m in &installed {
         let status = match eligible_identity(m, pack_origin.as_ref()) {
             None => crate::mods::compat::ModCompatStatus::Unknown,
-            Some((source, project_id, _vid)) => crate::mods::compat::classify_compat(
-                platform_for(source)
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await,
-            ),
+            Some((source, project_id, _vid)) => {
+                let platform = platform_for(source);
+                crate::mods::compat::classify_compat(
+                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader).await,
+                )
+            }
         };
         out.push(crate::mods::compat::ModCompat {
             sha1: m.sha1.clone(),
@@ -811,6 +970,202 @@ pub async fn mods_find_orphans(
     let root = instance_root(&app, &instance_id)?;
     let mods = crate::mods::installed::list(&root).await?;
     Ok(crate::mods::orphans::find_orphans(&mods, &removing))
+}
+
+/// Best-effort: read `primary`'s jar manifest and resolve required libraries
+/// the platform metadata omitted. Returns `(needed_id, candidate)` pairs. Any
+/// error (no sha1, download failure, unreadable jar) yields an empty vec so the
+/// install/plan proceeds exactly as before.
+async fn manifest_extra_root_versions(
+    dd: &std::path::Path,
+    primary: &ModVersion,
+    mc: &str,
+    loader: LoaderKind,
+) -> Vec<(String, ModVersion)> {
+    use std::sync::Arc;
+    let Some(sha) = primary
+        .primary_file
+        .sha1
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_ascii_lowercase())
+    else {
+        return Vec::new();
+    };
+    let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+    let Ok(cached) = crate::mods::install::fetch_to_cache(
+        dd,
+        &primary.primary_file.url,
+        &sha,
+        primary.primary_file.size,
+        "mods",
+        &nop,
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    let Ok(bytes) = tokio::fs::read(&cached).await else {
+        return Vec::new();
+    };
+
+    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
+    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(ModSource::Curseforge).into();
+    let (extras, _unresolved) = crate::mods::dep_resolve::manifest_extra_roots(&bytes, |id| {
+        let mr = mr.clone();
+        let cf = cf.clone();
+        let mc = mc.to_string();
+        async move { resolve_dep_id(mr, cf, &id, &mc, loader).await }
+    })
+    .await;
+    extras
+        .into_iter()
+        .map(|e| (e.needed_id, e.candidate))
+        .collect()
+}
+
+/// Drop extra candidates already installed or already in the required set
+/// (by source-specific ProjectKey or by lowercased jar filename). Pure/testable.
+fn dedup_extra_candidates(
+    extras: Vec<(String, ModVersion)>,
+    installed: &std::collections::HashSet<ProjectKey>,
+    installed_filenames: &std::collections::HashSet<String>,
+    already_required: &[ModVersion],
+) -> Vec<(String, ModVersion)> {
+    let mut excl = installed.clone();
+    for v in already_required {
+        excl.insert(ProjectKey::of_version(v));
+    }
+    extras
+        .into_iter()
+        .filter(|(_id, c)| {
+            let fresh = excl.insert(ProjectKey::of_version(c));
+            fresh && !installed_filenames.contains(&c.primary_file.filename.to_ascii_lowercase())
+        })
+        .collect()
+}
+
+/// Resolve a loader mod-id to an installable candidate using both platforms,
+/// Modrinth-slug-first then CurseForge (search -> exact-slug -> newest version).
+async fn resolve_dep_id(
+    mr: std::sync::Arc<dyn crate::mods::platform::ModPlatform>,
+    cf: std::sync::Arc<dyn crate::mods::platform::ModPlatform>,
+    dep_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+) -> crate::mods::dep_resolve::DepResolution {
+    use crate::mods::platform::{ContentKind, ModSearchQuery, ModSort, ModSource};
+
+    let mc_owned = mc.to_string();
+    crate::mods::dep_resolve::resolve_missing_dep(
+        dep_id,
+        |slug| {
+            let mr = mr.clone();
+            let mc = mc_owned.clone();
+            async move { mr.versions(&slug, Some(&mc), Some(loader)).await }
+        },
+        |id| {
+            let cf = cf.clone();
+            let mc = mc_owned.clone();
+            async move {
+                let page = cf
+                    .search(&ModSearchQuery {
+                        source: ModSource::Curseforge,
+                        kind: ContentKind::Mod,
+                        query: id.clone(),
+                        mc_version: Some(mc.clone()),
+                        loader: Some(loader),
+                        sort: ModSort::Relevance,
+                        page_size: 20,
+                        offset: 0,
+                    })
+                    .await?;
+                let Some(hit) = page.hits.into_iter().find(|h| {
+                    h.slug
+                        .as_deref()
+                        .map(|s| s.eq_ignore_ascii_case(&id))
+                        .unwrap_or(false)
+                }) else {
+                    return Ok(None);
+                };
+                let mut versions = cf
+                    .versions(&hit.project_id, Some(&mc), Some(loader))
+                    .await?;
+                versions.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+                Ok(versions.into_iter().next())
+            }
+        },
+    )
+    .await
+}
+
+/// One-click install of a missing required dependency identified only by its
+/// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first -> CF), verifies
+/// the downloaded jar actually provides that id, then installs it. On any
+/// resolution/verification miss returns `OpenSearch` so the UI can offer a
+/// pre-filled search instead of guessing.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_install_missing_required(
+    app: tauri::AppHandle,
+    instance_id: String,
+    dep_id: String,
+) -> crate::error::Result<crate::mods::platform::InstallMissingOutcome> {
+    use crate::mods::dep_resolve::{jar_provides, DepResolution};
+    use crate::mods::platform::InstallMissingOutcome;
+    use std::sync::Arc;
+
+    let inst_root = instance_root(&app, &instance_id)?;
+    let dd = data_dir(&app)?;
+    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+
+    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
+    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
+        platform_for(ModSource::Curseforge).into();
+
+    let resolution = resolve_dep_id(mr, cf, &dep_id, &mc_version, loader).await;
+    let DepResolution::Resolved {
+        candidate,
+        needed_id,
+    } = resolution
+    else {
+        return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+    };
+
+    let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+    let sha = match candidate.primary_file.sha1.as_deref() {
+        Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
+        _ => return Ok(InstallMissingOutcome::OpenSearch { query: dep_id }),
+    };
+    let cached = crate::mods::install::fetch_to_cache(
+        &dd,
+        &candidate.primary_file.url,
+        &sha,
+        candidate.primary_file.size,
+        "mods",
+        &nop,
+    )
+    .await?;
+    let bytes = tokio::fs::read(&cached)
+        .await
+        .map_err(|e| crate::error::Error::io("<dep-candidate-cache>", e))?;
+    if !jar_provides(&bytes, &needed_id) {
+        crate::diag!(
+            "dep_resolve: candidate for '{needed_id}' did not provide it; degrading to search"
+        );
+        return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
+    }
+
+    let inst = crate::mods::install::install_one(&dd, &inst_root, candidate, &nop).await?;
+    let _ = ModInstalled {
+        instance_id: instance_id.clone(),
+        sha1: inst.sha1,
+        filename: inst.filename,
+        name: inst.name.clone(),
+    }
+    .emit(&app);
+    Ok(InstallMissingOutcome::Installed { name: inst.name })
 }
 
 /// Build a full nested dependency graph for all platform-identified mods in
@@ -894,10 +1249,10 @@ pub async fn mods_dependency_graph(
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
             async move {
-                let mut versions = platform
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await
-                    .unwrap_or_default();
+                let mut versions =
+                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
+                        .await
+                        .unwrap_or_default();
                 // Pick the newest compatible version explicitly: Modrinth
                 // returns newest-first but CurseForge's order is undocumented,
                 // so sort by `published_at` (RFC 3339, lexicographically
@@ -975,4 +1330,98 @@ pub async fn instance_dependency_preflight(
 ) -> crate::error::Result<crate::mods::preflight::PreflightReport> {
     let root = instance_root(&app, &instance_id)?;
     crate::mods::preflight::dependency_preflight_for_root(&root).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mods::deps::ProjectKey;
+    use crate::mods::platform::{LoaderKind, ModFile, ModSource, ModVersion};
+    use std::collections::HashSet;
+
+    /// Mirror the `mv` helper from `dep_resolve.rs` tests: a minimal Modrinth
+    /// `ModVersion` whose `project_id` and jar filename derive from `slug`.
+    fn mv(slug: &str) -> ModVersion {
+        ModVersion {
+            source: ModSource::Modrinth,
+            project_id: slug.into(),
+            version_id: format!("{slug}-v"),
+            name: slug.into(),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.20.4".into()],
+            loaders: vec![LoaderKind::NeoForge],
+            primary_file: ModFile {
+                filename: format!("{slug}.jar"),
+                url: format!("https://cdn/{slug}.jar"),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![],
+            published_at: None,
+        }
+    }
+
+    #[test]
+    fn dedup_prunes_already_installed_and_required_extras() {
+        let balm = mv("balm");
+        let curios = mv("curios");
+
+        // `balm` is already installed; a duplicate `curios` is in the input.
+        let mut installed: HashSet<ProjectKey> = HashSet::new();
+        installed.insert(ProjectKey::of_version(&balm));
+        let installed_filenames: HashSet<String> = HashSet::new();
+        let already_required: Vec<ModVersion> = Vec::new();
+
+        let extras = vec![
+            ("balm".to_string(), balm.clone()),
+            ("curios".to_string(), curios.clone()),
+            ("curios".to_string(), curios.clone()),
+        ];
+
+        let kept =
+            dedup_extra_candidates(extras, &installed, &installed_filenames, &already_required);
+
+        // `balm` pruned (installed); `curios` kept exactly once (deduped).
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(kept[0].0, "curios");
+        assert_eq!(kept[0].1.project_id, "curios");
+    }
+
+    #[test]
+    fn dedup_prunes_candidate_already_in_required_set() {
+        let balm = mv("balm");
+
+        let installed: HashSet<ProjectKey> = HashSet::new();
+        let installed_filenames: HashSet<String> = HashSet::new();
+        // `balm` is already in the primary's required closure.
+        let already_required = vec![balm.clone()];
+
+        let kept = dedup_extra_candidates(
+            vec![("balm".to_string(), balm.clone())],
+            &installed,
+            &installed_filenames,
+            &already_required,
+        );
+        assert!(kept.is_empty(), "{kept:?}");
+    }
+
+    #[test]
+    fn dedup_prunes_candidate_matching_installed_filename() {
+        let balm = mv("balm");
+
+        let installed: HashSet<ProjectKey> = HashSet::new();
+        // A copy of balm.jar is already on disk under a *different* source id.
+        let mut installed_filenames: HashSet<String> = HashSet::new();
+        installed_filenames.insert("balm.jar".to_string());
+        let already_required: Vec<ModVersion> = Vec::new();
+
+        let kept = dedup_extra_candidates(
+            vec![("balm".to_string(), balm)],
+            &installed,
+            &installed_filenames,
+            &already_required,
+        );
+        assert!(kept.is_empty(), "{kept:?}");
+    }
 }

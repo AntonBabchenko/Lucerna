@@ -2,6 +2,7 @@ import {
   commands,
   type DepProjectRef,
   type DepViolation,
+  type InstallMissingOutcome,
   type LoaderKind,
   type PreflightReport,
 } from '$lib/ipc/bindings';
@@ -118,6 +119,20 @@ export async function remediateAll(
     if (result.ok) updated++;
   }
   return updated;
+}
+
+/**
+ * Resolve + install a missing required dependency by its loader mod-id.
+ * Fail-safe: any IPC error degrades to an `open_search` outcome so the caller
+ * always has an actionable next step (never throws).
+ */
+export async function installMissing(
+  instanceId: string,
+  depId: string,
+): Promise<InstallMissingOutcome> {
+  const res = await commands.modsInstallMissingRequired(instanceId, depId);
+  if (res.status === 'ok') return res.data;
+  return { kind: 'open_search', query: depId };
 }
 
 // ---------------------------------------------------------------------------

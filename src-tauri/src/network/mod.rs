@@ -11,6 +11,7 @@ pub mod download;
 pub mod json;
 pub mod request;
 pub mod text;
+pub mod throttle;
 
 pub use bytes::get_bytes;
 pub use client::http;

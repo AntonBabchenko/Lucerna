@@ -73,6 +73,7 @@
     "mods": "Mods",
     "stop": "Stop",
     "play": "Play",
+    "playWorlds": "Launch into a world",
     "pickVersionTitle": "Pick a Minecraft version first",
     "working": "Working…",
     "install": "Install",
@@ -455,7 +456,9 @@
       "gateCancel": "Cancel",
       "treeOutOfRange": "version too old",
       "checkFailed": "Couldn't check compatibility",
-      "updateFailed": "No compatible update was available — nothing was changed."
+      "updateFailed": "No compatible update was available — nothing was changed.",
+      "install": "Install {dep}",
+      "installSearchFallback": "Couldn't find {dep} automatically — opening search"
     }
   },
   "addons": {
