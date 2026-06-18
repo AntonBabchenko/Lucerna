@@ -3,6 +3,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let {
     instanceId,
@@ -71,13 +72,14 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
       {$t('common.cancel')}
     </button>
-    <button
+    <BusyButton
+      {busy}
       type="button"
       class="btn-danger btn-sm"
       disabled={!canDelete}
       onclick={() => void onConfirm()}
     >
       {$t('worlds.delete.deleteBtn')}
-    </button>
+    </BusyButton>
   </div>
 </Modal>
