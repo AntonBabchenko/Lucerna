@@ -238,7 +238,7 @@
             class="w-full sm:w-auto"
           >
             <BusyButton
-              class="btn-primary btn-sm w-full sm:w-auto"
+              class="btn-success btn-sm w-full sm:w-auto"
               {busy}
               disabled={!canSave || connectDisabledReason !== null}
               onclick={() => submitSave(true)}

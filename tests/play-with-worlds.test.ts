@@ -117,6 +117,14 @@ describe('PlayWithWorlds', () => {
     expect(screen.queryByTestId('play-worlds-menu')).toBeNull();
   });
 
+  it('shows a chevron affordance only when the menu can open', async () => {
+    const { container, rerender } = render(PlayWithWorlds, { props: base() });
+    expect(container.querySelector('.lucide-chevron-down')).not.toBeNull();
+    // No worlds → nothing to drop down → no chevron hint.
+    await rerender(base({ worlds: [] }));
+    expect(container.querySelector('.lucide-chevron-down')).toBeNull();
+  });
+
   it('closes when the instance becomes ineligible while open', async () => {
     const { rerender } = render(PlayWithWorlds, { props: base() });
     await fireEvent.keyDown(screen.getByRole('button', { name: 'Play' }), { key: 'ArrowDown' });

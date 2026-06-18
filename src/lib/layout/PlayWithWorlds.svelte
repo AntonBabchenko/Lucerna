@@ -6,9 +6,9 @@
   // worlds. Single-click launches normally (onPlay); the popover lets the
   // user jump straight into a world. The popover only exists when
   // `menuEnabled` (Quick Play supported + instance ready + not running,
-  // decided by the page) AND there is at least one world. position:fixed +
-  // bottom-anchor so it escapes the sidebar's overflow box and opens upward
-  // (the Play button sits low). Mirrors OverflowMenu's close-on-scroll/resize.
+  // decided by the page) AND there is at least one world. position:fixed so it
+  // escapes the sidebar's overflow box; it opens downward, attached flush to the
+  // button as one block. Mirrors OverflowMenu's close-on-scroll/resize.
   let {
     worlds,
     onPlay,
@@ -29,12 +29,12 @@
 
   const HOVER_DELAY_MS = 200;
   const MARGIN = 8;
-  const MIN_WIDTH = 220;
 
   let open = $state(false);
-  let bottom = $state(0);
+  let top = $state(0);
   let left = $state(0);
-  let width = $state(MIN_WIDTH);
+  let width = $state(0);
+  let maxHeight = $state(0);
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
   let triggerEl = $state<HTMLButtonElement>();
   let menuEl = $state<HTMLDivElement>();
@@ -47,13 +47,15 @@
   function place() {
     const r = triggerEl?.getBoundingClientRect();
     if (!r) return;
-    width = Math.max(r.width, MIN_WIDTH);
-    left = Math.min(Math.max(r.left, MARGIN), Math.max(MARGIN, window.innerWidth - width - MARGIN));
-    // Anchor the menu's bottom edge flush to the trigger's top → opens upward.
-    // No gap on purpose: any dead space between the menu and the button would
-    // sit OUTSIDE this wrapper, so moving the cursor up into the menu would
-    // fire the wrapper's mouseleave and close it before the pointer arrives.
-    bottom = Math.max(MARGIN, window.innerHeight - r.top);
+    // Match the trigger's width and anchor the menu's top flush to the trigger's
+    // bottom → opens downward as one attached block. Flush (no gap) so moving the
+    // cursor down into the menu never crosses dead space outside this wrapper,
+    // which would fire mouseleave and close it before the pointer lands.
+    width = r.width;
+    left = r.left;
+    top = r.bottom;
+    // Cap to the space below so a long list scrolls instead of running off-window.
+    maxHeight = Math.max(0, window.innerHeight - top - MARGIN);
   }
 
   function openMenu(focusFirst: boolean) {
@@ -171,6 +173,7 @@
     type="button"
     data-tour="play-btn"
     class="btn-success btn-lg w-full flex items-center justify-center gap-1.5"
+    class:rounded-b-none={open}
     aria-haspopup={canOpen ? 'menu' : undefined}
     aria-expanded={canOpen ? open : undefined}
     onclick={onPlay}
@@ -178,6 +181,15 @@
   >
     <Icon name="play" size={16} />
     {label}
+    {#if canOpen}
+      <span
+        class="inline-flex transition-transform duration-150"
+        class:rotate-180={open}
+        aria-hidden="true"
+      >
+        <Icon name="chevronDown" size={14} />
+      </span>
+    {/if}
   </button>
 
   {#if open}
@@ -187,8 +199,8 @@
       aria-label={menuLabel ?? label}
       tabindex="-1"
       data-testid="play-worlds-menu"
-      class="fixed z-50 overflow-y-auto bg-surface border border-border-emphasis rounded shadow-md py-1 outline-none"
-      style="bottom: {bottom}px; left: {left}px; width: {width}px; max-height: 50vh;"
+      class="fixed z-50 overflow-y-auto bg-surface border border-success border-t-0 rounded-b shadow-md py-1 outline-none"
+      style="top: {top}px; left: {left}px; width: {width}px; max-height: {maxHeight}px;"
     >
       {#each worlds as w, i (w.folder_name)}
         <button
