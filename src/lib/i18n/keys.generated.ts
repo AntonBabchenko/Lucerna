@@ -751,6 +751,8 @@ export type TranslationKey =
   | 'mods.preflight.gateLaunchAnyway'
   | 'mods.preflight.gateTitle'
   | 'mods.preflight.gateUpdateLaunch'
+  | 'mods.preflight.install'
+  | 'mods.preflight.installSearchFallback'
   | 'mods.preflight.missing'
   | 'mods.preflight.outOfRange'
   | 'mods.preflight.panelTitle'

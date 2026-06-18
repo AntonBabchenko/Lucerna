@@ -2,6 +2,7 @@ import {
   commands,
   type DepProjectRef,
   type DepViolation,
+  type InstallMissingOutcome,
   type LoaderKind,
   type PreflightReport,
 } from '$lib/ipc/bindings';
@@ -87,14 +88,16 @@ export async function remediateViolation(
     return { ok: false, reason: 'no-version' };
   }
   const primary = vr.data[0];
-  const res = await commands.modsInstallWithDeps(
-    instanceId,
-    { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
-    [],
-  );
+  const res = v.provider_sha1
+    ? await commands.modsUpdateOne(instanceId, v.provider_sha1, primary)
+    : await commands.modsInstallWithDeps(
+        instanceId,
+        { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
+        [],
+      );
   return {
     ok: res.status === 'ok',
-    reason: res.status === 'ok' ? undefined : 'install-failed',
+    reason: res.status === 'ok' ? undefined : 'update-failed',
   };
 }
 
@@ -116,6 +119,20 @@ export async function remediateAll(
     if (result.ok) updated++;
   }
   return updated;
+}
+
+/**
+ * Resolve + install a missing required dependency by its loader mod-id.
+ * Fail-safe: any IPC error degrades to an `open_search` outcome so the caller
+ * always has an actionable next step (never throws).
+ */
+export async function installMissing(
+  instanceId: string,
+  depId: string,
+): Promise<InstallMissingOutcome> {
+  const res = await commands.modsInstallMissingRequired(instanceId, depId);
+  if (res.status === 'ok') return res.data;
+  return { kind: 'open_search', query: depId };
 }
 
 // ---------------------------------------------------------------------------

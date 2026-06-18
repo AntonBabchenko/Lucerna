@@ -78,6 +78,8 @@
     mcVersion,
     loader,
     kind = 'mod',
+    seedQuery = null,
+    onSeedConsumed = () => {},
   }: {
     source: ModSource;
     instanceId: string | null;
@@ -91,6 +93,12 @@
     // behaviour (loader facet + dependency-aware install). Resource packs
     // and shaders have no loader facet and install via assetInstall.
     kind?: ContentKind;
+    // Cross-view seed: when the Installed pre-flight panel hands off a missing
+    // dependency it couldn't auto-install, the Add-ons shell sets this to the
+    // dep id and flips to Browse. We seed the search box once and run the
+    // search, then call onSeedConsumed so the shell clears the rune (one-shot).
+    seedQuery?: string | null;
+    onSeedConsumed?: () => void;
   } = $props();
 
   // Resource packs and shaders are loader-agnostic: Modrinth's mod loader
@@ -452,6 +460,20 @@
     // `page`, `hits`, etc. as dependencies of this effect, which would create
     // an update cycle (write → re-run → write).
     untrack(() => void resetSearch());
+  });
+
+  // Consume a one-shot search seed from the Add-ons shell (a missing-dependency
+  // hand-off from the Installed pre-flight panel). The effect depends ONLY on
+  // `seedQuery`; setting `query` + running the search + clearing the seed all
+  // happen inside `untrack` so this can't re-trigger itself or loop.
+  $effect(() => {
+    const seed = seedQuery;
+    if (seed == null) return;
+    untrack(() => {
+      query = seed;
+      void resetSearch();
+      onSeedConsumed();
+    });
   });
 
   // Monotonic request id so an out-of-order modsSearch response can't clobber a

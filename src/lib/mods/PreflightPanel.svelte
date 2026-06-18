@@ -6,9 +6,11 @@
   let {
     report,
     onUpdate,
+    onInstallMissing = () => {},
   }: {
     report: PreflightReport | null;
     onUpdate: (v: DepViolation) => void;
+    onInstallMissing?: (v: DepViolation) => void;
   } = $props();
 
   const violations = $derived(report?.violations ?? []);
@@ -61,7 +63,17 @@
               })}
             {/if}
           </span>
-          {#if v.kind === 'version_out_of_range' && v.provider_project !== null}
+          {#if v.kind === 'missing_required'}
+            <button
+              type="button"
+              class="shrink-0 text-xs font-medium px-2 py-1 rounded
+              border border-warning-text text-warning-text hover:bg-warning-text/10
+              focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+              onclick={() => onInstallMissing(v)}
+            >
+              {$t('mods.preflight.install', { dep: v.dep_display_name ?? v.dep_id })}
+            </button>
+          {:else if v.kind === 'version_out_of_range' && v.provider_project !== null}
             <button
               type="button"
               class="shrink-0 text-xs font-medium px-2 py-1 rounded
