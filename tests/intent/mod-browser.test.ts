@@ -736,7 +736,7 @@ describe('ModCard — installed+enabled shows version + green power toggle', () 
     });
     const btn = screen.getByRole('button', { name: /disable/i });
     expect(btn).toHaveBtnVariant('icon');
-    expect(btn.className).toContain('text-success');
+    expect(btn.className).toContain('btn-icon-success');
   });
 
   it('Uninstall is an icon button tinted danger', () => {
@@ -752,7 +752,7 @@ describe('ModCard — installed+enabled shows version + green power toggle', () 
     });
     const btn = screen.getByRole('button', { name: /uninstall/i });
     expect(btn).toHaveBtnVariant('icon');
-    expect(btn.className).toContain('text-danger');
+    expect(btn.className).toContain('btn-icon-danger');
   });
 });
 
