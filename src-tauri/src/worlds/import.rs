@@ -85,6 +85,11 @@ fn place_world(
     };
     wfs::validate_segment(&name)?;
 
+    // The free-name check and the move below are not atomic, but imports run
+    // serially (spawn_blocking + the UI's sequential loop), so the only race is
+    // two same-named imports in the microsecond gap — which can at worst merge
+    // into a freshly created dir, never clobber a pre-existing save. Not worth a
+    // lock.
     let chosen = pick_free_world_name(saves, &name)?;
     let dest = saves.join(&chosen);
 
