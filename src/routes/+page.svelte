@@ -128,14 +128,20 @@
   let quickJoinOpen = $state(false);
   let quickJoinBusy = $state(false);
   let savedServers = $state<import('$lib/ipc/bindings').SavedServer[]>([]);
+  let savedServersLoading = $state(false);
 
   async function loadSavedServers() {
-    if (!activeInstance) {
-      savedServers = [];
-      return;
+    savedServersLoading = true;
+    try {
+      if (!activeInstance) {
+        savedServers = [];
+        return;
+      }
+      const r = await commands.listSavedServers(activeInstance.id);
+      savedServers = r.status === 'ok' ? r.data : [];
+    } finally {
+      savedServersLoading = false;
     }
-    const r = await commands.listSavedServers(activeInstance.id);
-    savedServers = r.status === 'ok' ? r.data : [];
   }
 
   async function openServersDialog() {
@@ -902,6 +908,7 @@
   <QuickJoinDialog
     open={quickJoinOpen}
     {savedServers}
+    {savedServersLoading}
     busy={quickJoinBusy}
     connectDisabledReason={quickPlayDisabledReason}
     addDisabledReason={running !== null ? $t('worlds.quickPlay.disabledRunning') : null}
