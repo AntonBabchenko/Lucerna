@@ -172,7 +172,7 @@
     bind:this={triggerEl}
     type="button"
     data-tour="play-btn"
-    class="btn-success btn-lg w-full flex items-center justify-center gap-1.5"
+    class="btn-success btn-lg w-full flex items-center justify-center gap-1.5 relative"
     class:rounded-b-none={open}
     aria-haspopup={canOpen ? 'menu' : undefined}
     aria-expanded={canOpen ? open : undefined}
@@ -182,12 +182,15 @@
     <Icon name="play" size={16} />
     {label}
     {#if canOpen}
+      <!-- Dropdown affordance: pinned to the right edge (select-style) so it
+           reads as "a worlds menu is available" without decentering the label.
+           Rotates when open. -->
       <span
-        class="inline-flex transition-transform duration-150"
+        class="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex transition-transform duration-150"
         class:rotate-180={open}
         aria-hidden="true"
       >
-        <Icon name="chevronDown" size={14} />
+        <Icon name="chevronDown" size={16} />
       </span>
     {/if}
   </button>
