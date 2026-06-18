@@ -5,6 +5,7 @@
   import { Icon } from '$lib/ui/icons';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import { accentStripClass } from '$lib/ui/cards/card-status';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let { instance, onOpenPack }: { instance: InstanceWithStatus; onOpenPack: () => void } = $props();
 
@@ -80,15 +81,15 @@
   {/if}
 
   <div class="flex items-center gap-3">
-    <button
+    <BusyButton
       type="button"
       class="btn-secondary btn-sm"
       data-testid="modpack-check-update"
-      disabled={checking}
+      busy={checking}
       onclick={onCheck}
     >
       {checking ? $t('page.overview.modpackChecking') : $t('page.overview.modpackCheckUpdate')}
-    </button>
+    </BusyButton>
     {#if status?.kind === 'up_to_date'}
       <span class="text-xs text-success" data-testid="modpack-up-to-date"
         >{$t('page.overview.modpackUpToDate')}</span
