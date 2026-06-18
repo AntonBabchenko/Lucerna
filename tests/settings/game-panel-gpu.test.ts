@@ -44,8 +44,8 @@ describe('GamePanel GPU dropdown', () => {
       high: 'NVIDIA',
       low: 'Intel',
     };
-    let resolveGpu!: (v: unknown) => void;
-    const pending = new Promise((resolve) => {
+    let resolveGpu!: (v: { status: 'ok'; data: GpuCapability }) => void;
+    const pending = new Promise<{ status: 'ok'; data: GpuCapability }>((resolve) => {
       resolveGpu = resolve;
     });
     gpuCapability.mockReturnValueOnce(pending);
