@@ -215,7 +215,9 @@
           onclick={() => selectWorld(w.folder_name)}
           onkeydown={(e) => onItemKeydown(e, i, w.folder_name)}
         >
-          <Icon name="play" size={14} />
+          <span class="text-success inline-flex flex-shrink-0" aria-hidden="true">
+            <Icon name="play" size={14} />
+          </span>
           <span class="truncate">{w.folder_name}</span>
         </button>
       {/each}
