@@ -800,7 +800,11 @@
               <button class="btn-secondary btn-xs" onclick={() => (shareConfirm = false)}>
                 {$t('common.cancel')}
               </button>
-              <BusyButton busy={shareUploading} class="btn-warning btn-xs" onclick={() => void doShare()}>
+              <BusyButton
+                busy={shareUploading}
+                class="btn-warning btn-xs"
+                onclick={() => void doShare()}
+              >
                 {$t('logs.share.uploadBtn')}
               </BusyButton>
             </div>

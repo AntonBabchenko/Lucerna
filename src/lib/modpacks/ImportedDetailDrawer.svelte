@@ -428,7 +428,10 @@
     </div>
   {/if}
   {#if updating}
-    <div class="px-4 pb-3 flex items-center gap-2 text-sm text-accent" data-testid="imported-detail-updating">
+    <div
+      class="px-4 pb-3 flex items-center gap-2 text-sm text-accent"
+      data-testid="imported-detail-updating"
+    >
       <Spinner size="sm" labelPlacement="right" label={$t('modpacks.imported.detail.updating')} />
     </div>
   {:else if updateAvailable}

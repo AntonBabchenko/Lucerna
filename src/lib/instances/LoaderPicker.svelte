@@ -167,7 +167,12 @@
   </label>
   {#if isLoadingVersions}
     <div class="w-full mb-3 flex items-center gap-2 text-secondary">
-      <Spinner size="sm" labelPlacement="right" label={$t('instance.loader.loadingVersions')} delayMs={150} />
+      <Spinner
+        size="sm"
+        labelPlacement="right"
+        label={$t('instance.loader.loadingVersions')}
+        delayMs={150}
+      />
     </div>
   {:else}
     <Select

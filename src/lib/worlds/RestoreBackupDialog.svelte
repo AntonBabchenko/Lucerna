@@ -85,12 +85,7 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
       {$t('common.cancel')}
     </button>
-    <BusyButton
-      type="button"
-      class="btn-primary btn-sm"
-      onclick={() => void onConfirm()}
-      {busy}
-    >
+    <BusyButton type="button" class="btn-primary btn-sm" onclick={() => void onConfirm()} {busy}>
       {$t('worlds.restore.restoreBtn')}
     </BusyButton>
   </div>

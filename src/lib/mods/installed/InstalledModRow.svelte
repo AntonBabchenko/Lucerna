@@ -148,7 +148,12 @@
         {/if}
         {#if graphLoading && !root}
           <span class="text-placeholder">
-            <Spinner size="sm" labelPlacement="right" label={$t('mods.installed.resolvingShort')} delayMs={150} />
+            <Spinner
+              size="sm"
+              labelPlacement="right"
+              label={$t('mods.installed.resolvingShort')}
+              delayMs={150}
+            />
           </span>
         {:else if depTotal > 0 || requiredBy.length > 0}
           <!-- Single toggle for the whole relation. Accent (actionable) when the

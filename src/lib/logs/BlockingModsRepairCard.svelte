@@ -183,9 +183,7 @@
               >
                 {#if replacingSha1s.has(m.sha1)}
                   <span class="inline-flex items-center gap-1.5"
-                    ><Spinner size="sm" />{$t(
-                      'logs.repair.blockingMods.replacing',
-                    )}</span
+                    ><Spinner size="sm" />{$t('logs.repair.blockingMods.replacing')}</span
                   >
                 {:else}
                   {$t('logs.repair.blockingMods.installThisVersion')}
@@ -217,9 +215,7 @@
                 {$t('logs.repair.blockingMods.disabledLabel')}
               {:else if disablingSha1s.has(m.sha1)}
                 <span class="inline-flex items-center gap-1.5"
-                  ><Spinner size="sm" />{$t(
-                    'logs.repair.working',
-                  )}</span
+                  ><Spinner size="sm" />{$t('logs.repair.working')}</span
                 >
               {:else}
                 {$t('logs.repair.blockingMods.disable')}

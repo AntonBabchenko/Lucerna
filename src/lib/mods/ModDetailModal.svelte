@@ -209,7 +209,11 @@
           </p>
         {:else}
           <div class="flex justify-center py-8 text-secondary">
-            <Spinner size="lg" labelPlacement="below" label={$t('mods.detail.loadingDescription')} />
+            <Spinner
+              size="lg"
+              labelPlacement="below"
+              label={$t('mods.detail.loadingDescription')}
+            />
           </div>
         {/if}
       </div>

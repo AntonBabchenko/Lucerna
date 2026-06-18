@@ -174,13 +174,13 @@
           bind:value={retention.max_files}
           disabled={!retention.enabled}
           onchange={async () => {
-          retentionSaving = true;
-          try {
-            await saveRetention();
-          } finally {
-            retentionSaving = false;
-          }
-        }}
+            retentionSaving = true;
+            try {
+              await saveRetention();
+            } finally {
+              retentionSaving = false;
+            }
+          }}
           data-testid="log-retention-max-files"
         />
       </label>
@@ -193,13 +193,13 @@
           bind:value={retention.max_total_mb}
           disabled={!retention.enabled}
           onchange={async () => {
-          retentionSaving = true;
-          try {
-            await saveRetention();
-          } finally {
-            retentionSaving = false;
-          }
-        }}
+            retentionSaving = true;
+            try {
+              await saveRetention();
+            } finally {
+              retentionSaving = false;
+            }
+          }}
           data-testid="log-retention-max-mb"
         />
       </label>
