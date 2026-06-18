@@ -230,6 +230,33 @@ export function formatError(e: IpcError): string {
       return translate('errors.savedServerNameInvalid', { name: e.name, reason: e.reason });
     case 'saved_server_list_changed':
       return translate('errors.savedServerListChanged');
+    case 'server_invalid_property':
+      return translate('errors.serverInvalidProperty', { key: e.key, value: e.value });
+    case 'server_eula_not_accepted':
+      return translate('errors.serverEulaNotAccepted');
+    case 'server_jar_unavailable':
+      return translate('errors.serverJarUnavailable', {
+        loader: e.loader,
+        mcVersion: e.mc_version,
+      });
+    case 'server_installer_failed':
+      return translate('errors.serverInstallerFailed', { loader: e.loader });
+    case 'server_spawn_failed':
+      return translate('errors.serverSpawnFailed', { details: e.details });
+    case 'server_already_running':
+      return translate('errors.serverAlreadyRunning');
+    case 'server_not_running':
+      return translate('errors.serverNotRunning');
+    case 'upload_not_configured':
+      return translate('errors.uploadNotConfigured');
+    case 'sftp_connect_failed':
+      return translate('errors.sftpConnectFailed', { details: e.details });
+    case 'sftp_auth_failed':
+      return translate('errors.sftpAuthFailed');
+    case 'sftp_host_key_mismatch':
+      return translate('errors.sftpHostKeyMismatch');
+    case 'sftp_transfer_failed':
+      return translate('errors.sftpTransferFailed', { details: e.details });
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

@@ -134,6 +134,7 @@ mod tests {
                     sha1: "ccc".into(),
                     size: 26_000_000,
                 },
+                server: None,
                 other: Default::default(),
             }),
             arguments: Some(Arguments {

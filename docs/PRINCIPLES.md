@@ -48,7 +48,16 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
 
    The Rust constant `network::allowlist::ALLOWED_PATTERNS` is the single source of truth; this table mirrors it for human readers and is kept in sync by code review.
 
-3. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
+3. **Second sanctioned outbound channel — user-initiated SFTP (own-server upload).** The HTTP allowlist in commitment 2 covers all launcher-chosen endpoints. A second, narrower outbound channel exists: **SFTP upload** to a **user-provided** host, used exclusively by the "own server" feature (slice 3) to transfer the user's assembled server archive to their own machine.
+
+   This channel is intentionally outside the HTTP allowlist because the destination is the user's own server — explicitly configured by the user — not a launcher-chosen endpoint or any form of telemetry. It is bounded as follows:
+
+   - **Module isolation:** all `russh`/`russh-sftp` client construction is confined to `src-tauri/src/servers_runtime/transfer.rs`. A structural guard (`src-tauri/tests/structural_no_raw_sftp.rs`) fails the build if SSH/SFTP client code is instantiated anywhere else, keeping the outbound surface enumerable and the spirit of the single-chokepoint principle intact.
+   - **Credential handling:** the SFTP password is stored in the OS keyring (via the same keychain abstraction used for Microsoft tokens) — never written to `server.json`, config files, or logs.
+   - **Host identity:** connection uses trust-on-first-use (TOFU): the server's SHA-256 fingerprint is stored on first connect; a changed fingerprint blocks the upload and prompts the user to re-confirm. RSA host keys are excluded (see `docs/SECURITY.md` Part F).
+   - **Trigger:** SFTP only runs when the user explicitly initiates an upload. It is never called during normal launcher operation (browsing mods, launching instances, etc.).
+
+4. **Microsoft and offline accounts are equal first-class citizens.** No UI warnings beyond honest technical disclosures (e.g., "offline accounts cannot connect to online-mode servers"). No "switch to a real license" suggestions. No moralizing copy. The launcher does not judge.
 
 4. **Wire-level release self-audit (planned).** A CI integration test will boot the launcher in a controlled environment with a packet-capture tool, perform only "launch vanilla 1.20.x," and assert that every captured request targets an allowlisted host — an independent, out-of-process confirmation of the in-code enforcement in commitment 1. Status: not yet implemented; tracked in the project roadmap. See `docs/SECURITY.md` Part C.
 

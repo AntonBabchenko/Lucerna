@@ -14,6 +14,7 @@ pub mod platform;
 pub mod playtime;
 pub mod process;
 pub mod servers;
+pub mod servers_runtime;
 pub mod tray;
 pub mod update;
 pub mod verify;
@@ -173,6 +174,29 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::update_check,
             commands::update_install,
             commands::update_dismiss,
+            // Own server (Plan 1: vanilla create / list / delete):
+            commands::server_create,
+            commands::server_list,
+            commands::server_delete,
+            // Own server (Plan 2: process management):
+            commands::server_start,
+            commands::server_stop,
+            commands::server_restart,
+            commands::server_send_command,
+            // Own server (Plan 3: properties read/write):
+            commands::server_read_properties,
+            commands::server_write_properties,
+            // Own server (Plan 3: mod management + folder open):
+            commands::server_list_mods,
+            commands::server_delete_mod,
+            commands::server_open_folder,
+            // Own server (Plan 4: diagnosis + repair):
+            commands::server_diagnose,
+            commands::server_remove_mods,
+            // Own server (Plan 5: SFTP upload + export):
+            commands::server_set_upload_config,
+            commands::server_upload,
+            commands::server_export_zip,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -186,6 +210,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::ModToggle,
             commands::ModInstallFailed,
             commands::GpuPrefApplied,
+            servers_runtime::runtime::ServerLogLine,
+            servers_runtime::runtime::ServerSpawned,
+            servers_runtime::runtime::ServerExited,
+            servers_runtime::transfer::ServerUploadProgress,
         ])
 }
 

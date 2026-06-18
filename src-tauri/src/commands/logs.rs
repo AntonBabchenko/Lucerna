@@ -299,6 +299,9 @@ pub async fn build_repair_plan(
             }
             Ok(Some(RepairPlan::DisableBlockingMods { mods }))
         }
+        // Server-side client-only-mod removal is handled by the dedicated
+        // server_remove_mods command, not this instance repair pipeline.
+        RepairKind::RemoveClientServerMods => Ok(None),
     }
 }
 

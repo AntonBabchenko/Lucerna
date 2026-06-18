@@ -322,6 +322,63 @@ pub enum Error {
 
     #[error("The saved server list changed — refresh and try again")]
     SavedServerListChanged,
+
+    /// Курируемое поле server.properties не прошло валидацию.
+    #[error("invalid server property {key}={value}: {reason}")]
+    ServerInvalidProperty {
+        key: String,
+        value: String,
+        reason: String,
+    },
+
+    /// Попытка собрать/запустить сервер без принятого EULA.
+    #[error("Minecraft EULA not accepted for this server")]
+    ServerEulaNotAccepted,
+
+    /// Не удалось определить источник серверного jar (нет server-download
+    /// в манифесте, или лоадер/версия без серверной сборки).
+    #[error("server jar unavailable for {loader} {mc_version}: {reason}")]
+    ServerJarUnavailable {
+        loader: String,
+        mc_version: String,
+        reason: String,
+    },
+
+    /// installServer (Forge/NeoForge) упал или не запустился.
+    #[error("server installer failed for {loader}: {details}")]
+    ServerInstallerFailed { loader: String, details: String },
+
+    /// Серверный процесс не удалось запустить.
+    #[error("server process spawn failed: {details}")]
+    ServerSpawnFailed { details: String },
+
+    /// Сервер уже запущен.
+    #[error("server already running: {id}")]
+    ServerAlreadyRunning { id: String },
+
+    /// Операция требует запущенного сервера, но он не запущен.
+    #[error("server not running: {id}")]
+    ServerNotRunning { id: String },
+
+    /// Загрузка сервера по SFTP не настроена (нет `UploadConfig`).
+    #[error("server upload not configured")]
+    UploadNotConfigured,
+
+    /// Не удалось установить SSH/SFTP-соединение с сервером пользователя.
+    #[error("SFTP connect failed: {details}")]
+    SftpConnectFailed { details: String },
+
+    /// Аутентификация по паролю на SFTP-сервере не прошла.
+    #[error("SFTP authentication failed: {details}")]
+    SftpAuthFailed { details: String },
+
+    /// Отпечаток host-ключа изменился относительно ранее доверенного (TOFU).
+    #[error("SFTP host key changed (possible MITM) — expected {expected}, got {got}")]
+    SftpHostKeyMismatch { expected: String, got: String },
+
+    /// Ошибка во время передачи файлов по SFTP (создание каталога/запись).
+    #[error("SFTP transfer failed: {details}")]
+    SftpTransferFailed { details: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

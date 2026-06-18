@@ -28,6 +28,7 @@
   import LauncherImportDialog from '$lib/instances/import/LauncherImportDialog.svelte';
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
+  import ServersModal from '$lib/servers/ServersModal.svelte';
   import OperationsView from '$lib/ops/OperationsView.svelte';
   import {
     enqueueImport,
@@ -163,6 +164,7 @@
   // pack creates a new instance — so a scrim-backed modal signals "separate
   // context, not the current instance".
   let modpacksModalOpen = $state(false);
+  let serversModalOpen = $state(false);
   let launcherImportOpen = $state(false);
 
   // The Overview missing-mods indicator and any other deep-link that
@@ -696,6 +698,7 @@
       compact={compactState.value}
       onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
+      onOpenServers={() => (serversModalOpen = true)}
       onOpenLauncherImport={() => (launcherImportOpen = true)}
       onOpenQuickJoin={() => void openServersDialog()}
       {onSelectAccount}
@@ -898,6 +901,13 @@
       }}
     />
   </ModpacksModal>
+
+  <ServersModal
+    open={serversModalOpen}
+    onClose={() => (serversModalOpen = false)}
+    {instances}
+    versions={mcv.value}
+  />
   <!-- SettingsModal renders AFTER ModpacksModal on purpose. Both now use the
        shared Modal primitive, which fixes the backdrop at z-50, so relative
        stacking is decided by DOM order. Settings can be summoned from inside
