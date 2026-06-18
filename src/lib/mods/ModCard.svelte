@@ -124,7 +124,7 @@
   // Context menu (right-click / Shift+F10) — the full action set.
   const menuItems = $derived.by((): ContextMenuItem[] => {
     if (!installed)
-      return [{ label: $t('mods.card.install'), icon: 'download', onSelect: onInstall }];
+      return [{ label: $t('common.install'), icon: 'download', onSelect: onInstall }];
     const out: ContextMenuItem[] = [];
     if (hasUpdate) out.push({ label: $t('mods.card.update'), icon: 'refresh', onSelect: onUpdate });
     if (canToggle)
@@ -183,8 +183,8 @@
       class="btn-icon btn-icon-sm !text-accent"
       onclick={onInstall}
       disabled={installing}
-      aria-label={$t('mods.card.install')}
-      use:tooltip={$t('mods.card.install')}
+      aria-label={$t('common.install')}
+      use:tooltip={$t('common.install')}
     >
       {#if installing}<Spinner size="sm" />{:else}<Icon name="download" size={15} />{/if}
     </button>
