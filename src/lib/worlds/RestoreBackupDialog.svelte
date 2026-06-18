@@ -4,6 +4,7 @@
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { t, locale } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let {
     instanceId,
@@ -84,13 +85,13 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onClose} disabled={busy}>
       {$t('common.cancel')}
     </button>
-    <button
+    <BusyButton
       type="button"
       class="btn-primary btn-sm"
       onclick={() => void onConfirm()}
-      disabled={busy}
+      {busy}
     >
       {$t('worlds.restore.restoreBtn')}
-    </button>
+    </BusyButton>
   </div>
 </Modal>
