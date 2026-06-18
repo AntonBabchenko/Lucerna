@@ -13,6 +13,18 @@ pub fn list_worlds(
     crate::worlds::list_worlds(&app, &instance_id)
 }
 
+/// Lightweight world list (folder name + recency proxy) for the sidebar
+/// Play-button dropdown. Cheaper than `list_worlds` — no size/backup walk —
+/// so the UI can call it on every instance switch.
+#[tauri::command]
+#[specta::specta]
+pub fn list_world_names(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<Vec<crate::worlds::WorldQuickEntry>, crate::error::Error> {
+    crate::worlds::list_world_names(&app, &instance_id)
+}
+
 /// Create a new backup zip of `world_folder_name` under
 /// `<instance>/backups/<world>/`. Returns the new Backup descriptor.
 #[tauri::command]

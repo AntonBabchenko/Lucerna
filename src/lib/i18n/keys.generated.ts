@@ -1166,6 +1166,7 @@ export type TranslationKey =
   | 'sidebar.pickMcVersion'
   | 'sidebar.pickVersionTitle'
   | 'sidebar.play'
+  | 'sidebar.playWorlds'
   | 'sidebar.playerNamePlaceholder'
   | 'sidebar.removeAccountLabel'
   | 'sidebar.servers'

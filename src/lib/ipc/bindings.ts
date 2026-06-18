@@ -187,6 +187,12 @@ export const commands = {
 	 */
 	listWorlds: (instanceId: string) => typedError<World[], Error>(__TAURI_INVOKE("list_worlds", { instanceId })),
 	/**
+	 *  Lightweight world list (folder name + recency proxy) for the sidebar
+	 *  Play-button dropdown. Cheaper than `list_worlds` — no size/backup walk —
+	 *  so the UI can call it on every instance switch.
+	 */
+	listWorldNames: (instanceId: string) => typedError<WorldQuickEntry[], Error>(__TAURI_INVOKE("list_world_names", { instanceId })),
+	/**
 	 *  Create a new backup zip of `world_folder_name` under
 	 *  `<instance>/backups/<world>/`. Returns the new Backup descriptor.
 	 */
@@ -2662,6 +2668,16 @@ export type World = {
 	size_bytes: number | null,
 	modified_unix_ms: number | null,
 	backup_count: number,
+};
+
+/**
+ *  Lightweight world entry for the sidebar Play-button dropdown: folder
+ *  name + a recency proxy only. Cheaper than `World` (no recursive size or
+ *  backup-count walk), so it is safe to load on every instance switch.
+ */
+export type WorldQuickEntry = {
+	folder_name: string,
+	modified_unix_ms: number | null,
 };
 
 /* Tauri Specta runtime */

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Account, InstanceWithStatus } from '$lib/ipc/bindings';
+  import type { Account, InstanceWithStatus, WorldQuickEntry } from '$lib/ipc/bindings';
+  import PlayWithWorlds from '$lib/layout/PlayWithWorlds.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
   import { hasDiagnosisIndicator } from '$lib/logs/log-diagnosis.svelte';
@@ -34,6 +35,9 @@
     onPlay,
     onStop,
     onInstall,
+    worlds = [],
+    onQuickPlayWorld = () => {},
+    quickPlayMenuEnabled = false,
     msSigningIn = $bindable(false),
     onMicrosoftSignedIn,
     onMicrosoftError,
@@ -69,6 +73,9 @@
     onPlay: () => void;
     onStop: () => void;
     onInstall: () => void;
+    worlds?: WorldQuickEntry[];
+    onQuickPlayWorld?: (folderName: string) => void;
+    quickPlayMenuEnabled?: boolean;
     msSigningIn?: boolean;
     onMicrosoftSignedIn?: (account: unknown) => void;
     onMicrosoftError?: (err: unknown) => void;
@@ -318,15 +325,14 @@
             </button>
           {:else}
             <div class="flex gap-1.5">
-              <button
-                type="button"
-                data-tour="play-btn"
-                class="btn-success btn-lg flex-1 flex items-center justify-center gap-1.5"
-                onclick={onPlay}
-              >
-                <Icon name="play" size={16} />
-                {$t('sidebar.play')}
-              </button>
+              <PlayWithWorlds
+                {worlds}
+                {onPlay}
+                {onQuickPlayWorld}
+                menuEnabled={quickPlayMenuEnabled}
+                label={$t('sidebar.play')}
+                menuLabel={$t('sidebar.playWorlds')}
+              />
               <button
                 type="button"
                 class="btn-success btn-lg px-3"

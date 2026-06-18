@@ -68,6 +68,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::share_log_to_mclogs,
             commands::open_mods_folder,
             commands::list_worlds,
+            commands::list_world_names,
             commands::backup_world,
             commands::list_backups,
             commands::restore_backup,

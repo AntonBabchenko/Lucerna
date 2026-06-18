@@ -46,6 +46,7 @@
   import type { PreflightReport } from '$lib/ipc/bindings';
   import { classifySignInError } from '$lib/accounts/sign-in-error';
   import { quickPlayDisabledKey } from '$lib/worlds/quick-play-gating';
+  import { createQuickWorlds } from '$lib/worlds/quick-worlds.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { initOnboarding, showAccountHint } from '$lib/onboarding/state.svelte';
   import { explanationState } from '$lib/onboarding/explanation-level.svelte';
@@ -276,6 +277,28 @@
       supported: quickPlaySupported,
     });
     return key === null ? null : get(t)(key);
+  });
+
+  const quickWorlds = createQuickWorlds();
+  onDestroy(() => quickWorlds.dispose());
+
+  // The dropdown is usable only when a world can actually be quick-launched:
+  // Quick Play supported by this MC version, the instance installed, and the
+  // game not already running.
+  const quickPlayMenuEnabled = $derived(
+    quickPlaySupported && (activeInstance?.ready ?? false) && running === null,
+  );
+
+  // Load the cheap world list when the active instance is eligible; drop it
+  // otherwise. Loads regardless of `running` (worlds only change on exit,
+  // which the composable already re-fetches on); `menuEnabled` gates display.
+  $effect(() => {
+    const id = activeInstance?.id ?? null;
+    if (id && quickPlaySupported && (activeInstance?.ready ?? false)) {
+      quickWorlds.load(id);
+    } else {
+      quickWorlds.clear();
+    }
   });
 
   async function refreshAccounts() {
@@ -702,6 +725,9 @@
       {onPlay}
       {onStop}
       {onInstall}
+      worlds={quickWorlds.worlds}
+      {onQuickPlayWorld}
+      {quickPlayMenuEnabled}
       bind:msSigningIn
       onMicrosoftSignedIn={async () => {
         await refreshAccounts();
