@@ -12,6 +12,9 @@
   import { tooltip } from '$lib/ui/tooltip';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { t } from '$lib/i18n';
+  import { open as openFile } from '@tauri-apps/plugin-dialog';
+  import FileDropzone from '$lib/mods/FileDropzone.svelte';
+  import { droppedWorld } from '$lib/settings/state.svelte';
 
   let {
     instanceId,
@@ -130,6 +133,46 @@
     const r = await commands.openSavesFolder(instanceId);
     if (r.status !== 'ok') pushWarning(formatError(r.error));
   }
+
+  // One core for all entry points (dropzone click, folder button, and the
+  // drag-drop consume effect). Imports each path; the backend decides zip vs
+  // folder and returns a typed error per path.
+  async function importPaths(paths: string[]) {
+    if (!instanceId || paths.length === 0) return;
+    let added = 0;
+    for (const p of paths) {
+      const r = await commands.worldImport(instanceId, p);
+      if (r.status === 'ok') {
+        pushSuccess($t('worlds.import.toastAdded', { name: r.data.folder_name }));
+        added++;
+      } else {
+        pushWarning(formatError(r.error));
+      }
+    }
+    if (added > 0) {
+      onListChanged();
+      await reload();
+    }
+  }
+
+  async function onImport(source: 'zip' | 'folder') {
+    if (!instanceId) return;
+    const picked =
+      source === 'zip'
+        ? await openFile({ multiple: false, filters: [{ name: 'World zip', extensions: ['zip'] }] })
+        : await openFile({ directory: true });
+    if (typeof picked === 'string') await importPaths([picked]);
+  }
+
+  // Paths dropped on the Worlds tab arrive via droppedWorld (routed by
+  // MainTabs). Consume and reset; the backend validates each path.
+  $effect(() => {
+    const v = droppedWorld.value;
+    if (v !== null) {
+      droppedWorld.value = null;
+      void importPaths(v);
+    }
+  });
 </script>
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
@@ -203,15 +246,30 @@
       {/each}
     </ul>
   {/if}
-  <button
-    type="button"
-    class="btn-tertiary self-start inline-flex items-center gap-1"
-    data-tour-ctx="worlds-open-folder"
-    onclick={() => void onOpenSavesFolder()}
-  >
-    {$t('worlds.tab.openSavesFolder')}
-    <Icon name="folderOpen" size={14} />
-  </button>
+  <FileDropzone
+    label={$t('worlds.import.dropzoneLabel')}
+    disabled={!instanceId}
+    onClick={() => void onImport('zip')}
+  />
+  <div class="flex flex-wrap items-center gap-2">
+    <button
+      type="button"
+      class="btn-tertiary inline-flex items-center gap-1"
+      onclick={() => void onImport('folder')}
+    >
+      <Icon name="folderOpen" size={14} />
+      {$t('worlds.import.fromFolder')}
+    </button>
+    <button
+      type="button"
+      class="btn-tertiary inline-flex items-center gap-1"
+      data-tour-ctx="worlds-open-folder"
+      onclick={() => void onOpenSavesFolder()}
+    >
+      {$t('worlds.tab.openSavesFolder')}
+      <Icon name="folderOpen" size={14} />
+    </button>
+  </div>
 
   <!-- Tour fires only once worlds exist — most steps point at the
        list which is absent on a fresh instance. -->

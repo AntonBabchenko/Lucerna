@@ -77,6 +77,11 @@ export const droppedAssets = $state<{ value: { kind: ContentKind; paths: string[
   value: null,
 });
 
+// Paths (a `.zip` or a world folder) dropped onto the Worlds tab, routed here
+// by MainTabs' single window-level drag-drop listener. WorldsTab consumes this
+// and resets it to null. Mirrors `droppedMods`.
+export const droppedWorld = $state<{ value: string[] | null }>({ value: null });
+
 // True while an OS file-drag is hovering an accepting tab. MainTabs'
 // drag-drop listener sets it; FileDropzone reads it to show its drag
 // highlight.
