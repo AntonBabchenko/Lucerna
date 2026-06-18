@@ -1,4 +1,10 @@
-import { commands, events, type ServerDiagnosis, type ServerWithStatus } from '$lib/ipc/bindings';
+import {
+  commands,
+  events,
+  type ServerDiagnosis,
+  type ServerWithStatus,
+  type UploadConfig,
+} from '$lib/ipc/bindings';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 
 // Single source of truth for own-server runtime state.
@@ -8,6 +14,7 @@ import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 let list = $state<ServerWithStatus[]>([]);
 let lines = $state<Map<string, string[]>>(new Map());
 let diagnoses = $state<Map<string, ServerDiagnosis>>(new Map());
+let uploadProgress = $state<Map<string, { done: number; total: number; file: string }>>(new Map());
 let initialized = false;
 
 async function refresh(): Promise<void> {
@@ -61,6 +68,32 @@ async function removeClientMods(
   return { ok: false, error: r.error };
 }
 
+async function setUploadConfig(
+  id: string,
+  config: UploadConfig,
+  password: string | null,
+): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+  return await commands.serverSetUploadConfig(id, config, password);
+}
+
+async function upload(
+  id: string,
+  acceptNewHostKey: boolean,
+): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+  return await commands.serverUpload(id, acceptNewHostKey);
+}
+
+async function exportZip(
+  id: string,
+  destPath: string,
+): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+  return await commands.serverExportZip(id, destPath);
+}
+
+function uploadProgressFor(id: string): { done: number; total: number; file: string } | undefined {
+  return uploadProgress.get(id);
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
@@ -72,6 +105,15 @@ function init(): void {
     if (e.payload.code !== 0) {
       void diagnose(e.payload.server_id);
     }
+  });
+  void events.serverUploadProgress.listen((e) => {
+    const m = new Map(uploadProgress);
+    m.set(e.payload.server_id, {
+      done: e.payload.files_done,
+      total: e.payload.files_total,
+      file: e.payload.current_file,
+    });
+    uploadProgress = m;
   });
 }
 
@@ -85,6 +127,10 @@ export const serverState = {
   diagnose,
   diagnosisFor,
   removeClientMods,
+  setUploadConfig,
+  upload,
+  exportZip,
+  uploadProgressFor,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;

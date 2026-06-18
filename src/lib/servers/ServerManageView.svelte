@@ -10,10 +10,11 @@
   import ServerSettings from './ServerSettings.svelte';
   import ServerMods from './ServerMods.svelte';
   import ServerDiagnosisBanner from './ServerDiagnosisBanner.svelte';
+  import ServerHostingTab from './ServerHostingTab.svelte';
 
   let { serverId, onBack }: { serverId: string; onBack: () => void } = $props();
 
-  type ServerTab = 'console' | 'settings' | 'mods';
+  type ServerTab = 'console' | 'settings' | 'mods' | 'hosting';
 
   const server = $derived(serverState.list.find((s) => s.id === serverId));
   const running = $derived(serverState.running(serverId));
@@ -130,7 +131,7 @@
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div role="tablist" class="flex gap-1 border-b border-border-subtle px-4 bg-surface">
-    {#each [['console', $t('servers.tab.console')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')]] as const as [id, label] (id)}
+    {#each [['console', $t('servers.tab.console')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['hosting', $t('servers.hosting.tab')]] as const as [id, label] (id)}
       <button
         type="button"
         role="tab"
@@ -155,8 +156,10 @@
       <ServerConsole {serverId} />
     {:else if tab === 'settings'}
       <ServerSettings {serverId} />
-    {:else}
+    {:else if tab === 'mods'}
       <ServerMods {serverId} />
+    {:else}
+      <ServerHostingTab {serverId} />
     {/if}
   </div>
 </div>
