@@ -12,6 +12,7 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Reusable "find this mod on Modrinth" dialog for a mod the user cannot
   // auto-download (a modpack author disabled CurseForge distribution, or a
@@ -170,14 +171,17 @@
               <span class="text-sm text-primary truncate">{c.name}</span>
               <span class="text-xs text-muted truncate block">{c.author}</span>
             </div>
-            <BusyButton
-              busy={busyId === c.project_id}
-              disabled={busyId !== null && busyId !== c.project_id}
-              class="btn-primary btn-xs flex-shrink-0"
-              onclick={() => void install(c)}
-            >
-              {$t('mods.findAlt.install')}
-            </BusyButton>
+            <span class="inline-flex flex-shrink-0" use:tooltip={$t('common.install')}>
+              <BusyButton
+                busy={busyId === c.project_id}
+                disabled={busyId !== null && busyId !== c.project_id}
+                class="btn-icon btn-icon-sm !text-accent"
+                aria-label={$t('common.install')}
+                onclick={() => void install(c)}
+              >
+                <Icon name="download" size={15} />
+              </BusyButton>
+            </span>
           </li>
         {/each}
       </ul>
