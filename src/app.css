@@ -361,6 +361,35 @@ body[data-tour-active] .tour-overlay {
   width: 2rem;
   height: 2rem;
 }
+/* Text-only accent link. Reads as a hyperlink (underline on hover), distinct
+   from .btn-tertiary (neutral text). For inline "open the page" links — pair
+   with a trailing <Icon name="externalLink" />. */
+.btn-link {
+  @apply text-accent hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+}
+/* Compact icon button — pair with .btn-icon. 1.75rem square for dense rows
+   (card actions, version rows, dep-tree nodes). */
+.btn-icon-sm {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+/* Destructive icon button — neutral at rest, danger on hover/focus + a soft
+   danger wash. Defined AFTER .btn-icon so its hover overrides the neutral
+   .btn-icon hover. Always rendered (no opacity reveal); the colour appears
+   only when you point at it. */
+.btn-icon-danger:hover,
+.btn-icon-danger:focus-visible {
+  color: rgb(var(--danger));
+  background-color: rgb(var(--danger) / 0.1);
+}
+/* Static-colour icon buttons — no hover model; the colour itself is the state
+   (update available = warning, enabled = success). */
+.btn-icon-warning {
+  color: rgb(var(--warning-text));
+}
+.btn-icon-success {
+  color: rgb(var(--success));
+}
 
 /*
   Filter-control sizing system. Shared across ModBrowseView and
