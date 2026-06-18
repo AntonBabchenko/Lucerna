@@ -10,6 +10,14 @@ vi.mock('$lib/ipc/bindings', () => ({
   events: {},
 }));
 
+// Mock toasts — pushSuccess is called on successful removal (banner unmounts after, so toast
+// is the only visible confirmation). The mock lets the import resolve without the Svelte
+// runes runtime.
+const pushSuccessMock = vi.fn();
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushSuccess: (...args: unknown[]) => pushSuccessMock(...args),
+}));
+
 // Shared mutable diagnosis store keyed by serverId.
 // NOTE: object literal must be plain — no references to outer variables —
 // because vi.mock factories are hoisted before any top-level declarations.
@@ -139,8 +147,9 @@ describe('ServerDiagnosisBanner', () => {
     expect(medCb.checked).toBe(false);
   });
 
-  it('calls removeClientMods with only the checked filenames', async () => {
+  it('calls removeClientMods with only the checked filenames and toasts on success', async () => {
     removeClientModsSpy.mockResolvedValue({ ok: true });
+    pushSuccessMock.mockClear();
 
     mockDiagnoses['srv-remove'] = makeClientOnlyDiagnosis({
       client_mods: [
@@ -166,5 +175,6 @@ describe('ServerDiagnosisBanner', () => {
     await fireEvent.click(screen.getByText('Remove selected'));
 
     expect(removeClientModsSpy).toHaveBeenCalledWith('srv-remove', ['beta.jar'], 'sig-abc');
+    expect(pushSuccessMock).toHaveBeenCalledOnce();
   });
 });

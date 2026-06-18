@@ -30,7 +30,9 @@
     onCancel={() => (creating = false)}
   />
 {:else if selected}
-  <ServerManageView serverId={selected} onBack={() => (selected = null)} />
+  {#key selected}
+    <ServerManageView serverId={selected} onBack={() => (selected = null)} />
+  {/key}
 {:else}
   <div class="flex flex-col gap-3 p-4 overflow-y-auto">
     <div class="flex items-center justify-between">

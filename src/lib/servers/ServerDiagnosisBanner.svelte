@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { t } from '$lib/i18n';
   import { formatError } from '$lib/ipc/format-error';
   import type { ClientModFinding } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { Icon } from '$lib/ui/icons';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
@@ -24,7 +26,6 @@
   let showChecklist = $state(false);
   let checked = $state<Record<string, boolean>>({});
   let busyRemove = $state(false);
-  let removedMsg = $state<string | null>(null);
   let removeError = $state<string | null>(null);
 
   // Seed `checked` when client_mods change — pre-check high-confidence rows,
@@ -47,16 +48,19 @@
     const sel = mods.filter((f) => checked[f.filename]).map((f) => f.filename);
     if (sel.length === 0) return;
     busyRemove = true;
-    removedMsg = null;
     removeError = null;
     try {
       const r = await serverState.removeClientMods(serverId, sel, diag?.log_signature ?? null);
       if (r.ok) {
-        removedMsg = $t('servers.diagnose.removed', { count: sel.length });
+        pushSuccess(
+          `${get(t)('servers.diagnose.removed', { count: sel.length })} ${get(t)('servers.diagnose.restartHint')}`,
+        );
         showChecklist = false;
       } else {
         removeError = formatError(r.error as Parameters<typeof formatError>[0]);
       }
+    } catch (e) {
+      removeError = formatError(e as Parameters<typeof formatError>[0]);
     } finally {
       busyRemove = false;
     }
@@ -141,11 +145,6 @@
               </BusyButton>
             {/if}
           </div>
-        {/if}
-
-        {#if removedMsg}
-          <p class="mt-2 text-sm text-success">{removedMsg}</p>
-          <p class="text-sm text-secondary">{$t('servers.diagnose.restartHint')}</p>
         {/if}
 
         {#if removeError}
