@@ -306,6 +306,17 @@ pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
 /// like `C:evil.jar` (which `Path::join` would otherwise resolve OUTSIDE the
 /// mods dir by discarding the base).
 pub(crate) fn is_safe_mod_name(name: &str) -> bool {
+    // This guard screens a name (from a directory listing or user input) before
+    // it is joined under `mods/`, so it must reject every escape vector on
+    // *every* host OS — not just the one we happen to be running on. `\` is a
+    // path separator and `C:` a drive prefix on Windows, but both are legal
+    // filename characters on Unix, so `std::path::Path` parsing alone would let
+    // `a\b.jar` / `C:evil.jar` slip through on Unix. Screen those explicitly.
+    if name.contains('\\') || name.contains(':') {
+        return false;
+    }
+    // On the current platform, `Path::components` then catches `/`, `..`, `.`,
+    // absolute paths, and empty: a safe name is exactly one Normal component.
     let mut comps = std::path::Path::new(name).components();
     matches!(comps.next(), Some(std::path::Component::Normal(_))) && comps.next().is_none()
 }
