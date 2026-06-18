@@ -181,7 +181,7 @@
             >
               <button
                 type="button"
-                class="rounded p-1 text-placeholder hover:bg-subtle hover:text-success disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-placeholder"
+                class="btn-success btn-sm px-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 disabled={quickPlayDisabledReason !== null}
                 aria-label={$t('worlds.quickPlay.playWorld')}
                 onclick={() => onQuickPlayWorld(w.folder_name)}

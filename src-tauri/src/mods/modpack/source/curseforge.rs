@@ -30,7 +30,7 @@ impl ModpackSource for CurseforgeModpackSource {
         sort: ModpackSort,
         page_size: u32,
     ) -> Result<ModpackSearchPage, Error> {
-        let key = crate::mods::curseforge::keyring::get().ok().flatten();
+        let key = crate::mods::curseforge::keyring::resolve();
         crate::mods::modpack::cf_api::search(
             CF_BASE,
             key.as_deref(),
@@ -45,12 +45,12 @@ impl ModpackSource for CurseforgeModpackSource {
     }
 
     async fn get_versions(&self, project_id: &str) -> Result<Vec<ModpackVersionEntry>, Error> {
-        let key = crate::mods::curseforge::keyring::get().ok().flatten();
+        let key = crate::mods::curseforge::keyring::resolve();
         crate::mods::modpack::cf_api::list_files(CF_BASE, key.as_deref(), project_id).await
     }
 
     async fn get_project(&self, project_id: &str) -> Result<ModpackProject, Error> {
-        let key = crate::mods::curseforge::keyring::get().ok().flatten();
+        let key = crate::mods::curseforge::keyring::resolve();
         crate::mods::modpack::cf_api::fetch_project_detail(CF_BASE, key.as_deref(), project_id)
             .await
     }
@@ -61,7 +61,7 @@ impl ModpackSource for CurseforgeModpackSource {
         project_id: &str,
         version_id: &str,
     ) -> Result<String, Error> {
-        let key = crate::mods::curseforge::keyring::get().ok().flatten();
+        let key = crate::mods::curseforge::keyring::resolve();
         crate::mods::modpack::source::stage::download_curseforge_zip(
             app,
             CF_BASE,

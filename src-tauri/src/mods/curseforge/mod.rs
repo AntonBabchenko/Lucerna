@@ -25,7 +25,7 @@ impl CurseForgeClient {
     pub fn new() -> Self {
         Self {
             base: BASE_DEFAULT.into(),
-            api_key: keyring::get().ok().flatten(),
+            api_key: keyring::resolve(),
         }
     }
 

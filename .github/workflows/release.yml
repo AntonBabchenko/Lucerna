@@ -77,6 +77,11 @@ jobs:
         shell: bash
         env:
           LUCERNA_MS_CLIENT_ID_SECRET: ${{ secrets.LUCERNA_MS_CLIENT_ID }}
+          # Baked into the binary at compile time via option_env!. Unset/empty
+          # (forks without the secret) => resolve_with treats it as absent and
+          # the app falls back to a user-entered key. No conditional shell
+          # export needed (unlike the MS id) because resolve_with tolerates "".
+          LUCERNA_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
           # Ad-hoc code signing on macOS. With this set, Tauri runs
           # `codesign -s -` on the .app DURING bundling, so the .dmg it
           # produces already contains a signed app. That is required for an

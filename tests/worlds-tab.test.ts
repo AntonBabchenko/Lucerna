@@ -54,4 +54,27 @@ describe('WorldsTab', () => {
     });
     await findByText(/No worlds yet/);
   });
+
+  it('renders a filled green play button per world', async () => {
+    const { findByText, container } = render(WorldsTab, {
+      props: { instanceId: 'i1', onListChanged: () => {} },
+    });
+    await findByText('My World');
+    // Two worlds in the mock → two btn-success play buttons.
+    expect(container.querySelectorAll('button.btn-success').length).toBe(2);
+  });
+
+  it('disables the green play button when quick-play is unavailable', async () => {
+    const { findByText, container } = render(WorldsTab, {
+      props: {
+        instanceId: 'i1',
+        onListChanged: () => {},
+        quickPlayDisabledReason: 'Quick Play needs Minecraft 1.20+',
+      },
+    });
+    await findByText('My World');
+    const playButtons = container.querySelectorAll<HTMLButtonElement>('button.btn-success');
+    expect(playButtons.length).toBe(2);
+    expect([...playButtons].every((b) => b.disabled)).toBe(true);
+  });
 });

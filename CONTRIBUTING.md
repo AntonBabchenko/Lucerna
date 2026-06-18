@@ -99,6 +99,33 @@ To register your own app at [portal.azure.com](https://portal.azure.com)
   scopes require Microsoft approval of the app registration before sign-in
   succeeds end-to-end.
 
+## CurseForge API key
+
+CurseForge's API requires an `x-api-key` header on every request, so the
+launcher needs a key to browse/download CurseForge mods and modpacks. Unlike
+the Microsoft `client_id` (a public identity used with PKCE), this key is an
+**application credential** — it cannot be kept truly secret in a distributed
+binary, but CurseForge offers no anonymous access, so the least-bad option is
+to embed it and be transparent about it (the same approach Prism Launcher
+takes). See [`docs/SECURITY.md`](docs/SECURITY.md) Part E.
+
+- **End users:** nothing to do. The official installer has a working key
+  compiled in; CurseForge works out of the box. You may optionally set your own
+  key in Settings → Integrations — a personal key takes precedence.
+- **If you distribute a fork:** register your own key at
+  [console.curseforge.com](https://console.curseforge.com) and build with it,
+  so you don't share the upstream key's rate limit:
+
+  ```powershell
+  $env:LUCERNA_CURSEFORGE_API_KEY = "<your-curseforge-api-key>"
+  pnpm tauri build
+  ```
+
+  `LUCERNA_CURSEFORGE_API_KEY` is read at **compile time**
+  ([`keyring.rs`](src-tauri/src/mods/curseforge/keyring.rs)); unset, the build
+  ships no embedded key and falls back to the in-app manual key entry, which is
+  fine for local development.
+
 ## Branches and commits
 
 - Work on short-lived feature branches off `main` (e.g. `feat/quick-play`,

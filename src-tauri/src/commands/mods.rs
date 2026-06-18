@@ -1,13 +1,41 @@
 use super::*;
 
 // =========================================================================
+// TTL-cached versions helper (used by background sweeps only)
+// =========================================================================
+
+/// `platform.versions(...)` with a TTL cache in front. Used by the background
+/// sweeps (compat check, update check, dependency graph) so repeat scans don't
+/// re-hit the network. NOT used by the per-install resolution (installs want a
+/// fresh canonical version).
+async fn cached_versions(
+    platform: &dyn crate::mods::platform::ModPlatform,
+    source: crate::mods::platform::ModSource,
+    project_id: &str,
+    mc: &str,
+    loader: LoaderKind,
+) -> crate::error::Result<Vec<crate::mods::platform::ModVersion>> {
+    if let Some(hit) = crate::mods::version_cache::get(source, project_id, mc, loader) {
+        return Ok(hit);
+    }
+    let v = platform
+        .versions(project_id, Some(mc), Some(loader))
+        .await?;
+    crate::mods::version_cache::put(source, project_id, mc, loader, v.clone());
+    Ok(v)
+}
+
+// =========================================================================
 // Mod browser commands (v0.5.0 sub-feature 3)
 // =========================================================================
 
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_search(query: ModSearchQuery) -> crate::error::Result<ModSearchPage> {
-    platform_for(query.source).search(&query).await
+    crate::network::throttle::with_interactive(async move {
+        platform_for(query.source).search(&query).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -69,6 +97,7 @@ pub async fn mods_install_with_deps(
     primary: VersionRef,
     optional_deps: Vec<VersionRef>,
 ) -> crate::error::Result<crate::mods::platform::InstallSummary> {
+    crate::network::throttle::with_interactive(async move {
     use crate::mods::deps::{resolve_closure, ProjectKey};
     use std::sync::Arc;
 
@@ -322,6 +351,8 @@ pub async fn mods_install_with_deps(
         primary_name: primary_v.name.clone(),
         installed_dependencies,
     })
+    })
+    .await
 }
 
 // =========================================================================
@@ -344,6 +375,7 @@ pub async fn mods_resolve_install_plan(
     mc_version: String,
     loader: LoaderKind,
 ) -> crate::error::Result<InstallPlan> {
+    crate::network::throttle::with_interactive(async move {
     use crate::mods::deps::{resolve_closure, ProjectKey};
     use std::sync::Arc;
 
@@ -498,6 +530,8 @@ pub async fn mods_resolve_install_plan(
         unresolvable: top.unresolvable,
         loader_requirements,
     })
+    })
+    .await
 }
 
 /// Reconciled view of `{instance}/.minecraft/mods/`: any jar present is
@@ -625,36 +659,38 @@ pub async fn mods_check_updates(
     // Bounded-concurrency platform poll. Identical per-mod semantics to the
     // prior sequential loop: one `ModUpdateCheck` per eligible mod, same
     // `classify_update`, same `CheckFailed`-on-error.
-    let mut results: Vec<(usize, ModUpdateCheck)> = stream::iter(eligible)
-        .map(|(i, m, source, project_id, version_id)| {
-            let mc = mc_version.clone();
-            async move {
-                let state = match platform_for(source)
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await
-                {
-                    Ok(versions) => classify_update(&m, &versions),
-                    Err(e) => ModUpdateState::CheckFailed {
-                        reason: e.to_string(),
-                    },
-                };
-                (
-                    i,
-                    ModUpdateCheck {
-                        sha1: m.sha1.clone(),
-                        name: m.name.clone(),
-                        source,
-                        project_id,
-                        current_version_id: version_id,
-                        current_version_number: m.version_number.clone(),
-                        state,
-                    },
-                )
-            }
-        })
-        .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
-        .collect()
-        .await;
+    let mut results: Vec<(usize, ModUpdateCheck)> =
+        stream::iter(eligible)
+            .map(|(i, m, source, project_id, version_id)| {
+                let mc = mc_version.clone();
+                async move {
+                    let platform = platform_for(source);
+                    let state =
+                        match cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
+                            .await
+                        {
+                            Ok(versions) => classify_update(&m, &versions),
+                            Err(e) => ModUpdateState::CheckFailed {
+                                reason: e.to_string(),
+                            },
+                        };
+                    (
+                        i,
+                        ModUpdateCheck {
+                            sha1: m.sha1.clone(),
+                            name: m.name.clone(),
+                            source,
+                            project_id,
+                            current_version_id: version_id,
+                            current_version_number: m.version_number.clone(),
+                            state,
+                        },
+                    )
+                }
+            })
+            .buffer_unordered(CHECK_UPDATES_CONCURRENCY)
+            .collect()
+            .await;
 
     // Restore installed-list order: `buffer_unordered` yields completions
     // out of order, so re-sort by the paired original index.
@@ -691,7 +727,7 @@ pub async fn mods_enrich_pack_mods(
     instance_id: String,
 ) -> crate::error::Result<u32> {
     let inst_root = instance_root(&app, &instance_id)?;
-    let cf_key = crate::mods::curseforge::keyring::get().ok().flatten();
+    let cf_key = crate::mods::curseforge::keyring::resolve();
     crate::mods::enrich::enrich_instance(
         &inst_root,
         "https://api.modrinth.com",
@@ -716,72 +752,85 @@ pub async fn mods_update_one(
     old_sha1: String,
     target: ModVersion,
 ) -> crate::error::Result<()> {
-    let inst_root = instance_root(&app, &instance_id)?;
-    let dd = data_dir(&app)?;
-    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
+    crate::network::throttle::with_interactive(async move {
+        let inst_root = instance_root(&app, &instance_id)?;
+        let dd = data_dir(&app)?;
+        let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    // Required dependencies of the target version (optional deps skipped).
-    let platform = platform_for(target.source);
-    let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
-    let required_deps: Vec<ModVersion> = resolved.required.into_iter().map(|r| r.version).collect();
+        // Required dependencies of the target version (optional deps skipped).
+        let platform = platform_for(target.source);
+        let resolved = platform.resolve_deps(&target, &mc_version, loader).await?;
+        let required_deps: Vec<ModVersion> =
+            resolved.required.into_iter().map(|r| r.version).collect();
 
-    // Progress events tagged with the target's project_id so the UI can
-    // route the bar to the right card (same pattern as install).
-    let app_for_progress = app.clone();
-    let instance_id_for_progress = instance_id.clone();
-    let project_id_for_progress = target.project_id.clone();
-    let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
-        let payload = match phase {
-            crate::mods::install::ModInstallPhase::Downloading => ModInstallProgress::Downloading {
-                instance_id: instance_id_for_progress.clone(),
-                project_id: project_id_for_progress.clone(),
-                bytes_done: done as f64,
-                bytes_total: total.map(|t| t as f64),
-            },
-            crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
-                instance_id: instance_id_for_progress.clone(),
-                project_id: project_id_for_progress.clone(),
-                bytes_done: done as f64,
-            },
-            crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
-                instance_id: instance_id_for_progress.clone(),
-                project_id: project_id_for_progress.clone(),
-            },
-        };
-        let _ = payload.emit(&app_for_progress);
-    });
+        // Progress events tagged with the target's project_id so the UI can
+        // route the bar to the right card (same pattern as install).
+        let app_for_progress = app.clone();
+        let instance_id_for_progress = instance_id.clone();
+        let project_id_for_progress = target.project_id.clone();
+        let prog: crate::mods::install::ProgressFn = Box::new(move |phase, done, total| {
+            let payload = match phase {
+                crate::mods::install::ModInstallPhase::Downloading => {
+                    ModInstallProgress::Downloading {
+                        instance_id: instance_id_for_progress.clone(),
+                        project_id: project_id_for_progress.clone(),
+                        bytes_done: done as f64,
+                        bytes_total: total.map(|t| t as f64),
+                    }
+                }
+                crate::mods::install::ModInstallPhase::Verifying => ModInstallProgress::Verifying {
+                    instance_id: instance_id_for_progress.clone(),
+                    project_id: project_id_for_progress.clone(),
+                    bytes_done: done as f64,
+                },
+                crate::mods::install::ModInstallPhase::Copying => ModInstallProgress::Copying {
+                    instance_id: instance_id_for_progress.clone(),
+                    project_id: project_id_for_progress.clone(),
+                },
+            };
+            let _ = payload.emit(&app_for_progress);
+        });
 
-    let target_project_id = target.project_id.clone();
-    match crate::mods::install::update_one(&dd, &inst_root, &old_sha1, target, required_deps, &prog)
+        let target_project_id = target.project_id.clone();
+        match crate::mods::install::update_one(
+            &dd,
+            &inst_root,
+            &old_sha1,
+            target,
+            required_deps,
+            &prog,
+        )
         .await
-    {
-        Ok(outcome) => {
-            let _ = ModUninstalled {
-                instance_id: instance_id.clone(),
-                sha1: outcome.removed_sha1,
-            }
-            .emit(&app);
-            for inst in std::iter::once(outcome.primary).chain(outcome.deps) {
-                let _ = ModInstalled {
+        {
+            Ok(outcome) => {
+                let _ = ModUninstalled {
                     instance_id: instance_id.clone(),
-                    sha1: inst.sha1,
-                    filename: inst.filename,
-                    name: inst.name,
+                    sha1: outcome.removed_sha1,
                 }
                 .emit(&app);
+                for inst in std::iter::once(outcome.primary).chain(outcome.deps) {
+                    let _ = ModInstalled {
+                        instance_id: instance_id.clone(),
+                        sha1: inst.sha1,
+                        filename: inst.filename,
+                        name: inst.name,
+                    }
+                    .emit(&app);
+                }
+                Ok(())
             }
-            Ok(())
-        }
-        Err(e) => {
-            let _ = ModInstallFailed {
-                instance_id: instance_id.clone(),
-                project_id: target_project_id,
-                error: e.clone(),
+            Err(e) => {
+                let _ = ModInstallFailed {
+                    instance_id: instance_id.clone(),
+                    project_id: target_project_id,
+                    error: e.clone(),
+                }
+                .emit(&app);
+                Err(e)
             }
-            .emit(&app);
-            Err(e)
         }
-    }
+    })
+    .await
 }
 
 /// Inspect a local mod `.jar`: read its descriptor and judge loader/MC
@@ -880,11 +929,12 @@ pub async fn check_instance_mod_compat(
     for m in &installed {
         let status = match eligible_identity(m, pack_origin.as_ref()) {
             None => crate::mods::compat::ModCompatStatus::Unknown,
-            Some((source, project_id, _vid)) => crate::mods::compat::classify_compat(
-                platform_for(source)
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await,
-            ),
+            Some((source, project_id, _vid)) => {
+                let platform = platform_for(source);
+                crate::mods::compat::classify_compat(
+                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader).await,
+                )
+            }
         };
         out.push(crate::mods::compat::ModCompat {
             sha1: m.sha1.clone(),
@@ -1199,10 +1249,10 @@ pub async fn mods_dependency_graph(
             let loader_cache = loader_cache.clone();
             let mc = mc.clone();
             async move {
-                let mut versions = platform
-                    .versions(&project_id, Some(&mc), Some(loader))
-                    .await
-                    .unwrap_or_default();
+                let mut versions =
+                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
+                        .await
+                        .unwrap_or_default();
                 // Pick the newest compatible version explicitly: Modrinth
                 // returns newest-first but CurseForge's order is undocumented,
                 // so sort by `published_at` (RFC 3339, lexicographically

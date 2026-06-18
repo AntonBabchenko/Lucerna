@@ -387,10 +387,7 @@ pub(crate) async fn compute_modpack_update_status(
     use crate::mods::modpack::update_status::{precheck, status_from_versions};
 
     let inst = crate::instances::read_instance(app, instance_id)?;
-    let cf_key_present = crate::mods::curseforge::keyring::get()
-        .ok()
-        .flatten()
-        .is_some();
+    let cf_key_present = crate::mods::curseforge::keyring::resolve().is_some();
     let (source, project_id, version_id) = match precheck(
         inst.mrpack_source,
         inst.mrpack_project_id.as_deref(),

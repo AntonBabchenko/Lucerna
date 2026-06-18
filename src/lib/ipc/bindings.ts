@@ -187,6 +187,12 @@ export const commands = {
 	 */
 	listWorlds: (instanceId: string) => typedError<World[], Error>(__TAURI_INVOKE("list_worlds", { instanceId })),
 	/**
+	 *  Lightweight world list (folder name + recency proxy) for the sidebar
+	 *  Play-button dropdown. Cheaper than `list_worlds` — no size/backup walk —
+	 *  so the UI can call it on every instance switch.
+	 */
+	listWorldNames: (instanceId: string) => typedError<WorldQuickEntry[], Error>(__TAURI_INVOKE("list_world_names", { instanceId })),
+	/**
 	 *  Create a new backup zip of `world_folder_name` under
 	 *  `<instance>/backups/<world>/`. Returns the new Backup descriptor.
 	 */
@@ -555,9 +561,12 @@ export const commands = {
 	 */
 	modsInstallLocal: (instanceId: string, jarPath: string) => typedError<InstalledMod, Error>(__TAURI_INVOKE("mods_install_local", { instanceId, jarPath })),
 	/**
-	 *  Report whether a CurseForge API key is currently stored in the OS
-	 *  keyring. `Invalid` is reserved for future "key was rejected" surfacing —
-	 *  today this command only distinguishes Missing vs Set.
+	 *  Report whether CurseForge is usable — i.e. whether a key is resolvable.
+	 *  A key resolves from the user's OS-keyring entry, or (on a release build)
+	 *  from the key embedded at compile time. So a release user who never entered
+	 *  a key still reports `Set`, which suppresses the setup guide and the
+	 *  "add a key" banners. `Invalid` is reserved for future "key was rejected"
+	 *  surfacing — today this command only distinguishes Missing vs Set.
 	 */
 	modsGetCurseforgeKeyStatus: () => typedError<KeyStatus, Error>(__TAURI_INVOKE("mods_get_curseforge_key_status")),
 	/**
@@ -2529,6 +2538,16 @@ export type World = {
 	size_bytes: number | null,
 	modified_unix_ms: number | null,
 	backup_count: number,
+};
+
+/**
+ *  Lightweight world entry for the sidebar Play-button dropdown: folder
+ *  name + a recency proxy only. Cheaper than `World` (no recursive size or
+ *  backup-count walk), so it is safe to load on every instance switch.
+ */
+export type WorldQuickEntry = {
+	folder_name: string,
+	modified_unix_ms: number | null,
 };
 
 /* Tauri Specta runtime */
