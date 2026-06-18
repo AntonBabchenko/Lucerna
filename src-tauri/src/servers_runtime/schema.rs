@@ -20,6 +20,10 @@ pub struct ServerFile {
     /// Инстанс-источник для модели «из инстанса». `None` для standalone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_from_instance: Option<String>,
+    /// Log signature of the latest server crash the user already acted on
+    /// (e.g. removed client mods). Suppresses re-nagging on that same log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handled_log_sig: Option<String>,
 }
 
 /// Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2).
@@ -82,9 +86,53 @@ mod tests {
             created_unix_ms: 1_700_000_000_000.0,
             eula_accepted: false,
             created_from_instance: Some("inst-1".into()),
+            handled_log_sig: None,
         }
     }
 
+    #[test]
+    fn server_file_skips_none_handled_sig() {
+        let s = ServerFile {
+            id: "x".into(),
+            name: "n".into(),
+            mc_version: "1.20.1".into(),
+            loader: crate::instances::schema::LoaderKind::Forge,
+            loader_version: Some("47.4.10".into()),
+            max_heap_mb: 2048,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1.0,
+            eula_accepted: true,
+            created_from_instance: None,
+            handled_log_sig: None,
+        };
+        assert!(!serde_json::to_string(&s)
+            .unwrap()
+            .contains("handled_log_sig"));
+    }
+    #[test]
+    fn server_file_handled_sig_roundtrip() {
+        let s = ServerFile {
+            id: "x".into(),
+            name: "n".into(),
+            mc_version: "1.20.1".into(),
+            loader: crate::instances::schema::LoaderKind::Forge,
+            loader_version: None,
+            max_heap_mb: 2048,
+            extra_jvm_args: String::new(),
+            created_unix_ms: 1.0,
+            eula_accepted: true,
+            created_from_instance: None,
+            handled_log_sig: Some("abc".into()),
+        };
+        let back: ServerFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.handled_log_sig.as_deref(), Some("abc"));
+    }
+    #[test]
+    fn old_server_json_without_handled_sig_deserializes() {
+        let j = r#"{"id":"x","name":"n","mc_version":"1.20.1","loader":"forge","loader_version":null,"max_heap_mb":2048,"extra_jvm_args":"","created_unix_ms":1.0,"eula_accepted":true}"#;
+        let s: ServerFile = serde_json::from_str(j).unwrap();
+        assert_eq!(s.handled_log_sig, None);
+    }
     #[test]
     fn server_file_roundtrip() {
         let s = sample();

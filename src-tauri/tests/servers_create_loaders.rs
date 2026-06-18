@@ -27,6 +27,7 @@ fn sample(id: &str, loader: LoaderKind) -> ServerFile {
         created_unix_ms: 1.0,
         eula_accepted: true,
         created_from_instance: None,
+        handled_log_sig: None,
     }
 }
 

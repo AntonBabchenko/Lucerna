@@ -43,6 +43,7 @@ pub async fn server_create(
         created_unix_ms: chrono::Utc::now().timestamp_millis() as f64,
         eula_accepted,
         created_from_instance,
+        handled_log_sig: None,
     };
     match file.loader {
         LoaderKind::Vanilla => {

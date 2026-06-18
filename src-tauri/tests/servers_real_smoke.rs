@@ -26,6 +26,7 @@ fn file(id: &str, loader: LoaderKind, loader_version: Option<&str>) -> ServerFil
         created_unix_ms: 1.0,
         eula_accepted: true,
         created_from_instance: None,
+        handled_log_sig: None,
     }
 }
 
