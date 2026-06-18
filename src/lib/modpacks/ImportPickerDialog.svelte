@@ -178,7 +178,7 @@
         total: allShas.length,
       })}</span
     >
-    <button type="button" class="text-accent hover:underline text-xs" onclick={toggleAll}>
+    <button type="button" class="btn-tertiary text-xs" onclick={toggleAll}>
       {allSelected
         ? $t('modpacks.import.picker.deselectAll')
         : $t('modpacks.import.picker.selectAll')}
@@ -248,7 +248,7 @@
                     void import('@tauri-apps/plugin-opener').then((m) =>
                       m.openUrl(u.manual_action_url),
                     )}
-                  class="text-accent hover:underline text-xs inline-flex items-center gap-1"
+                  class="btn-link text-xs inline-flex items-center gap-1"
                   >{$t('modpacks.import.picker.openLink')}<Icon
                     name="externalLink"
                     size={12}
