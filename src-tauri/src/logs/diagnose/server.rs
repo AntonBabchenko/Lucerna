@@ -5,6 +5,8 @@
 
 use crate::logs::diagnose::repair::RepairKind;
 use crate::logs::diagnose::Diagnosis;
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// First matching server-log diagnosis, if any. Order = specificity.
 pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
@@ -40,6 +42,35 @@ pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
         });
     }
     None
+}
+
+static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"returned (\d+) files which are client-side-only mods").expect("skip re")
+});
+/// Count of client-only mods Forge auto-skipped (informational for the UI).
+pub fn forge_client_skip_count(log: &str) -> Option<u32> {
+    SKIP_RE
+        .captures(log)
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse().ok())
+}
+
+static MIXIN_RE: Lazy<Regex> = Lazy::new(|| {
+    // Mixin handler methods are named `handler$<hash>$<owner>$<name>`; the owner
+    // token is a strong hint at the offending mod (e.g. "etf").
+    Regex::new(r"handler\$[a-z0-9]+\$([a-z0-9_]+)\$").expect("mixin re")
+});
+/// Best-effort owner tokens from `invalid dist` mixin frames (deduped, ≥2 chars).
+pub fn dist_crash_tokens(log: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for c in MIXIN_RE.captures_iter(log) {
+        if let Some(t) = c.get(1).map(|m| m.as_str().to_string()) {
+            if t.len() >= 2 && !out.contains(&t) {
+                out.push(t);
+            }
+        }
+    }
+    out
 }
 
 /// One log line containing `needle` (trimmed, capped at 200 chars).
@@ -84,5 +115,16 @@ mod tests {
     #[test]
     fn clean_log_no_match() {
         assert!(diagnose_server_log("[Server thread/INFO]: Done (4.1s)! For help\n").is_none());
+    }
+    #[test]
+    fn parses_forge_client_skip_count() {
+        let log = "[main/WARN] [ne.mi.fm.lo.mo.ModDiscoverer/SCAN]: Locator {mods folder locator at C:\\x\\mods} returned 3 files which are client-side-only mods, but we're on a dedicated server. They will be skipped!\n";
+        assert_eq!(forge_client_skip_count(log), Some(3));
+        assert_eq!(forge_client_skip_count("nothing here"), None);
+    }
+    #[test]
+    fn parses_dist_crash_tokens() {
+        let toks = dist_crash_tokens(ETF_CRASH);
+        assert!(toks.iter().any(|t| t == "etf"), "tokens: {toks:?}");
     }
 }
