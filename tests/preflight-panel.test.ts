@@ -74,6 +74,7 @@ describe('PreflightPanel', () => {
           installed_version: null,
           needed: '',
           provider_project: null,
+          provider_sha1: null,
         },
       ],
     };
