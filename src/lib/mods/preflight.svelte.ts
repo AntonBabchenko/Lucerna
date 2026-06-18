@@ -4,6 +4,7 @@ import {
   type DepViolation,
   type InstallMissingOutcome,
   type LoaderKind,
+  type ModVersion,
   type PreflightReport,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
@@ -63,23 +64,29 @@ function depRefToIds(ref: DepProjectRef): { source: 'modrinth' | 'curseforge'; p
 }
 
 /**
- * Attempt to resolve and install the newest compatible version for a single
- * `version_out_of_range` violation that has a `provider_project`.
+ * Resolve and install the newest version that BOTH is MC/loader-compatible AND
+ * satisfies the dependency's declared range, for a single `version_out_of_range`
+ * violation that has a `provider_project`.
  *
- * v1 simplification: picks `vr.data[0]` (modsVersions returns newest-compatible-
- * first, identical to the installDepNode strategy). A rare "version too high"
- * case won't be fixed, but the post-update re-check will surface it honestly.
+ * The range check runs in Rust (`mods_filter_satisfying`, backed by
+ * `version_range::satisfies`) on the version list we already fetched, so the
+ * snapshot-beta case — newest-compatible but out of range — is skipped instead
+ * of re-installed.
  *
- * Fail semantics: returns `{ ok: false }` on any IPC error or when there is no
- * resolvable version — never throws.
+ * Fail semantics (never throws):
+ * - `no-provider`   — no provider project / family to resolve against.
+ * - `no-version`    — the platform returned no versions.
+ * - `no-satisfying` — versions exist but none satisfy the range (honest dead-end).
+ * - `update-failed` — the install/update command errored.
+ * On success returns the installed `version_number` for the toast.
  */
 export async function remediateViolation(
   instanceId: string,
   v: DepViolation,
   mc: string,
   loader: LoaderKind,
-): Promise<{ ok: boolean; reason?: string }> {
-  if (v.provider_project === null) {
+): Promise<{ ok: boolean; reason?: string; installedVersion?: string }> {
+  if (v.provider_project === null || v.family === null) {
     return { ok: false, reason: 'no-provider' };
   }
   const { source, projectId } = depRefToIds(v.provider_project);
@@ -87,7 +94,17 @@ export async function remediateViolation(
   if (vr.status === 'error' || vr.data.length === 0) {
     return { ok: false, reason: 'no-version' };
   }
-  const primary = vr.data[0];
+  // Keep only versions that satisfy the declared range; the first index is the
+  // newest satisfying one (modsVersions is newest-first).
+  const idx = await commands.modsFilterSatisfying(
+    vr.data.map((x) => x.version_number),
+    v.needed,
+    v.family,
+  );
+  if (idx.length === 0) {
+    return { ok: false, reason: 'no-satisfying' };
+  }
+  const primary = vr.data[idx[0]];
   const res = v.provider_sha1
     ? await commands.modsUpdateOne(instanceId, v.provider_sha1, primary)
     : await commands.modsInstallWithDeps(
@@ -95,10 +112,9 @@ export async function remediateViolation(
         { source: primary.source, project_id: primary.project_id, version_id: primary.version_id },
         [],
       );
-  return {
-    ok: res.status === 'ok',
-    reason: res.status === 'ok' ? undefined : 'update-failed',
-  };
+  return res.status === 'ok'
+    ? { ok: true, installedVersion: primary.version_number }
+    : { ok: false, reason: 'update-failed' };
 }
 
 /**
@@ -119,6 +135,34 @@ export async function remediateAll(
     if (result.ok) updated++;
   }
   return updated;
+}
+
+/** Stable per-row key for a violation (matches `PreflightPanel`'s row key). */
+export function violationKey(v: DepViolation): string {
+  return `${v.dependent_sha1}:${v.dep_id}`;
+}
+
+/**
+ * Install a user-chosen version for a violation (manual pick / downgrade from
+ * the version picker). Routes through `mods_update_one` (in-place replace) when
+ * the provider jar is tracked, else a fresh install. Never throws; returns the
+ * installed `version_number` on success for the toast.
+ */
+export async function remediatePickedVersion(
+  instanceId: string,
+  v: DepViolation,
+  chosen: ModVersion,
+): Promise<{ ok: boolean; installedVersion?: string }> {
+  const res = v.provider_sha1
+    ? await commands.modsUpdateOne(instanceId, v.provider_sha1, chosen)
+    : await commands.modsInstallWithDeps(
+        instanceId,
+        { source: chosen.source, project_id: chosen.project_id, version_id: chosen.version_id },
+        [],
+      );
+  return res.status === 'ok'
+    ? { ok: true, installedVersion: chosen.version_number }
+    : { ok: false };
 }
 
 /**

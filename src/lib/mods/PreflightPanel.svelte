@@ -1,19 +1,35 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 
   let {
     report,
     onUpdate,
     onInstallMissing = () => {},
+    onChooseVersion = () => {},
+    onFindAlternative = () => {},
+    onOpenModPage = () => {},
+    busyKeys = new Set<string>(),
+    deadEndKeys = new Set<string>(),
+    showRowActions = true,
   }: {
     report: PreflightReport | null;
     onUpdate: (v: DepViolation) => void;
     onInstallMissing?: (v: DepViolation) => void;
+    onChooseVersion?: (v: DepViolation) => void;
+    onFindAlternative?: (v: DepViolation) => void;
+    onOpenModPage?: (v: DepViolation) => void;
+    busyKeys?: Set<string>;
+    deadEndKeys?: Set<string>;
+    // The launch gate mutes per-row actions (it remediates via its own
+    // "Update & launch" batch button), so it passes false to hide them.
+    showRowActions?: boolean;
   } = $props();
 
   const violations = $derived(report?.violations ?? []);
+  const rowKey = (v: DepViolation): string => `${v.dependent_sha1}:${v.dep_id}`;
 </script>
 
 {#if violations.length > 0}
@@ -63,7 +79,7 @@
               })}
             {/if}
           </span>
-          {#if v.kind === 'missing_required'}
+          {#if showRowActions && v.kind === 'missing_required'}
             <button
               type="button"
               class="shrink-0 text-xs font-medium px-2 py-1 rounded
@@ -73,16 +89,49 @@
             >
               {$t('mods.preflight.install', { dep: v.dep_display_name ?? v.dep_id })}
             </button>
-          {:else if v.kind === 'version_out_of_range' && v.provider_project !== null}
-            <button
-              type="button"
-              class="shrink-0 text-xs font-medium px-2 py-1 rounded
-              border border-warning-text text-warning-text hover:bg-warning-text/10
-              focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
-              onclick={() => onUpdate(v)}
-            >
-              {$t('mods.preflight.update')}
-            </button>
+          {:else if showRowActions && v.kind === 'version_out_of_range' && v.provider_project !== null}
+            {@const key = rowKey(v)}
+            {#if busyKeys.has(key)}
+              <Spinner size="sm" class="shrink-0 text-warning-text" />
+            {:else if deadEndKeys.has(key)}
+              <span class="shrink-0 text-xs text-warning-text">
+                {$t('mods.preflight.noCompatible')}
+              </span>
+              <button
+                type="button"
+                class="shrink-0 text-xs underline text-warning-text hover:opacity-80
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                onclick={() => onOpenModPage(v)}
+              >
+                {$t('mods.preflight.openModPage')}
+              </button>
+              <button
+                type="button"
+                class="shrink-0 text-xs underline text-warning-text hover:opacity-80
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                onclick={() => onFindAlternative(v)}
+              >
+                {$t('mods.preflight.findAlternative')}
+              </button>
+            {:else}
+              <button
+                type="button"
+                class="shrink-0 text-xs font-medium px-2 py-1 rounded
+                border border-warning-text text-warning-text hover:bg-warning-text/10
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                onclick={() => onUpdate(v)}
+              >
+                {$t('mods.preflight.update')}
+              </button>
+              <button
+                type="button"
+                class="shrink-0 text-xs underline text-warning-text hover:opacity-80
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                onclick={() => onChooseVersion(v)}
+              >
+                {$t('mods.preflight.chooseVersion')}
+              </button>
+            {/if}
           {/if}
         </div>
       {/each}

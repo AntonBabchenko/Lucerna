@@ -17,6 +17,7 @@ const report: PreflightReport = {
       installed_version: '1.3.50.2005',
       provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
       provider_sha1: null,
+      family: 'maven',
     },
   ],
 };
@@ -45,6 +46,7 @@ describe('toOverlayKeys edge cases', () => {
           installed_version: null,
           provider_project: null,
           provider_sha1: null,
+          family: null,
         },
       ],
     };
@@ -64,6 +66,7 @@ describe('toOverlayKeys edge cases', () => {
           installed_version: '0.9',
           provider_project: null,
           provider_sha1: null,
+          family: 'maven',
         },
       ],
     };
@@ -83,6 +86,7 @@ describe('toOverlayKeys edge cases', () => {
           installed_version: '1.9',
           provider_project: { source: 'curseforge', mod_id: 12345, file_id: null },
           provider_sha1: null,
+          family: 'maven',
         },
       ],
     };
@@ -108,6 +112,7 @@ const outOfRangeViolation: DepViolation = {
   installed_version: '1.3.50.2005',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
   provider_sha1: null,
+  family: 'maven',
 };
 
 const missingViolation: DepViolation = {
@@ -120,6 +125,7 @@ const missingViolation: DepViolation = {
   installed_version: null,
   provider_project: null,
   provider_sha1: null,
+  family: null,
 };
 
 describe('PreflightPanel', () => {
@@ -166,10 +172,11 @@ describe('PreflightPanel', () => {
       props: { report: reportWithBoth, onUpdate: () => {}, onInstallMissing: () => {} },
     });
     const buttons = getAllByRole('button');
-    // outOfRangeViolation → one "Update" button; missingViolation → one
-    // "Install {dep}" button. Two action buttons, one per row.
-    expect(buttons).toHaveLength(2);
+    // outOfRangeViolation → "Update" + "Choose version"; missingViolation →
+    // one "Install {dep}" button. Three action buttons total.
+    expect(buttons).toHaveLength(3);
     expect(getByRole('button', { name: /update/i })).toBeTruthy();
+    expect(getByRole('button', { name: /choose version/i })).toBeTruthy();
     expect(getByRole('button', { name: /missingmod/i })).toBeTruthy();
   });
 });

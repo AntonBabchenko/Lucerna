@@ -22,6 +22,7 @@ const report: PreflightReport = {
       installed_version: '1.3.50',
       provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
       provider_sha1: null,
+      family: 'maven',
     },
   ],
 };

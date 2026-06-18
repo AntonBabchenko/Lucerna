@@ -14,6 +14,7 @@ import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 
 const mocks = vi.hoisted(() => ({
   modsVersions: vi.fn(),
+  modsFilterSatisfying: vi.fn(),
   modsInstallWithDeps: vi.fn(),
   modsUpdateOne: vi.fn(),
   instanceDependencyPreflight: vi.fn(),
@@ -26,7 +27,13 @@ vi.mock('$lib/mods/preflight-cache', () => ({
   preflightCache: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
 }));
 
-import { decideLaunch, remediateAll, remediateViolation } from '$lib/mods/preflight.svelte';
+import {
+  decideLaunch,
+  remediateAll,
+  remediatePickedVersion,
+  remediateViolation,
+  violationKey,
+} from '$lib/mods/preflight.svelte';
 
 // ---------------------------------------------------------------------------
 // Shared violation fixtures
@@ -42,6 +49,7 @@ const modrinthViolation: DepViolation = {
   installed_version: '1.3.50',
   provider_project: { source: 'modrinth', project_id: 'core-id', version_id: null },
   provider_sha1: null,
+  family: 'maven',
 };
 
 const curseforgeViolation: DepViolation = {
@@ -54,6 +62,7 @@ const curseforgeViolation: DepViolation = {
   installed_version: '1.9',
   provider_project: { source: 'curseforge', mod_id: 99999, file_id: null },
   provider_sha1: null,
+  family: 'maven',
 };
 
 const noProviderViolation: DepViolation = {
@@ -66,6 +75,7 @@ const noProviderViolation: DepViolation = {
   installed_version: '0.9',
   provider_project: null,
   provider_sha1: null,
+  family: 'maven',
 };
 
 const missingViolation: DepViolation = {
@@ -78,6 +88,7 @@ const missingViolation: DepViolation = {
   installed_version: null,
   provider_project: null,
   provider_sha1: null,
+  family: null,
 };
 
 const fakeVersion = {
@@ -93,6 +104,7 @@ const fakeVersion = {
     filename: 'fake.jar',
     sha1: 'ffff',
     size: 1024,
+    distribution_allowed: true,
   },
   deps: [],
   published_at: null,
@@ -105,8 +117,12 @@ const fakeVersion = {
 describe('remediateViolation', () => {
   beforeEach(() => {
     mocks.modsVersions.mockReset();
+    mocks.modsFilterSatisfying.mockReset();
     mocks.modsInstallWithDeps.mockReset();
     mocks.modsUpdateOne.mockReset();
+    // Default: the newest (index 0) satisfies the range. Tests that need a
+    // different satisfying set override this.
+    mocks.modsFilterSatisfying.mockResolvedValue([0]);
   });
 
   it('returns { ok: false, reason: "no-provider" } when provider_project is null', async () => {
@@ -185,7 +201,7 @@ describe('remediateViolation', () => {
 
     const result = await remediateViolation('inst-1', modrinthViolation, '1.20.1', 'fabric');
 
-    expect(result).toEqual({ ok: true, reason: undefined });
+    expect(result).toEqual({ ok: true, installedVersion: '1.3.52' });
   });
 
   it('returns { ok: false, reason: "update-failed" } when the install/update command errors', async () => {
@@ -216,6 +232,85 @@ describe('remediateViolation', () => {
     expect(mocks.modsUpdateOne).not.toHaveBeenCalled();
     expect(mocks.modsInstallWithDeps).toHaveBeenCalled();
   });
+
+  it('picks the newest SATISFYING version (not data[0]) and reports it', async () => {
+    // data[0] is a snapshot beta (MC-compatible but out of range); only the
+    // third entry satisfies the declared range.
+    const beta = { ...fakeVersion, version_id: 'vBeta', version_number: '0.9.0-beta.1' };
+    const v6 = { ...fakeVersion, version_id: 'v6', version_number: '0.6.0' };
+    const v511 = { ...fakeVersion, version_id: 'v511', version_number: '0.5.11' };
+    mocks.modsVersions.mockResolvedValue({ status: 'ok', data: [beta, v6, v511] });
+    mocks.modsFilterSatisfying.mockResolvedValue([2]);
+    mocks.modsUpdateOne.mockResolvedValue({ status: 'ok', data: null });
+
+    const v = {
+      ...modrinthViolation,
+      needed: '0.5.11',
+      family: 'fabric_predicate' as const,
+      provider_sha1: 'old',
+    };
+    const r = await remediateViolation('inst', v, '1.21', 'fabric');
+
+    expect(mocks.modsFilterSatisfying).toHaveBeenCalledWith(
+      ['0.9.0-beta.1', '0.6.0', '0.5.11'],
+      '0.5.11',
+      'fabric_predicate',
+    );
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'old', v511);
+    expect(r).toEqual({ ok: true, installedVersion: '0.5.11' });
+  });
+
+  it('returns { ok: false, reason: "no-satisfying" } when nothing fits the range', async () => {
+    mocks.modsVersions.mockResolvedValue({ status: 'ok', data: [fakeVersion] });
+    mocks.modsFilterSatisfying.mockResolvedValue([]);
+    const v = { ...modrinthViolation, provider_sha1: 'old' };
+    const r = await remediateViolation('inst', v, '1.21', 'fabric');
+    expect(r).toEqual({ ok: false, reason: 'no-satisfying' });
+    expect(mocks.modsUpdateOne).not.toHaveBeenCalled();
+    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
+  });
+
+  it('returns no-provider when the violation has no family', async () => {
+    const v = { ...modrinthViolation, family: null };
+    const r = await remediateViolation('inst', v, '1.21', 'fabric');
+    expect(r).toEqual({ ok: false, reason: 'no-provider' });
+    expect(mocks.modsVersions).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// remediatePickedVersion + violationKey
+// ---------------------------------------------------------------------------
+
+describe('remediatePickedVersion + violationKey', () => {
+  beforeEach(() => {
+    mocks.modsInstallWithDeps.mockReset();
+    mocks.modsUpdateOne.mockReset();
+  });
+
+  it('violationKey is `${dependent_sha1}:${dep_id}`', () => {
+    expect(violationKey(modrinthViolation)).toBe('aa:sophisticatedcore');
+  });
+
+  it('installs the chosen version in place via modsUpdateOne when provider_sha1 is set', async () => {
+    mocks.modsUpdateOne.mockResolvedValue({ status: 'ok', data: null });
+    const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
+    const v = { ...modrinthViolation, provider_sha1: 'OLD' };
+    const r = await remediatePickedVersion('inst', v, chosen);
+    expect(mocks.modsUpdateOne).toHaveBeenCalledWith('inst', 'OLD', chosen);
+    expect(mocks.modsInstallWithDeps).not.toHaveBeenCalled();
+    expect(r).toEqual({ ok: true, installedVersion: '0.6.0' });
+  });
+
+  it('falls back to install when provider_sha1 is absent and reports failure honestly', async () => {
+    mocks.modsInstallWithDeps.mockResolvedValue({ status: 'error', error: 'disk full' });
+    const chosen = { ...fakeVersion, version_id: 'vChosen', version_number: '0.6.0' };
+    const v = { ...modrinthViolation, provider_sha1: null };
+    const r = await remediatePickedVersion('inst', v, chosen);
+    expect(mocks.modsInstallWithDeps).toHaveBeenCalled();
+    expect(mocks.modsUpdateOne).not.toHaveBeenCalled();
+    expect(r).toEqual({ ok: false });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -225,7 +320,9 @@ describe('remediateViolation', () => {
 describe('remediateAll', () => {
   beforeEach(() => {
     mocks.modsVersions.mockReset();
+    mocks.modsFilterSatisfying.mockReset();
     mocks.modsInstallWithDeps.mockReset();
+    mocks.modsFilterSatisfying.mockResolvedValue([0]);
   });
 
   it('returns 0 when report has no version_out_of_range violations with a provider', async () => {
