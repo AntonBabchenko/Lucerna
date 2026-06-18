@@ -12,6 +12,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
 
   let gpuCap = $state<GpuCapability | null>(null);
   const gpuOptions = $derived<{ value: GpuPreference; label: string }[]>(
@@ -43,12 +44,19 @@
   let loadError = $state<string | null>(null);
   let saveError = $state<string | null>(null);
 
+  let gpuLoading = $state(false);
+
   onMount(async () => {
     const r = await commands.appSettingsGet();
     if (r.status === 'ok') general = r.data.general;
     else loadError = formatError(r.error);
-    const c = await commands.gpuCapability();
-    if (c.status === 'ok') gpuCap = c.data;
+    try {
+      gpuLoading = true;
+      const c = await commands.gpuCapability();
+      if (c.status === 'ok') gpuCap = c.data;
+    } finally {
+      gpuLoading = false;
+    }
   });
 
   async function save() {
@@ -102,7 +110,9 @@
     {/if}
   </div>
 
-  {#if gpuCap?.kind === 'available'}
+  {#if gpuLoading}
+    <LoadingPanel label={$t('common.loading')} size="sm" />
+  {:else if gpuCap?.kind === 'available'}
     <div class="flex flex-col gap-3">
       <h3 class="font-medium text-sm text-primary">{$t('settings.general.gpu.title')}</h3>
       <div class="flex flex-col gap-1">

@@ -1,4 +1,4 @@
-import { render } from '@testing-library/svelte';
+import { render, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { GpuCapability } from '$lib/ipc/bindings';
 
@@ -37,6 +37,35 @@ vi.mock('$lib/ipc/bindings', () => ({
 import GamePanel from '$lib/settings/GamePanel.svelte';
 
 describe('GamePanel GPU dropdown', () => {
+  it('shows a spinner while gpuCapability is pending, then shows gpu-select on resolve', async () => {
+    const available: GpuCapability = {
+      kind: 'available',
+      gpus: [{ name: 'NVIDIA' }, { name: 'Intel' }],
+      high: 'NVIDIA',
+      low: 'Intel',
+    };
+    let resolveGpu!: (v: unknown) => void;
+    const pending = new Promise((resolve) => {
+      resolveGpu = resolve;
+    });
+    gpuCapability.mockReturnValueOnce(pending);
+
+    const { queryByRole, findByTestId } = render(GamePanel);
+
+    // While the promise is pending, the spinner should be visible.
+    await waitFor(() => {
+      expect(queryByRole('status')).not.toBeNull();
+    });
+
+    // After resolve the Select should appear and spinner should be gone.
+    resolveGpu({ status: 'ok', data: available });
+    const select = await findByTestId('gpu-select');
+    expect(select).toBeTruthy();
+    await waitFor(() => {
+      expect(queryByRole('status')).toBeNull();
+    });
+  });
+
   it('shows the gpu-select when capability is "available"', async () => {
     const available: GpuCapability = {
       kind: 'available',
