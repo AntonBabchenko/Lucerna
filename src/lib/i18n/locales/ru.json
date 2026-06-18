@@ -705,6 +705,11 @@
       "deleteWorld": "Удалить мир…",
       "toastBackedUp": "Создана резервная копия {name} ({size})"
     },
+    "import": {
+      "dropzoneLabel": "Перетащите .zip или папку мира сюда, либо нажмите, чтобы выбрать .zip",
+      "fromFolder": "Из папки…",
+      "toastAdded": "Мир «{name}» добавлен"
+    },
     "backups": {
       "title": "Резервные копии «{world}»",
       "loading": "Загрузка резервных копий…",
@@ -1137,6 +1142,10 @@
     "worldNameUnresolvable": "Не удалось подобрать свободное имя для «{folderName}» — слишком много похожих копий",
     "backupNotFound": "Резервная копия «{filename}» не найдена",
     "backupCorrupt": "Резервная копия «{filename}» нечитаема или повреждена: {details}",
+    "worldImportNotAWorld": "Этот .zip или папка — не мир Minecraft: внутри нет level.dat.",
+    "worldImportUnsupportedSource": "Выберите .zip-файл или папку мира для импорта.",
+    "worldImportInvalidArchive": "Не удалось прочитать архив мира: {details}",
+    "worldImportTooLarge": "Этот мир слишком большой для безопасного импорта.",
     "playtimeIo": "Не удалось прочитать или записать статистику игрового времени: {details}",
     "trayIo": "Не удалось показать или скрыть значок в трее: {details}",
     "windowIo": "Не удалось изменить размер окна лаунчера: {details}",

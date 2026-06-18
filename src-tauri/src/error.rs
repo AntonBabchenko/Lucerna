@@ -281,6 +281,18 @@ pub enum Error {
     #[error("Backup '{filename}' is unreadable or corrupted: {details}")]
     BackupCorrupt { filename: String, details: String },
 
+    #[error("The selected file or folder is not a Minecraft world (no level.dat found)")]
+    WorldImportNotAWorld,
+
+    #[error("Unsupported import source — choose a .zip file or a world folder")]
+    WorldImportUnsupportedSource,
+
+    #[error("World archive is invalid: {details}")]
+    WorldImportInvalidArchive { details: String },
+
+    #[error("World is too large to import: {size} > cap {cap}")]
+    WorldImportTooLarge { size: f64, cap: f64 },
+
     #[error("Playtime I/O error: {details}")]
     PlaytimeIo { details: String },
 
@@ -660,5 +672,50 @@ mod tests {
             json.contains(r#""url":"http://evil.example/x""#),
             "got: {json}"
         );
+    }
+
+    #[test]
+    fn world_import_not_a_world_serializes_as_unit() {
+        let e = Error::WorldImportNotAWorld;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"world_import_not_a_world"}"#);
+    }
+
+    #[test]
+    fn world_import_unsupported_source_serializes_as_unit() {
+        let e = Error::WorldImportUnsupportedSource;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"world_import_unsupported_source"}"#);
+    }
+
+    #[test]
+    fn world_import_invalid_archive_carries_details() {
+        let e = Error::WorldImportInvalidArchive {
+            details: "unsafe path: ../x".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"world_import_invalid_archive""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""details":"unsafe path: ../x""#),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn world_import_too_large_carries_size_and_cap() {
+        let e = Error::WorldImportTooLarge {
+            size: 3.0,
+            cap: 2.0,
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"world_import_too_large""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""size":3"#), "got: {json}");
+        assert!(json.contains(r#""cap":2"#), "got: {json}");
     }
 }
