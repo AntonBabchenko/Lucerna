@@ -32,10 +32,12 @@ describe('ModpacksModal', () => {
     const onClose = vi.fn();
     render(ModpacksModal, { props: { open: true, onClose } });
     await fireEvent.click(screen.getByLabelText('Close modpacks'));
-    // The shared Modal renders the scrim as the dialog's parent backdrop
-    // div; clicking it directly (target === backdrop) dismisses.
+    // The shared Modal renders the scrim as the dialog's parent backdrop div;
+    // a press AND release both on it (target === backdrop) dismisses.
     const dialog = screen.getByRole('dialog', { name: /modpacks/i });
-    await fireEvent.click(dialog.parentElement as HTMLElement);
+    const scrim = dialog.parentElement as HTMLElement;
+    await fireEvent.mouseDown(scrim);
+    await fireEvent.mouseUp(scrim);
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(3);
   });
