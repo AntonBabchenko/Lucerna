@@ -176,6 +176,30 @@
 </script>
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
+  <FileDropzone
+    label={$t('worlds.import.dropzoneLabel')}
+    disabled={!instanceId}
+    onClick={() => void onImport('zip')}
+  />
+  <div class="flex flex-wrap items-center gap-2">
+    <button
+      type="button"
+      class="btn-tertiary inline-flex items-center gap-1"
+      onclick={() => void onImport('folder')}
+    >
+      <Icon name="folderOpen" size={14} />
+      {$t('worlds.import.fromFolder')}
+    </button>
+    <button
+      type="button"
+      class="btn-tertiary inline-flex items-center gap-1"
+      data-tour-ctx="worlds-open-folder"
+      onclick={() => void onOpenSavesFolder()}
+    >
+      {$t('worlds.tab.openSavesFolder')}
+      <Icon name="folderOpen" size={14} />
+    </button>
+  </div>
   {#if !instanceId}
     <p class="text-sm text-muted">{$t('worlds.tab.noInstance')}</p>
   {:else if loading}
@@ -246,30 +270,6 @@
       {/each}
     </ul>
   {/if}
-  <FileDropzone
-    label={$t('worlds.import.dropzoneLabel')}
-    disabled={!instanceId}
-    onClick={() => void onImport('zip')}
-  />
-  <div class="flex flex-wrap items-center gap-2">
-    <button
-      type="button"
-      class="btn-tertiary inline-flex items-center gap-1"
-      onclick={() => void onImport('folder')}
-    >
-      <Icon name="folderOpen" size={14} />
-      {$t('worlds.import.fromFolder')}
-    </button>
-    <button
-      type="button"
-      class="btn-tertiary inline-flex items-center gap-1"
-      data-tour-ctx="worlds-open-folder"
-      onclick={() => void onOpenSavesFolder()}
-    >
-      {$t('worlds.tab.openSavesFolder')}
-      <Icon name="folderOpen" size={14} />
-    </button>
-  </div>
 
   <!-- Tour fires only once worlds exist — most steps point at the
        list which is absent on a fresh instance. -->
