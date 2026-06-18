@@ -6,7 +6,7 @@
 // Inventory rows covered:
 //   ModBrowserTab:      Browse/Installed sub-tabs — underline pattern positive
 //                       (border-b-2 -mb-px, active border-accent text-primary
-//                        font-semibold, inactive border-transparent text-placeholder)
+//                        font-semibold, inactive border-transparent text-muted)
 //                       tab bar container structural classes
 //   ModBrowseView:      loading state (Searching… placeholder)
 //                       error state (bg-danger-bg border-danger text-danger)
@@ -17,9 +17,9 @@
 //                       "Show installed" checkbox
 //                       Prev/Next pagination buttons → btn-secondary btn-sm
 //   InstalledModsView:  filter radiogroup (role=radiogroup aria-label="Mod filter")
-//                       All radio → btn-secondary btn-xs, active bg-accent-soft text-accent
-//                       Enabled radio → btn-secondary btn-xs, active bg-success-bg text-success
-//                       Disabled radio → btn-secondary btn-xs, active bg-subtle text-secondary
+//                       chips render via the shared ToggleChipGroup primitive —
+//                       rounded-full bordered pills; active All → neutral tone
+//                       (bg-subtle text-primary border-border-emphasis)
 //                       "Check for updates" button → btn-secondary btn-xs
 //                       "Update all (N)" button → btn-warning btn-xs (post-6.1 fix)
 //                       error block → bg-danger-bg border-danger text-danger
@@ -222,14 +222,17 @@ describe('ModBrowserTab — Browse tab is active by default (underline pattern)'
     expect(cls).toContain('font-semibold');
   });
 
-  it('Installed tab has border-transparent text-placeholder when inactive', () => {
+  it('Installed tab has border-transparent text-muted when inactive', () => {
     render(ModBrowserTab, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const installedTab = screen.getByRole('tab', { name: 'Installed' });
     const cls = installedTab.className;
+    // The sub-tabs now render via the shared TabBar primitive, whose inactive
+    // tab is de-emphasised with `text-muted` (the previous hand-rolled markup
+    // used `text-placeholder`); the transparent border is unchanged.
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 
   it('both sub-tabs have aria-selected attribute', () => {
@@ -444,7 +447,7 @@ describe('InstalledModsView — filter radiogroup structure', () => {
     }
   });
 
-  it('All radio is btn-secondary btn-xs (base classes always present)', async () => {
+  it('All radio renders as a rounded-full ToggleChip (shared chip base classes)', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
       status: 'ok',
@@ -457,30 +460,36 @@ describe('InstalledModsView — filter radiogroup structure', () => {
     render(InstalledModsView, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // "All" is the default active filter — look for the text starting with "All"
-    const allBtn = await screen.findByRole('radio', { name: /^all/i });
-    expect(allBtn).toHaveBtnVariant('secondary');
-    expect(allBtn).toHaveBtnSize('xs');
-  });
-
-  it('active All radio has bg-accent-soft text-accent font-medium', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
-      status: 'ok',
-      data: [makeInstalled()],
-    });
-    vi.mocked(commands.modsProject).mockResolvedValueOnce({
-      status: 'ok',
-      data: makeProject(),
-    });
-    render(InstalledModsView, {
-      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
-    });
+    // The filter group now renders via the shared ToggleChipGroup primitive,
+    // whose chips are rounded-full bordered pills (the previous hand-rolled
+    // markup used btn-secondary btn-xs).
     const allBtn = await screen.findByRole('radio', { name: /^all/i });
     const cls = allBtn.className;
-    expect(cls).toContain('bg-accent-soft');
-    expect(cls).toContain('text-accent');
-    expect(cls).toContain('font-medium');
+    expect(cls).toContain('rounded-full');
+    expect(cls).toContain('border');
+  });
+
+  it('active All radio uses the neutral ToggleChip tone (bg-subtle text-primary)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeInstalled()],
+    });
+    vi.mocked(commands.modsProject).mockResolvedValueOnce({
+      status: 'ok',
+      data: makeProject(),
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    // Active "All" carries the neutral tone's active styling, distinguishing it
+    // from the de-emphasised inactive chips (the previous markup used
+    // bg-accent-soft text-accent font-medium).
+    const allBtn = await screen.findByRole('radio', { name: /^all/i });
+    const cls = allBtn.className;
+    expect(cls).toContain('bg-subtle');
+    expect(cls).toContain('text-primary');
+    expect(cls).toContain('border-border-emphasis');
   });
 
   it('roving tabindex: checked radio gets tabindex=0, others get -1 (H12)', async () => {
