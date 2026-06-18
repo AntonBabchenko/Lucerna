@@ -188,7 +188,7 @@
     <footer class="p-3 border-t text-center">
       <button
         type="button"
-        class="text-accent hover:underline text-xs inline-flex items-center gap-1"
+        class="btn-link text-xs inline-flex items-center gap-1"
         onclick={openCurseForge}
       >
         {$t('mods.findAlt.openCurseForge')}
