@@ -135,6 +135,7 @@
     "loader": {
       "label": "Загрузчик",
       "versionLabel": "Версия загрузчика",
+      "loadingVersions": "Загрузка версий…",
       "recommended": "{version} (рекомендуется)",
       "errorUnavailable": "{loader} не поддерживает Minecraft {mc}",
       "errorNetwork": "Ошибка сети при запросе {url}: {details}",
@@ -577,6 +578,7 @@
         "closeBackdropAriaLabel": "Закрыть",
         "openOn": "Открыть на {platform}",
         "updating": "Обновление…",
+        "updateProgressDownloading": "Скачивание {current} из {total}: {fileName}",
         "updateAvailable": "Доступно обновление → {version}",
         "updateBtn": "Обновить",
         "modsHeading": "Моды ({count})",
@@ -710,6 +712,11 @@
       "viewBackups": "Резервные копии…",
       "deleteWorld": "Удалить мир…",
       "toastBackedUp": "Создана резервная копия {name} ({size})"
+    },
+    "import": {
+      "dropzoneLabel": "Перетащите .zip или папку мира сюда, либо нажмите, чтобы выбрать .zip",
+      "fromFolder": "Из папки…",
+      "toastAdded": "Мир «{name}» добавлен"
     },
     "backups": {
       "title": "Резервные копии «{world}»",
@@ -1143,6 +1150,10 @@
     "worldNameUnresolvable": "Не удалось подобрать свободное имя для «{folderName}» — слишком много похожих копий",
     "backupNotFound": "Резервная копия «{filename}» не найдена",
     "backupCorrupt": "Резервная копия «{filename}» нечитаема или повреждена: {details}",
+    "worldImportNotAWorld": "Этот .zip или папка — не мир Minecraft: внутри нет level.dat.",
+    "worldImportUnsupportedSource": "Выберите .zip-файл или папку мира для импорта.",
+    "worldImportInvalidArchive": "Не удалось прочитать архив мира: {details}",
+    "worldImportTooLarge": "Этот мир слишком большой для безопасного импорта.",
     "playtimeIo": "Не удалось прочитать или записать статистику игрового времени: {details}",
     "trayIo": "Не удалось показать или скрыть значок в трее: {details}",
     "windowIo": "Не удалось изменить размер окна лаунчера: {details}",
@@ -1366,6 +1377,7 @@
       "avatarAlt": "Иконка профиля",
       "sectionModpack": "Сборка",
       "modpackOpen": "Открыть сборку",
+      "modpackUpdateBtn": "Обновить",
       "modpackCheckUpdate": "Проверить обновление",
       "modpackChecking": "Проверка…",
       "modpackUpToDate": "Актуально",
@@ -1389,6 +1401,7 @@
   "quickJoin": {
     "title": "Серверы",
     "savedHeading": "Сохранённые серверы",
+    "loading": "Загрузка серверов…",
     "empty": "Пока нет сохранённых серверов. Добавьте ниже.",
     "connect": "Подключиться",
     "copyAddress": "Копировать адрес",

@@ -11,6 +11,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   function formatLoaderError(e: IpcError): string {
     // Picker keeps shorter wording for the 3 variants it surfaces most
@@ -46,6 +47,7 @@
 
   let versions = $state<LoaderVersion[]>([]);
   let error = $state<string | null>(null);
+  let isLoadingVersions = $state(false);
 
   // Tracks the loader value the LAST $effect run dispatched a load() for.
   // Used to distinguish "the user just switched loader" (reset to new
@@ -75,10 +77,13 @@
     }
     const loaderChanged = prevLoader !== undefined && prevLoader !== k;
     prevLoader = k;
-    void load(k, m, loaderChanged);
+    isLoadingVersions = true;
+    void load(k, m, loaderChanged).finally(() => {
+      isLoadingVersions = false;
+    });
   });
 
-  async function load(k: LoaderKind, m: string, resetToStable: boolean) {
+  async function load(k: LoaderKind, m: string, resetToStable: boolean): Promise<void> {
     error = null;
     const result =
       k === 'fabric'
@@ -156,18 +161,29 @@
   {/each}
 </div>
 
-{#if loader !== 'vanilla' && versions.length > 0}
+{#if loader !== 'vanilla' && (versions.length > 0 || isLoadingVersions)}
   <label class="block text-xs uppercase text-secondary mb-1" for="loader-version-select">
     {$t('instance.loader.versionLabel')}
   </label>
-  <Select
-    id="loader-version-select"
-    class="w-full mb-3"
-    value={loaderVersion ?? ''}
-    options={versionOptions}
-    {disabled}
-    onChange={(v) => pickVersion(String(v))}
-  />
+  {#if isLoadingVersions}
+    <div class="w-full mb-3 flex items-center gap-2 text-secondary">
+      <Spinner
+        size="sm"
+        labelPlacement="right"
+        label={$t('instance.loader.loadingVersions')}
+        delayMs={150}
+      />
+    </div>
+  {:else}
+    <Select
+      id="loader-version-select"
+      class="w-full mb-3"
+      value={loaderVersion ?? ''}
+      options={versionOptions}
+      {disabled}
+      onChange={(v) => pickVersion(String(v))}
+    />
+  {/if}
 {/if}
 
 {#if error}

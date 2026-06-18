@@ -18,10 +18,13 @@
   import { Icon } from '$lib/ui/icons';
   import { cfKeyVersion } from './state.svelte';
   import { cfKeyErrorStatus } from './cf-key-status';
+  import Spinner from '$lib/ui/Spinner.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let status = $state<KeyStatus | 'loading' | 'unverified'>('loading');
   let pendingKey = $state('');
   let saving = $state(false);
+  let clearing = $state(false);
   let error = $state<string | null>(null);
 
   async function refresh() {
@@ -68,12 +71,17 @@
   }
 
   async function clear() {
-    const result = await commands.modsClearCurseforgeKey();
-    if (result.status === 'ok') {
-      await refresh();
-      cfKeyVersion.value++;
-    } else {
-      error = formatError(result.error);
+    clearing = true;
+    try {
+      const result = await commands.modsClearCurseforgeKey();
+      if (result.status === 'ok') {
+        await refresh();
+        cfKeyVersion.value++;
+      } else {
+        error = formatError(result.error);
+      }
+    } finally {
+      clearing = false;
     }
   }
 
@@ -107,7 +115,9 @@
     {:else if status === 'missing'}
       <span class="text-secondary">{$t('settings.curseforge.statusMissing')}</span>
     {:else}
-      <span class="text-placeholder">{$t('settings.curseforge.statusChecking')}</span>
+      <span class="inline-flex items-center gap-2 text-placeholder">
+        <Spinner size="sm" />{$t('settings.curseforge.statusChecking')}
+      </span>
     {/if}
   </div>
 
@@ -178,20 +188,21 @@
   {/if}
 
   <div class="flex gap-2 mt-3">
-    <button
+    <BusyButton
       type="button"
       class="btn-primary btn-sm"
-      disabled={saving || pendingKey.trim() === ''}
+      busy={saving}
+      disabled={pendingKey.trim() === ''}
       onclick={save}
     >
       {status === 'missing'
         ? $t('settings.curseforge.saveKey')
         : $t('settings.curseforge.updateKey')}
-    </button>
+    </BusyButton>
     {#if status === 'set' || status === 'invalid'}
-      <button type="button" class="btn-secondary btn-sm" onclick={clear}>
+      <BusyButton type="button" class="btn-secondary btn-sm" busy={clearing} onclick={clear}>
         {$t('settings.curseforge.clearKey')}
-      </button>
+      </BusyButton>
     {/if}
   </div>
 

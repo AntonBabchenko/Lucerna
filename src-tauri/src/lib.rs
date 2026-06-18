@@ -75,6 +75,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::delete_world,
             commands::open_saves_folder,
             commands::open_backups_folder,
+            commands::world_import,
             commands::list_saved_servers,
             commands::add_saved_server,
             commands::remove_saved_server,

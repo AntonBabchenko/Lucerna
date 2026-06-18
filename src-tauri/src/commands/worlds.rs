@@ -134,3 +134,20 @@ pub async fn open_backups_folder(
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
     Ok(())
 }
+
+/// Import a world into `instance_id`'s `saves/` from a local `.zip` or folder.
+/// Returns the imported World (suffixed name on collision). Runs the blocking
+/// extract/copy off the IPC thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn world_import(
+    app: tauri::AppHandle,
+    instance_id: String,
+    source_path: String,
+) -> Result<crate::worlds::World, crate::error::Error> {
+    let saves = crate::worlds::saves_dir(&app, &instance_id)?;
+    let source = std::path::PathBuf::from(source_path);
+    tokio::task::spawn_blocking(move || crate::worlds::import::import_into_saves(&saves, &source))
+        .await
+        .map_err(|e| crate::error::Error::io("<world-import>", format!("join: {e}")))?
+}

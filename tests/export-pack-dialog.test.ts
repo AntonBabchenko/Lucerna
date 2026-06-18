@@ -67,11 +67,12 @@ afterEach(() => {
 });
 
 describe('ExportPackDialog', () => {
-  it('shows the loading label until the preview resolves', () => {
+  it('shows the loading label until the preview resolves', async () => {
     // A pending preview keeps the dialog in its loading state.
     exportPreview.mockReturnValue(new Promise(() => {}));
     renderDialog();
-    expect(screen.getByText('Loading…')).toBeTruthy();
+    // LoadingPanel uses delayMs=150; wait for the spinner to appear.
+    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
     expect(screen.queryByText('Format')).toBeNull();
   });
 

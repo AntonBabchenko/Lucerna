@@ -5,6 +5,7 @@
   import { t, locale } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
   import Modal from '$lib/ui/Modal.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
   import { get } from 'svelte/store';
 
@@ -110,7 +111,7 @@
     {$t('worlds.backups.title', { world: world.folder_name })}
   </h3>
   {#if loading}
-    <p class="text-sm text-muted">{$t('worlds.backups.loading')}</p>
+    <LoadingPanel label={$t('worlds.backups.loading')} />
   {:else if error}
     <p class="text-sm text-danger mb-2">{error}</p>
   {:else if backups.length === 0}

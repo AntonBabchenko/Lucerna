@@ -125,7 +125,7 @@
     >
       {#if busy}
         <span class="inline-flex items-center gap-1.5">
-          <Spinner size="sm" label={$t('logs.repair.working')} />
+          <Spinner size="sm" />
           {$t('logs.repair.working')}
         </span>
       {:else}

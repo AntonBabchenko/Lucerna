@@ -186,6 +186,14 @@ export function formatError(e: IpcError): string {
       return translate('errors.backupNotFound', { filename: e.filename });
     case 'backup_corrupt':
       return translate('errors.backupCorrupt', { filename: e.filename, details: e.details });
+    case 'world_import_not_a_world':
+      return translate('errors.worldImportNotAWorld');
+    case 'world_import_unsupported_source':
+      return translate('errors.worldImportUnsupportedSource');
+    case 'world_import_invalid_archive':
+      return translate('errors.worldImportInvalidArchive', { details: e.details });
+    case 'world_import_too_large':
+      return translate('errors.worldImportTooLarge');
     case 'playtime_io':
       return translate('errors.playtimeIo', { details: e.details });
     case 'tray_io':

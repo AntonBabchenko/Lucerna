@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon } from '$lib/ui/icons';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { effectiveIntegrityStatus } from '$lib/instances/integrity-freshness';
   import { enqueueIntegrity, opStatusFor } from '$lib/ops/op-queue.svelte';
@@ -75,11 +76,14 @@
 
   {#if op?.phase === 'running'}
     <div class="mt-2" aria-live="polite">
-      <p class="text-xs text-muted">
-        {op.kind === 'repair'
-          ? $t('instance.integrity.repairing', { done: op.filesDone, total: op.filesTotal })
-          : $t('instance.integrity.verifying', { done: op.filesDone, total: op.filesTotal })}
-      </p>
+      <div class="flex items-center gap-2">
+        <Spinner size="sm" />
+        <p class="text-xs text-muted">
+          {op.kind === 'repair'
+            ? $t('instance.integrity.repairing', { done: op.filesDone, total: op.filesTotal })
+            : $t('instance.integrity.verifying', { done: op.filesDone, total: op.filesTotal })}
+        </p>
+      </div>
       <div class="h-2 bg-subtle rounded overflow-hidden mt-1">
         <div
           class="h-full bg-accent transition-all"

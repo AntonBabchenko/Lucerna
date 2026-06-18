@@ -9,6 +9,7 @@
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import InstanceHeader from './InstanceHeader.svelte';
   import AttentionPanel from './AttentionPanel.svelte';
   import ModpackCard from './ModpackCard.svelte';
@@ -32,6 +33,7 @@
     onManage,
     onExport,
     onOpenPackDrawer,
+    onPackUpdated,
     onNavInstalled,
     onNavBrowse,
     onDismissError,
@@ -55,6 +57,7 @@
     onManage: () => void;
     onExport: () => void;
     onOpenPackDrawer: () => void;
+    onPackUpdated?: () => void;
     onNavInstalled: () => void;
     onNavBrowse: () => void;
     onDismissError: (key: ErrorKey) => void;
@@ -119,7 +122,11 @@
             disabled={versionsRetrying}
             onclick={() => onRetryError(key)}
           >
-            {$t('page.overview.errorRetry')}
+            {#if versionsRetrying}
+              <Spinner size="sm" labelPlacement="right" label={$t('page.overview.errorRetry')} />
+            {:else}
+              {$t('page.overview.errorRetry')}
+            {/if}
           </button>
         {/if}
         <CloseButton
@@ -208,7 +215,11 @@
       <!-- Modpack (pack instances only, full width) -->
       {#if activeInstance.mrpack_name}
         <div style="grid-column:1 / -1;">
-          <ModpackCard instance={activeInstance} onOpenPack={onOpenPackDrawer} />
+          <ModpackCard
+            instance={activeInstance}
+            onOpenPack={onOpenPackDrawer}
+            onUpdated={onPackUpdated}
+          />
         </div>
       {/if}
 

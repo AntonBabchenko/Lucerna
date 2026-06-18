@@ -92,11 +92,43 @@ pub enum Violation {
 }
 
 /// The launcher launches a client; a SERVER-only dep is not enforced.
-pub fn resolve(mods: &[ParsedMod], index: &ProviderIndex) -> Vec<Violation> {
+/// True when a dependency declared with `family` is enforced on an instance
+/// running `loader` — i.e. the loader actually reads that descriptor at runtime.
+/// Forge never reads `fabric.mod.json`, so a multi-loader jar's fabric deps must
+/// not be flagged on a Forge instance (and vice-versa).
+fn dep_applies_to_loader(
+    family: crate::mods::version_range::RangeFamily,
+    loader: crate::instances::schema::LoaderKind,
+) -> bool {
+    use crate::instances::schema::LoaderKind as L;
+    use crate::mods::version_range::RangeFamily as F;
+    match loader {
+        L::Forge | L::NeoForge => family == F::Maven,
+        // Fabric reads only fabric.mod.json — a Quilt mod on a Fabric instance is
+        // a loader-compat issue (handled elsewhere), not a missing-dependency one.
+        L::Fabric => family == F::FabricPredicate,
+        // Quilt runs Fabric mods too, so it reads both descriptors.
+        L::Quilt => matches!(family, F::QuiltPredicate | F::FabricPredicate),
+        // Vanilla loads no mods → no declared mod dependency applies.
+        L::Vanilla => false,
+    }
+}
+
+pub fn resolve(
+    mods: &[ParsedMod],
+    index: &ProviderIndex,
+    loader: crate::instances::schema::LoaderKind,
+) -> Vec<Violation> {
     let mut out = Vec::new();
     for m in mods {
         for dep in &m.manifest.deps {
             if !dep.required || dep.side == DepSide::Server {
+                continue;
+            }
+            // Only enforce deps from the descriptor the instance's loader reads;
+            // a Forge instance never loads fabric.mod.json, so its fabric/quilt
+            // deps are not real (fixes cross-loader false positives).
+            if !dep_applies_to_loader(dep.family, loader) {
                 continue;
             }
             if !index.is_provided(&dep.dep_id) {
@@ -262,6 +294,7 @@ fn enrich(
 /// without a `tauri::AppHandle`.
 pub async fn dependency_preflight_for_root(
     root: &std::path::Path,
+    loader: crate::instances::schema::LoaderKind,
 ) -> crate::error::Result<PreflightReport> {
     use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps};
     use std::collections::HashMap;
@@ -336,7 +369,7 @@ pub async fn dependency_preflight_for_root(
     }
 
     let index = ProviderIndex::build(&parsed, &jij);
-    let raw = resolve(&parsed, &index);
+    let raw = resolve(&parsed, &index, loader);
     let violations = raw
         .into_iter()
         .map(|v| enrich(v, &provider_owner, &provider_sha1))
@@ -347,8 +380,75 @@ pub async fn dependency_preflight_for_root(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instances::schema::LoaderKind;
     use crate::mods::local::{DeclaredDep, ManifestDeps, ProvidedMod};
     use crate::mods::version_range::RangeFamily;
+
+    #[test]
+    fn dep_family_matches_instance_loader() {
+        use LoaderKind as L;
+        use RangeFamily as F;
+        // Forge/NeoForge read only mods.toml (Maven) deps.
+        assert!(dep_applies_to_loader(F::Maven, L::Forge));
+        assert!(dep_applies_to_loader(F::Maven, L::NeoForge));
+        assert!(!dep_applies_to_loader(F::FabricPredicate, L::Forge));
+        assert!(!dep_applies_to_loader(F::QuiltPredicate, L::Forge));
+        // Fabric reads only fabric.mod.json deps.
+        assert!(dep_applies_to_loader(F::FabricPredicate, L::Fabric));
+        assert!(!dep_applies_to_loader(F::Maven, L::Fabric));
+        assert!(!dep_applies_to_loader(F::QuiltPredicate, L::Fabric));
+        // Quilt runs Fabric mods → accepts both.
+        assert!(dep_applies_to_loader(F::QuiltPredicate, L::Quilt));
+        assert!(dep_applies_to_loader(F::FabricPredicate, L::Quilt));
+        assert!(!dep_applies_to_loader(F::Maven, L::Quilt));
+        // Vanilla loads no mods → nothing applies.
+        assert!(!dep_applies_to_loader(F::Maven, L::Vanilla));
+        assert!(!dep_applies_to_loader(F::FabricPredicate, L::Vanilla));
+    }
+
+    #[test]
+    fn resolve_ignores_inactive_loader_deps() {
+        // One mod declaring a missing Maven (Forge) dep AND a missing Fabric dep
+        // — the real "All Of Create · Forge" false-positive shape.
+        let mods = vec![modz(
+            "aa",
+            vec![],
+            vec![
+                dep("create", "", RangeFamily::Maven),
+                dep("fabric-api", "*", RangeFamily::FabricPredicate),
+            ],
+        )];
+        let index = ProviderIndex::build(&mods, &[]);
+        // Forge instance: only the Maven dep is a real violation.
+        let forge = resolve(&mods, &index, LoaderKind::Forge);
+        assert_eq!(forge.len(), 1);
+        assert!(
+            matches!(&forge[0], Violation::MissingRequired { dep_id, .. } if dep_id == "create")
+        );
+        // Fabric instance: only the fabric dep is real.
+        let fabric = resolve(&mods, &index, LoaderKind::Fabric);
+        assert_eq!(fabric.len(), 1);
+        assert!(
+            matches!(&fabric[0], Violation::MissingRequired { dep_id, .. } if dep_id == "fabric-api")
+        );
+    }
+
+    #[test]
+    fn quilt_enforces_fabric_deps() {
+        // Quilt runs Fabric mods, so a Fabric-family dep IS real on a Quilt
+        // instance and must still be flagged when missing.
+        let mods = vec![modz(
+            "aa",
+            vec![],
+            vec![dep("fabric-api", "*", RangeFamily::FabricPredicate)],
+        )];
+        let index = ProviderIndex::build(&mods, &[]);
+        let quilt = resolve(&mods, &index, LoaderKind::Quilt);
+        assert_eq!(quilt.len(), 1);
+        assert!(
+            matches!(&quilt[0], Violation::MissingRequired { dep_id, .. } if dep_id == "fabric-api")
+        );
+    }
 
     fn dep(id: &str, range: &str, family: RangeFamily) -> DeclaredDep {
         DeclaredDep {
@@ -383,7 +483,7 @@ mod tests {
         let core = modz("b", vec![prov("sophisticatedcore", "1.3.50.2005")], vec![]);
         let mods = vec![backpacks, core];
         let index = ProviderIndex::build(&mods, &[]);
-        let v = resolve(&mods, &index);
+        let v = resolve(&mods, &index, LoaderKind::Forge);
         assert_eq!(v.len(), 1);
         assert!(
             matches!(&v[0], Violation::VersionOutOfRange { dep_id, installed, .. }
@@ -400,7 +500,7 @@ mod tests {
         )];
         let index = ProviderIndex::build(&mods, &[]);
         assert!(matches!(
-            resolve(&mods, &index)[0],
+            resolve(&mods, &index, LoaderKind::Forge)[0],
             Violation::MissingRequired { .. }
         ));
     }
@@ -413,7 +513,7 @@ mod tests {
             vec![dep("sophisticatedcore", "*", RangeFamily::Maven)],
         )];
         let index = ProviderIndex::build(&mods, &[("sophisticatedcore".into(), None)]);
-        assert!(resolve(&mods, &index).is_empty()); // present via JIJ, version unknown => silent
+        assert!(resolve(&mods, &index, LoaderKind::Forge).is_empty()); // present via JIJ, version unknown => silent
     }
 
     #[test]
@@ -422,7 +522,7 @@ mod tests {
         d.side = DepSide::Server;
         let mods = vec![modz("a", vec![prov("x", "1")], vec![d])];
         let index = ProviderIndex::build(&mods, &[]);
-        assert!(resolve(&mods, &index).is_empty());
+        assert!(resolve(&mods, &index, LoaderKind::Forge).is_empty());
     }
 
     #[test]
@@ -436,7 +536,7 @@ mod tests {
             modz("b", vec![prov("sophisticatedcore", "1.3.55")], vec![]),
         ];
         let index = ProviderIndex::build(&mods, &[]);
-        assert!(resolve(&mods, &index).is_empty());
+        assert!(resolve(&mods, &index, LoaderKind::Forge).is_empty());
     }
 
     /// FTB and ATLauncher sources have no per-mod browser; `dep_project_ref`
@@ -561,7 +661,9 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path()).await.unwrap();
+        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric)
+            .await
+            .unwrap();
         assert!(
             report.violations.is_empty(),
             "submodule bundled in Fabric API must satisfy the dep; got {:?}",
@@ -582,7 +684,7 @@ mod tests {
         ];
         let index = ProviderIndex::build(&mods, &[]);
         assert!(
-            resolve(&mods, &index).is_empty(),
+            resolve(&mods, &index, LoaderKind::Fabric).is_empty(),
             "fabric-api must match fabric_api"
         );
     }
@@ -601,7 +703,7 @@ mod tests {
         ];
         let index = ProviderIndex::build(&mods, &[]);
         assert!(
-            resolve(&mods, &index).is_empty(),
+            resolve(&mods, &index, LoaderKind::Fabric).is_empty(),
             "fabric-api satisfied by forgified_fabric_api via alias"
         );
     }
@@ -661,7 +763,9 @@ mod tests {
         .await
         .unwrap();
 
-        let report = dependency_preflight_for_root(td.path()).await.unwrap();
+        let report = dependency_preflight_for_root(td.path(), LoaderKind::Fabric)
+            .await
+            .unwrap();
         assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
         assert_eq!(report.violations[0].dep_id, "fabric-renderer-api-v1");
         assert!(matches!(

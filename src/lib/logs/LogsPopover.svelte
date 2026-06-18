@@ -24,6 +24,7 @@
   import Select from '$lib/ui/Select.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import { DIAGNOSIS_COPY } from '$lib/logs/diagnosis-copy';
   import {
     groupStackFolds,
@@ -799,9 +800,13 @@
               <button class="btn-secondary btn-xs" onclick={() => (shareConfirm = false)}>
                 {$t('common.cancel')}
               </button>
-              <button class="btn-warning btn-xs" onclick={() => void doShare()}>
+              <BusyButton
+                busy={shareUploading}
+                class="btn-warning btn-xs"
+                onclick={() => void doShare()}
+              >
                 {$t('logs.share.uploadBtn')}
-              </button>
+              </BusyButton>
             </div>
           </div>
         </div>
@@ -825,13 +830,13 @@
               <button class="btn-secondary btn-xs" onclick={() => (clearOldOpen = false)}>
                 {$t('logs.manage.confirmNo')}
               </button>
-              <button
+              <BusyButton
+                busy={clearingOld}
                 class="btn-warning btn-xs"
-                disabled={clearingOld}
                 onclick={() => void confirmClearOld()}
               >
                 {$t('logs.manage.clearOld')}
-              </button>
+              </BusyButton>
             </div>
           </div>
         </div>

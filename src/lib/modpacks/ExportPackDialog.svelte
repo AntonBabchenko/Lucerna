@@ -12,6 +12,8 @@
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import Modal from '$lib/ui/Modal.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { defaultExportFilename, unresolvableMods, type ExportModeUi } from '$lib/modpacks/export';
 
@@ -128,7 +130,7 @@
     {#if loadError}
       <p class="text-sm text-danger">{loadError}</p>
     {:else if !preview}
-      <p class="text-sm text-muted">{$t('modpacks.export.loading')}</p>
+      <LoadingPanel label={$t('modpacks.export.loading')} />
     {:else}
       <fieldset class="flex flex-col gap-1">
         <legend class="text-xs uppercase tracking-wide text-muted"
@@ -250,7 +252,9 @@
       </fieldset>
 
       {#if phase}
-        <p class="text-sm text-secondary" data-testid="export-phase">{phase.phase}</p>
+        <p class="text-sm text-secondary flex items-center gap-2" data-testid="export-phase">
+          <Spinner size="sm" labelPlacement="right" label={phase.phase} />
+        </p>
       {/if}
     {/if}
   </div>

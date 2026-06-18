@@ -8,24 +8,26 @@
     ModpackProgress,
     ModpackStatus,
     ModpackUnresolvable,
-    ModpackUpdateDiff,
     ModpackVersionEntry,
     ModSource,
     PackOriginFile,
-    ProgressTick,
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { formatSize } from '$lib/format/size';
   import { t } from '$lib/i18n';
   import FindAlternativeDialog from '$lib/mods/FindAlternativeDialog.svelte';
   import { pushWarning } from '$lib/toasts/toasts.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import { drawerCache } from './drawer-cache';
   import { isUnresolvedMissingState } from './missing-mod';
   import ModpackUpdateDialog from './ModpackUpdateDialog.svelte';
+  import ModpackUpdateProgress from './ModpackUpdateProgress.svelte';
+  import { createModpackUpdateFlow } from './modpack-update-flow.svelte';
 
   // Centered modal that surfaces the metadata captured at import time for a
   // pack-originated instance. Uses the shared Modal primitive (backdrop +
@@ -103,10 +105,10 @@
   let deleteError = $state<string | null>(null);
 
   let updateAvailable = $state<ModpackVersionEntry | null>(null);
-  let updateDiff = $state<ModpackUpdateDiff | null>(null);
-  let updateTempPath = $state<string | null>(null);
-  let updating = $state(false);
   let updateError = $state<string | null>(null);
+  const updateFlow = createModpackUpdateFlow();
+  // Check failure (from checkForUpdates) OR an apply/fetch failure (from the flow).
+  const shownUpdateError = $derived(updateError ?? updateFlow.error);
 
   const originShas = $derived(
     new Set((status?.origin.files ?? []).map((f) => f.sha1.toLowerCase())),
@@ -238,50 +240,18 @@
     }
   }
 
-  // Fetch the new .mrpack + compute the diff, then open the dialog.
+  // Fetch the new .mrpack + compute the diff via the shared flow; the diff
+  // dialog then opens off `updateFlow.diff`.
   async function openUpdateDialog() {
-    if (!updateAvailable || !inst.mrpack_project_id) return;
+    if (!updateAvailable) return;
     updateError = null;
-    const fetched = await commands.modpackFetchToTemp(
-      inst.mrpack_source ?? 'modrinth',
-      inst.mrpack_project_id,
-      updateAvailable.id,
-    );
-    if (fetched.status === 'error') {
-      updateError = formatError(fetched.error);
-      return;
-    }
-    updateTempPath = fetched.data;
-    const d = await commands.modpackComputeUpdate(inst.id, updateTempPath);
-    if (d.status === 'error') {
-      updateError = formatError(d.error);
-      return;
-    }
-    updateDiff = d.data;
+    await updateFlow.prepare(inst, updateAvailable);
   }
 
-  async function applyUpdate() {
-    if (!updateTempPath || !updateAvailable) return;
-    const newVersionId = updateAvailable.id;
-    updateDiff = null;
-    updating = true;
-    updateError = null;
-    const phaseChannel = new Channel<ModpackProgress>();
-    const tickChannel = new Channel<ProgressTick>();
-    const r = await commands.modpackApplyUpdate(
-      inst.id,
-      updateTempPath,
-      newVersionId,
-      phaseChannel,
-      tickChannel,
-    );
-    updating = false;
-    if (r.status === 'error') {
-      updateError = formatError(r.error);
-      return;
-    }
+  async function confirmUpdate() {
+    const ok = await updateFlow.confirm(inst);
+    if (!ok) return;
     updateAvailable = null;
-    updateTempPath = null;
     await load();
     onUpdated?.();
   }
@@ -419,14 +389,14 @@
     </div>
   {/if}
 
-  {#if updateError}
+  {#if shownUpdateError}
     <div class="px-4 pb-2 text-xs text-danger" data-testid="imported-detail-update-error">
-      {updateError}
+      {shownUpdateError}
     </div>
   {/if}
-  {#if updating}
-    <div class="px-4 pb-3 text-sm text-accent" data-testid="imported-detail-updating">
-      {$t('modpacks.imported.detail.updating')}
+  {#if updateFlow.busy}
+    <div class="px-4 pb-3">
+      <ModpackUpdateProgress progress={updateFlow.progress} />
     </div>
   {:else if updateAvailable}
     <div class="px-4 pb-3">
@@ -591,17 +561,15 @@
           {/each}
         </ul>
         {#if status.removed_files.some((f) => f.url === '')}
-          <button
+          <BusyButton
             type="button"
             class="btn-secondary btn-xs mt-2 ml-4"
             onclick={() => void reimportPackFiles()}
-            disabled={reimporting}
+            busy={reimporting}
             data-testid="imported-detail-reimport"
           >
-            {reimporting
-              ? $t('modpacks.imported.detail.reimporting')
-              : $t('modpacks.imported.detail.reimportBtn')}
-          </button>
+            {$t('modpacks.imported.detail.reimportBtn')}
+          </BusyButton>
         {/if}
       </details>
     {/if}
@@ -638,8 +606,8 @@
         $t('modpacks.imported.detail.modsHeading', { count: mods?.length ?? 0 }),
       )}
       {#if mods === null}
-        <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-loading">
-          {$t('modpacks.imported.detail.loading')}
+        <div class="pl-4" data-testid="imported-detail-mods-loading">
+          <LoadingPanel label={$t('modpacks.imported.detail.loading')} size="md" />
         </div>
       {:else if mods.length === 0}
         <div class="text-sm text-muted pl-4" data-testid="imported-detail-mods-empty">
@@ -783,14 +751,11 @@
   </footer>
 </Modal>
 
-{#if updateDiff}
+{#if updateFlow.diff}
   <ModpackUpdateDialog
-    diff={updateDiff}
-    onCancel={() => {
-      updateDiff = null;
-      updateTempPath = null;
-    }}
-    onConfirm={() => void applyUpdate()}
+    diff={updateFlow.diff}
+    onCancel={() => updateFlow.cancel()}
+    onConfirm={() => void confirmUpdate()}
   />
 {/if}
 

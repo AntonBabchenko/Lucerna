@@ -10,6 +10,7 @@
   import { Icon } from '$lib/ui/icons';
   import { runUpdate, updateInstalling, updateState } from '$lib/update/state.svelte';
   import ChangelogPanel from '$lib/changelog/ChangelogPanel.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import { CHANGELOG } from '$lib/changelog/source';
 
   let general = $state<GeneralSettings>({
@@ -94,17 +95,17 @@
       <p class="text-xs text-danger">{saveError}</p>
     {/if}
     <div class="flex items-center gap-3 flex-wrap">
-      <button
+      <BusyButton
         type="button"
         class="btn-secondary btn-sm inline-flex items-center gap-1.5"
         onclick={() => void checkForUpdates()}
-        disabled={checking}
+        busy={checking}
         data-testid="check-updates-btn"
       >
         <Icon name="refresh" class="icon-spin-hover" />{checking
           ? $t('settings.general.updates.checking')
           : $t('settings.general.updates.checkBtn')}
-      </button>
+      </BusyButton>
       {#if checkResult.kind === 'uptodate'}
         <p class="text-xs text-muted" data-testid="update-status">
           {$t('settings.general.updates.uptodate', { version: checkResult.current })}

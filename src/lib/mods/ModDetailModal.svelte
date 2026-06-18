@@ -243,7 +243,11 @@
           </p>
         {:else}
           <div class="flex justify-center py-8 text-secondary">
-            <Spinner size="lg" label={$t('mods.detail.loadingDescription')} />
+            <Spinner
+              size="lg"
+              labelPlacement="below"
+              label={$t('mods.detail.loadingDescription')}
+            />
           </div>
         {/if}
       </div>
@@ -257,7 +261,7 @@
         </div>
         {#if versionList === null}
           <div class="flex justify-center py-8 text-secondary">
-            <Spinner label={$t('mods.detail.loadingVersions')} />
+            <Spinner labelPlacement="below" label={$t('mods.detail.loadingVersions')} />
           </div>
         {:else if versionList.length === 0}
           <div class="text-sm text-placeholder">

@@ -3,16 +3,26 @@
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import Spinner from '$lib/ui/Spinner.svelte';
 
   // Compact screenshot carousel for the detail modals. Single image in
   // view; prev/next arrows step through. Renders nothing when there are no images.
   let { images }: { images: GalleryImage[] } = $props();
 
   let index = $state(0);
+  let loaded = $state(true);
+  let imgEl = $state<HTMLImageElement | null>(null);
 
   // Clamp when the image set changes (e.g. modal reused for another mod).
   $effect(() => {
     if (index > images.length - 1) index = 0;
+  });
+  // Show the loading overlay again whenever the visible image changes.
+  // If the browser already has the image cached, img.complete is true
+  // synchronously and the overlay should not appear.
+  $effect(() => {
+    index;
+    loaded = imgEl?.complete ?? false;
   });
 
   function prev() {
@@ -26,11 +36,18 @@
 {#if images.length > 0}
   <div class="relative rounded overflow-hidden bg-base border border-border-subtle">
     <img
+      bind:this={imgEl}
       src={images[index].url}
       alt={images[index].title ?? ''}
       loading="lazy"
       class="w-full max-h-72 object-contain bg-black/5"
+      onload={() => (loaded = true)}
     />
+    {#if !loaded}
+      <div class="absolute inset-0 flex items-center justify-center">
+        <Spinner size="md" delayMs={150} />
+      </div>
+    {/if}
     {#if images.length > 1}
       <button
         type="button"
