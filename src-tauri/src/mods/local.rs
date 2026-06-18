@@ -204,6 +204,45 @@ pub fn read_jar_meta(jar_bytes: &[u8]) -> Result<JarMeta, Error> {
     })
 }
 
+/// Declared runtime side of a mod, from its descriptor. Forge `mods.toml` has
+/// no universal mod-level client-only field → `Unknown` for most Forge mods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ModEnvironment {
+    Client,
+    Server,
+    Both,
+    Unknown,
+}
+
+/// Best-effort declared side of a mod jar. Fabric/Quilt `environment`
+/// ("client"/"server"/"*") is reliable; Forge/NeoForge yields `Unknown`.
+pub fn read_jar_environment(jar_bytes: &[u8]) -> ModEnvironment {
+    let mut zip = match zip::ZipArchive::new(Cursor::new(jar_bytes)) {
+        Ok(z) => z,
+        Err(_) => return ModEnvironment::Unknown,
+    };
+    for name in ["fabric.mod.json", "quilt.mod.json"] {
+        if let Some(text) = entry_text(&mut zip, name) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                let env = v.get("environment").and_then(|e| e.as_str()).or_else(|| {
+                    v.get("quilt_loader")
+                        .and_then(|q| q.get("metadata"))
+                        .and_then(|m| m.get("environment"))
+                        .and_then(|e| e.as_str())
+                });
+                return match env {
+                    Some("client") => ModEnvironment::Client,
+                    Some("server") => ModEnvironment::Server,
+                    Some(_) => ModEnvironment::Both,
+                    None => ModEnvironment::Both,
+                };
+            }
+        }
+    }
+    ModEnvironment::Unknown
+}
+
 /// Mod-id keys that name a loader or Minecraft itself, not a real mod dependency.
 const LOADER_DEP_IDS: &[&str] = &[
     "forge",
@@ -1593,6 +1632,38 @@ modId=\"evilseagull\"
             providers.iter().any(|p| p.mod_id == "fabriclib"),
             "{providers:?}"
         );
+    }
+
+    // ── ModEnvironment / read_jar_environment tests ───────────────────────────
+
+    #[test]
+    fn jar_env_fabric_client_only() {
+        let j = jar(&[("fabric.mod.json", r#"{"id":"etf","environment":"client"}"#)]);
+        assert_eq!(read_jar_environment(&j), ModEnvironment::Client);
+    }
+
+    #[test]
+    fn jar_env_fabric_both_star() {
+        let j = jar(&[("fabric.mod.json", r#"{"id":"x","environment":"*"}"#)]);
+        assert_eq!(read_jar_environment(&j), ModEnvironment::Both);
+    }
+
+    #[test]
+    fn jar_env_fabric_missing_env_is_both() {
+        let j = jar(&[("fabric.mod.json", r#"{"id":"x"}"#)]);
+        assert_eq!(read_jar_environment(&j), ModEnvironment::Both);
+    }
+
+    #[test]
+    fn jar_env_forge_unknown() {
+        let j = jar(&[("META-INF/mods.toml", "[[mods]]\nmodId=\"x\"\n")]);
+        assert_eq!(read_jar_environment(&j), ModEnvironment::Unknown);
+    }
+
+    #[test]
+    fn jar_env_no_descriptor_unknown() {
+        let j = jar(&[("a.txt", "hi")]);
+        assert_eq!(read_jar_environment(&j), ModEnvironment::Unknown);
     }
 
     #[test]
