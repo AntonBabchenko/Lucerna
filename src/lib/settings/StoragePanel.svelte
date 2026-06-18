@@ -38,6 +38,15 @@
     }
   }
 
+  async function saveRetentionTracked() {
+    retentionSaving = true;
+    try {
+      await saveRetention();
+    } finally {
+      retentionSaving = false;
+    }
+  }
+
   async function saveRetention() {
     retentionError = null;
     const snap = { ...retention }; // snapshot before await
@@ -142,14 +151,7 @@
         type="checkbox"
         class="mt-0.5"
         bind:checked={retention.enabled}
-        onchange={async () => {
-          retentionSaving = true;
-          try {
-            await saveRetention();
-          } finally {
-            retentionSaving = false;
-          }
-        }}
+        onchange={() => void saveRetentionTracked()}
         data-testid="log-retention-toggle"
       />
       <span class="flex-1">
@@ -173,14 +175,7 @@
           class="border rounded px-2 py-1 text-sm w-28"
           bind:value={retention.max_files}
           disabled={!retention.enabled}
-          onchange={async () => {
-            retentionSaving = true;
-            try {
-              await saveRetention();
-            } finally {
-              retentionSaving = false;
-            }
-          }}
+          onchange={() => void saveRetentionTracked()}
           data-testid="log-retention-max-files"
         />
       </label>
@@ -192,14 +187,7 @@
           class="border rounded px-2 py-1 text-sm w-28"
           bind:value={retention.max_total_mb}
           disabled={!retention.enabled}
-          onchange={async () => {
-            retentionSaving = true;
-            try {
-              await saveRetention();
-            } finally {
-              retentionSaving = false;
-            }
-          }}
+          onchange={() => void saveRetentionTracked()}
           data-testid="log-retention-max-mb"
         />
       </label>
