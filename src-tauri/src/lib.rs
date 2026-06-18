@@ -190,6 +190,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 4: diagnosis + repair):
             commands::server_diagnose,
             commands::server_remove_mods,
+            // Own server (Plan 5: SFTP upload + export):
+            commands::server_set_upload_config,
+            commands::server_upload,
+            commands::server_export_zip,
         ])
         .events(collect_events![
             network::DownloadProgress,

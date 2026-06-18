@@ -2,7 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
-use crate::servers_runtime::schema::{ServerFile, ServerWithStatus};
+use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
 use crate::servers_runtime::{create, store};
 use tauri::AppHandle;
 
@@ -113,7 +113,13 @@ pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
             let running = crate::servers_runtime::runtime::is_running(&f.id);
             let pid = crate::servers_runtime::runtime::running_pid(&f.id);
             let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
-            ServerWithStatus::from_file(f, running, pid, port, false)
+            let upw = crate::accounts::keychain::retrieve(
+                &crate::accounts::keychain::sftp_password_key(&f.id),
+            )
+            .ok()
+            .flatten()
+            .is_some();
+            ServerWithStatus::from_file(f, running, pid, port, upw)
         })
         .collect())
 }
@@ -151,7 +157,9 @@ pub async fn server_send_command(id: String, line: String) -> Result<()> {
 #[specta::specta]
 pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
-    store::delete_server(&base, &id)
+    store::delete_server(&base, &id)?;
+    let _ = crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
+    Ok(())
 }
 
 /// Прочитать `server.properties` сервера как сырой текст. Возвращает пустую
@@ -346,6 +354,77 @@ pub async fn server_remove_mods(
         }
     }
     Ok(())
+}
+
+/// Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
+/// сохраняет его в связке ключей ОС (пароль никогда не записывается в
+/// `server.json`). Идемпотентно: повторный вызов перезаписывает конфигурацию
+/// и/или пароль.
+#[tauri::command]
+#[specta::specta]
+pub fn server_set_upload_config(
+    app: AppHandle,
+    id: String,
+    config: UploadConfig,
+    password: Option<String>,
+) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    file.upload = Some(config);
+    crate::servers_runtime::store::write_server_json(&p.json, &file)?;
+    if let Some(pw) = password {
+        crate::accounts::keychain::store(&crate::accounts::keychain::sftp_password_key(&id), &pw)?;
+    }
+    Ok(())
+}
+
+/// Загрузить серверный `runtime/` на SFTP-хост. Сервер должен быть остановлен.
+///
+/// При первом подключении или изменении ключа хоста возвращает ошибку
+/// `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
+/// доверяет новому ключу и сохраняет его отпечаток в `server.json`.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(crate::error::Error::ServerAlreadyRunning { id });
+    }
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let cfg = file
+        .upload
+        .ok_or(crate::error::Error::UploadNotConfigured)?;
+    let password =
+        crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?
+            .ok_or(crate::error::Error::UploadNotConfigured)?;
+    let new_fp = crate::servers_runtime::transfer::upload_server(
+        &app,
+        &id,
+        &cfg,
+        &password,
+        accept_new_host_key,
+    )
+    .await?;
+    if let Some(fp) = new_fp {
+        let mut f2 = crate::servers_runtime::store::read_server_json(&p.json)?;
+        if let Some(u) = f2.upload.as_mut() {
+            u.known_host_fp = Some(fp);
+        }
+        crate::servers_runtime::store::write_server_json(&p.json, &f2)?;
+    }
+    Ok(())
+}
+
+/// Экспортировать серверный `runtime/` в ZIP-архив по пути `dest_path`.
+/// Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
+#[tauri::command]
+#[specta::specta]
+pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
 }
 
 /// Открыть папку `runtime/` сервера в системном файловом менеджере.

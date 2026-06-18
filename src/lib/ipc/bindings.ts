@@ -822,12 +822,12 @@ export const commands = {
 	 *  Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
 	 *  записать `server.json` + `eula.txt`.
 	 */
-	serverCreate: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerWithStatus, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
+	serverCreate: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
 	/**
 	 *  Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
 	 *  (running / pid / port) из процессного менеджера.
 	 */
-	serverList: () => typedError<ServerWithStatus[], Error>(__TAURI_INVOKE("server_list")),
+	serverList: () => typedError<ServerWithStatus_Serialize[], Error>(__TAURI_INVOKE("server_list")),
 	/**  Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok). */
 	serverDelete: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete", { id })),
 	/**  Запустить сервер. Возвращает PID запущенного процесса. */
@@ -884,6 +884,26 @@ export const commands = {
 	 *  файлов (защита от path traversal).
 	 */
 	serverRemoveMods: (id: string, filenames: string[], logSignature: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_remove_mods", { id, filenames, logSignature })),
+	/**
+	 *  Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
+	 *  сохраняет его в связке ключей ОС (пароль никогда не записывается в
+	 *  `server.json`). Идемпотентно: повторный вызов перезаписывает конфигурацию
+	 *  и/или пароль.
+	 */
+	serverSetUploadConfig: (id: string, config: UploadConfig_Deserialize, password: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_set_upload_config", { id, config, password })),
+	/**
+	 *  Загрузить серверный `runtime/` на SFTP-хост. Сервер должен быть остановлен.
+	 * 
+	 *  При первом подключении или изменении ключа хоста возвращает ошибку
+	 *  `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
+	 *  доверяет новому ключу и сохраняет его отпечаток в `server.json`.
+	 */
+	serverUpload: (id: string, acceptNewHostKey: boolean) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey })),
+	/**
+	 *  Экспортировать серверный `runtime/` в ZIP-архив по пути `dest_path`.
+	 *  Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
+	 */
+	serverExportZip: (id: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("server_export_zip", { id, destPath })),
 };
 
 /** Events */
@@ -901,6 +921,7 @@ export const events = {
 	serverExited: makeEvent<ServerExited>("server-exited"),
 	serverLogLine: makeEvent<ServerLogLine>("server-log-line"),
 	serverSpawned: makeEvent<ServerSpawned>("server-spawned"),
+	serverUploadProgress: makeEvent<ServerUploadProgress>("server-upload-progress"),
 	verifyProgress: makeEvent<VerifyProgress>("verify-progress"),
 };
 
@@ -1285,7 +1306,17 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  Сервер уже запущен. */
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
-{ kind: "server_not_running"; id: string };
+{ kind: "server_not_running"; id: string } | 
+/**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
+{ kind: "upload_not_configured" } | 
+/**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
+{ kind: "sftp_connect_failed"; details: string } | 
+/**  Аутентификация по паролю на SFTP-сервере не прошла. */
+{ kind: "sftp_auth_failed"; details: string } | 
+/**  Отпечаток host-ключа изменился относительно ранее доверенного (TOFU). */
+{ kind: "sftp_host_key_mismatch"; expected: string; got: string } | 
+/**  Ошибка во время передачи файлов по SFTP (создание каталога/запись). */
+{ kind: "sftp_transfer_failed"; details: string };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,
@@ -2513,8 +2544,22 @@ export type ServerSpawned = {
 	pid: number,
 };
 
+/**
+ *  Progress for an in-flight SFTP server upload, emitted once per file as it is
+ *  written. `files_done` counts files completed including the current one.
+ */
+export type ServerUploadProgress = {
+	server_id: string,
+	current_file: string,
+	files_done: number,
+	files_total: number,
+};
+
 /**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */
-export type ServerWithStatus = {
+export type ServerWithStatus = ServerWithStatus_Serialize | ServerWithStatus_Deserialize;
+
+/**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */
+export type ServerWithStatus_Deserialize = {
 	id: string,
 	name: string,
 	mc_version: string,
@@ -2528,6 +2573,29 @@ export type ServerWithStatus = {
 	running: boolean,
 	pid: number | null,
 	port: number | null,
+	upload: UploadConfig_Deserialize | null,
+	/**  Whether a keyring password is stored for the upload target. */
+	upload_password_set: boolean,
+};
+
+/**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */
+export type ServerWithStatus_Serialize = {
+	id: string,
+	name: string,
+	mc_version: string,
+	loader: LoaderKind,
+	loader_version: string | null,
+	max_heap_mb: number,
+	extra_jvm_args: string,
+	created_unix_ms: number | null,
+	eula_accepted: boolean,
+	created_from_instance: string | null,
+	running: boolean,
+	pid: number | null,
+	port: number | null,
+	upload: UploadConfig_Serialize | null,
+	/**  Whether a keyring password is stored for the upload target. */
+	upload_password_set: boolean,
 };
 
 /**
@@ -2591,6 +2659,38 @@ export type UpdateInfo = {
 	installer: ReleaseAsset | null,
 	sha256sums: ReleaseAsset | null,
 	cosign_bundle: ReleaseAsset | null,
+};
+
+/**
+ *  SFTP upload target configuration. The password is stored in the OS keyring,
+ *  never in this struct.
+ */
+export type UploadConfig = UploadConfig_Serialize | UploadConfig_Deserialize;
+
+/**
+ *  SFTP upload target configuration. The password is stored in the OS keyring,
+ *  never in this struct.
+ */
+export type UploadConfig_Deserialize = {
+	host: string,
+	port?: number,
+	user: string,
+	remote_path: string,
+	/**  SHA-256 host-key fingerprint accepted on first connect (TOFU). */
+	known_host_fp?: string | null,
+};
+
+/**
+ *  SFTP upload target configuration. The password is stored in the OS keyring,
+ *  never in this struct.
+ */
+export type UploadConfig_Serialize = {
+	host: string,
+	port: number,
+	user: string,
+	remote_path: string,
+	/**  SHA-256 host-key fingerprint accepted on first connect (TOFU). */
+	known_host_fp?: string | null,
 };
 
 export type VerifyCategory = "client" | "libraries" | "assets" | "jre" | "profile_json";
