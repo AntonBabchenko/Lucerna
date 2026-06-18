@@ -13,7 +13,7 @@
   import ImageGallery from '$lib/ui/ImageGallery.svelte';
   import { Icon } from '$lib/ui/icons';
   import RenderedBody from '$lib/ui/RenderedBody.svelte';
-  import Spinner from '$lib/ui/Spinner.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { t } from '$lib/i18n';
 
@@ -193,9 +193,7 @@
           {/if}
         </div>
       {:else if loading}
-        <div class="flex justify-center py-8 text-secondary">
-          <Spinner label={$t('modpacks.detail.loadingVersions')} />
-        </div>
+        <LoadingPanel label={$t('modpacks.detail.loadingVersions')} size="md" />
       {:else if visibleVersions.length === 0}
         <div class="text-sm text-muted">
           {#if mcFilter}
