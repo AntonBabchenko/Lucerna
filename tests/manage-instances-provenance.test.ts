@@ -124,9 +124,7 @@ describe('ManageInstancesModal — created-from-server provenance', () => {
     const inst = makeInstance({ created_from_server: 'srv-abc' });
     renderModal(inst);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('created-from-server-provenance')).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByTestId('created-from-server-provenance')).toBeTruthy());
     // serverState.list is empty so the row falls back to the raw id.
     expect(screen.getByTestId('created-from-server-provenance').textContent).toContain('srv-abc');
   });

@@ -1,5 +1,5 @@
-import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { serverCreateClientInstance, pushSuccess, pushWarning } = vi.hoisted(() => ({
   serverCreateClientInstance: vi.fn(),
@@ -93,7 +93,11 @@ describe('ServerToInstanceDialog', () => {
   });
 
   it('shows an inline error and does not call the command when the name is empty', async () => {
-    render(ServerToInstanceDialog, { server: { ...server, name: '   ' }, onCancel: vi.fn(), onCreated: vi.fn() });
+    render(ServerToInstanceDialog, {
+      server: { ...server, name: '   ' },
+      onCancel: vi.fn(),
+      onCreated: vi.fn(),
+    });
     await fireEvent.click(screen.getByText('servers.toInstance.create'));
     expect(serverCreateClientInstance).not.toHaveBeenCalled();
     expect(screen.getByTestId('client-instance-error')).toBeTruthy();

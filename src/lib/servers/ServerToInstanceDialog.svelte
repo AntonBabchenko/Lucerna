@@ -33,7 +33,11 @@
     busy = true;
     error = null;
     try {
-      const result = await commands.serverCreateClientInstance(server.id, trimmed, addToMultiplayer);
+      const result = await commands.serverCreateClientInstance(
+        server.id,
+        trimmed,
+        addToMultiplayer,
+      );
       if (result.status === 'error') {
         error = formatError(result.error);
         return;
@@ -84,7 +88,9 @@
     />
     <span class="flex-1">
       <span class="text-sm text-primary">{$t('servers.toInstance.addToMultiplayer')}</span>
-      <span class="block text-xs text-muted">{$t('servers.toInstance.addressHint', { address })}</span>
+      <span class="block text-xs text-muted"
+        >{$t('servers.toInstance.addressHint', { address })}</span
+      >
     </span>
   </label>
 
