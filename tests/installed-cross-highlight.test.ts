@@ -63,6 +63,22 @@ vi.mock('$lib/ipc/bindings', () => ({
       .mockImplementation((_src: string, id: string) =>
         Promise.resolve(id === 'PA' ? proj('PA', 'Alpha') : proj('PB', 'Bravo')),
       ),
+    modsProjects: vi.fn((_s: string, ids: string[]) =>
+      Promise.resolve({
+        status: 'ok',
+        data: ids.map((id) => ({
+          source: 'modrinth',
+          project_id: id,
+          slug: id,
+          name: id === 'PA' ? 'Alpha' : 'Bravo',
+          summary: '',
+          icon_url: null,
+          downloads: 0,
+          author: 'x',
+          updated_at: null,
+        })),
+      }),
+    ),
     modsDependencyGraph: vi.fn().mockResolvedValue({
       status: 'ok',
       data: {

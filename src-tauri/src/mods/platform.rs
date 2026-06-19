@@ -389,7 +389,38 @@ pub trait ModPlatform: Send + Sync {
         mc_version: &str,
         loader: LoaderKind,
     ) -> Result<ResolvedDeps, Error>;
+
+    /// Batch-fetch project summaries by id. Returns only the projects the
+    /// platform resolved — unknown ids are silently omitted (callers degrade
+    /// the corresponding rows). Collapses the per-mod `project()` fan-out (a
+    /// 429 rate-limit source on large instances) into a handful of batched
+    /// requests. The default implementation falls back to per-id `project()`
+    /// so a platform without a batch endpoint still works.
+    async fn summaries(&self, ids: &[&str]) -> Result<Vec<ModSummary>, Error> {
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Ok(p) = self.project(id).await {
+                out.push(p.summary);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Batch-fetch versions by their version id (Modrinth version id /
+    /// CurseForge file id). Each returned `ModVersion` carries its declared
+    /// `deps`, so the dependency graph can be built from installed versions
+    /// without a per-project `versions()` call. Unknown ids are omitted. The
+    /// default implementation returns an empty list (sources with no batch
+    /// endpoint contribute no version data).
+    async fn versions_by_ids(&self, _version_ids: &[&str]) -> Result<Vec<ModVersion>, Error> {
+        Ok(Vec::new())
+    }
 }
+
+/// Upper bound on ids per batched `summaries` / `versions_by_ids` request.
+/// Keeps Modrinth's `?ids=[…]` query string and CurseForge's POST body within
+/// safe limits; 286 mods fan into ~3 requests rather than ~286.
+pub const BATCH_CHUNK: usize = 100;
 
 #[cfg(test)]
 mod tests {

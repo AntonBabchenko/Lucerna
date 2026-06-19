@@ -320,6 +320,84 @@ impl ModPlatform for CurseForgeClient {
             unresolvable,
         })
     }
+
+    async fn summaries(&self, ids: &[&str]) -> Result<Vec<ModSummary>, Error> {
+        // CF mod ids are numeric; skip anything that isn't. An empty set makes
+        // no request and needs no key.
+        let mod_ids: Vec<u32> = ids.iter().filter_map(|s| s.parse::<u32>().ok()).collect();
+        if mod_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let auth = self.auth()?;
+        let mut out = Vec::with_capacity(mod_ids.len());
+        for chunk in mod_ids.chunks(BATCH_CHUNK) {
+            // CF: POST /v1/mods  {"modIds":[…]} → {"data":[Mod,…]}; unknown omitted.
+            let url = format!("{}/v1/mods", self.base);
+            // Serialising {"modIds": [u32, …]} is infallible.
+            let body = serde_json::to_vec(&serde_json::json!({ "modIds": chunk }))
+                .expect("a JSON object of numeric ids always serializes");
+            let resp = crate::network::request::post(
+                &url,
+                &[
+                    ("x-api-key", auth),
+                    ("content-type", "application/json"),
+                    ("accept", "application/json"),
+                ],
+                &body,
+                "mods",
+            )
+            .await
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
+            let env: types::ListEnvelope<types::Mod> = self.map_status(resp, url)?;
+            out.extend(env.data.into_iter().map(convert_mod_summary));
+        }
+        Ok(out)
+    }
+
+    async fn versions_by_ids(&self, version_ids: &[&str]) -> Result<Vec<ModVersion>, Error> {
+        // A CF "version id" is the file id (numeric). Skip non-numeric ids.
+        let file_ids: Vec<u32> = version_ids
+            .iter()
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect();
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let auth = self.auth()?;
+        let mut out = Vec::with_capacity(file_ids.len());
+        for chunk in file_ids.chunks(BATCH_CHUNK) {
+            // CF: POST /v1/mods/files  {"fileIds":[…]} → {"data":[File,…]}, each
+            // file carrying its `dependencies` and parent `modId`.
+            let url = format!("{}/v1/mods/files", self.base);
+            // Serialising {"fileIds": [u32, …]} is infallible.
+            let body = serde_json::to_vec(&serde_json::json!({ "fileIds": chunk }))
+                .expect("a JSON object of numeric ids always serializes");
+            let resp = crate::network::request::post(
+                &url,
+                &[
+                    ("x-api-key", auth),
+                    ("content-type", "application/json"),
+                    ("accept", "application/json"),
+                ],
+                &body,
+                "mods",
+            )
+            .await
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
+            let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
+            out.extend(env.data.into_iter().filter_map(|f| {
+                let pid = f.mod_id.to_string();
+                convert_version(f, &pid)
+            }));
+        }
+        Ok(out)
+    }
 }
 
 fn convert_mod_summary(m: types::Mod) -> ModSummary {
@@ -447,6 +525,81 @@ mod tests {
 
     fn client(uri: String) -> CurseForgeClient {
         CurseForgeClient::with_base_and_key(uri, Some("test-key".into()))
+    }
+
+    #[tokio::test]
+    async fn summaries_batches_mods_and_skips_non_numeric() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/mods"))
+            .and(header("x-api-key", "test-key"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "modIds": [10, 20] }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id":10,"slug":"jei","name":"JEI","summary":"items","downloadCount":5,
+                     "dateModified":null,"authors":[{"name":"m"}],
+                     "logo":{"url":"https://example/i.png"},"links":{"websiteUrl":null}},
+                    {"id":20,"slug":"sodium","name":"Sodium","summary":"perf","downloadCount":9,
+                     "dateModified":null,"authors":[{"name":"jelly"}],
+                     "logo":null,"links":{"websiteUrl":null}}
+                ]
+            })))
+            .mount(&s)
+            .await;
+        let c = client(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // "abc" is non-numeric and must be dropped before the request is built.
+        let out = c.summaries(&["10", "abc", "20"]).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].name, "JEI");
+        assert_eq!(out[0].project_id, "10");
+        assert_eq!(out[1].author, "jelly");
+    }
+
+    #[tokio::test]
+    async fn summaries_all_non_numeric_makes_no_request() {
+        let _g = test_lock();
+        // No mock mounted — a request would 404 and the call would error.
+        let s = MockServer::start().await;
+        let c = client(s.uri());
+        let out = c.summaries(&["abc", "xyz"]).await.unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn versions_by_ids_parses_files_with_deps() {
+        let _g = test_lock();
+        let s = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .and(header("x-api-key", "test-key"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "fileIds": [555] }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id":555,"modId":42,"displayName":"JEI 15","fileName":"jei-15.jar",
+                     "fileLength":100,"hashes":[{"value":"abc","algo":1}],
+                     "gameVersions":["1.20.1","Fabric"],"downloadUrl":"https://cdn/jei.jar",
+                     "fileDate":"2026-05-01T00:00:00Z","isAvailable":true,"releaseType":1,
+                     "dependencies":[{"modId":99,"relationType":3}]}
+                ]
+            })))
+            .mount(&s)
+            .await;
+        let c = client(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let out = c.versions_by_ids(&["555"]).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].project_id, "42"); // derived from the file's modId
+        assert_eq!(out[0].version_id, "555");
+        assert_eq!(out[0].deps.len(), 1);
+        assert_eq!(out[0].deps[0].kind, DepKind::Required);
     }
 
     #[tokio::test]

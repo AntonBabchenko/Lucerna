@@ -80,6 +80,22 @@ vi.mock('$lib/ipc/bindings', () => ({
         website_url: null,
       },
     }),
+    modsProjects: vi.fn((_s: unknown, ids: string[]) =>
+      Promise.resolve({
+        status: 'ok',
+        data: ids.map((id) => ({
+          source: 'modrinth',
+          project_id: id,
+          slug: 'jei',
+          name: 'Just Enough Items',
+          summary: 'View items and recipes',
+          icon_url: null,
+          downloads: 1234,
+          author: 'mezz',
+          updated_at: null,
+        })),
+      }),
+    ),
   },
   events: {
     modInstalled: {

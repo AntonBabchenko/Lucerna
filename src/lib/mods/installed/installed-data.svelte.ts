@@ -6,7 +6,6 @@ import {
   type PackOriginSummary,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
-import { mapLimit } from '../concurrency';
 
 export type Row = {
   summary: ModSummary | null;
@@ -17,8 +16,9 @@ export type InstalledData = ReturnType<typeof createInstalledData>;
 
 // Owns the installed-mod list for the active instance: loads the registry,
 // the pack-origin chip data, runs the one-shot enrichment backfill, and
-// resolves a ModSummary per platform mod (bounded concurrency). Every commit
-// is guarded against an instance-switch race via `getInstanceId() === reqId`.
+// resolves a ModSummary per platform mod via a few batched lookups (one per
+// source). Every commit is guarded against an instance-switch race via
+// `getInstanceId() === reqId`.
 export function createInstalledData(getInstanceId: () => string | null) {
   let rows = $state<Row[]>([]);
   let packSummary = $state<PackOriginSummary | null>(null);
@@ -71,23 +71,42 @@ export function createInstalledData(getInstanceId: () => string | null) {
       if (r2.status === 'ok') list = r2.data;
     }
 
-    // Fetch ModSummary for every platform-installed mod. Manual / unidentifiable
-    // mods (source: null) skip the fetch and stay degraded. Bounded concurrency
-    // keeps a big instance from firing dozens of parallel lookups at once.
-    const enriched = await mapLimit(list, 6, async (m): Promise<Row> => {
-      if (m.source === null || m.project_id === null) {
-        return { summary: null, installed: m };
+    // Resolve a ModSummary for every platform-installed mod in a few batched
+    // requests (grouped by source) instead of one lookup per mod. The old
+    // per-row fan-out fired hundreds of `modsProject` calls and tripped the
+    // platforms' 429 rate limit on large instances. The backend serves a shared
+    // disk cache, retries 429s, and omits unknown ids. Manual / unidentifiable
+    // mods (source: null) skip the fetch and stay degraded; a whole-batch
+    // failure leaves those rows degraded (null summary) with no banner — the
+    // same resilience the per-row path had.
+    const idsBySource = new Map<ModSource, Set<string>>();
+    for (const m of list) {
+      if (m.source !== null && m.project_id !== null) {
+        const set = idsBySource.get(m.source) ?? new Set<string>();
+        set.add(m.project_id);
+        idsBySource.set(m.source, set);
       }
-      const p = await commands.modsProject(m.source as ModSource, m.project_id);
-      if (p.status === 'ok') return { summary: p.data.summary, installed: m };
-      // One retry — a transient hiccup usually clears (the backend caches a
-      // concurrent success) so the mod renders normally rather than degraded.
-      const retry = await commands.modsProject(m.source as ModSource, m.project_id);
-      if (retry.status === 'ok') return { summary: retry.data.summary, installed: m };
-      return { summary: null, installed: m };
-    });
-    if (getInstanceId() !== reqId) return;
-    rows = enriched;
+    }
+    const summaryByKey = new Map<string, ModSummary>();
+    await Promise.all(
+      [...idsBySource].map(async ([source, ids]) => {
+        const res = await commands.modsProjects(source, [...ids]);
+        if (res.status === 'ok') {
+          for (const s of res.data) summaryByKey.set(`${source}:${s.project_id}`, s);
+        }
+      }),
+    );
+    if (getInstanceId() !== reqId) {
+      loading = false;
+      return;
+    }
+    rows = list.map((m) => ({
+      summary:
+        m.source !== null && m.project_id !== null
+          ? (summaryByKey.get(`${m.source}:${m.project_id}`) ?? null)
+          : null,
+      installed: m,
+    }));
     loading = false;
   }
 

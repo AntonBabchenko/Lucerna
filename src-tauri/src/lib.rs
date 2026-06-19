@@ -110,6 +110,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Mod browser (v0.5.0 sub-feature 3):
             commands::mods_search,
             commands::mods_project,
+            commands::mods_projects,
             commands::mods_versions,
             commands::mods_filter_satisfying,
             commands::mods_resolve_deps,

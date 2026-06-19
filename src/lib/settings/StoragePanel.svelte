@@ -29,10 +29,17 @@
   let retentionError = $state<string | null>(null);
   let retentionSaving = $state(false);
 
+  // Mod-metadata (name/icon/slug) cache TTL in days. 0 = never expire.
+  const DEFAULT_TTL_DAYS = 7;
+  let modTtlDays = $state<number>(DEFAULT_TTL_DAYS);
+  let ttlError = $state<string | null>(null);
+  let ttlSaving = $state(false);
+
   async function loadRetention() {
     const r = await commands.appSettingsGet();
     if (r.status === 'ok') {
       retention = { ...DEFAULT_RETENTION, ...r.data.general.log_retention };
+      modTtlDays = r.data.general.mod_metadata_ttl_days ?? DEFAULT_TTL_DAYS;
     } else {
       retentionError = formatError(r.error);
     }
@@ -69,6 +76,32 @@
     };
     const r = await commands.appSettingsSetGeneral(next);
     if (r.status !== 'ok') retentionError = formatError(r.error);
+  }
+
+  async function saveTtlTracked() {
+    ttlSaving = true;
+    try {
+      await saveTtl();
+    } finally {
+      ttlSaving = false;
+    }
+  }
+
+  async function saveTtl() {
+    ttlError = null;
+    // Snapshot the owned field before the await (read-modify-write: other
+    // panels/fields must survive). Clamp to a non-negative integer; 0 = never.
+    const snap = Number.isFinite(modTtlDays)
+      ? Math.max(0, Math.trunc(modTtlDays))
+      : DEFAULT_TTL_DAYS;
+    const cur = await commands.appSettingsGet();
+    if (cur.status !== 'ok') {
+      ttlError = formatError(cur.error);
+      return;
+    }
+    const next = { ...cur.data.general, mod_metadata_ttl_days: snap };
+    const r = await commands.appSettingsSetGeneral(next);
+    if (r.status !== 'ok') ttlError = formatError(r.error);
   }
 
   function fmt(b: number): string {
@@ -192,5 +225,37 @@
         />
       </label>
     </div>
+  </div>
+
+  <div class="flex flex-col gap-3 border-t mt-4 pt-4">
+    <h3 class="font-medium text-sm text-primary">
+      {$t('settings.general.modMetadataCache.title')}
+    </h3>
+    <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.description')}</p>
+    {#if ttlError}
+      <p class="text-xs text-danger">{ttlError}</p>
+    {/if}
+    <div class="flex flex-wrap items-end gap-4">
+      {#if ttlSaving}
+        <div class="flex items-center text-xs text-secondary">
+          <Spinner size="sm" />
+        </div>
+      {/if}
+      <label class="flex flex-col gap-1">
+        <span class="text-xs text-primary">
+          {$t('settings.general.modMetadataCache.ttlLabel')}
+        </span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          class="border rounded px-2 py-1 text-sm w-28"
+          bind:value={modTtlDays}
+          onchange={() => void saveTtlTracked()}
+          data-testid="mod-metadata-ttl-days"
+        />
+      </label>
+    </div>
+    <p class="text-xs text-muted">{$t('settings.general.modMetadataCache.ttlHint')}</p>
   </div>
 </div>
