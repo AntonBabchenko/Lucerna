@@ -311,11 +311,9 @@
               <span class="inline-flex" use:tooltip={rowTooltip}>
                 <BusyButton
                   busy={installingVersionId === v.version_id}
-                  class={`btn-icon btn-icon-sm ${isInstalled
-                    ? '!text-success'
-                    : !distAllowed
-                      ? '!text-muted'
-                      : '!text-accent'}`}
+                  class={`btn-icon btn-icon-sm ${
+                    isInstalled ? '!text-success' : !distAllowed ? '!text-muted' : '!text-accent'
+                  }`}
                   disabled={!distAllowed || isInstalled}
                   aria-label={rowTooltip}
                   onclick={() => onInstall(v)}

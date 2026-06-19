@@ -81,7 +81,10 @@
           <span class="inline-flex items-center gap-1 text-danger"
             ><Icon name="circleX" size={12} />{$t('mods.deps.missingStatus')}</span
           >
-          <span class="inline-flex" use:tooltip={$t('mods.deps.installAriaLabel', { name: n.name })}>
+          <span
+            class="inline-flex"
+            use:tooltip={$t('mods.deps.installAriaLabel', { name: n.name })}
+          >
             <BusyButton
               busy={installingKeys.has(keyOf(n))}
               class="btn-icon btn-icon-sm !text-accent"

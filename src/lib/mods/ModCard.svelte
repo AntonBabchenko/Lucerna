@@ -123,8 +123,7 @@
 
   // Context menu (right-click / Shift+F10) — the full action set.
   const menuItems = $derived.by((): ContextMenuItem[] => {
-    if (!installed)
-      return [{ label: $t('common.install'), icon: 'download', onSelect: onInstall }];
+    if (!installed) return [{ label: $t('common.install'), icon: 'download', onSelect: onInstall }];
     const out: ContextMenuItem[] = [];
     if (hasUpdate) out.push({ label: $t('mods.card.update'), icon: 'refresh', onSelect: onUpdate });
     if (canToggle)
