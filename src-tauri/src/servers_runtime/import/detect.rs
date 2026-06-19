@@ -79,13 +79,19 @@ pub fn can_launch_as_is(root: &Path, loader: LoaderKind) -> bool {
 }
 
 fn first_subdir_name(dir: &Path) -> Option<String> {
-    std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
-        if e.file_type().ok()?.is_dir() {
-            e.file_name().to_str().map(String::from)
-        } else {
-            None
-        }
-    })
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            if e.file_type().ok()?.is_dir() {
+                e.file_name().to_str().map(String::from)
+            } else {
+                None
+            }
+        })
+        .collect();
+    names.sort();
+    names.into_iter().last()
 }
 
 fn neoforge_from_libraries(root: &Path) -> Option<(Option<String>, String)> {

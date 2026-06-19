@@ -69,14 +69,34 @@ pub fn find_server_root(root: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Skip-set for the PRESERVE path: omit only what Lucerna manages itself
+/// (its own metadata + logs + backups). Everything else — server.jar,
+/// libraries/, user_jvm_args.txt, args files — is the runnable state and is kept.
+pub const SKIP_PRESERVE: &[&str] = &["logs", "server.json", "server.json.tmp", "backups"];
+
 /// Скопировать `src` → `runtime`, пропуская топ-левел скип-сет, с дефолтными капами.
 pub fn copy_into_runtime(src: &Path, runtime: &Path) -> Result<()> {
-    copy_into_runtime_capped(src, runtime, PER_FILE_CAP, AGGREGATE_CAP)
+    copy_into_runtime_with_skip(src, runtime, SKIP_TOP_LEVEL, PER_FILE_CAP, AGGREGATE_CAP)
 }
 
 pub fn copy_into_runtime_capped(
     src: &Path,
     runtime: &Path,
+    per_file_cap: u64,
+    aggregate_cap: u64,
+) -> Result<()> {
+    copy_into_runtime_with_skip(src, runtime, SKIP_TOP_LEVEL, per_file_cap, aggregate_cap)
+}
+
+/// Copy `src` → `runtime`, preserving loader binaries (PRESERVE path).
+pub fn copy_into_runtime_preserving(src: &Path, runtime: &Path) -> Result<()> {
+    copy_into_runtime_with_skip(src, runtime, SKIP_PRESERVE, PER_FILE_CAP, AGGREGATE_CAP)
+}
+
+fn copy_into_runtime_with_skip(
+    src: &Path,
+    runtime: &Path,
+    skip: &[&str],
     per_file_cap: u64,
     aggregate_cap: u64,
 ) -> Result<()> {
@@ -86,7 +106,7 @@ pub fn copy_into_runtime_capped(
         let entry = entry.map_err(|e| Error::io(src.display().to_string(), e))?;
         let name = entry.file_name();
         let lower = name.to_string_lossy().to_ascii_lowercase();
-        if SKIP_TOP_LEVEL.iter().any(|s| *s == lower) {
+        if skip.iter().any(|s| *s == lower) {
             continue;
         }
         let ft = entry
@@ -168,9 +188,10 @@ fn copy_file_capped(
     Ok(())
 }
 
-/// Pre-extract zip-bomb defense: reject an archive whose declared (uncompressed)
-/// sizes exceed the caps. Mirrors `worlds::import::check_zip_size` (kept local to
-/// avoid coupling). Non-zip / unreadable → `ServerImportInvalidArchive`.
+/// Pre-extract zip-bomb defense: reject an archive whose declared (central-directory)
+/// uncompressed sizes exceed the caps. The on-disk copy enforces real bytes as a
+/// second layer. Mirrors `worlds::import::check_zip_size` (kept local to avoid
+/// coupling). Non-zip / unreadable → `ServerImportInvalidArchive`.
 pub fn check_archive_size(zip_path: &Path, per_file_cap: u64, aggregate_cap: u64) -> Result<()> {
     let file =
         std::fs::File::open(zip_path).map_err(|e| Error::io(zip_path.display().to_string(), e))?;
@@ -270,5 +291,28 @@ mod tests {
         let d = tempdir().unwrap();
         touch(&d.path().join("readme.txt"));
         assert_eq!(find_server_root(d.path()), None);
+    }
+
+    #[test]
+    fn preserve_keeps_loader_binaries() {
+        let src = tempdir().unwrap();
+        touch(&src.path().join("server.jar"));
+        touch(
+            &src.path()
+                .join("libraries/net/neoforged/neoforge/20.4.237/win_args.txt"),
+        );
+        touch(&src.path().join("user_jvm_args.txt"));
+        touch(&src.path().join("logs/latest.log"));
+        touch(&src.path().join("world/level.dat"));
+        let dst = tempdir().unwrap();
+        copy_into_runtime_preserving(src.path(), dst.path()).unwrap();
+        assert!(dst.path().join("server.jar").is_file());
+        assert!(dst
+            .path()
+            .join("libraries/net/neoforged/neoforge/20.4.237/win_args.txt")
+            .is_file());
+        assert!(dst.path().join("user_jvm_args.txt").is_file());
+        assert!(dst.path().join("world/level.dat").is_file());
+        assert!(!dst.path().join("logs").exists()); // logs still skipped
     }
 }

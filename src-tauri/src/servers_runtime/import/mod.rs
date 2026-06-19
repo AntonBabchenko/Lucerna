@@ -135,18 +135,10 @@ pub fn commit_preserve(
     let root = staged_root(base, token)?;
     let id = format!("srv-{}", new_id());
     let p = crate::paths::server_paths(base, &id);
-    // Copy user data (worlds, mods, configs, etc.) — SKIP_TOP_LEVEL omits
-    // loader binaries that would be regenerated in a reprovision.  For the
-    // preserve path we also need the server binary itself, so copy it
-    // explicitly if present.
-    copy::copy_into_runtime(&root, &p.runtime)?;
-    let server_jar = root.join("server.jar");
-    if server_jar.is_file() {
-        std::fs::create_dir_all(&p.runtime)
-            .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
-        std::fs::copy(&server_jar, p.runtime.join("server.jar"))
-            .map_err(|e| Error::io(server_jar.display().to_string(), e))?;
-    }
+    // Copy all runnable state (server.jar, libraries/, user_jvm_args.txt, worlds,
+    // mods, configs, etc.). SKIP_PRESERVE omits only Lucerna-managed files
+    // (logs, server.json, backups) that will be re-created or are irrelevant.
+    copy::copy_into_runtime_preserving(&root, &p.runtime)?;
     let file = build_file(
         &id,
         name,
@@ -174,7 +166,13 @@ pub fn staged_root(base: &Path, token: &str) -> Result<PathBuf> {
     let search_base = if meta.kind == "zip" {
         staging.join("content")
     } else {
-        PathBuf::from(&meta.source)
+        let p = PathBuf::from(&meta.source);
+        if !p.exists() {
+            return Err(Error::ServerImportStagingExpired {
+                token: token.to_string(),
+            });
+        }
+        p
     };
     copy::find_server_root(&search_base).ok_or(Error::ServerImportNotAServer)
 }
