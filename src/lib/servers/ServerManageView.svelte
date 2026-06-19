@@ -13,6 +13,7 @@
   import ServerDiagnosisBanner from './ServerDiagnosisBanner.svelte';
   import ServerHostingTab from './ServerHostingTab.svelte';
   import ServerToInstanceDialog from './ServerToInstanceDialog.svelte';
+  import ServerBackupsView from './ServerBackupsView.svelte';
 
   let {
     serverId,
@@ -24,7 +25,7 @@
     onInstanceCreated: (instanceId: string) => void;
   } = $props();
 
-  type ServerTab = 'console' | 'general' | 'settings' | 'mods' | 'hosting';
+  type ServerTab = 'console' | 'general' | 'settings' | 'mods' | 'hosting' | 'backups';
 
   // serverList() always returns ServerWithStatus_Serialize[]; the store type
   // is the union for legacy reasons. Cast here so the dialog prop is satisfied.
@@ -158,7 +159,7 @@
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div role="tablist" class="flex gap-1 border-b border-border-subtle px-4 bg-surface">
-    {#each [['console', $t('servers.tab.console')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['hosting', $t('servers.hosting.tab')]] as const as [id, label] (id)}
+    {#each [['console', $t('servers.tab.console')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}
       <button
         type="button"
         role="tab"
@@ -187,8 +188,10 @@
       <ServerSettings {serverId} />
     {:else if tab === 'mods'}
       <ServerMods {serverId} />
-    {:else}
+    {:else if tab === 'hosting'}
       <ServerHostingTab {serverId} />
+    {:else}
+      <ServerBackupsView {serverId} />
     {/if}
   </div>
 </div>

@@ -1636,6 +1636,19 @@
       "description": "This permanently removes the server's files (world, mods, config). This cannot be undone.",
       "confirm": "Delete",
       "runningBlock": "Stop the server before deleting"
+    },
+    "backups": {
+      "tab": "Backups",
+      "create": "Create backup",
+      "creating": "Creating…",
+      "empty": "No backups yet",
+      "restore": "Restore",
+      "delete": "Delete",
+      "restoreConfirm": "Restore \"{name}\"? This replaces the current world & files (the current state is backed up first).",
+      "deleteConfirm": "Delete backup \"{name}\"?",
+      "runningBlock": "Stop the server before restoring",
+      "restored": "Restored",
+      "note": "Snapshots of the server (world, mods, config). The newest {n} are kept."
     }
   }
 }
