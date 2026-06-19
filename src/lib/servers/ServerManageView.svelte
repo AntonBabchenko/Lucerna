@@ -190,7 +190,7 @@
       <ServerMods {serverId} />
     {:else if tab === 'hosting'}
       <ServerHostingTab {serverId} />
-    {:else}
+    {:else if tab === 'backups'}
       <ServerBackupsView {serverId} />
     {/if}
   </div>
