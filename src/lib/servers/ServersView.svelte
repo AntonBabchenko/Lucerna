@@ -8,8 +8,15 @@
   import ServerCreateWizard from './ServerCreateWizard.svelte';
   import ServerManageView from './ServerManageView.svelte';
 
-  let { instances, versions }: { instances: InstanceWithStatus[]; versions: VersionEntry[] } =
-    $props();
+  let {
+    instances,
+    versions,
+    onInstanceCreated,
+  }: {
+    instances: InstanceWithStatus[];
+    versions: VersionEntry[];
+    onInstanceCreated: (instanceId: string) => void;
+  } = $props();
   let selected = $state<string | null>(null);
   let creating = $state(false);
 
@@ -31,7 +38,7 @@
   />
 {:else if selected}
   {#key selected}
-    <ServerManageView serverId={selected} onBack={() => (selected = null)} />
+    <ServerManageView serverId={selected} onBack={() => (selected = null)} {onInstanceCreated} />
   {/key}
 {:else}
   <div class="flex flex-col gap-3 p-4 overflow-y-auto">

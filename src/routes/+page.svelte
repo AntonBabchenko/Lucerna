@@ -907,6 +907,10 @@
     onClose={() => (serversModalOpen = false)}
     {instances}
     versions={mcv.value}
+    onInstanceCreated={(id) => {
+      serversModalOpen = false;
+      void onSelectInstance(id);
+    }}
   />
   <!-- SettingsModal renders AFTER ModpacksModal on purpose. Both now use the
        shared Modal primitive, which fixes the backdrop at z-50, so relative
