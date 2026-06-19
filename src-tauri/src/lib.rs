@@ -196,6 +196,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 4: diagnosis + repair):
             commands::server_diagnose,
             commands::server_remove_mods,
+            commands::server_accept_eula,
+            commands::server_stop_orphan,
+            commands::server_change_port,
             // Own server (Plan 5: SFTP upload + export):
             commands::server_set_upload_config,
             commands::server_upload,
@@ -381,8 +384,13 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        // Tauri's run() only returns on a fatal init failure (e.g., missing
-        // webview runtime). There's nothing to recover to — crash loudly.
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            // Bug A root fix: never orphan server children. On launcher exit,
+            // synchronously force-kill every tracked server process.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                crate::servers_runtime::runtime::kill_all_running();
+            }
+        });
 }

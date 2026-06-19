@@ -13,10 +13,11 @@
   const diag = $derived(serverState.diagnosisFor(serverId));
 
   // Map pattern_id → i18n subkey. Unknown patterns fall through to raw title.
-  function patternKey(patternId: string): 'clientOnly' | 'portInUse' | 'eula' | null {
+  function patternKey(patternId: string): 'clientOnly' | 'portInUse' | 'eula' | 'orphan' | null {
     if (patternId === 'server-client-only-mod-crash') return 'clientOnly';
     if (patternId === 'server-port-in-use') return 'portInUse';
     if (patternId === 'server-eula-not-accepted') return 'eula';
+    if (patternId === 'server-orphan-running') return 'orphan';
     return null;
   }
 
@@ -27,6 +28,27 @@
   let checked = $state<Record<string, boolean>>({});
   let busyRemove = $state(false);
   let removeError = $state<string | null>(null);
+
+  // One-click pre-spawn fix state (accept EULA / stop orphan / change port).
+  let busyFix = $state(false);
+  let fixError = $state<string | null>(null);
+
+  async function runFix(fn: () => Promise<{ ok: boolean; error?: unknown }>) {
+    busyFix = true;
+    fixError = null;
+    try {
+      const r = await fn();
+      if (r.ok) {
+        await serverState.diagnose(serverId);
+      } else {
+        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+      }
+    } catch (e) {
+      fixError = formatError(e as Parameters<typeof formatError>[0]);
+    } finally {
+      busyFix = false;
+    }
+  }
 
   // Seed `checked` when client_mods change — pre-check high-confidence rows,
   // but only seed keys not yet present so user toggles are preserved.
@@ -99,6 +121,41 @@
         >
           {$t('servers.diagnose.diagnoseBtn')}
         </button>
+
+        {#if diag.server_repair === 'accept_eula'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-accept-eula"
+            busy={busyFix}
+            onclick={() => void runFix(() => serverState.acceptEula(serverId))}
+          >
+            {$t('servers.diagnose.fix.acceptEula')}
+          </BusyButton>
+        {:else if diag.server_repair === 'stop_orphan_and_retry'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-stop-orphan"
+            busy={busyFix}
+            onclick={() =>
+              void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0))}
+          >
+            {$t('servers.diagnose.fix.stopOrphan')}
+          </BusyButton>
+        {:else if diag.server_repair === 'change_port'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-change-port"
+            busy={busyFix}
+            onclick={() =>
+              void runFix(() => serverState.changePort(serverId, (diag.port_in_use ?? 25565) + 1))}
+          >
+            {$t('servers.diagnose.fix.changePort', { port: (diag.port_in_use ?? 25565) + 1 })}
+          </BusyButton>
+        {/if}
+
+        {#if fixError}
+          <p class="mt-2 text-sm text-danger">{fixError}</p>
+        {/if}
 
         {#if diag.status === 'actionable' && diag.client_mods.length > 0}
           <div class="mt-2">

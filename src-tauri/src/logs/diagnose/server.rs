@@ -19,6 +19,24 @@ pub struct ServerDiagnosis {
     pub client_mods: Vec<ClientModFinding>,
     pub forge_skip_count: Option<u32>,
     pub log_signature: Option<String>,
+    /// Which one-click server fix the banner should offer (Phase 1+). `None`
+    /// for advisory-only or clean diagnoses.
+    pub server_repair: Option<ServerRepairTag>,
+    /// The busy port for port-conflict diagnoses (drives "Use port N").
+    pub port_in_use: Option<u16>,
+    /// The leftover PID for `StopOrphanAndRetry`.
+    pub orphan_pid: Option<u32>,
+}
+
+/// One-click server fix the diagnosis banner can offer. snake_case on the wire.
+/// Phase 1 introduces the first four; later phases extend this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerRepairTag {
+    AcceptEula,
+    StopOrphanAndRetry,
+    ChangePort,
+    RemoveClientMods,
 }
 
 /// First matching server-log diagnosis, if any. Order = specificity.
@@ -189,10 +207,118 @@ fn excerpt(log: &str, needle: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Build a fixable `ServerDiagnosis` from a pre-spawn finding (class A). Copy
+/// is plain; the banner localizes by `pattern_id`. `LowDisk` is advisory.
+pub fn diagnosis_from_preflight(
+    finding: crate::servers_runtime::preflight::PreflightFinding,
+) -> ServerDiagnosis {
+    use crate::logs::diagnose::{Diagnosis, DiagnosisStatus};
+    use crate::servers_runtime::preflight::PreflightFinding;
+    let (pattern_id, title, repair, port, orphan, status) = match finding {
+        PreflightFinding::EulaNotAccepted => (
+            "server-eula-not-accepted",
+            "The Minecraft EULA is not accepted",
+            Some(ServerRepairTag::AcceptEula),
+            None,
+            None,
+            DiagnosisStatus::Actionable,
+        ),
+        PreflightFinding::PortInUse(p) => (
+            "server-port-in-use",
+            "The server port is already in use",
+            Some(ServerRepairTag::ChangePort),
+            Some(p),
+            None,
+            DiagnosisStatus::Actionable,
+        ),
+        PreflightFinding::OrphanRunning(pid) => (
+            "server-orphan-running",
+            "A leftover copy of this server is still running",
+            Some(ServerRepairTag::StopOrphanAndRetry),
+            None,
+            Some(pid),
+            DiagnosisStatus::Actionable,
+        ),
+        PreflightFinding::LowDisk => (
+            "server-disk-low",
+            "Low disk space",
+            None,
+            None,
+            None,
+            DiagnosisStatus::Advisory,
+        ),
+    };
+    ServerDiagnosis {
+        status,
+        diagnosis: Some(Diagnosis {
+            pattern_id: pattern_id.into(),
+            title: title.into(),
+            explanation: String::new(),
+            recommendation: String::new(),
+            matched_excerpt: String::new(),
+            repair: None,
+        }),
+        client_mods: vec![],
+        forge_skip_count: None,
+        log_signature: None,
+        server_repair: repair,
+        port_in_use: port,
+        orphan_pid: orphan,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mods::local::ModEnvironment;
+
+    #[test]
+    fn server_repair_tag_serializes_snake_case() {
+        let j = serde_json::to_string(&ServerRepairTag::StopOrphanAndRetry).unwrap();
+        assert_eq!(j, "\"stop_orphan_and_retry\"");
+    }
+
+    #[test]
+    fn server_diagnosis_carries_repair_and_params() {
+        let d = ServerDiagnosis {
+            status: crate::logs::diagnose::DiagnosisStatus::Actionable,
+            diagnosis: None,
+            client_mods: vec![],
+            forge_skip_count: None,
+            log_signature: None,
+            server_repair: Some(ServerRepairTag::ChangePort),
+            port_in_use: Some(25565),
+            orphan_pid: None,
+        };
+        let j = serde_json::to_string(&d).unwrap();
+        assert!(j.contains("\"server_repair\":\"change_port\""), "got: {j}");
+        assert!(j.contains("\"port_in_use\":25565"), "got: {j}");
+    }
+
+    #[test]
+    fn preflight_to_diagnosis_eula_is_actionable() {
+        use crate::servers_runtime::preflight::PreflightFinding;
+        let d = diagnosis_from_preflight(PreflightFinding::EulaNotAccepted);
+        assert_eq!(d.server_repair, Some(ServerRepairTag::AcceptEula));
+        assert_eq!(d.status, crate::logs::diagnose::DiagnosisStatus::Actionable);
+        assert!(d.diagnosis.is_some());
+    }
+
+    #[test]
+    fn preflight_to_diagnosis_orphan_carries_pid() {
+        use crate::servers_runtime::preflight::PreflightFinding;
+        let d = diagnosis_from_preflight(PreflightFinding::OrphanRunning(9999));
+        assert_eq!(d.server_repair, Some(ServerRepairTag::StopOrphanAndRetry));
+        assert_eq!(d.orphan_pid, Some(9999));
+    }
+
+    #[test]
+    fn preflight_to_diagnosis_port_carries_port() {
+        use crate::servers_runtime::preflight::PreflightFinding;
+        let d = diagnosis_from_preflight(PreflightFinding::PortInUse(25565));
+        assert_eq!(d.server_repair, Some(ServerRepairTag::ChangePort));
+        assert_eq!(d.port_in_use, Some(25565));
+    }
 
     #[test]
     fn leading_initials_etf() {
