@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { commands } from '$lib/ipc/bindings';
+  import { commands, type ServerWithStatus_Serialize } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
@@ -11,15 +11,29 @@
   import ServerMods from './ServerMods.svelte';
   import ServerDiagnosisBanner from './ServerDiagnosisBanner.svelte';
   import ServerHostingTab from './ServerHostingTab.svelte';
+  import ServerToInstanceDialog from './ServerToInstanceDialog.svelte';
 
-  let { serverId, onBack }: { serverId: string; onBack: () => void } = $props();
+  let {
+    serverId,
+    onBack,
+    onInstanceCreated,
+  }: {
+    serverId: string;
+    onBack: () => void;
+    onInstanceCreated: (instanceId: string) => void;
+  } = $props();
 
   type ServerTab = 'console' | 'settings' | 'mods' | 'hosting';
 
-  const server = $derived(serverState.list.find((s) => s.id === serverId));
+  // serverList() always returns ServerWithStatus_Serialize[]; the store type
+  // is the union for legacy reasons. Cast here so the dialog prop is satisfied.
+  const server = $derived(
+    serverState.list.find((s) => s.id === serverId) as ServerWithStatus_Serialize | undefined,
+  );
   const running = $derived(serverState.running(serverId));
 
   let tab = $state<ServerTab>('console');
+  let showToInstance = $state(false);
   let busyStart = $state(false);
   let busyStop = $state(false);
   let busyRestart = $state(false);
@@ -103,6 +117,15 @@
 
     <!-- Actions -->
     <div class="flex items-center gap-1.5">
+      <button
+        type="button"
+        class="btn-ghost btn-sm flex items-center gap-1"
+        onclick={() => (showToInstance = true)}
+        data-testid="create-client-instance-btn"
+      >
+        <Icon name="download" size={14} />
+        {$t('servers.toInstance.button')}
+      </button>
       {#if !running}
         <BusyButton class="btn-primary btn-sm" busy={busyStart} onclick={() => void start()}>
           {$t('servers.action.start')}
@@ -163,3 +186,14 @@
     {/if}
   </div>
 </div>
+
+{#if showToInstance && server}
+  <ServerToInstanceDialog
+    {server}
+    onCancel={() => (showToInstance = false)}
+    onCreated={(id) => {
+      showToInstance = false;
+      onInstanceCreated(id);
+    }}
+  />
+{/if}
