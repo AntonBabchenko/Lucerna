@@ -53,7 +53,12 @@ fn preflight_diagnosis(
         .or_else(|| {
             preflight::port_in_use(port).then_some(preflight::PreflightFinding::PortInUse(port))
         })
-        .or_else(|| preflight::eula_finding(eula_ok))?;
+        .or_else(|| preflight::eula_finding(eula_ok))
+        .or_else(|| {
+            // Advisory; lowest priority — only reached when no actionable
+            // orphan/port/EULA finding fired.
+            preflight::low_disk(&p.runtime).then_some(preflight::PreflightFinding::LowDisk)
+        })?;
     Some(crate::logs::diagnose::server::diagnosis_from_preflight(
         finding,
     ))

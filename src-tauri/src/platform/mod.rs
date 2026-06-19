@@ -308,6 +308,67 @@ pub fn total_system_ram_mb() -> Option<u64> {
     None
 }
 
+/// Free disk space (MB) available to the caller on the filesystem holding
+/// `path`, or `None` when it can't be read (locked-down host, missing path).
+/// Used only for the *advisory* low-disk server diagnosis — never an auto-fix.
+/// Three cfg-gated impls; no new crate dependency.
+pub fn free_disk_mb(path: &Path) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        // GetDiskFreeSpaceExW wants a directory path; pass the dir itself, or
+        // its parent when `path` is a not-yet-created file. NUL-terminated UTF-16.
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        let wide: Vec<u16> = dir
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut free_to_caller: u64 = 0;
+        // SAFETY: standard Win32 call. `wide` is NUL-terminated; we pass a valid
+        // out-pointer for the one figure we need and null for the two we don't.
+        let ok = unsafe {
+            GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free_to_caller,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return None;
+        }
+        return Some(free_to_caller / (1024 * 1024));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        let c_path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+        // SAFETY: statvfs writes into a zeroed POD struct; c_path is a valid,
+        // NUL-terminated C string. rc != 0 means the path could not be statted.
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) };
+        if rc != 0 {
+            return None;
+        }
+        // bavail = blocks available to a non-privileged process; frsize = fragment size.
+        let bytes = (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64);
+        return Some(bytes / (1024 * 1024));
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
 /// Block until the spawned process has created its top-level window (input
 /// message queue ready), or a 30-second cap elapses. Used to delay
 /// hide-to-tray until Minecraft is actually on screen.
@@ -469,6 +530,25 @@ mod tests {
         }
         // None is tolerated (unsupported/locked-down host) — callers treat
         // it as "unknown" and fall back to a conservative fixed bump.
+    }
+
+    #[test]
+    fn free_disk_mb_is_plausible_for_temp_dir() {
+        // On any real CI/dev host the temp dir's filesystem has >0 free MB.
+        let dir = tempfile::tempdir().unwrap();
+        let mb = super::free_disk_mb(dir.path());
+        // None is tolerated (locked-down/unsupported host); when Some, it must be
+        // a sane positive figure, not a wrapped/garbage value.
+        if let Some(free) = mb {
+            assert!(free > 0, "temp filesystem reports 0 free MB: {free}");
+            assert!(free < 1_000_000_000, "implausibly large free reading: {free} MB");
+        }
+    }
+
+    #[test]
+    fn free_disk_mb_none_for_nonexistent_path() {
+        let p = std::path::Path::new("/this/path/does/not/exist/lucerna-zzz");
+        assert_eq!(super::free_disk_mb(p), None, "nonexistent path must read None");
     }
 
     #[cfg(not(windows))]

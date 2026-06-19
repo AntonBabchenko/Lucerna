@@ -3,6 +3,7 @@
 //! `ServerDiagnosis`. Side-effect-free except the transient port bind probe.
 
 use std::net::TcpListener;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreflightFinding {
@@ -10,6 +11,24 @@ pub enum PreflightFinding {
     PortInUse(u16),
     OrphanRunning(u32),
     LowDisk,
+}
+
+/// Advisory low-disk threshold (MB). Below this, a server create/start is
+/// likely to fail or leave a half-written world; we surface an advisory but
+/// never auto-act on the user's storage.
+pub const LOW_DISK_THRESHOLD_MB: u64 = 500;
+
+/// Pure threshold decision, separated so it is testable without a filesystem.
+/// `None` free space (unreadable) is treated as "not low" — we never block on
+/// an unknown, only on a confirmed-low reading.
+pub fn low_disk_from_free(free_mb: Option<u64>, threshold_mb: u64) -> bool {
+    matches!(free_mb, Some(free) if free < threshold_mb)
+}
+
+/// True when the filesystem holding the server runtime dir is below the
+/// advisory threshold. Best-effort: an unreadable figure is "not low".
+pub fn low_disk(runtime: &Path) -> bool {
+    low_disk_from_free(crate::platform::free_disk_mb(runtime), LOW_DISK_THRESHOLD_MB)
 }
 
 /// True iff `port` cannot be bound on 0.0.0.0 right now (a hint — the TOCTOU
@@ -63,5 +82,13 @@ mod tests {
     fn orphan_finding_none_without_pid_or_dead_pid() {
         assert_eq!(orphan_finding(None), None);
         assert_eq!(orphan_finding(Some(u32::MAX)), None);
+    }
+
+    #[test]
+    fn low_disk_from_free_uses_threshold() {
+        assert!(low_disk_from_free(Some(100), 500), "100 MB free < 500 MB → low");
+        assert!(!low_disk_from_free(Some(800), 500), "800 MB free ≥ 500 MB → ok");
+        assert!(!low_disk_from_free(None, 500), "unknown free space → not flagged");
+        assert!(!low_disk_from_free(Some(500), 500), "exactly at threshold → ok");
     }
 }
