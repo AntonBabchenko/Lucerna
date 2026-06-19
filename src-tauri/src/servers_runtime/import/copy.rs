@@ -28,6 +28,12 @@ pub const SKIP_TOP_LEVEL: &[&str] = &[
     "server.json",
     "server.json.tmp",
     "backups",
+    // Reprovision regenerates eula.txt (create_*_server writes eula=true after
+    // the user accepted in the wizard). The source's eula.txt is often eula=false
+    // (a freshly downloaded server pack), which would otherwise overwrite our
+    // eula=true and make Minecraft exit on launch — so skip it on the reprovision
+    // copy. (The preserve path uses SKIP_PRESERVE + a write_eula afterwards.)
+    "eula.txt",
 ];
 
 /// Признаки «здесь корень сервера»: server.jar / любой *.jar лаунчера /
@@ -248,6 +254,7 @@ mod tests {
         touch(&src.path().join("mods/cool.jar"));
         touch(&src.path().join("server.properties"));
         touch(&src.path().join("config/foo.toml"));
+        touch(&src.path().join("eula.txt"));
         let dst = tempdir().unwrap();
         copy_into_runtime(src.path(), dst.path()).unwrap();
         assert!(dst.path().join("world/level.dat").is_file());
@@ -257,6 +264,9 @@ mod tests {
         assert!(!dst.path().join("server.jar").exists());
         assert!(!dst.path().join("libraries").exists());
         assert!(!dst.path().join("logs").exists());
+        // eula.txt is skipped on the reprovision copy — provision_loader writes
+        // the correct eula=true; a source eula=false must not overwrite it.
+        assert!(!dst.path().join("eula.txt").exists());
     }
 
     #[test]
