@@ -4,6 +4,8 @@
 pub mod create;
 pub mod eula;
 pub mod jar;
+pub mod pid;
+pub mod preflight;
 pub mod properties;
 pub mod runtime;
 pub mod schema;

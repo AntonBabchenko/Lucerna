@@ -31,6 +31,9 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     diagnosisFor: (id: string) => mockDiagnoses[id],
     diagnose: vi.fn().mockResolvedValue(undefined),
     removeClientMods: vi.fn().mockResolvedValue({ ok: true }),
+    acceptEula: vi.fn().mockResolvedValue({ ok: true }),
+    stopOrphan: vi.fn().mockResolvedValue({ ok: true }),
+    changePort: vi.fn().mockResolvedValue({ ok: true }),
     running: (_id: string) => false,
     refresh: vi.fn().mockResolvedValue(undefined),
     init: vi.fn(),
@@ -58,6 +61,35 @@ function makeClientOnlyDiagnosis(overrides: Partial<ServerDiagnosis> = {}): Serv
     client_mods: [],
     forge_skip_count: null,
     log_signature: 'sig-abc',
+    server_repair: null,
+    port_in_use: null,
+    orphan_pid: null,
+    ...overrides,
+  };
+}
+
+// Pre-spawn (class A) diagnosis: a fixable launch outcome with a server_repair tag.
+function makePreflightDiagnosis(
+  patternId: string,
+  serverRepair: NonNullable<ServerDiagnosis['server_repair']>,
+  overrides: Partial<ServerDiagnosis> = {},
+): ServerDiagnosis {
+  return {
+    status: 'actionable',
+    diagnosis: {
+      pattern_id: patternId,
+      title: '',
+      explanation: '',
+      recommendation: '',
+      matched_excerpt: '',
+      repair: null,
+    },
+    client_mods: [],
+    forge_skip_count: null,
+    log_signature: null,
+    server_repair: serverRepair,
+    port_in_use: null,
+    orphan_pid: null,
     ...overrides,
   };
 }
@@ -176,5 +208,42 @@ describe('ServerDiagnosisBanner', () => {
 
     expect(removeClientModsSpy).toHaveBeenCalledWith('srv-remove', ['beta.jar'], 'sig-abc');
     expect(pushSuccessMock).toHaveBeenCalledOnce();
+  });
+
+  it('shows the Accept EULA fix button for the accept_eula repair', () => {
+    mockDiagnoses['srv-eula'] = makePreflightDiagnosis('server-eula-not-accepted', 'accept_eula');
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-eula' } });
+    expect(screen.getByTestId('server-fix-accept-eula')).toBeTruthy();
+  });
+
+  it('shows the Stop-orphan fix button carrying the pid', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const stopOrphanSpy = mod.serverState.stopOrphan as ReturnType<typeof vi.fn>;
+    stopOrphanSpy.mockClear();
+    mockDiagnoses['srv-orphan'] = makePreflightDiagnosis(
+      'server-orphan-running',
+      'stop_orphan_and_retry',
+      { orphan_pid: 9999 },
+    );
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-orphan' } });
+    const btn = screen.getByTestId('server-fix-stop-orphan');
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(stopOrphanSpy).toHaveBeenCalledWith('srv-orphan', 9999);
+  });
+
+  it('shows the Change-port fix button suggesting the next port', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const changePortSpy = mod.serverState.changePort as ReturnType<typeof vi.fn>;
+    changePortSpy.mockClear();
+    mockDiagnoses['srv-port'] = makePreflightDiagnosis('server-port-in-use', 'change_port', {
+      port_in_use: 25565,
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-port' } });
+    const btn = screen.getByTestId('server-fix-change-port');
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    // Suggests port_in_use + 1.
+    expect(changePortSpy).toHaveBeenCalledWith('srv-port', 25566);
   });
 });

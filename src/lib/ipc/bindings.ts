@@ -933,6 +933,19 @@ export const commands = {
 	 */
 	serverRemoveMods: (id: string, filenames: string[], logSignature: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_remove_mods", { id, filenames, logSignature })),
 	/**
+	 *  Accept the EULA for this server (writes runtime/eula.txt and flips the
+	 *  stored flag) so the next start passes the pre-spawn gate.
+	 */
+	serverAcceptEula: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_accept_eula", { id })),
+	/**
+	 *  Kill a leftover server process holding this server's world (the PID the
+	 *  diagnoser surfaced as `orphan_pid`), then clear the stale PID file. The UI
+	 *  retries start afterwards.
+	 */
+	serverStopOrphan: (id: string, pid: number) => typedError<null, Error>(__TAURI_INVOKE("server_stop_orphan", { id, pid })),
+	/**  Change the server's listen port in `server.properties` (validated 1..=65535). */
+	serverChangePort: (id: string, port: number) => typedError<null, Error>(__TAURI_INVOKE("server_change_port", { id, port })),
+	/**
 	 *  Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
 	 *  сохраняет его в связке ключей ОС (пароль никогда не записывается в
 	 *  `server.json`). Идемпотентно: повторный вызов перезаписывает конфигурацию
@@ -2635,6 +2648,15 @@ export type ServerDiagnosis = {
 	client_mods: ClientModFinding[],
 	forge_skip_count: number | null,
 	log_signature: string | null,
+	/**
+	 *  Which one-click server fix the banner should offer (Phase 1+). `None`
+	 *  for advisory-only or clean diagnoses.
+	 */
+	server_repair: ServerRepairTag | null,
+	/**  The busy port for port-conflict diagnoses (drives "Use port N"). */
+	port_in_use: number | null,
+	/**  The leftover PID for `StopOrphanAndRetry`. */
+	orphan_pid: number | null,
 };
 
 /**  Emitted when a server process exits. `code` is -1 if signal-terminated. */
@@ -2648,6 +2670,12 @@ export type ServerLogLine = {
 	server_id: string,
 	line: string,
 };
+
+/**
+ *  One-click server fix the diagnosis banner can offer. snake_case on the wire.
+ *  Phase 1 introduces the first four; later phases extend this enum.
+ */
+export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods";
 
 /**  Emitted when a server process starts. */
 export type ServerSpawned = {

@@ -21,8 +21,18 @@ fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
 /// update — чтобы не дублировать логику обогащения статуса.
 fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
     let rp = crate::paths::server_paths(base, &file.id);
-    let running = crate::servers_runtime::runtime::is_running(&file.id);
-    let pid = crate::servers_runtime::runtime::running_pid(&file.id);
+    // Reconcile against the persisted PID so a server still alive after a
+    // launcher restart is not shown as "Stopped" (Bug A part 2).
+    let in_mem = crate::servers_runtime::runtime::running_pid(&file.id);
+    let recorded = crate::servers_runtime::pid::read_pid(&rp.pid);
+    let alive_ours = recorded
+        .map(|pid| {
+            crate::platform::process_alive(pid)
+                && crate::platform::process_image_matches(pid, "java")
+        })
+        .unwrap_or(false);
+    let (running, pid) =
+        crate::servers_runtime::runtime::reconcile_running(in_mem, recorded, alive_ours);
     let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
     let upw = crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(
         &file.id,
@@ -31,6 +41,76 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
     .flatten()
     .is_some();
     ServerWithStatus::from_file(file, running, pid, port, upw)
+}
+
+/// Pre-spawn launch-outcome diagnosis: when the server is stopped and the log
+/// produced no actionable diagnosis, classify the first blocking pre-condition
+/// (orphan process → busy port → EULA) into a fixable `ServerDiagnosis`.
+fn preflight_diagnosis(
+    p: &crate::paths::ServerPaths,
+    id: &str,
+) -> Option<crate::logs::diagnose::server::ServerDiagnosis> {
+    use crate::servers_runtime::preflight;
+    if crate::servers_runtime::runtime::is_running(id) {
+        return None;
+    }
+    let recorded = crate::servers_runtime::pid::read_pid(&p.pid);
+    let port = crate::servers_runtime::runtime::read_port(&p.runtime).unwrap_or(0);
+    let eula_ok = crate::servers_runtime::store::read_server_json(&p.json)
+        .map(|f| f.eula_accepted)
+        .unwrap_or(true);
+    let finding = preflight::orphan_finding(recorded)
+        .or_else(|| {
+            preflight::port_in_use(port).then_some(preflight::PreflightFinding::PortInUse(port))
+        })
+        .or_else(|| preflight::eula_finding(eula_ok))?;
+    Some(crate::logs::diagnose::server::diagnosis_from_preflight(
+        finding,
+    ))
+}
+
+/// Accept the EULA for this server (writes runtime/eula.txt and flips the
+/// stored flag) so the next start passes the pre-spawn gate.
+#[tauri::command]
+#[specta::specta]
+pub fn server_accept_eula(app: AppHandle, id: String) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), true)?;
+    if let Ok(mut f) = crate::servers_runtime::store::read_server_json(&p.json) {
+        f.eula_accepted = true;
+        crate::servers_runtime::store::write_server_json(&p.json, &f)?;
+    }
+    Ok(())
+}
+
+/// Kill a leftover server process holding this server's world (the PID the
+/// diagnoser surfaced as `orphan_pid`), then clear the stale PID file. The UI
+/// retries start afterwards.
+#[tauri::command]
+#[specta::specta]
+pub fn server_stop_orphan(app: AppHandle, id: String, pid: u32) -> Result<()> {
+    if crate::platform::process_alive(pid) && crate::platform::process_image_matches(pid, "java") {
+        crate::platform::kill_process_tree(pid);
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    crate::servers_runtime::pid::clear_pid(&crate::paths::server_paths(&base, &id).pid);
+    Ok(())
+}
+
+/// Change the server's listen port in `server.properties` (validated 1..=65535).
+#[tauri::command]
+#[specta::specta]
+pub fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let props_path = p.runtime.join("server.properties");
+    let raw = std::fs::read_to_string(&props_path).unwrap_or_default();
+    let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+    props.set_validated("server-port", &port.to_string())?;
+    std::fs::create_dir_all(&p.runtime)
+        .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
+    std::fs::write(&props_path, props.serialize()).map_err(|e| Error::io("<server.properties>", e))
 }
 
 /// Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
@@ -295,12 +375,18 @@ pub async fn server_diagnose(
     let content = crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), 1024 * 1024)
         .unwrap_or_default();
     if content.is_empty() {
+        if let Some(d) = preflight_diagnosis(&p, &id) {
+            return Ok(d);
+        }
         return Ok(ServerDiagnosis {
             status: crate::logs::diagnose::DiagnosisStatus::None,
             diagnosis: None,
             client_mods: Vec::new(),
             forge_skip_count: None,
             log_signature: None,
+            server_repair: None,
+            port_in_use: None,
+            orphan_pid: None,
         });
     }
     let signature = crate::logs::diagnose::log_signature(&content);
@@ -341,12 +427,21 @@ pub async fn server_diagnose(
         None => crate::logs::diagnose::DiagnosisStatus::None,
     };
 
+    if diagnosis.is_none() {
+        if let Some(d) = preflight_diagnosis(&p, &id) {
+            return Ok(d);
+        }
+    }
+
     Ok(ServerDiagnosis {
         status,
         diagnosis,
         client_mods,
         forge_skip_count: forge_client_skip_count(&content),
         log_signature: Some(signature),
+        server_repair: None,
+        port_in_use: None,
+        orphan_pid: None,
     })
 }
 
