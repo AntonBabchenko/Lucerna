@@ -48,7 +48,10 @@ describe('serverState mutations', () => {
 
   it('rename calls the command and replaces the server in the list', async () => {
     await serverState.refresh();
-    vi.mocked(commands.serverRename).mockResolvedValue({ status: 'ok', data: srv({ name: 'New' }) });
+    vi.mocked(commands.serverRename).mockResolvedValue({
+      status: 'ok',
+      data: srv({ name: 'New' }),
+    });
     const r = await serverState.rename('srv-1', 'New');
     expect(commands.serverRename).toHaveBeenCalledWith('srv-1', 'New');
     expect(r.ok).toBe(true);

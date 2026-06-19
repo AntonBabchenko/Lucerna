@@ -33,15 +33,13 @@ const { mockRename, mockUpdateRuntimeConfig, mockRunning, mockList } = vi.hoiste
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    instanceMemoryBounds: vi
-      .fn()
-      .mockResolvedValue({
-        min_mb: 1024,
-        max_mb: 8192,
-        recommended_max_mb: 8192,
-        step_mb: 256,
-        ram_known: false,
-      }),
+    instanceMemoryBounds: vi.fn().mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    }),
   },
 }));
 
@@ -85,8 +83,6 @@ describe('ServerGeneralSettings', () => {
 
     render(ServerGeneralSettings, { props: { serverId: 'srv-1' } });
 
-    expect(
-      screen.getByText('Restart the server to apply memory / JVM changes.'),
-    ).toBeTruthy();
+    expect(screen.getByText('Restart the server to apply memory / JVM changes.')).toBeTruthy();
   });
 });

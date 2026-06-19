@@ -23,6 +23,7 @@
   });
 
   async function confirmDelete() {
+    deleteError = null;
     const target = pendingDelete;
     if (!target) return;
     pendingDelete = null;
@@ -62,7 +63,9 @@
       <p class="text-muted text-sm">{$t('servers.empty')}</p>
     {:else}
       {#each serverState.list as s (s.id)}
-        <div class="flex items-stretch gap-1 rounded-lg border border-border-subtle hover:border-accent">
+        <div
+          class="flex items-stretch gap-1 rounded-lg border border-border-subtle hover:border-accent"
+        >
           <button
             type="button"
             class="flex flex-1 items-center gap-3 p-3 text-left"
@@ -100,6 +103,9 @@
     <p class="text-xs text-muted border border-dashed border-border-subtle rounded-lg p-3">
       {$t('servers.lanHint')}
     </p>
+    {#if deleteError}
+      <p class="text-sm text-danger">{deleteError}</p>
+    {/if}
   </div>
   {#if pendingDelete}
     <DeleteServerDialog
@@ -107,8 +113,5 @@
       onCancel={() => (pendingDelete = null)}
       onConfirm={() => void confirmDelete()}
     />
-  {/if}
-  {#if deleteError}
-    <p class="text-sm text-danger">{deleteError}</p>
   {/if}
 {/if}

@@ -1,12 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
+import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 import ServersView from '$lib/servers/ServersView.svelte';
 
 // vi.mock factories are hoisted above imports — use vi.hoisted so the shared
 // mutable state and vi.fn() references are available inside the factory.
 const { mockList, mockRemove } = vi.hoisted(() => {
-  const mockList = [
+  const mockList: ServerWithStatus_Serialize[] = [
     {
       id: 'srv-1',
       name: 'My Server',
@@ -22,7 +23,7 @@ const { mockList, mockRemove } = vi.hoisted(() => {
       pid: null as number | null,
       port: null as number | null,
       upload: null,
-      upload_password_stored: false,
+      upload_password_set: false,
     },
   ];
   const mockRemove = vi.fn().mockResolvedValue({ ok: true });
