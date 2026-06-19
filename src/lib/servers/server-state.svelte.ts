@@ -103,6 +103,69 @@ async function changePort(id: string, port: number): Promise<{ ok: boolean; erro
   return { ok: false, error: r.error };
 }
 
+/// Class-B (post-spawn log) fixes. Each clears the diagnosis on success; the
+/// caller re-runs `diagnose` (or the user retries Start) afterwards.
+async function raiseHeap(id: string, toMb: number): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverRaiseHeap(id, toMb);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function lowerHeap(id: string, toMb: number): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverLowerHeap(id, toMb);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function redownloadJar(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverRedownloadJar(id);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function reinstallLoader(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverReinstallLoader(id);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function disableMods(
+  id: string,
+  filenames: string[],
+  logSignature: string | null,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverDisableMods(id, filenames, logSignature);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function installMissingDep(
+  id: string,
+  modIds: string[],
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverInstallMissingDep(id, modIds);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
 async function setUploadConfig(
   id: string,
   config: UploadConfig,
@@ -210,6 +273,12 @@ export const serverState = {
   acceptEula,
   stopOrphan,
   changePort,
+  raiseHeap,
+  lowerHeap,
+  redownloadJar,
+  reinstallLoader,
+  disableMods,
+  installMissingDep,
   setUploadConfig,
   upload,
   exportZip,
