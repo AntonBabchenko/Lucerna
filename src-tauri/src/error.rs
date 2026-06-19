@@ -360,6 +360,21 @@ pub enum Error {
     #[error("server not running: {id}")]
     ServerNotRunning { id: String },
 
+    #[error("Import source is not a .zip file or a folder")]
+    ServerImportUnsupportedSource,
+
+    #[error("Server import archive is invalid: {details}")]
+    ServerImportInvalidArchive { details: String },
+
+    #[error("Server import is too large: {size} bytes (cap {cap})")]
+    ServerImportTooLarge { size: f64, cap: f64 },
+
+    #[error("This doesn't look like a Minecraft server")]
+    ServerImportNotAServer,
+
+    #[error("Server import session expired or was already used: {token}")]
+    ServerImportStagingExpired { token: String },
+
     /// Загрузка сервера по SFTP не настроена (нет `UploadConfig`).
     #[error("server upload not configured")]
     UploadNotConfigured,
