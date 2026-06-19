@@ -286,7 +286,6 @@
       "searching": "Поиск на Modrinth…",
       "empty": "Подходящий мод на Modrinth не найден. Уточните запрос или откройте оригинал на CurseForge ниже — возможно, он есть только на CurseForge.",
       "likelyMatch": "вероятное совпадение",
-      "install": "Установить",
       "installed": "Установлен {name}",
       "noVersion": "У мода {mod} нет версии на Modrinth для Minecraft и загрузчика этого профиля.",
       "openCurseForge": "Открыть на CurseForge",
@@ -302,7 +301,6 @@
       "disable": "Отключить",
       "enable": "Включить",
       "uninstall": "Удалить",
-      "install": "Установить",
       "update": "Обновить",
       "selectAriaLabel": "Выбрать мод {name}",
       "fromModpackTitle": "Из сборки: {name}",
@@ -330,10 +328,8 @@
       "btnInstalled": "Установлен",
       "btnRestricted": "Ограничено",
       "btnSwitch": "Заменить",
-      "btnInstall": "Установить",
       "footerInstalled": "Установлен {version}",
       "footerRestricted": "Ограничено — откройте на платформе",
-      "footerInstall": "Установить {version}",
       "selectInstanceHint": "Выберите профиль с Fabric / Quilt / Forge / NeoForge для установки модов.",
       "noCompatVersion": "Нет совместимой версии для {mc} / {loader}.",
       "noCompatVersionAsset": "Нет версии, совместимой с {mc}."
@@ -536,7 +532,6 @@
         "installModAriaLabel": "Установить {name}",
         "cannotAutoInstall": "Нельзя установить автоматически ({count})",
         "openLink": "Открыть",
-        "installBtn": "Установить {count} выбранных",
         "groupMods": "Моды",
         "groupResourcepacks": "Ресурспаки",
         "groupShaderpacks": "Шейдеры",
@@ -691,9 +686,7 @@
       "contentDisclaimer": "Содержимое с {source} — реклама и ссылки в нём принадлежат автору, а не Lucerna.",
       "loadingVersions": "Загрузка версий…",
       "noVersionsForMc": "Нет версий для MC {mc}. Снимите фильтр MC в поиске, чтобы увидеть все.",
-      "noVersions": "Нет доступных версий.",
-      "install": "Установить",
-      "installVersion": "Установить {version}"
+      "noVersions": "Нет доступных версий."
     },
     "update": {
       "dialogAriaLabel": "Подтверждение обновления сборки",
@@ -874,7 +867,6 @@
         "unresolvedHeading": "Не удалось опознать — найдите сами",
         "serverWants": "сервер просит {version}",
         "findInBrowser": "Найти в Дополнениях",
-        "install": "Установить",
         "installedLabel": "Установлено",
         "none": "Проблему нашли, но автоматически опознать моды не удалось. Используйте имена выше, чтобы найти их в браузере дополнений.",
         "installedToast": "Установлен {name}",
