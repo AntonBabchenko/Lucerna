@@ -18,15 +18,20 @@ afterEach(() => {
 });
 
 describe('+layout icon-zoom root class', () => {
+  // The layout takes a `children` Snippet prop; this suite only cares about the
+  // $effect that toggles the root class, so pass a render-nothing snippet via a
+  // type cast (mirrors tests/intent/browser-feel.test.ts).
+  const emptySnippet = (() => null) as unknown as never;
+
   it('adds fx-icon-zoom to <html> when the preference is enabled', () => {
     iconZoomFx.set(true);
-    render(Layout, { props: { children: undefined } });
+    render(Layout, { props: { children: emptySnippet } });
     expect(document.documentElement.classList.contains('fx-icon-zoom')).toBe(true);
   });
 
   it('removes fx-icon-zoom from <html> when the preference is disabled', () => {
     iconZoomFx.set(false);
-    render(Layout, { props: { children: undefined } });
+    render(Layout, { props: { children: emptySnippet } });
     expect(document.documentElement.classList.contains('fx-icon-zoom')).toBe(false);
   });
 });
