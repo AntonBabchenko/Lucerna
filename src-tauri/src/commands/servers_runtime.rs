@@ -375,7 +375,7 @@ pub async fn server_diagnose(
     let handled = crate::servers_runtime::store::read_server_json(&p.json)
         .ok()
         .and_then(|f| f.handled_log_sig);
-    let status = match &diagnosis {
+    let mut status = match &diagnosis {
         Some(d) => {
             crate::logs::diagnose::classify_status(d, 0, None, &signature, handled.as_deref())
         }
@@ -389,12 +389,13 @@ pub async fn server_diagnose(
     }
 
     // Phase 2: attach the one-click repair tag + its fix-params per kind.
-    let server_repair = diagnosis
+    let mut server_repair = diagnosis
         .as_ref()
         .and_then(|d| server_repair_for(&d.pattern_id));
     let mut corrupt_jar = None;
     let mut suggested_heap_mb = None;
     let mut conflict_mods = Vec::new();
+    let mut orphan_pid = None;
     let mut server_client_mods = client_mods;
     if let Some(tag) = server_repair {
         let file = crate::servers_runtime::store::read_server_json(&p.json).ok();
@@ -426,8 +427,30 @@ pub async fn server_diagnose(
             ServerRepairTag::InstallMissingDep => {
                 conflict_mods = extract_missing_dep_ids(diag_input);
             }
+            ServerRepairTag::StopOrphanAndRetry => {
+                // The log-detected session lock needs the live orphan PID — the
+                // log path doesn't run preflight (where Phase 1 fills it).
+                let recorded = crate::servers_runtime::pid::read_pid(&p.pid);
+                orphan_pid = match crate::servers_runtime::preflight::orphan_finding(recorded) {
+                    Some(crate::servers_runtime::preflight::PreflightFinding::OrphanRunning(
+                        pid,
+                    )) => Some(pid),
+                    _ => None,
+                };
+            }
             _ => {}
         }
+    }
+    // A session lock with no live orphan we own has nothing to kill — drop to
+    // advisory rather than show a no-op "Stop leftover" button.
+    if server_repair == Some(ServerRepairTag::StopOrphanAndRetry) && orphan_pid.is_none() {
+        server_repair = None;
+    }
+    // Server fixes live in `server_repair`, not the client `Diagnosis.repair`, so
+    // classify_status returned Advisory. Upgrade to Actionable when a real fix is
+    // offered (never override Handled/None).
+    if server_repair.is_some() && status == crate::logs::diagnose::DiagnosisStatus::Advisory {
+        status = crate::logs::diagnose::DiagnosisStatus::Actionable;
     }
 
     Ok(ServerDiagnosis {
@@ -438,7 +461,7 @@ pub async fn server_diagnose(
         log_signature: Some(signature),
         server_repair,
         port_in_use: None,
-        orphan_pid: None,
+        orphan_pid,
         corrupt_jar,
         suggested_heap_mb,
         conflict_mods,
@@ -573,6 +596,9 @@ pub async fn server_disable_mods(
     filenames: Vec<String>,
     log_signature: Option<String>,
 ) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     for f in &filenames {

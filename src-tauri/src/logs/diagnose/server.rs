@@ -146,7 +146,8 @@ pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
     // B12: world corruption — ADVISORY ONLY (data-loss risk). No fix button.
     if log.contains("Failed to load world")
         || log.contains("corrupt chunk")
-        || log.contains("Chunk file at")
+        || (log.contains("Chunk file at")
+            && (log.contains("is missing") || log.contains("corrupt")))
     {
         return Some(Diagnosis {
             pattern_id: "server-world-corrupt".into(),
@@ -852,6 +853,14 @@ mod tests {
             diagnose_server_log(SESSION_LOCK).unwrap().pattern_id,
             "server-world-corrupt"
         );
+    }
+    #[test]
+    fn world_corruption_negative_on_benign_chunk_migration() {
+        // "Chunk file at" without a corruption indicator (e.g. a data-migration
+        // notice) must NOT fire the world-corrupt advisory.
+        let benign =
+            "[Server thread/WARN]: Chunk file at 0, 0 has been saved with a mismatched level\n";
+        assert!(diagnose_server_log(benign).is_none());
     }
     #[test]
     fn detects_session_lock() {
