@@ -451,7 +451,7 @@ button:active > .icon-spin-hover {
 .fx-icon-zoom .btn-icon:hover > .icon-spin-hover,
 .fx-icon-zoom .btn-icon:focus-visible > .icon-spin-hover,
 .fx-icon-zoom .btn-icon:active > .icon-spin-hover {
-  transform: rotate(180deg) scale(1.12);
+  transform: rotate(180deg) scale(1.2);
 }
 
 /* Continuous rainbow cycle on a button's icon while hovered or keyboard-
@@ -503,7 +503,7 @@ button:focus-visible .icon-rainbow-hover {
 }
 .fx-icon-zoom .btn-icon:hover > :where(svg),
 .fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
-  transform: scale(1.12);
+  transform: scale(1.2);
 }
 @media (prefers-reduced-motion: reduce) {
   .fx-icon-zoom .btn-icon:hover > :where(svg),
