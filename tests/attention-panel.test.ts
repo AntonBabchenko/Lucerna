@@ -1,5 +1,6 @@
-import { fireEvent, render } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 import AttentionPanel from '$lib/overview/AttentionPanel.svelte';
 import type { AttentionItem } from '$lib/overview/attention';
 
@@ -70,5 +71,33 @@ describe('AttentionPanel', () => {
     });
     await fireEvent.click(getByTestId('overview-attention-dismiss'));
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+});
+
+describe('AttentionPanel log_fix row', () => {
+  beforeAll(() => locale.set('en'));
+
+  it('renders the fix-available row for a log_fix item', () => {
+    render(AttentionPanel, {
+      props: {
+        items: [{ kind: 'log_fix', count: 0 }],
+        onAction: () => {},
+        onDismiss: () => {},
+      },
+    });
+    expect(screen.getByTestId('overview-attention-log_fix')).toBeTruthy();
+    expect(screen.getByText('A fix is available')).toBeTruthy();
+  });
+
+  it('renders the generic problem row for a log_issue item', () => {
+    render(AttentionPanel, {
+      props: {
+        items: [{ kind: 'log_issue', count: 0 }],
+        onAction: () => {},
+        onDismiss: () => {},
+      },
+    });
+    expect(screen.getByTestId('overview-attention-log_issue')).toBeTruthy();
+    expect(screen.getByText('A recent launch reported a problem')).toBeTruthy();
   });
 });

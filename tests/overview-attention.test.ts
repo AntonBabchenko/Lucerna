@@ -8,6 +8,7 @@ const none = {
   integrityProblemCount: 0,
   hasModpackUpdate: false,
   hasLogIssue: false,
+  logFixAvailable: false,
 };
 
 describe('buildAttentionItems', () => {
@@ -23,6 +24,7 @@ describe('buildAttentionItems', () => {
       integrityProblemCount: 2,
       hasModpackUpdate: true,
       hasLogIssue: false,
+      logFixAvailable: false,
     });
     expect(items.map((i) => i.kind)).toEqual([
       'pick_version',
