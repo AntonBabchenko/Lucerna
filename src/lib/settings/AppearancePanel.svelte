@@ -1,13 +1,15 @@
 <script lang="ts">
   // Settings → Appearance. Theme, interface language, rainbow icon
-  // animation. All three persist via their own stores (setThemePref /
-  // setLocalePref / rainbowFx.set) — never through appSettingsSetGeneral.
+  // animation, icon hover-zoom. All persist via their own stores
+  // (setThemePref / setLocalePref / rainbowFx.set / iconZoomFx.set) —
+  // never through appSettingsSetGeneral.
   import { type ThemePreference } from '$lib/ipc/bindings';
   import { AVAILABLE_LOCALES, t } from '$lib/i18n';
   import { langPref, setLocalePref } from '$lib/i18n/state.svelte';
   import Select from '$lib/ui/Select.svelte';
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
+  import { iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
 
@@ -58,6 +60,22 @@
       <span class="text-sm text-primary">{$t('settings.general.appearance.rainbowIcons')}</span>
       <span class="block text-xs text-muted">
         {$t('settings.general.appearance.rainbowIconsDescription')}
+      </span>
+    </span>
+  </label>
+
+  <label class="flex items-start gap-2 cursor-pointer">
+    <input
+      type="checkbox"
+      class="mt-0.5"
+      checked={iconZoomFx.enabled}
+      onchange={(e) => iconZoomFx.set(e.currentTarget.checked)}
+      data-testid="icon-zoom-toggle"
+    />
+    <span class="flex-1">
+      <span class="text-sm text-primary">{$t('settings.general.appearance.iconZoom')}</span>
+      <span class="block text-xs text-muted">
+        {$t('settings.general.appearance.iconZoomDescription')}
       </span>
     </span>
   </label>
