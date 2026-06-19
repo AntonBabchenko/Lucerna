@@ -951,6 +951,15 @@ export const commands = {
 	 *  Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
 	 */
 	serverExportZip: (id: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("server_export_zip", { id, destPath })),
+	/**  Фаза 1 импорта: распаковать/просканировать источник, вернуть превью. */
+	serverImportInspect: (sourcePath: string) => typedError<ServerImportPreview, Error>(__TAURI_INVOKE("server_import_inspect", { sourcePath })),
+	/**
+	 *  Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
+	 *  reprovision (переустановить загрузчик + скопировать данные).
+	 */
+	serverImportCommit: (token: string, name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
+	/**  Отменить импорт: удалить staging. */
+	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
 };
 
 /** Events */
@@ -2611,6 +2620,20 @@ export type ServerDiagnosis = {
 export type ServerExited = {
 	server_id: string,
 	code: number,
+};
+
+/**  Превью импорта, возвращается `inspect` и потребляется визардом (Слайс 2b). */
+export type ServerImportPreview = {
+	token: string,
+	detected_name: string,
+	mc_version: string | null,
+	loader: LoaderKind | null,
+	loader_version: string | null,
+	can_launch_as_is: boolean,
+	mod_count: number,
+	world_present: boolean,
+	eula_in_source: boolean,
+	size_bytes: number | null,
 };
 
 /**  One line of server console output (stdout or stderr), streamed to the UI. */
