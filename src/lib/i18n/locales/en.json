@@ -1626,6 +1626,19 @@
       "description": "This permanently removes the server's files (world, mods, config). This cannot be undone.",
       "confirm": "Delete",
       "runningBlock": "Stop the server before deleting"
+    },
+    "connect": {
+      "tab": "Connect",
+      "stoppedHint": "Start the server to get a join address.",
+      "lanTitle": "On your network (LAN)",
+      "lanHint": "Friends on the same Wi-Fi / network can join with Direct Connect:",
+      "copyInvite": "Copy invite",
+      "copied": "Copied!",
+      "localHint": "On this PC, use localhost or 127.0.0.1.",
+      "internetHint": "For friends over the internet you'll need port-forwarding — coming soon.",
+      "onlineModeOn": "online-mode is ON: only friends signed in with a Microsoft/Mojang account can join.",
+      "onlineModeOff": "online-mode is OFF: offline/cracked accounts can join, but anyone can impersonate any name — only use on a trusted/LAN network.",
+      "noLan": "Couldn't detect a LAN address."
     }
   }
 }
