@@ -53,6 +53,12 @@ function diagnosisFor(id: string): ServerDiagnosis | undefined {
   return diagnoses.get(id);
 }
 
+function clearDiagnosis(id: string): void {
+  const m = new Map(diagnoses);
+  m.delete(id);
+  diagnoses = m;
+}
+
 async function removeClientMods(
   id: string,
   filenames: string[],
@@ -63,6 +69,35 @@ async function removeClientMods(
     const m = new Map(diagnoses);
     m.delete(id);
     diagnoses = m;
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+/// One-click pre-spawn fixes (class A). Each clears the diagnosis on success;
+/// the caller re-runs `diagnose` (or the user retries Start) afterwards.
+async function acceptEula(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverAcceptEula(id);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function stopOrphan(id: string, pid: number): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverStopOrphan(id, pid);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function changePort(id: string, port: number): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverChangePort(id, port);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
     return { ok: true };
   }
   return { ok: false, error: r.error };
@@ -140,7 +175,11 @@ function init(): void {
   initialized = true;
 
   void events.serverLogLine.listen((e) => pushLine(e.payload.server_id, e.payload.line));
-  void events.serverSpawned.listen(() => void refresh());
+  void events.serverSpawned.listen((e) => {
+    // A retry started — drop any stale pre-spawn banner for this server.
+    clearDiagnosis(e.payload.server_id);
+    void refresh();
+  });
   void events.serverExited.listen((e) => {
     void refresh();
     if (e.payload.code !== 0) {
@@ -168,6 +207,9 @@ export const serverState = {
   diagnose,
   diagnosisFor,
   removeClientMods,
+  acceptEula,
+  stopOrphan,
+  changePort,
   setUploadConfig,
   upload,
   exportZip,

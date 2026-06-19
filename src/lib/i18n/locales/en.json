@@ -1583,6 +1583,16 @@
         "explanation": "The server won't run until the Minecraft EULA is accepted.",
         "recommendation": "Recreate the server with the EULA checkbox ticked."
       },
+      "orphan": {
+        "title": "A leftover copy of this server is still running",
+        "explanation": "A server process from a previous launcher session is still holding this world's files, so it can't start again.",
+        "recommendation": "Stop the leftover process, then start the server."
+      },
+      "fix": {
+        "acceptEula": "Accept EULA & start",
+        "stopOrphan": "Stop leftover & retry",
+        "changePort": "Use port {port}"
+      },
       "showClientMods": "Show client-only mods",
       "removeSelected": "Remove selected",
       "reason": {
