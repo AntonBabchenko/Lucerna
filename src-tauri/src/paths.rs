@@ -96,6 +96,9 @@ pub struct ServerPaths {
     pub runtime: PathBuf,
     pub mods: PathBuf,
     pub logs: PathBuf,
+    /// `runtime/server.pid` — the running server's OS PID, persisted so
+    /// `server_list` can reconcile live processes after a launcher restart.
+    pub pid: PathBuf,
 }
 
 pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
@@ -105,6 +108,7 @@ pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
         json: root.join("server.json"),
         mods: runtime.join("mods"),
         logs: runtime.join("logs"),
+        pid: runtime.join("server.pid"),
         runtime,
         root,
     }
@@ -222,5 +226,6 @@ mod server_path_tests {
         assert_eq!(p.runtime, Path::new("/data/servers/srv-1/runtime"));
         assert_eq!(p.mods, Path::new("/data/servers/srv-1/runtime/mods"));
         assert_eq!(p.logs, Path::new("/data/servers/srv-1/runtime/logs"));
+        assert_eq!(p.pid, Path::new("/data/servers/srv-1/runtime/server.pid"));
     }
 }

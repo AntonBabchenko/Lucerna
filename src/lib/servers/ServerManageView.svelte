@@ -63,8 +63,11 @@
     actionError = null;
     try {
       const res = await commands.serverStart(serverId);
-      if (res.status !== 'ok') actionError = formatError(res.error);
-      else await serverState.refresh();
+      if (res.status !== 'ok') {
+        actionError = formatError(res.error);
+        // Surface the rich fixable banner (orphan / port / EULA) for this failure.
+        void serverState.diagnose(serverId);
+      } else await serverState.refresh();
     } finally {
       busyStart = false;
     }

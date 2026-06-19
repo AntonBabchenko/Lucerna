@@ -170,6 +170,87 @@ pub fn kill_process_tree(pid: u32) {
     }
 }
 
+/// True iff a process with this PID currently exists. Reconciles the in-memory
+/// running map against the persisted PID file after a launcher restart (Bug A
+/// part 2). Pair with `process_image_matches` to defeat PID recycling.
+pub fn process_alive(pid: u32) -> bool {
+    if pid <= 1 || pid == u32::MAX {
+        return false;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        // SAFETY: OpenProcess returns null on failure; we only close a non-null handle.
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if h.is_null() {
+            return false;
+        }
+        unsafe { CloseHandle(h) };
+        true
+    }
+    #[cfg(unix)]
+    {
+        // signal 0 probes existence without delivering a signal.
+        // SAFETY: FFI to kill(2) with sig 0; no memory shared.
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+}
+
+/// Best-effort check that PID's executable image path contains `needle`
+/// (case-insensitive), e.g. "java". Guards against PID recycling: a recycled
+/// PID belonging to an unrelated program must not be treated as our server.
+/// Platforms without a process-image source return `false` — the orphan fix
+/// simply won't be offered there.
+pub fn process_image_matches(pid: u32, needle: &str) -> bool {
+    let needle = needle.to_ascii_lowercase();
+    #[cfg(target_os = "windows")]
+    {
+        match query_image_path_windows(pid) {
+            Some(p) => p.to_ascii_lowercase().contains(&needle),
+            None => false,
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        match std::fs::read_link(format!("/proc/{pid}/exe")) {
+            Ok(p) => p.to_string_lossy().to_ascii_lowercase().contains(&needle),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (pid, needle);
+        false
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn query_image_path_windows(pid: u32) -> Option<String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, MAX_PATH};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: standard OpenProcess/Query/Close handshake; buffer sized to MAX_PATH,
+    // len passed by &mut, handle closed on every path.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; MAX_PATH as usize];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len);
+        CloseHandle(h);
+        if ok == 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(&buf[..len as usize]))
+    }
+}
+
 /// Total physical RAM in MB, or `None` when it can't be read. Used to
 /// bound the OOM heap suggestion (never propose more than half of RAM).
 /// Three cfg-gated impls; no new crate dependency.
@@ -288,6 +369,14 @@ mod modrinth_root_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_alive_true_for_self_false_for_impossible() {
+        let me = std::process::id();
+        assert!(process_alive(me), "current process must be alive");
+        assert!(!process_alive(0), "pid 0 is never a user process");
+        assert!(!process_alive(u32::MAX), "u32::MAX cannot be a live pid");
+    }
 
     #[test]
     fn kill_process_tree_unknown_pid_does_not_panic() {
