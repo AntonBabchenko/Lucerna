@@ -1514,6 +1514,15 @@
       "notRunning": "Start the server to use the console",
       "empty": "No output yet"
     },
+    "logs": {
+      "openFolder": "Open logs folder",
+      "pastSessions": "Past sessions",
+      "latest": "Current session",
+      "noLogs": "No logs yet",
+      "viewing": "Viewing {name}",
+      "backToLive": "Back to live console",
+      "close": "Close"
+    },
     "wizard": {
       "title": "New server",
       "fromInstance": "From instance",

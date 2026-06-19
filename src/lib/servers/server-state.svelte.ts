@@ -2,6 +2,7 @@ import {
   commands,
   events,
   type ServerDiagnosis,
+  type ServerLogInfo,
   type ServerWithStatus,
   type UploadConfig,
 } from '$lib/ipc/bindings';
@@ -197,6 +198,22 @@ function init(): void {
   });
 }
 
+async function listLogs(id: string): Promise<{ ok: boolean; list?: ServerLogInfo[] }> {
+  const r = await commands.serverListLogs(id);
+  if (r.status === 'ok') return { ok: true, list: r.data };
+  return { ok: false };
+}
+
+async function readLog(id: string, fileName: string): Promise<{ ok: boolean; text?: string }> {
+  const r = await commands.serverReadLog(id, fileName);
+  if (r.status === 'ok') return { ok: true, text: r.data };
+  return { ok: false };
+}
+
+async function openLogsFolder(id: string): Promise<void> {
+  await commands.serverOpenLogsFolder(id);
+}
+
 export const serverState = {
   get list() {
     return list;
@@ -218,6 +235,9 @@ export const serverState = {
   rename,
   updateRuntimeConfig,
   remove,
+  listLogs,
+  readLog,
+  openLogsFolder,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;

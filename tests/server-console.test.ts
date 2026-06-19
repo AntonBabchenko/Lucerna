@@ -24,6 +24,9 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     refresh: vi.fn().mockResolvedValue(undefined),
     clearLines: vi.fn(),
     init: vi.fn(),
+    listLogs: vi.fn().mockResolvedValue({ ok: true, list: [] }),
+    readLog: vi.fn().mockResolvedValue({ ok: true, text: '' }),
+    openLogsFolder: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
