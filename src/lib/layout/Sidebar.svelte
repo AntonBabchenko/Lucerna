@@ -15,6 +15,7 @@
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { serverState } from '$lib/servers/server-state.svelte';
 
   let {
     accounts,
@@ -391,12 +392,21 @@
       </button>
       <button
         type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+        class="btn-secondary btn-sm relative flex items-center justify-center gap-1.5"
         data-testid="sidebar-open-servers"
         onclick={onOpenServers}
       >
         <Icon name="server" size={16} />
         {$t('sidebar.servers')}
+        {#if serverState.anyRunning}
+          <span
+            class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-success animate-pulse motion-reduce:animate-none"
+            data-testid="sidebar-servers-running-dot"
+            role="img"
+            aria-label={$t('sidebar.serverRunning')}
+            use:tooltip={$t('sidebar.serverRunning')}
+          ></span>
+        {/if}
       </button>
       <div class="flex gap-1">
         <button
