@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -18,7 +19,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { commands } from '$lib/ipc/bindings';
 import { serverState } from '$lib/servers/server-state.svelte';
 
-const srv = (over: Record<string, unknown> = {}) => ({
+const srv = (over: Partial<ServerWithStatus_Serialize> = {}): ServerWithStatus_Serialize => ({
   id: 'srv-1',
   name: 'Old',
   mc_version: '1.21.1',
