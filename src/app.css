@@ -441,6 +441,14 @@ button:hover > .icon-spin-hover,
 button:active > .icon-spin-hover {
   transform: rotate(180deg);
 }
+/* When the icon hover-zoom preference is on, a spinning icon that also sits in
+   an icon-only button gets both transforms in one declaration (a single
+   `transform` can't be split across rules — the later wins — so combine). */
+.fx-icon-zoom .btn-icon:hover > .icon-spin-hover,
+.fx-icon-zoom .btn-icon:focus-visible > .icon-spin-hover,
+.fx-icon-zoom .btn-icon:active > .icon-spin-hover {
+  transform: rotate(180deg) scale(1.12);
+}
 
 /* Continuous rainbow cycle on a button's icon while hovered or keyboard-
    focused. Opt-in per icon via .icon-rainbow-hover; the Sidebar only applies
@@ -477,4 +485,25 @@ button:active > .icon-spin-hover {
 button:hover .icon-rainbow-hover,
 button:focus-visible .icon-rainbow-hover {
   animation: lucerna-icon-rainbow 2.5s linear infinite;
+}
+
+/* Gentle hover/focus zoom on icon-only buttons, gated by the .fx-icon-zoom
+   root class (set in +layout.svelte from the iconZoomFx preference, default
+   on). Scoped strictly to .btn-icon / .btn-icon-sm — labeled buttons are never
+   touched. The base transition is unconditional so toggling the preference off
+   merely stops applying the scale (no jump). The global prefers-reduced-motion
+   block zeroes the transition duration; the explicit override below also forces
+   transform:none so reduced-motion users get no scale at the end state. */
+.btn-icon > :where(svg) {
+  transition: transform 120ms ease-out;
+}
+.fx-icon-zoom .btn-icon:hover > :where(svg),
+.fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
+  transform: scale(1.12);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-icon-zoom .btn-icon:hover > :where(svg),
+  .fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
+    transform: none;
+  }
 }
