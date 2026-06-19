@@ -130,6 +130,7 @@ pub fn create_instance(
     mrpack_summary: Option<String>,
     mrpack_version_id: Option<String>,
     imported_from: Option<crate::instances::schema::ImportProvenance>,
+    created_from_server: Option<String>,
 ) -> Result<InstanceWithStatus> {
     let id = ids::new_id();
     let dir = paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
@@ -156,7 +157,7 @@ pub fn create_instance(
         mrpack_version_id,
         integrity: None,
         imported_from,
-        created_from_server: None,
+        created_from_server,
         handled_log_sig: None,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
