@@ -3,7 +3,7 @@
   import PlayWithWorlds from '$lib/layout/PlayWithWorlds.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
-  import { hasDiagnosisIndicator } from '$lib/logs/log-diagnosis.svelte';
+  import { diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
   import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
   import { settingsOpen } from '$lib/settings/state.svelte';
   import MicrosoftSignInButton from '$lib/accounts/MicrosoftSignInButton.svelte';
@@ -417,7 +417,17 @@
         >
           <Icon name="scrollText" size={14} />
           {$t('sidebar.logs')}
-          {#if hasDiagnosisIndicator()}
+          {#if diagnosisStatus() === 'actionable'}
+            <span
+              class="absolute -right-1 -top-1 text-warning-text"
+              data-testid="logs-button-fix-badge"
+              role="img"
+              aria-label={$t('sidebar.logsFixAvailable')}
+              use:tooltip={$t('sidebar.logsFixAvailable')}
+            >
+              <Icon name="wrench" size={12} />
+            </span>
+          {:else if diagnosisStatus() === 'advisory'}
             <span
               class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-warning-text"
               data-testid="logs-button-badge"
