@@ -9,7 +9,7 @@ use sha1::{Digest, Sha1};
 
 use crate::error::{Error, Result};
 use crate::instances::import::model::{
-    is_injected_mod, ContentCategory, ForeignInstance, ImportPlan, ImportProgress,
+    is_injected_mod, ContentCategory, ForeignInstance, ImportPlan, ImportProgress, KnownMod,
 };
 use crate::instances::schema::ImportProvenance;
 use crate::mods::modpack::path_safety::is_safe_relative_path;
@@ -115,7 +115,7 @@ fn io(path: &Path, e: std::io::Error) -> Error {
 /// pass can try to recover them.
 pub fn build_installed_records(
     jars: &[(String, String)],
-    known: &[crate::instances::import::model::KnownMod],
+    known: &[KnownMod],
     installed_at: &str,
 ) -> Vec<InstalledMod> {
     jars.iter()
@@ -147,7 +147,7 @@ pub fn build_installed_records(
 pub async fn adopt_copied_jars(
     instance_root: &Path,
     mods_dir: &Path,
-    known: &[crate::instances::import::model::KnownMod],
+    known: &[KnownMod],
     modrinth_base: &str,
     cf_base: &str,
     cf_key: Option<&str>,
@@ -315,7 +315,9 @@ mod tests {
         std::fs::write(mods_dir.join("a.jar"), b"AAA").unwrap();
         std::fs::write(mods_dir.join("b.jar"), b"BBB").unwrap();
 
-        // Unreachable bases -> enrich degrades to no-op; both jars stay untracked.
+        // Port 0 is never listened on — the connect is refused immediately, so
+        // enrich_untracked returns Err(...) which adopt_copied_jars silences.
+        // Both jars therefore stay untracked.
         let untracked = adopt_copied_jars(
             instance_root,
             &mods_dir,
