@@ -63,6 +63,9 @@ pub async fn create_client_instance(
     // (mirrors the launcher-import rollback). copy_instance_mods preserves
     // .jar and .jar.disabled state and treats a missing source as 0 copied.
     if let Err(e) = crate::servers_runtime::create::copy_instance_mods(&p.mods, &dst_mods) {
+        // Remove the half-built instance directly (not via delete_instance,
+        // which silently no-ops on the last instance) — see pipeline.rs's
+        // run_import rollback for the full rationale.
         let _ = std::fs::remove_dir_all(&instance_root);
         return Err(e);
     }
@@ -86,7 +89,7 @@ pub async fn create_client_instance(
         let address = address_for_port(crate::servers_runtime::runtime::read_port(&p.runtime));
         match crate::servers::add_saved_server(app, &instance_id, &file.name, &address) {
             Ok(()) => multiplayer_added = true,
-            Err(e) => eprintln!("instance-from-server: add_saved_server failed: {e}"),
+            Err(e) => crate::diag!("instance-from-server: add_saved_server failed: {e}"),
         }
     }
 
