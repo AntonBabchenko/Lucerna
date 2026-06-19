@@ -946,6 +946,41 @@ export const commands = {
 	/**  Change the server's listen port in `server.properties` (validated 1..=65535). */
 	serverChangePort: (id: string, port: number) => typedError<null, Error>(__TAURI_INVOKE("server_change_port", { id, port })),
 	/**
+	 *  Raise the server's max heap to `to_mb` (the diagnoser's suggested value) and
+	 *  persist. The UI restarts the server afterward.
+	 */
+	serverRaiseHeap: (id: string, toMb: number) => typedError<null, Error>(__TAURI_INVOKE("server_raise_heap", { id, toMb })),
+	/**
+	 *  Lower the server's max heap to `to_mb` (a safe value <= physical RAM) and
+	 *  persist. Used for the heap-too-big fix.
+	 */
+	serverLowerHeap: (id: string, toMb: number) => typedError<null, Error>(__TAURI_INVOKE("server_lower_heap", { id, toMb })),
+	/**
+	 *  Re-download the server's main jar (corrupt-jar fix). Re-runs the same
+	 *  create-time artifact resolution + download for the stored loader/version.
+	 *  Server must be stopped.
+	 */
+	serverRedownloadJar: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_redownload_jar", { id })),
+	/**
+	 *  Reinstall the loader (Forge/NeoForge/Fabric/Quilt) for this server by
+	 *  re-running the create-time installer. No-op-safe for Vanilla. Server must be
+	 *  stopped.
+	 */
+	serverReinstallLoader: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_reinstall_loader", { id })),
+	/**
+	 *  Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
+	 *  Reversible alternative to `server_remove_mods` for conflict/mixin fixes.
+	 *  Records `log_signature` as handled when given. Rejects unsafe filenames.
+	 */
+	serverDisableMods: (id: string, filenames: string[], logSignature: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_disable_mods", { id, filenames, logSignature })),
+	/**
+	 *  Install missing dependency mods into the server's `mods/` (B9/B10 fix).
+	 *  `mod_ids` come from the diagnosis `conflict_mods`. Resolves each id to a
+	 *  concrete version via the shared dep resolver and downloads through `network::`.
+	 *  Server must be stopped.
+	 */
+	serverInstallMissingDep: (id: string, modIds: string[]) => typedError<null, Error>(__TAURI_INVOKE("server_install_missing_dep", { id, modIds })),
+	/**
 	 *  Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
 	 *  сохраняет его в связке ключей ОС (пароль никогда не записывается в
 	 *  `server.json`). Идемпотентно: повторный вызов перезаписывает конфигурацию
@@ -2645,6 +2680,12 @@ export type ServerDiagnosis = {
 	port_in_use: number | null,
 	/**  The leftover PID for `StopOrphanAndRetry`. */
 	orphan_pid: number | null,
+	/**  RedownloadServerJar / corrupt-mod: the offending jar basename. */
+	corrupt_jar: string | null,
+	/**  RaiseHeap (the proposed new max) / LowerHeap (the safe max to drop to). */
+	suggested_heap_mb: number | null,
+	/**  DisableMods / missing-dep: the cited mod ids or filenames the user acts on. */
+	conflict_mods: string[],
 };
 
 /**  Emitted when a server process exits. `code` is -1 if signal-terminated. */
@@ -2663,7 +2704,7 @@ export type ServerLogLine = {
  *  One-click server fix the diagnosis banner can offer. snake_case on the wire.
  *  Phase 1 introduces the first four; later phases extend this enum.
  */
-export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods";
+export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods" | "raise_heap" | "lower_heap" | "redownload_server_jar" | "reinstall_loader" | "disable_mods" | "install_missing_dep";
 
 /**  Emitted when a server process starts. */
 export type ServerSpawned = {
