@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { loadIconZoomEnabled, iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
+import { iconZoomFx, loadIconZoomEnabled } from '$lib/fx/icon-zoom-fx.svelte';
 
 const KEY = 'lucerna.fx.iconZoom';
 
