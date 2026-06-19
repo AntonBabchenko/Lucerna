@@ -40,6 +40,7 @@
   import ToastHost from '$lib/toasts/ToastHost.svelte';
   import MicrosoftSigningInModal from '$lib/accounts/MicrosoftSigningInModal.svelte';
   import RemoveAccountDialog from '$lib/accounts/RemoveAccountDialog.svelte';
+  import AddOfflineAccountDialog from '$lib/accounts/AddOfflineAccountDialog.svelte';
   import QuickJoinDialog from '$lib/worlds/QuickJoinDialog.svelte';
   import PreflightGateDialog from '$lib/mods/PreflightGateDialog.svelte';
   import { decideLaunch, remediateAll } from '$lib/mods/preflight.svelte';
@@ -76,6 +77,10 @@
   let accounts = $state<Account[]>([]);
   let activeAccount = $state<Account | null>(null);
   let offlineNameError = $state<string | null>(null);
+  // Open-state for the add-offline-account dialog. The dialog owns the name
+  // entry; the submit handler below keeps it open and shows offlineNameError on
+  // a backend failure, and closes it on success.
+  let addOfflineOpen = $state(false);
   let listAccountsError = $state<string | null>(null);
   let removeError = $state<string | null>(null);
   // Id of the account pending removal — gates the actual delete behind the
@@ -703,19 +708,9 @@
       onOpenQuickJoin={() => void openServersDialog()}
       {onSelectAccount}
       onRemoveAccount={requestRemoveAccount}
-      onAddOffline={async (name) => {
-        if (!name) {
-          offlineNameError = get(t)('page.offlineName.cannotBeEmpty');
-          return;
-        }
+      onAddOffline={() => {
         offlineNameError = null;
-        const result = await commands.addOfflineAccount(name);
-        if (result.status === 'ok') {
-          await commands.setActiveAccount(result.data.id);
-          await refreshAccounts();
-        } else {
-          offlineNameError = formatError(result.error);
-        }
+        addOfflineOpen = true;
       }}
       {onSelectInstance}
       onOpenManage={() => (manageOpen = true)}
@@ -813,7 +808,6 @@
             {installError}
             {modsError}
             errors={{
-              offlineName: offlineNameError,
               listAccounts: listAccountsError,
               remove: removeError,
               instances: instancesError,
@@ -830,8 +824,7 @@
             onNavInstalled={() => (modBrowserNav.value = { view: 'installed' })}
             onNavBrowse={() => (modBrowserNav.value = { view: 'browse' })}
             onDismissError={(key) => {
-              if (key === 'offlineName') offlineNameError = null;
-              else if (key === 'listAccounts') listAccountsError = null;
+              if (key === 'listAccounts') listAccountsError = null;
               else if (key === 'remove') removeError = null;
               else if (key === 'instances') instancesError = null;
               else if (key === 'versions') mcv.dismissError();
@@ -960,6 +953,26 @@
       accountName={removeConfirmAccount.name}
       onCancel={() => (removeConfirmId = null)}
       onConfirm={confirmRemoveAccount}
+    />
+  {/if}
+  {#if addOfflineOpen}
+    <AddOfflineAccountDialog
+      error={offlineNameError}
+      onCancel={() => {
+        addOfflineOpen = false;
+        offlineNameError = null;
+      }}
+      onSubmit={async (name) => {
+        offlineNameError = null;
+        const result = await commands.addOfflineAccount(name);
+        if (result.status === 'ok') {
+          await commands.setActiveAccount(result.data.id);
+          await refreshAccounts();
+          addOfflineOpen = false;
+        } else {
+          offlineNameError = formatError(result.error);
+        }
+      }}
     />
   {/if}
 </main>

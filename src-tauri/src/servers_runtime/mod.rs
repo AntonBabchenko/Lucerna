@@ -4,6 +4,7 @@
 pub mod backup;
 pub mod create;
 pub mod eula;
+pub mod import;
 pub mod jar;
 pub mod pid;
 pub mod preflight;

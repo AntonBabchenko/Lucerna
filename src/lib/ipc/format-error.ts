@@ -247,6 +247,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverAlreadyRunning');
     case 'server_not_running':
       return translate('errors.serverNotRunning');
+    case 'server_import_unsupported_source':
+      return translate('errors.serverImportUnsupportedSource');
+    case 'server_import_invalid_archive':
+      return translate('errors.serverImportInvalidArchive', { details: e.details });
+    case 'server_import_too_large':
+      return translate('errors.serverImportTooLarge');
+    case 'server_import_not_a_server':
+      return translate('errors.serverImportNotAServer');
+    case 'server_import_staging_expired':
+      return translate('errors.serverImportStagingExpired');
     case 'upload_not_configured':
       return translate('errors.uploadNotConfigured');
     case 'sftp_connect_failed':
