@@ -7,6 +7,8 @@
   import { SvelteSet } from 'svelte/reactivity';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { deferOrRunRepair, isCompleted, isDeferred } from '$lib/logs/deferred-repairs.svelte';
   import {
     getChosenVersion,
@@ -174,21 +176,20 @@
                   onChange={(val) => setChosenVersion(instanceId, m.sha1, String(val))}
                 />
               </div>
-              <button
-                type="button"
+              <BusyButton
                 class="btn-primary btn-xs self-start"
+                busy={replacingSha1s.has(m.sha1)}
+                disabled={!getChosenVersion(instanceId, m.sha1)}
                 data-testid={`blocking-install-version-${m.sha1}`}
-                disabled={!getChosenVersion(instanceId, m.sha1) || replacingSha1s.has(m.sha1)}
                 onclick={() => void replaceMod(m)}
               >
                 {#if replacingSha1s.has(m.sha1)}
-                  <span class="inline-flex items-center gap-1.5"
-                    ><Spinner size="sm" />{$t('logs.repair.blockingMods.replacing')}</span
-                  >
+                  {$t('logs.repair.blockingMods.replacing')}
                 {:else}
+                  <Icon name="download" size={13} />
                   {$t('logs.repair.blockingMods.installThisVersion')}
                 {/if}
-              </button>
+              </BusyButton>
             </div>
           {/if}
         {/if}
