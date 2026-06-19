@@ -1,4 +1,4 @@
-import { render, fireEvent, screen } from '@testing-library/svelte';
+import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { serverCreateClientInstance, pushSuccess, pushWarning } = vi.hoisted(() => ({
@@ -35,7 +35,7 @@ const server = {
   id: 'srv-1',
   name: 'My SMP',
   mc_version: '1.20.4',
-  loader: 'fabric',
+  loader: 'fabric' as const,
   loader_version: '0.16.5',
   max_heap_mb: 4096,
   extra_jvm_args: '',
@@ -75,9 +75,7 @@ describe('ServerToInstanceDialog', () => {
     await fireEvent.click(screen.getByText('servers.toInstance.create'));
 
     expect(serverCreateClientInstance).toHaveBeenCalledWith('srv-1', 'My SMP', true);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(pushSuccess).toHaveBeenCalled();
+    await waitFor(() => expect(pushSuccess).toHaveBeenCalled());
     expect(onCreated).toHaveBeenCalledWith('inst-9');
   });
 
@@ -89,10 +87,24 @@ describe('ServerToInstanceDialog', () => {
     render(ServerToInstanceDialog, { server, onCancel: vi.fn(), onCreated: vi.fn() });
 
     await fireEvent.click(screen.getByText('servers.toInstance.create'));
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitFor(() => expect(pushWarning).toHaveBeenCalled());
 
-    expect(pushWarning).toHaveBeenCalled();
     expect(pushSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows an inline error and does not call the command when the name is empty', async () => {
+    render(ServerToInstanceDialog, { server: { ...server, name: '   ' }, onCancel: vi.fn(), onCreated: vi.fn() });
+    await fireEvent.click(screen.getByText('servers.toInstance.create'));
+    expect(serverCreateClientInstance).not.toHaveBeenCalled();
+    expect(screen.getByTestId('client-instance-error')).toBeTruthy();
+  });
+
+  it('renders the inline error when the command returns an error', async () => {
+    serverCreateClientInstance.mockResolvedValue({ status: 'error', error: 'boom' });
+    const onCreated = vi.fn();
+    render(ServerToInstanceDialog, { server, onCancel: vi.fn(), onCreated });
+    await fireEvent.click(screen.getByText('servers.toInstance.create'));
+    await waitFor(() => expect(screen.getByTestId('client-instance-error')).toBeTruthy());
+    expect(onCreated).not.toHaveBeenCalled();
   });
 });

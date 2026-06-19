@@ -32,18 +32,23 @@
     }
     busy = true;
     error = null;
-    const result = await commands.serverCreateClientInstance(server.id, trimmed, addToMultiplayer);
-    busy = false;
-    if (result.status === 'error') {
-      error = formatError(result.error);
-      return;
+    try {
+      const result = await commands.serverCreateClientInstance(server.id, trimmed, addToMultiplayer);
+      if (result.status === 'error') {
+        error = formatError(result.error);
+        return;
+      }
+      if (addToMultiplayer && !result.data.multiplayer_added) {
+        pushWarning($t('servers.toInstance.successNoServer', { name: trimmed }));
+      } else {
+        pushSuccess($t('servers.toInstance.success', { name: trimmed }));
+      }
+      onCreated(result.data.instance.id);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
     }
-    if (addToMultiplayer && !result.data.multiplayer_added) {
-      pushWarning($t('servers.toInstance.successNoServer', { name: trimmed }));
-    } else {
-      pushSuccess($t('servers.toInstance.success', { name: trimmed }));
-    }
-    onCreated(result.data.instance.id);
   }
 </script>
 
@@ -51,6 +56,8 @@
   ariaLabelledby="server-to-instance-title"
   onClose={onCancel}
   panelClass="w-[460px] p-5 flex flex-col gap-3"
+  closeOnBackdrop={!busy}
+  closeOnEscape={!busy}
 >
   <h3 id="server-to-instance-title" class="text-base font-semibold text-primary">
     {$t('servers.toInstance.title')}
