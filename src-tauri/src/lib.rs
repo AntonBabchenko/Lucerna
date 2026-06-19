@@ -318,6 +318,22 @@ pub fn run() {
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
 
+            // Windows: the taskbar / title-bar icon is a single HICON that the
+            // shell rescales per context. Tauri's default window icon is built
+            // from the largest configured frame, so at a 24px (100% DPI) taskbar
+            // slot our pixel-art lantern ends up downscaled from 256 and looks
+            // blurry. Set a crisp native-size (24px) icon so it renders 1:1.
+            #[cfg(windows)]
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    const ICON_RGBA: &[u8] = include_bytes!("../icons/window-icon.rgba");
+                    if let Err(e) = win.set_icon(tauri::image::Image::new(ICON_RGBA, 24, 24)) {
+                        crate::diag!("[setup] set window icon failed: {e}");
+                    }
+                }
+            }
+
             // One-shot instance migration. Non-fatal on error — the UI has
             // an empty-state fallback that lets the user manually recover
             // by creating an instance through the Manage modal.
