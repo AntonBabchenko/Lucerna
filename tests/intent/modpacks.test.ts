@@ -159,6 +159,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     mrpack_version_id: 'ver-1',
     integrity: null,
     imported_from: null,
+    created_from_server: null,
     ...over,
   };
 }

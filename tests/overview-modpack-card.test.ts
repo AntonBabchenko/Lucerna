@@ -41,6 +41,7 @@ const modrinthInst = {
   mrpack_version_id: 'v60',
   integrity: null,
   imported_from: null,
+  created_from_server: null,
 };
 
 function okData(data: ModpackInstanceUpdate[]) {
