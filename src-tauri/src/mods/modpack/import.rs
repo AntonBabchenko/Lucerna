@@ -638,6 +638,7 @@ pub async fn install_resolved_pack(
         mrpack_summary,
         hint_version_id,
         None,
+        None,
     )
     .map_err(|e| Error::ModpackInstanceCreationFailed {
         details: e.to_string(),

@@ -88,6 +88,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         mrpack_version_id: None,
         integrity: None,
         imported_from: None,
+        created_from_server: None,
         handled_log_sig: None,
     };
     write_instance_json(

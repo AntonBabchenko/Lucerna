@@ -54,7 +54,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
 }));
 
 function baseProps() {
-  return { instances: [], versions: [] };
+  return { instances: [], versions: [], onInstanceCreated: () => {} };
 }
 
 describe('ServersView delete affordance', () => {

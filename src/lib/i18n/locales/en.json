@@ -111,6 +111,7 @@
       "doneBtn": "Done",
       "openFolderBtn": "Open folder",
       "importedFromLabel": "Imported from {launcher}",
+      "fromServerLabel": "Created from server {name}",
       "openSourceFolderBtn": "Open source folder",
       "deleteBtn": "Delete instance",
       "emptyState": "Pick an instance on the left, or click + New instance.",
@@ -1601,6 +1602,18 @@
       "diagnoseBtn": "Diagnose",
       "removed": "Removed {count} mods",
       "restartHint": "Restart the server to apply the changes."
+    },
+    "toInstance": {
+      "button": "Create client instance",
+      "title": "Create client instance",
+      "nameLabel": "Instance name",
+      "nameRequired": "Enter an instance name",
+      "addToMultiplayer": "Add server to multiplayer list",
+      "addressHint": "{address}",
+      "clientModsHint": "Client-only mods (Sodium, shaders, minimaps) aren't on a server — add them afterward. Server-only mods are copied as-is; the loader won't load them on the client.",
+      "create": "Create",
+      "success": "Client instance \"{name}\" created",
+      "successNoServer": "Client instance \"{name}\" created, but the server couldn't be added to the multiplayer list"
     },
     "general": {
       "name": "Name",

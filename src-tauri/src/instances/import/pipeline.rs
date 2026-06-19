@@ -9,7 +9,7 @@ use sha1::{Digest, Sha1};
 
 use crate::error::{Error, Result};
 use crate::instances::import::model::{
-    is_injected_mod, ContentCategory, ForeignInstance, ImportPlan, ImportProgress,
+    is_injected_mod, ContentCategory, ForeignInstance, ImportPlan, ImportProgress, KnownMod,
 };
 use crate::instances::schema::ImportProvenance;
 use crate::mods::modpack::path_safety::is_safe_relative_path;
@@ -115,7 +115,7 @@ fn io(path: &Path, e: std::io::Error) -> Error {
 /// pass can try to recover them.
 pub fn build_installed_records(
     jars: &[(String, String)],
-    known: &[crate::instances::import::model::KnownMod],
+    known: &[KnownMod],
     installed_at: &str,
 ) -> Vec<InstalledMod> {
     jars.iter()
@@ -136,6 +136,32 @@ pub fn build_installed_records(
             }
         })
         .collect()
+}
+
+/// Register freshly-copied loose jars in an instance's installed-mods
+/// registry, then best-effort hash-enrich the untracked ones. Shared by the
+/// launcher-import pipeline and the "client instance from server" flow.
+/// `known` applies manifest identities by filename (pass `&[]` when there is
+/// no manifest). Returns the untracked count after enrich. A registry write
+/// failure is propagated; enrich failures degrade to "no match".
+pub async fn adopt_copied_jars(
+    instance_root: &Path,
+    mods_dir: &Path,
+    known: &[KnownMod],
+    modrinth_base: &str,
+    cf_base: &str,
+    cf_key: Option<&str>,
+) -> Result<u32> {
+    let jars = hash_jars(mods_dir);
+    let records = build_installed_records(&jars, known, &now_rfc3339());
+    crate::mods::installed::register_imported_mods(instance_root, records).await?;
+    let _ =
+        crate::mods::enrich::enrich_untracked(instance_root, modrinth_base, cf_base, cf_key).await;
+    let untracked = match crate::mods::installed::read_or_empty(instance_root).await {
+        Ok(state) => state.mods.iter().filter(|m| m.source.is_none()).count() as u32,
+        Err(_) => 0,
+    };
+    Ok(untracked)
 }
 
 /// Run a full import. Creates the instance, copies the selected
@@ -180,6 +206,7 @@ pub async fn run_import(
         None,
         None,
         Some(provenance),
+        None,
     )?;
     let id = created.id;
 
@@ -218,23 +245,19 @@ pub async fn run_import(
         }
     }
 
-    // Recover identities for copied mods.
+    // Recover identities for copied mods (shared with the server→instance flow).
     let mut untracked = 0u32;
     if mods_selected {
         emit(ImportProgress::RecoveringIdentities);
-        let jars = hash_jars(&dst_mc.join("mods"));
-        let records = build_installed_records(&jars, &foreign.known_mods, &now_rfc3339());
-        crate::mods::installed::register_imported_mods(&instance_root, records).await?;
-        // Best-effort hash-enrich for the untracked ones (never blocks).
-        // Launcher-imported instances have no pack_origin, so we use the
-        // pack-origin-agnostic entry — `enrich_instance` would no-op here.
-        let _ =
-            crate::mods::enrich::enrich_untracked(&instance_root, modrinth_base, cf_base, cf_key)
-                .await;
-        // Count untracked after enrich for an honest result.
-        if let Ok(state) = crate::mods::installed::read_or_empty(&instance_root).await {
-            untracked = state.mods.iter().filter(|m| m.source.is_none()).count() as u32;
-        }
+        untracked = adopt_copied_jars(
+            &instance_root,
+            &dst_mc.join("mods"),
+            &foreign.known_mods,
+            modrinth_base,
+            cf_base,
+            cf_key,
+        )
+        .await?;
     }
 
     emit(ImportProgress::Done {
@@ -282,6 +305,37 @@ fn now_rfc3339() -> String {
 mod tests {
     use super::*;
     use crate::instances::import::model::ContentCategory;
+
+    #[tokio::test]
+    async fn adopt_registers_jars_and_counts_untracked_offline() {
+        let tmp = tempfile::tempdir().unwrap();
+        let instance_root = tmp.path();
+        let mods_dir = instance_root.join(".minecraft/mods");
+        std::fs::create_dir_all(&mods_dir).unwrap();
+        std::fs::write(mods_dir.join("a.jar"), b"AAA").unwrap();
+        std::fs::write(mods_dir.join("b.jar"), b"BBB").unwrap();
+
+        // Port 0 is never listened on — the connect is refused immediately, so
+        // enrich_untracked returns Err(...) which adopt_copied_jars silences.
+        // Both jars therefore stay untracked.
+        let untracked = adopt_copied_jars(
+            instance_root,
+            &mods_dir,
+            &[],
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:0",
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(untracked, 2);
+        let state = crate::mods::installed::read_or_empty(instance_root)
+            .await
+            .unwrap();
+        assert_eq!(state.mods.len(), 2);
+        assert!(state.mods.iter().all(|m| m.source.is_none()));
+    }
 
     fn write(p: &std::path::Path, body: &str) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
