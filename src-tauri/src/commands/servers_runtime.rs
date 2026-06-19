@@ -499,13 +499,17 @@ pub struct ServerConnectivity {
 pub fn server_connectivity(app: AppHandle, id: String) -> Result<ServerConnectivity> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
-    let port = crate::servers_runtime::runtime::read_port(&rt);
-    let online_mode = match std::fs::read_to_string(rt.join("server.properties")) {
-        Ok(raw) => crate::servers_runtime::properties::ServerProperties::parse(&raw)
-            .get("online-mode")
-            .map(|v| v != "false")
-            .unwrap_or(true),
-        Err(_) => true,
+    let (port, online_mode) = match std::fs::read_to_string(rt.join("server.properties")) {
+        Ok(raw) => {
+            let props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+            let port = props.get("server-port").and_then(|v| v.parse().ok());
+            let online_mode = props
+                .get("online-mode")
+                .map(|v| v != "false")
+                .unwrap_or(true);
+            (port, online_mode)
+        }
+        Err(_) => (None, true),
     };
     Ok(ServerConnectivity {
         lan_addresses: crate::process::local_ipv4_addresses(),

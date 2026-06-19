@@ -20,7 +20,10 @@ import ServerConnectView from '$lib/servers/ServerConnectView.svelte';
 
 describe('ServerConnectView', () => {
   beforeAll(() => locale.set('en'));
-  beforeEach(() => { connectivity.mockReset(); running.mockReset(); });
+  beforeEach(() => {
+    connectivity.mockReset();
+    running.mockReset();
+  });
 
   it('shows a start hint when the server is stopped', async () => {
     running.mockReturnValue(false);
@@ -31,7 +34,11 @@ describe('ServerConnectView', () => {
 
   it('shows the LAN address and copy-invite when running', async () => {
     running.mockReturnValue(true);
-    connectivity.mockResolvedValue({ lan_addresses: ['192.168.1.5'], port: 25565, online_mode: true });
+    connectivity.mockResolvedValue({
+      lan_addresses: ['192.168.1.5'],
+      port: 25565,
+      online_mode: true,
+    });
     render(ServerConnectView, { serverId: 'srv-1' });
     expect(await screen.findByText('192.168.1.5:25565')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Copy invite' })).toBeTruthy();
@@ -39,7 +46,11 @@ describe('ServerConnectView', () => {
 
   it('explains online-mode ON', async () => {
     running.mockReturnValue(true);
-    connectivity.mockResolvedValue({ lan_addresses: ['192.168.1.5'], port: 25565, online_mode: true });
+    connectivity.mockResolvedValue({
+      lan_addresses: ['192.168.1.5'],
+      port: 25565,
+      online_mode: true,
+    });
     render(ServerConnectView, { serverId: 'srv-1' });
     expect(await screen.findByText(/only friends signed in with a Microsoft/i)).toBeTruthy();
   });

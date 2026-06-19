@@ -14,7 +14,6 @@
   $effect(() => {
     const isRunning = serverState.running(serverId);
     if (isRunning !== _prevRunning || (isRunning && snapshot === null)) {
-      _prevRunning = isRunning;
       void serverState.connectivity(serverId).then((r) => {
         snapshot = r;
       });
@@ -49,17 +48,23 @@
         <h3 class="font-semibold mb-1">{$t('servers.connect.lanTitle')}</h3>
         <p class="text-muted mb-2">{$t('servers.connect.lanHint')}</p>
 
-        {#if snapshot && snapshot.lan_addresses.length > 0}
+        {#if snapshot === null}
+          <!-- Waiting for connectivity snapshot — show nothing to avoid a misleading flash -->
+        {:else if snapshot.lan_addresses.length > 0}
           <div class="flex flex-col gap-2">
             {#each snapshot.lan_addresses as addr (addr)}
               <div class="flex items-center gap-2">
-                <code class="rounded bg-subtle px-2 py-1 font-mono text-xs">{joinAddress(addr)}</code>
+                <code class="rounded bg-subtle px-2 py-1 font-mono text-xs"
+                  >{joinAddress(addr)}</code
+                >
                 <button
                   type="button"
                   class="btn-ghost btn-sm"
                   onclick={() => void copyInvite(addr)}
                 >
-                  {copiedAddr === addr ? $t('servers.connect.copied') : $t('servers.connect.copyInvite')}
+                  {copiedAddr === addr
+                    ? $t('servers.connect.copied')
+                    : $t('servers.connect.copyInvite')}
                 </button>
               </div>
             {/each}
@@ -76,7 +81,9 @@
       <!-- Online-mode explainer -->
       {#if snapshot}
         <p class={snapshot.online_mode ? 'text-muted text-xs' : 'text-warning text-xs'}>
-          {snapshot.online_mode ? $t('servers.connect.onlineModeOn') : $t('servers.connect.onlineModeOff')}
+          {snapshot.online_mode
+            ? $t('servers.connect.onlineModeOn')
+            : $t('servers.connect.onlineModeOff')}
         </p>
       {/if}
     </div>
