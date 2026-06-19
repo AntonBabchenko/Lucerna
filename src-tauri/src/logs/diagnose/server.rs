@@ -19,6 +19,24 @@ pub struct ServerDiagnosis {
     pub client_mods: Vec<ClientModFinding>,
     pub forge_skip_count: Option<u32>,
     pub log_signature: Option<String>,
+    /// Which one-click server fix the banner should offer (Phase 1+). `None`
+    /// for advisory-only or clean diagnoses.
+    pub server_repair: Option<ServerRepairTag>,
+    /// The busy port for port-conflict diagnoses (drives "Use port N").
+    pub port_in_use: Option<u16>,
+    /// The leftover PID for `StopOrphanAndRetry`.
+    pub orphan_pid: Option<u32>,
+}
+
+/// One-click server fix the diagnosis banner can offer. snake_case on the wire.
+/// Phase 1 introduces the first four; later phases extend this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerRepairTag {
+    AcceptEula,
+    StopOrphanAndRetry,
+    ChangePort,
+    RemoveClientMods,
 }
 
 /// First matching server-log diagnosis, if any. Order = specificity.
@@ -193,6 +211,29 @@ fn excerpt(log: &str, needle: &str) -> String {
 mod tests {
     use super::*;
     use crate::mods::local::ModEnvironment;
+
+    #[test]
+    fn server_repair_tag_serializes_snake_case() {
+        let j = serde_json::to_string(&ServerRepairTag::StopOrphanAndRetry).unwrap();
+        assert_eq!(j, "\"stop_orphan_and_retry\"");
+    }
+
+    #[test]
+    fn server_diagnosis_carries_repair_and_params() {
+        let d = ServerDiagnosis {
+            status: crate::logs::diagnose::DiagnosisStatus::Actionable,
+            diagnosis: None,
+            client_mods: vec![],
+            forge_skip_count: None,
+            log_signature: None,
+            server_repair: Some(ServerRepairTag::ChangePort),
+            port_in_use: Some(25565),
+            orphan_pid: None,
+        };
+        let j = serde_json::to_string(&d).unwrap();
+        assert!(j.contains("\"server_repair\":\"change_port\""), "got: {j}");
+        assert!(j.contains("\"port_in_use\":25565"), "got: {j}");
+    }
 
     #[test]
     fn leading_initials_etf() {

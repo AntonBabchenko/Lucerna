@@ -301,6 +301,9 @@ pub async fn server_diagnose(
             client_mods: Vec::new(),
             forge_skip_count: None,
             log_signature: None,
+            server_repair: None,
+            port_in_use: None,
+            orphan_pid: None,
         });
     }
     let signature = crate::logs::diagnose::log_signature(&content);
@@ -347,6 +350,9 @@ pub async fn server_diagnose(
         client_mods,
         forge_skip_count: forge_client_skip_count(&content),
         log_signature: Some(signature),
+        server_repair: None,
+        port_in_use: None,
+        orphan_pid: None,
     })
 }
 
