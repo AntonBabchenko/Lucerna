@@ -1,6 +1,7 @@
 //! «Свой сервер» — сборка и (План 2) запуск изолированного MC-сервера.
 //! Сущность отдельная от инстанса; артефакты живут в `<app_data>/servers/<id>/`.
 
+pub mod backup;
 pub mod create;
 pub mod eula;
 pub mod jar;
