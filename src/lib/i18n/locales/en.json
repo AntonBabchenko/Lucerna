@@ -90,6 +90,7 @@
     "modpackUpdatesBadge": "{count, plural, one {# modpack update available} other {# modpack updates available}}",
     "joinServer": "Join a server",
     "servers": "Servers",
+    "serverRunning": "Server running",
     "importLauncher": "Import from launcher"
   },
   "instance": {
