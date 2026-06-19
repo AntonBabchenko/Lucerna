@@ -541,14 +541,21 @@ mod tests {
         // a sane positive figure, not a wrapped/garbage value.
         if let Some(free) = mb {
             assert!(free > 0, "temp filesystem reports 0 free MB: {free}");
-            assert!(free < 1_000_000_000, "implausibly large free reading: {free} MB");
+            assert!(
+                free < 1_000_000_000,
+                "implausibly large free reading: {free} MB"
+            );
         }
     }
 
     #[test]
     fn free_disk_mb_none_for_nonexistent_path() {
         let p = std::path::Path::new("/this/path/does/not/exist/lucerna-zzz");
-        assert_eq!(super::free_disk_mb(p), None, "nonexistent path must read None");
+        assert_eq!(
+            super::free_disk_mb(p),
+            None,
+            "nonexistent path must read None"
+        );
     }
 
     #[cfg(not(windows))]

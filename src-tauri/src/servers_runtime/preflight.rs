@@ -28,7 +28,10 @@ pub fn low_disk_from_free(free_mb: Option<u64>, threshold_mb: u64) -> bool {
 /// True when the filesystem holding the server runtime dir is below the
 /// advisory threshold. Best-effort: an unreadable figure is "not low".
 pub fn low_disk(runtime: &Path) -> bool {
-    low_disk_from_free(crate::platform::free_disk_mb(runtime), LOW_DISK_THRESHOLD_MB)
+    low_disk_from_free(
+        crate::platform::free_disk_mb(runtime),
+        LOW_DISK_THRESHOLD_MB,
+    )
 }
 
 /// True iff `port` cannot be bound on 0.0.0.0 right now (a hint — the TOCTOU
@@ -86,9 +89,21 @@ mod tests {
 
     #[test]
     fn low_disk_from_free_uses_threshold() {
-        assert!(low_disk_from_free(Some(100), 500), "100 MB free < 500 MB → low");
-        assert!(!low_disk_from_free(Some(800), 500), "800 MB free ≥ 500 MB → ok");
-        assert!(!low_disk_from_free(None, 500), "unknown free space → not flagged");
-        assert!(!low_disk_from_free(Some(500), 500), "exactly at threshold → ok");
+        assert!(
+            low_disk_from_free(Some(100), 500),
+            "100 MB free < 500 MB → low"
+        );
+        assert!(
+            !low_disk_from_free(Some(800), 500),
+            "800 MB free ≥ 500 MB → ok"
+        );
+        assert!(
+            !low_disk_from_free(None, 500),
+            "unknown free space → not flagged"
+        );
+        assert!(
+            !low_disk_from_free(Some(500), 500),
+            "exactly at threshold → ok"
+        );
     }
 }
