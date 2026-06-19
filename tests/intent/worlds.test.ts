@@ -12,13 +12,12 @@
 // Inventory rows covered:
 //   WorldsTab:
 //     data-testid="worlds-tab" container
-//     world-card toggle button — bare hover:bg-subtle (not .btn-*)
+//     clickable world row — data-testid="world-row" role="button" (opens BackupsDialog)
 //     world folder_name is visible in the card
 //     backup-count badge — bg-warning-bg text-warning-text (when backup_count > 0)
 //     size + modified meta — text-muted class
-//     "Back up now" menu item — role="menuitem" text-left
-//     "View backups…" menu item — role="menuitem" text-left
-//     "Delete world…" menu item — role="menuitem" text-danger
+//     inline "Back up now" icon — data-testid="world-backup-btn" btn-icon btn-icon-sm
+//     inline "Delete world" icon — data-testid="world-delete-btn" btn-icon-danger
 //     "Open saves folder ↗" button — btn-tertiary
 //     empty state — "No worlds yet." text-muted
 //     loading state — "Loading worlds…" text-muted (class-string integrity)
@@ -26,11 +25,11 @@
 //     no-instance state — "Select an instance" text-muted
 //   BackupsDialog:
 //     dialog role="dialog" aria-modal="true" aria-labelledby
-//     backup-row toggle button — bare hover:bg-subtle (not .btn-*)
+//     header "Back up now" action — data-testid="backups-create-btn"
 //     backup formatted timestamp visible
 //     backup size text-muted
-//     "Restore…" menu item — role="menuitem"
-//     "Delete backup" menu item — role="menuitem" text-danger
+//     inline "Restore" icon — data-testid="backup-restore-btn" btn-icon btn-icon-sm
+//     inline "Delete backup" icon — data-testid="backup-delete-btn" btn-icon-danger
 //     "Open backups folder ↗" button — btn-tertiary
 //     "Close" button — btn-secondary btn-sm
 //     empty state — "No backups yet." text-muted
@@ -53,6 +52,7 @@
 import { render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Backup, World } from '$lib/ipc/bindings';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // vi.mock is hoisted before imports.
 vi.mock('$lib/ipc/bindings', () => ({
@@ -164,16 +164,20 @@ describe('WorldsTab — error state', () => {
 
 // ── WorldsTab — world card row ────────────────────────────────────────────────
 
-describe('WorldsTab — world card toggle button', () => {
-  it('world card toggle button has hover:bg-subtle and is NOT a .btn-* variant', async () => {
+describe('WorldsTab — clickable world row', () => {
+  it('world row is a role=button with hover:bg-subtle and is NOT a .btn-* variant', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listWorlds).mockResolvedValueOnce({
       status: 'ok',
       data: [makeWorld({ folder_name: 'Overworld' })],
     });
-    render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });
-    const btn = await screen.findByRole('button', { name: /actions for Overworld/i });
-    const cls = btn.className;
+    const { container } = render(WorldsTab, {
+      props: { instanceId: 'inst-1', onListChanged: () => {} },
+    });
+    await screen.findByText('Overworld');
+    const row = container.querySelector('[data-testid="world-row"]')!;
+    expect(row.getAttribute('role')).toBe('button');
+    const cls = row.className;
     expect(cls).toContain('hover:bg-subtle');
     expect(cls).not.toMatch(/\bbtn-primary\b/);
     expect(cls).not.toMatch(/\bbtn-secondary\b/);
@@ -255,44 +259,48 @@ describe('WorldsTab — "Open saves folder ↗" is btn-tertiary', () => {
 
 // ── WorldsTab — kebab menu items ──────────────────────────────────────────────
 
-describe('WorldsTab — kebab menu items after toggle open', () => {
-  it('"Back up now" has role="menuitem" and hover:bg-subtle class', async () => {
+describe('WorldsTab — inline row action icons', () => {
+  it('backup icon is btn-icon btn-icon-sm with the back-up-now aria-label', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listWorlds).mockResolvedValueOnce({
       status: 'ok',
       data: [makeWorld({ folder_name: 'MenuWorld' })],
     });
     render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });
-    const toggle = await screen.findByRole('button', { name: /actions for MenuWorld/i });
-    toggle.click();
-    const backupItem = await screen.findByRole('menuitem', { name: /back up now/i });
-    expect(backupItem.className).toContain('hover:bg-subtle');
+    const btn = await screen.findByRole('button', { name: /^back up now$/i });
+    expect(btn.getAttribute('data-testid')).toBe('world-backup-btn');
+    expect(btn.className).toContain('btn-icon-sm');
   });
 
-  it('"View backups…" has role="menuitem" and hover:bg-subtle class', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.listWorlds).mockResolvedValueOnce({
-      status: 'ok',
-      data: [makeWorld({ folder_name: 'MenuWorld2' })],
-    });
-    render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });
-    const toggle = await screen.findByRole('button', { name: /actions for MenuWorld2/i });
-    toggle.click();
-    const viewItem = await screen.findByRole('menuitem', { name: /view backups/i });
-    expect(viewItem.className).toContain('hover:bg-subtle');
-  });
-
-  it('"Delete world…" has role="menuitem" and text-danger class', async () => {
+  it('delete icon is btn-icon-danger with the delete-world aria-label', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.listWorlds).mockResolvedValueOnce({
       status: 'ok',
       data: [makeWorld({ folder_name: 'MenuWorld3' })],
     });
     render(WorldsTab, { props: { instanceId: 'inst-1', onListChanged: () => {} } });
-    const toggle = await screen.findByRole('button', { name: /actions for MenuWorld3/i });
-    toggle.click();
-    const deleteItem = await screen.findByRole('menuitem', { name: /delete world/i });
-    expect(deleteItem.className).toContain('text-danger');
+    const btn = await screen.findByRole('button', { name: /^delete world$/i });
+    expect(btn.getAttribute('data-testid')).toBe('world-delete-btn');
+    expect(btn.className).toContain('btn-icon-danger');
+  });
+
+  it('world row is a role=button that opens the backups dialog', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.listWorlds).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeWorld({ folder_name: 'MenuWorld' })],
+    });
+    vi.mocked(commands.listBackups).mockResolvedValue({ status: 'ok', data: [] });
+    // Suppress the worlds ContextualTour overlay (also role="dialog").
+    markSeen('worlds');
+    const { container } = render(WorldsTab, {
+      props: { instanceId: 'inst-1', onListChanged: () => {} },
+    });
+    await screen.findByText('MenuWorld');
+    const row = container.querySelector('[data-testid="world-row"]')!;
+    expect(row.getAttribute('role')).toBe('button');
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
   });
 });
 
@@ -386,12 +394,12 @@ describe('BackupsDialog — error state', () => {
 
 // ── BackupsDialog — backup row ────────────────────────────────────────────────
 
-describe('BackupsDialog — backup row toggle button', () => {
-  it('backup row toggle button has hover:bg-subtle and is NOT a .btn-* variant', async () => {
+describe('BackupsDialog — backup row', () => {
+  it('backup timestamp is visible in the row', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const backup = makeBackup();
     vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [backup] });
-    render(BackupsDialog, {
+    const { container } = render(BackupsDialog, {
       props: {
         instanceId: 'inst-1',
         world: makeWorld(),
@@ -399,14 +407,10 @@ describe('BackupsDialog — backup row toggle button', () => {
         onChanged: () => {},
       },
     });
-    const btn = await screen.findByRole('button', {
-      name: new RegExp(`actions for backup ${backup.filename}`, 'i'),
-    });
-    const cls = btn.className;
-    expect(cls).toContain('hover:bg-subtle');
-    expect(cls).not.toMatch(/\bbtn-primary\b/);
-    expect(cls).not.toMatch(/\bbtn-secondary\b/);
-    expect(cls).not.toMatch(/\bbtn-danger\b/);
+    // The restore icon marks a rendered backup row.
+    await screen.findByTestId('backup-restore-btn');
+    const rows = container.querySelectorAll('li');
+    expect(rows.length).toBeGreaterThan(0);
   });
 
   it('backup size meta has text-muted class', async () => {
@@ -423,50 +427,42 @@ describe('BackupsDialog — backup row toggle button', () => {
         onChanged: () => {},
       },
     });
-    await screen.findByRole('button', { name: /actions for backup/i });
+    await screen.findByTestId('backup-restore-btn');
     // The size div inside the backup row uses text-muted
     const mutedDivs = container.querySelectorAll('.text-muted');
     expect(mutedDivs.length).toBeGreaterThan(0);
   });
 });
 
-// ── BackupsDialog — backup kebab menu items ───────────────────────────────────
+// ── BackupsDialog — inline backup action icons ────────────────────────────────
 
-describe('BackupsDialog — backup kebab menu items after toggle open', () => {
-  it('"Restore…" menu item has role="menuitem" and hover:bg-subtle', async () => {
+describe('BackupsDialog — inline backup action icons', () => {
+  it('restore icon is btn-icon btn-icon-sm with the restore aria-label', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    const backup = makeBackup({ filename: 'restore-test.zip' });
-    vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [backup] });
-    render(BackupsDialog, {
-      props: {
-        instanceId: 'inst-1',
-        world: makeWorld(),
-        onClose: () => {},
-        onChanged: () => {},
-      },
+    vi.mocked(commands.listBackups).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeBackup({ filename: 'restore-test.zip' })],
     });
-    const toggle = await screen.findByRole('button', { name: /actions for backup restore-test/i });
-    toggle.click();
-    const restoreItem = await screen.findByRole('menuitem', { name: /^Restore…$/i });
-    expect(restoreItem.className).toContain('hover:bg-subtle');
+    render(BackupsDialog, {
+      props: { instanceId: 'inst-1', world: makeWorld(), onClose: () => {}, onChanged: () => {} },
+    });
+    const btn = await screen.findByRole('button', { name: /^restore$/i });
+    expect(btn.getAttribute('data-testid')).toBe('backup-restore-btn');
+    expect(btn.className).toContain('btn-icon-sm');
   });
 
-  it('"Delete backup" menu item has role="menuitem" and text-danger', async () => {
+  it('delete-backup icon is btn-icon-danger with the delete-backup aria-label', async () => {
     const { commands } = await import('$lib/ipc/bindings');
-    const backup = makeBackup({ filename: 'delete-test.zip' });
-    vi.mocked(commands.listBackups).mockResolvedValueOnce({ status: 'ok', data: [backup] });
-    render(BackupsDialog, {
-      props: {
-        instanceId: 'inst-1',
-        world: makeWorld(),
-        onClose: () => {},
-        onChanged: () => {},
-      },
+    vi.mocked(commands.listBackups).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeBackup({ filename: 'delete-test.zip' })],
     });
-    const toggle = await screen.findByRole('button', { name: /actions for backup delete-test/i });
-    toggle.click();
-    const deleteItem = await screen.findByRole('menuitem', { name: /delete backup/i });
-    expect(deleteItem.className).toContain('text-danger');
+    render(BackupsDialog, {
+      props: { instanceId: 'inst-1', world: makeWorld(), onClose: () => {}, onChanged: () => {} },
+    });
+    const btn = await screen.findByRole('button', { name: /^delete backup$/i });
+    expect(btn.getAttribute('data-testid')).toBe('backup-delete-btn');
+    expect(btn.className).toContain('btn-icon-danger');
   });
 });
 
