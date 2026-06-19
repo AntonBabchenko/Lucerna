@@ -958,6 +958,11 @@ export const commands = {
 	 *  (`servers.dat`) нового инстанса. Сервер читается только на чтение.
 	 */
 	serverCreateClientInstance: (serverId: string, name: string, addToMultiplayer: boolean) => typedError<ClientInstanceResult, Error>(__TAURI_INVOKE("server_create_client_instance", { serverId, name, addToMultiplayer })),
+	/**
+	 *  Read the server's connectivity snapshot: host LAN IPv4s, the configured port,
+	 *  and `online-mode` (from `server.properties`; defaults true when unset).
+	 */
+	serverConnectivity: (id: string) => typedError<ServerConnectivity, Error>(__TAURI_INVOKE("server_connectivity", { id })),
 };
 
 /** Events */
@@ -2611,6 +2616,13 @@ export type RestoredWorld = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+/**  Join info for a server: host LAN addresses + the server's port + online-mode. */
+export type ServerConnectivity = {
+	lan_addresses: string[],
+	port: number | null,
+	online_mode: boolean,
 };
 
 /**

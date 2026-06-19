@@ -484,6 +484,36 @@ pub async fn server_create_client_instance(
     .await
 }
 
+/// Join info for a server: host LAN addresses + the server's port + online-mode.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerConnectivity {
+    pub lan_addresses: Vec<String>,
+    pub port: Option<u16>,
+    pub online_mode: bool,
+}
+
+/// Read the server's connectivity snapshot: host LAN IPv4s, the configured port,
+/// and `online-mode` (from `server.properties`; defaults true when unset).
+#[tauri::command]
+#[specta::specta]
+pub fn server_connectivity(app: AppHandle, id: String) -> Result<ServerConnectivity> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    let port = crate::servers_runtime::runtime::read_port(&rt);
+    let online_mode = match std::fs::read_to_string(rt.join("server.properties")) {
+        Ok(raw) => crate::servers_runtime::properties::ServerProperties::parse(&raw)
+            .get("online-mode")
+            .map(|v| v != "false")
+            .unwrap_or(true),
+        Err(_) => true,
+    };
+    Ok(ServerConnectivity {
+        lan_addresses: crate::process::local_ipv4_addresses(),
+        port,
+        online_mode,
+    })
+}
+
 /// Открыть папку `runtime/` сервера в системном файловом менеджере.
 /// Создаёт папку, если она ещё не существует. Использует тот же
 /// механизм, что и `open_saves_folder` (`tauri_plugin_opener`).
