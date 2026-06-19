@@ -408,7 +408,7 @@
         >
         <button
           type="button"
-          class="btn-primary btn-xs"
+          class="btn-warning btn-xs"
           onclick={() => void openUpdateDialog()}
           data-testid="imported-detail-update-button"
         >

@@ -74,7 +74,7 @@
     >
     <button
       type="button"
-      class="btn-primary btn-sm"
+      class="btn-warning btn-sm"
       onclick={onConfirm}
       data-testid="update-confirm"
     >

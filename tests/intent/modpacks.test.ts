@@ -611,7 +611,7 @@ describe('ImportedDetailDrawer — update-available banner has bg-accent-soft bo
     }
   });
 
-  it('Update button is btn-primary btn-xs when update is available', async () => {
+  it('Update button is btn-warning btn-xs when update is available', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modpackUpdateStatus).mockResolvedValueOnce({
       status: 'ok',
@@ -636,7 +636,7 @@ describe('ImportedDetailDrawer — update-available banner has bg-accent-soft bo
       },
     });
     const updateBtn = await screen.findByTestId('imported-detail-update-button');
-    expect(updateBtn).toHaveBtnVariant('primary');
+    expect(updateBtn).toHaveBtnVariant('warning');
     expect(updateBtn).toHaveBtnSize('xs');
   });
 });
@@ -1222,12 +1222,12 @@ describe('ModpackUpdateDialog — Cancel and Update buttons', () => {
     expect(btn).toHaveBtnSize('sm');
   });
 
-  it('Update button is btn-primary btn-sm', () => {
+  it('Update button is btn-warning btn-sm', () => {
     render(ModpackUpdateDialog, {
       props: { diff: makeUpdateDiff(), onCancel: () => {}, onConfirm: () => {} },
     });
     const btn = screen.getByRole('button', { name: /^update$/i });
-    expect(btn).toHaveBtnVariant('primary');
+    expect(btn).toHaveBtnVariant('warning');
     expect(btn).toHaveBtnSize('sm');
   });
 });
