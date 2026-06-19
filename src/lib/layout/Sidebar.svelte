@@ -53,7 +53,10 @@
     activeInstance: InstanceWithStatus | null;
     onSelectAccount: (id: string) => void;
     onRemoveAccount: (id: string) => void;
-    onAddOffline: (name: string) => void;
+    // Open the add-offline-account dialog. The name entry + the actual
+    // addOfflineAccount call live in that modal / the page handler, not here:
+    // the inline field this used to reveal was too easy to miss.
+    onAddOffline: () => void;
     onSelectInstance: (id: string) => void;
     onOpenManage: () => void;
     onOpenMods: () => void;
@@ -85,9 +88,6 @@
     onOpenQuickJoin?: () => void;
     onOpenServers?: () => void;
   } = $props();
-
-  let showAddOfflineInput = $state(false);
-  let offlineNameDraft = $state('');
 
   const accountOptions = $derived(
     accounts.map((a) => ({
@@ -189,44 +189,11 @@
       <button
         type="button"
         class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
-        onclick={() => (showAddOfflineInput = !showAddOfflineInput)}
+        onclick={() => onAddOffline()}
       >
         <Icon name="userPlus" size={14} />
         {$t('sidebar.addOffline')}
       </button>
-      {#if showAddOfflineInput}
-        <div class="flex flex-col gap-1 mt-1">
-          <input
-            class="border rounded px-2 py-1 text-sm"
-            placeholder={$t('sidebar.playerNamePlaceholder')}
-            maxlength="16"
-            bind:value={offlineNameDraft}
-          />
-          <div class="flex gap-1">
-            <button
-              type="button"
-              class="btn-primary btn-xs flex-1"
-              onclick={() => {
-                onAddOffline(offlineNameDraft.trim());
-                showAddOfflineInput = false;
-                offlineNameDraft = '';
-              }}
-            >
-              {$t('sidebar.addAccountConfirm')}
-            </button>
-            <button
-              type="button"
-              class="btn-secondary btn-xs flex-1"
-              onclick={() => {
-                showAddOfflineInput = false;
-                offlineNameDraft = '';
-              }}
-            >
-              {$t('common.cancel')}
-            </button>
-          </div>
-        </div>
-      {/if}
       <div class="mt-2">
         <MicrosoftSignInButton
           bind:signingIn={msSigningIn}
