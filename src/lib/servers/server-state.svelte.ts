@@ -142,4 +142,7 @@ export const serverState = {
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
   },
+  get anyRunning() {
+    return list.some((s) => s.running);
+  },
 };

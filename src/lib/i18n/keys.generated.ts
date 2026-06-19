@@ -1223,6 +1223,7 @@ export type TranslationKey =
   | 'sidebar.playWorlds'
   | 'sidebar.playerNamePlaceholder'
   | 'sidebar.removeAccountLabel'
+  | 'sidebar.serverRunning'
   | 'sidebar.servers'
   | 'sidebar.stop'
   | 'sidebar.working'

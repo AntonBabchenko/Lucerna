@@ -90,6 +90,7 @@
     "modpackUpdatesBadge": "Доступно обновлений сборок: {count}",
     "joinServer": "Подключиться к серверу",
     "servers": "Серверы",
+    "serverRunning": "Сервер запущен",
     "importLauncher": "Импорт из лаунчера"
   },
   "instance": {
