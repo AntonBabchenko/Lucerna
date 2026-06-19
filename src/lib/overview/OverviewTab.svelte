@@ -14,6 +14,7 @@
   import AttentionPanel from './AttentionPanel.svelte';
   import ModpackCard from './ModpackCard.svelte';
   import { buildAttentionItems, type AttentionKind } from './attention';
+  import { attentionCollapse } from './attention-collapse.svelte';
   import { classifyExit } from './exit-status';
 
   type ErrorKey = 'offlineName' | 'listAccounts' | 'remove' | 'instances' | 'versions';
@@ -90,6 +91,13 @@
       : [],
   );
 
+  // Sticky per-instance "I dismissed the panel" flag (persisted). Stays
+  // collapsed until the user restores it via the header triangle, even if the
+  // set of warnings changes.
+  const attentionCollapsed = $derived(
+    activeInstance ? attentionCollapse.isCollapsed(activeInstance.id) : false,
+  );
+
   function onAttention(kind: AttentionKind) {
     if (kind === 'log_issue') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
@@ -138,9 +146,23 @@
   {/each}
 
   {#if activeInstance}
-    <InstanceHeader instance={activeInstance} {running} {installing} />
+    <InstanceHeader
+      instance={activeInstance}
+      {running}
+      {installing}
+      {attentionCollapsed}
+      attentionCount={attentionItems.length}
+      onShowAttention={() =>
+        activeInstance && attentionCollapse.setCollapsed(activeInstance.id, false)}
+    />
 
-    <AttentionPanel items={attentionItems} onAction={onAttention} />
+    {#if !attentionCollapsed}
+      <AttentionPanel
+        items={attentionItems}
+        onAction={onAttention}
+        onDismiss={() => activeInstance && attentionCollapse.setCollapsed(activeInstance.id, true)}
+      />
+    {/if}
 
     <div class="grid gap-3" style="grid-template-columns:repeat(2,minmax(0,1fr));">
       <!-- Configuration -->

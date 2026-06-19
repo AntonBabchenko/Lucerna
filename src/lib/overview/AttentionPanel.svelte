@@ -2,10 +2,18 @@
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import type { AttentionItem, AttentionKind } from './attention';
 
-  let { items, onAction }: { items: AttentionItem[]; onAction: (kind: AttentionKind) => void } =
-    $props();
+  let {
+    items,
+    onAction,
+    onDismiss,
+  }: {
+    items: AttentionItem[];
+    onAction: (kind: AttentionKind) => void;
+    onDismiss: () => void;
+  } = $props();
 
   const TEXT_KEY: Record<AttentionKind, TranslationKey> = {
     log_issue: 'page.overview.attnLogIssue',
@@ -37,6 +45,14 @@
     >
       <Icon name="warning" class="text-warning-text" />
       {$t('page.overview.attentionHeading')}
+      <button
+        type="button"
+        class="btn-icon ml-auto -my-1 -mr-1 !text-warning-text hover:!bg-warning-text/10"
+        aria-label={$t('page.overview.attentionDismissAria')}
+        use:tooltip={$t('page.overview.attentionDismissTooltip')}
+        onclick={onDismiss}
+        data-testid="overview-attention-dismiss"><Icon name="close" size={16} /></button
+      >
     </div>
     {#each items as item (item.kind)}
       <button

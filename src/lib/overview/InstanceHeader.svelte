@@ -3,6 +3,7 @@
   import { displayLoader } from '$lib/instances/loader-display';
   import { t } from '$lib/i18n';
   import type { TranslationKey } from '$lib/i18n/keys.generated';
+  import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import { deriveAvatar, type AvatarTone } from './avatar';
   import { deriveStatus, type StatusKind, type StatusTone } from './status';
@@ -11,10 +12,24 @@
     instance,
     running,
     installing,
-  }: { instance: InstanceWithStatus; running: boolean; installing: boolean } = $props();
+    attentionCollapsed = false,
+    attentionCount = 0,
+    onShowAttention = () => {},
+  }: {
+    instance: InstanceWithStatus;
+    running: boolean;
+    installing: boolean;
+    attentionCollapsed?: boolean;
+    attentionCount?: number;
+    onShowAttention?: () => void;
+  } = $props();
 
   const avatar = $derived(deriveAvatar(instance));
   const status = $derived(deriveStatus(instance, running, installing));
+
+  // The restore affordance only makes sense when the panel is collapsed AND
+  // there is actually something hidden behind it.
+  const showRestore = $derived(attentionCollapsed && attentionCount > 0);
 
   // Avatar tint per loader / source. Brand-ish accents, theme-agnostic.
   const TONE_BG: Record<AvatarTone, string> = {
@@ -87,15 +102,31 @@
     </div>
   </div>
 
-  <div
-    class="ml-auto flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-semibold {PILL_TONE[
-      status.tone
-    ]}"
-    data-testid="overview-status-pill"
-    data-status={status.kind}
-    use:tooltip={$t(PILL_TOOLTIP[status.kind])}
-  >
-    <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true"></span>
-    {$t(PILL_LABEL[status.kind])}
+  <div class="ml-auto flex items-center gap-2">
+    {#if showRestore}
+      <button
+        type="button"
+        class="flex items-center rounded-full border border-warning-text bg-warning-bg px-3 py-2
+          text-warning-text transition-colors hover:bg-warning-text/10
+          focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+        data-testid="overview-attention-restore"
+        aria-label={$t('page.overview.attentionShow')}
+        use:tooltip={$t('page.overview.attentionShow')}
+        onclick={() => onShowAttention()}
+      >
+        <Icon name="warning" size={16} />
+      </button>
+    {/if}
+    <div
+      class="flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-semibold {PILL_TONE[
+        status.tone
+      ]}"
+      data-testid="overview-status-pill"
+      data-status={status.kind}
+      use:tooltip={$t(PILL_TOOLTIP[status.kind])}
+    >
+      <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true"></span>
+      {$t(PILL_LABEL[status.kind])}
+    </div>
   </div>
 </div>

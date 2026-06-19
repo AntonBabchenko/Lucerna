@@ -1,9 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({ commands: { modpacksCheckUpdates: vi.fn() } }));
 
+import { attentionCollapse } from '$lib/overview/attention-collapse.svelte';
 import OverviewTab from '$lib/overview/OverviewTab.svelte';
+
+beforeEach(() => {
+  attentionCollapse.reset();
+});
 
 const noErrors = {
   offlineName: null,
@@ -139,6 +144,38 @@ describe('OverviewTab', () => {
     expect(getByText('boom')).toBeTruthy();
     await fireEvent.click(getByRole('button', { name: 'Dismiss error' }));
     expect(onDismissInstallError).toHaveBeenCalledOnce();
+  });
+});
+
+describe('OverviewTab attention dismiss', () => {
+  it('hides the panel and shows the restore triangle when collapsed', () => {
+    attentionCollapse.setCollapsed('i1', true);
+    const { queryByTestId, getByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 2 },
+    });
+    expect(queryByTestId('overview-attention')).toBeNull();
+    expect(getByTestId('overview-attention-restore')).toBeTruthy();
+  });
+
+  it('restores the panel when the triangle is clicked', async () => {
+    attentionCollapse.setCollapsed('i1', true);
+    const { getByTestId, queryByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 2 },
+    });
+    expect(queryByTestId('overview-attention')).toBeNull();
+    await fireEvent.click(getByTestId('overview-attention-restore'));
+    expect(getByTestId('overview-attention')).toBeTruthy();
+    expect(queryByTestId('overview-attention-restore')).toBeNull();
+  });
+
+  it('collapses the panel when the dismiss X is clicked', async () => {
+    const { getByTestId, queryByTestId } = render(OverviewTab, {
+      props: { ...baseProps, activeInstance: fabricInst, incompatibleCount: 2 },
+    });
+    expect(getByTestId('overview-attention')).toBeTruthy();
+    await fireEvent.click(getByTestId('overview-attention-dismiss'));
+    expect(queryByTestId('overview-attention')).toBeNull();
+    expect(getByTestId('overview-attention-restore')).toBeTruthy();
   });
 });
 

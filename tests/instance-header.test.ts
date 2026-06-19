@@ -1,5 +1,5 @@
-import { render } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
 import InstanceHeader from '$lib/overview/InstanceHeader.svelte';
 
 const inst = {
@@ -52,5 +52,54 @@ describe('InstanceHeader', () => {
       props: { instance: inst, running: true, installing: false },
     });
     expect(getByTestId('overview-status-pill').getAttribute('data-status')).toBe('running');
+  });
+
+  it('does not show the attention-restore triangle by default', () => {
+    const { queryByTestId } = render(InstanceHeader, {
+      props: { instance: inst, running: false, installing: false },
+    });
+    expect(queryByTestId('overview-attention-restore')).toBeNull();
+  });
+
+  it('does not show the triangle when collapsed but nothing is hidden', () => {
+    const { queryByTestId } = render(InstanceHeader, {
+      props: {
+        instance: inst,
+        running: false,
+        installing: false,
+        attentionCollapsed: true,
+        attentionCount: 0,
+      },
+    });
+    expect(queryByTestId('overview-attention-restore')).toBeNull();
+  });
+
+  it('shows the triangle when collapsed with hidden warnings', () => {
+    const { getByTestId } = render(InstanceHeader, {
+      props: {
+        instance: inst,
+        running: false,
+        installing: false,
+        attentionCollapsed: true,
+        attentionCount: 2,
+      },
+    });
+    expect(getByTestId('overview-attention-restore')).toBeTruthy();
+  });
+
+  it('calls onShowAttention when the triangle is clicked', async () => {
+    const onShowAttention = vi.fn();
+    const { getByTestId } = render(InstanceHeader, {
+      props: {
+        instance: inst,
+        running: false,
+        installing: false,
+        attentionCollapsed: true,
+        attentionCount: 1,
+        onShowAttention,
+      },
+    });
+    await fireEvent.click(getByTestId('overview-attention-restore'));
+    expect(onShowAttention).toHaveBeenCalledOnce();
   });
 });
