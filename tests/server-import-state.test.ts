@@ -49,7 +49,15 @@ describe('serverState import wrappers', () => {
 
   it('importCommit calls the command with all fields and refreshes', async () => {
     commit.mockResolvedValue({ status: 'ok', data: { id: 'srv-9' } });
-    const r = await serverState.importCommit('t1', 'Name', '1.20.4', 'fabric', '0.16.5', 4096, true);
+    const r = await serverState.importCommit(
+      't1',
+      'Name',
+      '1.20.4',
+      'fabric',
+      '0.16.5',
+      4096,
+      true,
+    );
     expect(commit).toHaveBeenCalledWith('t1', 'Name', '1.20.4', 'fabric', '0.16.5', 4096, true);
     expect(r.ok).toBe(true);
   });

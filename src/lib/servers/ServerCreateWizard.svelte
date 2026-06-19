@@ -29,7 +29,9 @@
   } = $props();
 
   // svelte-ignore state_referenced_locally
-  let mode = $state<'instance' | 'standalone' | 'import'>(instances.length > 0 ? 'instance' : 'standalone');
+  let mode = $state<'instance' | 'standalone' | 'import'>(
+    instances.length > 0 ? 'instance' : 'standalone',
+  );
   let name = $state('');
   // svelte-ignore state_referenced_locally
   let instanceId = $state<string | null>(instances.length > 0 ? instances[0].id : null);
@@ -187,7 +189,7 @@
 
   {#if mode === 'import'}
     <!-- Import mode: ServerImportView owns the rest of the flow -->
-    <ServerImportView {onDone} onCancel={onCancel} />
+    <ServerImportView {onDone} {onCancel} />
   {:else}
     <!-- Name -->
     <div class="flex flex-col gap-1">

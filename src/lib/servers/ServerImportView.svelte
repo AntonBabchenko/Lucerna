@@ -1,11 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import {
-    commands,
-    type LoaderKind,
-    type MemoryBounds,
-  } from '$lib/ipc/bindings';
+  import { commands, type LoaderKind, type MemoryBounds } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
@@ -13,11 +9,7 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
-  import {
-    droppedServer,
-    serverImportActive,
-    dragActive,
-  } from '$lib/settings/state.svelte';
+  import { droppedServer, serverImportActive, dragActive } from '$lib/settings/state.svelte';
 
   let { onDone, onCancel }: { onDone: () => void; onCancel: () => void } = $props();
 
@@ -37,6 +29,8 @@
   let loaderVersion = $state<string | null>(null);
   let eula = $state(false);
   let canLaunchAsIs = $state(false);
+  let modCount = $state(0);
+  let worldPresent = $state(false);
 
   // Adaptive memory bounds — same pattern as ServerCreateWizard.
   const FALLBACK_BOUNDS: MemoryBounds = {
@@ -120,20 +114,25 @@
   async function doInspect(path: string): Promise<void> {
     busy = true;
     error = null;
-    const r = await serverState.importInspect(path);
-    if (!r.ok) {
-      error = formatError(r.error as Parameters<typeof formatError>[0]);
-    } else if (r.preview) {
-      token = r.preview.token;
-      name = r.preview.detected_name;
-      mcVersion = r.preview.mc_version ?? '';
-      loader = (r.preview.loader as LoaderKind | null) ?? 'vanilla';
-      loaderVersion = r.preview.loader_version ?? null;
-      canLaunchAsIs = r.preview.can_launch_as_is;
-      eula = r.preview.eula_in_source;
-      phase = 'confirm';
+    try {
+      const r = await serverState.importInspect(path);
+      if (!r.ok) {
+        error = formatError(r.error as Parameters<typeof formatError>[0]);
+      } else if (r.preview) {
+        token = r.preview.token;
+        name = r.preview.detected_name;
+        mcVersion = r.preview.mc_version ?? '';
+        loader = (r.preview.loader as LoaderKind | null) ?? 'vanilla';
+        loaderVersion = r.preview.loader_version ?? null;
+        canLaunchAsIs = r.preview.can_launch_as_is;
+        eula = r.preview.eula_in_source;
+        modCount = r.preview.mod_count;
+        worldPresent = r.preview.world_present;
+        phase = 'confirm';
+      }
+    } finally {
+      busy = false;
     }
-    busy = false;
   }
 
   async function pickZip(): Promise<void> {
@@ -153,23 +152,26 @@
     if (!name.trim() || !eula || !token) return;
     busy = true;
     error = null;
-    const effectiveLoaderVersion = loader === 'vanilla' ? null : loaderVersion;
-    const r = await serverState.importCommit(
-      token,
-      name.trim(),
-      mcVersion.trim(),
-      loader,
-      effectiveLoaderVersion,
-      memoryMb,
-      eula,
-    );
-    if (r.ok) {
-      token = null; // prevent destroy from cancelling a completed import
-      onDone();
-    } else {
-      error = formatError(r.error as Parameters<typeof formatError>[0]);
+    try {
+      const effectiveLoaderVersion = loader === 'vanilla' ? null : loaderVersion;
+      const r = await serverState.importCommit(
+        token,
+        name.trim(),
+        mcVersion.trim(),
+        loader,
+        effectiveLoaderVersion,
+        memoryMb,
+        eula,
+      );
+      if (r.ok) {
+        token = null; // prevent destroy from cancelling a completed import
+        onDone();
+      } else {
+        error = formatError(r.error as Parameters<typeof formatError>[0]);
+      }
+    } finally {
+      busy = false;
     }
-    busy = false;
   }
 
   async function goBack(): Promise<void> {
@@ -186,10 +188,7 @@
 
 {#if phase === 'pick'}
   <div class="flex flex-col gap-4 p-4">
-    <FileDropzone
-      label={$t('servers.import.dropzone')}
-      onClick={() => void pickZip()}
-    />
+    <FileDropzone label={$t('servers.import.dropzone')} onClick={() => void pickZip()} />
 
     <div class="flex gap-2">
       <button type="button" class="btn-secondary btn-sm" onclick={() => void pickZip()}>
@@ -228,6 +227,12 @@
       class:text-warning-text={!canLaunchAsIs}
     >
       {canLaunchAsIs ? $t('servers.import.willPreserve') : $t('servers.import.willReprovision')}
+    </p>
+
+    <!-- Mod count / world summary -->
+    <p class="text-xs text-muted">
+      {$t('servers.import.modCount', { count: modCount })}{#if worldPresent}
+        · {$t('servers.import.worldPresent')}{/if}
     </p>
 
     <!-- Name -->

@@ -7,7 +7,11 @@ const { importInspect, importCommit, importCancel, memBounds } = vi.hoisted(() =
   importCommit: vi.fn().mockResolvedValue({ ok: true }),
   importCancel: vi.fn().mockResolvedValue(undefined),
   memBounds: vi.fn().mockResolvedValue({
-    min_mb: 1024, max_mb: 8192, recommended_max_mb: 8192, step_mb: 256, ram_known: false,
+    min_mb: 1024,
+    max_mb: 8192,
+    recommended_max_mb: 8192,
+    step_mb: 256,
+    ram_known: false,
   }),
 }));
 
@@ -17,7 +21,9 @@ vi.mock('$lib/ipc/bindings', () => ({
     // LoaderPicker fires async loader-version fetches whenever mc+loader change.
     // Return a list containing the preview's loader_version so LoaderPicker
     // preserves the parent's pick instead of resetting it to null.
-    listFabricLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [{ version: '0.16.5', stable: true }] }),
+    listFabricLoaders: vi
+      .fn()
+      .mockResolvedValue({ status: 'ok', data: [{ version: '0.16.5', stable: true }] }),
     listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     listNeoforgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
@@ -73,7 +79,15 @@ describe('ServerImportView', () => {
     await screen.findByLabelText('Name');
     await fireEvent.click(screen.getByRole('button', { name: 'Import' }));
     await waitFor(() =>
-      expect(importCommit).toHaveBeenCalledWith('t1', 'MyServer', '1.20.4', 'fabric', '0.16.5', expect.any(Number), true),
+      expect(importCommit).toHaveBeenCalledWith(
+        't1',
+        'MyServer',
+        '1.20.4',
+        'fabric',
+        '0.16.5',
+        expect.any(Number),
+        true,
+      ),
     );
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
