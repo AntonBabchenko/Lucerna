@@ -46,6 +46,7 @@ import {
   Upload,
   User,
   UserPlus,
+  Wrench,
   X,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
@@ -110,6 +111,7 @@ export const ICONS = {
   lock: Lock, // restricted / distribution-blocked version (download disabled)
   archive: Archive, // create a backup ("Back up now")
   restore: RotateCcw, // restore a backup
+  wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;
