@@ -123,8 +123,7 @@
 
   // Context menu (right-click / Shift+F10) — the full action set.
   const menuItems = $derived.by((): ContextMenuItem[] => {
-    if (!installed)
-      return [{ label: $t('mods.card.install'), icon: 'download', onSelect: onInstall }];
+    if (!installed) return [{ label: $t('common.install'), icon: 'download', onSelect: onInstall }];
     const out: ContextMenuItem[] = [];
     if (hasUpdate) out.push({ label: $t('mods.card.update'), icon: 'refresh', onSelect: onUpdate });
     if (canToggle)
@@ -154,7 +153,7 @@
     {#if hasUpdate}
       <button
         type="button"
-        class="btn-icon !w-7 !h-7 !text-warning-text"
+        class="btn-icon btn-icon-sm btn-icon-warning"
         onclick={onUpdate}
         aria-label={$t('mods.card.update')}
         use:tooltip={$t('mods.card.update')}><Icon name="refresh" size={15} /></button
@@ -163,7 +162,7 @@
     {#if canToggle}
       <button
         type="button"
-        class={`btn-icon !w-7 !h-7 ${installed.enabled ? '!text-success' : '!text-muted'}`}
+        class={`btn-icon btn-icon-sm ${installed.enabled ? 'btn-icon-success' : '!text-muted'}`}
         onclick={onToggle}
         aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
         use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
@@ -172,7 +171,7 @@
     {/if}
     <button
       type="button"
-      class="btn-icon !w-7 !h-7 !text-danger"
+      class="btn-icon btn-icon-sm btn-icon-danger"
       onclick={onUninstall}
       aria-label={$t('mods.card.uninstall')}
       use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button
@@ -180,11 +179,11 @@
   {:else}
     <button
       type="button"
-      class="btn-icon !w-7 !h-7 !text-accent"
+      class="btn-icon btn-icon-sm !text-accent"
       onclick={onInstall}
       disabled={installing}
-      aria-label={$t('mods.card.install')}
-      use:tooltip={$t('mods.card.install')}
+      aria-label={$t('common.install')}
+      use:tooltip={$t('common.install')}
     >
       {#if installing}<Spinner size="sm" />{:else}<Icon name="download" size={15} />{/if}
     </button>
@@ -249,7 +248,7 @@
           {#if canToggle}
             <button
               type="button"
-              class={`btn-icon !w-7 !h-7 ${installed.enabled ? '!text-success' : '!text-muted'}`}
+              class={`btn-icon btn-icon-sm ${installed.enabled ? 'btn-icon-success' : '!text-muted'}`}
               onclick={onToggle}
               aria-label={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
               use:tooltip={installed.enabled ? $t('mods.card.disable') : $t('mods.card.enable')}
@@ -258,7 +257,7 @@
           {/if}
           <button
             type="button"
-            class="btn-icon !w-7 !h-7 !text-danger"
+            class="btn-icon btn-icon-sm btn-icon-danger"
             onclick={onUninstall}
             aria-label={$t('mods.card.uninstall')}
             use:tooltip={$t('mods.card.uninstall')}><Icon name="trash" size={15} /></button

@@ -4,6 +4,7 @@
   import type { UnresolvableDetail } from '$lib/mods/unresolvable-detail';
   import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
 
   // Modal that runs after ModBrowseView's startInstall surfaces deps the
   // user should look at — required mods auto-install (read-only list),
@@ -236,8 +237,9 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onCancel}
       >{$t('common.cancel')}</button
     >
-    <button type="button" class="btn-primary btn-sm" onclick={confirm}>
+    <BusyButton class="btn-primary btn-sm" onclick={confirm}>
+      <Icon name="download" size={14} />
       {$t('mods.depDialog.installBtn', { count: total })}
-    </button>
+    </BusyButton>
   </div>
 </Modal>

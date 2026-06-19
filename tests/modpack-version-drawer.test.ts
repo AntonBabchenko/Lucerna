@@ -93,7 +93,9 @@ describe('ModpackDetailModal', () => {
       props: { hit, onClose: () => {}, onInstall: () => {} },
     });
     await fireEvent.click(await findByRole('tab', { name: 'Versions' }));
-    const installBtn = await findByText('Install');
+    // The per-version install button is icon-only; its accessible name is the
+    // aria-label (common.install = "Install").
+    const installBtn = await findByRole('button', { name: 'Install' });
     await fireEvent.click(installBtn);
     expect(await findByText('Open on CurseForge')).toBeTruthy();
   });

@@ -434,36 +434,15 @@
   <!-- Sub-tab row. Underline style — matches the Modpacks tab's
        Browse/Imported sub-tabs and the top-level tab row. -->
   <div class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface mt-3">
-    <div role="tablist" aria-label={$t('addons.subTabsLabel')} class="flex gap-1">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={view === 'browse'}
-        class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-accent={view === 'browse'}
-        class:text-primary={view === 'browse'}
-        class:font-semibold={view === 'browse'}
-        class:border-transparent={view !== 'browse'}
-        class:text-placeholder={view !== 'browse'}
-        onclick={() => selectView('browse')}
-      >
-        {$t('mods.browse.tabBrowse')}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={view === 'installed'}
-        class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-accent={view === 'installed'}
-        class:text-primary={view === 'installed'}
-        class:font-semibold={view === 'installed'}
-        class:border-transparent={view !== 'installed'}
-        class:text-placeholder={view !== 'installed'}
-        onclick={() => selectView('installed')}
-      >
-        {$t('mods.browse.tabInstalled')}
-      </button>
-    </div>
+    <TabBar
+      tabs={[
+        { id: 'browse', label: $t('mods.browse.tabBrowse') },
+        { id: 'installed', label: $t('mods.browse.tabInstalled') },
+      ]}
+      active={view}
+      ariaLabel={$t('addons.subTabsLabel')}
+      onChange={(id) => selectView(id as View)}
+    />
     <SourcePicker value={source} onChange={(v) => (source = v)} />
   </div>
 

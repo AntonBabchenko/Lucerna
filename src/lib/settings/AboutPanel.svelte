@@ -6,6 +6,7 @@
   import pkg from '../../../package.json' with { type: 'json' };
   import { REPO_URL } from './disclaimer';
   import { tooltip } from '$lib/ui/tooltip';
+  import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
 
   const version = pkg.version;
@@ -24,12 +25,13 @@
   <p>
     <button
       type="button"
-      class="btn-tertiary"
+      class="btn-link inline-flex items-center gap-1"
       use:tooltip={REPO_URL}
       aria-label={$t('settings.about.openRepoLabel', { url: REPO_URL })}
       onclick={openRepo}
     >
       {$t('settings.about.viewOnGitHub')}
+      <Icon name="externalLink" size={14} />
     </button>
   </p>
   <p class="text-xs text-muted">

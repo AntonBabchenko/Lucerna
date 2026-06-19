@@ -309,7 +309,7 @@
           {#if latest}
             <button
               type="button"
-              class="btn-icon !w-7 !h-7 !text-warning-text"
+              class="btn-icon btn-icon-sm btn-icon-warning"
               disabled={busy}
               onclick={() => update(asset, latest)}
               aria-label={$t('addons.installed.update')}
@@ -318,7 +318,7 @@
           {/if}
           <button
             type="button"
-            class="btn-icon !w-7 !h-7 !text-danger"
+            class="btn-icon btn-icon-sm btn-icon-danger"
             disabled={busy}
             onclick={() => remove(asset)}
             aria-label={$t('addons.installed.remove')}

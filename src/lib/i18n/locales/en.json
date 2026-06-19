@@ -6,7 +6,13 @@
     "loading": "Loading…",
     "dismissNotification": "Dismiss notification",
     "previousImage": "Previous image",
-    "nextImage": "Next image"
+    "nextImage": "Next image",
+    "install": "Install",
+    "installVersion": "Install {version}",
+    "installCount": "Install {count} selected",
+    "switchToVersion": "Switch to this version",
+    "installed": "Installed",
+    "restricted": "Restricted — open the page to download"
   },
   "pagination": {
     "first": "First",
@@ -280,7 +286,6 @@
       "searching": "Searching Modrinth…",
       "empty": "No matching mod found on Modrinth. Refine the search, or open the original on CurseForge below — it may be a CurseForge-only mod.",
       "likelyMatch": "likely match",
-      "install": "Install",
       "installed": "Installed {name}",
       "noVersion": "{mod} has no Modrinth version for this profile's Minecraft + loader.",
       "openCurseForge": "Open on CurseForge",
@@ -296,7 +301,6 @@
       "disable": "Disable",
       "enable": "Enable",
       "uninstall": "Uninstall",
-      "install": "Install",
       "update": "Update",
       "selectAriaLabel": "Select mod {name}",
       "fromModpackTitle": "From modpack: {name}",
@@ -324,10 +328,8 @@
       "btnInstalled": "Installed",
       "btnRestricted": "Restricted",
       "btnSwitch": "Switch",
-      "btnInstall": "Install",
       "footerInstalled": "Installed {version}",
       "footerRestricted": "Restricted — open on platform",
-      "footerInstall": "Install {version}",
       "selectInstanceHint": "Select a Fabric / Quilt / Forge / NeoForge instance to install mods.",
       "noCompatVersion": "No compatible version for {mc} / {loader}.",
       "noCompatVersionAsset": "No version compatible with {mc}."
@@ -375,6 +377,12 @@
       "filterUpdates": "Updates ({count})",
       "filterIssues": "Issues ({count})",
       "filterIncompatible": "Incompatible ({count})",
+      "filterAllLabel": "All",
+      "filterEnabledLabel": "Enabled",
+      "filterDisabledLabel": "Disabled",
+      "filterUpdatesLabel": "Updates",
+      "filterIssuesLabel": "Issues",
+      "filterIncompatibleLabel": "Incompatible",
       "badgeMissing": "{count} missing",
       "badgeIncompatible": "Incompatible",
       "checkCompat": "Check compatibility",
@@ -524,7 +532,6 @@
         "installModAriaLabel": "Install {name}",
         "cannotAutoInstall": "Cannot auto-install ({count})",
         "openLink": "Open",
-        "installBtn": "Install {count} selected",
         "groupMods": "Mods",
         "groupResourcepacks": "Resource packs",
         "groupShaderpacks": "Shader packs",
@@ -679,9 +686,7 @@
       "contentDisclaimer": "Content from {source} — any ads or links in it are the author's, not Lucerna's.",
       "loadingVersions": "Loading versions…",
       "noVersionsForMc": "No versions for MC {mc}. Clear the MC filter in the search to see all.",
-      "noVersions": "No versions available.",
-      "install": "Install",
-      "installVersion": "Install {version}"
+      "noVersions": "No versions available."
     },
     "update": {
       "dialogAriaLabel": "Modpack update confirmation",
@@ -704,13 +709,11 @@
       "noInstance": "Select an instance to view its worlds.",
       "loading": "Loading worlds…",
       "empty": "No worlds yet. Play Minecraft to create one.",
-      "worldActionsAriaLabel": "Actions for {name}",
       "backupCountAriaLabel": "{count, plural, one {# backup} other {# backups}}",
       "openSavesFolder": "Open saves folder",
-      "closeMenuAriaLabel": "Close menu",
+      "openBackupsAriaLabel": "View backups for {name}",
       "backupNow": "Back up now",
-      "viewBackups": "View backups…",
-      "deleteWorld": "Delete world…",
+      "deleteWorld": "Delete world",
       "toastBackedUp": "Backed up {name} ({size})"
     },
     "import": {
@@ -721,12 +724,11 @@
     "backups": {
       "title": "Backups for \"{world}\"",
       "loading": "Loading backups…",
-      "empty": "No backups yet. Click \"Back up now\" on the world to create one.",
-      "backupActionsAriaLabel": "Actions for backup {filename}",
+      "empty": "No backups yet. Click \"Back up now\" to create one.",
+      "backupNow": "Back up now",
       "total": "Total: {size}",
       "openBackupsFolder": "Open backups folder",
-      "closeMenuAriaLabel": "Close menu",
-      "restore": "Restore…",
+      "restore": "Restore",
       "deleteBackup": "Delete backup",
       "confirmDelete": "Delete backup {timestamp}?"
     },
@@ -862,7 +864,6 @@
         "unresolvedHeading": "Couldn't identify — find these yourself",
         "serverWants": "server wants {version}",
         "findInBrowser": "Find in Add-ons",
-        "install": "Install",
         "installedLabel": "Installed",
         "none": "Found the problem, but couldn't identify any of the mods automatically. Use the names above to find them in the Add-ons browser.",
         "installedToast": "Installed {name}",
@@ -1204,7 +1205,9 @@
         "themeLight": "Light",
         "themeDark": "Dark",
         "rainbowIcons": "Rainbow icon animation",
-        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting."
+        "rainbowIconsDescription": "The Browse modpacks icon shimmers through a rainbow on hover. Respects your system's reduced-motion setting.",
+        "iconZoom": "Icon hover zoom",
+        "iconZoomDescription": "Icons grow slightly when you point at them."
       },
       "playing": {
         "title": "Playing",

@@ -487,9 +487,12 @@ describe('LogsPopover — warn severity line uses bg-warning-bg/30 border-warnin
       props: { open: true, instanceId: 'inst-1', initialPath: logFile.path },
     });
     await screen.findByText(/something might be wrong/i);
-    const warnLine = container.querySelector('.border-warning-text');
+    // Select on the log-line-only `bg-warning-bg/30` so the warn-level filter
+    // chip (which now shares the bare `border-warning-text` class via the P0
+    // ToggleChip warning tone) is not matched first.
+    const warnLine = container.querySelector('.bg-warning-bg\\/30');
     expect(warnLine).not.toBeNull();
-    expect(warnLine?.className).toContain('bg-warning-bg/30');
+    expect(warnLine?.className).toContain('border-warning-text');
   });
 });
 

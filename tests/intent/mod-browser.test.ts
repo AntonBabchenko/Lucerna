@@ -6,7 +6,7 @@
 // Inventory rows covered:
 //   ModBrowserTab:      Browse/Installed sub-tabs — underline pattern positive
 //                       (border-b-2 -mb-px, active border-accent text-primary
-//                        font-semibold, inactive border-transparent text-placeholder)
+//                        font-semibold, inactive border-transparent text-muted)
 //                       tab bar container structural classes
 //   ModBrowseView:      loading state (Searching… placeholder)
 //                       error state (bg-danger-bg border-danger text-danger)
@@ -17,9 +17,9 @@
 //                       "Show installed" checkbox
 //                       Prev/Next pagination buttons → btn-secondary btn-sm
 //   InstalledModsView:  filter radiogroup (role=radiogroup aria-label="Mod filter")
-//                       All radio → btn-secondary btn-xs, active bg-accent-soft text-accent
-//                       Enabled radio → btn-secondary btn-xs, active bg-success-bg text-success
-//                       Disabled radio → btn-secondary btn-xs, active bg-subtle text-secondary
+//                       chips render via the shared ToggleChipGroup primitive —
+//                       rounded-full bordered pills; active All → neutral tone
+//                       (bg-subtle text-primary border-border-emphasis)
 //                       "Check for updates" button → btn-secondary btn-xs
 //                       "Update all (N)" button → btn-warning btn-xs (post-6.1 fix)
 //                       error block → bg-danger-bg border-danger text-danger
@@ -238,14 +238,17 @@ describe('ModBrowserTab — Browse tab is active by default (underline pattern)'
     expect(cls).toContain('font-semibold');
   });
 
-  it('Installed tab has border-transparent text-placeholder when inactive', () => {
+  it('Installed tab has border-transparent text-muted when inactive', () => {
     render(ModBrowserTab, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
     const installedTab = screen.getByRole('tab', { name: 'Installed' });
     const cls = installedTab.className;
+    // The sub-tabs now render via the shared TabBar primitive, whose inactive
+    // tab is de-emphasised with `text-muted` (the previous hand-rolled markup
+    // used `text-placeholder`); the transparent border is unchanged.
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 
   it('both sub-tabs have aria-selected attribute', () => {
@@ -460,7 +463,7 @@ describe('InstalledModsView — filter radiogroup structure', () => {
     }
   });
 
-  it('All radio is btn-secondary btn-xs (base classes always present)', async () => {
+  it('All radio renders as a rounded-full ToggleChip (shared chip base classes)', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
       status: 'ok',
@@ -473,30 +476,36 @@ describe('InstalledModsView — filter radiogroup structure', () => {
     render(InstalledModsView, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    // "All" is the default active filter — look for the text starting with "All"
-    const allBtn = await screen.findByRole('radio', { name: /^all/i });
-    expect(allBtn).toHaveBtnVariant('secondary');
-    expect(allBtn).toHaveBtnSize('xs');
-  });
-
-  it('active All radio has bg-accent-soft text-accent font-medium', async () => {
-    const { commands } = await import('$lib/ipc/bindings');
-    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
-      status: 'ok',
-      data: [makeInstalled()],
-    });
-    vi.mocked(commands.modsProject).mockResolvedValueOnce({
-      status: 'ok',
-      data: makeProject(),
-    });
-    render(InstalledModsView, {
-      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
-    });
+    // The filter group now renders via the shared ToggleChipGroup primitive,
+    // whose chips are rounded-full bordered pills (the previous hand-rolled
+    // markup used btn-secondary btn-xs).
     const allBtn = await screen.findByRole('radio', { name: /^all/i });
     const cls = allBtn.className;
-    expect(cls).toContain('bg-accent-soft');
-    expect(cls).toContain('text-accent');
-    expect(cls).toContain('font-medium');
+    expect(cls).toContain('rounded-full');
+    expect(cls).toContain('border');
+  });
+
+  it('active All radio uses the neutral ToggleChip tone (bg-subtle text-primary)', async () => {
+    const { commands } = await import('$lib/ipc/bindings');
+    vi.mocked(commands.modsListInstalled).mockResolvedValueOnce({
+      status: 'ok',
+      data: [makeInstalled()],
+    });
+    vi.mocked(commands.modsProject).mockResolvedValueOnce({
+      status: 'ok',
+      data: makeProject(),
+    });
+    render(InstalledModsView, {
+      props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
+    });
+    // Active "All" carries the neutral tone's active styling, distinguishing it
+    // from the de-emphasised inactive chips (the previous markup used
+    // bg-accent-soft text-accent font-medium).
+    const allBtn = await screen.findByRole('radio', { name: /^all/i });
+    const cls = allBtn.className;
+    expect(cls).toContain('bg-subtle');
+    expect(cls).toContain('text-primary');
+    expect(cls).toContain('border-border-emphasis');
   });
 
   it('roving tabindex: checked radio gets tabindex=0, others get -1 (H12)', async () => {
@@ -752,7 +761,7 @@ describe('ModCard — installed+enabled shows version + green power toggle', () 
     });
     const btn = screen.getByRole('button', { name: /disable/i });
     expect(btn).toHaveBtnVariant('icon');
-    expect(btn.className).toContain('text-success');
+    expect(btn.className).toContain('btn-icon-success');
   });
 
   it('Uninstall is an icon button tinted danger', () => {
@@ -768,7 +777,7 @@ describe('ModCard — installed+enabled shows version + green power toggle', () 
     });
     const btn = screen.getByRole('button', { name: /uninstall/i });
     expect(btn).toHaveBtnVariant('icon');
-    expect(btn.className).toContain('text-danger');
+    expect(btn.className).toContain('btn-icon-danger');
   });
 });
 
@@ -989,8 +998,8 @@ describe('ModDetailModal — error block uses bg-danger-bg border-danger text-da
 
 // ── ModDetailModal — version row buttons ────────────────────────────────────
 
-describe('ModDetailModal — version row Install button is btn-xs btn-primary', () => {
-  it('installable version row button has btn-xs and btn-primary classes', async () => {
+describe('ModDetailModal — version row Install button is an accent icon button', () => {
+  it('installable version row button is an icon button tinted accent', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({ version_id: 'v2.0', version_number: '2.0' });
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
@@ -1010,14 +1019,17 @@ describe('ModDetailModal — version row Install button is btn-xs btn-primary', 
       },
     });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
+    // Icon-only by state: the per-state text moved to the tooltip/aria-label,
+    // so the accessible name is now common.install ("Install").
     const installBtn = await screen.findByRole('button', { name: /^install$/i });
-    expect(installBtn).toHaveBtnVariant('primary');
-    expect(installBtn).toHaveBtnSize('xs');
+    expect(installBtn).toHaveBtnVariant('icon');
+    expect(installBtn.className).toContain('btn-icon-sm');
+    expect(installBtn.className).toContain('!text-accent');
   });
 });
 
-describe('ModDetailModal — installed version row button has btn-xs base + success colours', () => {
-  it('installed version button has btn-xs border-success text-success', async () => {
+describe('ModDetailModal — installed version row button is a disabled success icon', () => {
+  it('installed version button is an icon tinted success and disabled', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({ version_id: 'v1.0', version_number: '1.0' });
     vi.mocked(commands.modsProject).mockResolvedValueOnce({
@@ -1039,16 +1051,16 @@ describe('ModDetailModal — installed version row button has btn-xs base + succ
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const installedBtn = await screen.findByRole('button', { name: /installed/i });
     const cls = installedBtn.className;
-    expect(cls).toContain('btn-xs');
-    expect(cls).toContain('border-success');
-    expect(cls).toContain('text-success');
+    expect(cls).toContain('btn-icon');
+    expect(cls).toContain('!text-success');
+    expect(installedBtn.hasAttribute('disabled')).toBe(true);
     // Installed variant should NOT use btn-primary.
     expect(cls).not.toMatch(/\bbtn-primary\b/);
   });
 });
 
-describe('ModDetailModal — restricted version row button has btn-xs text-muted', () => {
-  it('restricted version button has btn-xs and text-muted', async () => {
+describe('ModDetailModal — restricted version row button is a disabled muted icon', () => {
+  it('restricted version button is an icon tinted muted and disabled', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     const version = makeVersion({
       version_id: 'v1.0',
@@ -1079,8 +1091,9 @@ describe('ModDetailModal — restricted version row button has btn-xs text-muted
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
     const restrictedBtn = await screen.findByRole('button', { name: /restricted/i });
     const cls = restrictedBtn.className;
-    expect(cls).toContain('btn-xs');
-    expect(cls).toContain('text-muted');
+    expect(cls).toContain('btn-icon');
+    expect(cls).toContain('!text-muted');
+    expect(restrictedBtn.hasAttribute('disabled')).toBe(true);
     expect(cls).not.toMatch(/\bbtn-primary\b/);
   });
 });

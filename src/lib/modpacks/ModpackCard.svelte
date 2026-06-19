@@ -30,7 +30,7 @@
 {#snippet quickInstallButton()}
   <button
     type="button"
-    class="btn-icon !w-7 !h-7 !text-accent"
+    class="btn-icon btn-icon-sm !text-accent"
     disabled={installing}
     aria-label={$t('modpacks.card.quickInstall')}
     use:tooltip={$t('modpacks.card.quickInstall')}

@@ -12,7 +12,7 @@
 // Inventory rows covered:
 //   ModpacksTab:
 //     Browse sub-tab active state (border-accent text-primary font-semibold border-b-2 -mb-px)
-//     Imported sub-tab inactive state (border-transparent text-placeholder)
+//     Imported sub-tab inactive state (border-transparent text-muted)
 //     aria-selected attributes on both sub-tabs
 //     error block — bg-danger-bg border-danger text-danger (post-H1 fix; NOT bg-danger/10)
 //   ModpackBrowseView:
@@ -279,12 +279,15 @@ describe('ModpacksTab — Browse sub-tab is active by default (underline pattern
     expect(cls).toContain('font-semibold');
   });
 
-  it('Imported tab has border-transparent text-placeholder when inactive', () => {
+  it('Imported tab has border-transparent text-muted when inactive', () => {
     render(ModpacksTab, { props: { instances: [], onInstanceCreated: () => {} } });
     const importedTab = screen.getByRole('tab', { name: 'Imported' });
     const cls = importedTab.className;
+    // The sub-tabs now render via the shared TabBar primitive, whose inactive
+    // tab is de-emphasised with `text-muted` (the previous hand-rolled markup
+    // used `text-placeholder`); the transparent border is unchanged.
     expect(cls).toContain('border-transparent');
-    expect(cls).toContain('text-placeholder');
+    expect(cls).toContain('text-muted');
   });
 
   it('both sub-tabs carry aria-selected attribute', () => {
@@ -608,7 +611,7 @@ describe('ImportedDetailDrawer — update-available banner has bg-accent-soft bo
     }
   });
 
-  it('Update button is btn-primary btn-xs when update is available', async () => {
+  it('Update button is btn-warning btn-xs when update is available', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modpackUpdateStatus).mockResolvedValueOnce({
       status: 'ok',
@@ -633,7 +636,7 @@ describe('ImportedDetailDrawer — update-available banner has bg-accent-soft bo
       },
     });
     const updateBtn = await screen.findByTestId('imported-detail-update-button');
-    expect(updateBtn).toHaveBtnVariant('primary');
+    expect(updateBtn).toHaveBtnVariant('warning');
     expect(updateBtn).toHaveBtnSize('xs');
   });
 });
@@ -1095,8 +1098,8 @@ describe('ModpackDetailModal — empty state renders "No versions available."', 
   });
 });
 
-describe('ModpackDetailModal — Install button is btn-primary btn-xs', () => {
-  it('Install button is btn-primary btn-xs when versions are present', async () => {
+describe('ModpackDetailModal — per-version Install button is an accent icon', () => {
+  it('Install button is an icon tinted accent when versions are present', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modpackGetVersions).mockResolvedValueOnce({
       status: 'ok',
@@ -1106,9 +1109,11 @@ describe('ModpackDetailModal — Install button is btn-primary btn-xs', () => {
       props: { hit: makeHit(), mcFilter: null, onClose: () => {}, onInstall: () => {} },
     });
     await fireEvent.click(await screen.findByRole('tab', { name: 'Versions' }));
+    // Icon-only install: the accessible name is common.install ("Install").
     const installBtn = await screen.findByRole('button', { name: /^install$/i });
-    expect(installBtn).toHaveBtnVariant('primary');
-    expect(installBtn).toHaveBtnSize('xs');
+    expect(installBtn).toHaveBtnVariant('icon');
+    expect(installBtn.className).toContain('btn-icon-sm');
+    expect(installBtn.className).toContain('!text-accent');
   });
 });
 
@@ -1217,12 +1222,12 @@ describe('ModpackUpdateDialog — Cancel and Update buttons', () => {
     expect(btn).toHaveBtnSize('sm');
   });
 
-  it('Update button is btn-primary btn-sm', () => {
+  it('Update button is btn-warning btn-sm', () => {
     render(ModpackUpdateDialog, {
       props: { diff: makeUpdateDiff(), onCancel: () => {}, onConfirm: () => {} },
     });
     const btn = screen.getByRole('button', { name: /^update$/i });
-    expect(btn).toHaveBtnVariant('primary');
+    expect(btn).toHaveBtnVariant('warning');
     expect(btn).toHaveBtnSize('sm');
   });
 });

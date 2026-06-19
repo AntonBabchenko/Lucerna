@@ -5,6 +5,7 @@
   import { cancelQueued, moveQueued, opQueue, opRunning, type QueuedOp } from './op-queue.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import Icon from '$lib/ui/icons/Icon.svelte';
 
   // Unified page-level "Operations" widget. Replaces IntegrityProgressView +
   // ImportProgressView: one corner card showing the running op's progress plus
@@ -120,11 +121,11 @@
     {#if queue.length > 0}
       <button
         type="button"
-        class="text-xs text-muted mt-2 hover:text-secondary"
+        class="inline-flex items-center gap-1 text-xs text-muted mt-2 hover:text-secondary"
         aria-expanded={expanded}
         onclick={() => (expanded = !expanded)}
       >
-        {expanded ? '▾' : '▸'}
+        <Icon name={expanded ? 'chevronDown' : 'caret'} size={14} />
         {$t('ops.inQueue', { count: queue.length })}
       </button>
       {#if expanded}
@@ -138,27 +139,33 @@
               >
               <button
                 type="button"
-                class="px-1 disabled:opacity-30"
+                class="btn-icon btn-icon-sm"
                 disabled={i === 0}
                 aria-label={$t('ops.moveUp')}
                 use:tooltip={$t('ops.moveUp')}
-                onclick={() => moveQueued(op.id, 'up')}>↑</button
+                onclick={() => moveQueued(op.id, 'up')}
               >
+                <Icon name="chevronUp" size={14} />
+              </button>
               <button
                 type="button"
-                class="px-1 disabled:opacity-30"
+                class="btn-icon btn-icon-sm"
                 disabled={i === queue.length - 1}
                 aria-label={$t('ops.moveDown')}
                 use:tooltip={$t('ops.moveDown')}
-                onclick={() => moveQueued(op.id, 'down')}>↓</button
+                onclick={() => moveQueued(op.id, 'down')}
               >
+                <Icon name="chevronDown" size={14} />
+              </button>
               <button
                 type="button"
-                class="px-1 text-danger"
+                class="btn-icon btn-icon-sm btn-icon-danger"
                 aria-label={$t('ops.cancel')}
                 use:tooltip={$t('ops.cancel')}
-                onclick={() => cancelQueued(op.id)}>×</button
+                onclick={() => cancelQueued(op.id)}
               >
+                <Icon name="close" size={14} />
+              </button>
             </li>
           {/each}
         </ul>

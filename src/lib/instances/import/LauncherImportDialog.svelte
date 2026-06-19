@@ -414,7 +414,7 @@
           >
           <button
             type="button"
-            class="text-xs text-accent hover:underline"
+            class="btn-tertiary text-xs"
             onclick={toggleAll}
             data-testid="toggle-all-btn"
           >

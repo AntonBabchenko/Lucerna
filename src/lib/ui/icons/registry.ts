@@ -1,7 +1,9 @@
 import {
   Aperture,
+  Archive,
   ArrowLeft,
   ArrowRight,
+  ArrowRightLeft,
   ArrowUp,
   ArrowUpRight,
   Blocks,
@@ -24,6 +26,7 @@ import {
   Info,
   LayoutGrid,
   List,
+  Lock,
   Minus,
   Package,
   Play,
@@ -31,6 +34,7 @@ import {
   Power,
   Puzzle,
   RefreshCw,
+  RotateCcw,
   ScrollText,
   Server,
   Settings,
@@ -102,6 +106,10 @@ export const ICONS = {
   resourcePack: Image, // resource-pack kind
   shader: Aperture, // shader kind
   server: Server, // own-server entry point (sidebar + server list rows)
+  switch: ArrowRightLeft, // version row: "switch to this installed version"
+  lock: Lock, // restricted / distribution-blocked version (download disabled)
+  archive: Archive, // create a backup ("Back up now")
+  restore: RotateCcw, // restore a backup
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

@@ -155,7 +155,7 @@ describe('MissingModsRepairCard', () => {
     const installBtn = screen.getByTestId('missing-install-p1');
     expect(installBtn).toBeTruthy();
     expect((installBtn as HTMLButtonElement).disabled).toBe(false);
-    expect(installBtn.textContent).toContain('Install');
+    expect(installBtn.getAttribute('aria-label')).toBe('Install');
 
     // The unresolved mod keeps its find-it-yourself affordance (plain id row).
     expect(screen.getByTestId('missing-unresolved-ghostmod')).toBeTruthy();

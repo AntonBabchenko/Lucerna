@@ -112,7 +112,7 @@
       {#if status?.kind === 'update_available'}
         <button
           type="button"
-          class="btn-primary btn-sm"
+          class="btn-warning btn-sm"
           data-testid="modpack-update-apply"
           onclick={onUpdateClick}
         >

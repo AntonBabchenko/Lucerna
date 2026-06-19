@@ -19,6 +19,7 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import ToggleChip from '$lib/ui/ToggleChip.svelte';
   import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
   import type { ContextMenuItem } from '$lib/ui/cards/ContextMenu.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -501,22 +502,20 @@
     },
   ]);
 
-  // Tailwind tone per severity for the level filter chips.
-  function levelChipTone(lv: Severity): string {
+  // Map a parsed severity to the shared ToggleChip tone palette. error/fatal →
+  // danger; warn → warning; debug/trace → muted; everything else → neutral.
+  function levelChipTone(lv: Severity): 'danger' | 'warning' | 'muted' | 'neutral' {
     switch (lv) {
       case 'error':
       case 'fatal':
-        return 'border-danger text-danger';
+        return 'danger';
       case 'warn':
-        // /60 keeps this off the bare `.border-warning-text` selector that the
-        // warn log-line tests use (chips render before the body, so a full-tone
-        // class here would be matched first).
-        return 'border-warning-text/60 text-warning-text';
+        return 'warning';
       case 'debug':
       case 'trace':
-        return 'border-border-subtle text-muted';
+        return 'muted';
       default:
-        return 'border-border-emphasis text-secondary';
+        return 'neutral';
     }
   }
 
@@ -771,18 +770,14 @@
             aria-label={$t('logs.toolbar.showLevels')}
           >
             <span class="text-muted mr-1">{$t('logs.toolbar.showLevels')}</span>
-            {#each activeLevels as lv}
-              <button
-                type="button"
-                class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-opacity ${levelChipTone(
-                  lv,
-                )} ${hiddenLevels.has(lv) ? 'opacity-40' : ''}`}
-                aria-pressed={!hiddenLevels.has(lv)}
-                onclick={() => toggleLevel(lv)}
-              >
-                {levelLabel(lv)}
-                <span class="opacity-70">{severityCounts.get(lv) ?? 0}</span>
-              </button>
+            {#each activeLevels as lv (lv)}
+              <ToggleChip
+                active={!hiddenLevels.has(lv)}
+                tone={levelChipTone(lv)}
+                label={levelLabel(lv)}
+                count={severityCounts.get(lv) ?? 0}
+                onToggle={() => toggleLevel(lv)}
+              />
             {/each}
           </div>
         {/if}
@@ -924,7 +919,7 @@
                         </div>
                       </button>
                       <button
-                        class="mr-1 shrink-0 rounded p-1.5 text-muted opacity-0 transition-opacity hover:text-danger focus-visible:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
                         aria-label={$t('logs.manage.delete')}
                         use:tooltip={$t('logs.manage.delete')}
                         onclick={() => (confirmingDeletePath = f.path)}

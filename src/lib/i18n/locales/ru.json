@@ -6,7 +6,13 @@
     "loading": "Загрузка…",
     "dismissNotification": "Закрыть уведомление",
     "previousImage": "Предыдущее изображение",
-    "nextImage": "Следующее изображение"
+    "nextImage": "Следующее изображение",
+    "install": "Установить",
+    "installVersion": "Установить {version}",
+    "installCount": "Установить выбранное: {count}",
+    "switchToVersion": "Переключиться на эту версию",
+    "installed": "Установлено",
+    "restricted": "Ограничено — откройте страницу для загрузки"
   },
   "pagination": {
     "first": "Первая",
@@ -280,7 +286,6 @@
       "searching": "Поиск на Modrinth…",
       "empty": "Подходящий мод на Modrinth не найден. Уточните запрос или откройте оригинал на CurseForge ниже — возможно, он есть только на CurseForge.",
       "likelyMatch": "вероятное совпадение",
-      "install": "Установить",
       "installed": "Установлен {name}",
       "noVersion": "У мода {mod} нет версии на Modrinth для Minecraft и загрузчика этого профиля.",
       "openCurseForge": "Открыть на CurseForge",
@@ -296,7 +301,6 @@
       "disable": "Отключить",
       "enable": "Включить",
       "uninstall": "Удалить",
-      "install": "Установить",
       "update": "Обновить",
       "selectAriaLabel": "Выбрать мод {name}",
       "fromModpackTitle": "Из сборки: {name}",
@@ -324,10 +328,8 @@
       "btnInstalled": "Установлен",
       "btnRestricted": "Ограничено",
       "btnSwitch": "Заменить",
-      "btnInstall": "Установить",
       "footerInstalled": "Установлен {version}",
       "footerRestricted": "Ограничено — откройте на платформе",
-      "footerInstall": "Установить {version}",
       "selectInstanceHint": "Выберите профиль с Fabric / Quilt / Forge / NeoForge для установки модов.",
       "noCompatVersion": "Нет совместимой версии для {mc} / {loader}.",
       "noCompatVersionAsset": "Нет версии, совместимой с {mc}."
@@ -375,6 +377,12 @@
       "filterUpdates": "Обновления ({count})",
       "filterIssues": "Проблемы ({count})",
       "filterIncompatible": "Несовместимые ({count})",
+      "filterAllLabel": "Все",
+      "filterEnabledLabel": "Включённые",
+      "filterDisabledLabel": "Отключённые",
+      "filterUpdatesLabel": "Обновления",
+      "filterIssuesLabel": "Проблемы",
+      "filterIncompatibleLabel": "Несовместимые",
       "badgeMissing": "{count} отсутствует",
       "badgeIncompatible": "Несовместим",
       "checkCompat": "Проверить совместимость",
@@ -524,7 +532,6 @@
         "installModAriaLabel": "Установить {name}",
         "cannotAutoInstall": "Нельзя установить автоматически ({count})",
         "openLink": "Открыть",
-        "installBtn": "Установить {count} выбранных",
         "groupMods": "Моды",
         "groupResourcepacks": "Ресурспаки",
         "groupShaderpacks": "Шейдеры",
@@ -679,9 +686,7 @@
       "contentDisclaimer": "Содержимое с {source} — реклама и ссылки в нём принадлежат автору, а не Lucerna.",
       "loadingVersions": "Загрузка версий…",
       "noVersionsForMc": "Нет версий для MC {mc}. Снимите фильтр MC в поиске, чтобы увидеть все.",
-      "noVersions": "Нет доступных версий.",
-      "install": "Установить",
-      "installVersion": "Установить {version}"
+      "noVersions": "Нет доступных версий."
     },
     "update": {
       "dialogAriaLabel": "Подтверждение обновления сборки",
@@ -704,13 +709,11 @@
       "noInstance": "Выберите профиль, чтобы увидеть его миры.",
       "loading": "Загрузка миров…",
       "empty": "Миров пока нет. Запустите Minecraft, чтобы создать один.",
-      "worldActionsAriaLabel": "Действия для {name}",
       "backupCountAriaLabel": "{count, plural, one {# резервная копия} few {# резервные копии} many {# резервных копий} other {# резервные копии}}",
       "openSavesFolder": "Открыть папку сохранений",
-      "closeMenuAriaLabel": "Закрыть меню",
+      "openBackupsAriaLabel": "Резервные копии мира {name}",
       "backupNow": "Создать резервную копию",
-      "viewBackups": "Резервные копии…",
-      "deleteWorld": "Удалить мир…",
+      "deleteWorld": "Удалить мир",
       "toastBackedUp": "Создана резервная копия {name} ({size})"
     },
     "import": {
@@ -721,12 +724,11 @@
     "backups": {
       "title": "Резервные копии «{world}»",
       "loading": "Загрузка резервных копий…",
-      "empty": "Резервных копий пока нет. Нажмите «Создать резервную копию» для нужного мира.",
-      "backupActionsAriaLabel": "Действия для резервной копии {filename}",
+      "empty": "Резервных копий пока нет. Нажмите «Создать резервную копию», чтобы создать.",
+      "backupNow": "Создать резервную копию",
       "total": "Итого: {size}",
       "openBackupsFolder": "Открыть папку резервных копий",
-      "closeMenuAriaLabel": "Закрыть меню",
-      "restore": "Восстановить…",
+      "restore": "Восстановить",
       "deleteBackup": "Удалить резервную копию",
       "confirmDelete": "Удалить резервную копию {timestamp}?"
     },
@@ -862,7 +864,6 @@
         "unresolvedHeading": "Не удалось опознать — найдите сами",
         "serverWants": "сервер просит {version}",
         "findInBrowser": "Найти в Дополнениях",
-        "install": "Установить",
         "installedLabel": "Установлено",
         "none": "Проблему нашли, но автоматически опознать моды не удалось. Используйте имена выше, чтобы найти их в браузере дополнений.",
         "installedToast": "Установлен {name}",
@@ -1204,7 +1205,9 @@
         "themeLight": "Светлая",
         "themeDark": "Тёмная",
         "rainbowIcons": "Радужная анимация иконок",
-        "rainbowIconsDescription": "Иконка «Браузер сборок» переливается радугой при наведении. Учитывает системную настройку «уменьшить движение»."
+        "rainbowIconsDescription": "Иконка «Браузер сборок» переливается радугой при наведении. Учитывает системную настройку «уменьшить движение».",
+        "iconZoom": "Увеличение иконок при наведении",
+        "iconZoomDescription": "Иконки немного увеличиваются при наведении."
       },
       "playing": {
         "title": "Игра",

@@ -52,6 +52,10 @@ describe('icon registry', () => {
       'arrowUpRight',
       'power',
       'user',
+      'switch',
+      'lock',
+      'archive',
+      'restore',
     ];
     for (const n of expected) expect(ICON_NAMES).toContain(n);
   });
