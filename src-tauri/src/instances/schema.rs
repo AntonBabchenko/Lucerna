@@ -114,6 +114,11 @@ pub struct InstanceFile {
     /// Additive — old instance.json without it deserialises to None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_from: Option<ImportProvenance>,
+    /// Server id this instance was created from ("client for my server"
+    /// flow). `None` for every other instance. Additive — old instance.json
+    /// without it deserialises to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_from_server: Option<String>,
     /// Signature (see `logs::files::log_signature`) of the latest diagnosable
     /// log at the moment the user last applied a repair. While the latest log
     /// still matches this, an otherwise-unverifiable diagnosis is shown as
@@ -320,6 +325,7 @@ pub struct InstanceWithStatus {
     pub mrpack_version_id: Option<String>,
     pub integrity: Option<crate::verify::IntegrityStatus>,
     pub imported_from: Option<ImportProvenance>,
+    pub created_from_server: Option<String>,
 }
 
 impl InstanceWithStatus {
@@ -342,6 +348,7 @@ impl InstanceWithStatus {
             mrpack_version_id: file.mrpack_version_id.clone(),
             integrity: file.integrity.clone(),
             imported_from: file.imported_from.clone(),
+            created_from_server: file.created_from_server.clone(),
         }
     }
 }
@@ -397,6 +404,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from: None,
+            created_from_server: None,
             handled_log_sig: None,
         }
     }
@@ -886,5 +894,44 @@ mod tests {
         }"#;
         let inst: InstanceFile = serde_json::from_str(json).unwrap();
         assert_eq!(inst.imported_from, None);
+    }
+
+    #[test]
+    fn instance_file_roundtrips_with_created_from_server() {
+        let mut s = sample();
+        s.created_from_server = Some("srv-abcd".into());
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(
+            json.contains(r#""created_from_server":"srv-abcd""#),
+            "got: {json}"
+        );
+        let back: InstanceFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, back);
+    }
+
+    #[test]
+    fn instance_file_serializes_skip_none_created_from_server() {
+        let s = sample();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("created_from_server"), "got: {json}");
+    }
+
+    #[test]
+    fn instance_file_deserializes_old_json_without_created_from_server() {
+        let json = r#"{
+            "version": 1, "id": "abc", "name": "Old", "mc_version": "1.20.1",
+            "loader": "vanilla", "loader_version": null, "max_heap_mb": 2048,
+            "extra_jvm_args": "", "created_unix_ms": 1700000000000.0
+        }"#;
+        let inst: InstanceFile = serde_json::from_str(json).unwrap();
+        assert_eq!(inst.created_from_server, None);
+    }
+
+    #[test]
+    fn instance_with_status_carries_created_from_server() {
+        let mut s = sample();
+        s.created_from_server = Some("srv-xyz".into());
+        let w = InstanceWithStatus::from_file(&s, true);
+        assert_eq!(w.created_from_server.as_deref(), Some("srv-xyz"));
     }
 }

@@ -156,6 +156,7 @@ pub fn create_instance(
         mrpack_version_id,
         integrity: None,
         imported_from,
+        created_from_server: None,
         handled_log_sig: None,
     };
     let json_path = paths::instance_json(app, &id).map_err(|e| Error::io("<instance_json>", e))?;
@@ -418,6 +419,7 @@ mod tests {
             mrpack_version_id: Some("vyRB9jtS".into()),
             integrity: None,
             imported_from: None,
+            created_from_server: None,
             handled_log_sig: None,
         }
     }
@@ -440,6 +442,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from: None,
+            created_from_server: None,
             handled_log_sig: None,
         }
     }

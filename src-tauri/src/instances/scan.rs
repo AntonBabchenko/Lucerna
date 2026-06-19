@@ -77,6 +77,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from: None,
+            created_from_server: None,
             handled_log_sig: None,
         }
     }

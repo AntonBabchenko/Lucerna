@@ -165,6 +165,7 @@ mod tests {
             mrpack_version_id: None,
             integrity: None,
             imported_from,
+            created_from_server: None,
             handled_log_sig: None,
         }
     }
