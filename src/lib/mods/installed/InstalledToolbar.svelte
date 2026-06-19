@@ -3,6 +3,7 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import ToggleChipGroup from '$lib/ui/ToggleChipGroup.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import type { SortBy, ViewFilter } from './installed-filters.svelte';
@@ -60,73 +61,70 @@
   ]);
 
   // One mutually-exclusive filter group. All / Enabled / Disabled are always
-  // present; Updates / Issues appear only when there is something to show. Each
-  // option carries its own active-state colour so the chips read as distinct
-  // kinds (state vs status) while behaving as a single pick-one set.
+  // present; Updates / Issues / Incompatible appear only when there is something
+  // to show. Each option carries its own tone so the chips read as distinct
+  // kinds (state vs status) while behaving as a single pick-one set. The count
+  // rides the chip's count badge; the label stays the plain word so the
+  // accessible name matches the simple /All/ etc. patterns the tests use.
   const filterOptions = $derived([
     {
-      value: 'all' as const,
-      label: $t('mods.installed.filterAll', { count: counts.total }),
-      activeClass: 'bg-accent-soft text-accent font-medium',
+      value: 'all',
+      label: $t('mods.installed.filterAllLabel'),
+      tone: 'neutral' as const,
+      count: counts.total,
+      testId: 'installed-filter-all',
     },
     {
-      value: 'enabled' as const,
-      label: $t('mods.installed.filterEnabled', { count: counts.enabled }),
-      activeClass: 'bg-success-bg text-success font-medium',
+      value: 'enabled',
+      label: $t('mods.installed.filterEnabledLabel'),
+      tone: 'success' as const,
+      count: counts.enabled,
+      testId: 'installed-filter-enabled',
     },
     {
-      value: 'disabled' as const,
-      label: $t('mods.installed.filterDisabled', { count: counts.disabled }),
-      activeClass: 'bg-subtle text-secondary font-medium',
+      value: 'disabled',
+      label: $t('mods.installed.filterDisabledLabel'),
+      tone: 'muted' as const,
+      count: counts.disabled,
+      testId: 'installed-filter-disabled',
     },
     ...(counts.updates > 0
       ? [
           {
-            value: 'updates' as const,
-            label: $t('mods.installed.filterUpdates', { count: counts.updates }),
-            activeClass: 'bg-warning-bg text-warning-text font-medium',
+            value: 'updates',
+            label: $t('mods.installed.filterUpdatesLabel'),
+            tone: 'warning' as const,
+            icon: 'arrowUp' as const,
+            count: counts.updates,
+            testId: 'installed-filter-updates',
           },
         ]
       : []),
     ...(counts.issues > 0
       ? [
           {
-            value: 'issues' as const,
-            label: $t('mods.installed.filterIssues', { count: counts.issues }),
-            activeClass: 'bg-danger-bg text-danger font-medium',
+            value: 'issues',
+            label: $t('mods.installed.filterIssuesLabel'),
+            tone: 'danger' as const,
+            icon: 'warning' as const,
+            count: counts.issues,
+            testId: 'installed-filter-issues',
           },
         ]
       : []),
     ...(counts.incompatible > 0
       ? [
           {
-            value: 'incompatible' as const,
-            label: $t('mods.installed.filterIncompatible', { count: counts.incompatible }),
-            activeClass: 'bg-warning-bg text-warning-text font-medium',
+            value: 'incompatible',
+            label: $t('mods.installed.filterIncompatibleLabel'),
+            tone: 'danger' as const,
+            icon: 'warning' as const,
+            count: counts.incompatible,
+            testId: 'installed-filter-incompatible',
           },
         ]
       : []),
   ]);
-
-  // WCAG radiogroup keyboard pattern. Arrow / Home / End moves selection within
-  // the group; the newly-checked radio gets focus. Roving tabindex (0 on
-  // checked, -1 elsewhere) keeps the whole group as one tab stop.
-  function handleFilterKey(e: KeyboardEvent) {
-    const values = filterOptions.map((o) => o.value);
-    const i = values.indexOf(viewFilter as (typeof values)[number]);
-    const len = values.length;
-    let next: ViewFilter | null = null;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = values[(i + 1) % len];
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = values[(i - 1 + len) % len];
-    else if (e.key === 'Home') next = values[0];
-    else if (e.key === 'End') next = values[len - 1];
-    if (next !== null) {
-      e.preventDefault();
-      viewFilter = next;
-      const target = e.currentTarget as HTMLElement | null;
-      target?.querySelector<HTMLButtonElement>(`button[data-value="${next}"]`)?.focus();
-    }
-  }
 </script>
 
 <div class="mb-2 space-y-2">
@@ -205,31 +203,11 @@
     {/if}
   </div>
   {#if counts.total > 0}
-    <div
-      role="radiogroup"
-      aria-label={$t('mods.installed.filterGroupAriaLabel')}
-      tabindex={-1}
-      class="flex flex-wrap gap-1 text-xs"
-      onkeydown={handleFilterKey}
-    >
-      {#each filterOptions as opt (opt.value)}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={viewFilter === opt.value}
-          tabindex={viewFilter === opt.value ? 0 : -1}
-          data-value={opt.value}
-          class={`btn-secondary btn-xs inline-flex items-center gap-1 ${viewFilter === opt.value ? opt.activeClass : ''}`}
-          onclick={() => (viewFilter = opt.value)}
-        >
-          {#if opt.value === 'updates'}
-            <Icon name="arrowUp" size={12} />
-          {:else if opt.value === 'issues' || opt.value === 'incompatible'}
-            <Icon name="warning" size={12} />
-          {/if}
-          {opt.label}
-        </button>
-      {/each}
-    </div>
+    <ToggleChipGroup
+      options={filterOptions}
+      value={viewFilter}
+      onChange={(v) => (viewFilter = v as ViewFilter)}
+      ariaLabel={$t('mods.installed.filterGroupAriaLabel')}
+    />
   {/if}
 </div>

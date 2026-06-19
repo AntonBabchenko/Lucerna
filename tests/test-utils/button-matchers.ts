@@ -9,7 +9,8 @@ type Variant =
   | 'warning'
   | 'ghost'
   | 'ghost-danger'
-  | 'icon';
+  | 'icon'
+  | 'link';
 type Size = 'xs' | 'sm' | 'lg';
 
 function classList(el: unknown): string[] {

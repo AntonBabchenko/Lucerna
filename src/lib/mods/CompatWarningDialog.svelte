@@ -54,6 +54,7 @@
       {$t('instance.compat.skipBtn')}
     </button>
     <BusyButton {busy} class="btn-warning btn-sm" onclick={onConfirm}>
+      <Icon name="download" size={14} />
       {$t('instance.compat.installAnywayBtn')}
     </BusyButton>
   </footer>

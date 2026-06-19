@@ -108,4 +108,23 @@ describe('OperationsView', () => {
     await fireEvent.click(upButtons[1]);
     expect(mockMoveQueued).toHaveBeenCalledWith('q2', 'up');
   });
+
+  // ── Case 5: expand toggle renders an SVG icon, not a literal glyph ────────
+  it('renders the queue expand toggle as an icon rather than a text glyph', () => {
+    const queue: QueuedOp[] = [{ id: 'q1', kind: 'verify', instanceId: 'i1', name: 'First' }];
+    mockOpQueue.mockReturnValue(queue);
+
+    const { container } = render(OperationsView);
+
+    // The toggle exposes its expanded state via aria-expanded.
+    const toggle = container.querySelector('[aria-expanded]');
+    expect(toggle).not.toBeNull();
+    // It carries a Lucide SVG, and none of the old literal glyphs survive.
+    expect(toggle?.querySelector('svg')).not.toBeNull();
+    expect(container.textContent).not.toContain('▾');
+    expect(container.textContent).not.toContain('▸');
+    expect(container.textContent).not.toContain('↑');
+    expect(container.textContent).not.toContain('↓');
+    expect(container.textContent).not.toContain('×');
+  });
 });

@@ -7,6 +7,8 @@
   import Modal from '$lib/ui/Modal.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import { get } from 'svelte/store';
 
   let {
@@ -24,43 +26,8 @@
   let backups = $state<Backup[]>([]);
   let error = $state<string | null>(null);
   let loading = $state(false);
-  let openMenuFor = $state<string | null>(null);
-  let menuTop = $state(0);
-  let menuLeft = $state(0);
+  let backingUp = $state(false);
   let restoreFor = $state<Backup | null>(null);
-
-  // The backups list is a max-h-80 overflow-auto <ul> so the kebab's
-  // absolute-positioned popover would be clipped inside that scrollable
-  // box. Same fix as the sidebar (?)-tooltip in
-  // InstanceConceptTooltip.svelte: render position:fixed with coords
-  // measured from the trigger on open + close on scroll/resize.
-  const MENU_WIDTH = 160; // = Tailwind w-40
-  const GAP = 4;
-  const MARGIN = 8;
-
-  function toggleMenu(filename: string, e: MouseEvent) {
-    if (openMenuFor === filename) {
-      openMenuFor = null;
-      return;
-    }
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    menuTop = r.bottom + GAP;
-    const wantLeft = r.right - MENU_WIDTH; // right-align with trigger
-    const maxLeft = window.innerWidth - MENU_WIDTH - MARGIN;
-    menuLeft = Math.min(Math.max(wantLeft, MARGIN), Math.max(MARGIN, maxLeft));
-    openMenuFor = filename;
-  }
-
-  $effect(() => {
-    if (openMenuFor == null) return;
-    const close = () => (openMenuFor = null);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  });
 
   async function reload() {
     loading = true;
@@ -74,10 +41,22 @@
   $effect(() => void reload());
 
   async function onDelete(b: Backup) {
-    openMenuFor = null;
     if (!confirm(get(t)('worlds.backups.confirmDelete', { timestamp: formatBackupTimestamp(b) })))
       return;
     const r = await commands.deleteBackup(instanceId, world.folder_name, b.filename);
+    if (r.status === 'ok') {
+      onChanged();
+      await reload();
+    } else {
+      error = formatError(r.error);
+    }
+  }
+
+  async function onBackupNow() {
+    backingUp = true;
+    error = null;
+    const r = await commands.backupWorld(instanceId, world.folder_name);
+    backingUp = false;
     if (r.status === 'ok') {
       onChanged();
       await reload();
@@ -107,9 +86,21 @@
 </script>
 
 <Modal ariaLabelledby="backups-dialog-title" {onClose} panelClass="max-w-lg w-full p-4">
-  <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary mb-3">
-    {$t('worlds.backups.title', { world: world.folder_name })}
-  </h3>
+  <div class="flex items-center justify-between gap-2 mb-3">
+    <h3 id="backups-dialog-title" class="font-semibold text-lg text-primary">
+      {$t('worlds.backups.title', { world: world.folder_name })}
+    </h3>
+    <BusyButton
+      type="button"
+      class="btn-secondary btn-sm inline-flex items-center gap-1 flex-shrink-0"
+      data-testid="backups-create-btn"
+      busy={backingUp}
+      onclick={() => void onBackupNow()}
+    >
+      <Icon name="archive" size={14} />
+      {$t('worlds.backups.backupNow')}
+    </BusyButton>
+  </div>
   {#if loading}
     <LoadingPanel label={$t('worlds.backups.loading')} />
   {:else if error}
@@ -123,22 +114,33 @@
       class="border border-border-subtle rounded divide-y divide-border-subtle mb-3 max-h-80 overflow-auto"
     >
       {#each backups as b (b.filename)}
-        <li>
-          <button
-            type="button"
-            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-subtle"
-            aria-label={$t('worlds.backups.backupActionsAriaLabel', { filename: b.filename })}
-            aria-expanded={openMenuFor === b.filename}
-            onclick={(e) => toggleMenu(b.filename, e)}
-          >
-            <div class="min-w-0">
-              <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
-              <div class="text-xs text-muted">{formatSize($t, b.size_bytes)}</div>
-            </div>
-            <span class="text-placeholder flex-shrink-0" aria-hidden="true"
-              ><Icon name="moreVertical" size={16} /></span
+        <li class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle">
+          <div class="min-w-0">
+            <div class="text-sm font-medium">{formatBackupTimestamp(b)}</div>
+            <div class="text-xs text-muted">{formatSize($t, b.size_bytes)}</div>
+          </div>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              data-testid="backup-restore-btn"
+              aria-label={$t('worlds.backups.restore')}
+              use:tooltip={$t('worlds.backups.restore')}
+              onclick={() => (restoreFor = b)}
             >
-          </button>
+              <Icon name="restore" size={15} />
+            </button>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm btn-icon-danger"
+              data-testid="backup-delete-btn"
+              aria-label={$t('worlds.backups.deleteBackup')}
+              use:tooltip={$t('worlds.backups.deleteBackup')}
+              onclick={() => void onDelete(b)}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+          </div>
         </li>
       {/each}
     </ul>
@@ -160,44 +162,6 @@
     >
   </div>
 </Modal>
-
-{#if openMenuFor}
-  {@const activeBackup = backups.find((b) => b.filename === openMenuFor)}
-  {#if activeBackup}
-    <!-- Click-outside backdrop. z-[60] sits above the dialog (z-50). -->
-    <button
-      type="button"
-      class="fixed inset-0 z-[60]"
-      aria-label={$t('worlds.backups.closeMenuAriaLabel')}
-      onclick={() => (openMenuFor = null)}
-    ></button>
-    <div
-      class="fixed z-[70] w-40 bg-surface border border-border-subtle rounded shadow"
-      style="top: {menuTop}px; left: {menuLeft}px;"
-      role="menu"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
-        onclick={() => {
-          restoreFor = activeBackup;
-          openMenuFor = null;
-        }}
-      >
-        {$t('worlds.backups.restore')}
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle text-danger"
-        onclick={() => void onDelete(activeBackup)}
-      >
-        {$t('worlds.backups.deleteBackup')}
-      </button>
-    </div>
-  {/if}
-{/if}
 
 {#if restoreFor}
   <RestoreBackupDialog

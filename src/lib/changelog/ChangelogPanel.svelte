@@ -5,6 +5,7 @@
   import type { TranslationKey } from '$lib/i18n/keys.generated';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { Icon } from '$lib/ui/icons';
   import { parseInline } from './inline';
   import type { Changelog, SectionKind } from './types';
 
@@ -56,12 +57,13 @@
             {@const href = ver.url}
             <button
               type="button"
-              class="btn-tertiary font-medium text-primary"
+              class="btn-link font-medium inline-flex items-center gap-1"
               use:tooltip={href}
               aria-label={$t('settings.changelog.openReleaseLabel', { version: ver.version })}
               onclick={() => openUrl(href)}
             >
               v{ver.version}
+              <Icon name="externalLink" size={12} />
             </button>
           {:else}
             <span class="font-medium text-primary">v{ver.version}</span>

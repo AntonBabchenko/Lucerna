@@ -1,33 +1,18 @@
 <script lang="ts">
   import { browserPrefs } from './browser-prefs.svelte';
   import { t } from '$lib/i18n';
-  import { Icon } from '$lib/ui/icons';
-  import { tooltip } from '$lib/ui/tooltip';
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
+
+  const options = $derived([
+    { value: 'grid', label: $t('mods.layout.grid'), icon: 'grid' as const, testId: 'layout-grid' },
+    { value: 'list', label: $t('mods.layout.list'), icon: 'list' as const, testId: 'layout-list' },
+  ]);
 </script>
 
-<div
-  class="inline-flex border border-border-subtle rounded overflow-hidden"
-  role="group"
-  aria-label={$t('mods.layout.groupAriaLabel')}
->
-  <button
-    type="button"
-    class="btn-secondary btn-sm rounded-none"
-    class:btn-primary={browserPrefs.layout === 'grid'}
-    aria-pressed={browserPrefs.layout === 'grid'}
-    aria-label={$t('mods.layout.grid')}
-    use:tooltip={$t('mods.layout.grid')}
-    data-testid="layout-grid"
-    onclick={() => (browserPrefs.layout = 'grid')}><Icon name="grid" /></button
-  >
-  <button
-    type="button"
-    class="btn-secondary btn-sm rounded-none"
-    class:btn-primary={browserPrefs.layout === 'list'}
-    aria-pressed={browserPrefs.layout === 'list'}
-    aria-label={$t('mods.layout.list')}
-    use:tooltip={$t('mods.layout.list')}
-    data-testid="layout-list"
-    onclick={() => (browserPrefs.layout = 'list')}><Icon name="list" /></button
-  >
-</div>
+<SegmentedControl
+  {options}
+  value={browserPrefs.layout}
+  onChange={(v) => (browserPrefs.layout = v as 'grid' | 'list')}
+  variant="boxed"
+  ariaLabel={$t('mods.layout.groupAriaLabel')}
+/>

@@ -16,6 +16,7 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { t } from '$lib/i18n';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Centered detail modal for a modpack. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list + the
@@ -132,7 +133,7 @@
       {#if sourceUrl}
         <button
           type="button"
-          class="btn-tertiary text-xs mt-0.5 inline-flex items-center gap-1"
+          class="btn-link text-xs mt-0.5 inline-flex items-center gap-1"
           onclick={() => openExternal(sourceUrl)}
         >
           {$t('modpacks.detail.viewOn', { platform: platformName })}
@@ -213,13 +214,16 @@
                     MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
                   </div>
                 </div>
-                <BusyButton
-                  class="btn-primary btn-xs ml-2"
-                  busy={downloading}
-                  onclick={() => install(v.id)}
-                >
-                  {$t('modpacks.detail.install')}
-                </BusyButton>
+                <span class="inline-flex ml-2" use:tooltip={$t('common.install')}>
+                  <BusyButton
+                    class="btn-icon btn-icon-sm !text-accent"
+                    busy={downloading}
+                    aria-label={$t('common.install')}
+                    onclick={() => install(v.id)}
+                  >
+                    <Icon name="download" size={15} />
+                  </BusyButton>
+                </span>
               </div>
             </li>
           {/each}
@@ -238,7 +242,8 @@
             busy={downloading}
             onclick={() => install(recommended.id)}
           >
-            {$t('modpacks.detail.installVersion', { version: recommended.version_number })}
+            <Icon name="download" size={14} />
+            {$t('common.installVersion', { version: recommended.version_number })}
           </BusyButton>
         {:else}
           <div class="text-xs text-placeholder text-center">

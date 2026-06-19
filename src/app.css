@@ -355,11 +355,44 @@ body[data-tour-active] .tour-overlay {
 .btn-lg {
   @apply px-4 py-2 text-base font-semibold;
 }
-/* Icon-only square buttons. Same height as .btn-sm for visual line-up. */
+/* Icon-only square buttons. Same height as .btn-sm for visual line-up.
+   Hover feedback is colour + zoom (see .fx-icon-zoom), NOT a background plate. */
 .btn-icon {
-  @apply inline-flex items-center justify-center rounded text-secondary hover:bg-subtle disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+  @apply inline-flex items-center justify-center rounded text-secondary disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
   width: 2rem;
   height: 2rem;
+}
+/* Neutral icon buttons darken to primary on hover; the tonal variants below
+   own their own hover colour, so exclude them from this rule. */
+.btn-icon:not(.btn-icon-danger):not(.btn-icon-warning):not(.btn-icon-success):hover {
+  color: rgb(var(--text-primary));
+}
+/* Text-only accent link. Reads as a hyperlink (underline on hover), distinct
+   from .btn-tertiary (neutral text). For inline "open the page" links — pair
+   with a trailing <Icon name="externalLink" />. */
+.btn-link {
+  @apply text-accent hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2;
+}
+/* Compact icon button — pair with .btn-icon. 1.75rem square for dense rows
+   (card actions, version rows, dep-tree nodes). */
+.btn-icon-sm {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+/* Destructive icon button — neutral at rest, danger colour on hover/focus (no
+   background plate). Always rendered (no opacity reveal); the colour appears
+   only when you point at it. */
+.btn-icon-danger:hover,
+.btn-icon-danger:focus-visible {
+  color: rgb(var(--danger));
+}
+/* Static-colour icon buttons — no hover model; the colour itself is the state
+   (update available = warning, enabled = success). */
+.btn-icon-warning {
+  color: rgb(var(--warning-text));
+}
+.btn-icon-success {
+  color: rgb(var(--success));
 }
 
 /*
@@ -412,6 +445,14 @@ button:hover > .icon-spin-hover,
 button:active > .icon-spin-hover {
   transform: rotate(180deg);
 }
+/* When the icon hover-zoom preference is on, a spinning icon that also sits in
+   an icon-only button gets both transforms in one declaration (a single
+   `transform` can't be split across rules — the later wins — so combine). */
+.fx-icon-zoom .btn-icon:hover > .icon-spin-hover,
+.fx-icon-zoom .btn-icon:focus-visible > .icon-spin-hover,
+.fx-icon-zoom .btn-icon:active > .icon-spin-hover {
+  transform: rotate(180deg) scale(1.2);
+}
 
 /* Continuous rainbow cycle on a button's icon while hovered or keyboard-
    focused. Opt-in per icon via .icon-rainbow-hover; the Sidebar only applies
@@ -448,4 +489,25 @@ button:active > .icon-spin-hover {
 button:hover .icon-rainbow-hover,
 button:focus-visible .icon-rainbow-hover {
   animation: lucerna-icon-rainbow 2.5s linear infinite;
+}
+
+/* Gentle hover/focus zoom on icon-only buttons, gated by the .fx-icon-zoom
+   root class (set in +layout.svelte from the iconZoomFx preference, default
+   on). Scoped strictly to .btn-icon / .btn-icon-sm — labeled buttons are never
+   touched. The base transition is unconditional so toggling the preference off
+   merely stops applying the scale (no jump). The global prefers-reduced-motion
+   block zeroes the transition duration; the explicit override below also forces
+   transform:none so reduced-motion users get no scale at the end state. */
+.btn-icon > :where(svg) {
+  transition: transform 120ms ease-out;
+}
+.fx-icon-zoom .btn-icon:hover > :where(svg),
+.fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
+  transform: scale(1.2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-icon-zoom .btn-icon:hover > :where(svg),
+  .fx-icon-zoom .btn-icon:focus-visible > :where(svg) {
+    transform: none;
+  }
 }

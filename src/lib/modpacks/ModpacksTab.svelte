@@ -19,6 +19,7 @@
   import ModpackDetailModal from './ModpackDetailModal.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import SourcePicker from '$lib/mods/SourcePicker.svelte';
+  import TabBar from '$lib/ui/TabBar.svelte';
   import { modpackBrowseState } from './browse-state.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
@@ -242,36 +243,14 @@
     class="border-b flex items-center justify-between gap-1 px-3 bg-surface"
     data-tour-ctx="modpacks-tabs"
   >
-    <div role="tablist" class="flex items-center gap-1">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeSub === 'browse'}
-        class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-accent={activeSub === 'browse'}
-        class:text-primary={activeSub === 'browse'}
-        class:font-semibold={activeSub === 'browse'}
-        class:border-transparent={activeSub !== 'browse'}
-        class:text-placeholder={activeSub !== 'browse'}
-        onclick={() => (activeSub = 'browse')}
-      >
-        {$t('modpacks.tab.browse')}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeSub === 'imported'}
-        class="px-3 py-2 text-sm border-b-2 -mb-px"
-        class:border-accent={activeSub === 'imported'}
-        class:text-primary={activeSub === 'imported'}
-        class:font-semibold={activeSub === 'imported'}
-        class:border-transparent={activeSub !== 'imported'}
-        class:text-placeholder={activeSub !== 'imported'}
-        onclick={() => (activeSub = 'imported')}
-      >
-        {$t('modpacks.tab.imported')}
-      </button>
-    </div>
+    <TabBar
+      tabs={[
+        { id: 'browse', label: $t('modpacks.tab.browse') },
+        { id: 'imported', label: $t('modpacks.tab.imported') },
+      ]}
+      active={activeSub}
+      onChange={(id) => (activeSub = id as SubTab)}
+    />
     <SourcePicker
       value={modpackBrowseState.source}
       allowFtb={true}

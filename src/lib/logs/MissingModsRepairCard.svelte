@@ -19,6 +19,8 @@
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
+  import { Icon } from '$lib/ui/icons';
 
   // Server-side log diagnosis surfaced a set of mods the server requires that
   // the instance is missing. Each resolvable candidate gets a per-mod Install
@@ -191,25 +193,31 @@
   <p class="text-sm font-semibold">{$t('logs.repair.missingMods.title')}</p>
   <p class="mt-1 text-xs text-muted">{$t('logs.repair.missingMods.intro')}</p>
 
-  {#snippet installButton(cand: ResolvedCandidate, cls: string)}
+  {#snippet installButton(cand: ResolvedCandidate)}
     {@const pid = cand.target.project_id}
-    <button
-      type="button"
-      class="{cls} btn-xs ml-auto"
-      data-testid={`missing-install-${pid}`}
-      disabled={isCandidateBusy(pid) || installedProjectIds.has(pid)}
-      onclick={() => void installCandidate(cand)}
+    {@const installed = installedProjectIds.has(pid)}
+    {@const busy = isCandidateBusy(pid)}
+    <span
+      class="inline-flex ml-auto"
+      use:tooltip={installed ? $t('common.installed') : $t('common.install')}
     >
-      {#if installedProjectIds.has(pid)}
-        {$t('logs.repair.missingMods.installedLabel')}
-      {:else if isCandidateBusy(pid)}
-        <span class="inline-flex items-center gap-1.5"
-          ><Spinner size="sm" />{$t('logs.repair.working')}</span
-        >
-      {:else}
-        {$t('logs.repair.missingMods.install')}
-      {/if}
-    </button>
+      <button
+        type="button"
+        class={`btn-icon btn-icon-sm ${installed ? '!text-success' : '!text-accent'}`}
+        data-testid={`missing-install-${pid}`}
+        aria-label={installed ? $t('common.installed') : $t('common.install')}
+        disabled={busy || installed}
+        onclick={() => void installCandidate(cand)}
+      >
+        {#if installed}
+          <Icon name="success" size={15} />
+        {:else if busy}
+          <Spinner size="sm" />
+        {:else}
+          <Icon name="download" size={15} />
+        {/if}
+      </button>
+    </span>
   {/snippet}
 
   {#if exact.length > 0}
@@ -221,7 +229,7 @@
           <span>{cand.display.name}</span>
           <span class="text-xs text-muted">{cand.display.source} · {cand.version_label}</span>
           {#if label(rm)}<span class="text-xs text-muted">· {label(rm)}</span>{/if}
-          {@render installButton(cand, 'btn-primary')}
+          {@render installButton(cand)}
         </div>
       {/if}
     {/each}
@@ -237,7 +245,7 @@
             <div class="flex items-center gap-2 text-sm">
               <span>{c.display.name}</span>
               <span class="text-xs text-muted">{c.display.source} · {c.version_label}</span>
-              {@render installButton(c, 'btn-secondary')}
+              {@render installButton(c)}
             </div>
           {/each}
         </div>

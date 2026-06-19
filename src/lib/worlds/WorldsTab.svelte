@@ -31,48 +31,8 @@
   let worlds = $state<World[]>([]);
   let listError = $state<string | null>(null);
   let loading = $state(false);
-  let openMenuFor = $state<string | null>(null);
-  let menuTop = $state(0);
-  let menuLeft = $state(0);
   let backupsFor = $state<World | null>(null);
   let deleteFor = $state<World | null>(null);
-
-  // The MainTabs content area is overflow-y:auto which (per the CSS
-  // overflow spec) forces overflow-x:auto too, clipping any
-  // absolute-positioned popover that extends past the area's bottom or
-  // right. Same fix as the sidebar (?)-tooltip in
-  // InstanceConceptTooltip.svelte: render the kebab menu position:fixed
-  // with coords measured from the trigger on open, then close on
-  // scroll/resize so a fixed popover never drifts from a moved trigger.
-  const MENU_WIDTH = 192; // = Tailwind w-48
-  const GAP = 4;
-  const MARGIN = 8;
-
-  function toggleMenu(folderName: string, e: MouseEvent) {
-    if (openMenuFor === folderName) {
-      openMenuFor = null;
-      return;
-    }
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    menuTop = r.bottom + GAP;
-    const wantLeft = r.right - MENU_WIDTH; // right-align with trigger
-    const maxLeft = window.innerWidth - MENU_WIDTH - MARGIN;
-    menuLeft = Math.min(Math.max(wantLeft, MARGIN), Math.max(MARGIN, maxLeft));
-    openMenuFor = folderName;
-  }
-
-  $effect(() => {
-    if (openMenuFor == null) return;
-    const close = () => (openMenuFor = null);
-    // capture-phase so the MainTabs scroll container also fires (scroll
-    // events do not bubble).
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  });
 
   async function reload() {
     if (!instanceId) {
@@ -113,7 +73,6 @@
 
   async function onBackupNow(w: World) {
     if (!instanceId) return;
-    openMenuFor = null;
     const r = await commands.backupWorld(instanceId, w.folder_name);
     if (r.status === 'ok') {
       pushSuccess(
@@ -214,7 +173,23 @@
       data-tour-ctx="worlds-list"
     >
       {#each worlds as w (w.folder_name)}
-        <li class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle">
+        <!-- Deliberate: the whole row is the primary affordance (opens backups),
+             with keyboard activation below — see spec §9. -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+        <li
+          class="flex items-center justify-between gap-2 px-3 py-2 hover:bg-subtle cursor-pointer"
+          data-testid="world-row"
+          role="button"
+          tabindex="0"
+          aria-label={$t('worlds.tab.openBackupsAriaLabel', { name: w.folder_name })}
+          onclick={() => (backupsFor = w)}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              backupsFor = w;
+            }
+          }}
+        >
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <span
@@ -249,20 +224,43 @@
                 class="btn-success btn-sm px-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 disabled={quickPlayDisabledReason !== null}
                 aria-label={$t('worlds.quickPlay.playWorld')}
-                onclick={() => onQuickPlayWorld(w.folder_name)}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onQuickPlayWorld(w.folder_name);
+                }}
               >
                 <Icon name="play" size={16} />
               </button>
             </span>
             <button
               type="button"
-              class="rounded p-1 text-placeholder hover:bg-subtle"
-              aria-label={$t('worlds.tab.worldActionsAriaLabel', { name: w.folder_name })}
-              aria-expanded={openMenuFor === w.folder_name}
-              onclick={(e) => toggleMenu(w.folder_name, e)}
+              class="btn-icon btn-icon-sm"
+              data-testid="world-backup-btn"
+              aria-label={$t('worlds.tab.backupNow')}
+              use:tooltip={$t('worlds.tab.backupNow')}
+              onclick={(e) => {
+                e.stopPropagation();
+                void onBackupNow(w);
+              }}
             >
-              <Icon name="moreVertical" size={16} />
+              <Icon name="archive" size={15} />
             </button>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm btn-icon-danger"
+              data-testid="world-delete-btn"
+              aria-label={$t('worlds.tab.deleteWorld')}
+              use:tooltip={$t('worlds.tab.deleteWorld')}
+              onclick={(e) => {
+                e.stopPropagation();
+                deleteFor = w;
+              }}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+            <span class="text-placeholder flex-shrink-0" aria-hidden="true">
+              <Icon name="chevronRight" size={16} />
+            </span>
           </div>
         </li>
       {/each}
@@ -275,55 +273,6 @@
     <ContextualTour id="worlds" steps={WORLDS_STEPS} />
   {/if}
 </div>
-
-{#if openMenuFor}
-  {@const activeWorld = worlds.find((x) => x.folder_name === openMenuFor)}
-  {#if activeWorld}
-    <!-- Click-outside backdrop -->
-    <button
-      type="button"
-      class="fixed inset-0 z-40"
-      aria-label={$t('worlds.tab.closeMenuAriaLabel')}
-      onclick={() => (openMenuFor = null)}
-    ></button>
-    <div
-      class="fixed z-50 w-48 bg-surface border border-border-subtle rounded shadow"
-      style="top: {menuTop}px; left: {menuLeft}px;"
-      role="menu"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
-        onclick={() => void onBackupNow(activeWorld)}
-      >
-        {$t('worlds.tab.backupNow')}
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle"
-        onclick={() => {
-          backupsFor = activeWorld;
-          openMenuFor = null;
-        }}
-      >
-        {$t('worlds.tab.viewBackups')}
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        class="block w-full text-left px-3 py-2 text-sm hover:bg-subtle text-danger"
-        onclick={() => {
-          deleteFor = activeWorld;
-          openMenuFor = null;
-        }}
-      >
-        {$t('worlds.tab.deleteWorld')}
-      </button>
-    </div>
-  {/if}
-{/if}
 
 {#if backupsFor && instanceId}
   <BackupsDialog
