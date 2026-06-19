@@ -1183,7 +1183,12 @@
     "sftpConnectFailed": "Не удалось подключиться к хосту: {details}",
     "sftpAuthFailed": "Вход не удался — проверьте логин и пароль",
     "sftpHostKeyMismatch": "Ключ хоста изменился — заливка заблокирована для безопасности. Подтвердите повторно, только если доверяете.",
-    "sftpTransferFailed": "Заливка не удалась: {details}"
+    "sftpTransferFailed": "Заливка не удалась: {details}",
+    "serverImportUnsupportedSource": "Выберите .zip-файл или папку с сервером для импорта.",
+    "serverImportInvalidArchive": "Не удалось прочитать архив сервера: {details}",
+    "serverImportTooLarge": "Этот сервер слишком большой для импорта.",
+    "serverImportNotAServer": "Эта папка не похожа на сервер Minecraft (нет server jar, файлов загрузчика или server.properties).",
+    "serverImportStagingExpired": "Сессия импорта истекла — начните импорт заново."
   },
   "settings": {
     "title": "Настройки",

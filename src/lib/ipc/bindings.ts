@@ -1367,7 +1367,7 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  Сервер уже запущен. */
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
-{ kind: "server_not_running"; id: string } | 
+{ kind: "server_not_running"; id: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
