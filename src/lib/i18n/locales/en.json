@@ -70,7 +70,6 @@
     "addOffline": "Add offline",
     "removeAccountLabel": "Remove {name}",
     "playerNamePlaceholder": "Player name",
-    "addAccountConfirm": "Add",
     "instance": "Instance",
     "noInstances": "No instances yet.",
     "createInstance": "+ Create",
@@ -1358,7 +1357,11 @@
       "removeTitle": "Remove account?",
       "removeQuestion": "Remove {name}?",
       "removeDescription": "Lucerna will sign out of this account and forget it. Your instances, worlds, and game files are not affected. To use it again you'll need to add it back.",
-      "removeConfirm": "Remove"
+      "removeConfirm": "Remove",
+      "addOfflineTitle": "Add an offline account",
+      "addOfflineDescription": "Offline accounts let you play single-player and on a local network without a Microsoft sign-in. Enter the player name you'll use in-game.",
+      "addOfflineNameLabel": "Player name",
+      "addOfflineConfirm": "Add account"
     },
     "overview": {
       "sectionConfiguration": "Configuration",
@@ -1421,9 +1424,6 @@
         "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
         "installing": "Installing files for this instance…"
       }
-    },
-    "offlineName": {
-      "cannotBeEmpty": "Name cannot be empty"
     }
   },
   "quickJoin": {

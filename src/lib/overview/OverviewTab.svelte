@@ -17,7 +17,7 @@
   import { attentionCollapse } from './attention-collapse.svelte';
   import { classifyExit } from './exit-status';
 
-  type ErrorKey = 'offlineName' | 'listAccounts' | 'remove' | 'instances' | 'versions';
+  type ErrorKey = 'listAccounts' | 'remove' | 'instances' | 'versions';
 
   let {
     activeInstance,
@@ -106,13 +106,7 @@
     else onManage(); // pick_version + integrity
   }
 
-  const ERROR_ORDER: ErrorKey[] = [
-    'offlineName',
-    'listAccounts',
-    'remove',
-    'instances',
-    'versions',
-  ];
+  const ERROR_ORDER: ErrorKey[] = ['listAccounts', 'remove', 'instances', 'versions'];
 
   // Only network-backed errors are worth a Reload button; the rest are local
   // (filesystem) reads with nothing to refetch.

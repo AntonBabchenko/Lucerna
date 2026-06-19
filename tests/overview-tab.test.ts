@@ -11,7 +11,6 @@ beforeEach(() => {
 });
 
 const noErrors = {
-  offlineName: null,
   listAccounts: null,
   remove: null,
   instances: null,
