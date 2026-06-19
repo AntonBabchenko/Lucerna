@@ -281,11 +281,12 @@
     >
     <button
       type="button"
-      class="btn-primary btn-sm"
+      class="btn-primary btn-sm inline-flex items-center gap-1.5"
       disabled={selectedShas.length === 0}
       onclick={() => onConfirm(selectedShas)}
     >
-      {$t('modpacks.import.picker.installBtn', { count: selectedShas.length })}
+      <Icon name="download" size={14} />
+      {$t('common.installCount', { count: selectedShas.length })}
     </button>
   </footer>
 </Modal>
