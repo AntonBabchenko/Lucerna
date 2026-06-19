@@ -70,6 +70,46 @@ pub async fn mods_project(
     .await
 }
 
+/// The configured mod-metadata cache TTL (days). Read from `app.json`; defaults
+/// to 7 when unset. `0` = never expire.
+fn mod_metadata_ttl_days(app: &tauri::AppHandle) -> crate::error::Result<u32> {
+    let path = crate::paths::app_file(app).map_err(|e| crate::error::Error::io("<app_file>", e))?;
+    Ok(crate::instances::store::read_app_json(&path)?
+        .general
+        .mod_metadata_ttl_days)
+}
+
+/// Batch-fetch project summaries (name / slug / icon) for the installed list.
+/// Serves fresh entries from the shared disk cache and batch-fetches the
+/// missing/stale set in one request via `ModPlatform::summaries`, collapsing
+/// the old per-mod `mods_project` fan-out (a 429 source on large instances)
+/// into a handful of requests. Unknown ids are simply omitted — the caller
+/// degrades that row.
+#[tauri::command]
+#[specta::specta]
+pub async fn mods_projects(
+    app: tauri::AppHandle,
+    source: ModSource,
+    project_ids: Vec<String>,
+) -> crate::error::Result<Vec<ModSummary>> {
+    let ttl = mod_metadata_ttl_days(&app)?;
+    let path = crate::paths::mods_cache_file(&app)
+        .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
+    let platform = platform_for(source);
+    let out = crate::mods::summary_cache::get_many(
+        &path,
+        source,
+        &project_ids,
+        ttl,
+        move |ids: Vec<String>| async move {
+            let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+            platform.summaries(&refs).await
+        },
+    )
+    .await;
+    Ok(out)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_versions(
@@ -1190,26 +1230,32 @@ pub async fn mods_install_missing_required(
 
 /// Build a full nested dependency graph for all platform-identified mods in
 /// `instance_id`. Each installed mod is a root; its required and optional
-/// subtrees are walked recursively (cycle-guarded, memoized). Each node is
-/// classified as `satisfied / missing_required / optional_present /
-/// optional_absent` against the installed set.
+/// subtrees are walked recursively (cycle-guarded, memoized) and classified as
+/// `satisfied / missing_required / optional_present / optional_absent` against
+/// the installed set.
 ///
-/// The graph is informational — no files are written. Intended to power the
-/// "Dependency Tree" view in the Mods tab.
-///
-/// `depgraph::build_graph` produces a `Send` future (boxed recursive walk with
-/// `+ Send` on the alias), so it can be awaited directly on the Tauri executor.
+/// Network-frugal by construction. The old approach queried each mod's newest
+/// version and resolved every dependency one project at a time — ~1000+
+/// individual requests on a large instance, a 429 rate-limit storm. Instead
+/// this:
+///   1. batch-fetches each installed mod's *installed* version by id (the
+///      version object carries its declared deps), and
+///   2. batch-fetches every referenced project's summary into the shared cache
+///      for display names + loader-slug detection,
+/// then runs the recursion over that in-memory data: an installed project
+/// contributes its version's deps; a non-installed project is a leaf (no
+/// recursion, no network). Informational only — no files are written.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_dependency_graph(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> crate::error::Result<crate::mods::depgraph::DependencyGraph> {
-    use crate::mods::depgraph::{build_graph, DepChild, InstalledNode, NodeDeps};
+    use crate::mods::depgraph::{build_graph, DepChild, DependencyGraph, InstalledNode, NodeDeps};
+    use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
     let root = instance_root(&app, &instance_id)?;
-    let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
     let installed_mods = crate::mods::installed::list(&root).await?;
 
     // Roots: platform-identified installed mods only (anonymous local jars have
@@ -1226,106 +1272,137 @@ pub async fn mods_dependency_graph(
             _ => None,
         })
         .collect();
+    if roots.is_empty() {
+        return Ok(DependencyGraph { roots: Vec::new() });
+    }
 
-    // Per-source platform handles + shared loader-slug cache cloned into each call.
-    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
-    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
-        platform_for(ModSource::Curseforge).into();
-    // FTB has no per-mod browser; build the stub once and clone per call (mirrors mr/cf above).
-    let ftb: Arc<dyn crate::mods::platform::ModPlatform> =
-        Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
-            source: ModSource::Ftb,
-        });
-    // ATLauncher has no per-mod browser; separate stub so error labels name the right source.
-    let atl: Arc<dyn crate::mods::platform::ModPlatform> =
-        Arc::new(crate::mods::unsupported::UnsupportedModPlatform {
-            source: ModSource::Atlauncher,
-        });
-    let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
-        ProjectKey,
-        bool,
-    >::new()));
-    let mc = mc_version.clone();
-
-    // Build the fetch closure. Each invocation clones the lightweight Arcs and
-    // drives one project's deps: platform.versions() → latest version →
-    // platform.resolve_deps() → filter loaders → enrich display names.
-    let make_fetch = move || {
-        let mr = mr.clone();
-        let cf = cf.clone();
-        let ftb = ftb.clone();
-        let atl = atl.clone();
-        let loader_cache = loader_cache.clone();
-        let mc = mc.clone();
-        move |source: ModSource, project_id: String| {
-            let platform: Arc<dyn crate::mods::platform::ModPlatform> = match source {
-                ModSource::Modrinth => mr.clone(),
-                ModSource::Curseforge => cf.clone(),
-                // FTB: pack-managed, not individually dep-resolvable — treat as leaf.
-                ModSource::Ftb => ftb.clone(),
-                // ATLauncher: pack-managed, not individually dep-resolvable — treat as leaf.
-                ModSource::Atlauncher => atl.clone(),
-            };
-            let loader_cache = loader_cache.clone();
-            let mc = mc.clone();
-            async move {
-                let mut versions =
-                    cached_versions(platform.as_ref(), source, &project_id, &mc, loader)
-                        .await
-                        .unwrap_or_default();
-                // Pick the newest compatible version explicitly: Modrinth
-                // returns newest-first but CurseForge's order is undocumented,
-                // so sort by `published_at` (RFC 3339, lexicographically
-                // sortable) descending rather than trusting API order. None
-                // sorts last.
-                versions.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-                let Some(v) = versions.into_iter().next() else {
-                    // Couldn't resolve (e.g. CF without a key) — treat as leaf.
-                    return Ok(NodeDeps::default());
-                };
-                let rd = match platform.resolve_deps(&v, &mc, loader).await {
-                    Ok(rd) => rd,
-                    Err(_) => return Ok(NodeDeps::default()),
-                };
-                // Filter out loader projects; enrich child display names via project summary.
-                let mut required = Vec::new();
-                for r in rd.required {
-                    if is_loader_project(platform.as_ref(), &loader_cache, &r.version).await {
-                        continue;
-                    }
-                    let name = platform
-                        .project(&r.version.project_id)
-                        .await
-                        .map(|p| p.summary.name)
-                        .unwrap_or_else(|_| r.version.name.clone());
-                    required.push(DepChild {
-                        source: r.version.source,
-                        project_id: r.version.project_id,
-                        name,
-                    });
-                }
-                let mut optional = Vec::new();
-                for o in rd.optional {
-                    if is_loader_project(platform.as_ref(), &loader_cache, &o.version).await {
-                        continue;
-                    }
-                    let name = platform
-                        .project(&o.version.project_id)
-                        .await
-                        .map(|p| p.summary.name)
-                        .unwrap_or_else(|_| o.version.name.clone());
-                    optional.push(DepChild {
-                        source: o.version.source,
-                        project_id: o.version.project_id,
-                        name,
-                    });
-                }
-                Ok::<NodeDeps, crate::error::Error>(NodeDeps { required, optional })
+    // 1. Batch-fetch each installed mod's *installed* version by id, per source.
+    //    The version object carries its declared deps. A mod with no stored
+    //    version_id contributes no entry → it becomes a root with no children.
+    let mut version_ids: HashMap<ModSource, Vec<String>> = HashMap::new();
+    for m in &installed_mods {
+        if let (Some(source), Some(_), Some(vid)) =
+            (m.source, m.project_id.as_ref(), m.version_id.as_ref())
+        {
+            version_ids.entry(source).or_default().push(vid.clone());
+        }
+    }
+    // (source, project_id) -> that mod's installed-version dependency links.
+    let mut deps_by_project: HashMap<(ModSource, String), Vec<ModDepLink>> = HashMap::new();
+    for (source, vids) in &version_ids {
+        let refs: Vec<&str> = vids.iter().map(String::as_str).collect();
+        let versions = match platform_for(*source).versions_by_ids(&refs).await {
+            Ok(v) => v,
+            Err(e) => {
+                // Degrade to roots-with-no-children for this source, but record
+                // why (missing CF key, transient 429) so it's diagnosable.
+                crate::diag!("[depgraph] versions_by_ids failed for {source:?}: {e}");
+                Vec::new()
             }
+        };
+        for v in versions {
+            deps_by_project.insert((*source, v.project_id.clone()), v.deps);
+        }
+    }
+
+    // 2. Batch every referenced project_id (roots + dep children) into the
+    //    shared summary cache, per source, for display names + loader slugs.
+    let ttl = mod_metadata_ttl_days(&app)?;
+    let cache_path = crate::paths::mods_cache_file(&app)
+        .map_err(|e| crate::error::Error::io("<mods_cache_file>", e))?;
+    let mut ids_by_source: HashMap<ModSource, HashSet<String>> = HashMap::new();
+    for n in &roots {
+        ids_by_source
+            .entry(n.source)
+            .or_default()
+            .insert(n.project_id.clone());
+    }
+    for deps in deps_by_project.values() {
+        for d in deps {
+            let (src, pid) = dep_ref_key(&d.project_ref);
+            ids_by_source.entry(src).or_default().insert(pid);
+        }
+    }
+    let mut summaries: HashMap<(ModSource, String), ModSummary> = HashMap::new();
+    for (source, set) in ids_by_source {
+        let ids: Vec<String> = set.into_iter().collect();
+        let platform = platform_for(source);
+        let got = crate::mods::summary_cache::get_many(
+            &cache_path,
+            source,
+            &ids,
+            ttl,
+            move |q: Vec<String>| async move {
+                let refs: Vec<&str> = q.iter().map(String::as_str).collect();
+                platform.summaries(&refs).await
+            },
+        )
+        .await;
+        for s in got {
+            summaries.insert((source, s.project_id.clone()), s);
+        }
+    }
+
+    // 3. Build the graph over in-memory data. `fetch` is a synchronous lookup:
+    //    an installed project yields its version's required/optional children
+    //    (loader-only deps dropped via cached slug; names from the cache,
+    //    falling back to the project id); a non-installed project yields
+    //    nothing → emitted as a leaf, no recursion, no network.
+    let deps_by_project = Arc::new(deps_by_project);
+    let summaries = Arc::new(summaries);
+    let fetch = move |source: ModSource, project_id: String| {
+        let deps_by_project = deps_by_project.clone();
+        let summaries = summaries.clone();
+        async move {
+            let Some(links) = deps_by_project.get(&(source, project_id)) else {
+                return Ok(NodeDeps::default());
+            };
+            let mut required = Vec::new();
+            let mut optional = Vec::new();
+            for link in links {
+                if matches!(link.kind, DepKind::Incompatible | DepKind::Embedded) {
+                    continue;
+                }
+                let (child_src, child_pid) = dep_ref_key(&link.project_ref);
+                let summary = summaries.get(&(child_src, child_pid.clone()));
+                // Loader projects (fabric/forge/…) are instance-managed and never
+                // shown as a mod dependency — drop them by their cached slug.
+                let is_loader = summary
+                    .and_then(|s| s.slug.as_deref())
+                    .map(|slug| LOADER_SLUGS.contains(&slug.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false);
+                if is_loader {
+                    continue;
+                }
+                let name = summary
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| child_pid.clone());
+                let child = DepChild {
+                    source: child_src,
+                    project_id: child_pid,
+                    name,
+                };
+                match link.kind {
+                    DepKind::Required => required.push(child),
+                    DepKind::Optional => optional.push(child),
+                    _ => {}
+                }
+            }
+            Ok::<NodeDeps, crate::error::Error>(NodeDeps { required, optional })
         }
     };
 
-    build_graph(&roots, make_fetch()).await
+    build_graph(&roots, fetch).await
+}
+
+/// Map a dependency reference to the `(source, project_id)` key used by the
+/// installed set and the summary cache. CurseForge ids are numeric mod ids,
+/// stringified to match the installed registry.
+fn dep_ref_key(r: &DepProjectRef) -> (ModSource, String) {
+    match r {
+        DepProjectRef::Modrinth { project_id, .. } => (ModSource::Modrinth, project_id.clone()),
+        DepProjectRef::Curseforge { mod_id, .. } => (ModSource::Curseforge, mod_id.to_string()),
+    }
 }
 
 // =========================================================================

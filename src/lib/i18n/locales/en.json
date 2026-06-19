@@ -1250,6 +1250,12 @@
         "enableDescription": "Applied on game exit and when you open Logs. latest.log and debug.log are never removed.",
         "keepLabel": "Keep newest logs (files)",
         "sizeLabel": "Max total size (MB)"
+      },
+      "modMetadataCache": {
+        "title": "Mod info cache",
+        "description": "Names and icons for installed mods are cached on disk so the Mods tab loads instantly and works offline.",
+        "ttlLabel": "Refresh after (days)",
+        "ttlHint": "How long cached mod info stays before it is re-fetched. 0 = never expire."
       }
     },
     "storage": {

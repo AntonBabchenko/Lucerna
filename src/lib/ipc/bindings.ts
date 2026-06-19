@@ -386,6 +386,15 @@ export const commands = {
 	windowSetExpandedFloor: (height: number | null, hug: boolean) => typedError<null, Error>(__TAURI_INVOKE("window_set_expanded_floor", { height, hug })),
 	modsSearch: (query: ModSearchQuery) => typedError<ModSearchPage, Error>(__TAURI_INVOKE("mods_search", { query })),
 	modsProject: (source: ModSource, projectId: string) => typedError<ModProject, Error>(__TAURI_INVOKE("mods_project", { source, projectId })),
+	/**
+	 *  Batch-fetch project summaries (name / slug / icon) for the installed list.
+	 *  Serves fresh entries from the shared disk cache and batch-fetches the
+	 *  missing/stale set in one request via `ModPlatform::summaries`, collapsing
+	 *  the old per-mod `mods_project` fan-out (a 429 source on large instances)
+	 *  into a handful of requests. Unknown ids are simply omitted — the caller
+	 *  degrades that row.
+	 */
+	modsProjects: (source: ModSource, projectIds: string[]) => typedError<ModSummary[], Error>(__TAURI_INVOKE("mods_projects", { source, projectIds })),
 	modsVersions: (source: ModSource, projectId: string, mcVersion: string | null, loader: "vanilla" | "fabric" | "quilt" | "forge" | "neoforge" | null) => typedError<ModVersion[], Error>(__TAURI_INVOKE("mods_versions", { source, projectId, mcVersion, loader })),
 	/**
 	 *  Pure (no network): given version-number strings and a required range +
@@ -536,15 +545,21 @@ export const commands = {
 	/**
 	 *  Build a full nested dependency graph for all platform-identified mods in
 	 *  `instance_id`. Each installed mod is a root; its required and optional
-	 *  subtrees are walked recursively (cycle-guarded, memoized). Each node is
-	 *  classified as `satisfied / missing_required / optional_present /
-	 *  optional_absent` against the installed set.
+	 *  subtrees are walked recursively (cycle-guarded, memoized) and classified as
+	 *  `satisfied / missing_required / optional_present / optional_absent` against
+	 *  the installed set.
 	 * 
-	 *  The graph is informational — no files are written. Intended to power the
-	 *  "Dependency Tree" view in the Mods tab.
-	 * 
-	 *  `depgraph::build_graph` produces a `Send` future (boxed recursive walk with
-	 *  `+ Send` on the alias), so it can be awaited directly on the Tauri executor.
+	 *  Network-frugal by construction. The old approach queried each mod's newest
+	 *  version and resolved every dependency one project at a time — ~1000+
+	 *  individual requests on a large instance, a 429 rate-limit storm. Instead
+	 *  this:
+	 *    1. batch-fetches each installed mod's *installed* version by id (the
+	 *       version object carries its declared deps), and
+	 *    2. batch-fetches every referenced project's summary into the shared cache
+	 *       for display names + loader-slug detection,
+	 *  then runs the recursion over that in-memory data: an installed project
+	 *  contributes its version's deps; a non-installed project is a leaf (no
+	 *  recursion, no network). Informational only — no files are written.
 	 */
 	modsDependencyGraph: (instanceId: string) => typedError<DependencyGraph, Error>(__TAURI_INVOKE("mods_dependency_graph", { instanceId })),
 	/**
@@ -1502,6 +1517,13 @@ export type GeneralSettings = {
 	 *  written before this field deserializes to a disabled policy.
 	 */
 	log_retention?: LogRetentionPolicy,
+	/**
+	 *  How long (days) a cached mod summary (name / icon / slug) stays fresh
+	 *  before the installed list and dependency graph re-fetch it. `0` = never
+	 *  expire. `#[serde(default)]` → app.json written before this field
+	 *  deserializes to the 7-day default.
+	 */
+	mod_metadata_ttl_days?: number,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */

@@ -76,6 +76,22 @@ vi.mock('$lib/ipc/bindings', () => ({
         website_url: null,
       },
     }),
+    modsProjects: vi.fn((_s: string, ids: string[]) =>
+      Promise.resolve({
+        status: 'ok',
+        data: ids.map((id) => ({
+          source: 'modrinth',
+          project_id: id,
+          slug: 'test-mod',
+          name: 'Test Mod',
+          summary: 'A test mod',
+          icon_url: null,
+          downloads: 1000,
+          author: 'TestAuthor',
+          updated_at: null,
+        })),
+      }),
+    ),
     modsVersions: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
     modsResolveDeps: vi.fn().mockResolvedValue({
       status: 'ok',

@@ -229,6 +229,10 @@ impl Default for LogRetentionPolicy {
     }
 }
 
+fn default_mod_metadata_ttl_days() -> u32 {
+    7
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
@@ -271,6 +275,12 @@ pub struct GeneralSettings {
     /// written before this field deserializes to a disabled policy.
     #[serde(default)]
     pub log_retention: LogRetentionPolicy,
+    /// How long (days) a cached mod summary (name / icon / slug) stays fresh
+    /// before the installed list and dependency graph re-fetch it. `0` = never
+    /// expire. `#[serde(default)]` → app.json written before this field
+    /// deserializes to the 7-day default.
+    #[serde(default = "default_mod_metadata_ttl_days")]
+    pub mod_metadata_ttl_days: u32,
 }
 
 impl Default for GeneralSettings {
@@ -284,6 +294,7 @@ impl Default for GeneralSettings {
             compact_mode: false,
             gpu_preference: GpuPreference::default(),
             log_retention: LogRetentionPolicy::default(),
+            mod_metadata_ttl_days: default_mod_metadata_ttl_days(),
         }
     }
 }

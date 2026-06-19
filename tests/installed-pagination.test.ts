@@ -62,6 +62,22 @@ vi.mock('$lib/ipc/bindings', () => ({
         },
       }),
     ),
+    modsProjects: vi.fn((_s: string, ids: string[]) =>
+      Promise.resolve({
+        status: 'ok',
+        data: ids.map((id) => ({
+          source: 'modrinth',
+          project_id: id,
+          slug: id,
+          name: `Proj ${id}`,
+          summary: '',
+          icon_url: null,
+          downloads: 1,
+          author: 'x',
+          updated_at: null,
+        })),
+      }),
+    ),
     modsDisable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsEnable: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     modsUninstall: vi.fn().mockResolvedValue({ status: 'ok', data: null }),

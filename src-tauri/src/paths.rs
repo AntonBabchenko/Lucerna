@@ -49,6 +49,13 @@ pub fn app_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("app.json"))
 }
 
+/// Global, cross-instance cache of mod project summaries (name / slug / icon),
+/// used to de-duplicate the installed-list and dependency-graph metadata
+/// fetches. Cosmetic cache — safe to delete; repopulated on demand.
+pub fn mods_cache_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("mods-cache").join("summaries.json"))
+}
+
 pub fn instance_json(app: &tauri::AppHandle, id: &str) -> tauri::Result<PathBuf> {
     Ok(instance_dir(app, id)?.join("instance.json"))
 }

@@ -127,6 +127,9 @@ impl ModPlatform for ModrinthClient {
                 platform: "modrinth".into(),
                 details: e.to_string(),
             })?;
+        let summary = summary_from_project(&p);
+        let body_html = crate::mods::render::markdown_to_safe_html(&p.body);
+        let website_url = p.source_url.or(p.wiki_url);
         let mut gallery_entries = p.gallery;
         // Featured first, then by the platform's `ordering` (None last).
         gallery_entries.sort_by(|a, b| {
@@ -145,20 +148,10 @@ impl ModPlatform for ModrinthClient {
             })
             .collect();
         Ok(ModProject {
-            summary: ModSummary {
-                source: ModSource::Modrinth,
-                project_id: p.id,
-                slug: Some(p.slug),
-                name: p.title,
-                summary: p.description,
-                icon_url: p.icon_url,
-                downloads: p.downloads as f64,
-                author: p.team,
-                updated_at: None,
-            },
-            body_html: crate::mods::render::markdown_to_safe_html(&p.body),
+            summary,
+            body_html,
             gallery,
-            website_url: p.source_url.or(p.wiki_url),
+            website_url,
         })
     }
 
@@ -273,6 +266,85 @@ impl ModPlatform for ModrinthClient {
             incompatible,
             unresolvable,
         })
+    }
+
+    async fn summaries(&self, ids: &[&str]) -> Result<Vec<ModSummary>, Error> {
+        let mut out = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(BATCH_CHUNK) {
+            // Modrinth: GET /v2/projects?ids=["a","b",…] → array of the same
+            // Project shape as /v2/project/{id}. Unknown ids are omitted.
+            // Serialising a slice of string ids to a JSON array is infallible.
+            let ids_json = serde_json::to_string(chunk)
+                .expect("a slice of ids always serializes to a JSON array");
+            let url = format!("{}/v2/projects?ids={}", self.base, urlencode(&ids_json));
+            let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
+                .await
+                .map_err(|e| Error::ModsNetwork {
+                    url: url.clone(),
+                    details: e.to_string(),
+                })?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            let projects: Vec<types::Project> =
+                serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                })?;
+            out.extend(projects.iter().map(summary_from_project));
+        }
+        Ok(out)
+    }
+
+    async fn versions_by_ids(&self, version_ids: &[&str]) -> Result<Vec<ModVersion>, Error> {
+        let mut out = Vec::with_capacity(version_ids.len());
+        for chunk in version_ids.chunks(BATCH_CHUNK) {
+            // Modrinth: GET /v2/versions?ids=["v1","v2",…] → array of Version
+            // objects, each carrying its `dependencies`. Unknown ids omitted.
+            // Serialising a slice of string ids to a JSON array is infallible.
+            let ids_json = serde_json::to_string(chunk)
+                .expect("a slice of ids always serializes to a JSON array");
+            let url = format!("{}/v2/versions?ids={}", self.base, urlencode(&ids_json));
+            let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
+                .await
+                .map_err(|e| Error::ModsNetwork {
+                    url: url.clone(),
+                    details: e.to_string(),
+                })?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            let raws: Vec<types::Version> =
+                serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                })?;
+            out.extend(raws.into_iter().map(convert_version));
+        }
+        Ok(out)
+    }
+}
+
+/// Map a Modrinth `Project` to the normalized summary. Shared by `project()`
+/// and the batched `summaries()` so both paths agree on the field mapping
+/// (author = team, no `updated_at` — the project endpoint omits it).
+fn summary_from_project(p: &types::Project) -> ModSummary {
+    ModSummary {
+        source: ModSource::Modrinth,
+        project_id: p.id.clone(),
+        slug: Some(p.slug.clone()),
+        name: p.title.clone(),
+        summary: p.description.clone(),
+        icon_url: p.icon_url.clone(),
+        downloads: p.downloads as f64,
+        author: p.team.clone(),
+        updated_at: None,
     }
 }
 
@@ -430,6 +502,71 @@ mod tests {
 
     async fn server() -> MockServer {
         MockServer::start().await
+    }
+
+    #[tokio::test]
+    async fn summaries_batches_projects_in_one_request() {
+        let _g = test_lock();
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/projects"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                  {"id":"jei","slug":"jei","title":"JEI","description":"Items",
+                   "body":"","icon_url":"https://media.modrinth.com/i.png","downloads":10,
+                   "source_url":null,"wiki_url":null,"team":"t","gallery":[]},
+                  {"id":"sodium","slug":"sodium","title":"Sodium","description":"Perf",
+                   "body":"","icon_url":null,"downloads":99,
+                   "source_url":null,"wiki_url":null,"team":"jelly","gallery":[]}
+                ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let out = c.summaries(&["jei", "sodium"]).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].name, "JEI");
+        assert_eq!(out[0].slug.as_deref(), Some("jei"));
+        assert_eq!(out[1].author, "jelly");
+    }
+
+    #[tokio::test]
+    async fn summaries_empty_ids_makes_no_request() {
+        let _g = test_lock();
+        // No mocks mounted — any outbound request would 404 and the call would
+        // error. An empty input must short-circuit to Ok(empty).
+        let s = server().await;
+        let c = ModrinthClient::with_base(s.uri());
+        let out = c.summaries(&[]).await.unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn versions_by_ids_parses_versions_with_deps() {
+        let _g = test_lock();
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[{
+                  "id":"vid1","project_id":"jei","name":"JEI 15","version_number":"15.0.0",
+                  "game_versions":["1.20.1"],"loaders":["fabric"],"date_published":"2026-05-01T00:00:00Z",
+                  "files":[{"url":"https://cdn/x.jar","filename":"jei.jar","hashes":{"sha1":"abc"},"size":1,"primary":true}],
+                  "dependencies":[{"project_id":"fabric-api","version_id":null,"dependency_type":"required"}]
+                }]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let out = c.versions_by_ids(&["vid1"]).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].project_id, "jei");
+        assert_eq!(out[0].deps.len(), 1);
+        assert_eq!(out[0].deps[0].kind, DepKind::Required);
     }
 
     #[tokio::test]

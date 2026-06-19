@@ -175,7 +175,6 @@ pub struct Links {
 #[serde(rename_all = "camelCase")]
 pub struct File {
     pub id: u32,
-    #[allow(dead_code)]
     pub mod_id: u32,
     pub display_name: String,
     pub file_name: String,
