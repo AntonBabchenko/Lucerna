@@ -209,6 +209,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_import_inspect,
             commands::server_import_commit,
             commands::server_import_cancel,
+            // Own server (Plan 10: log retention):
+            commands::server_list_logs,
+            commands::server_read_log,
+            commands::server_open_logs_folder,
         ])
         .events(collect_events![
             network::DownloadProgress,

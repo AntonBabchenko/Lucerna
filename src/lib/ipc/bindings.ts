@@ -980,6 +980,15 @@ export const commands = {
 	serverImportCommit: (token: string, name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
 	/**  Отменить импорт: удалить staging. */
 	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
+	/**  Список логов сервера (текущий + архивы), отсортированных от новых к старым. */
+	serverListLogs: (id: string) => typedError<ServerLogInfo[], Error>(__TAURI_INVOKE("server_list_logs", { id })),
+	/**  Прочитать файл лога сервера (текущий или архив) с ограничением 1 МиБ. */
+	serverReadLog: (id: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("server_read_log", { id, fileName })),
+	/**
+	 *  Открыть папку `runtime/logs/` сервера в системном файловом менеджере.
+	 *  Создаёт папку, если она ещё не существует.
+	 */
+	serverOpenLogsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_logs_folder", { id })),
 };
 
 /** Events */
@@ -2674,6 +2683,15 @@ export type ServerImportPreview = {
 	world_present: boolean,
 	eula_in_source: boolean,
 	size_bytes: number | null,
+};
+
+/**  One log file shown to the UI. */
+export type ServerLogInfo = {
+	file_name: string,
+	modified_unix_ms: number | null,
+	size_bytes: number | null,
+	/**  True for the current/most-recent `server-latest.log`. */
+	is_latest: boolean,
 };
 
 /**  One line of server console output (stdout or stderr), streamed to the UI. */
