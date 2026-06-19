@@ -54,8 +54,8 @@ pub async fn create_client_instance(
     )?;
     let instance_id = created.id.clone();
 
-    let instance_root =
-        crate::paths::instance_dir(app, &instance_id).map_err(|e| Error::io("<instance_dir>", e))?;
+    let instance_root = crate::paths::instance_dir(app, &instance_id)
+        .map_err(|e| Error::io("<instance_dir>", e))?;
     let dst_mods = crate::paths::minecraft_dir(app, &instance_id)
         .map_err(|e| Error::io("<minecraft_dir>", e))?
         .join("mods");
@@ -150,6 +150,9 @@ mod tests {
         };
         let json = serde_json::to_string(&res).unwrap();
         assert!(json.contains(r#""multiplayer_added":true"#), "got: {json}");
-        assert!(json.contains(r#""created_from_server":"srv-1""#), "got: {json}");
+        assert!(
+            json.contains(r#""created_from_server":"srv-1""#),
+            "got: {json}"
+        );
     }
 }
