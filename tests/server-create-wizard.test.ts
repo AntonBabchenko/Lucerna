@@ -14,13 +14,26 @@ vi.mock('$lib/ipc/bindings', () => ({
       step_mb: 256,
       ram_known: false,
     }),
+    // LoaderPicker fires these when ServerImportView's confirm step renders.
+    listFabricLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listQuiltLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listForgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
+    listNeoforgeLoaders: vi.fn().mockResolvedValue({ status: 'ok', data: [] }),
   },
 }));
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
   serverState: {
     refresh: vi.fn().mockResolvedValue(undefined),
+    importInspect: vi.fn(),
+    importCommit: vi.fn().mockResolvedValue({ ok: true }),
+    importCancel: vi.fn().mockResolvedValue(undefined),
   },
+}));
+
+// Stub the Tauri dialog so "Choose .zip" / "Choose folder" resolve without hanging.
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open: vi.fn().mockResolvedValue(null),
 }));
 
 const mockInstance: InstanceWithStatus = {
@@ -83,5 +96,12 @@ describe('ServerCreateWizard', () => {
     // Create should now be enabled
     const createBtn = screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(false);
+  });
+
+  it('switching to Import mode shows the import source pickers', async () => {
+    render(ServerCreateWizard, baseProps());
+    await fireEvent.click(screen.getByRole('button', { name: 'Import existing' }));
+    expect(screen.getByRole('button', { name: 'Choose .zip' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeTruthy();
   });
 });
