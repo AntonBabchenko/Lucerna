@@ -709,13 +709,11 @@
       "noInstance": "Select an instance to view its worlds.",
       "loading": "Loading worlds…",
       "empty": "No worlds yet. Play Minecraft to create one.",
-      "worldActionsAriaLabel": "Actions for {name}",
       "backupCountAriaLabel": "{count, plural, one {# backup} other {# backups}}",
       "openSavesFolder": "Open saves folder",
-      "closeMenuAriaLabel": "Close menu",
+      "openBackupsAriaLabel": "View backups for {name}",
       "backupNow": "Back up now",
-      "viewBackups": "View backups…",
-      "deleteWorld": "Delete world…",
+      "deleteWorld": "Delete world",
       "toastBackedUp": "Backed up {name} ({size})"
     },
     "import": {
@@ -726,12 +724,11 @@
     "backups": {
       "title": "Backups for \"{world}\"",
       "loading": "Loading backups…",
-      "empty": "No backups yet. Click \"Back up now\" on the world to create one.",
-      "backupActionsAriaLabel": "Actions for backup {filename}",
+      "empty": "No backups yet. Click \"Back up now\" to create one.",
+      "backupNow": "Back up now",
       "total": "Total: {size}",
       "openBackupsFolder": "Open backups folder",
-      "closeMenuAriaLabel": "Close menu",
-      "restore": "Restore…",
+      "restore": "Restore",
       "deleteBackup": "Delete backup",
       "confirmDelete": "Delete backup {timestamp}?"
     },

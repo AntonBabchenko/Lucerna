@@ -709,13 +709,11 @@
       "noInstance": "Выберите профиль, чтобы увидеть его миры.",
       "loading": "Загрузка миров…",
       "empty": "Миров пока нет. Запустите Minecraft, чтобы создать один.",
-      "worldActionsAriaLabel": "Действия для {name}",
       "backupCountAriaLabel": "{count, plural, one {# резервная копия} few {# резервные копии} many {# резервных копий} other {# резервные копии}}",
       "openSavesFolder": "Открыть папку сохранений",
-      "closeMenuAriaLabel": "Закрыть меню",
+      "openBackupsAriaLabel": "Резервные копии мира {name}",
       "backupNow": "Создать резервную копию",
-      "viewBackups": "Резервные копии…",
-      "deleteWorld": "Удалить мир…",
+      "deleteWorld": "Удалить мир",
       "toastBackedUp": "Создана резервная копия {name} ({size})"
     },
     "import": {
@@ -726,12 +724,11 @@
     "backups": {
       "title": "Резервные копии «{world}»",
       "loading": "Загрузка резервных копий…",
-      "empty": "Резервных копий пока нет. Нажмите «Создать резервную копию» для нужного мира.",
-      "backupActionsAriaLabel": "Действия для резервной копии {filename}",
+      "empty": "Резервных копий пока нет. Нажмите «Создать резервную копию», чтобы создать.",
+      "backupNow": "Создать резервную копию",
       "total": "Итого: {size}",
       "openBackupsFolder": "Открыть папку резервных копий",
-      "closeMenuAriaLabel": "Закрыть меню",
-      "restore": "Восстановить…",
+      "restore": "Восстановить",
       "deleteBackup": "Удалить резервную копию",
       "confirmDelete": "Удалить резервную копию {timestamp}?"
     },
