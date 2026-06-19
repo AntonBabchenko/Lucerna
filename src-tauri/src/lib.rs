@@ -205,6 +205,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_export_zip,
             // Own server (Plan 6: client instance from server):
             commands::server_create_client_instance,
+            // Own server (Plan 9: backups):
+            commands::server_backup_create,
+            commands::server_backup_list,
+            commands::server_backup_restore,
+            commands::server_backup_delete,
         ])
         .events(collect_events![
             network::DownloadProgress,
