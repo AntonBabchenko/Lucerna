@@ -317,6 +317,7 @@ export const commands = {
 	mrpack_version_id: string | null,
 	integrity: IntegrityStatus | null,
 	imported_from: ImportProvenance | null,
+	created_from_server: string | null,
 } | null, Error>(__TAURI_INVOKE("get_active_instance")),
 	/**  Set the active instance by id. Errors `InstanceNotFound` if id is unknown. */
 	setActiveInstance: (id: string) => typedError<null, Error>(__TAURI_INVOKE("set_active_instance", { id })),
@@ -941,6 +942,12 @@ export const commands = {
 	 *  Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
 	 */
 	serverExportZip: (id: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("server_export_zip", { id, destPath })),
+	/**
+	 *  Создать клиентский инстанс из сервера: та же версия + лоадер, моды сервера
+	 *  скопированы в инстанс, и опционально сервер прописан в список мультиплеера
+	 *  (`servers.dat`) нового инстанса. Сервер читается только на чтение.
+	 */
+	serverCreateClientInstance: (serverId: string, name: string, addToMultiplayer: boolean) => typedError<ClientInstanceResult, Error>(__TAURI_INVOKE("server_create_client_instance", { serverId, name, addToMultiplayer })),
 };
 
 /** Events */
@@ -1121,6 +1128,16 @@ export type CitedMod = {
 export type CleanupResult = {
 	deleted_count: number | null,
 	freed_bytes: number | null,
+};
+
+/**  IPC result of building a client instance from a server. */
+export type ClientInstanceResult = {
+	instance: InstanceWithStatus,
+	/**
+	 *  Whether the server was added to the instance's multiplayer list.
+	 *  `false` when the user opted out, or the best-effort write failed.
+	 */
+	multiplayer_added: boolean,
 };
 
 export type ClientModFinding = {
@@ -1697,6 +1714,7 @@ export type InstanceWithStatus = {
 	mrpack_version_id: string | null,
 	integrity: IntegrityStatus | null,
 	imported_from: ImportProvenance | null,
+	created_from_server: string | null,
 };
 
 /**

@@ -427,6 +427,30 @@ pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Resul
     crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
 }
 
+/// Создать клиентский инстанс из сервера: та же версия + лоадер, моды сервера
+/// скопированы в инстанс, и опционально сервер прописан в список мультиплеера
+/// (`servers.dat`) нового инстанса. Сервер читается только на чтение.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_create_client_instance(
+    app: AppHandle,
+    server_id: String,
+    name: String,
+    add_to_multiplayer: bool,
+) -> Result<crate::servers_runtime::to_instance::ClientInstanceResult> {
+    let cf_key = crate::mods::curseforge::keyring::resolve();
+    crate::servers_runtime::to_instance::create_client_instance(
+        &app,
+        &server_id,
+        &name,
+        add_to_multiplayer,
+        "https://api.modrinth.com",
+        "https://api.curseforge.com",
+        cf_key.as_deref(),
+    )
+    .await
+}
+
 /// Открыть папку `runtime/` сервера в системном файловом менеджере.
 /// Создаёт папку, если она ещё не существует. Использует тот же
 /// механизм, что и `open_saves_folder` (`tauri_plugin_opener`).
