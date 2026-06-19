@@ -5,7 +5,7 @@
   import { relativeTime } from '$lib/format/relative-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
-  import { hasDiagnosisIndicator } from '$lib/logs/log-diagnosis.svelte';
+  import { hasDiagnosisIndicator, diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import { Icon } from '$lib/ui/icons';
@@ -87,6 +87,7 @@
           integrityProblemCount,
           hasModpackUpdate: modpackUpdates.hasUpdate(activeInstance.id),
           hasLogIssue: hasDiagnosisIndicator(),
+          logFixAvailable: diagnosisStatus() === 'actionable',
         })
       : [],
   );
@@ -99,7 +100,7 @@
   );
 
   function onAttention(kind: AttentionKind) {
-    if (kind === 'log_issue') onOpenLogs();
+    if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
     else if (kind === 'incompatible') onNavInstalled();
     else onManage(); // pick_version + integrity
