@@ -70,6 +70,13 @@ pub fn rename_server(base: &Path, id: &str, name: &str) -> Result<ServerFile> {
     Ok(file)
 }
 
+/// Set a server's `max_heap_mb` and persist. Used by the raise/lower-heap fixes.
+pub fn set_max_heap_mb(json: &Path, mb: u32) -> Result<()> {
+    let mut file = read_server_json(json)?;
+    file.max_heap_mb = mb;
+    write_server_json(json, &file)
+}
+
 /// Обновить рантайм-конфиг сервера (heap + extra JVM args): RMW `server.json`.
 /// Применяется при следующем старте. Возвращает обновлённый `ServerFile`.
 pub fn update_runtime_config(
@@ -161,6 +168,15 @@ mod tests {
         let r = rename_server(dir.path(), "srv-1", "   ");
         assert!(r.is_err(), "empty name must be rejected");
         assert_eq!(read_server_json(&p.json).unwrap().name, "S");
+    }
+
+    #[test]
+    fn set_max_heap_mb_persists() {
+        let dir = tempdir().unwrap();
+        let p = crate::paths::server_paths(dir.path(), "srv-1");
+        write_server_json(&p.json, &sample("srv-1")).unwrap();
+        super::set_max_heap_mb(&p.json, 6144).unwrap();
+        assert_eq!(read_server_json(&p.json).unwrap().max_heap_mb, 6144);
     }
 
     #[test]

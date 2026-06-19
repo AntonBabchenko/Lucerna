@@ -8,6 +8,17 @@ use std::path::Path;
 
 // ---------------------------------------------------------------- shared helpers
 
+/// Require a server's `loader_version`, or error with the loader/MC context.
+pub(crate) fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
+    file.loader_version
+        .clone()
+        .ok_or_else(|| Error::ServerJarUnavailable {
+            loader: loader.to_string(),
+            mc_version: file.mc_version.clone(),
+            reason: "loader_version required".into(),
+        })
+}
+
 /// Общая сборка «готовый jar»: server.json + скачать jar + eula.txt.
 /// `sha1` = "" означает пропустить SHA-верификацию (Fabric/Quilt не предоставляют).
 async fn create_prebuilt_server(
