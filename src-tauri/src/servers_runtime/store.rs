@@ -55,6 +55,37 @@ pub fn delete_server(base: &Path, id: &str) -> Result<()> {
     }
 }
 
+/// Переименовать сервер: RMW `server.json`. Имя триммится; пустое после
+/// трима — ошибка (фронт это гейтит, бэкенд защищается на границе).
+/// Возвращает обновлённый `ServerFile`.
+pub fn rename_server(base: &Path, id: &str, name: &str) -> Result<ServerFile> {
+    let json = crate::paths::server_paths(base, id).json;
+    let mut file = read_server_json(&json)?;
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(Error::io("<server name>", "name cannot be empty"));
+    }
+    file.name = trimmed.to_string();
+    write_server_json(&json, &file)?;
+    Ok(file)
+}
+
+/// Обновить рантайм-конфиг сервера (heap + extra JVM args): RMW `server.json`.
+/// Применяется при следующем старте. Возвращает обновлённый `ServerFile`.
+pub fn update_runtime_config(
+    base: &Path,
+    id: &str,
+    max_heap_mb: u32,
+    extra_jvm_args: &str,
+) -> Result<ServerFile> {
+    let json = crate::paths::server_paths(base, id).json;
+    let mut file = read_server_json(&json)?;
+    file.max_heap_mb = max_heap_mb;
+    file.extra_jvm_args = extra_jvm_args.to_string();
+    write_server_json(&json, &file)?;
+    Ok(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +141,38 @@ mod tests {
         std::fs::create_dir_all(&p.runtime).unwrap();
         delete_server(dir.path(), "srv-1").unwrap();
         assert!(!p.root.exists());
+    }
+
+    #[test]
+    fn rename_server_changes_name_and_persists() {
+        let dir = tempdir().unwrap();
+        let p = crate::paths::server_paths(dir.path(), "srv-1");
+        write_server_json(&p.json, &sample("srv-1")).unwrap();
+        let updated = rename_server(dir.path(), "srv-1", "  My Server  ").unwrap();
+        assert_eq!(updated.name, "My Server");
+        assert_eq!(read_server_json(&p.json).unwrap().name, "My Server");
+    }
+
+    #[test]
+    fn rename_server_rejects_empty_after_trim() {
+        let dir = tempdir().unwrap();
+        let p = crate::paths::server_paths(dir.path(), "srv-1");
+        write_server_json(&p.json, &sample("srv-1")).unwrap();
+        let r = rename_server(dir.path(), "srv-1", "   ");
+        assert!(r.is_err(), "empty name must be rejected");
+        assert_eq!(read_server_json(&p.json).unwrap().name, "S");
+    }
+
+    #[test]
+    fn update_runtime_config_sets_heap_and_args() {
+        let dir = tempdir().unwrap();
+        let p = crate::paths::server_paths(dir.path(), "srv-1");
+        write_server_json(&p.json, &sample("srv-1")).unwrap();
+        let updated = update_runtime_config(dir.path(), "srv-1", 6144, "-XX:+UseG1GC").unwrap();
+        assert_eq!(updated.max_heap_mb, 6144);
+        assert_eq!(updated.extra_jvm_args, "-XX:+UseG1GC");
+        let back = read_server_json(&p.json).unwrap();
+        assert_eq!(back.max_heap_mb, 6144);
+        assert_eq!(back.extra_jvm_args, "-XX:+UseG1GC");
     }
 }

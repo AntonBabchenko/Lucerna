@@ -1495,7 +1495,8 @@
     "tab": {
       "console": "Console",
       "settings": "Settings",
-      "mods": "Mods"
+      "mods": "Mods",
+      "general": "General"
     },
     "action": {
       "start": "Start",
@@ -1608,6 +1609,23 @@
       "create": "Create",
       "success": "Client instance \"{name}\" created",
       "successNoServer": "Client instance \"{name}\" created, but the server couldn't be added to the multiplayer list"
+    },
+    "general": {
+      "name": "Name",
+      "memory": "Memory",
+      "jvmArgs": "Extra JVM arguments",
+      "jvmArgsHint": "Advanced. Applied to the server JVM on next start.",
+      "save": "Save",
+      "saved": "Saved",
+      "restartToApply": "Restart the server to apply memory / JVM changes."
+    },
+    "delete": {
+      "trigger": "Delete server",
+      "title": "Delete server?",
+      "question": "Delete \"{name}\" and all its data?",
+      "description": "This permanently removes the server's files (world, mods, config). This cannot be undone.",
+      "confirm": "Delete",
+      "runningBlock": "Stop the server before deleting"
     }
   }
 }

@@ -866,8 +866,18 @@ export const commands = {
 	 *  (running / pid / port) из процессного менеджера.
 	 */
 	serverList: () => typedError<ServerWithStatus_Serialize[], Error>(__TAURI_INVOKE("server_list")),
-	/**  Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok). */
+	/**
+	 *  Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).
+	 *  Возвращает ошибку если сервер запущен — сначала остановите его.
+	 */
 	serverDelete: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_delete", { id })),
+	/**  Переименовать сервер. Имя триммится на бэкенде; фронт гейтит пустое/длину. */
+	serverRename: (id: string, name: string) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_rename", { id, name })),
+	/**
+	 *  Изменить heap (`max_heap_mb`) и доп. JVM-аргументы сервера. Применяется при
+	 *  следующем старте (баннер «перезапусти» показывает фронт, если запущен).
+	 */
+	serverUpdateRuntimeConfig: (id: string, maxHeapMb: number, extraJvmArgs: string) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_update_runtime_config", { id, maxHeapMb, extraJvmArgs })),
 	/**  Запустить сервер. Возвращает PID запущенного процесса. */
 	serverStart: (id: string) => typedError<number, Error>(__TAURI_INVOKE("server_start", { id })),
 	/**  Остановить сервер (graceful stop, затем принудительное завершение при необходимости). */

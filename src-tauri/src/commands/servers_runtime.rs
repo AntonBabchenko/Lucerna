@@ -16,6 +16,23 @@ fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
         })
 }
 
+/// Собрать `ServerWithStatus` из файла + живого рантайм-статуса (running/pid/
+/// port) + флага наличия пароля в keyring. Единый источник для list/rename/
+/// update — чтобы не дублировать логику обогащения статуса.
+fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
+    let rp = crate::paths::server_paths(base, &file.id);
+    let running = crate::servers_runtime::runtime::is_running(&file.id);
+    let pid = crate::servers_runtime::runtime::running_pid(&file.id);
+    let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
+    let upw = crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(
+        &file.id,
+    ))
+    .ok()
+    .flatten()
+    .is_some();
+    ServerWithStatus::from_file(file, running, pid, port, upw)
+}
+
 /// Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
 /// записать `server.json` + `eula.txt`.
 #[tauri::command]
@@ -108,19 +125,7 @@ pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     Ok(store::list_all(&base)?
         .iter()
-        .map(|f| {
-            let rp = crate::paths::server_paths(&base, &f.id);
-            let running = crate::servers_runtime::runtime::is_running(&f.id);
-            let pid = crate::servers_runtime::runtime::running_pid(&f.id);
-            let port = crate::servers_runtime::runtime::read_port(&rp.runtime);
-            let upw = crate::accounts::keychain::retrieve(
-                &crate::accounts::keychain::sftp_password_key(&f.id),
-            )
-            .ok()
-            .flatten()
-            .is_some();
-            ServerWithStatus::from_file(f, running, pid, port, upw)
-        })
+        .map(|f| status_of(&base, f))
         .collect())
 }
 
@@ -153,13 +158,41 @@ pub async fn server_send_command(id: String, line: String) -> Result<()> {
 }
 
 /// Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).
+/// Возвращает ошибку если сервер запущен — сначала остановите его.
 #[tauri::command]
 #[specta::specta]
 pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     store::delete_server(&base, &id)?;
     let _ = crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
     Ok(())
+}
+
+/// Переименовать сервер. Имя триммится на бэкенде; фронт гейтит пустое/длину.
+#[tauri::command]
+#[specta::specta]
+pub fn server_rename(app: AppHandle, id: String, name: String) -> Result<ServerWithStatus> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let file = store::rename_server(&base, &id, &name)?;
+    Ok(status_of(&base, &file))
+}
+
+/// Изменить heap (`max_heap_mb`) и доп. JVM-аргументы сервера. Применяется при
+/// следующем старте (баннер «перезапусти» показывает фронт, если запущен).
+#[tauri::command]
+#[specta::specta]
+pub fn server_update_runtime_config(
+    app: AppHandle,
+    id: String,
+    max_heap_mb: u32,
+    extra_jvm_args: String,
+) -> Result<ServerWithStatus> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let file = store::update_runtime_config(&base, &id, max_heap_mb, &extra_jvm_args)?;
+    Ok(status_of(&base, &file))
 }
 
 /// Прочитать `server.properties` сервера как сырой текст. Возвращает пустую

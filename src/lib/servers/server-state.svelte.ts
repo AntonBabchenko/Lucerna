@@ -100,6 +100,41 @@ function clearUploadProgress(id: string): void {
   uploadProgress = m;
 }
 
+function replaceInList(updated: ServerWithStatus): void {
+  list = list.map((s) => (s.id === updated.id ? updated : s));
+}
+
+async function rename(id: string, name: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverRename(id, name);
+  if (r.status === 'ok') {
+    replaceInList(r.data);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function updateRuntimeConfig(
+  id: string,
+  maxHeapMb: number,
+  extraJvmArgs: string,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverUpdateRuntimeConfig(id, maxHeapMb, extraJvmArgs);
+  if (r.status === 'ok') {
+    replaceInList(r.data);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverDelete(id);
+  if (r.status === 'ok') {
+    list = list.filter((s) => s.id !== id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
@@ -138,6 +173,9 @@ export const serverState = {
   exportZip,
   uploadProgressFor,
   clearUploadProgress,
+  rename,
+  updateRuntimeConfig,
+  remove,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;

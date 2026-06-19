@@ -179,6 +179,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_create,
             commands::server_list,
             commands::server_delete,
+            commands::server_rename,
+            commands::server_update_runtime_config,
             // Own server (Plan 2: process management):
             commands::server_start,
             commands::server_stop,
