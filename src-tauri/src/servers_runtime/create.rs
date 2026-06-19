@@ -9,7 +9,7 @@ use std::path::Path;
 // ---------------------------------------------------------------- shared helpers
 
 /// Require a server's `loader_version`, or error with the loader/MC context.
-fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
+pub(crate) fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
     file.loader_version
         .clone()
         .ok_or_else(|| Error::ServerJarUnavailable {
@@ -17,64 +17,6 @@ fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
             mc_version: file.mc_version.clone(),
             reason: "loader_version required".into(),
         })
-}
-
-/// Re-run the artifact resolution + download for `file`'s loader (the same work
-/// `server_create` does), overwriting `runtime/`'s server/installer jar. Used by
-/// the corrupt-jar and reinstall-loader fixes. Extracted from `server_create` so
-/// both the create path and the fix commands share one implementation. All
-/// downloads route through `network::` (the create fns already do — no raw HTTP).
-pub async fn redownload_server_artifact(
-    app: &tauri::AppHandle,
-    base: &Path,
-    file: &ServerFile,
-) -> Result<()> {
-    use crate::instances::schema::LoaderKind;
-    match file.loader {
-        LoaderKind::Vanilla => {
-            let (jar_url, sha1) = resolve_vanilla_jar(&file.mc_version).await?;
-            create_vanilla_server(base, file, &jar_url, &sha1).await?;
-        }
-        LoaderKind::Fabric => {
-            let installer = latest_fabric_installer(&file.mc_version).await?;
-            let lv = require_loader_version(file, "fabric")?;
-            let url = crate::servers_runtime::jar::fabric_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create_fabric_server(base, file, &url).await?;
-        }
-        LoaderKind::Quilt => {
-            let installer = latest_quilt_installer(&file.mc_version).await?;
-            let lv = require_loader_version(file, "quilt")?;
-            let url = crate::servers_runtime::jar::quilt_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create_quilt_server(base, file, &url).await?;
-        }
-        LoaderKind::Forge | LoaderKind::NeoForge => {
-            let lv = require_loader_version(file, "forge/neoforge")?;
-            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
-                (
-                    crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
-                    "forge",
-                )
-            } else {
-                (
-                    crate::servers_runtime::jar::neoforge_installer_url(&lv),
-                    "neoforge",
-                )
-            };
-            let component = resolve_server_java_component(&file.mc_version).await?;
-            crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
-            let java_bin = crate::jre::java_executable_path(&component, app)?;
-            create_installer_server(base, file, &url, &java_bin, label).await?;
-        }
-    }
-    Ok(())
 }
 
 /// Общая сборка «готовый jar»: server.json + скачать jar + eula.txt.

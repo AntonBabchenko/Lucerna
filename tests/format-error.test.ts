@@ -362,6 +362,11 @@ describe('formatError', () => {
       sftp_auth_failed: { kind: 'sftp_auth_failed', details: 'wrong password' },
       sftp_host_key_mismatch: { kind: 'sftp_host_key_mismatch', expected: 'aabbcc', got: 'ddeeff' },
       sftp_transfer_failed: { kind: 'sftp_transfer_failed', details: 'disk full' },
+      server_import_unsupported_source: { kind: 'server_import_unsupported_source' },
+      server_import_invalid_archive: { kind: 'server_import_invalid_archive', details: 'bad zip' },
+      server_import_too_large: { kind: 'server_import_too_large', size: 3, cap: 2 },
+      server_import_not_a_server: { kind: 'server_import_not_a_server' },
+      server_import_staging_expired: { kind: 'server_import_staging_expired', token: 'tok-1' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {
@@ -381,7 +386,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(95);
+      expect(Object.keys(samples)).toHaveLength(100);
     });
   });
 

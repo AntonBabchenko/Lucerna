@@ -1006,6 +1006,15 @@ export const commands = {
 	 *  (`servers.dat`) нового инстанса. Сервер читается только на чтение.
 	 */
 	serverCreateClientInstance: (serverId: string, name: string, addToMultiplayer: boolean) => typedError<ClientInstanceResult, Error>(__TAURI_INVOKE("server_create_client_instance", { serverId, name, addToMultiplayer })),
+	/**  Фаза 1 импорта: распаковать/просканировать источник, вернуть превью. */
+	serverImportInspect: (sourcePath: string) => typedError<ServerImportPreview, Error>(__TAURI_INVOKE("server_import_inspect", { sourcePath })),
+	/**
+	 *  Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
+	 *  reprovision (переустановить загрузчик + скопировать данные).
+	 */
+	serverImportCommit: (token: string, name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
+	/**  Отменить импорт: удалить staging. */
+	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
 };
 
 /** Events */
@@ -1432,7 +1441,7 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  Сервер уже запущен. */
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
-{ kind: "server_not_running"; id: string } | 
+{ kind: "server_not_running"; id: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
@@ -2692,6 +2701,20 @@ export type ServerDiagnosis = {
 export type ServerExited = {
 	server_id: string,
 	code: number,
+};
+
+/**  Превью импорта, возвращается `inspect` и потребляется визардом (Слайс 2b). */
+export type ServerImportPreview = {
+	token: string,
+	detected_name: string,
+	mc_version: string | null,
+	loader: LoaderKind | null,
+	loader_version: string | null,
+	can_launch_as_is: boolean,
+	mod_count: number,
+	world_present: boolean,
+	eula_in_source: boolean,
+	size_bytes: number | null,
 };
 
 /**  One line of server console output (stdout or stderr), streamed to the UI. */

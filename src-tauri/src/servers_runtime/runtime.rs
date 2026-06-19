@@ -155,7 +155,7 @@ pub(crate) fn build_launch_argv(
 
 /// Relative path (from runtime/) of the installer-generated args file for the
 /// current OS, e.g. `libraries/net/neoforged/neoforge/<v>/win_args.txt`.
-fn find_loader_args_file(runtime: &Path) -> Option<String> {
+pub(crate) fn find_loader_args_file(runtime: &Path) -> Option<String> {
     let name = if cfg!(windows) {
         "win_args.txt"
     } else {

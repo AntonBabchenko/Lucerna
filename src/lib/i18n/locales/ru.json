@@ -70,7 +70,6 @@
     "addOffline": "Добавить офлайн",
     "removeAccountLabel": "Удалить {name}",
     "playerNamePlaceholder": "Имя игрока",
-    "addAccountConfirm": "Добавить",
     "instance": "Профиль",
     "noInstances": "Нет профилей.",
     "createInstance": "+ Создать",
@@ -1184,7 +1183,12 @@
     "sftpConnectFailed": "Не удалось подключиться к хосту: {details}",
     "sftpAuthFailed": "Вход не удался — проверьте логин и пароль",
     "sftpHostKeyMismatch": "Ключ хоста изменился — заливка заблокирована для безопасности. Подтвердите повторно, только если доверяете.",
-    "sftpTransferFailed": "Заливка не удалась: {details}"
+    "sftpTransferFailed": "Заливка не удалась: {details}",
+    "serverImportUnsupportedSource": "Выберите .zip-файл или папку с сервером для импорта.",
+    "serverImportInvalidArchive": "Не удалось прочитать архив сервера: {details}",
+    "serverImportTooLarge": "Этот сервер слишком большой для импорта.",
+    "serverImportNotAServer": "Эта папка не похожа на сервер Minecraft (нет server jar, файлов загрузчика или server.properties).",
+    "serverImportStagingExpired": "Сессия импорта истекла — начните импорт заново."
   },
   "settings": {
     "title": "Настройки",
@@ -1358,7 +1362,11 @@
       "removeTitle": "Удалить аккаунт?",
       "removeQuestion": "Удалить {name}?",
       "removeDescription": "Lucerna выйдет из этого аккаунта и забудет его. Ваши сборки, миры и файлы игры не затрагиваются. Чтобы снова им пользоваться, нужно будет добавить его заново.",
-      "removeConfirm": "Удалить"
+      "removeConfirm": "Удалить",
+      "addOfflineTitle": "Добавить офлайн-аккаунт",
+      "addOfflineDescription": "Офлайн-аккаунты позволяют играть в одиночной игре и в локальной сети без входа через Microsoft. Введите имя игрока, под которым вы будете в игре.",
+      "addOfflineNameLabel": "Имя игрока",
+      "addOfflineConfirm": "Добавить аккаунт"
     },
     "overview": {
       "sectionConfiguration": "Конфигурация",
@@ -1421,9 +1429,6 @@
         "pickVersion": "Выберите версию Minecraft, чтобы завершить настройку инстанса.",
         "installing": "Идёт установка файлов инстанса…"
       }
-    },
-    "offlineName": {
-      "cannotBeEmpty": "Имя не может быть пустым"
     }
   },
   "quickJoin": {

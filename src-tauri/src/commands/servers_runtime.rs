@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
 use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
-use crate::servers_runtime::{create, store};
+use crate::servers_runtime::{create, import, store};
 use tauri::AppHandle;
 
 /// Собрать `ServerWithStatus` из файла + живого рантайм-статуса (running/pid/
@@ -133,7 +133,7 @@ pub async fn server_create(
         handled_log_sig: None,
         upload: None,
     };
-    create::redownload_server_artifact(&app, &base, &file).await?;
+    provision_loader(&app, &base, &file).await?;
     if let Some(inst_id) = &file.created_from_instance {
         let src = crate::paths::mods_dir(&app, inst_id)
             .map_err(|e| crate::error::Error::io("<instance_mods_dir>", e))?;
@@ -566,7 +566,7 @@ pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
     let file = crate::servers_runtime::store::read_server_json(
         &crate::paths::server_paths(&base, &id).json,
     )?;
-    crate::servers_runtime::create::redownload_server_artifact(&app, &base, &file).await
+    provision_loader(&app, &base, &file).await
 }
 
 /// Reinstall the loader (Forge/NeoForge/Fabric/Quilt) for this server by
@@ -582,7 +582,7 @@ pub async fn server_reinstall_loader(app: AppHandle, id: String) -> Result<()> {
     let file = crate::servers_runtime::store::read_server_json(
         &crate::paths::server_paths(&base, &id).json,
     )?;
-    crate::servers_runtime::create::redownload_server_artifact(&app, &base, &file).await
+    provision_loader(&app, &base, &file).await
 }
 
 /// Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
@@ -766,4 +766,137 @@ pub async fn server_open_folder(app: AppHandle, id: String) -> Result<()> {
         .open_path(dir.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
     Ok(())
+}
+
+/// Разрешить, скачать и установить загрузчик в `runtime/` для данного `ServerFile`.
+/// Выделено из `server_create` (DRY): используется и при создании, и при
+/// репровижне в ходе импорта.
+async fn provision_loader(
+    app: &AppHandle,
+    base: &std::path::Path,
+    file: &ServerFile,
+) -> Result<()> {
+    match file.loader {
+        LoaderKind::Vanilla => {
+            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
+            create::create_vanilla_server(base, file, &jar_url, &sha1).await?;
+        }
+        LoaderKind::Fabric => {
+            let installer = create::latest_fabric_installer(&file.mc_version).await?;
+            let lv = create::require_loader_version(file, "fabric")?;
+            let url = crate::servers_runtime::jar::fabric_server_jar_url(
+                &file.mc_version,
+                &lv,
+                &installer,
+            );
+            create::create_fabric_server(base, file, &url).await?;
+        }
+        LoaderKind::Quilt => {
+            let installer = create::latest_quilt_installer(&file.mc_version).await?;
+            let lv = create::require_loader_version(file, "quilt")?;
+            let url = crate::servers_runtime::jar::quilt_server_jar_url(
+                &file.mc_version,
+                &lv,
+                &installer,
+            );
+            create::create_quilt_server(base, file, &url).await?;
+        }
+        LoaderKind::Forge | LoaderKind::NeoForge => {
+            let lv = create::require_loader_version(file, "forge/neoforge")?;
+            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
+                (
+                    crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
+                    "forge",
+                )
+            } else {
+                (
+                    crate::servers_runtime::jar::neoforge_installer_url(&lv),
+                    "neoforge",
+                )
+            };
+            let component = create::resolve_server_java_component(&file.mc_version).await?;
+            crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
+            let java_bin = crate::jre::java_executable_path(&component, app)?;
+            create::create_installer_server(base, file, &url, &java_bin, label).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Фаза 1 импорта: распаковать/просканировать источник, вернуть превью.
+#[tauri::command]
+#[specta::specta]
+pub fn server_import_inspect(
+    app: AppHandle,
+    source_path: String,
+) -> Result<import::ServerImportPreview> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    import::sweep_stale(&base);
+    import::inspect(&base, std::path::Path::new(&source_path))
+}
+
+/// Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
+/// reprovision (переустановить загрузчик + скопировать данные).
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub async fn server_import_commit(
+    app: AppHandle,
+    token: String,
+    name: String,
+    mc_version: String,
+    loader: LoaderKind,
+    loader_version: Option<String>,
+    max_heap_mb: u32,
+    eula_accepted: bool,
+) -> Result<ServerWithStatus> {
+    crate::servers_runtime::eula::require_accepted(eula_accepted)?;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    // Decide preserve vs reprovision against the staged root.
+    let root = import::staged_root(&base, &token)?;
+    let preserve = import::detect::can_launch_as_is(&root, loader);
+
+    let id = if preserve {
+        import::commit_preserve(
+            &base,
+            &token,
+            &name,
+            &mc_version,
+            loader,
+            loader_version,
+            max_heap_mb,
+            eula_accepted,
+        )?
+    } else {
+        // Reprovision: build the server.json, provision the loader via create::,
+        // then copy the user's data on top, then drop staging.
+        let id = format!("srv-{}", crate::instances::ids::new_id());
+        let file = import::build_file(
+            &id,
+            &name,
+            &mc_version,
+            loader,
+            loader_version,
+            max_heap_mb,
+            eula_accepted,
+        );
+        provision_loader(&app, &base, &file).await?;
+        let p = crate::paths::server_paths(&base, &id);
+        import::copy::copy_into_runtime(&root, &p.runtime)?;
+        let _ = std::fs::remove_dir_all(import::staging_dir(&base, &token));
+        id
+    };
+
+    let file = crate::servers_runtime::store::read_server_json(
+        &crate::paths::server_paths(&base, &id).json,
+    )?;
+    Ok(status_of(&base, &file))
+}
+
+/// Отменить импорт: удалить staging.
+#[tauri::command]
+#[specta::specta]
+pub fn server_import_cancel(app: AppHandle, token: String) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    import::cancel(&base, &token)
 }
