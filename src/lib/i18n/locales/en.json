@@ -1648,6 +1648,11 @@
         "explanation": "A file in the server's mods folder isn't a valid mod for this server's loader — usually a mod for a different loader.",
         "recommendation": "Remove the mods that don't match this server's loader, then start it again."
       },
+      "diskLow": {
+        "title": "Low disk space",
+        "explanation": "The drive this server lives on is nearly full, so creating or starting it may fail or leave a half-written world.",
+        "recommendation": "Free up space on this drive, then try again."
+      },
       "fix": {
         "acceptEula": "Accept EULA & start",
         "stopOrphan": "Stop leftover & retry",

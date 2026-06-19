@@ -145,8 +145,17 @@
     </div>
   </div>
 
-  {#if actionError}
-    <p class="px-4 pt-2 text-sm text-danger">{actionError}</p>
+  <!-- Inline action error is the UNCLASSIFIED fallback only: when start()'s
+       diagnose() produced a rich banner for this server, the banner owns the
+       message and we suppress this duplicate. -->
+  {#if actionError && !serverState.diagnosisFor(serverId)}
+    <p
+      class="px-4 pt-2 text-sm text-danger"
+      role="alert"
+      data-testid="server-action-error"
+    >
+      {actionError}
+    </p>
   {/if}
 
   <!-- Diagnosis banner (shown when the server crash-diagnosed after stop) -->

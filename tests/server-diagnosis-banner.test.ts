@@ -318,6 +318,16 @@ describe('ServerDiagnosisBanner', () => {
     expect(installSpy).toHaveBeenCalledWith('srv-dep', ['jei']);
   });
 
+  it('every fix button carries an aria-label and aria-busy', () => {
+    mockDiagnoses['srv-a11y'] = makePreflightDiagnosis('server-port-in-use', 'change_port', {
+      port_in_use: 25565,
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-a11y' } });
+    const btn = screen.getByTestId('server-fix-change-port');
+    expect(btn.getAttribute('aria-label')).toBeTruthy();
+    expect(btn.hasAttribute('aria-busy')).toBe(true);
+  });
+
   it('lists named conflict mods as guidance when no installed jar matched', () => {
     mockDiagnoses['srv-conflict'] = makePreflightDiagnosis('server-mod-conflict', 'disable_mods', {
       conflict_mods: ['sodium', 'oldlib'],
