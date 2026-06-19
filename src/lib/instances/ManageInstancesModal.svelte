@@ -25,6 +25,7 @@
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { serverState } from '$lib/servers/server-state.svelte';
 
   let {
     open = $bindable(),
@@ -622,6 +623,24 @@
                 <Icon name="folderOpen" size={12} />
                 {$t('instance.manage.openSourceFolderBtn')}
               </button>
+            </div>
+          {/if}
+
+          {#if selected.created_from_server}
+            <div
+              class="mb-3 flex items-start gap-2 rounded-md bg-subtle px-3 py-2 text-xs"
+              data-testid="created-from-server-provenance"
+            >
+              <Icon name="server" size={14} class="mt-0.5 shrink-0 text-muted" />
+              <div class="min-w-0 flex-1">
+                <div class="text-secondary">
+                  {$t('instance.manage.fromServerLabel', {
+                    name:
+                      serverState.list.find((s) => s.id === selected.created_from_server)?.name ??
+                      selected.created_from_server,
+                  })}
+                </div>
+              </div>
             </div>
           {/if}
 

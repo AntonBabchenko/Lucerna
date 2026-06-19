@@ -78,6 +78,7 @@ const inst = (
     mrpack_version_id: null,
     integrity: null,
     imported_from: null,
+    created_from_server: null,
   }) as const;
 
 describe('ImportedView', () => {

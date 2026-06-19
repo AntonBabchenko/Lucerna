@@ -10,11 +10,13 @@
     onClose,
     instances,
     versions,
+    onInstanceCreated,
   }: {
     open?: boolean;
     onClose: () => void;
     instances: InstanceWithStatus[];
     versions: VersionEntry[];
+    onInstanceCreated: (instanceId: string) => void;
   } = $props();
 </script>
 
@@ -35,7 +37,7 @@
       <CloseButton onClick={onClose} ariaLabel={$t('common.close')} />
     </header>
     <div class="flex-1 overflow-hidden flex flex-col min-h-0">
-      <ServersView {instances} {versions} />
+      <ServersView {instances} {versions} {onInstanceCreated} />
     </div>
   </Modal>
 {/if}

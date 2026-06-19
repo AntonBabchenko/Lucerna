@@ -42,6 +42,11 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/webview', () => ({}));
 
+// serverState.list starts empty; the provenance row falls back to the raw id.
+vi.mock('$lib/servers/server-state.svelte', () => ({
+  serverState: { list: [] },
+}));
+
 import ManageInstancesModal from '$lib/instances/ManageInstancesModal.svelte';
 
 function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatus {
@@ -63,6 +68,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     mrpack_version_id: null,
     integrity: null,
     imported_from: null,
+    created_from_server: null,
     ...over,
   };
 }
@@ -110,5 +116,22 @@ describe('ManageInstancesModal — imported-instance provenance', () => {
     // unique); the provenance row must be absent.
     await waitFor(() => expect(screen.getByDisplayValue('Default')).toBeTruthy());
     expect(screen.queryByTestId('imported-provenance')).toBeNull();
+  });
+});
+
+describe('ManageInstancesModal — created-from-server provenance', () => {
+  it('shows the provenance row when created_from_server is set', async () => {
+    const inst = makeInstance({ created_from_server: 'srv-abc' });
+    renderModal(inst);
+
+    await waitFor(() => expect(screen.getByTestId('created-from-server-provenance')).toBeTruthy());
+    // serverState.list is empty so the row falls back to the raw id.
+    expect(screen.getByTestId('created-from-server-provenance').textContent).toContain('srv-abc');
+  });
+
+  it('hides the provenance row when created_from_server is null', async () => {
+    renderModal(makeInstance({ created_from_server: null }));
+    await waitFor(() => expect(screen.getByDisplayValue('Default')).toBeTruthy());
+    expect(screen.queryByTestId('created-from-server-provenance')).toBeNull();
   });
 });
