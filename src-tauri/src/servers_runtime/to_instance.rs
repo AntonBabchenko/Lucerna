@@ -18,9 +18,10 @@ pub struct ClientInstanceResult {
 }
 
 /// Build a client instance mirroring a launcher-owned server: same MC version
-/// + loader, the server's mods copied in, optionally the server pre-registered
-/// in the instance's multiplayer list. `modrinth_base`/`cf_base`/`cf_key` feed
-/// the best-effort mod-identity enrich pass (same as launcher import).
+/// and loader, the server's mods copied in, optionally the server
+/// pre-registered in the instance's multiplayer list. `modrinth_base`,
+/// `cf_base`, and `cf_key` feed the best-effort mod-identity enrich pass
+/// (same as launcher import).
 #[allow(clippy::too_many_arguments)]
 pub async fn create_client_instance(
     app: &tauri::AppHandle,
