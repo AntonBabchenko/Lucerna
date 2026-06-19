@@ -1060,7 +1060,6 @@ export type TranslationKey =
   | 'servers.diagnose.fix.lowerHeap'
   | 'servers.diagnose.fix.raiseHeap'
   | 'servers.diagnose.fix.redownloadJar'
-  | 'servers.diagnose.fix.reinstallLoader'
   | 'servers.diagnose.fix.stopOrphan'
   | 'servers.diagnose.forgeSkipNote'
   | 'servers.diagnose.heapTooBig.explanation'

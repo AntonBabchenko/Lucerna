@@ -569,22 +569,6 @@ pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
     provision_loader(&app, &base, &file).await
 }
 
-/// Reinstall the loader (Forge/NeoForge/Fabric/Quilt) for this server by
-/// re-running the create-time installer. No-op-safe for Vanilla. Server must be
-/// stopped.
-#[tauri::command]
-#[specta::specta]
-pub async fn server_reinstall_loader(app: AppHandle, id: String) -> Result<()> {
-    if crate::servers_runtime::runtime::is_running(&id) {
-        return Err(Error::ServerAlreadyRunning { id });
-    }
-    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let file = crate::servers_runtime::store::read_server_json(
-        &crate::paths::server_paths(&base, &id).json,
-    )?;
-    provision_loader(&app, &base, &file).await
-}
-
 /// Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
 /// Reversible alternative to `server_remove_mods` for conflict/mixin fixes.
 /// Records `log_signature` as handled when given. Rejects unsafe filenames.

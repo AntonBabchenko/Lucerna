@@ -203,7 +203,6 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_raise_heap,
             commands::server_lower_heap,
             commands::server_redownload_jar,
-            commands::server_reinstall_loader,
             commands::server_disable_mods,
             commands::server_install_missing_dep,
             // Own server (Plan 5: SFTP upload + export):

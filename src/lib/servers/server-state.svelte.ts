@@ -132,15 +132,6 @@ async function redownloadJar(id: string): Promise<{ ok: boolean; error?: unknown
   return { ok: false, error: r.error };
 }
 
-async function reinstallLoader(id: string): Promise<{ ok: boolean; error?: unknown }> {
-  const r = await commands.serverReinstallLoader(id);
-  if (r.status === 'ok') {
-    clearDiagnosis(id);
-    return { ok: true };
-  }
-  return { ok: false, error: r.error };
-}
-
 async function disableMods(
   id: string,
   filenames: string[],
@@ -276,7 +267,6 @@ export const serverState = {
   raiseHeap,
   lowerHeap,
   redownloadJar,
-  reinstallLoader,
   disableMods,
   installMissingDep,
   setUploadConfig,

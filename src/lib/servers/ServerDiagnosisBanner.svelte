@@ -231,15 +231,6 @@
           >
             {$t('servers.diagnose.fix.redownloadJar')}
           </BusyButton>
-        {:else if diag.server_repair === 'reinstall_loader'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-reinstall-loader"
-            busy={busyFix}
-            onclick={() => void runFix(() => serverState.reinstallLoader(serverId))}
-          >
-            {$t('servers.diagnose.fix.reinstallLoader')}
-          </BusyButton>
         {:else if diag.server_repair === 'install_missing_dep'}
           <BusyButton
             class="btn-warning btn-sm mt-2"

@@ -37,7 +37,6 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     raiseHeap: vi.fn().mockResolvedValue({ ok: true }),
     lowerHeap: vi.fn().mockResolvedValue({ ok: true }),
     redownloadJar: vi.fn().mockResolvedValue({ ok: true }),
-    reinstallLoader: vi.fn().mockResolvedValue({ ok: true }),
     disableMods: vi.fn().mockResolvedValue({ ok: true }),
     installMissingDep: vi.fn().mockResolvedValue({ ok: true }),
     running: (_id: string) => false,
@@ -303,15 +302,6 @@ describe('ServerDiagnosisBanner', () => {
     expect(btn).toBeTruthy();
     await fireEvent.click(btn);
     expect(redownloadSpy).toHaveBeenCalledWith('srv-corrupt');
-  });
-
-  it('shows Reinstall-loader button for reinstall_loader repair', () => {
-    mockDiagnoses['srv-reinstall'] = makePreflightDiagnosis(
-      'server-corrupt-jar',
-      'reinstall_loader',
-    );
-    render(ServerDiagnosisBanner, { props: { serverId: 'srv-reinstall' } });
-    expect(screen.getByTestId('server-fix-reinstall-loader')).toBeTruthy();
   });
 
   it('shows Install-dep button for install_missing_dep repair', async () => {
