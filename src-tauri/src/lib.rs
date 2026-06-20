@@ -210,6 +210,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_set_upload_config,
             commands::server_upload,
             commands::server_export_zip,
+            // Own server (S4 #24/#28: host-key preview + SFTP auth method):
+            commands::server_host_key_preview,
+            commands::server_get_upload_auth,
+            commands::server_set_upload_auth,
             // Own server (Plan 6: client instance from server):
             commands::server_create_client_instance,
             // Own server (Plan 7: import from zip/folder):
@@ -218,11 +222,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_import_cancel,
             // Own server (Plan 8: connectivity / friends-join):
             commands::server_connectivity,
+            commands::server_public_address,
             // Own server (Plan 9: backups):
             commands::server_backup_create,
             commands::server_backup_list,
             commands::server_backup_restore,
             commands::server_backup_delete,
+            commands::server_backup_policy_get,
+            commands::server_backup_policy_set,
             // Own server (Plan 10: log retention):
             commands::server_list_logs,
             commands::server_read_log,
@@ -230,6 +237,13 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 11: firewall help):
             commands::server_firewall_status,
             commands::server_firewall_add_rule,
+            // Own server (S4 #9: whitelist / ops editor):
+            commands::server_whitelist_list,
+            commands::server_whitelist_add,
+            commands::server_whitelist_remove,
+            commands::server_ops_list,
+            commands::server_ops_add,
+            commands::server_ops_remove,
         ])
         .events(collect_events![
             network::DownloadProgress,

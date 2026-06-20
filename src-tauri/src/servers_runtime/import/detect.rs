@@ -14,9 +14,33 @@ pub struct Detected {
 }
 
 /// Детект (loader, mc_version, loader_version) по содержимому `root`.
-/// Порядок: Forge/NeoForge (по libraries) → Fabric/Quilt (маркеры) → Vanilla
-/// (server.jar + version.json). Любая ветка может вернуть частичный результат.
+/// Порядок: серверные паки (CF/Modrinth манифест) → Forge/NeoForge (по
+/// libraries) → Fabric/Quilt (маркеры) → Vanilla (server.jar + version.json).
+/// Любая ветка может вернуть частичный результат.
 pub fn detect(root: &Path) -> Detected {
+    // Server packs declare loader + MC in their manifest — trust that over jar
+    // sniffing (the pack's mods aren't even on disk yet for Modrinth) (#10).
+    match crate::servers_runtime::import::pack::detect_pack(root) {
+        Some(crate::servers_runtime::import::pack::PackKind::Modrinth) => {
+            if let Ok(p) = crate::servers_runtime::import::pack::parse_modrinth(root) {
+                return Detected {
+                    loader: Some(p.loader),
+                    mc_version: Some(p.mc_version),
+                    loader_version: p.loader_version,
+                };
+            }
+        }
+        Some(crate::servers_runtime::import::pack::PackKind::Curseforge) => {
+            if let Ok(p) = crate::servers_runtime::import::pack::parse_cf(root) {
+                return Detected {
+                    loader: Some(p.loader),
+                    mc_version: Some(p.mc_version),
+                    loader_version: p.loader_version,
+                };
+            }
+        }
+        None => {}
+    }
     if let Some((mc, lv)) = neoforge_from_libraries(root) {
         return Detected {
             loader: Some(LoaderKind::NeoForge),

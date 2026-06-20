@@ -17,8 +17,86 @@ pub struct BackupInfo {
 /// Keep at most this many snapshots per server (oldest pruned on create).
 pub const KEEP_BACKUPS: usize = 10;
 
+/// Opt-in automatic-backup policy (#29). Persisted per server in
+/// `backup-policy.json` under the server root. An absent or unparseable file
+/// means "disabled" (the back-compat default), so existing servers keep their
+/// current behaviour until the user opts in. The interval scheduler that acts
+/// on this lives in the command layer (it needs an `AppHandle`); the pure
+/// due-logic and persistence live here so they are unit-testable.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, Type, Default)]
+pub struct BackupPolicy {
+    /// Master switch. When false, no automatic snapshots are taken.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Minimum minutes between automatic snapshots. `0` is treated as disabled
+    /// even when `enabled` is true (guards against a hot loop).
+    #[serde(default)]
+    pub interval_minutes: u32,
+    /// Epoch-ms of the last automatic snapshot, stamped by [`maybe_auto_backup`].
+    /// `0.0` = never run, so the first check after enabling is immediately due.
+    #[serde(default)]
+    pub last_run_unix_ms: f64,
+}
+
 fn backups_dir(base: &Path, id: &str) -> PathBuf {
     crate::paths::server_paths(base, id).root.join("backups")
+}
+
+fn policy_path(base: &Path, id: &str) -> PathBuf {
+    crate::paths::server_paths(base, id)
+        .root
+        .join("backup-policy.json")
+}
+
+/// Read the server's backup policy. Absent or unreadable/invalid → the disabled
+/// default (never surfaces an error; a corrupt sidecar must not break the UI).
+pub fn read_policy(base: &Path, id: &str) -> BackupPolicy {
+    std::fs::read_to_string(policy_path(base, id))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Persist the server's backup policy (creates the server root if needed).
+pub fn write_policy(base: &Path, id: &str, policy: &BackupPolicy) -> Result<()> {
+    let path = policy_path(base, id);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
+    }
+    let json = serde_json::to_string_pretty(policy)
+        .map_err(|e| Error::io(path.display().to_string(), format!("policy: {e}")))?;
+    std::fs::write(&path, json).map_err(|e| Error::io(path.display().to_string(), e))
+}
+
+/// Pure due-check: an automatic backup is due iff the policy is enabled with a
+/// positive interval and at least `interval_minutes` have elapsed since the last
+/// run (`last_run_unix_ms == 0.0` means "never run" → due immediately).
+pub fn is_due(policy: &BackupPolicy, now_unix_ms: f64) -> bool {
+    if !policy.enabled || policy.interval_minutes == 0 {
+        return false;
+    }
+    let interval_ms = policy.interval_minutes as f64 * 60_000.0;
+    now_unix_ms - policy.last_run_unix_ms >= interval_ms
+}
+
+/// If a scheduled backup is due, create one and stamp `last_run_unix_ms`.
+/// Returns `Some(info)` when a snapshot was taken, `None` when not due. A
+/// snapshot failure propagates (the caller logs it; the stamp is NOT advanced,
+/// so the next tick retries) — mirroring the manual restore safety-net stance.
+pub fn maybe_auto_backup(
+    base: &Path,
+    id: &str,
+    now_unix_ms: f64,
+    stamp: &str,
+) -> Result<Option<BackupInfo>> {
+    let mut policy = read_policy(base, id);
+    if !is_due(&policy, now_unix_ms) {
+        return Ok(None);
+    }
+    let info = create_backup(base, id, stamp)?;
+    policy.last_run_unix_ms = now_unix_ms;
+    write_policy(base, id, &policy)?;
+    Ok(Some(info))
 }
 
 /// True iff `name` is a single safe path component (no separators / `..` / drive).
@@ -228,5 +306,107 @@ mod tests {
         }
         let list = list_backups(base.path(), "srv-1").unwrap();
         assert_eq!(list.len(), KEEP_BACKUPS, "older snapshots pruned");
+    }
+
+    // ── #29 auto/scheduled backup policy ─────────────────────────────────────
+
+    #[test]
+    fn policy_defaults_to_disabled_when_absent() {
+        let base = tempdir().unwrap();
+        let p = read_policy(base.path(), "srv-1");
+        assert_eq!(p, BackupPolicy::default());
+        assert!(!p.enabled);
+        assert_eq!(p.interval_minutes, 0);
+    }
+
+    #[test]
+    fn policy_roundtrips_through_disk() {
+        let base = tempdir().unwrap();
+        seed_runtime(base.path(), "srv-1");
+        let policy = BackupPolicy {
+            enabled: true,
+            interval_minutes: 30,
+            last_run_unix_ms: 1_700_000_000_000.0,
+        };
+        write_policy(base.path(), "srv-1", &policy).unwrap();
+        assert_eq!(read_policy(base.path(), "srv-1"), policy);
+    }
+
+    #[test]
+    fn corrupt_policy_file_reads_as_default() {
+        let base = tempdir().unwrap();
+        let path = policy_path(base.path(), "srv-1");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+        assert_eq!(read_policy(base.path(), "srv-1"), BackupPolicy::default());
+    }
+
+    #[test]
+    fn is_due_false_when_disabled_or_zero_interval() {
+        let disabled = BackupPolicy {
+            enabled: false,
+            interval_minutes: 30,
+            last_run_unix_ms: 0.0,
+        };
+        assert!(!is_due(&disabled, 10_000_000.0));
+        let zero_interval = BackupPolicy {
+            enabled: true,
+            interval_minutes: 0,
+            last_run_unix_ms: 0.0,
+        };
+        assert!(!is_due(&zero_interval, 10_000_000.0));
+    }
+
+    #[test]
+    fn is_due_true_on_first_check_then_false_until_interval_elapses() {
+        let policy = BackupPolicy {
+            enabled: true,
+            interval_minutes: 10, // 600_000 ms
+            last_run_unix_ms: 1_000_000.0,
+        };
+        // Just enabled, never run from this stamp's perspective: exactly the
+        // interval later → due.
+        assert!(is_due(&policy, 1_000_000.0 + 600_000.0));
+        // One ms before the interval elapses → not yet due.
+        assert!(!is_due(&policy, 1_000_000.0 + 599_999.0));
+    }
+
+    #[test]
+    fn maybe_auto_backup_creates_when_due_and_stamps_last_run() {
+        let base = tempdir().unwrap();
+        seed_runtime(base.path(), "srv-1");
+        write_policy(
+            base.path(),
+            "srv-1",
+            &BackupPolicy {
+                enabled: true,
+                interval_minutes: 10,
+                last_run_unix_ms: 0.0,
+            },
+        )
+        .unwrap();
+        let now = 5_000_000.0;
+        let info = maybe_auto_backup(base.path(), "srv-1", now, "auto-1")
+            .unwrap()
+            .expect("backup taken when due");
+        assert!(info.file_name.ends_with(".zip"));
+        // last_run advanced → an immediate re-check is no longer due.
+        assert_eq!(read_policy(base.path(), "srv-1").last_run_unix_ms, now);
+        assert!(maybe_auto_backup(base.path(), "srv-1", now, "auto-2")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn maybe_auto_backup_noops_when_disabled() {
+        let base = tempdir().unwrap();
+        seed_runtime(base.path(), "srv-1");
+        // No policy file → disabled default.
+        assert!(
+            maybe_auto_backup(base.path(), "srv-1", 9_999_999.0, "auto-x")
+                .unwrap()
+                .is_none()
+        );
+        assert!(list_backups(base.path(), "srv-1").unwrap().is_empty());
     }
 }

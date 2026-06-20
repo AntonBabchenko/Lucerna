@@ -1002,6 +1002,21 @@ export const commands = {
 	 */
 	serverExportZip: (id: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("server_export_zip", { id, destPath })),
 	/**
+	 *  Read the server's SFTP host-key fingerprint for first-connect verification
+	 *  (#24). Connects and captures the key at key-exchange — NO password or key is
+	 *  sent and nothing is uploaded; the session is dropped immediately. The user
+	 *  verifies the returned fingerprint against their provider before trusting it.
+	 */
+	serverHostKeyPreview: (id: string) => typedError<HostKeyPreview, Error>(__TAURI_INVOKE("server_host_key_preview", { id })),
+	/**  Read the server's SFTP auth method (#28). Absent → password (back-compat). */
+	serverGetUploadAuth: (id: string) => typedError<UploadAuth_Serialize, Error>(__TAURI_INVOKE("server_get_upload_auth", { id })),
+	/**
+	 *  Set the server's SFTP auth method (#28). When `auth.method == Key`, the
+	 *  `password` field of the upload form is treated as the key passphrase and
+	 *  stored in the keyring exactly like a password (never in `auth.json`).
+	 */
+	serverSetUploadAuth: (id: string, auth: UploadAuth_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("server_set_upload_auth", { id, auth })),
+	/**
 	 *  Создать клиентский инстанс из сервера: та же версия + лоадер, моды сервера
 	 *  скопированы в инстанс, и опционально сервер прописан в список мультиплеера
 	 *  (`servers.dat`) нового инстанса. Сервер читается только на чтение.
@@ -1022,6 +1037,14 @@ export const commands = {
 	 */
 	serverConnectivity: (id: string) => typedError<ServerConnectivity, Error>(__TAURI_INVOKE("server_connectivity", { id })),
 	/**
+	 *  Detect the server's public address for port-forward guidance (#6). The
+	 *  public-IP lookup is **user-initiated and on-demand** (the user opens the
+	 *  hosting view and asks) — never automatic — and goes through the `network::`
+	 *  chokepoint to the allowlisted `api.ipify.org`. Per maintainer default #6 this
+	 *  is detection + manual guidance only: NO UPnP / automatic port mapping.
+	 */
+	serverPublicAddress: (id: string) => typedError<ServerPublicAddress, Error>(__TAURI_INVOKE("server_public_address", { id })),
+	/**
 	 *  Create a snapshot. If the server is running, flush + pause world saves
 	 *  around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
 	 */
@@ -1034,6 +1057,19 @@ export const commands = {
 	 */
 	serverBackupRestore: (id: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("server_backup_restore", { id, fileName })),
 	serverBackupDelete: (id: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("server_backup_delete", { id, fileName })),
+	/**  Read the server's automatic-backup policy (#29). Absent → disabled default. */
+	serverBackupPolicyGet: (id: string) => typedError<BackupPolicy, Error>(__TAURI_INVOKE("server_backup_policy_get", { id })),
+	/**
+	 *  Set the server's automatic-backup policy (#29) and (re)arm the session
+	 *  interval scheduler. Setting `enabled=false` or a zero interval cancels any
+	 *  running scheduler for this server (via the generation bump below).
+	 * 
+	 *  Scope note: the scheduler is **session-scoped** — it runs while the launcher
+	 *  is open and the server is running. Cross-restart durability and an on-exit
+	 *  snapshot need the server-lifecycle exit hook (S1-owned) and are a documented
+	 *  follow-up; the spec's "and/or interval" sanctions the interval-only delivery.
+	 */
+	serverBackupPolicySet: (id: string, policy: BackupPolicy) => typedError<null, Error>(__TAURI_INVOKE("server_backup_policy_set", { id, policy })),
 	/**  Список логов сервера (текущий + архивы), отсортированных от новых к старым. */
 	serverListLogs: (id: string) => typedError<ServerLogInfo[], Error>(__TAURI_INVOKE("server_list_logs", { id })),
 	/**  Прочитать файл лога сервера (текущий или архив) с ограничением 1 МиБ. */
@@ -1054,6 +1090,21 @@ export const commands = {
 	 *  observable from within the launcher process.
 	 */
 	serverFirewallAddRule: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_firewall_add_rule", { id })),
+	serverWhitelistList: (id: string) => typedError<WhitelistEntry[], Error>(__TAURI_INVOKE("server_whitelist_list", { id })),
+	/**
+	 *  Whitelist a player by name (#9). Resolves the correct UUID for the server's
+	 *  online-mode, then writes the entry. Pair with the `white-list=true` toggle in
+	 *  the UI so enabling the whitelist never locks the owner out (the lockout fix).
+	 */
+	serverWhitelistAdd: (id: string, name: string) => typedError<WhitelistEntry[], Error>(__TAURI_INVOKE("server_whitelist_add", { id, name })),
+	serverWhitelistRemove: (id: string, key: string) => typedError<WhitelistEntry[], Error>(__TAURI_INVOKE("server_whitelist_remove", { id, key })),
+	serverOpsList: (id: string) => typedError<OpEntry[], Error>(__TAURI_INVOKE("server_ops_list", { id })),
+	/**
+	 *  Grant a player operator status by name (#9). Resolves the UUID for the
+	 *  server's online-mode and writes a level-4 op entry.
+	 */
+	serverOpsAdd: (id: string, name: string) => typedError<OpEntry[], Error>(__TAURI_INVOKE("server_ops_add", { id, name })),
+	serverOpsRemove: (id: string, key: string) => typedError<OpEntry[], Error>(__TAURI_INVOKE("server_ops_remove", { id, key })),
 };
 
 /** Events */
@@ -1182,6 +1233,29 @@ export type BackupInfo = {
 	file_name: string,
 	created_unix_ms: number | null,
 	size_bytes: number | null,
+};
+
+/**
+ *  Opt-in automatic-backup policy (#29). Persisted per server in
+ *  `backup-policy.json` under the server root. An absent or unparseable file
+ *  means "disabled" (the back-compat default), so existing servers keep their
+ *  current behaviour until the user opts in. The interval scheduler that acts
+ *  on this lives in the command layer (it needs an `AppHandle`); the pure
+ *  due-logic and persistence live here so they are unit-testable.
+ */
+export type BackupPolicy = {
+	/**  Master switch. When false, no automatic snapshots are taken. */
+	enabled?: boolean,
+	/**
+	 *  Minimum minutes between automatic snapshots. `0` is treated as disabled
+	 *  even when `enabled` is true (guards against a hot loop).
+	 */
+	interval_minutes?: number,
+	/**
+	 *  Epoch-ms of the last automatic snapshot, stamped by [`maybe_auto_backup`].
+	 *  `0.0` = never run, so the first check after enabling is immediately due.
+	 */
+	last_run_unix_ms?: number | null,
 };
 
 /**
@@ -1706,6 +1780,17 @@ export type GpuPreference = "auto" | "high_performance" | "power_saving";
 
 export type Greeting = {
 	message: string,
+};
+
+/**
+ *  Host-key fingerprint surfaced to the user on first connect (#24). `trusted`
+ *  is true iff this exact fingerprint is already the stored TOFU value.
+ */
+export type HostKeyPreview = {
+	/**  SHA-256 hex fingerprint of the server's host key. */
+	fingerprint: string,
+	/**  Whether this fingerprint is already trusted (matches the stored one). */
+	trusted: boolean,
 };
 
 /**  Typed progress streamed to the UI during an import. */
@@ -2474,6 +2559,19 @@ export type OnboardingState_Serialize = {
 };
 
 /**
+ *  One `ops.json` entry. `level` 4 = full operator; `bypassesPlayerLimit`
+ *  lets the op join past `max-players`. The on-disk key is camelCase
+ *  (`bypassesPlayerLimit`) — serde rename keeps disk, IPC, and the generated
+ *  TS binding in agreement (specta honours serde renames in this project).
+ */
+export type OpEntry = {
+	uuid: string,
+	name: string,
+	level?: number,
+	bypassesPlayerLimit?: boolean,
+};
+
+/**
  *  A direct optional dependency of the primary, plus ITS own transitive
  *  required closure (`requires`) — so the dialog can reveal sub-deps live
  *  when the user opts in. `requires` already excludes the primary's own
@@ -2847,6 +2945,23 @@ export type ServerLogLine = {
 };
 
 /**
+ *  Public-address snapshot for the hosting view (#6, contract C3): a primary LAN
+ *  address, the detected public IP (for manual port-forward guidance), the
+ *  server port, and online-mode. `public_ip` is `None` when the on-demand echo
+ *  can't be reached (offline / host down) — LAN + port stay useful regardless.
+ */
+export type ServerPublicAddress = {
+	/**  Primary LAN IPv4 (first detected), or empty when none is available. */
+	lan: string,
+	/**  Detected public IP, or `None` when the echo lookup failed. */
+	public_ip: string | null,
+	/**  Configured server port (Mojang's default 25565 when unset). */
+	port: number,
+	/**  `online-mode` from `server.properties` (defaults true when unset). */
+	online_mode: boolean,
+};
+
+/**
  *  One-click server fix the diagnosis banner can offer. snake_case on the wire.
  *  Phase 1 introduces the first four; later phases extend this enum.
  */
@@ -2975,6 +3090,35 @@ export type UpdateInfo = {
 	cosign_bundle: ReleaseAsset | null,
 };
 
+/**  Persisted SFTP auth method + optional private-key path. */
+export type UploadAuth = UploadAuth_Serialize | UploadAuth_Deserialize;
+
+/**
+ *  How the SFTP upload authenticates (#28). Stored in an S4-owned sidecar
+ *  (`upload-auth.json`) next to the server, NOT in `server.json` (whose
+ *  `UploadConfig` is owned by another stream). The secret itself — the password,
+ *  or the passphrase of an encrypted key — lives in the OS keyring, never here.
+ */
+export type UploadAuthMethod = 
+/**  Password authentication (the default; back-compat for existing configs). */
+"password" | 
+/**  OpenSSH private-key authentication (for key-only hosts). */
+"key";
+
+/**  Persisted SFTP auth method + optional private-key path. */
+export type UploadAuth_Deserialize = {
+	method?: UploadAuthMethod,
+	/**  Absolute path to the OpenSSH private key (when `method == Key`). */
+	private_key_path?: string | null,
+};
+
+/**  Persisted SFTP auth method + optional private-key path. */
+export type UploadAuth_Serialize = {
+	method: UploadAuthMethod,
+	/**  Absolute path to the OpenSSH private key (when `method == Key`). */
+	private_key_path?: string | null,
+};
+
 /**
  *  SFTP upload target configuration. The password is stored in the OS keyring,
  *  never in this struct.
@@ -3072,6 +3216,12 @@ export type ViolationKind =
  *  the declared version range.
  */
 "version_out_of_range";
+
+/**  One `whitelist.json` entry. Minecraft matches whitelisted players by UUID. */
+export type WhitelistEntry = {
+	uuid: string,
+	name: string,
+};
 
 /**
  *  A singleplayer world inside an instance, surfaced to the UI.

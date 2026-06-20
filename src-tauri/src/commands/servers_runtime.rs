@@ -854,14 +854,23 @@ pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool
     let cfg = file
         .upload
         .ok_or(crate::error::Error::UploadNotConfigured)?;
-    let password =
-        crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?
-            .ok_or(crate::error::Error::UploadNotConfigured)?;
+    let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
+    let stored =
+        crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
+    // Password auth requires a stored secret; key auth may use an unencrypted
+    // key (no passphrase), so an absent secret is fine there.
+    let secret = match (auth.method, stored) {
+        (crate::servers_runtime::transfer::UploadAuthMethod::Password, None) => {
+            return Err(crate::error::Error::UploadNotConfigured)
+        }
+        (_, s) => s.unwrap_or_default(),
+    };
     let new_fp = crate::servers_runtime::transfer::upload_server(
         &app,
         &id,
         &cfg,
-        &password,
+        &auth,
+        &secret,
         accept_new_host_key,
     )
     .await?;
@@ -883,6 +892,52 @@ pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Resul
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
+}
+
+/// Read the server's SFTP host-key fingerprint for first-connect verification
+/// (#24). Connects and captures the key at key-exchange — NO password or key is
+/// sent and nothing is uploaded; the session is dropped immediately. The user
+/// verifies the returned fingerprint against their provider before trusting it.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_host_key_preview(
+    app: AppHandle,
+    id: String,
+) -> Result<crate::servers_runtime::transfer::HostKeyPreview> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let cfg = file
+        .upload
+        .ok_or(crate::error::Error::UploadNotConfigured)?;
+    crate::servers_runtime::transfer::preview_host_key(&cfg).await
+}
+
+/// Read the server's SFTP auth method (#28). Absent → password (back-compat).
+#[tauri::command]
+#[specta::specta]
+pub fn server_get_upload_auth(
+    app: AppHandle,
+    id: String,
+) -> Result<crate::servers_runtime::transfer::UploadAuth> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    Ok(crate::servers_runtime::transfer::read_upload_auth(
+        &base, &id,
+    ))
+}
+
+/// Set the server's SFTP auth method (#28). When `auth.method == Key`, the
+/// `password` field of the upload form is treated as the key passphrase and
+/// stored in the keyring exactly like a password (never in `auth.json`).
+#[tauri::command]
+#[specta::specta]
+pub fn server_set_upload_auth(
+    app: AppHandle,
+    id: String,
+    auth: crate::servers_runtime::transfer::UploadAuth,
+) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    crate::servers_runtime::transfer::write_upload_auth(&base, &id, &auth)
 }
 
 /// Создать клиентский инстанс из сервера: та же версия + лоадер, моды сервера
@@ -938,6 +993,78 @@ pub fn server_connectivity(app: AppHandle, id: String) -> Result<ServerConnectiv
     };
     Ok(ServerConnectivity {
         lan_addresses: crate::process::local_ipv4_addresses(),
+        port,
+        online_mode,
+    })
+}
+
+/// Public-address snapshot for the hosting view (#6, contract C3): a primary LAN
+/// address, the detected public IP (for manual port-forward guidance), the
+/// server port, and online-mode. `public_ip` is `None` when the on-demand echo
+/// can't be reached (offline / host down) — LAN + port stay useful regardless.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerPublicAddress {
+    /// Primary LAN IPv4 (first detected), or empty when none is available.
+    pub lan: String,
+    /// Detected public IP, or `None` when the echo lookup failed.
+    pub public_ip: Option<String>,
+    /// Configured server port (Mojang's default 25565 when unset).
+    pub port: u16,
+    /// `online-mode` from `server.properties` (defaults true when unset).
+    pub online_mode: bool,
+}
+
+/// ipify returns the caller's public IP as plain text. Validate it actually
+/// parses as an IP address before trusting the body (defends against an error
+/// page / unexpected payload leaking into the UI). Returns the canonical form.
+fn valid_public_ip(body: &str) -> Option<String> {
+    body.trim()
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| ip.to_string())
+}
+
+/// Detect the server's public address for port-forward guidance (#6). The
+/// public-IP lookup is **user-initiated and on-demand** (the user opens the
+/// hosting view and asks) — never automatic — and goes through the `network::`
+/// chokepoint to the allowlisted `api.ipify.org`. Per maintainer default #6 this
+/// is detection + manual guidance only: NO UPnP / automatic port mapping.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_public_address(app: AppHandle, id: String) -> Result<ServerPublicAddress> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    let (port, online_mode) = match std::fs::read_to_string(rt.join("server.properties")) {
+        Ok(raw) => {
+            let props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
+            let port = props
+                .get("server-port")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(25565);
+            let online_mode = props
+                .get("online-mode")
+                .map(|v| v != "false")
+                .unwrap_or(true);
+            (port, online_mode)
+        }
+        Err(_) => (25565, true),
+    };
+    let lan = crate::process::local_ipv4_addresses()
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    // Best-effort: a failed lookup (offline, blocked) yields None, not an error.
+    let public_ip =
+        match crate::network::get_text("https://api.ipify.org", "server_public_address").await {
+            Ok(body) => valid_public_ip(&body),
+            Err(e) => {
+                crate::diag!("server_public_address: public-IP echo failed: {e}");
+                None
+            }
+        };
+    Ok(ServerPublicAddress {
+        lan,
+        public_ip,
         port,
         online_mode,
     })
@@ -1062,7 +1189,10 @@ pub async fn server_import_commit(
         )?
     } else {
         // Reprovision: build the server.json, provision the loader via create::,
-        // then copy the user's data on top, then drop staging.
+        // then lay down the user's data, then drop staging. A server PACK (#10)
+        // materializes its data differently — Modrinth downloads its server
+        // files; a bundled CurseForge pack copies + applies overrides; a CF
+        // client manifest (mods are download refs) is out of scope here.
         let id = format!("srv-{}", crate::instances::ids::new_id());
         let file = import::build_file(
             &id,
@@ -1075,7 +1205,28 @@ pub async fn server_import_commit(
         );
         provision_loader(&app, &base, &file).await?;
         let p = crate::paths::server_paths(&base, &id);
-        import::copy::copy_into_runtime(&root, &p.runtime)?;
+        match import::pack::detect_pack(&root) {
+            Some(import::pack::PackKind::Modrinth) => {
+                let pack = import::pack::parse_modrinth(&root)?;
+                import::pack::materialize_modrinth(&pack, &root, &p.runtime).await?;
+            }
+            Some(import::pack::PackKind::Curseforge) => {
+                let cf = import::pack::parse_cf(&root)?;
+                if !cf.bundled_mods {
+                    return Err(Error::io(
+                        "<import>",
+                        "This CurseForge pack references its mods as downloads rather than \
+                         bundling them. Import it as a client modpack first, then use \
+                         \"Create server from instance\".",
+                    ));
+                }
+                import::copy::copy_into_runtime(&root, &p.runtime)?;
+                import::pack::apply_overrides(&root, &p.runtime)?;
+            }
+            None => {
+                import::copy::copy_into_runtime(&root, &p.runtime)?;
+            }
+        }
         let _ = std::fs::remove_dir_all(import::staging_dir(&base, &token));
         id
     };
@@ -1170,10 +1321,101 @@ pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    // Safety net: snapshot current state before overwriting it.
+    // Safety net: snapshot current state before overwriting it. If the snapshot
+    // FAILS (e.g. disk full), ABORT — restoring would `remove_dir_all` the live
+    // runtime with no recoverable copy of the state we're about to destroy (#26).
     let stamp = format!("prerestore-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
-    let _ = backup::create_backup(&base, &id, &stamp);
+    backup::create_backup(&base, &id, &stamp)?;
     backup::restore_backup(&base, &id, &file_name)
+}
+
+/// Read the server's automatic-backup policy (#29). Absent → disabled default.
+#[tauri::command]
+#[specta::specta]
+pub fn server_backup_policy_get(app: AppHandle, id: String) -> Result<backup::BackupPolicy> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    Ok(backup::read_policy(&base, &id))
+}
+
+/// Set the server's automatic-backup policy (#29) and (re)arm the session
+/// interval scheduler. Setting `enabled=false` or a zero interval cancels any
+/// running scheduler for this server (via the generation bump below).
+///
+/// Scope note: the scheduler is **session-scoped** — it runs while the launcher
+/// is open and the server is running. Cross-restart durability and an on-exit
+/// snapshot need the server-lifecycle exit hook (S1-owned) and are a documented
+/// follow-up; the spec's "and/or interval" sanctions the interval-only delivery.
+#[tauri::command]
+#[specta::specta]
+pub fn server_backup_policy_set(
+    app: AppHandle,
+    id: String,
+    policy: backup::BackupPolicy,
+) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    backup::write_policy(&base, &id, &policy)?;
+    // Bump this server's scheduler generation. Any task spawned by a prior set()
+    // sees the mismatch on its next tick and exits, so we never leak overlapping
+    // schedulers or honour a stale interval.
+    let generation = {
+        let mut gens = backup_scheduler_generations()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let g = gens.entry(id.clone()).or_insert(0);
+        *g += 1;
+        *g
+    };
+    if policy.enabled && policy.interval_minutes > 0 {
+        spawn_backup_scheduler(app, id, generation, policy.interval_minutes);
+    }
+    Ok(())
+}
+
+/// Per-server scheduler generation counter. A `server_backup_policy_set` call
+/// bumps the entry; the matching background task exits once its captured
+/// generation no longer matches (cancel / supersede). Poison-tolerant.
+fn backup_scheduler_generations() -> &'static std::sync::Mutex<HashMap<String, u64>> {
+    static G: std::sync::OnceLock<std::sync::Mutex<HashMap<String, u64>>> =
+        std::sync::OnceLock::new();
+    G.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Spawn the session interval scheduler for one server. Sleeps the interval,
+/// then (while it is still the current generation) snapshots a *running* server,
+/// flushing + pausing world saves around the zip so the snapshot isn't torn —
+/// the same dance as `server_backup_create`. Idle servers are skipped (their
+/// world isn't changing).
+fn spawn_backup_scheduler(app: AppHandle, id: String, generation: u64, interval_minutes: u32) {
+    tauri::async_runtime::spawn(async move {
+        let interval = std::time::Duration::from_secs(interval_minutes.max(1) as u64 * 60);
+        loop {
+            tokio::time::sleep(interval).await;
+            let current = backup_scheduler_generations()
+                .lock()
+                .ok()
+                .and_then(|gens| gens.get(&id).copied())
+                .unwrap_or(0);
+            if current != generation {
+                return; // superseded or cancelled by a later policy-set
+            }
+            if !crate::servers_runtime::runtime::is_running(&id) {
+                continue; // idle server: nothing new to snapshot
+            }
+            let Ok(base) = crate::paths::app_dir(&app) else {
+                continue;
+            };
+            let now = chrono::Utc::now().timestamp_millis() as f64;
+            let stamp = format!("auto-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+            let _ = crate::servers_runtime::runtime::send_command(&id, "save-all flush").await;
+            let _ = crate::servers_runtime::runtime::send_command(&id, "save-off").await;
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            let res = crate::servers_runtime::backup::maybe_auto_backup(&base, &id, now, &stamp);
+            let _ = crate::servers_runtime::runtime::send_command(&id, "save-on").await;
+            if let Err(e) = res {
+                crate::diag!("auto-backup: {id}: {e}");
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -1220,4 +1462,169 @@ pub fn server_firewall_add_rule(app: AppHandle, id: String) -> Result<()> {
         )
     })?;
     crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)
+}
+
+// Own server (#9, C4: whitelist / ops editor):
+
+use crate::servers_runtime::whitelist;
+
+/// Mojang's public username→profile lookup payload.
+#[derive(serde::Deserialize)]
+struct MojangProfile {
+    id: String,
+    name: String,
+}
+
+/// Read a server's `online-mode` (defaults true when unset/missing).
+fn server_online_mode(runtime: &std::path::Path) -> bool {
+    match std::fs::read_to_string(runtime.join("server.properties")) {
+        Ok(raw) => crate::servers_runtime::properties::ServerProperties::parse(&raw)
+            .get("online-mode")
+            .map(|v| v != "false")
+            .unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
+/// Resolve a player `name` to the (uuid, canonical-name) the server will match
+/// against. On an **online-mode** server we must use the real Mojang UUID, so we
+/// look it up via the allowlisted Mojang profile API (a 404 / unreachable host
+/// surfaces as an error — adding a wrong UUID would silently fail to whitelist).
+/// On an **offline-mode** server we derive the deterministic offline UUID (no
+/// network), matching how the server identifies offline players.
+async fn resolve_player_identity(
+    runtime: &std::path::Path,
+    name: &str,
+) -> Result<(String, String)> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::io("<whitelist>", "player name is empty"));
+    }
+    if server_online_mode(runtime) {
+        let url = format!("https://api.mojang.com/users/profiles/minecraft/{name}");
+        let profile: MojangProfile = crate::network::get_json(&url, "server_whitelist_resolve")
+            .await
+            .map_err(|e| Error::io("<whitelist>", format!("could not look up '{name}': {e}")))?;
+        let uuid = crate::accounts::microsoft::mc_services::hyphenate_uuid(&profile.id)?;
+        Ok((uuid, profile.name))
+    } else {
+        let uuid = crate::accounts::offline::derive_offline_uuid(name).to_string();
+        Ok((uuid, name.to_string()))
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn server_whitelist_list(app: AppHandle, id: String) -> Result<Vec<whitelist::WhitelistEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    whitelist::list_whitelist(&rt)
+}
+
+/// Whitelist a player by name (#9). Resolves the correct UUID for the server's
+/// online-mode, then writes the entry. Pair with the `white-list=true` toggle in
+/// the UI so enabling the whitelist never locks the owner out (the lockout fix).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_whitelist_add(
+    app: AppHandle,
+    id: String,
+    name: String,
+) -> Result<Vec<whitelist::WhitelistEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    let (uuid, canonical) = resolve_player_identity(&rt, &name).await?;
+    whitelist::add_whitelist(
+        &rt,
+        whitelist::WhitelistEntry {
+            uuid,
+            name: canonical,
+        },
+    )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn server_whitelist_remove(
+    app: AppHandle,
+    id: String,
+    key: String,
+) -> Result<Vec<whitelist::WhitelistEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    whitelist::remove_whitelist(&rt, &key)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn server_ops_list(app: AppHandle, id: String) -> Result<Vec<whitelist::OpEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    whitelist::list_ops(&rt)
+}
+
+/// Grant a player operator status by name (#9). Resolves the UUID for the
+/// server's online-mode and writes a level-4 op entry.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_ops_add(
+    app: AppHandle,
+    id: String,
+    name: String,
+) -> Result<Vec<whitelist::OpEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    let (uuid, canonical) = resolve_player_identity(&rt, &name).await?;
+    whitelist::add_op(
+        &rt,
+        whitelist::OpEntry {
+            uuid,
+            name: canonical,
+            level: 4,
+            bypasses_player_limit: false,
+        },
+    )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn server_ops_remove(
+    app: AppHandle,
+    id: String,
+    key: String,
+) -> Result<Vec<whitelist::OpEntry>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    whitelist::remove_op(&rt, &key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_public_ip_accepts_ipv4_and_trims() {
+        assert_eq!(
+            valid_public_ip("203.0.113.7").as_deref(),
+            Some("203.0.113.7")
+        );
+        assert_eq!(
+            valid_public_ip("  203.0.113.7\n").as_deref(),
+            Some("203.0.113.7")
+        );
+    }
+
+    #[test]
+    fn valid_public_ip_accepts_ipv6() {
+        assert!(valid_public_ip("2001:db8::1").is_some());
+    }
+
+    #[test]
+    fn valid_public_ip_rejects_non_ip_bodies() {
+        // An error page / HTML / rate-limit text must not leak into the UI.
+        assert_eq!(valid_public_ip("<html>error</html>"), None);
+        assert_eq!(valid_public_ip(""), None);
+        assert_eq!(valid_public_ip("rate limited"), None);
+        assert_eq!(valid_public_ip("999.999.999.999"), None);
+    }
 }
