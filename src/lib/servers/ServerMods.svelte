@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { serverState } from '$lib/servers/server-state.svelte';
+  import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
 
@@ -13,8 +16,40 @@
   let deleteError = $state<string | null>(null);
   let busyDelete = $state<string | null>(null); // filename currently being deleted
   let busyFolder = $state(false);
+  let busyQuarantine = $state(false);
   // Per-row inline confirm: filename awaiting confirmation, or null
   let pendingDelete = $state<string | null>(null);
+
+  // A jar set aside (renamed to `*.jar.disabled`) — shown muted, not loadable.
+  function isDisabled(filename: string): boolean {
+    return filename.toLowerCase().endsWith('.jar.disabled');
+  }
+
+  // Proactively set aside client-only mods (metadata + offline env, dep-safe).
+  async function quarantineClientMods() {
+    busyQuarantine = true;
+    deleteError = null;
+    try {
+      const r = await serverState.quarantineClientMods(serverId);
+      if (r.ok) {
+        const n = r.report?.disabled.length ?? 0;
+        const kept = r.report?.kept_because_required.length ?? 0;
+        let msg =
+          n > 0
+            ? get(t)('servers.diagnose.quarantined', { count: n })
+            : get(t)('servers.diagnose.quarantineNone');
+        if (kept > 0) {
+          msg += ` ${get(t)('servers.diagnose.quarantineKeptRequired', { count: kept })}`;
+        }
+        pushSuccess(msg);
+        await refresh();
+      } else {
+        deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
+      }
+    } finally {
+      busyQuarantine = false;
+    }
+  }
 
   async function refresh() {
     const res = await commands.serverListMods(serverId);
@@ -74,6 +109,14 @@
       <Icon name="folderOpen" size={14} />
       {$t('servers.mods.openFolder')}
     </BusyButton>
+    <BusyButton
+      class="btn-secondary btn-sm"
+      data-testid="server-mods-quarantine"
+      busy={busyQuarantine}
+      onclick={() => void quarantineClientMods()}
+    >
+      {$t('servers.diagnose.quarantineClientMods')}
+    </BusyButton>
   </div>
 
   <!-- Note -->
@@ -93,7 +136,14 @@
     <ul class="flex flex-col divide-y divide-border-subtle rounded border border-border-subtle">
       {#each mods as filename (filename)}
         <li class="flex items-center gap-2 px-3 py-2 text-sm">
-          <span class="flex-1 truncate font-mono text-xs text-primary">{filename}</span>
+          <span
+            class="flex-1 truncate font-mono text-xs {isDisabled(filename)
+              ? 'text-muted line-through'
+              : 'text-primary'}">{filename}</span
+          >
+          {#if isDisabled(filename)}
+            <span class="shrink-0 text-xs text-muted">{$t('servers.mods.setAside')}</span>
+          {/if}
 
           {#if pendingDelete === filename}
             <!-- Inline confirm row -->

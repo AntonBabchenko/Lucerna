@@ -1179,6 +1179,7 @@
     "serverSpawnFailed": "Failed to start the server process: {details}",
     "serverAlreadyRunning": "This server is already running",
     "serverNotRunning": "This server is not running",
+    "serverModRequiredByOther": "Can't remove {filename} — {requiredBy} needs it. Remove that mod too, or keep this one.",
     "uploadNotConfigured": "Set up the hosting connection first",
     "sftpConnectFailed": "Couldn't connect to the host: {details}",
     "sftpAuthFailed": "Login failed — check the username and password",
@@ -1557,7 +1558,8 @@
       "delete": "Delete",
       "openFolder": "Open folder",
       "deleteConfirm": "Delete {name}?",
-      "note": "Add or remove mods in the server's mods folder."
+      "note": "Add or remove mods in the server's mods folder.",
+      "setAside": "set aside"
     },
     "hosting": {
       "tab": "Hosting",
@@ -1684,8 +1686,15 @@
       },
       "forgeSkipNote": "Forge already skipped {count} client-only mods.",
       "diagnoseBtn": "Diagnose",
+      "diagnoseDone": "Re-checked the server logs.",
       "removed": "Removed {count} mods",
-      "restartHint": "Restart the server to apply the changes."
+      "restartHint": "Restart the server to apply the changes.",
+      "quarantineClientMods": "Set aside client-only mods",
+      "quarantined": "Set aside {count} client-only mods so the server can start.",
+      "quarantineNone": "No client-only mods to set aside.",
+      "quarantineKeptRequired": "Kept {count} mods that others depend on.",
+      "installReportOk": "Installed {count} missing mod(s).",
+      "installReportUnresolved": "Couldn't find automatically: {names}. Open the mod browser to add them by hand."
     },
     "toInstance": {
       "button": "Create client instance",

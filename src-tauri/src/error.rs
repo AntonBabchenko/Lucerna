@@ -360,6 +360,14 @@ pub enum Error {
     #[error("server not running: {id}")]
     ServerNotRunning { id: String },
 
+    /// Мод нельзя удалить/отключить — он является зависимостью другого мода,
+    /// который остаётся на сервере (защита от поломки рабочего мода).
+    #[error("cannot remove {filename}: required by {required_by}")]
+    ServerModRequiredByOther {
+        filename: String,
+        required_by: String,
+    },
+
     #[error("Import source is not a .zip file or a folder")]
     ServerImportUnsupportedSource,
 

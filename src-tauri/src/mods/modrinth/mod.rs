@@ -6,6 +6,7 @@ use async_trait::async_trait;
 
 use crate::error::Error;
 use crate::mods::platform::*;
+use std::collections::HashMap;
 
 const BASE_DEFAULT: &str = "https://api.modrinth.com";
 const UA: &str = "AntonBabchenko/Lucerna (github.com/AntonBabchenko/Lucerna)";
@@ -36,6 +37,106 @@ impl ModrinthClient {
             ModSort::Downloads => "downloads",
             ModSort::Updated => "updated",
         }
+    }
+
+    /// Fetch each project's `server_side` support in bulk — mirrors `summaries`
+    /// (`GET /v2/projects?ids=[...]`) but extracts only `id` + `server_side`.
+    /// Unknown / unrecognized ids are simply absent from the returned map.
+    /// Powers the new-server client-mod quarantine (Phase 1).
+    pub async fn server_side_bulk(
+        &self,
+        ids: &[&str],
+    ) -> Result<HashMap<String, ServerSideSupport>, Error> {
+        #[derive(serde::Deserialize)]
+        struct Sides {
+            id: String,
+            server_side: Option<String>,
+        }
+        let mut out = HashMap::new();
+        for chunk in ids.chunks(BATCH_CHUNK) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let ids_json = serde_json::to_string(chunk)
+                .expect("a slice of ids always serializes to a JSON array");
+            let url = format!("{}/v2/projects?ids={}", self.base, urlencode(&ids_json));
+            let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
+                .await
+                .map_err(|e| Error::ModsNetwork {
+                    url: url.clone(),
+                    details: e.to_string(),
+                })?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            let projects: Vec<Sides> =
+                serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                })?;
+            for p in projects {
+                out.insert(
+                    p.id,
+                    ServerSideSupport::from_modrinth(p.server_side.as_deref()),
+                );
+            }
+        }
+        Ok(out)
+    }
+
+    /// Resolve SHA-1 hashes to Modrinth project ids in bulk via
+    /// `POST /v2/version_files`. Returns `sha1 (lowercased) -> project_id` for
+    /// every hash Modrinth knows; unknown hashes are absent. No API key needed.
+    /// Powers the existing-server client-mod quarantine (Phase 1).
+    pub async fn project_ids_by_hash(
+        &self,
+        shas: &[&str],
+    ) -> Result<HashMap<String, String>, Error> {
+        #[derive(serde::Deserialize)]
+        struct VersionLite {
+            project_id: String,
+        }
+        let mut out = HashMap::new();
+        for chunk in shas.chunks(BATCH_CHUNK) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let url = format!("{}/v2/version_files", self.base);
+            let body = serde_json::to_vec(&serde_json::json!({
+                "hashes": chunk,
+                "algorithm": "sha1",
+            }))
+            .expect("a fixed-shape JSON object always serializes");
+            let resp = crate::network::request::post(
+                &url,
+                &[("user-agent", UA), ("content-type", "application/json")],
+                &body,
+                "mods",
+            )
+            .await
+            .map_err(|e| Error::ModsNetwork {
+                url: url.clone(),
+                details: e.to_string(),
+            })?;
+            if !(200..300).contains(&resp.status) {
+                return Err(Error::ModsNetwork {
+                    url,
+                    details: format!("HTTP {}", resp.status),
+                });
+            }
+            let map: HashMap<String, VersionLite> =
+                serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+                    platform: "modrinth".into(),
+                    details: e.to_string(),
+                })?;
+            for (sha, v) in map {
+                out.insert(sha.to_ascii_lowercase(), v.project_id);
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -814,5 +915,69 @@ mod tests {
             DepProjectRef::Modrinth { project_id, .. } => assert_eq!(project_id, "reqdep"),
             other => panic!("expected modrinth reqdep ref, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn server_side_bulk_extracts_support_per_project() {
+        let _g = test_lock();
+        let s = server().await;
+        Mock::given(method("GET"))
+            .and(path("/v2/projects"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                  {"id":"betterf3","server_side":"unsupported"},
+                  {"id":"jei","server_side":"optional"},
+                  {"id":"voicechat","server_side":"required"},
+                  {"id":"weird","server_side":"unknown"},
+                  {"id":"nofield"}
+                ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let m = c
+            .server_side_bulk(&["betterf3", "jei", "voicechat", "weird", "nofield"])
+            .await
+            .unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(m.get("betterf3"), Some(&ServerSideSupport::Unsupported));
+        assert_eq!(m.get("jei"), Some(&ServerSideSupport::Optional));
+        assert_eq!(m.get("voicechat"), Some(&ServerSideSupport::Required));
+        assert_eq!(m.get("weird"), Some(&ServerSideSupport::Unknown));
+        // A project that omits `server_side` decodes as Unknown, not an error.
+        assert_eq!(m.get("nofield"), Some(&ServerSideSupport::Unknown));
+    }
+
+    #[tokio::test]
+    async fn server_side_bulk_empty_ids_makes_no_request() {
+        let _g = test_lock();
+        // No mock mounted — an empty input must short-circuit to Ok(empty).
+        let s = server().await;
+        let c = ModrinthClient::with_base(s.uri());
+        let m = c.server_side_bulk(&[]).await.unwrap();
+        assert!(m.is_empty());
+    }
+
+    #[tokio::test]
+    async fn project_ids_by_hash_maps_sha_to_project_lowercased() {
+        let _g = test_lock();
+        let s = server().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/version_files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                  "aabbcc":{"project_id":"betterf3","id":"v1"},
+                  "ddeeff":{"project_id":"jei","id":"v2"}
+                }"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let m = c.project_ids_by_hash(&["AABBCC", "ddeeff"]).await.unwrap();
+        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
+        assert_eq!(m.get("aabbcc"), Some(&"betterf3".to_string()));
+        assert_eq!(m.get("ddeeff"), Some(&"jei".to_string()));
     }
 }

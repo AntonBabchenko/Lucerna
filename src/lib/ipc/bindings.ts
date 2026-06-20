@@ -860,7 +860,7 @@ export const commands = {
 	 *  Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
 	 *  записать `server.json` + `eula.txt`.
 	 */
-	serverCreate: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
+	serverCreate: (name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean, createdFromInstance: string | null) => typedError<ServerCreated_Serialize, Error>(__TAURI_INVOKE("server_create", { name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted, createdFromInstance })),
 	/**
 	 *  Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
 	 *  (running / pid / port) из процессного менеджера.
@@ -973,7 +973,14 @@ export const commands = {
 	 *  concrete version via the shared dep resolver and downloads through `network::`.
 	 *  Server must be stopped.
 	 */
-	serverInstallMissingDep: (id: string, modIds: string[]) => typedError<null, Error>(__TAURI_INVOKE("server_install_missing_dep", { id, modIds })),
+	serverInstallMissingDep: (id: string, modIds: string[]) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_missing_dep", { id, modIds })),
+	/**
+	 *  Set aside client-only mods on an existing server (rename to `*.disabled`,
+	 *  reversible). Uses platform `server_side` metadata (hash-resolved) plus the
+	 *  offline Fabric/Quilt `environment`, and never sets aside a mod another kept
+	 *  mod requires (dependency-safe). Server must be stopped.
+	 */
+	serverQuarantineClientMods: (id: string) => typedError<QuarantineReport, Error>(__TAURI_INVOKE("server_quarantine_client_mods", { id })),
 	/**
 	 *  Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
 	 *  сохраняет его в связке ключей ОС (пароль никогда не записывается в
@@ -1480,7 +1487,12 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  Сервер уже запущен. */
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
-{ kind: "server_not_running"; id: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
+{ kind: "server_not_running"; id: string } | 
+/**
+ *  Мод нельзя удалить/отключить — он является зависимостью другого мода,
+ *  который остаётся на сервере (защита от поломки рабочего мода).
+ */
+{ kind: "server_mod_required_by_other"; filename: string; required_by: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
@@ -1720,6 +1732,19 @@ export type InstallMissingOutcome =
  *  search for `query` (the loader mod-id) so the user can pick it manually.
  */
 { kind: "open_search"; query: string };
+
+/**
+ *  Outcome of an `install_missing_into_dir` run: which dep-ids produced an
+ *  installed jar (by filename) vs. which could not be resolved/verified
+ *  automatically. Lets the UI report honestly instead of claiming silent
+ *  success — the unresolved ids point the user at the mod browser.
+ */
+export type InstallMissingReport = {
+	/**  Filenames of jars actually downloaded + copied into the target dir. */
+	installed: string[],
+	/**  Dep mod-ids that could not be resolved or verified (skipped). */
+	unresolved: string[],
+};
 
 export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | "assets" | "client" | "complete";
 
@@ -2599,6 +2624,14 @@ export type ProgressTick = {
 	total: number | null,
 };
 
+/**  Result of `server_quarantine_client_mods` on an existing server. */
+export type QuarantineReport = {
+	/**  Disabled filenames (`<name>.jar.disabled`) set aside this run. */
+	disabled: string[],
+	/**  Client-flagged mods that were kept because another kept mod requires them. */
+	kept_because_required: string[],
+};
+
 /**
  *  A direct-launch target. Singleplayer carries the world's save-folder
  *  name (the `saves/<folder>` segment); Multiplayer carries a server
@@ -2720,6 +2753,35 @@ export type ServerConnectivity = {
 	lan_addresses: string[],
 	port: number | null,
 	online_mode: boolean,
+};
+
+/**
+ *  Result of `server_create`: the new server plus the client-only mods that were
+ *  automatically set aside (`*.disabled`) so a modpack server can start. The
+ *  create wizard shows a summary from `quarantined`.
+ */
+export type ServerCreated = ServerCreated_Serialize | ServerCreated_Deserialize;
+
+/**
+ *  Result of `server_create`: the new server plus the client-only mods that were
+ *  automatically set aside (`*.disabled`) so a modpack server can start. The
+ *  create wizard shows a summary from `quarantined`.
+ */
+export type ServerCreated_Deserialize = {
+	server: ServerWithStatus_Deserialize,
+	/**  Disabled filenames (`<name>.jar.disabled`) of auto-quarantined client mods. */
+	quarantined: string[],
+};
+
+/**
+ *  Result of `server_create`: the new server plus the client-only mods that were
+ *  automatically set aside (`*.disabled`) so a modpack server can start. The
+ *  create wizard shows a summary from `quarantined`.
+ */
+export type ServerCreated_Serialize = {
+	server: ServerWithStatus_Serialize,
+	/**  Disabled filenames (`<name>.jar.disabled`) of auto-quarantined client mods. */
+	quarantined: string[],
 };
 
 /**

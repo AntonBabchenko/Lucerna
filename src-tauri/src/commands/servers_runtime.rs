@@ -2,9 +2,118 @@
 
 use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
+use crate::mods::platform::ServerSideSupport;
 use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
 use crate::servers_runtime::{backup, create, import, store};
+use std::collections::HashMap;
 use tauri::AppHandle;
+
+/// Result of `server_create`: the new server plus the client-only mods that were
+/// automatically set aside (`*.disabled`) so a modpack server can start. The
+/// create wizard shows a summary from `quarantined`.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerCreated {
+    pub server: ServerWithStatus,
+    /// Disabled filenames (`<name>.jar.disabled`) of auto-quarantined client mods.
+    pub quarantined: Vec<String>,
+}
+
+/// Result of `server_quarantine_client_mods` on an existing server.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct QuarantineReport {
+    /// Disabled filenames (`<name>.jar.disabled`) set aside this run.
+    pub disabled: Vec<String>,
+    /// Client-flagged mods that were kept because another kept mod requires them.
+    pub kept_because_required: Vec<String>,
+}
+
+/// Build `filename -> server_side` for an *instance's* mods by reading its
+/// installed-mods registry (filename → Modrinth project id) and bulk-querying
+/// `server_side`. Best-effort: any failure yields a partial/empty map, and the
+/// classifier then falls back to each jar's offline `environment`.
+async fn server_side_by_instance_mods(
+    app: &AppHandle,
+    inst_id: &str,
+) -> HashMap<String, ServerSideSupport> {
+    let mut out: HashMap<String, ServerSideSupport> = HashMap::new();
+    let Ok(inst_root) = crate::paths::instance_dir(app, inst_id) else {
+        return out;
+    };
+    let Ok(mods) = crate::mods::installed::list(&inst_root).await else {
+        return out;
+    };
+    let mut pid_by_file: HashMap<String, String> = HashMap::new();
+    for m in &mods {
+        if m.source == Some(crate::mods::platform::ModSource::Modrinth) {
+            if let Some(pid) = &m.project_id {
+                pid_by_file.insert(m.filename.clone(), pid.clone());
+            }
+        }
+    }
+    if pid_by_file.is_empty() {
+        return out;
+    }
+    let mut ids: Vec<String> = pid_by_file.values().cloned().collect();
+    ids.sort();
+    ids.dedup();
+    let ids_ref: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let mr = crate::mods::modrinth::ModrinthClient::new();
+    let side_by_pid = mr.server_side_bulk(&ids_ref).await.unwrap_or_default();
+    for (file, pid) in pid_by_file {
+        if let Some(s) = side_by_pid.get(&pid) {
+            out.insert(file, *s);
+        }
+    }
+    out
+}
+
+/// Build `filename -> server_side` for an existing *server's* `mods/` by hashing
+/// each enabled jar, resolving hashes to Modrinth projects, then bulk-querying
+/// `server_side`. Best-effort: failures yield a partial/empty map.
+async fn server_side_by_server_mods(
+    mods_dir: &std::path::Path,
+) -> HashMap<String, ServerSideSupport> {
+    use sha1::{Digest, Sha1};
+    let mut out: HashMap<String, ServerSideSupport> = HashMap::new();
+    let mut sha_by_file: HashMap<String, String> = HashMap::new();
+    let Ok(rd) = std::fs::read_dir(mods_dir) else {
+        return out;
+    };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.to_ascii_lowercase().ends_with(".jar") {
+            continue;
+        }
+        if let Ok(bytes) = std::fs::read(e.path()) {
+            sha_by_file.insert(name, hex::encode(Sha1::digest(&bytes)));
+        }
+    }
+    if sha_by_file.is_empty() {
+        return out;
+    }
+    let mut shas: Vec<String> = sha_by_file.values().cloned().collect();
+    shas.sort();
+    shas.dedup();
+    let shas_ref: Vec<&str> = shas.iter().map(String::as_str).collect();
+    let mr = crate::mods::modrinth::ModrinthClient::new();
+    let pid_by_sha = mr.project_ids_by_hash(&shas_ref).await.unwrap_or_default();
+    if pid_by_sha.is_empty() {
+        return out;
+    }
+    let mut pids: Vec<String> = pid_by_sha.values().cloned().collect();
+    pids.sort();
+    pids.dedup();
+    let pids_ref: Vec<&str> = pids.iter().map(String::as_str).collect();
+    let side_by_pid = mr.server_side_bulk(&pids_ref).await.unwrap_or_default();
+    for (file, sha) in sha_by_file {
+        if let Some(pid) = pid_by_sha.get(&sha) {
+            if let Some(s) = side_by_pid.get(pid) {
+                out.insert(file, *s);
+            }
+        }
+    }
+    out
+}
 
 /// Собрать `ServerWithStatus` из файла + живого рантайм-статуса (running/pid/
 /// port) + флага наличия пароля в keyring. Единый источник для list/rename/
@@ -121,7 +230,7 @@ pub async fn server_create(
     max_heap_mb: u32,
     eula_accepted: bool,
     created_from_instance: Option<String>,
-) -> Result<ServerWithStatus> {
+) -> Result<ServerCreated> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let id = format!("srv-{}", crate::instances::ids::new_id());
     let file = ServerFile {
@@ -139,14 +248,31 @@ pub async fn server_create(
         upload: None,
     };
     provision_loader(&app, &base, &file).await?;
+    let mut quarantined: Vec<String> = Vec::new();
     if let Some(inst_id) = &file.created_from_instance {
         let src = crate::paths::mods_dir(&app, inst_id)
             .map_err(|e| crate::error::Error::io("<instance_mods_dir>", e))?;
         let dest = crate::paths::server_paths(&base, &file.id).mods;
         let copied = crate::servers_runtime::create::copy_instance_mods(&src, &dest)?;
         eprintln!("servers: copied {copied} mods from instance {inst_id}");
+        // Proactively set aside client-only mods so a modpack server can start
+        // instead of crashing one client mod at a time. Best-effort — never
+        // fails creation; a metadata miss degrades to offline detection.
+        let side_map = server_side_by_instance_mods(&app, inst_id).await;
+        match crate::servers_runtime::quarantine::quarantine_with_metadata(&dest, &side_map) {
+            Ok((disabled, _)) => {
+                if !disabled.is_empty() {
+                    eprintln!("servers: quarantined {} client mods", disabled.len());
+                }
+                quarantined = disabled;
+            }
+            Err(e) => eprintln!("servers: client-mod quarantine skipped: {e}"),
+        }
     }
-    Ok(ServerWithStatus::from_file(&file, false, None, None, false))
+    Ok(ServerCreated {
+        server: ServerWithStatus::from_file(&file, false, None, None, false),
+        quarantined,
+    })
 }
 
 /// Перечислить все серверы в `<app_data>/servers/`. Возвращает живой статус
@@ -451,6 +577,11 @@ pub async fn server_diagnose(
     if server_repair == Some(ServerRepairTag::StopOrphanAndRetry) && orphan_pid.is_none() {
         server_repair = None;
     }
+    // A missing-dep diagnosis whose dep ids we couldn't extract has nothing to
+    // install — drop to advisory rather than show a button that would no-op.
+    if server_repair == Some(ServerRepairTag::InstallMissingDep) && conflict_mods.is_empty() {
+        server_repair = None;
+    }
     // Server fixes live in `server_repair`, not the client `Diagnosis.repair`, so
     // classify_status returned Advisory. Upgrade to Actionable when a real fix is
     // offered (never override Handled/None).
@@ -509,6 +640,15 @@ pub async fn server_remove_mods(
 ) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
+    // Dependency safety: refuse to strip a mod another *remaining* mod requires.
+    if let Some((filename, required_by)) =
+        crate::servers_runtime::quarantine::first_required_conflict(&p.mods, &filenames)
+    {
+        return Err(Error::ServerModRequiredByOther {
+            filename,
+            required_by,
+        });
+    }
     for f in &filenames {
         if !crate::servers_runtime::runtime::is_safe_mod_name(f) {
             return Err(Error::io("<mod>", "invalid filename"));
@@ -590,6 +730,15 @@ pub async fn server_disable_mods(
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
+    // Dependency safety: refuse to disable a mod another *remaining* mod requires.
+    if let Some((filename, required_by)) =
+        crate::servers_runtime::quarantine::first_required_conflict(&p.mods, &filenames)
+    {
+        return Err(Error::ServerModRequiredByOther {
+            filename,
+            required_by,
+        });
+    }
     for f in &filenames {
         if !crate::servers_runtime::runtime::is_safe_mod_name(f) {
             return Err(Error::io("<mod>", "invalid filename"));
@@ -624,7 +773,7 @@ pub async fn server_install_missing_dep(
     app: AppHandle,
     id: String,
     mod_ids: Vec<String>,
-) -> Result<()> {
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }
@@ -642,6 +791,27 @@ pub async fn server_install_missing_dep(
         cf_key,
     )
     .await
+}
+
+/// Set aside client-only mods on an existing server (rename to `*.disabled`,
+/// reversible). Uses platform `server_side` metadata (hash-resolved) plus the
+/// offline Fabric/Quilt `environment`, and never sets aside a mod another kept
+/// mod requires (dependency-safe). Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_quarantine_client_mods(app: AppHandle, id: String) -> Result<QuarantineReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let side_map = server_side_by_server_mods(&p.mods).await;
+    let (disabled, result) =
+        crate::servers_runtime::quarantine::quarantine_with_metadata(&p.mods, &side_map)?;
+    Ok(QuarantineReport {
+        disabled,
+        kept_because_required: result.kept_because_required,
+    })
 }
 
 /// Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —

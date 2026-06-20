@@ -39,6 +39,29 @@ pub enum ModSort {
     Updated,
 }
 
+/// Platform-declared server support for a mod. Mirrors Modrinth's `server_side`
+/// field (`required` / `optional` / `unsupported` / `unknown`); `Unknown` also
+/// covers CurseForge (no clean flag) and any mod we could not identify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerSideSupport {
+    Required,
+    Optional,
+    Unsupported,
+    Unknown,
+}
+
+impl ServerSideSupport {
+    /// Parse Modrinth's `server_side` string. Unrecognized / absent → `Unknown`.
+    pub fn from_modrinth(s: Option<&str>) -> Self {
+        match s {
+            Some("required") => Self::Required,
+            Some("optional") => Self::Optional,
+            Some("unsupported") => Self::Unsupported,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 /// Best-effort loader detection from a release filename.
 ///
 /// Defends against upstream loader mis-tagging: some authors publish a
