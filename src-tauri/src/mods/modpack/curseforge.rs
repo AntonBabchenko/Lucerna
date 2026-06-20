@@ -381,7 +381,11 @@ mod tests {
 
     #[tokio::test]
     async fn parses_minimal_cf_pack() {
-        let _g = test_lock();
+        // Acquire the seam scope FIRST: it holds the shared test
+        // serialization lock for the whole body, so the in-memory CF key set by
+        // install_test_key() can't be cleared by a concurrent keyring test.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -406,11 +410,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.format, ModpackFormat::Curseforge);
         assert_eq!(r.loader, LoaderKind::Forge);
         assert_eq!(r.loader_version.as_deref(), Some("47.2.0"));
@@ -422,7 +424,11 @@ mod tests {
 
     #[tokio::test]
     async fn distribution_disabled_lands_in_unresolvable() {
-        let _g = test_lock();
+        // Acquire the seam scope FIRST: it holds the shared test
+        // serialization lock for the whole body, so the in-memory CF key set by
+        // install_test_key() can't be cleared by a concurrent keyring test.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -446,11 +452,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.files.len(), 1);
         assert_eq!(r.unresolvable.len(), 1);
         let u = &r.unresolvable[0];
@@ -464,7 +468,11 @@ mod tests {
 
     #[tokio::test]
     async fn distribution_disabled_without_sha1_records_none() {
-        let _g = test_lock();
+        // Acquire the seam scope FIRST: it holds the shared test
+        // serialization lock for the whole body, so the in-memory CF key set by
+        // install_test_key() can't be cleared by a concurrent keyring test.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -483,11 +491,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(resp))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.unresolvable.len(), 1);
         assert_eq!(r.unresolvable[0].sha1, None);
     }
@@ -519,7 +525,11 @@ mod tests {
 
     #[tokio::test]
     async fn resource_pack_file_routes_to_resourcepacks_dir() {
-        let _g = test_lock();
+        // Acquire the seam scope FIRST: it holds the shared test
+        // serialization lock for the whole body, so the in-memory CF key set by
+        // install_test_key() can't be cleared by a concurrent keyring test.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_test_key();
         let s = MockServer::start().await;
         let files = serde_json::json!({
@@ -550,11 +560,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(mods))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         let jei = r
             .files
             .iter()
@@ -571,7 +579,11 @@ mod tests {
 
     #[tokio::test]
     async fn missing_sha1_fails() {
-        let _g = test_lock();
+        // Acquire the seam scope FIRST: it holds the shared test
+        // serialization lock for the whole body, so the in-memory CF key set by
+        // install_test_key() can't be cleared by a concurrent keyring test.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_test_key();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
@@ -593,11 +605,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
         let zip = make_cf_zip(&sample_manifest());
         let r = parse(&zip, &s.uri()).await;
         clear_test_key();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::ModpackSha1Unavailable { .. })));
     }
 }

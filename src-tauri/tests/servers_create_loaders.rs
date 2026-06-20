@@ -41,7 +41,8 @@ async fn fabric_server_downloads_launcher_jar() {
         .respond_with(ResponseTemplate::new(200).set_body_bytes(b"fabric-launcher".to_vec()))
         .mount(&server)
         .await;
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam =
+        lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
     let base = tempdir().unwrap();
     let file = sample("srv-f", LoaderKind::Fabric);
@@ -49,7 +50,6 @@ async fn fabric_server_downloads_launcher_jar() {
     create_fabric_server(base.path(), &file, &jar_url)
         .await
         .unwrap();
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     let p = lucerna_lib::paths::server_paths(base.path(), "srv-f");
     assert!(p.runtime.join("server.jar").exists());
@@ -65,7 +65,8 @@ async fn quilt_server_downloads_launcher_jar() {
         .respond_with(ResponseTemplate::new(200).set_body_bytes(b"quilt-launcher".to_vec()))
         .mount(&server)
         .await;
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam =
+        lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
     let base = tempdir().unwrap();
     let file = sample("srv-q", LoaderKind::Quilt);
@@ -73,7 +74,6 @@ async fn quilt_server_downloads_launcher_jar() {
     create_quilt_server(base.path(), &file, &jar_url)
         .await
         .unwrap();
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     let p = lucerna_lib::paths::server_paths(base.path(), "srv-q");
     assert!(p.runtime.join("server.jar").exists());

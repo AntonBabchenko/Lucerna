@@ -529,7 +529,6 @@ mod tests {
 
     #[tokio::test]
     async fn summaries_batches_mods_and_skips_non_numeric() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/mods"))
@@ -550,10 +549,10 @@ mod tests {
             .mount(&s)
             .await;
         let c = client(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         // "abc" is non-numeric and must be dropped before the request is built.
         let out = c.summaries(&["10", "abc", "20"]).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].name, "JEI");
         assert_eq!(out[0].project_id, "10");
@@ -572,7 +571,6 @@ mod tests {
 
     #[tokio::test]
     async fn versions_by_ids_parses_files_with_deps() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/mods/files"))
@@ -592,9 +590,9 @@ mod tests {
             .mount(&s)
             .await;
         let c = client(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let out = c.versions_by_ids(&["555"]).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].project_id, "42"); // derived from the file's modId
         assert_eq!(out[0].version_id, "555");
@@ -628,7 +626,6 @@ mod tests {
 
     #[tokio::test]
     async fn unauthorized_clears_key_and_returns_invalid() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -647,9 +644,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = c.search(&q).await.unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModsPlatformAuth { kind } => {
                 assert_eq!(kind, crate::error::ModsAuthKind::Invalid)
@@ -660,7 +657,6 @@ mod tests {
 
     #[tokio::test]
     async fn project_maps_screenshots_and_sanitizes_description() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/77"))
@@ -682,10 +678,10 @@ mod tests {
             })))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let c = client(s.uri());
         let p = c.project("77").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(p.gallery.len(), 1);
         assert_eq!(p.gallery[0].url, "https://media.forgecdn.net/s.png");
         assert!(p.body_html.contains("<p>Hi</p>"));
@@ -694,7 +690,6 @@ mod tests {
 
     #[tokio::test]
     async fn search_parses_envelope() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -720,9 +715,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = client(s.uri()).search(&q).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "12345");
@@ -730,7 +725,6 @@ mod tests {
 
     #[tokio::test]
     async fn versions_marks_distribution_disabled_when_url_absent() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/12345/files"))
@@ -745,12 +739,12 @@ mod tests {
             ))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let v = client(s.uri())
             .versions("12345", Some("1.20.1"), Some(LoaderKind::Fabric))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 1);
         assert!(!v[0].primary_file.distribution_allowed);
     }
@@ -785,7 +779,6 @@ mod tests {
     async fn versions_filters_out_mismatched_loader() {
         // CF leaks a NeoForge file even when modLoaderType=Forge is requested.
         // The post-filter must drop it and keep only the Forge file.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/12345/files"))
@@ -805,12 +798,12 @@ mod tests {
             ))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let v = client(s.uri())
             .versions("12345", Some("1.20.1"), Some(LoaderKind::Forge))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 1, "only the Forge file should survive");
         assert_eq!(v[0].loaders, vec![LoaderKind::Forge]);
         assert_eq!(v[0].version_number, "x-forge.jar");
@@ -836,7 +829,6 @@ mod tests {
         // results/page must fan out into two ≤50 windows (index 0 + 50) and
         // stitch them — never sending pageSize=100. The mocks only match
         // pageSize=50, so a single pageSize=100 request would 404 and fail.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -868,9 +860,9 @@ mod tests {
             page_size: 100,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = client(s.uri()).search(&q).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.hits.len(), 100, "two 50-windows should stitch to 100");
         assert_eq!(page.total, 120);
         assert_eq!(page.page_size, 100, "returns the requested page size");
@@ -883,7 +875,6 @@ mod tests {
     async fn search_stops_early_when_window_underfills() {
         // Only 30 results exist though 100 were requested: the first window
         // returns < pageSize, so no second request is made.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -904,16 +895,15 @@ mod tests {
             page_size: 100,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = client(s.uri()).search(&q).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.hits.len(), 30);
         assert_eq!(page.total, 30);
     }
 
     #[tokio::test]
     async fn search_sends_class_id_for_shader_kind() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -935,9 +925,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = client(s.uri()).search(&q).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 0);
         assert!(page.hits.is_empty());
     }

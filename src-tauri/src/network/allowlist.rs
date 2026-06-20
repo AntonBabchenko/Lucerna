@@ -93,7 +93,7 @@ const ALLOWED_PATTERNS: &[&str] = &[
 /// the `LUCERNA_EXTRA_ALLOWED_HOSTS` env override.
 pub fn is_host_allowed(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if let Ok(extra) = std::env::var("LUCERNA_EXTRA_ALLOWED_HOSTS") {
+    if let Some(extra) = crate::test_seam::resolve("LUCERNA_EXTRA_ALLOWED_HOSTS") {
         for pat in extra.split(',').map(|s| s.trim().to_ascii_lowercase()) {
             if !pat.is_empty() && host_matches_pattern(&host, &pat) {
                 return true;
@@ -140,14 +140,6 @@ fn host_matches_pattern(host: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Serializes the env-var tests below: they mutate
-    // LUCERNA_EXTRA_ALLOWED_HOSTS, which is process-global and shared
-    // across cargo's parallel test threads. Uses the crate-wide lock so
-    // these tests also serialize with wiremock tests in other modules.
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
 
     #[test]
     fn wildcard_matches_subdomain() {
@@ -200,21 +192,18 @@ mod tests {
     }
 
     #[test]
-    fn env_override_enables_extra_hosts() {
-        let _g = env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    fn override_enables_extra_hosts() {
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         assert!(is_host_allowed("127.0.0.1"));
         assert!(is_host_allowed("localhost"));
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]
-    fn env_override_empty_is_noop() {
-        let _g = env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "");
+    fn override_empty_is_noop() {
+        let _seam = crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "")]);
         assert!(!is_host_allowed("127.0.0.1"));
         assert!(!is_host_allowed(""));
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]

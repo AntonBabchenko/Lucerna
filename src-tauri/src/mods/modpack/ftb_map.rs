@@ -295,10 +295,8 @@ mod tests {
 
     // Helper version with dist.modpacks.ch allowed via env override.
     fn with_dist_host<F: FnOnce() -> R, R>(f: F) -> R {
-        let _g = crate::test_env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "dist.modpacks.ch");
+        let _seam = crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "dist.modpacks.ch")]);
         let result = f();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         result
     }
 

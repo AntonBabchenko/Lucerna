@@ -580,7 +580,6 @@ mod tests {
     /// a download URL.
     #[tokio::test]
     async fn resolve_cf_refs_fills_url_and_backfills_sha1() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [{
@@ -594,11 +593,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         // sha1 empty — CF should backfill it.
         let mut summary = summary_with_cf_placeholder("238222", "4499899", "");
         resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(summary.files.len(), 1);
         assert!(summary.unresolvable.is_empty());
@@ -615,7 +614,6 @@ mod tests {
     /// resolve_cf_refs preserves an existing FTB sha1 even when CF also returns one.
     #[tokio::test]
     async fn resolve_cf_refs_preserves_existing_sha1() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [{
@@ -629,11 +627,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         // FTB sha1 already present — must be kept.
         let mut summary = summary_with_cf_placeholder("238222", "4499899", "ftb-sha1");
         resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(
             summary.files[0].sha1, "ftb-sha1",
@@ -644,7 +642,6 @@ mod tests {
     /// resolve_cf_refs moves a distribution-disabled file to unresolvable.
     #[tokio::test]
     async fn resolve_cf_refs_distribution_disabled_moves_to_unresolvable() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [{
@@ -658,10 +655,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let mut summary = summary_with_cf_placeholder("238222", "4499899", "");
         resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(
             summary.files.is_empty(),
@@ -680,7 +677,6 @@ mod tests {
     /// but provides no sha1 hash and FTB had none either (no-TOFU, B.6).
     #[tokio::test]
     async fn resolve_cf_refs_url_without_sha1_is_unresolvable() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         // CF returns a downloadUrl but an empty hashes array — no sha1.
         let body = serde_json::json!({
@@ -695,11 +691,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         // FTB also has no sha1.
         let mut summary = summary_with_cf_placeholder("238222", "4499899", "");
         resolve_cf_refs(&mut summary, &s.uri(), Some("test-key")).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(
             summary.files.is_empty(),
@@ -820,7 +816,6 @@ mod tests {
     /// detail, and tags hits with source=Ftb.
     #[tokio::test]
     async fn ftb_search_fetches_detail_per_id() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         // Single fixed-cap fetch covering the whole catalogue → path "200".
@@ -841,11 +836,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "test", 0, None, None, 20)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(page.hits.len(), 1);
         let hit = &page.hits[0];
@@ -871,7 +866,6 @@ mod tests {
     /// versions — only the matching one is returned when mc is set.
     #[tokio::test]
     async fn ftb_search_filters_mc_client_side() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         // Single fixed-cap fetch covering the whole catalogue → path "200".
@@ -901,11 +895,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "test", 0, Some("1.20.1"), None, 20)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(
             page.hits.len(),
@@ -918,7 +912,6 @@ mod tests {
     /// get_versions maps FtbVersionRef fields into ModpackVersionEntry correctly.
     #[tokio::test]
     async fn ftb_get_versions_maps_fields() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         Mock::given(method("GET"))
@@ -930,9 +923,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let versions = get_versions_impl(&s.uri(), "91").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(versions.len(), 1);
         let v = &versions[0];
@@ -947,7 +940,6 @@ mod tests {
     /// get_project maps body_html from description + gallery from art.
     #[tokio::test]
     async fn ftb_get_project_maps_detail() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         Mock::given(method("GET"))
@@ -959,9 +951,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let proj = get_project_impl(&s.uri(), "91").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(!proj.body_html.is_empty(), "body_html must be non-empty");
         // Both art entries are https:// — both should appear in gallery.
@@ -977,7 +969,6 @@ mod tests {
     /// and an https:// URL.
     #[tokio::test]
     async fn ftb_get_project_sets_website_from_links() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         let resp = serde_json::json!({
@@ -1000,9 +991,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let proj = get_project_impl(&s.uri(), "91").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(
             proj.website_url,
@@ -1014,7 +1005,6 @@ mod tests {
     /// get_project returns website_url = None when there is no website link.
     #[tokio::test]
     async fn ftb_get_project_no_website_link_yields_none() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         let resp = serde_json::json!({
@@ -1036,9 +1026,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let proj = get_project_impl(&s.uri(), "92").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(
             proj.website_url.is_none(),
@@ -1064,7 +1054,6 @@ mod tests {
     /// offset=2, total=3.
     #[tokio::test]
     async fn ftb_search_page_one_returns_second_window() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         // Single fixed-cap fetch covering the whole catalogue → path "200".
@@ -1086,11 +1075,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "test", 1, None, None, 2)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(
             page.hits.len(),
@@ -1109,7 +1098,6 @@ mod tests {
     /// and the pager could not advance past page 0 for FTB.
     #[tokio::test]
     async fn ftb_search_total_signals_more_pages_exist() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         // Single fixed-cap fetch returns the whole result set [1,2,3]; with
@@ -1134,11 +1122,11 @@ mod tests {
                 .await;
         }
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "test", 0, None, None, 2)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(page.hits.len(), 2, "page 0 shows page_size hits");
         assert!(
@@ -1164,7 +1152,6 @@ mod tests {
     /// fetched and the page would be empty, failing this test.
     #[tokio::test]
     async fn ftb_empty_query_uses_popular_endpoint() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         // Single fixed-cap popular fetch → path "200".
@@ -1184,9 +1171,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "", 0, None, None, 20).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(page.hits.len(), 1, "empty query should show popular packs");
         assert_eq!(page.hits[0].project_id, "91");
@@ -1197,7 +1184,6 @@ mod tests {
     /// `packs` field. This must degrade to an empty page, never an error.
     #[tokio::test]
     async fn ftb_too_short_term_yields_empty_page_not_error() {
-        let _g = test_lock();
         let s = MockServer::start().await;
 
         // Single fixed-cap fetch → path "200".
@@ -1209,11 +1195,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "ab", 0, None, None, 20)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(
             page.hits.len(),

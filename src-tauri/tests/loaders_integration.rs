@@ -56,8 +56,10 @@ async fn scenario_1_fabric_loader_list_happy_path() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FABRIC_META_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FABRIC_META_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::versions::loaders::clear_cache_for_test();
 
     let result = list_loaders(Loader::Fabric, "1.20.4").await;
@@ -66,9 +68,6 @@ async fn scenario_1_fabric_loader_list_happy_path() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].version, "0.15.7");
     assert!(entries[0].stable);
-
-    std::env::remove_var("LUCERNA_FABRIC_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -81,8 +80,10 @@ async fn scenario_2_loader_unavailable_when_meta_empty() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FABRIC_META_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FABRIC_META_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::versions::loaders::clear_cache_for_test();
 
     let result = list_loaders(Loader::Fabric, "1.6.4").await;
@@ -91,9 +92,6 @@ async fn scenario_2_loader_unavailable_when_meta_empty() {
         Err(Error::LoaderUnavailable { ref loader, ref mc_version })
             if loader == "fabric" && mc_version == "1.6.4"
     ));
-
-    std::env::remove_var("LUCERNA_FABRIC_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -107,17 +105,16 @@ async fn scenario_3_cache_hit_zero_second_call() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FABRIC_META_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FABRIC_META_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::versions::loaders::clear_cache_for_test();
 
     let r1 = list_loaders(Loader::Fabric, "1.20.4").await.unwrap();
     let r2 = list_loaders(Loader::Fabric, "1.20.4").await.unwrap();
     assert_eq!(r1, r2);
     // Mock's `.expect(1)` enforces the cache hit — wiremock panics on drop if violated.
-
-    std::env::remove_var("LUCERNA_FABRIC_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -130,8 +127,10 @@ async fn scenario_4_quilt_loader_list_happy_path() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::versions::loaders::clear_cache_for_test();
 
     let result = list_loaders(Loader::Quilt, "1.20.4").await;
@@ -140,9 +139,6 @@ async fn scenario_4_quilt_loader_list_happy_path() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].version, "0.23.1");
     assert!(entries[0].stable, "0.23.1 has no `-` qualifier -> stable");
-
-    std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[test]

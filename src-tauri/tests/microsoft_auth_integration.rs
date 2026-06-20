@@ -8,11 +8,6 @@ use lucerna_lib::error::Error;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Serialise env-var mutations across all tests in this integration binary.
-/// Each integration test file compiles to its own binary, so this lock is
-/// file-scoped and independent from locks in unit tests.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 const MS_TOKEN_FIXTURE: &str =
     r#"{"access_token":"ms-tok","refresh_token":"rt-1","expires_in":3600}"#;
 const XBL_FIXTURE: &str = r#"{"Token":"xbl-tok","DisplayClaims":{"xui":[{"uhs":"uhs-xyz"}]}}"#;
@@ -50,88 +45,79 @@ fn mount_happy_chain(server: &MockServer) -> impl std::future::Future<Output = (
     }
 }
 
-fn set_chain_overrides(server: &MockServer) {
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var(
-        "LUCERNA_MS_TOKEN_URL_OVERRIDE",
-        format!("{}/oauth2/v2.0/token", server.uri()),
-    );
-    std::env::set_var(
-        "LUCERNA_XBL_URL_OVERRIDE",
-        format!("{}/user/authenticate", server.uri()),
-    );
-    std::env::set_var(
-        "LUCERNA_XSTS_URL_OVERRIDE",
-        format!("{}/xsts/authorize", server.uri()),
-    );
-    std::env::set_var(
-        "LUCERNA_MC_LOGIN_URL_OVERRIDE",
-        format!("{}/authentication/login_with_xbox", server.uri()),
-    );
-    std::env::set_var(
-        "LUCERNA_MC_PROFILE_URL_OVERRIDE",
-        format!("{}/minecraft/profile", server.uri()),
-    );
-    std::env::set_var("LUCERNA_LISTENER_TIMEOUT_SECS", "5");
-}
-
-fn clear_chain_overrides() {
-    for var in [
-        "LUCERNA_EXTRA_ALLOWED_HOSTS",
-        "LUCERNA_MS_TOKEN_URL_OVERRIDE",
-        "LUCERNA_XBL_URL_OVERRIDE",
-        "LUCERNA_XSTS_URL_OVERRIDE",
-        "LUCERNA_MC_LOGIN_URL_OVERRIDE",
-        "LUCERNA_MC_PROFILE_URL_OVERRIDE",
-        "LUCERNA_LISTENER_TIMEOUT_SECS",
-    ] {
-        std::env::remove_var(var);
-    }
+/// Install the full wiremock auth-chain overrides via the in-process test
+/// seam. The returned guard reverts them on drop and holds the seam's
+/// process-wide lock for the caller's whole test body, so concurrent tests in
+/// this binary stay serialized without mutating `environ`.
+fn chain_overrides(server: &MockServer) -> lucerna_lib::test_seam::SeamScope {
+    lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        (
+            "LUCERNA_MS_TOKEN_URL_OVERRIDE",
+            &format!("{}/oauth2/v2.0/token", server.uri()),
+        ),
+        (
+            "LUCERNA_XBL_URL_OVERRIDE",
+            &format!("{}/user/authenticate", server.uri()),
+        ),
+        (
+            "LUCERNA_XSTS_URL_OVERRIDE",
+            &format!("{}/xsts/authorize", server.uri()),
+        ),
+        (
+            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
+            &format!("{}/authentication/login_with_xbox", server.uri()),
+        ),
+        (
+            "LUCERNA_MC_PROFILE_URL_OVERRIDE",
+            &format!("{}/minecraft/profile", server.uri()),
+        ),
+        ("LUCERNA_LISTENER_TIMEOUT_SECS", "5"),
+    ])
 }
 
 // ── Scenario 1: XBL endpoint reachable through audited HTTP ─────────────────
 
 #[tokio::test]
 async fn xbl_endpoint_reachable_through_audited_http() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/user/authenticate"))
         .respond_with(ResponseTemplate::new(200).set_body_string(XBL_FIXTURE))
         .mount(&server)
         .await;
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var(
-        "LUCERNA_XBL_URL_OVERRIDE",
-        format!("{}/user/authenticate", server.uri()),
-    );
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        (
+            "LUCERNA_XBL_URL_OVERRIDE",
+            &format!("{}/user/authenticate", server.uri()),
+        ),
+    ]);
 
     let res = lucerna_lib::accounts::microsoft::__test_xbl_authenticate("ms-tok").await;
     assert!(res.is_ok(), "got {res:?}");
     let (token, uhs) = res.unwrap();
     assert_eq!(token, "xbl-tok");
     assert_eq!(uhs, "uhs-xyz");
-
-    std::env::remove_var("LUCERNA_XBL_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 // ── Scenario 2: XSTS child-account XErr propagates ──────────────────────────
 
 #[tokio::test]
 async fn xsts_child_account_error_propagates() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/xsts/authorize"))
         .respond_with(ResponseTemplate::new(401).set_body_string(r#"{"XErr":2148916238}"#))
         .mount(&server)
         .await;
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var(
-        "LUCERNA_XSTS_URL_OVERRIDE",
-        format!("{}/xsts/authorize", server.uri()),
-    );
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        (
+            "LUCERNA_XSTS_URL_OVERRIDE",
+            &format!("{}/xsts/authorize", server.uri()),
+        ),
+    ]);
 
     let result = lucerna_lib::accounts::microsoft::__test_xsts_authorize("xbl-tok").await;
     match result {
@@ -141,43 +127,37 @@ async fn xsts_child_account_error_propagates() {
         }
         other => panic!("expected child_account, got {other:?}"),
     }
-
-    std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 // ── Scenario 3: MC profile 404 surfaces NoMinecraftProfile ──────────────────
 
 #[tokio::test]
 async fn mc_profile_404_surfaces_no_minecraft_profile() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/minecraft/profile"))
         .respond_with(ResponseTemplate::new(404).set_body_string("{}"))
         .mount(&server)
         .await;
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var(
-        "LUCERNA_MC_PROFILE_URL_OVERRIDE",
-        format!("{}/minecraft/profile", server.uri()),
-    );
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        (
+            "LUCERNA_MC_PROFILE_URL_OVERRIDE",
+            &format!("{}/minecraft/profile", server.uri()),
+        ),
+    ]);
 
     let result = lucerna_lib::accounts::microsoft::__test_fetch_profile("mc-tok").await;
     assert!(matches!(result, Err(Error::NoMinecraftProfile)));
-
-    std::env::remove_var("LUCERNA_MC_PROFILE_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 // ── Scenario 4: Happy-path full chain via test seam ──────────────────────────
 
 #[tokio::test]
 async fn full_chain_smoke_via_test_seam() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let server = MockServer::start().await;
     mount_happy_chain(&server).await;
-    set_chain_overrides(&server);
+    let _seam = chain_overrides(&server);
 
     // Drive xbl → xsts → mc login → profile through the test seam.
     let (xbl_tok, _) = lucerna_lib::accounts::microsoft::__test_xbl_authenticate("ms-tok")
@@ -194,8 +174,6 @@ async fn full_chain_smoke_via_test_seam() {
         .unwrap();
     assert_eq!(profile.0, "7e8d9c0a123456789abcdef012345678");
     assert_eq!(profile.1, "PlayerMC");
-
-    clear_chain_overrides();
 }
 
 // ── Scenario 5: Account-file v1 migration happy path ────────────────────────
@@ -225,8 +203,6 @@ fn account_file_v1_migration_happy_path() {
 
 #[tokio::test]
 async fn full_chain_403_invalid_app_registration_maps_to_pending_approval() {
-    let _guard = ENV_LOCK.lock().unwrap();
-
     let server = MockServer::start().await;
 
     // MS OAuth token endpoint — happy.
@@ -274,19 +250,21 @@ async fn full_chain_403_invalid_app_registration_maps_to_pending_approval() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
-    std::env::set_var(
-        "LUCERNA_XBL_URL_OVERRIDE",
-        format!("{}/user/authenticate", server.uri()),
-    );
-    std::env::set_var(
-        "LUCERNA_XSTS_URL_OVERRIDE",
-        format!("{}/xsts/authorize", server.uri()),
-    );
-    std::env::set_var(
-        "LUCERNA_MC_LOGIN_URL_OVERRIDE",
-        format!("{}/authentication/login_with_xbox", server.uri()),
-    );
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1"),
+        (
+            "LUCERNA_XBL_URL_OVERRIDE",
+            &format!("{}/user/authenticate", server.uri()),
+        ),
+        (
+            "LUCERNA_XSTS_URL_OVERRIDE",
+            &format!("{}/xsts/authorize", server.uri()),
+        ),
+        (
+            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
+            &format!("{}/authentication/login_with_xbox", server.uri()),
+        ),
+    ]);
 
     // Exercise the post-callback chain by calling module-level functions
     // directly. `exchange_code_for_token` takes `token_url` as an explicit
@@ -313,11 +291,6 @@ async fn full_chain_403_invalid_app_registration_maps_to_pending_approval() {
     let result =
         lucerna_lib::accounts::microsoft::mc_services::login_with_xbox(&xsts.userhash, &xsts.token)
             .await;
-
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-    std::env::remove_var("LUCERNA_XBL_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
 
     assert!(
         matches!(result, Err(lucerna_lib::error::Error::AuthPendingApproval)),

@@ -558,10 +558,6 @@ mod tests {
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     fn search_body() -> serde_json::Value {
         serde_json::json!({
             "data": [{
@@ -602,7 +598,6 @@ mod tests {
         // packs/page must fan out into two ≤50 windows (index 0 + 50) and
         // stitch them — never sending pageSize=100. The mocks only match
         // pageSize=50, so a single pageSize=100 request would 404 and fail.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -624,7 +619,8 @@ mod tests {
             })))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(
             &s.uri(),
             Some("k"),
@@ -637,7 +633,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.hits.len(), 100, "two 50-windows should stitch to 100");
         assert_eq!(r.total, 120);
         assert_eq!(r.limit, 100, "returns the requested page size");
@@ -650,7 +645,6 @@ mod tests {
     async fn search_stops_early_when_window_underfills() {
         // Only 30 packs exist though 100 were requested: the first window
         // returns < pageSize, so no second request is made.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -661,7 +655,8 @@ mod tests {
             })))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(
             &s.uri(),
             Some("k"),
@@ -674,14 +669,12 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.hits.len(), 30);
         assert_eq!(r.total, 30);
     }
 
     #[tokio::test]
     async fn search_sends_game_and_class_ids() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
@@ -690,7 +683,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(
             &s.uri(),
             Some("k"),
@@ -703,7 +697,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 2);
         assert_eq!(r.hits[0].title, "RLCraft");
         assert_eq!(r.hits[0].project_id, "1234");
@@ -712,14 +705,14 @@ mod tests {
 
     #[tokio::test]
     async fn search_maps_allow_mod_distribution() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/search"))
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(
             &s.uri(),
             Some("k"),
@@ -732,7 +725,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         // First hit has allowModDistribution:false; second omits it.
         assert_eq!(r.hits[0].distribution_allowed, Some(false));
         assert_eq!(r.hits[1].distribution_allowed, None);
@@ -740,7 +732,6 @@ mod tests {
 
     #[tokio::test]
     async fn search_maps_sort_to_curseforge_sort_field() {
-        let _g = test_lock();
         // Downloads -> sortField=6.
         let s = MockServer::start().await;
         Mock::given(method("GET"))
@@ -750,7 +741,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(search_body()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         search(
             &s.uri(),
             Some("k"),
@@ -784,7 +776,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -815,7 +806,6 @@ mod tests {
 
     #[tokio::test]
     async fn list_files_maps_and_sorts_newest_first() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [
@@ -833,9 +823,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let v = list_files(&s.uri(), Some("k"), "1234").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].id, "22"); // newest first
         assert_eq!(v[0].name, "RLCraft 2.9.3");
@@ -859,7 +849,6 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_file_download_returns_url() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 22, "displayName": "RLCraft 2.9.3", "fileName": "rl.zip",
@@ -872,17 +861,16 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let url = resolve_file_download(&s.uri(), Some("k"), "1234", "22")
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(url, "https://edge.forgecdn.net/files/22/rl.zip");
     }
 
     #[tokio::test]
     async fn fetch_summary_returns_name_and_summary() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 1234, "slug": "rlcraft", "name": "RLCraft",
@@ -893,25 +881,24 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(name.as_deref(), Some("RLCraft"));
         assert_eq!(summary.as_deref(), Some("A hard pack"));
     }
 
     #[tokio::test]
     async fn fetch_summary_non_2xx_is_none() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/1234"))
             .respond_with(ResponseTemplate::new(404))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (name, summary) = fetch_summary(&s.uri(), Some("k"), "1234").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(name.is_none() && summary.is_none());
     }
 
@@ -925,7 +912,6 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_project_detail_maps_screenshots_and_description() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/mods/1234"))
@@ -944,11 +930,11 @@ mod tests {
             })))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let d = fetch_project_detail(&s.uri(), Some("k"), "1234")
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(d.gallery.len(), 1);
         assert_eq!(d.gallery[0].url, "https://media.forgecdn.net/p.png");
         assert!(d.body_html.contains("<p>Pack</p>"));
@@ -958,7 +944,6 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_files_maps_download_url_and_sha1() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [
@@ -977,11 +962,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let map = resolve_files(&s.uri(), Some("k"), &[111, 222])
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         // File 111: has a downloadUrl and a sha1.
         let f111 = map.get(&111).expect("file 111 must be present");
         assert_eq!(
@@ -1022,7 +1007,6 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_file_download_null_url_is_distribution_disabled() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": { "id": 22, "displayName": "Locked Pack", "fileName": "lp.zip",
@@ -1034,11 +1018,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = resolve_file_download(&s.uri(), Some("k"), "1234", "22")
             .await
             .unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         match err {
             Error::ModpackCfDistributionDisabled { pack_name } => {
                 assert_eq!(pack_name, "Locked Pack");

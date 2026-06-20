@@ -158,13 +158,8 @@ mod tests {
     use wiremock::matchers::{method, path, query_param_contains};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     #[tokio::test]
     async fn search_returns_normalised_hits() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
             "hits": [{
@@ -189,11 +184,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(&s.uri(), "test", 0, None, None, ModpackSort::Relevance, 20)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 1);
         assert_eq!(r.hits[0].project_id, "PaCk1");
         assert_eq!(r.hits[0].supported_loaders, vec![LoaderKind::Fabric]);
@@ -204,7 +199,6 @@ mod tests {
 
     #[tokio::test]
     async fn search_with_filters_facets() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
             "hits": [],
@@ -219,7 +213,8 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(
             &s.uri(),
             "x",
@@ -231,13 +226,11 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 0);
     }
 
     #[tokio::test]
     async fn search_with_sort_includes_index_param() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
             "hits": [],
@@ -252,11 +245,11 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search(&s.uri(), "x", 0, None, None, ModpackSort::Downloads, 20)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.total, 0);
     }
 }
