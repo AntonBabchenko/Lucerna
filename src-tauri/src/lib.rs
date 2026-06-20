@@ -15,6 +15,10 @@ pub mod playtime;
 pub mod process;
 pub mod servers;
 pub mod servers_runtime;
+/// In-process test seams replacing the `LUCERNA_*` env-var test overrides
+/// (see the module docs for the glibc `setenv`/`getenv` heap-corruption flake
+/// they avoid). Public so the `tests/` integration binaries can call `scope`.
+pub mod test_seam;
 pub mod tray;
 pub mod update;
 pub mod verify;
@@ -22,16 +26,18 @@ pub mod versions;
 pub mod window;
 pub mod worlds;
 
-/// Process-wide lock for tests that mutate `LUCERNA_EXTRA_ALLOWED_HOSTS`.
-/// All wiremock-backed unit tests must hold this lock for the duration of
-/// the test so that parallel threads don't race on the env-var state.
+/// General-purpose process-wide lock for the few tests that need exclusive
+/// access to a global (e.g. the in-memory keyring backend's `TEST_KEY`).
+///
+/// Env-var test overrides no longer go through here — they migrated to the
+/// in-process [`test_seam`] registry, so nothing mutates `environ` during the
+/// parallel test run anymore. This delegates to `test_seam`'s scope lock so
+/// that those non-env global-state tests and the seam scopes share ONE
+/// serialization domain (a key set under this lock can't be cleared by a
+/// concurrent seam-holding test, and vice versa).
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    crate::test_seam::serialization_lock()
 }
 
 use tauri_specta::{collect_commands, collect_events, Builder};

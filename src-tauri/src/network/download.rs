@@ -192,7 +192,6 @@ mod tests {
 
     #[tokio::test]
     async fn download_inner_md5_verifies_and_returns_sha1() {
-        let _g = test_lock();
         let body = b"atlauncher-mod-bytes";
         let md5_hex = hex::encode(Md5::digest(body));
         let sha1_hex = hex::encode(Sha1::digest(body));
@@ -202,7 +201,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let dir = tempdir().unwrap();
         let dest = dir.path().join("mod.jar");
         let got_sha1 = download_inner(
@@ -214,7 +214,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(
             got_sha1, sha1_hex,
             "must return the sha1 computed over the bytes"
@@ -223,7 +222,6 @@ mod tests {
 
     #[tokio::test]
     async fn download_inner_md5_mismatch_errors_and_deletes() {
-        let _g = test_lock();
         let body = b"atlauncher-mod-bytes";
         let s = MockServer::start().await;
         Mock::given(method("GET"))
@@ -231,7 +229,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let dir = tempdir().unwrap();
         let dest = dir.path().join("mod.jar");
         let r = download_inner(
@@ -242,14 +241,12 @@ mod tests {
             |_| {},
         )
         .await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::HashMismatch { .. })));
         assert!(!dest.exists(), "partial file must be deleted on mismatch");
     }
 
     #[tokio::test]
     async fn empty_expected_sha_skips_verification() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/loader-lib.jar"))
@@ -257,13 +254,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let dir = tempdir().unwrap();
         let dest = dir.path().join("loader-lib.jar");
         let url = format!("{}/loader-lib.jar", server.uri());
 
         let result = download_no_emit(&url, &dest, "", "test").await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(result.is_ok(), "expected ok, got {result:?}");
         assert!(dest.exists());
@@ -273,7 +270,6 @@ mod tests {
 
     #[tokio::test]
     async fn nonempty_sha_mismatch_still_errors() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/x.jar"))
@@ -281,7 +277,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let dir = tempdir().unwrap();
         let dest = dir.path().join("x.jar");
         let url = format!("{}/x.jar", server.uri());
@@ -293,7 +290,6 @@ mod tests {
             "test",
         )
         .await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(matches!(result, Err(Error::HashMismatch { .. })));
         assert!(

@@ -125,10 +125,6 @@ pub async fn upload_to_mclogs_at(base: &str, content: &str) -> Result<String> {
 mod tests {
     use super::*;
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     #[test]
     fn anonymise_strips_windows_user_path_basic() {
         let input = r"at file:/C:/Users/Player/AppData/Roaming/Lucerna/something";
@@ -207,7 +203,6 @@ mod tests {
 
     #[tokio::test]
     async fn upload_returns_url_on_success() {
-        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -221,17 +216,16 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let url = upload_to_mclogs_at(&server.uri(), "test content")
             .await
             .expect("upload ok");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(url, "https://mclo.gs/abcdef");
     }
 
     #[tokio::test]
     async fn upload_returns_error_on_4xx() {
-        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -240,17 +234,16 @@ mod tests {
             .respond_with(ResponseTemplate::new(413).set_body_string("Log too large"))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = upload_to_mclogs_at(&server.uri(), "test")
             .await
             .unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, crate::error::Error::McLogsUpload { .. }));
     }
 
     #[tokio::test]
     async fn upload_returns_error_on_success_false() {
-        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -262,11 +255,11 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = upload_to_mclogs_at(&server.uri(), "test")
             .await
             .unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, crate::error::Error::McLogsUpload { .. }));
     }
 }

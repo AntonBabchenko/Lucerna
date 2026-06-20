@@ -33,8 +33,7 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
     use tauri_plugin_opener::OpenerExt;
     let _ = app.opener().open_url(&auth_url, None::<&str>);
 
-    let timeout = std::env::var("LUCERNA_LISTENER_TIMEOUT_SECS")
-        .ok()
+    let timeout = crate::test_seam::resolve("LUCERNA_LISTENER_TIMEOUT_SECS")
         .and_then(|s| s.parse::<u64>().ok())
         .map(Duration::from_secs)
         .unwrap_or(LISTENER_TIMEOUT_DEFAULT);
@@ -62,8 +61,8 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
         });
     }
 
-    let token_url = std::env::var("LUCERNA_MS_TOKEN_URL_OVERRIDE")
-        .unwrap_or_else(|_| oauth::MS_TOKEN_URL.to_string());
+    let token_url = crate::test_seam::resolve("LUCERNA_MS_TOKEN_URL_OVERRIDE")
+        .unwrap_or_else(|| oauth::MS_TOKEN_URL.to_string());
     let ms_token =
         oauth::exchange_code_for_token(&code, &pkce.verifier, &redirect_uri, &token_url).await?;
 
@@ -111,8 +110,8 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
                 details: format!("no refresh token found for account {account_id}"),
             }
         })?;
-    let token_url = std::env::var("LUCERNA_MS_TOKEN_URL_OVERRIDE")
-        .unwrap_or_else(|_| oauth::MS_TOKEN_URL.to_string());
+    let token_url = crate::test_seam::resolve("LUCERNA_MS_TOKEN_URL_OVERRIDE")
+        .unwrap_or_else(|| oauth::MS_TOKEN_URL.to_string());
     let ms_token = exchange_refresh_token(&refresh_token, &token_url).await?;
 
     let (xbl_token, _uhs) = xbox::xbl_authenticate(&ms_token.access_token).await?;
@@ -197,21 +196,4 @@ async fn exchange_refresh_token(
             stage: "refresh".into(),
             details: format!("parse: {e}"),
         })
-}
-
-/// Env-var lock for MS auth tests. Every test in `oauth`, `xbox`,
-/// `mc_services` that mutates `LUCERNA_EXTRA_ALLOWED_HOSTS` (or any other
-/// process-global env var) must hold this guard from before the mutation
-/// until the assertion completes.
-///
-/// Delegates to the crate-wide [`crate::test_env_lock`]: a per-submodule —
-/// or even per-MS-module — lock is not enough, because
-/// `LUCERNA_EXTRA_ALLOWED_HOSTS` is read by the network allowlist for
-/// *every* wiremock-backed test in the crate (mods/install, network/*,
-/// modpack/*, …). Those tests serialize on the crate lock, so the MS auth
-/// tests must take the same one or they race a `remove_var` into another
-/// module's set-var/fetch window (observed as a spurious `HostNotAllowed`).
-#[cfg(test)]
-pub(super) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    crate::test_env_lock()
 }

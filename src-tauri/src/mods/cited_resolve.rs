@@ -508,8 +508,8 @@ mod tests {
 
     #[tokio::test]
     async fn missing_mod_with_exact_slug_resolves_to_exact_tier() {
-        let _env = crate::test_env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
         use crate::logs::diagnose::server_mods::{CitedKind, CitedMod};
         use crate::mods::modrinth::ModrinthClient;
@@ -576,7 +576,6 @@ mod tests {
         }];
 
         let out = resolve(&cited, "1.20.1", LoaderKind::Forge, &mr, &mr, &[]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(out.len(), 1);
         match &out[0].tier {
@@ -591,8 +590,8 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_mod_resolves_to_unresolved() {
-        let _env = crate::test_env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
         use crate::logs::diagnose::server_mods::{CitedKind, CitedMod};
         use crate::mods::modrinth::ModrinthClient;
@@ -624,7 +623,6 @@ mod tests {
         }];
 
         let out = resolve(&cited, "1.20.1", LoaderKind::Forge, &mr, &mr, &[]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(out.len(), 1);
         assert!(
@@ -641,8 +639,8 @@ mod tests {
         // tokenized away), while the word-segmented query `farmers delight`
         // surfaces the real `farmers-delight`. Segmentation must promote the
         // real project to Exact rather than settling for the compat patch.
-        let _env = crate::test_env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
         use crate::logs::diagnose::server_mods::{CitedKind, CitedMod};
         use crate::mods::modrinth::ModrinthClient;
@@ -736,7 +734,6 @@ mod tests {
         }];
 
         let out = resolve(&cited, "1.20.1", LoaderKind::Forge, &mr, &mr, &[]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(out.len(), 1);
         match &out[0].tier {

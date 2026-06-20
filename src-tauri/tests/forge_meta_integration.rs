@@ -59,9 +59,11 @@ async fn list_versions_returns_sorted_with_recommended_tagged() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FORGE_META_OVERRIDE", &server.uri()),
+        ("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::forge::meta::clear_cache_for_test();
 
     let entries = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.20.4")
@@ -73,10 +75,6 @@ async fn list_versions_returns_sorted_with_recommended_tagged() {
     assert_eq!(entries[1].version, "49.0.30");
     assert!(entries[1].stable, "49.0.30 is recommended");
     assert_eq!(entries[2].version, "49.0.0");
-
-    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -94,9 +92,11 @@ async fn list_versions_filters_to_mc() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FORGE_META_OVERRIDE", &server.uri()),
+        ("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::forge::meta::clear_cache_for_test();
 
     let entries = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.7.10")
@@ -105,10 +105,6 @@ async fn list_versions_filters_to_mc() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].version, "10.13.4.1614");
     assert!(entries[0].stable);
-
-    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -126,9 +122,11 @@ async fn list_versions_promotions_404_falls_back_to_top_non_beta_stable() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FORGE_META_OVERRIDE", &server.uri()),
+        ("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::forge::meta::clear_cache_for_test();
 
     let entries = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "1.20.4")
@@ -144,10 +142,6 @@ async fn list_versions_promotions_404_falls_back_to_top_non_beta_stable() {
         "top non-beta is the fallback stable pick"
     );
     assert_eq!(entries.iter().filter(|e| e.stable).count(), 1);
-
-    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }
 
 #[tokio::test]
@@ -165,9 +159,11 @@ async fn list_versions_unknown_mc_returns_loader_unavailable() {
         .mount(&server)
         .await;
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    std::env::set_var("LUCERNA_FORGE_META_OVERRIDE", server.uri());
-    std::env::set_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", server.uri());
+    let _seam = lucerna_lib::test_seam::scope(&[
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ("LUCERNA_FORGE_META_OVERRIDE", &server.uri()),
+        ("LUCERNA_FORGE_PROMOTIONS_OVERRIDE", &server.uri()),
+    ]);
     lucerna_lib::forge::meta::clear_cache_for_test();
 
     let err = lucerna_lib::forge::meta::list_versions(ForgeFlavor::Forge, "99.99.99")
@@ -180,8 +176,4 @@ async fn list_versions_unknown_mc_returns_loader_unavailable() {
         }
         other => panic!("expected LoaderUnavailable, got {other:?}"),
     }
-
-    std::env::remove_var("LUCERNA_FORGE_META_OVERRIDE");
-    std::env::remove_var("LUCERNA_FORGE_PROMOTIONS_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }

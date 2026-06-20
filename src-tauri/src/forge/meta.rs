@@ -358,7 +358,7 @@ fn meta_url_for(flavor: ForgeFlavor) -> String {
         ForgeFlavor::Forge => "LUCERNA_FORGE_META_OVERRIDE",
         ForgeFlavor::NeoForge => "LUCERNA_NEOFORGE_META_OVERRIDE",
     };
-    if let Ok(base) = std::env::var(env_key) {
+    if let Some(base) = crate::test_seam::resolve(env_key) {
         // Treat the override as a base — append the maven-metadata.xml path.
         format!("{}/maven-metadata.xml", base.trim_end_matches('/'))
     } else {
@@ -371,7 +371,7 @@ fn promotions_url_for(flavor: ForgeFlavor) -> Option<String> {
         ForgeFlavor::Forge => "LUCERNA_FORGE_PROMOTIONS_OVERRIDE",
         ForgeFlavor::NeoForge => "LUCERNA_NEOFORGE_PROMOTIONS_OVERRIDE",
     };
-    if let Ok(base) = std::env::var(env_key) {
+    if let Some(base) = crate::test_seam::resolve(env_key) {
         Some(format!(
             "{}/promotions_slim.json",
             base.trim_end_matches('/')
@@ -569,7 +569,7 @@ pub async fn fetch_installer_bytes_in(
     // form. Pass it through; for everything else `None` falls back to
     // the canonical `<mc>-<fv>` form.
     let raw = cached_raw_version(flavor, mc, fv);
-    let url = if let Ok(base) = std::env::var(match flavor {
+    let url = if let Some(base) = crate::test_seam::resolve(match flavor {
         ForgeFlavor::Forge => "LUCERNA_FORGE_INSTALLER_OVERRIDE",
         ForgeFlavor::NeoForge => "LUCERNA_NEOFORGE_INSTALLER_OVERRIDE",
     }) {
@@ -1094,18 +1094,8 @@ mod tests {
     // NeoForge is used throughout so the Forge maven-metadata build-exists
     // guard (which only runs for `ForgeFlavor::Forge`) is skipped, keeping
     // each test to two mocked requests: the installer and its `.sha1`.
-    fn set_neoforge_override(uri: &str) {
-        std::env::set_var("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", uri);
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-    }
-    fn clear_neoforge_override() {
-        std::env::remove_var("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-    }
-
     #[tokio::test]
     async fn installer_fetch_verifies_sha1_and_caches() {
-        let _g = crate::test_env_lock();
         let installer = b"neoforge-installer-bytes";
         let sha = hex::encode(Sha1::digest(installer));
         let s = MockServer::start().await;
@@ -1123,13 +1113,12 @@ mod tests {
             .mount(&s)
             .await;
         let td = TempDir::new().unwrap();
-        set_neoforge_override(&s.uri());
-        // Clear the process-global override env BEFORE asserting, so a panic
-        // on a failed assertion cannot leak it into later (lock-serialised)
-        // tests.
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", &s.uri()),
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ]);
         let result =
             fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
-        clear_neoforge_override();
         let bytes = result.expect("a verified installer must be returned");
         assert_eq!(bytes, installer);
         assert!(installer_cache_path(td.path(), "1.21.1", "21.1.0").exists());
@@ -1137,7 +1126,6 @@ mod tests {
 
     #[tokio::test]
     async fn installer_fetch_rejects_sha1_mismatch_and_writes_nothing() {
-        let _g = crate::test_env_lock();
         let installer = b"neoforge-installer-bytes";
         let s = MockServer::start().await;
         Mock::given(method("GET"))
@@ -1151,10 +1139,12 @@ mod tests {
             .mount(&s)
             .await;
         let td = TempDir::new().unwrap();
-        set_neoforge_override(&s.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", &s.uri()),
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ]);
         let result =
             fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
-        clear_neoforge_override();
         let err = result.expect_err("a SHA-1 mismatch must be rejected");
         assert!(
             matches!(err, Error::ForgeInstallerCorrupted { .. }),
@@ -1166,7 +1156,6 @@ mod tests {
 
     #[tokio::test]
     async fn installer_fetch_rejects_missing_sidecar() {
-        let _g = crate::test_env_lock();
         let installer = b"neoforge-installer-bytes";
         let s = MockServer::start().await;
         Mock::given(method("GET"))
@@ -1176,10 +1165,12 @@ mod tests {
             .await;
         // No `.sha1` mock → the sidecar request 404s. No-TOFU: hard error.
         let td = TempDir::new().unwrap();
-        set_neoforge_override(&s.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_NEOFORGE_INSTALLER_OVERRIDE", &s.uri()),
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+        ]);
         let result =
             fetch_installer_bytes_in(td.path(), ForgeFlavor::NeoForge, "1.21.1", "21.1.0").await;
-        clear_neoforge_override();
         let err = result.expect_err("a missing sidecar must be a hard error");
         assert!(
             matches!(err, Error::ForgeInstallerCorrupted { .. }),

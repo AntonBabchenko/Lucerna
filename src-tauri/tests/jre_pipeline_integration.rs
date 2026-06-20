@@ -66,11 +66,13 @@ async fn fetches_top_level_via_env_override_and_caches() {
         .mount(&server)
         .await;
 
-    std::env::set_var(
-        "LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE",
-        format!("{}/all.json", server.uri()),
-    );
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam = lucerna_lib::test_seam::scope(&[
+        (
+            "LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE",
+            &format!("{}/all.json", server.uri()),
+        ),
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+    ]);
 
     let top = fetch_top_level().await.expect("fetch");
     let gamma = pick_component(&top, "windows-x64", "java-runtime-gamma").expect("pick gamma");
@@ -82,8 +84,6 @@ async fn fetches_top_level_via_env_override_and_caches() {
     let top2 = fetch_top_level().await.expect("from cache");
     assert!(top2.0.contains_key("windows-x64"));
 
-    std::env::remove_var("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     clear_cache_for_test();
 }
 
@@ -100,19 +100,19 @@ async fn pick_component_falls_through_to_unknown_version_for_missing_component()
         .mount(&server)
         .await;
 
-    std::env::set_var(
-        "LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE",
-        format!("{}/all.json", server.uri()),
-    );
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam = lucerna_lib::test_seam::scope(&[
+        (
+            "LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE",
+            &format!("{}/all.json", server.uri()),
+        ),
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+    ]);
 
     let top = fetch_top_level().await.expect("fetch");
     let err = pick_component(&top, "linux", "jre-legacy").unwrap_err();
     // linux has java-runtime-gamma but not jre-legacy in the fixture.
     assert!(format!("{err}").contains("not found"));
 
-    std::env::remove_var("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     clear_cache_for_test();
 }
 

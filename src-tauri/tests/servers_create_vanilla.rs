@@ -36,7 +36,8 @@ async fn vanilla_server_assembled_into_runtime() {
         .respond_with(ResponseTemplate::new(200).set_body_bytes(jar_body.to_vec()))
         .mount(&server)
         .await;
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam =
+        lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
     let base = tempdir().unwrap();
     let file = ServerFile {
@@ -58,8 +59,6 @@ async fn vanilla_server_assembled_into_runtime() {
     create_vanilla_server(base.path(), &file, &jar_url, &sha1)
         .await
         .unwrap();
-
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     let p = lucerna_lib::paths::server_paths(base.path(), "srv-1");
     assert!(p.json.exists(), "server.json written");

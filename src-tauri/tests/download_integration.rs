@@ -43,11 +43,11 @@ async fn download_succeeds_when_hash_matches() {
     let dest = dir.path().join("out.bin");
     let url = format!("{}/file.bin", server.uri());
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam =
+        lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
     lucerna_lib::network::download::download_no_emit(&url, &dest, &expected_sha, "test")
         .await
         .expect("download should succeed");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     let written = std::fs::read(&dest).unwrap();
     assert_eq!(written, body);
@@ -70,11 +70,11 @@ async fn download_fails_on_hash_mismatch_and_deletes_file() {
     let dest = dir.path().join("wrong.bin");
     let url = format!("{}/wrong.bin", server.uri());
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam =
+        lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
     let err = lucerna_lib::network::download::download_no_emit(&url, &dest, &wrong_sha, "test")
         .await
         .expect_err("hash mismatch should fail");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     match err {
         Error::HashMismatch { expected, got, .. } => {
@@ -101,11 +101,11 @@ async fn http_error_status_returns_network_error() {
     let dest = dir.path().join("nope.bin");
     let url = format!("{}/nope", server.uri());
 
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam =
+        lucerna_lib::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
     let err = lucerna_lib::network::download::download_no_emit(&url, &dest, "deadbeef", "test")
         .await
         .expect_err("404 should fail");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
     assert!(
         matches!(err, Error::Network { .. }),

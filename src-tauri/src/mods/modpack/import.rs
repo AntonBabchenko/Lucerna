@@ -2005,8 +2005,6 @@ mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        let _g = crate::test_env_lock();
-
         let body: &[u8] = b"atl-mod-body-bytes";
         // Compute expected checksums for the test body.
         let md5_hex = {
@@ -2026,7 +2024,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let data_dir = TempDir::new().unwrap();
         let noop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
 
