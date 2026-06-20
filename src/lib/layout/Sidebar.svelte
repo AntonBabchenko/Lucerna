@@ -15,6 +15,7 @@
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { validateOfflineName } from '$lib/accounts/offline-name';
   import { serverState } from '$lib/servers/server-state.svelte';
 
   let {
@@ -146,6 +147,14 @@
           {@const acc = accounts.find((a) => a.id === opt.value)}
           {#if acc}
             <PlayerHead uuid={acc.uuid} name={acc.name} size={20} />
+            {#if acc.kind === 'offline' && validateOfflineName(acc.name) !== null}
+              <span
+                class="text-warning-text flex-shrink-0"
+                use:tooltip={{ text: $t('sidebar.offlineNameUnsupported'), describe: false }}
+              >
+                <Icon name="warning" size={14} />
+              </span>
+            {/if}
           {/if}
         {/snippet}
         <!-- Per-row trash inside the open dropdown: always visible, neutral at
