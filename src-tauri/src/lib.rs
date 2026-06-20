@@ -230,6 +230,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 11: firewall help):
             commands::server_firewall_status,
             commands::server_firewall_add_rule,
+            // Own server (S2: mod content management — browse-install, enable,
+            // local install, datapacks):
+            commands::server_install_mod,
+            commands::server_enable_mod,
+            commands::server_install_local,
+            commands::server_list_datapacks,
+            commands::server_install_datapack,
+            commands::server_remove_datapack,
         ])
         .events(collect_events![
             network::DownloadProgress,
