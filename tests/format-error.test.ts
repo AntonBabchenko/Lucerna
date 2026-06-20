@@ -161,6 +161,17 @@ describe('formatError', () => {
     );
   });
 
+  it('renders offline_name_invalid with the name and a localized reason', () => {
+    const msg = formatError({
+      kind: 'offline_name_invalid',
+      name: 'Игрок',
+      reason: 'invalid_chars',
+    });
+    expect(msg).toContain('Игрок');
+    expect(msg).not.toMatch(/^\{/);
+    expect(msg).toContain('Latin');
+  });
+
   it('formats a known error in Russian', () => {
     locale.set('ru');
     const msg = formatError({ kind: 'already_running' });
@@ -334,6 +345,11 @@ describe('formatError', () => {
         kind: 'saved_server_name_invalid',
         name: 'x',
         reason: 'empty name',
+      },
+      offline_name_invalid: {
+        kind: 'offline_name_invalid',
+        name: 'Игрок',
+        reason: 'invalid_chars',
       },
       saved_server_list_changed: { kind: 'saved_server_list_changed' },
       server_invalid_property: {

@@ -30,14 +30,22 @@ pub fn remove(file: &mut AccountFile, id: &str) {
     }
 }
 
-/// Add an offline account whose uuid is deterministically derived from `name`.
-/// Idempotent: an existing account with the same uuid is returned unchanged
-/// (no duplicate, active selection untouched). The first account ever added
-/// auto-activates.
-pub fn add_offline(file: &mut AccountFile, name: &str) -> Account {
+/// Add an offline account whose uuid is deterministically derived from the
+/// (trimmed) `name`. Validates the name first (Minecraft only accepts
+/// `[A-Za-z0-9_]{3,16}` offline — see `offline_name`), returning
+/// `Error::OfflineNameInvalid` for anything else so we never create an
+/// account that can't enter a world. Idempotent on a valid name: an existing
+/// account with the same uuid is returned unchanged (no duplicate, active
+/// selection untouched). The first account ever added auto-activates.
+pub fn add_offline(file: &mut AccountFile, name: &str) -> Result<Account> {
+    let name = name.trim();
+    crate::accounts::offline_name::validate(name).map_err(|reason| Error::OfflineNameInvalid {
+        name: name.to_string(),
+        reason,
+    })?;
     let uuid = derive_offline_uuid(name).to_string();
     if let Some(existing) = file.accounts.iter().find(|a| a.uuid == uuid).cloned() {
-        return existing;
+        return Ok(existing);
     }
     let account = Account {
         id: format!("of-{}", uuid::Uuid::new_v4()),
@@ -50,7 +58,25 @@ pub fn add_offline(file: &mut AccountFile, name: &str) -> Account {
     if file.active_id.is_none() {
         file.active_id = Some(account.id.clone());
     }
-    account
+    Ok(account)
+}
+
+/// Reject launching with an account Minecraft can't use. Offline accounts must
+/// carry a name Minecraft accepts (`offline_name::validate`); a name it rejects
+/// (e.g. Cyrillic) would launch but be unable to enter any world, so we stop it
+/// here with the same typed error the create path uses. Microsoft account names
+/// come from Mojang and are always valid, so they are never gated. Pure (no IO)
+/// — the launch command is a thin caller.
+pub fn ensure_account_launchable(account: &Account) -> Result<()> {
+    if account.kind == AccountKind::Offline {
+        crate::accounts::offline_name::validate(&account.name).map_err(|reason| {
+            Error::OfflineNameInvalid {
+                name: account.name.clone(),
+                reason,
+            }
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -137,7 +163,7 @@ mod tests {
     #[test]
     fn add_offline_to_empty_file_pushes_and_auto_activates() {
         let mut f = file_with(vec![], None);
-        let acc = add_offline(&mut f, "Steve");
+        let acc = add_offline(&mut f, "Steve").unwrap();
         assert_eq!(f.accounts.len(), 1);
         assert_eq!(acc.kind, AccountKind::Offline);
         assert_eq!(acc.name, "Steve");
@@ -148,7 +174,7 @@ mod tests {
     #[test]
     fn add_offline_does_not_steal_active_from_an_existing_account() {
         let mut f = file_with(vec![offline("a", "u1")], Some("a"));
-        let acc = add_offline(&mut f, "Steve");
+        let acc = add_offline(&mut f, "Steve").unwrap();
         assert_eq!(f.accounts.len(), 2);
         // Active selection is preserved — only the FIRST add auto-activates.
         assert_eq!(f.active_id.as_deref(), Some("a"));
@@ -158,8 +184,8 @@ mod tests {
     #[test]
     fn add_offline_is_idempotent_on_the_same_name() {
         let mut f = file_with(vec![], None);
-        let first = add_offline(&mut f, "Steve");
-        let again = add_offline(&mut f, "Steve");
+        let first = add_offline(&mut f, "Steve").unwrap();
+        let again = add_offline(&mut f, "Steve").unwrap();
         // Same name → same derived uuid → existing entry returned, no duplicate.
         assert_eq!(f.accounts.len(), 1);
         assert_eq!(first.id, again.id);
@@ -169,11 +195,99 @@ mod tests {
     #[test]
     fn add_offline_same_name_returns_existing_even_with_different_active() {
         let mut f = file_with(vec![], None);
-        let first = add_offline(&mut f, "Steve");
-        let second = add_offline(&mut f, "Alex");
+        let first = add_offline(&mut f, "Steve").unwrap();
+        let second = add_offline(&mut f, "Alex").unwrap();
         // Two distinct accounts; first stayed active.
         assert_eq!(f.accounts.len(), 2);
         assert_ne!(first.uuid, second.uuid);
         assert_eq!(f.active_id.as_deref(), Some(first.id.as_str()));
+    }
+
+    #[test]
+    fn add_offline_trims_then_validates() {
+        let mut f = file_with(vec![], None);
+        let acc = add_offline(&mut f, "  Steve  ").unwrap();
+        assert_eq!(acc.name, "Steve");
+    }
+
+    #[test]
+    fn add_offline_rejects_cyrillic_name() {
+        let mut f = file_with(vec![], None);
+        let err = add_offline(&mut f, "Игрок").unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::error::Error::OfflineNameInvalid { ref reason, .. }
+                    if *reason == crate::accounts::offline_name::OfflineNameRejection::InvalidChars
+            ),
+            "got: {err:?}"
+        );
+        assert!(f.accounts.is_empty());
+    }
+
+    #[test]
+    fn add_offline_rejects_too_short_name() {
+        let mut f = file_with(vec![], None);
+        let err = add_offline(&mut f, "ab").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::Error::OfflineNameInvalid { .. }
+        ));
+        assert!(f.accounts.is_empty());
+    }
+
+    #[test]
+    fn add_offline_rejects_name_that_is_too_short_after_trimming() {
+        let mut f = file_with(vec![], None);
+        let err = add_offline(&mut f, "  ab  ").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::Error::OfflineNameInvalid {
+                reason: crate::accounts::offline_name::OfflineNameRejection::TooShort,
+                ..
+            }
+        ));
+        assert!(f.accounts.is_empty());
+    }
+
+    // --- ensure_account_launchable ---
+
+    #[test]
+    fn ensure_account_launchable_blocks_offline_with_invalid_name() {
+        let acc = Account {
+            id: "of-x".into(),
+            kind: AccountKind::Offline,
+            name: "Игрок".into(),
+            uuid: "u".into(),
+            expires_at: None,
+        };
+        assert!(matches!(
+            ensure_account_launchable(&acc),
+            Err(crate::error::Error::OfflineNameInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn ensure_account_launchable_allows_offline_with_valid_name() {
+        let acc = Account {
+            id: "of-x".into(),
+            kind: AccountKind::Offline,
+            name: "Steve".into(),
+            uuid: "u".into(),
+            expires_at: None,
+        };
+        assert!(ensure_account_launchable(&acc).is_ok());
+    }
+
+    #[test]
+    fn ensure_account_launchable_never_blocks_microsoft_even_with_non_ascii_name() {
+        let acc = Account {
+            id: "ms-x".into(),
+            kind: AccountKind::Microsoft,
+            name: "Игрок".into(),
+            uuid: "u".into(),
+            expires_at: Some(1.0),
+        };
+        assert!(ensure_account_launchable(&acc).is_ok());
     }
 }
