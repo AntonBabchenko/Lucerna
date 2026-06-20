@@ -4,9 +4,25 @@ import { locale } from '$lib/i18n';
 import type { InstanceWithStatus } from '$lib/ipc/bindings';
 import ServerCreateWizard from '$lib/servers/ServerCreateWizard.svelte';
 
+// Hoisted so the vi.mock factory below can reference it.
+const { pushSuccessMock } = vi.hoisted(() => ({ pushSuccessMock: vi.fn() }));
+
+vi.mock('$lib/toasts/toasts.svelte', () => ({
+  pushSuccess: pushSuccessMock,
+  pushError: vi.fn(),
+}));
+
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
-    serverCreate: vi.fn().mockResolvedValue({ status: 'ok', data: {} }),
+    // ServerCreated shape: { server, quarantined }. Two client mods were set
+    // aside, so a successful create fires the quarantine-summary toast.
+    serverCreate: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: {
+        server: { id: 'srv-1' },
+        quarantined: ['betterf3.jar.disabled', 'oculus.jar.disabled'],
+      },
+    }),
     instanceMemoryBounds: vi.fn().mockResolvedValue({
       min_mb: 1024,
       max_mb: 8192,
@@ -103,5 +119,22 @@ describe('ServerCreateWizard', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Import existing' }));
     expect(screen.getByRole('button', { name: 'Choose .zip' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Choose folder' })).toBeTruthy();
+  });
+
+  it('finishes and shows a quarantine summary toast when client mods are set aside', async () => {
+    pushSuccessMock.mockClear();
+    const onDone = vi.fn();
+    render(ServerCreateWizard, baseProps({ onDone }));
+
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+    await fireEvent.input(nameInput, { target: { value: 'Test Server' } });
+    const eulaCheckbox = screen.getByRole('checkbox') as HTMLInputElement;
+    await fireEvent.click(eulaCheckbox);
+    await fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    // The async create handler refreshes, toasts the summary (2 mods set aside),
+    // then calls onDone.
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(pushSuccessMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -81,16 +81,103 @@
   // One-click pre-spawn fix state (accept EULA / stop orphan / change port).
   let busyFix = $state(false);
   let fixError = $state<string | null>(null);
+  // Manual re-diagnose feedback (so the button never looks like it does nothing).
+  let busyDiagnose = $state(false);
+  // Neutral informational line (e.g. "couldn't find these mods automatically").
+  let installInfo = $state<string | null>(null);
 
   async function runFix(fn: () => Promise<{ ok: boolean; error?: unknown }>) {
     busyFix = true;
     fixError = null;
+    installInfo = null; // a prior unresolved-deps hint must not outlive this action
     try {
       const r = await fn();
       if (r.ok) {
         await serverState.diagnose(serverId);
       } else {
         fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+      }
+    } catch (e) {
+      fixError = formatError(e as Parameters<typeof formatError>[0]);
+    } finally {
+      busyFix = false;
+    }
+  }
+
+  // Manual diagnose with visible feedback — re-run and confirm via a toast, so a
+  // re-check that finds no change still reads as "it did something". Honest: only
+  // claim success when the command actually succeeded.
+  async function runDiagnose() {
+    busyDiagnose = true;
+    fixError = null;
+    installInfo = null;
+    try {
+      const r = await serverState.diagnose(serverId);
+      if (r.ok) {
+        pushSuccess(get(t)('servers.diagnose.diagnoseDone'));
+      } else {
+        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+      }
+    } finally {
+      busyDiagnose = false;
+    }
+  }
+
+  // One-click metadata-driven quarantine of client-only mods (the proper fix for
+  // a modpack server crashing on client mods). Dependency-safe in the backend.
+  async function runQuarantine() {
+    busyFix = true;
+    fixError = null;
+    installInfo = null;
+    try {
+      const r = await serverState.quarantineClientMods(serverId);
+      if (r.ok) {
+        const n = r.report?.disabled.length ?? 0;
+        const kept = r.report?.kept_because_required.length ?? 0;
+        let msg =
+          n > 0
+            ? `${get(t)('servers.diagnose.quarantined', { count: n })} ${get(t)('servers.diagnose.restartHint')}`
+            : get(t)('servers.diagnose.quarantineNone');
+        if (kept > 0) {
+          // Surface the dependency-rescue — the headline safety behaviour.
+          msg += ` ${get(t)('servers.diagnose.quarantineKeptRequired', { count: kept })}`;
+        }
+        pushSuccess(msg);
+        await serverState.diagnose(serverId);
+      } else {
+        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+      }
+    } catch (e) {
+      fixError = formatError(e as Parameters<typeof formatError>[0]);
+    } finally {
+      busyFix = false;
+    }
+  }
+
+  // Install missing dependency mods — honest about partial/zero results instead
+  // of clearing the banner on a silent no-op.
+  async function runInstallMissingDep() {
+    busyFix = true;
+    fixError = null;
+    installInfo = null;
+    try {
+      const r = await serverState.installMissingDep(serverId, diag?.conflict_mods ?? []);
+      if (!r.ok) {
+        fixError = formatError(r.error as Parameters<typeof formatError>[0]);
+        return;
+      }
+      const installed = r.report?.installed ?? [];
+      const unresolved = r.report?.unresolved ?? [];
+      if (installed.length > 0) {
+        pushSuccess(
+          `${get(t)('servers.diagnose.installReportOk', { count: installed.length })} ${get(t)('servers.diagnose.restartHint')}`,
+        );
+        await serverState.diagnose(serverId);
+      }
+      if (unresolved.length > 0) {
+        installInfo = get(t)('servers.diagnose.installReportUnresolved', {
+          names: unresolved.join(', '),
+        });
       }
     } catch (e) {
       fixError = formatError(e as Parameters<typeof formatError>[0]);
@@ -168,15 +255,26 @@
         {/if}
 
         <!-- Manual diagnose button always shown so the user can re-run -->
-        <button
-          type="button"
+        <BusyButton
           class="btn-ghost btn-sm mt-2"
-          onclick={() => void serverState.diagnose(serverId)}
+          data-testid="server-diagnose-btn"
+          busy={busyDiagnose}
+          onclick={() => void runDiagnose()}
         >
           {$t('servers.diagnose.diagnoseBtn')}
-        </button>
+        </BusyButton>
 
-        {#if diag.server_repair === 'accept_eula'}
+        {#if diag.server_repair === 'remove_client_mods'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-quarantine"
+            busy={busyFix}
+            aria-label={$t('servers.diagnose.quarantineClientMods')}
+            onclick={() => void runQuarantine()}
+          >
+            {$t('servers.diagnose.quarantineClientMods')}
+          </BusyButton>
+        {:else if diag.server_repair === 'accept_eula'}
           <BusyButton
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-accept-eula"
@@ -254,8 +352,7 @@
             aria-label={$t('servers.diagnose.fix.installMissingDep', {
               count: diag.conflict_mods.length,
             })}
-            onclick={() =>
-              void runFix(() => serverState.installMissingDep(serverId, diag.conflict_mods))}
+            onclick={() => void runInstallMissingDep()}
           >
             {$t('servers.diagnose.fix.installMissingDep', { count: diag.conflict_mods.length })}
           </BusyButton>
@@ -264,6 +361,12 @@
         {#if fixError}
           <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-fix-error">
             {fixError}
+          </p>
+        {/if}
+
+        {#if installInfo}
+          <p class="mt-2 text-sm text-primary" role="status" data-testid="server-install-info">
+            {installInfo}
           </p>
         {/if}
 

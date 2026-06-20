@@ -6,8 +6,10 @@
     type MemoryBounds,
     type VersionEntry,
   } from '$lib/ipc/bindings';
+  import { get } from 'svelte/store';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
@@ -131,6 +133,11 @@
       );
       if (res.status === 'ok') {
         await serverState.refresh();
+        // Summary: if client-only mods were set aside so the server can start.
+        const setAside = res.data.quarantined.length;
+        if (setAside > 0) {
+          pushSuccess(get(t)('servers.diagnose.quarantined', { count: setAside }));
+        }
         onDone();
       } else {
         error = formatError(res.error);

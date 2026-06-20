@@ -205,6 +205,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_redownload_jar,
             commands::server_disable_mods,
             commands::server_install_missing_dep,
+            commands::server_quarantine_client_mods,
             // Own server (Plan 5: SFTP upload + export):
             commands::server_set_upload_config,
             commands::server_upload,

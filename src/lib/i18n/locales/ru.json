@@ -1179,6 +1179,7 @@
     "serverSpawnFailed": "Не удалось запустить процесс сервера: {details}",
     "serverAlreadyRunning": "Этот сервер уже запущен",
     "serverNotRunning": "Этот сервер не запущен",
+    "serverModRequiredByOther": "Нельзя удалить {filename} — он нужен моду {requiredBy}. Удалите и тот мод, либо оставьте этот.",
     "uploadNotConfigured": "Сначала настройте подключение к хостингу",
     "sftpConnectFailed": "Не удалось подключиться к хосту: {details}",
     "sftpAuthFailed": "Вход не удался — проверьте логин и пароль",
@@ -1557,7 +1558,8 @@
       "delete": "Удалить",
       "openFolder": "Открыть папку",
       "deleteConfirm": "Удалить {name}?",
-      "note": "Добавляйте и удаляйте моды в папке mods сервера."
+      "note": "Добавляйте и удаляйте моды в папке mods сервера.",
+      "setAside": "отложен"
     },
     "hosting": {
       "tab": "Хостинг",
@@ -1684,8 +1686,15 @@
       },
       "forgeSkipNote": "Forge уже пропустил {count} клиентских модов.",
       "diagnoseBtn": "Диагностировать",
+      "diagnoseDone": "Логи сервера перепроверены.",
       "removed": "Удалено модов: {count}",
-      "restartHint": "Перезапустите сервер, чтобы применить изменения."
+      "restartHint": "Перезапустите сервер, чтобы применить изменения.",
+      "quarantineClientMods": "Отложить клиентские моды",
+      "quarantined": "Отложено клиентских модов: {count} — сервер готов к запуску.",
+      "quarantineNone": "Клиентских модов для откладывания не найдено.",
+      "quarantineKeptRequired": "Оставлено модов как зависимости других: {count}.",
+      "installReportOk": "Установлено недостающих модов: {count}.",
+      "installReportUnresolved": "Не удалось найти автоматически: {names}. Откройте браузер модов, чтобы добавить вручную."
     },
     "toInstance": {
       "button": "Создать клиентский профиль",

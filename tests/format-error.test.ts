@@ -357,6 +357,11 @@ describe('formatError', () => {
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
       server_not_running: { kind: 'server_not_running', id: 'srv-1' },
+      server_mod_required_by_other: {
+        kind: 'server_mod_required_by_other',
+        filename: 'libraryferret.jar',
+        required_by: 'bettervillage.jar',
+      },
       upload_not_configured: { kind: 'upload_not_configured' },
       sftp_connect_failed: { kind: 'sftp_connect_failed', details: 'connection refused' },
       sftp_auth_failed: { kind: 'sftp_auth_failed', details: 'wrong password' },
@@ -386,7 +391,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(100);
+      expect(Object.keys(samples)).toHaveLength(101);
     });
   });
 

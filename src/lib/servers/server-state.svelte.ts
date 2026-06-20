@@ -3,6 +3,8 @@ import {
   commands,
   events,
   type FirewallState,
+  type InstallMissingReport,
+  type QuarantineReport,
   type ServerConnectivity,
   type ServerDiagnosis,
   type ServerImportPreview,
@@ -45,13 +47,17 @@ function clearLines(id: string): void {
   lines = m;
 }
 
-async function diagnose(id: string): Promise<void> {
+async function diagnose(id: string): Promise<{ ok: boolean; error?: unknown }> {
   const r = await commands.serverDiagnose(id);
   if (r.status === 'ok') {
     const m = new Map(diagnoses);
     m.set(id, r.data);
     diagnoses = m;
+    return { ok: true };
   }
+  // Surface failure so callers (e.g. the manual Diagnose button) don't claim
+  // success when the command errored.
+  return { ok: false, error: r.error };
 }
 
 function diagnosisFor(id: string): ServerDiagnosis | undefined {
@@ -153,11 +159,25 @@ async function disableMods(
 async function installMissingDep(
   id: string,
   modIds: string[],
-): Promise<{ ok: boolean; error?: unknown }> {
+): Promise<{ ok: boolean; report?: InstallMissingReport; error?: unknown }> {
+  // Honest feedback: return the report (installed vs unresolved) and DON'T clear
+  // the diagnosis here — the caller decides, so a no-op install can't pretend the
+  // problem is solved. The banner re-diagnoses only when something was installed.
   const r = await commands.serverInstallMissingDep(id, modIds);
   if (r.status === 'ok') {
-    clearDiagnosis(id);
-    return { ok: true };
+    return { ok: true, report: r.data };
+  }
+  return { ok: false, error: r.error };
+}
+
+/// Proactively set aside client-only mods on an existing server (rename to
+/// `*.disabled`). Returns the report; the banner clears + re-diagnoses on success.
+async function quarantineClientMods(
+  id: string,
+): Promise<{ ok: boolean; report?: QuarantineReport; error?: unknown }> {
+  const r = await commands.serverQuarantineClientMods(id);
+  if (r.status === 'ok') {
+    return { ok: true, report: r.data };
   }
   return { ok: false, error: r.error };
 }
@@ -377,6 +397,7 @@ export const serverState = {
   redownloadJar,
   disableMods,
   installMissingDep,
+  quarantineClientMods,
   setUploadConfig,
   upload,
   exportZip,

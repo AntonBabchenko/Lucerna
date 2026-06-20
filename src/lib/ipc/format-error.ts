@@ -247,6 +247,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverAlreadyRunning');
     case 'server_not_running':
       return translate('errors.serverNotRunning');
+    case 'server_mod_required_by_other':
+      return translate('errors.serverModRequiredByOther', {
+        filename: e.filename,
+        requiredBy: e.required_by,
+      });
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':

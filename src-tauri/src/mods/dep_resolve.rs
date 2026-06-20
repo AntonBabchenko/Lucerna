@@ -6,7 +6,20 @@ use std::future::Future;
 
 use crate::mods::local::{read_jar_embedded_providers, read_jar_manifest_deps, DepSide};
 use crate::mods::platform::ModVersion;
+use serde::Serialize;
 use std::collections::HashSet;
+
+/// Outcome of an `install_missing_into_dir` run: which dep-ids produced an
+/// installed jar (by filename) vs. which could not be resolved/verified
+/// automatically. Lets the UI report honestly instead of claiming silent
+/// success — the unresolved ids point the user at the mod browser.
+#[derive(Debug, Clone, Default, Serialize, specta::Type)]
+pub struct InstallMissingReport {
+    /// Filenames of jars actually downloaded + copied into the target dir.
+    pub installed: Vec<String>,
+    /// Dep mod-ids that could not be resolved or verified (skipped).
+    pub unresolved: Vec<String>,
+}
 
 /// Case- and `_`/`-`-insensitive id normalization for cross-source matching.
 fn norm_id(id: &str) -> String {
@@ -116,7 +129,7 @@ pub async fn install_missing_into_dir(
     mc_version: &str,
     loader: crate::instances::schema::LoaderKind,
     cf_key: Option<String>,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<InstallMissingReport> {
     use crate::mods::curseforge::CurseForgeClient;
     use crate::mods::install::{fetch_to_cache, ProgressFn};
     use crate::mods::modrinth::ModrinthClient;
@@ -125,6 +138,7 @@ pub async fn install_missing_into_dir(
     let mr = ModrinthClient::new();
     let cf = CurseForgeClient::with_base_and_key("https://api.curseforge.com", cf_key);
     let nop: ProgressFn = Box::new(|_, _, _| {});
+    let mut report = InstallMissingReport::default();
 
     tokio::fs::create_dir_all(dest)
         .await
@@ -175,6 +189,7 @@ pub async fn install_missing_into_dir(
             needed_id,
         } = resolution
         else {
+            report.unresolved.push(dep_id.clone());
             continue;
         };
         let Some(sha) = candidate
@@ -185,6 +200,7 @@ pub async fn install_missing_into_dir(
             .filter(|s| !s.is_empty())
             .map(|s| s.to_ascii_lowercase())
         else {
+            report.unresolved.push(dep_id.clone());
             continue;
         };
         let cached = fetch_to_cache(
@@ -200,18 +216,23 @@ pub async fn install_missing_into_dir(
             .await
             .map_err(|e| crate::error::Error::io("<dep-candidate-cache>", e))?;
         if !jar_provides(&bytes, &needed_id) {
+            report.unresolved.push(dep_id.clone());
             continue;
         }
         // Guard the platform-supplied filename before joining into dest.
         if !crate::mods::modpack::path_safety::is_safe_filename(&candidate.primary_file.filename) {
+            report.unresolved.push(dep_id.clone());
             continue;
         }
         let out = dest.join(&candidate.primary_file.filename);
         tokio::fs::copy(&cached, &out)
             .await
             .map_err(|e| crate::error::Error::io(out.display().to_string(), e))?;
+        report
+            .installed
+            .push(candidate.primary_file.filename.clone());
     }
-    Ok(())
+    Ok(report)
 }
 
 /// A manifest-discovered required dependency the platform metadata omitted,
