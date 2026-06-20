@@ -540,10 +540,6 @@ mod tests {
     use crate::mods::installed::{self, PackOrigin, PackOriginFile};
     use crate::mods::modpack::schema::EnvSupport;
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     /// Place a jar in the instance's `mods/` dir; return its SHA-1.
     async fn place_jar(instance_root: &Path, filename: &str, bytes: &[u8]) -> String {
         let dir = installed::mods_dir(instance_root);
@@ -689,7 +685,6 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_modrinth_maps_hash_to_identity() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "abc123": {
@@ -704,9 +699,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got.get("abc123").expect("hash should resolve");
         assert_eq!(id.project_id, "MR-PROJ");
@@ -725,16 +720,15 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_modrinth_non_2xx_yields_empty_map_and_succeeded_false() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
             .respond_with(ResponseTemplate::new(500))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "non-2xx should be succeeded=false");
     }
@@ -744,16 +738,15 @@ mod tests {
         // A successful 2xx with an empty object body means "platform
         // definitively does not know this hash" — that IS a successful
         // attempt; the mod's attempted flag should flip.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
             .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(succeeded, "200 + empty object should be succeeded=true");
     }
@@ -761,14 +754,12 @@ mod tests {
     #[tokio::test]
     async fn resolve_modrinth_transport_failure_is_succeeded_false() {
         // Port 1 is unreachable — connection fails before any status.
-        // Hold the shared lock: this still mutates the process-global
-        // LUCERNA_EXTRA_ALLOWED_HOSTS, so it must serialise with every
-        // other allowlist/wiremock test or its remove_var clobbers theirs.
-        let _g = test_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // The seam scope installs the host override in-process for this
+        // test only and reverts on drop, serialised process-wide.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_modrinth("http://127.0.0.1:1", &["abc123".to_string()]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "transport failure should be succeeded=false");
     }
@@ -780,23 +771,21 @@ mod tests {
         // page slipped through by the CDN) is a decode failure —
         // logged and reported as succeeded=false so the mod's attempted
         // flag does not flip and the next pass retries.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
             .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) = resolve_modrinth(&s.uri(), &["abc123".to_string()]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "decode failure should be succeeded=false");
     }
 
     #[tokio::test]
     async fn resolve_curseforge_maps_fingerprint_to_identity() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": {
@@ -817,10 +806,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "test-key", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(succeeded, "200 + matches should be succeeded=true");
         let id = got
             .get("sha-a")
@@ -839,24 +828,22 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_curseforge_unauthorized_yields_empty_map_and_succeeded_false() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/fingerprints"))
             .respond_with(ResponseTemplate::new(403))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "403 should be succeeded=false");
     }
 
     #[tokio::test]
     async fn resolve_curseforge_200_with_no_matches_is_succeeded_true() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({ "data": { "exactMatches": [] } });
         Mock::given(method("POST"))
@@ -864,10 +851,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(
             succeeded,
@@ -881,17 +868,16 @@ mod tests {
         // key is deliberately NOT cleared (enrichment runs in the
         // background and must not disrupt the user's interactive CF
         // session); the mod's attempted flag stays unflipped.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/fingerprints"))
             .respond_with(ResponseTemplate::new(401))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "401 should be succeeded=false");
     }
@@ -899,14 +885,12 @@ mod tests {
     #[tokio::test]
     async fn resolve_curseforge_transport_failure_is_succeeded_false() {
         // Port 1 is unreachable — connection fails before any status.
-        // Hold the shared lock: this still mutates the process-global
-        // LUCERNA_EXTRA_ALLOWED_HOSTS, so it must serialise with every
-        // other allowlist/wiremock test or its remove_var clobbers theirs.
-        let _g = test_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        // The seam scope installs the host override in-process for this
+        // test only and reverts on drop, serialised process-wide.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_curseforge("http://127.0.0.1:1", "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "transport failure should be succeeded=false");
     }
@@ -916,24 +900,22 @@ mod tests {
         // A 200 with a body that doesn't match the expected envelope
         // (decode failure) reports succeeded=false so the mod's
         // attempted flag does not flip — parallel to the Modrinth case.
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/fingerprints"))
             .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let (got, succeeded) =
             resolve_curseforge(&s.uri(), "k", &[(111u32, "sha-a".to_string())]).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(got.is_empty());
         assert!(!succeeded, "decode failure should be succeeded=false");
     }
 
     #[tokio::test]
     async fn enrich_instance_resolves_a_modrinth_override_mod() {
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
         installed::set_pack_origin(
@@ -955,12 +937,11 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let n = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         assert_eq!(n, 1);
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
@@ -979,7 +960,6 @@ mod tests {
         // launcher lands in the registry as source=None with NO
         // pack_origin. enrich_instance would no-op (it gates on
         // pack_origin); enrich_untracked must still recover the identity.
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
         // No set_pack_origin — a launcher-imported / manually-built instance.
@@ -996,7 +976,8 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         // Sanity: the pack-origin-gated entry is a no-op here.
         let gated = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
@@ -1004,8 +985,6 @@ mod tests {
         let n = enrich_untracked(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         assert_eq!(gated, 0, "enrich_instance must no-op without pack_origin");
         assert_eq!(n, 1, "enrich_untracked must recover the loose mod");
         let mods = installed::list(td.path()).await.unwrap();
@@ -1021,7 +1000,6 @@ mod tests {
 
     #[tokio::test]
     async fn enrich_instance_second_run_is_a_noop() {
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
         installed::set_pack_origin(
@@ -1041,7 +1019,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::Value::Object(map)))
             .mount(&mr)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let first = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
@@ -1050,14 +1029,12 @@ mod tests {
         let second = enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(first, 1);
         assert_eq!(second, 0);
     }
 
     #[tokio::test]
     async fn enrich_instance_skips_hand_dropped_mod() {
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let pack_sha = place_jar(td.path(), "packmod.jar", b"pack-mod-bytes").await;
         let hand_sha = place_jar(td.path(), "handmod.jar", b"hand-dropped-bytes").await;
@@ -1074,11 +1051,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
             .mount(&mr)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         let mods = installed::list(td.path()).await.unwrap();
         let hand = mods
             .iter()
@@ -1102,7 +1079,6 @@ mod tests {
 
     #[tokio::test]
     async fn enrich_instance_tie_break_prefers_pack_home_platform() {
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let bytes = b"matches-on-both-platforms";
         let sha = place_jar(td.path(), "both.jar", bytes).await;
@@ -1133,12 +1109,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
             .iter()
@@ -1156,7 +1131,6 @@ mod tests {
         // 2xx-empty (succeeded, no match). CF returns 5xx (failed). The
         // mod must stay source=None AND enrich_attempted=false so the
         // next pass retries.
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let bytes = b"sodium-jar-bytes";
         let sha = place_jar(td.path(), "sodium.jar", bytes).await;
@@ -1180,12 +1154,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let n = enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         assert_eq!(n, 0);
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
@@ -1203,7 +1176,6 @@ mod tests {
     async fn enrich_instance_does_not_mark_attempted_when_modrinth_fails() {
         // Modrinth returns 5xx; CF returns 2xx-empty. Mirror of the
         // above. The mod stays attempted=false.
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let bytes = b"sodium-jar-bytes";
         let sha = place_jar(td.path(), "sodium.jar", bytes).await;
@@ -1230,11 +1202,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let n = enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(n, 0);
 
         let mods = installed::list(td.path()).await.unwrap();
@@ -1251,7 +1223,6 @@ mod tests {
         // No CF key configured. Modrinth returns 2xx-empty. Since CF
         // was never tried, the "every tried platform succeeded" gate
         // passes — the mod becomes enrich_attempted=true.
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
         installed::set_pack_origin(
@@ -1268,12 +1239,11 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
             .iter()
@@ -1291,7 +1261,6 @@ mod tests {
         // Both platforms in scope (CF key configured). Both return
         // 2xx-empty. The mod really is unidentifiable — mark attempted
         // so the backfill stops retrying.
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
         installed::set_pack_origin(
@@ -1317,12 +1286,11 @@ mod tests {
             .mount(&cf)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         enrich_instance(td.path(), &mr.uri(), &cf.uri(), Some("test-key"))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
             .iter()
@@ -1388,7 +1356,6 @@ mod tests {
     async fn enrich_instance_keeps_version_when_tags_match() {
         // instance.json says Forge/1.20.1; the matched version lists forge +
         // 1.20.1 → full identity (version_id recorded).
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "sodium.jar", b"sodium-jar-bytes").await;
         write_instance_json(td.path(), "forge", "1.20.1").await;
@@ -1416,12 +1383,11 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
             .iter()
@@ -1438,7 +1404,6 @@ mod tests {
         // instance.json says Forge/1.20.1; version_files returned a fabric
         // version (a shared "universal" jar). The project is recorded for the
         // icon, but version_id is dropped so update-check stays honest.
-        let _g = test_lock();
         let td = TempDir::new().unwrap();
         let sha = place_jar(td.path(), "universal.jar", b"universal-jar-bytes").await;
         write_instance_json(td.path(), "forge", "1.20.1").await;
@@ -1466,12 +1431,11 @@ mod tests {
             .mount(&mr)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         enrich_instance(td.path(), &mr.uri(), "http://127.0.0.1:1", None)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-
         let mods = installed::list(td.path()).await.unwrap();
         let m = mods
             .iter()

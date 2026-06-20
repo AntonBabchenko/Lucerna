@@ -8,10 +8,11 @@ pub const XBL_DEFAULT: &str = "https://user.auth.xboxlive.com/user/authenticate"
 pub const XSTS_DEFAULT: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 
 pub fn xbl_url() -> String {
-    std::env::var("LUCERNA_XBL_URL_OVERRIDE").unwrap_or_else(|_| XBL_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_XBL_URL_OVERRIDE").unwrap_or_else(|| XBL_DEFAULT.to_string())
 }
 pub fn xsts_url() -> String {
-    std::env::var("LUCERNA_XSTS_URL_OVERRIDE").unwrap_or_else(|_| XSTS_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_XSTS_URL_OVERRIDE")
+        .unwrap_or_else(|| XSTS_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,19 +182,17 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(XBL_FIXTURE))
             .mount(&server)
             .await;
-        let _guard = super::super::env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_XBL_URL_OVERRIDE",
-            format!("{}/user/authenticate", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_XBL_URL_OVERRIDE",
+                &format!("{}/user/authenticate", server.uri()),
+            ),
+        ]);
 
         let (token, uhs) = xbl_authenticate("ms-access-tok").await.unwrap();
         assert_eq!(token, "xbl-token-abc");
         assert_eq!(uhs, "userhash-xyz");
-
-        std::env::remove_var("LUCERNA_XBL_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -204,19 +203,17 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(XSTS_FIXTURE))
             .mount(&server)
             .await;
-        let _guard = super::super::env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_XSTS_URL_OVERRIDE",
-            format!("{}/xsts/authorize", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_XSTS_URL_OVERRIDE",
+                &format!("{}/xsts/authorize", server.uri()),
+            ),
+        ]);
 
         let result = xsts_authorize("xbl-tok").await.unwrap();
         assert_eq!(result.token, "xsts-token-abc");
         assert_eq!(result.userhash, "userhash-xsts");
-
-        std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -227,12 +224,13 @@ mod tests {
             .respond_with(ResponseTemplate::new(401).set_body_string(XSTS_CHILD_ERROR))
             .mount(&server)
             .await;
-        let _guard = super::super::env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_XSTS_URL_OVERRIDE",
-            format!("{}/xsts/authorize", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_XSTS_URL_OVERRIDE",
+                &format!("{}/xsts/authorize", server.uri()),
+            ),
+        ]);
 
         let result = xsts_authorize("xbl-tok").await;
         match result {
@@ -242,9 +240,6 @@ mod tests {
             }
             other => panic!("expected child_account AuthFailed, got {other:?}"),
         }
-
-        std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -255,12 +250,13 @@ mod tests {
             .respond_with(ResponseTemplate::new(401).set_body_string(XSTS_NO_XBOX_ERROR))
             .mount(&server)
             .await;
-        let _guard = super::super::env_lock();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_XSTS_URL_OVERRIDE",
-            format!("{}/xsts/authorize", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_XSTS_URL_OVERRIDE",
+                &format!("{}/xsts/authorize", server.uri()),
+            ),
+        ]);
 
         let result = xsts_authorize("xbl-tok").await;
         match result {
@@ -270,8 +266,5 @@ mod tests {
             }
             other => panic!("expected no_xbox_account, got {other:?}"),
         }
-
-        std::env::remove_var("LUCERNA_XSTS_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 }

@@ -55,7 +55,8 @@ async fn fetch<T: DeserializeOwned>(url: &str, mc: &str, initiator: &str) -> Res
 const META_DEFAULT: &str = "https://meta.quiltmc.org";
 
 fn meta_base() -> String {
-    std::env::var("LUCERNA_QUILT_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_QUILT_META_OVERRIDE")
+        .unwrap_or_else(|| META_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -244,14 +245,6 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    // Serializes env-var tests: they mutate LUCERNA_QUILT_META_OVERRIDE
-    // and LUCERNA_EXTRA_ALLOWED_HOSTS, which are process-global and
-    // shared across cargo's parallel test threads. Uses the crate-wide lock
-    // so these tests also serialize with wiremock tests in other modules.
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     const FIXTURE_LIST: &str = r#"[
       {
         "loader":{"separator":".","build":1,"maven":"org.quiltmc:quilt-loader:0.23.1","version":"0.23.1"},
@@ -281,7 +274,6 @@ mod tests {
 
     #[tokio::test]
     async fn list_against_wiremock_marks_dashed_versions_unstable() {
-        let _guard = env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v3/versions/loader/1.20.4"))
@@ -289,8 +281,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+        ]);
 
         let out = list("1.20.4").await.expect("list");
         assert_eq!(out.len(), 2);
@@ -303,9 +297,6 @@ mod tests {
         assert_eq!(out[1].version, "0.23.1");
         // Topmost stable → keeps stable=true (only one stable here).
         assert!(out[1].stable);
-
-        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]
@@ -336,7 +327,6 @@ mod tests {
 
     #[tokio::test]
     async fn list_marks_only_newest_stable_as_recommended() {
-        let _guard = env_lock();
         // 4 versions: 2 stables + 2 betas. Only the newest stable
         // (0.29.0 — beats 0.23.1) should retain stable=true after the
         // "recommended downgrade" pass; the older 0.23.1 becomes stable=false.
@@ -361,8 +351,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(fixture))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+        ]);
 
         let out = list("1.21.11").await.expect("list");
         assert_eq!(out.len(), 4);
@@ -378,9 +370,6 @@ mod tests {
         assert!(!out[2].stable);
         assert_eq!(out[3].version, "0.20.0-beta.9");
         assert!(!out[3].stable);
-
-        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]
@@ -413,7 +402,6 @@ mod tests {
         // null. Such combos crash on launch with "Requested target
         // namespace intermediary not loaded"; we hide them from the
         // dropdown.
-        let _guard = env_lock();
         let fixture = r#"[
           {"loader":{"separator":".","build":2,"maven":"x:y:0.29.2","version":"0.29.2"}},
           {"loader":{"separator":".","build":0,"maven":"x:y:0.28.0","version":"0.28.0"},
@@ -428,17 +416,16 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(fixture))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+        ]);
 
         let out = list("26.1.2").await.expect("list");
         // Only 0.27.0 has both mappings populated; 0.29.2 (missing keys)
         // and 0.28.0 (explicit nulls) are filtered out.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].version, "0.27.0");
-
-        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -447,7 +434,6 @@ mod tests {
         // entry's `hashed`/`intermediary` siblings, NOT in profile.json's
         // libraries. The launcher must inject them so the loader finds
         // intermediary at runtime.
-        let _guard = env_lock();
         const PROFILE_NO_MAPPINGS: &str = r#"{
           "id":"quilt-loader-0.29.2-1.21.11",
           "inheritsFrom":"1.21.11",
@@ -475,8 +461,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(LIST_ONE_ENTRY))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+        ]);
 
         let v = profile("1.21.11", "0.29.2").await.expect("profile");
         // quilt-loader + hashed + intermediary = 3.
@@ -501,9 +489,6 @@ mod tests {
                 );
             }
         }
-
-        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -511,7 +496,6 @@ mod tests {
         // Older Quilt loaders (0.17.x) ship mappings IN profile.json's
         // libraries. We must NOT duplicate them when the meta-list entry
         // also exposes the same coords.
-        let _guard = env_lock();
         const PROFILE_WITH_MAPPINGS: &str = r#"{
           "id":"quilt-loader-0.17.11-1.21.11",
           "inheritsFrom":"1.21.11",
@@ -541,14 +525,13 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(LIST_ONE_ENTRY))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_QUILT_META_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_QUILT_META_OVERRIDE", &server.uri()),
+        ]);
 
         let v = profile("1.21.11", "0.17.11").await.expect("profile");
         // 3 libraries → no duplicates injected.
         assert_eq!(v.libraries.len(), 3);
-
-        std::env::remove_var("LUCERNA_QUILT_META_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 }
