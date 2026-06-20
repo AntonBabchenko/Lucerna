@@ -81,6 +81,12 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "user.auth.xboxlive.com",
     "xsts.auth.xboxlive.com",
     "api.minecraftservices.com",
+    // Own-server hosting (#6): public-IP echo for port-forward guidance. A
+    // user-initiated, on-demand lookup (the user asks "what's my public
+    // address?") — never automatic. ipify returns ONLY the caller's public IP
+    // as plain text and sets no cookies; no request data beyond the bare GET is
+    // sent. See docs/PRINCIPLES.md Part A item #2 and docs/SECURITY.md.
+    "api.ipify.org",
 ];
 
 /// True if `host` matches any pattern in `ALLOWED_PATTERNS` or in
@@ -215,8 +221,17 @@ mod tests {
         assert!(ALLOWED_PATTERNS.contains(&"mediafilez.forgecdn.net"));
         assert!(ALLOWED_PATTERNS.contains(&"api.modpacks.ch"));
         assert!(ALLOWED_PATTERNS.contains(&"dist.modpacks.ch"));
-        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts.
-        assert_eq!(ALLOWED_PATTERNS.len(), 29);
+        assert!(ALLOWED_PATTERNS.contains(&"api.ipify.org"));
+        // 7 from v0.1.0 + 4 from Slice A + 3 from v0.4.0 + 3 from v0.5.0 + 2 from v0.6.0 + 5 from cluster C + 1 github.com (auto-update) + 2 FTB hosts + 2 ATLauncher hosts + 1 ipify (hosting public-IP echo).
+        assert_eq!(ALLOWED_PATTERNS.len(), 30);
+    }
+
+    #[test]
+    fn ipify_host_allowed_exact_match_only() {
+        assert!(is_host_allowed("api.ipify.org"));
+        assert!(!is_host_allowed("evil.api.ipify.org"));
+        assert!(!is_host_allowed("api.ipify.org.evil"));
+        assert!(!is_host_allowed("ipify.org")); // bare apex not allowed
     }
 
     #[test]

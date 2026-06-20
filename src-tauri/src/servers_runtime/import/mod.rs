@@ -3,6 +3,7 @@
 
 pub mod copy;
 pub mod detect;
+pub mod pack;
 
 use crate::error::{Error, Result};
 use crate::instances::ids::new_id;
