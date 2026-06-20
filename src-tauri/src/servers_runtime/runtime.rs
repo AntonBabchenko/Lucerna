@@ -202,6 +202,11 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     let argv = build_launch_argv(file.loader, &p.runtime, file.max_heap_mb)?;
 
     std::fs::create_dir_all(&p.logs).map_err(|e| Error::io(p.logs.display().to_string(), e))?;
+    // Preserve the previous session's log before truncating: rotate it to a
+    // timestamped archive, then bound the archives with keep-N.
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let _ = crate::servers_runtime::serverlog::rotate_log(&p.logs, &stamp);
+    crate::servers_runtime::serverlog::prune_logs(&p.logs);
     let log_path = p.logs.join("server-latest.log");
     let log_file = std::fs::File::create(&log_path)
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;

@@ -924,6 +924,45 @@ pub fn server_import_cancel(app: AppHandle, token: String) -> Result<()> {
     import::cancel(&base, &token)
 }
 
+use crate::servers_runtime::serverlog;
+
+/// Список логов сервера (текущий + архивы), отсортированных от новых к старым.
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_logs(app: AppHandle, id: String) -> Result<Vec<serverlog::ServerLogInfo>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    serverlog::list_logs(&crate::paths::server_paths(&base, &id).logs)
+}
+
+/// Прочитать файл лога сервера (текущий или архив) с ограничением 1 МиБ.
+#[tauri::command]
+#[specta::specta]
+pub fn server_read_log(app: AppHandle, id: String, file_name: String) -> Result<String> {
+    if !serverlog::is_safe_log_name(&file_name) {
+        return Err(Error::io("<log>", "invalid filename"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let path = crate::paths::server_paths(&base, &id).logs.join(&file_name);
+    Ok(crate::logs::read::read_with_cap(&path, 1024 * 1024).unwrap_or_default())
+}
+
+/// Открыть папку `runtime/logs/` сервера в системном файловом менеджере.
+/// Создаёт папку, если она ещё не существует.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_open_logs_folder(app: AppHandle, id: String) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let dir = crate::paths::server_paths(&base, &id).logs;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| Error::io(dir.display().to_string(), e))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| Error::io(dir.display().to_string(), format!("opener: {e}")))?;
+    Ok(())
+}
+
 /// Create a snapshot. If the server is running, flush + pause world saves
 /// around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
 #[tauri::command]
