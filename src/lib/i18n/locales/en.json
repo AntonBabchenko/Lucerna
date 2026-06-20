@@ -1720,6 +1720,22 @@
       "onlineModeOn": "online-mode is ON: only friends signed in with a Microsoft/Mojang account can join.",
       "onlineModeOff": "online-mode is OFF: offline/cracked accounts can join, but anyone can impersonate any name — only use on a trusted/LAN network.",
       "noLan": "Couldn't detect a LAN address."
+    },
+    "import": {
+      "mode": "Import existing",
+      "modeHint": "Bring in a server you already have (.zip or folder)",
+      "pickZip": "Choose .zip",
+      "pickFolder": "Choose folder",
+      "dropzone": "Drop a server .zip or folder here, or click to choose",
+      "inspecting": "Reading the server…",
+      "detected": "Detected from the import — adjust if needed.",
+      "willPreserve": "Ready to run as-is (offline)",
+      "willReprovision": "The loader will be reinstalled",
+      "modCount": "{count} mods",
+      "worldPresent": "Includes a world",
+      "import": "Import",
+      "importing": "Importing…",
+      "back": "Back"
     }
   }
 }
