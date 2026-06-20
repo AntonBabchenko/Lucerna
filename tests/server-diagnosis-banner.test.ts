@@ -34,6 +34,12 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     acceptEula: vi.fn().mockResolvedValue({ ok: true }),
     stopOrphan: vi.fn().mockResolvedValue({ ok: true }),
     changePort: vi.fn().mockResolvedValue({ ok: true }),
+    raiseHeap: vi.fn().mockResolvedValue({ ok: true }),
+    lowerHeap: vi.fn().mockResolvedValue({ ok: true }),
+    redownloadJar: vi.fn().mockResolvedValue({ ok: true }),
+    reinstallLoader: vi.fn().mockResolvedValue({ ok: true }),
+    disableMods: vi.fn().mockResolvedValue({ ok: true }),
+    installMissingDep: vi.fn().mockResolvedValue({ ok: true }),
     running: (_id: string) => false,
     refresh: vi.fn().mockResolvedValue(undefined),
     init: vi.fn(),
@@ -64,6 +70,9 @@ function makeClientOnlyDiagnosis(overrides: Partial<ServerDiagnosis> = {}): Serv
     server_repair: null,
     port_in_use: null,
     orphan_pid: null,
+    corrupt_jar: null,
+    suggested_heap_mb: null,
+    conflict_mods: [],
     ...overrides,
   };
 }
@@ -90,6 +99,9 @@ function makePreflightDiagnosis(
     server_repair: serverRepair,
     port_in_use: null,
     orphan_pid: null,
+    corrupt_jar: null,
+    suggested_heap_mb: null,
+    conflict_mods: [],
     ...overrides,
   };
 }
@@ -245,5 +257,100 @@ describe('ServerDiagnosisBanner', () => {
     await fireEvent.click(btn);
     // Suggests port_in_use + 1.
     expect(changePortSpy).toHaveBeenCalledWith('srv-port', 25566);
+  });
+
+  // --- Phase 2: class-B fix buttons ----------------------------------------
+
+  it('shows Raise-heap button carrying the suggested heap', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const raiseHeapSpy = mod.serverState.raiseHeap as ReturnType<typeof vi.fn>;
+    raiseHeapSpy.mockClear();
+    mockDiagnoses['srv-oom'] = makePreflightDiagnosis('server-out-of-memory', 'raise_heap', {
+      suggested_heap_mb: 6144,
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-oom' } });
+    const btn = screen.getByTestId('server-fix-raise-heap');
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(raiseHeapSpy).toHaveBeenCalledWith('srv-oom', 6144);
+  });
+
+  it('shows Lower-heap button carrying the safe max', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const lowerHeapSpy = mod.serverState.lowerHeap as ReturnType<typeof vi.fn>;
+    lowerHeapSpy.mockClear();
+    mockDiagnoses['srv-heap'] = makePreflightDiagnosis('server-heap-too-big', 'lower_heap', {
+      suggested_heap_mb: 4096,
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-heap' } });
+    const btn = screen.getByTestId('server-fix-lower-heap');
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(lowerHeapSpy).toHaveBeenCalledWith('srv-heap', 4096);
+  });
+
+  it('shows Redownload-jar button for redownload_server_jar repair', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const redownloadSpy = mod.serverState.redownloadJar as ReturnType<typeof vi.fn>;
+    redownloadSpy.mockClear();
+    mockDiagnoses['srv-corrupt'] = makePreflightDiagnosis(
+      'server-corrupt-jar',
+      'redownload_server_jar',
+      { corrupt_jar: 'sodium.jar' },
+    );
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-corrupt' } });
+    const btn = screen.getByTestId('server-fix-redownload-jar');
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(redownloadSpy).toHaveBeenCalledWith('srv-corrupt');
+  });
+
+  it('shows Reinstall-loader button for reinstall_loader repair', () => {
+    mockDiagnoses['srv-reinstall'] = makePreflightDiagnosis(
+      'server-corrupt-jar',
+      'reinstall_loader',
+    );
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-reinstall' } });
+    expect(screen.getByTestId('server-fix-reinstall-loader')).toBeTruthy();
+  });
+
+  it('shows Install-dep button for install_missing_dep repair', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const installSpy = mod.serverState.installMissingDep as ReturnType<typeof vi.fn>;
+    installSpy.mockClear();
+    mockDiagnoses['srv-dep'] = makePreflightDiagnosis('server-missing-dep', 'install_missing_dep', {
+      conflict_mods: ['jei'],
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-dep' } });
+    const btn = screen.getByTestId('server-fix-install-dep');
+    expect(btn).toBeTruthy();
+    await fireEvent.click(btn);
+    expect(installSpy).toHaveBeenCalledWith('srv-dep', ['jei']);
+  });
+
+  it('lists named conflict mods as guidance when no installed jar matched', () => {
+    mockDiagnoses['srv-conflict'] = makePreflightDiagnosis('server-mod-conflict', 'disable_mods', {
+      conflict_mods: ['sodium', 'oldlib'],
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-conflict' } });
+    expect(screen.getByTestId('server-fix-disable-mods')).toBeTruthy();
+    expect(screen.getByText('sodium')).toBeTruthy();
+    expect(screen.getByText('oldlib')).toBeTruthy();
+  });
+
+  it('routes disable_mods through disableMods (reversible) for the checklist', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const disableSpy = mod.serverState.disableMods as ReturnType<typeof vi.fn>;
+    disableSpy.mockClear();
+    pushSuccessMock.mockClear();
+    mockDiagnoses['srv-mixin'] = makePreflightDiagnosis('server-mixin-crash', 'disable_mods', {
+      log_signature: 'sig-mixin',
+      client_mods: [{ filename: 'etf.jar', reason: 'crash', confidence: 'high' }],
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-mixin' } });
+    await fireEvent.click(screen.getByText('Show client-only mods'));
+    // etf.jar is pre-checked (high confidence). Click "Disable selected".
+    await fireEvent.click(screen.getByText('Disable selected'));
+    expect(disableSpy).toHaveBeenCalledWith('srv-mixin', ['etf.jar'], 'sig-mixin');
   });
 });
