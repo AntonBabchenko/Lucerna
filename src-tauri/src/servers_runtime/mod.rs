@@ -4,6 +4,7 @@
 pub mod backup;
 pub mod create;
 pub mod eula;
+pub mod firewall;
 pub mod import;
 pub mod jar;
 pub mod pid;

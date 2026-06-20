@@ -2,6 +2,7 @@ import {
   type BackupInfo,
   commands,
   events,
+  type FirewallState,
   type ServerConnectivity,
   type ServerDiagnosis,
   type ServerImportPreview,
@@ -186,6 +187,17 @@ async function exportZip(
 async function connectivity(id: string): Promise<ServerConnectivity | null> {
   const r = await commands.serverConnectivity(id);
   return r.status === 'ok' ? r.data : null;
+}
+
+async function firewallStatus(id: string): Promise<FirewallState | null> {
+  const r = await commands.serverFirewallStatus(id);
+  return r.status === 'ok' ? r.data : null;
+}
+
+async function firewallAddRule(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverFirewallAddRule(id);
+  if (r.status === 'ok') return { ok: true };
+  return { ok: false, error: r.error };
 }
 
 function uploadProgressFor(id: string): { done: number; total: number; file: string } | undefined {
@@ -374,6 +386,8 @@ export const serverState = {
   updateRuntimeConfig,
   remove,
   connectivity,
+  firewallStatus,
+  firewallAddRule,
   importInspect,
   importCommit,
   importCancel,

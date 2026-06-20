@@ -1740,7 +1740,16 @@
       "internetHint": "For friends over the internet you'll need port-forwarding — coming soon.",
       "onlineModeOn": "online-mode is ON: only friends signed in with a Microsoft/Mojang account can join.",
       "onlineModeOff": "online-mode is OFF: offline/cracked accounts can join, but anyone can impersonate any name — only use on a trusted/LAN network.",
-      "noLan": "Couldn't detect a LAN address."
+      "noLan": "Couldn't detect a LAN address.",
+      "firewall": {
+        "blockedTitle": "Windows Firewall may be blocking friends",
+        "blockedHint": "Friends on your network can't reach the server until an inbound rule for port {port} is allowed.",
+        "addRule": "Add firewall rule",
+        "added": "Rule added — try connecting again.",
+        "allowed": "Windows Firewall: this server's port is allowed.",
+        "manual": "Add it manually",
+        "manualSteps": "Run this in an admin PowerShell / Command Prompt:"
+      }
     },
     "import": {
       "mode": "Import existing",

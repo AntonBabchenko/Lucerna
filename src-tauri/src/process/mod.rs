@@ -232,6 +232,61 @@ pub fn local_ipv4_addresses() -> Vec<String> {
     Vec::new()
 }
 
+/// True iff `netsh ... show rule name="<name>"` output contains the (ASCII) rule
+/// name — present only when the rule exists. Locale-robust: the localized
+/// "no rules match" text never contains our name. Pure (testable).
+pub fn show_rule_indicates_present(output: &str, rule_name: &str) -> bool {
+    output.contains(rule_name)
+}
+
+/// Windows: does an inbound firewall rule named `rule_name` exist?
+#[cfg(target_os = "windows")]
+pub fn firewall_rule_present(rule_name: &str) -> bool {
+    let out = std::process::Command::new("netsh")
+        .args([
+            "advfirewall",
+            "firewall",
+            "show",
+            "rule",
+            &format!("name={rule_name}"),
+        ])
+        .output();
+    match out {
+        Ok(o) => show_rule_indicates_present(&String::from_utf8_lossy(&o.stdout), rule_name),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn firewall_rule_present(_rule_name: &str) -> bool {
+    false
+}
+
+/// Windows: add an inbound TCP allow rule for `port`, ELEVATED via a UAC prompt
+/// (`powershell Start-Process netsh … -Verb RunAs`). Best-effort: returns Ok once
+/// the elevation request is launched (we can't observe the elevated result).
+#[cfg(target_os = "windows")]
+pub fn firewall_add_rule_elevated(rule_name: &str, port: u16) -> crate::error::Result<()> {
+    // Build the netsh arg-list as a PowerShell array; Start-Process -Verb RunAs
+    // triggers UAC. Quote the rule name (it contains spaces).
+    let args = format!(
+        "'advfirewall','firewall','add','rule','name=\"{rule_name}\"','dir=in','action=allow','protocol=TCP','localport={port}'"
+    );
+    let cmd = format!(
+        "Start-Process -FilePath netsh -ArgumentList {args} -Verb RunAs -WindowStyle Hidden"
+    );
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &cmd])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| crate::error::Error::io("<firewall>", format!("elevation spawn: {e}")))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn firewall_add_rule_elevated(_rule_name: &str, _port: u16) -> crate::error::Result<()> {
+    Err(crate::error::Error::io("<firewall>", "Windows-only"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +411,23 @@ Ethernet adapter Ethernet:
         assert!(super::parse_lan_ipv4("no addresses here").is_empty());
         let dup = "10.1.2.3 ... 10.1.2.3";
         assert_eq!(super::parse_lan_ipv4(dup), vec!["10.1.2.3".to_string()]);
+    }
+
+    #[test]
+    fn show_rule_present_detects_name_only_when_listed() {
+        let name = "Lucerna Minecraft Server (TCP 25565)";
+        assert!(super::show_rule_indicates_present(
+            &format!("Rule Name:  {name}\nEnabled: Yes\n"),
+            name
+        ));
+        // localized "no rules" text without our name → absent
+        assert!(!super::show_rule_indicates_present(
+            "No rules match the specified criteria.",
+            name
+        ));
+        assert!(!super::show_rule_indicates_present(
+            "Правила, соответствующие условиям, отсутствуют.",
+            name
+        ));
     }
 }
