@@ -217,6 +217,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_import_cancel,
             // Own server (Plan 8: connectivity / friends-join):
             commands::server_connectivity,
+            // Own server (Plan 9: backups):
+            commands::server_backup_create,
+            commands::server_backup_list,
+            commands::server_backup_restore,
+            commands::server_backup_delete,
             // Own server (Plan 10: log retention):
             commands::server_list_logs,
             commands::server_read_log,

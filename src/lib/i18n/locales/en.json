@@ -1716,6 +1716,19 @@
       "confirm": "Delete",
       "runningBlock": "Stop the server before deleting"
     },
+    "backups": {
+      "tab": "Backups",
+      "create": "Create backup",
+      "creating": "Creating…",
+      "empty": "No backups yet",
+      "restore": "Restore",
+      "delete": "Delete",
+      "restoreConfirm": "Restore \"{name}\"? This replaces the current world & files (the current state is backed up first).",
+      "deleteConfirm": "Delete backup \"{name}\"?",
+      "runningBlock": "Stop the server before restoring",
+      "restored": "Restored",
+      "note": "Snapshots of the server (world, mods, config). The newest {n} are kept."
+    },
     "connect": {
       "tab": "Connect",
       "stoppedHint": "Start the server to get a join address.",
