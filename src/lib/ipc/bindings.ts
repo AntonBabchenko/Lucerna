@@ -1036,6 +1036,17 @@ export const commands = {
 	 *  Создаёт папку, если она ещё не существует.
 	 */
 	serverOpenLogsFolder: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_open_logs_folder", { id })),
+	/**
+	 *  Windows-Firewall status for a server's port: is there a Lucerna allow-rule?
+	 *  Returns `NotApplicable` immediately on non-Windows hosts.
+	 */
+	serverFirewallStatus: (id: string) => typedError<FirewallState, Error>(__TAURI_INVOKE("server_firewall_status", { id })),
+	/**
+	 *  Add an inbound allow rule for the server's port (UAC-elevated). Best-effort:
+	 *  returns Ok once the elevation request is launched; the UAC outcome is not
+	 *  observable from within the launcher process.
+	 */
+	serverFirewallAddRule: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_firewall_add_rule", { id })),
 };
 
 /** Events */
@@ -1544,6 +1555,12 @@ export type ExportPreview = {
 	 */
 	saves_size_bytes: number | null,
 };
+
+/**
+ *  What the Connect tab shows. `NotApplicable` = non-Windows; `Unknown` = port
+ *  not yet known (server.properties not generated).
+ */
+export type FirewallState = "allowed" | "needs_rule" | "unknown" | "not_applicable";
 
 /**
  *  Normalized foreign instance — the contract between readers and the

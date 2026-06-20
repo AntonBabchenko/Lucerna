@@ -226,6 +226,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_logs,
             commands::server_read_log,
             commands::server_open_logs_folder,
+            // Own server (Plan 11: firewall help):
+            commands::server_firewall_status,
+            commands::server_firewall_add_rule,
         ])
         .events(collect_events![
             network::DownloadProgress,

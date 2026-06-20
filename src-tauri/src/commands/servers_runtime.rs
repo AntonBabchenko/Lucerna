@@ -1012,3 +1012,37 @@ pub fn server_backup_delete(app: AppHandle, id: String, file_name: String) -> Re
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     backup::delete_backup(&base, &id, &file_name)
 }
+
+// Own server (Plan 11: firewall help):
+
+use crate::servers_runtime::firewall;
+
+/// Windows-Firewall status for a server's port: is there a Lucerna allow-rule?
+/// Returns `NotApplicable` immediately on non-Windows hosts.
+#[tauri::command]
+#[specta::specta]
+pub fn server_firewall_status(app: AppHandle, id: String) -> Result<firewall::FirewallState> {
+    if !cfg!(target_os = "windows") {
+        return Ok(firewall::FirewallState::NotApplicable);
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    let port = crate::servers_runtime::runtime::read_port(&rt);
+    let present = match port {
+        Some(p) => crate::process::firewall_rule_present(&firewall::rule_name(p)),
+        None => false,
+    };
+    Ok(firewall::status_from(port, present))
+}
+
+/// Add an inbound allow rule for the server's port (UAC-elevated). Best-effort:
+/// returns Ok once the elevation request is launched; the UAC outcome is not
+/// observable from within the launcher process.
+#[tauri::command]
+#[specta::specta]
+pub fn server_firewall_add_rule(app: AppHandle, id: String) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let rt = crate::paths::server_paths(&base, &id).runtime;
+    let port = crate::servers_runtime::runtime::read_port(&rt).unwrap_or(25565);
+    crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)
+}
