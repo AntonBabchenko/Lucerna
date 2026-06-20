@@ -1041,7 +1041,6 @@ export type TranslationKey =
   | 'servers.connect.copyInvite'
   | 'servers.connect.firewall.addRule'
   | 'servers.connect.firewall.added'
-  | 'servers.connect.firewall.adding'
   | 'servers.connect.firewall.allowed'
   | 'servers.connect.firewall.blockedHint'
   | 'servers.connect.firewall.blockedTitle'

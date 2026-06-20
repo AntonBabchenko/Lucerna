@@ -1745,7 +1745,6 @@
         "blockedTitle": "Windows Firewall may be blocking friends",
         "blockedHint": "Friends on your network can't reach the server until an inbound rule for port {port} is allowed.",
         "addRule": "Add firewall rule",
-        "adding": "Requesting permission…",
         "added": "Rule added — try connecting again.",
         "allowed": "Windows Firewall: this server's port is allowed.",
         "manual": "Add it manually",
