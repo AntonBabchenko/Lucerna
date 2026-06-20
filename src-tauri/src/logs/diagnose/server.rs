@@ -48,7 +48,6 @@ pub enum ServerRepairTag {
     RaiseHeap,
     LowerHeap,
     RedownloadServerJar,
-    ReinstallLoader,
     DisableMods,
     InstallMissingDep,
 }
@@ -725,7 +724,6 @@ mod tests {
                 ServerRepairTag::RedownloadServerJar,
                 "\"redownload_server_jar\"",
             ),
-            (ServerRepairTag::ReinstallLoader, "\"reinstall_loader\""),
             (ServerRepairTag::DisableMods, "\"disable_mods\""),
             (
                 ServerRepairTag::InstallMissingDep,

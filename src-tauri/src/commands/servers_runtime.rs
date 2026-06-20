@@ -53,7 +53,12 @@ fn preflight_diagnosis(
         .or_else(|| {
             preflight::port_in_use(port).then_some(preflight::PreflightFinding::PortInUse(port))
         })
-        .or_else(|| preflight::eula_finding(eula_ok))?;
+        .or_else(|| preflight::eula_finding(eula_ok))
+        .or_else(|| {
+            // Advisory; lowest priority — only reached when no actionable
+            // orphan/port/EULA finding fired.
+            preflight::low_disk(&p.runtime).then_some(preflight::PreflightFinding::LowDisk)
+        })?;
     Some(crate::logs::diagnose::server::diagnosis_from_preflight(
         finding,
     ))
@@ -559,22 +564,6 @@ pub fn server_lower_heap(app: AppHandle, id: String, to_mb: u32) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
-    if crate::servers_runtime::runtime::is_running(&id) {
-        return Err(Error::ServerAlreadyRunning { id });
-    }
-    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let file = crate::servers_runtime::store::read_server_json(
-        &crate::paths::server_paths(&base, &id).json,
-    )?;
-    provision_loader(&app, &base, &file).await
-}
-
-/// Reinstall the loader (Forge/NeoForge/Fabric/Quilt) for this server by
-/// re-running the create-time installer. No-op-safe for Vanilla. Server must be
-/// stopped.
-#[tauri::command]
-#[specta::specta]
-pub async fn server_reinstall_loader(app: AppHandle, id: String) -> Result<()> {
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(Error::ServerAlreadyRunning { id });
     }

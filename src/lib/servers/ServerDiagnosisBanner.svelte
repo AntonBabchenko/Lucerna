@@ -28,7 +28,8 @@
     | 'mixinCrash'
     | 'worldCorrupt'
     | 'sessionLock'
-    | 'wrongLoader';
+    | 'wrongLoader'
+    | 'diskLow';
 
   function patternKey(patternId: string): PatternKey | null {
     switch (patternId) {
@@ -62,6 +63,8 @@
         return 'sessionLock';
       case 'server-wrong-loader-mod':
         return 'wrongLoader';
+      case 'server-disk-low':
+        return 'diskLow';
       default:
         return null;
     }
@@ -178,6 +181,7 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-accept-eula"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.acceptEula')}
             onclick={() => void runFix(() => serverState.acceptEula(serverId))}
           >
             {$t('servers.diagnose.fix.acceptEula')}
@@ -187,6 +191,7 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-stop-orphan"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.stopOrphan')}
             onclick={() =>
               void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0))}
           >
@@ -197,6 +202,9 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-change-port"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.changePort', {
+              port: (diag.port_in_use ?? 25565) + 1,
+            })}
             onclick={() =>
               void runFix(() => serverState.changePort(serverId, (diag.port_in_use ?? 25565) + 1))}
           >
@@ -207,6 +215,9 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-raise-heap"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.raiseHeap', {
+              mb: diag.suggested_heap_mb ?? 4096,
+            })}
             onclick={() =>
               void runFix(() => serverState.raiseHeap(serverId, diag.suggested_heap_mb ?? 4096))}
           >
@@ -217,6 +228,9 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-lower-heap"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.lowerHeap', {
+              mb: diag.suggested_heap_mb ?? 2048,
+            })}
             onclick={() =>
               void runFix(() => serverState.lowerHeap(serverId, diag.suggested_heap_mb ?? 2048))}
           >
@@ -227,24 +241,19 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-redownload-jar"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.redownloadJar')}
             onclick={() => void runFix(() => serverState.redownloadJar(serverId))}
           >
             {$t('servers.diagnose.fix.redownloadJar')}
-          </BusyButton>
-        {:else if diag.server_repair === 'reinstall_loader'}
-          <BusyButton
-            class="btn-warning btn-sm mt-2"
-            data-testid="server-fix-reinstall-loader"
-            busy={busyFix}
-            onclick={() => void runFix(() => serverState.reinstallLoader(serverId))}
-          >
-            {$t('servers.diagnose.fix.reinstallLoader')}
           </BusyButton>
         {:else if diag.server_repair === 'install_missing_dep'}
           <BusyButton
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-install-dep"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.installMissingDep', {
+              count: diag.conflict_mods.length,
+            })}
             onclick={() =>
               void runFix(() => serverState.installMissingDep(serverId, diag.conflict_mods))}
           >
@@ -253,7 +262,9 @@
         {/if}
 
         {#if fixError}
-          <p class="mt-2 text-sm text-danger">{fixError}</p>
+          <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-fix-error">
+            {fixError}
+          </p>
         {/if}
 
         {#if diag.status === 'actionable' && diag.client_mods.length > 0}
@@ -319,7 +330,9 @@
         {/if}
 
         {#if removeError}
-          <p class="mt-2 text-sm text-danger">{removeError}</p>
+          <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-remove-error">
+            {removeError}
+          </p>
         {/if}
       </div>
     </div>

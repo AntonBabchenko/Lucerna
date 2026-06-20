@@ -65,8 +65,10 @@
     <p class="text-xs text-muted">{$t('servers.console.notRunning')}</p>
   {/if}
 
+  <!-- Console-local: a failed chat/command send, not a launch failure the
+       diagnosis banner can classify, so it stays inline here by design. -->
   {#if sendError}
-    <p class="text-xs text-danger">{sendError}</p>
+    <p class="text-xs text-danger" role="alert" data-testid="server-send-error">{sendError}</p>
   {/if}
 
   <div class="flex gap-2">
