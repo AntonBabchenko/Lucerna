@@ -45,6 +45,19 @@ pub async fn launch_instance(
     let instance = crate::instances::store::read_instance_json(&json_path)?;
     let account =
         crate::accounts::get_active_account(&app)?.ok_or(crate::error::Error::AccountNotSet)?;
+    // An offline account whose name Minecraft won't accept (e.g. Cyrillic)
+    // would launch but be unable to enter any world. Block here with the same
+    // typed error the create-account path uses, so the UI can tell the user to
+    // switch to a Latin nickname. Microsoft names come from Mojang — always
+    // valid — so this only gates offline accounts.
+    if account.kind == crate::accounts::AccountKind::Offline {
+        crate::accounts::offline_name::validate(&account.name).map_err(|reason| {
+            crate::error::Error::OfflineNameInvalid {
+                name: account.name.clone(),
+                reason,
+            }
+        })?;
+    }
     crate::launch::start(
         &instance,
         &effective_id,
