@@ -196,6 +196,15 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 4: diagnosis + repair):
             commands::server_diagnose,
             commands::server_remove_mods,
+            commands::server_accept_eula,
+            commands::server_stop_orphan,
+            commands::server_change_port,
+            // Own server (Plan 4 phase 2: class-B log fixes):
+            commands::server_raise_heap,
+            commands::server_lower_heap,
+            commands::server_redownload_jar,
+            commands::server_disable_mods,
+            commands::server_install_missing_dep,
             // Own server (Plan 5: SFTP upload + export):
             commands::server_set_upload_config,
             commands::server_upload,
@@ -322,6 +331,22 @@ pub fn run() {
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
 
+            // Windows: the taskbar / title-bar icon is a single HICON that the
+            // shell rescales per context. Tauri's default window icon is built
+            // from the largest configured frame, so at a 24px (100% DPI) taskbar
+            // slot our pixel-art lantern ends up downscaled from 256 and looks
+            // blurry. Set a crisp native-size (24px) icon so it renders 1:1.
+            #[cfg(windows)]
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    const ICON_RGBA: &[u8] = include_bytes!("../icons/window-icon.rgba");
+                    if let Err(e) = win.set_icon(tauri::image::Image::new(ICON_RGBA, 24, 24)) {
+                        crate::diag!("[setup] set window icon failed: {e}");
+                    }
+                }
+            }
+
             // One-shot instance migration. Non-fatal on error — the UI has
             // an empty-state fallback that lets the user manually recover
             // by creating an instance through the Manage modal.
@@ -369,8 +394,13 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        // Tauri's run() only returns on a fatal init failure (e.g., missing
-        // webview runtime). There's nothing to recover to — crash loudly.
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            // Bug A root fix: never orphan server children. On launcher exit,
+            // synchronously force-kill every tracked server process.
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                crate::servers_runtime::runtime::kill_all_running();
+            }
+        });
 }

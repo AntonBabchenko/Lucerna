@@ -65,6 +65,47 @@ pub fn running_pid(id: &str) -> Option<u32> {
         .map(|r| r.pid)
 }
 
+/// Snapshot of (server_id, pid) for every currently-tracked running server.
+/// Collected under the lock and returned owned so callers never hold the lock
+/// across a kill (avoids the exit-watcher deadlock).
+pub fn running_ids_snapshot() -> Vec<(String, u32)> {
+    state()
+        .lock()
+        .expect("server state poisoned")
+        .iter()
+        .map(|(id, rs)| (id.clone(), rs.pid))
+        .collect()
+}
+
+/// Force-kill every tracked server process. Called synchronously from the
+/// launcher's exit hook so server children are never orphaned (Bug A root).
+/// Best-effort: the in-memory map is cleared so a repeat call is a no-op.
+pub fn kill_all_running() {
+    for (_id, pid) in running_ids_snapshot() {
+        crate::platform::kill_process_tree(pid);
+    }
+    state().lock().expect("server state poisoned").clear();
+}
+
+/// Decide the running/pid a `server_list` row should show, reconciling the
+/// in-memory map against a persisted PID. Pure: liveness/identity are passed in
+/// so it is testable without real processes. The in-memory entry (this launcher
+/// session owns it) always wins; otherwise a recorded PID is adopted only when
+/// it is alive AND still ours (defeats PID recycling).
+pub fn reconcile_running(
+    in_memory: Option<u32>,
+    recorded_pid: Option<u32>,
+    alive_and_ours: bool,
+) -> (bool, Option<u32>) {
+    if let Some(pid) = in_memory {
+        return (true, Some(pid));
+    }
+    match recorded_pid {
+        Some(pid) if alive_and_ours => (true, Some(pid)),
+        _ => (false, None),
+    }
+}
+
 /// Console JVM: on Windows `jre::java_executable_path` returns `javaw.exe`
 /// (no console → no stdout). Servers stream stdout, so swap to `java.exe`.
 pub(crate) fn console_java_path(javaw: &Path) -> PathBuf {
@@ -183,6 +224,9 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
             stdin: Arc::new(tokio::sync::Mutex::new(stdin)),
         },
     );
+    // Persist the PID so server_list can reconcile after a launcher restart
+    // (Bug A part 2) and the diagnoser can offer "stop the leftover process".
+    let _ = crate::servers_runtime::pid::write_pid(&p.pid, pid);
     let _ = ServerSpawned {
         server_id: server_id.to_string(),
         pid,
@@ -198,12 +242,14 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
 
     let app_exit = app.clone();
     let id_exit = server_id.to_string();
+    let pid_path = p.pid.clone();
     tokio::spawn(async move {
         let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
         state()
             .lock()
             .expect("server state poisoned")
             .remove(&id_exit);
+        crate::servers_runtime::pid::clear_pid(&pid_path);
         let _ = ServerExited {
             server_id: id_exit,
             code,
@@ -325,6 +371,19 @@ pub(crate) fn is_safe_mod_name(name: &str) -> bool {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn reconcile_prefers_in_memory_then_adopts_live_recorded() {
+        // In-memory entry (this session owns it) always wins.
+        assert_eq!(
+            reconcile_running(Some(10), Some(99), false),
+            (true, Some(10))
+        );
+        // No in-memory entry: adopt a recorded PID only if alive AND ours.
+        assert_eq!(reconcile_running(None, Some(99), true), (true, Some(99)));
+        assert_eq!(reconcile_running(None, Some(99), false), (false, None));
+        assert_eq!(reconcile_running(None, None, false), (false, None));
+    }
 
     #[tokio::test]
     async fn send_command_errors_when_not_running() {
