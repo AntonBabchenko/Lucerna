@@ -28,7 +28,10 @@ export function validateOfflineName(name: string): OfflineNameRejection | null {
 /** i18n key for a rejection reason. Shared by the modal hint and `formatError`. */
 export function offlineNameRejectionKey(
   reason: OfflineNameRejection,
-): 'page.accounts.offlineNameTooShort' | 'page.accounts.offlineNameTooLong' | 'page.accounts.offlineNameInvalidChars' {
+):
+  | 'page.accounts.offlineNameTooShort'
+  | 'page.accounts.offlineNameTooLong'
+  | 'page.accounts.offlineNameInvalidChars' {
   switch (reason) {
     case 'too_short':
       return 'page.accounts.offlineNameTooShort';

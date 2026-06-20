@@ -9,7 +9,7 @@
   // call lives in the page handler, which keeps this open on error.
   import Modal from '$lib/ui/Modal.svelte';
   import { t } from '$lib/i18n';
-  import { validateOfflineName, offlineNameRejectionKey } from '$lib/accounts/offline-name';
+  import { offlineNameRejectionKey, validateOfflineName } from '$lib/accounts/offline-name';
 
   let {
     error,

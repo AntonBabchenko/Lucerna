@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateOfflineName, offlineNameRejectionKey } from '$lib/accounts/offline-name';
+import { offlineNameRejectionKey, validateOfflineName } from '$lib/accounts/offline-name';
 
 describe('validateOfflineName', () => {
   it('accepts plain Latin names and boundary lengths', () => {
