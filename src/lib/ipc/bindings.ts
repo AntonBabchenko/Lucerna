@@ -946,6 +946,35 @@ export const commands = {
 	/**  Change the server's listen port in `server.properties` (validated 1..=65535). */
 	serverChangePort: (id: string, port: number) => typedError<null, Error>(__TAURI_INVOKE("server_change_port", { id, port })),
 	/**
+	 *  Raise the server's max heap to `to_mb` (the diagnoser's suggested value) and
+	 *  persist. The UI restarts the server afterward.
+	 */
+	serverRaiseHeap: (id: string, toMb: number) => typedError<null, Error>(__TAURI_INVOKE("server_raise_heap", { id, toMb })),
+	/**
+	 *  Lower the server's max heap to `to_mb` (a safe value <= physical RAM) and
+	 *  persist. Used for the heap-too-big fix.
+	 */
+	serverLowerHeap: (id: string, toMb: number) => typedError<null, Error>(__TAURI_INVOKE("server_lower_heap", { id, toMb })),
+	/**
+	 *  Re-download the server's main jar (corrupt-jar fix). Re-runs the same
+	 *  create-time artifact resolution + download for the stored loader/version.
+	 *  Server must be stopped.
+	 */
+	serverRedownloadJar: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_redownload_jar", { id })),
+	/**
+	 *  Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
+	 *  Reversible alternative to `server_remove_mods` for conflict/mixin fixes.
+	 *  Records `log_signature` as handled when given. Rejects unsafe filenames.
+	 */
+	serverDisableMods: (id: string, filenames: string[], logSignature: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_disable_mods", { id, filenames, logSignature })),
+	/**
+	 *  Install missing dependency mods into the server's `mods/` (B9/B10 fix).
+	 *  `mod_ids` come from the diagnosis `conflict_mods`. Resolves each id to a
+	 *  concrete version via the shared dep resolver and downloads through `network::`.
+	 *  Server must be stopped.
+	 */
+	serverInstallMissingDep: (id: string, modIds: string[]) => typedError<null, Error>(__TAURI_INVOKE("server_install_missing_dep", { id, modIds })),
+	/**
 	 *  Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
 	 *  сохраняет его в связке ключей ОС (пароль никогда не записывается в
 	 *  `server.json`). Идемпотентно: повторный вызов перезаписывает конфигурацию
@@ -971,6 +1000,15 @@ export const commands = {
 	 *  (`servers.dat`) нового инстанса. Сервер читается только на чтение.
 	 */
 	serverCreateClientInstance: (serverId: string, name: string, addToMultiplayer: boolean) => typedError<ClientInstanceResult, Error>(__TAURI_INVOKE("server_create_client_instance", { serverId, name, addToMultiplayer })),
+	/**  Фаза 1 импорта: распаковать/просканировать источник, вернуть превью. */
+	serverImportInspect: (sourcePath: string) => typedError<ServerImportPreview, Error>(__TAURI_INVOKE("server_import_inspect", { sourcePath })),
+	/**
+	 *  Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
+	 *  reprovision (переустановить загрузчик + скопировать данные).
+	 */
+	serverImportCommit: (token: string, name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
+	/**  Отменить импорт: удалить staging. */
+	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
 	/**
 	 *  Read the server's connectivity snapshot: host LAN IPv4s, the configured port,
 	 *  and `online-mode` (from `server.properties`; defaults true when unset).
@@ -1402,7 +1440,7 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  Сервер уже запущен. */
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
-{ kind: "server_not_running"; id: string } | 
+{ kind: "server_not_running"; id: string } | { kind: "server_import_unsupported_source" } | { kind: "server_import_invalid_archive"; details: string } | { kind: "server_import_too_large"; size: number | null; cap: number | null } | { kind: "server_import_not_a_server" } | { kind: "server_import_staging_expired"; token: string } | 
 /**  Загрузка сервера по SFTP не настроена (нет `UploadConfig`). */
 { kind: "upload_not_configured" } | 
 /**  Не удалось установить SSH/SFTP-соединение с сервером пользователя. */
@@ -2657,12 +2695,32 @@ export type ServerDiagnosis = {
 	port_in_use: number | null,
 	/**  The leftover PID for `StopOrphanAndRetry`. */
 	orphan_pid: number | null,
+	/**  RedownloadServerJar / corrupt-mod: the offending jar basename. */
+	corrupt_jar: string | null,
+	/**  RaiseHeap (the proposed new max) / LowerHeap (the safe max to drop to). */
+	suggested_heap_mb: number | null,
+	/**  DisableMods / missing-dep: the cited mod ids or filenames the user acts on. */
+	conflict_mods: string[],
 };
 
 /**  Emitted when a server process exits. `code` is -1 if signal-terminated. */
 export type ServerExited = {
 	server_id: string,
 	code: number,
+};
+
+/**  Превью импорта, возвращается `inspect` и потребляется визардом (Слайс 2b). */
+export type ServerImportPreview = {
+	token: string,
+	detected_name: string,
+	mc_version: string | null,
+	loader: LoaderKind | null,
+	loader_version: string | null,
+	can_launch_as_is: boolean,
+	mod_count: number,
+	world_present: boolean,
+	eula_in_source: boolean,
+	size_bytes: number | null,
 };
 
 /**  One line of server console output (stdout or stderr), streamed to the UI. */
@@ -2675,7 +2733,7 @@ export type ServerLogLine = {
  *  One-click server fix the diagnosis banner can offer. snake_case on the wire.
  *  Phase 1 introduces the first four; later phases extend this enum.
  */
-export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods";
+export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods" | "raise_heap" | "lower_heap" | "redownload_server_jar" | "disable_mods" | "install_missing_dep";
 
 /**  Emitted when a server process starts. */
 export type ServerSpawned = {

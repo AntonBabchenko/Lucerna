@@ -199,12 +199,22 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_accept_eula,
             commands::server_stop_orphan,
             commands::server_change_port,
+            // Own server (Plan 4 phase 2: class-B log fixes):
+            commands::server_raise_heap,
+            commands::server_lower_heap,
+            commands::server_redownload_jar,
+            commands::server_disable_mods,
+            commands::server_install_missing_dep,
             // Own server (Plan 5: SFTP upload + export):
             commands::server_set_upload_config,
             commands::server_upload,
             commands::server_export_zip,
             // Own server (Plan 6: client instance from server):
             commands::server_create_client_instance,
+            // Own server (Plan 7: import from zip/folder):
+            commands::server_import_inspect,
+            commands::server_import_commit,
+            commands::server_import_cancel,
             // Own server (Plan 8: connectivity / friends-join):
             commands::server_connectivity,
         ])

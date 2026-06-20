@@ -3,18 +3,8 @@
 use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
 use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
-use crate::servers_runtime::{create, store};
+use crate::servers_runtime::{create, import, store};
 use tauri::AppHandle;
-
-fn require_loader_version(file: &ServerFile, loader: &str) -> Result<String> {
-    file.loader_version
-        .clone()
-        .ok_or_else(|| Error::ServerJarUnavailable {
-            loader: loader.to_string(),
-            mc_version: file.mc_version.clone(),
-            reason: "loader_version required".into(),
-        })
-}
 
 /// Собрать `ServerWithStatus` из файла + живого рантайм-статуса (running/pid/
 /// port) + флага наличия пароля в keyring. Единый источник для list/rename/
@@ -63,7 +53,12 @@ fn preflight_diagnosis(
         .or_else(|| {
             preflight::port_in_use(port).then_some(preflight::PreflightFinding::PortInUse(port))
         })
-        .or_else(|| preflight::eula_finding(eula_ok))?;
+        .or_else(|| preflight::eula_finding(eula_ok))
+        .or_else(|| {
+            // Advisory; lowest priority — only reached when no actionable
+            // orphan/port/EULA finding fired.
+            preflight::low_disk(&p.runtime).then_some(preflight::PreflightFinding::LowDisk)
+        })?;
     Some(crate::logs::diagnose::server::diagnosis_from_preflight(
         finding,
     ))
@@ -143,50 +138,7 @@ pub async fn server_create(
         handled_log_sig: None,
         upload: None,
     };
-    match file.loader {
-        LoaderKind::Vanilla => {
-            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
-            create::create_vanilla_server(&base, &file, &jar_url, &sha1).await?;
-        }
-        LoaderKind::Fabric => {
-            let installer = create::latest_fabric_installer(&file.mc_version).await?;
-            let lv = require_loader_version(&file, "fabric")?;
-            let url = crate::servers_runtime::jar::fabric_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create::create_fabric_server(&base, &file, &url).await?;
-        }
-        LoaderKind::Quilt => {
-            let installer = create::latest_quilt_installer(&file.mc_version).await?;
-            let lv = require_loader_version(&file, "quilt")?;
-            let url = crate::servers_runtime::jar::quilt_server_jar_url(
-                &file.mc_version,
-                &lv,
-                &installer,
-            );
-            create::create_quilt_server(&base, &file, &url).await?;
-        }
-        LoaderKind::Forge | LoaderKind::NeoForge => {
-            let lv = require_loader_version(&file, "forge/neoforge")?;
-            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
-                (
-                    crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
-                    "forge",
-                )
-            } else {
-                (
-                    crate::servers_runtime::jar::neoforge_installer_url(&lv),
-                    "neoforge",
-                )
-            };
-            let component = create::resolve_server_java_component(&file.mc_version).await?;
-            crate::jre::ensure_jre(&component, &app, |_, _, _| {}).await?;
-            let java_bin = crate::jre::java_executable_path(&component, &app)?;
-            create::create_installer_server(&base, &file, &url, &java_bin, label).await?;
-        }
-    }
+    provision_loader(&app, &base, &file).await?;
     if let Some(inst_id) = &file.created_from_instance {
         let src = crate::paths::mods_dir(&app, inst_id)
             .map_err(|e| crate::error::Error::io("<instance_mods_dir>", e))?;
@@ -366,15 +318,19 @@ pub async fn server_diagnose(
     id: String,
 ) -> Result<crate::logs::diagnose::server::ServerDiagnosis> {
     use crate::logs::diagnose::server::{
-        classify_client_only_mods, diagnose_server_log, dist_crash_tokens, forge_client_skip_count,
-        ServerDiagnosis,
+        classify_client_only_mods, diagnose_server_log, dist_crash_tokens, extract_missing_dep_ids,
+        forge_client_skip_count, pick_diagnosable, server_repair_for, ServerDiagnosis,
+        ServerRepairTag,
     };
 
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let content = crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), 1024 * 1024)
         .unwrap_or_default();
-    if content.is_empty() {
+    // Phase 2: also consider the freshest crash report (crash-reports/*.txt), not
+    // only server-latest.log. The richer of the two is diagnosed.
+    let crash_text = newest_crash_text(&p.runtime.join("crash-reports"), 1024 * 1024);
+    if content.is_empty() && crash_text.is_none() {
         if let Some(d) = preflight_diagnosis(&p, &id) {
             return Ok(d);
         }
@@ -387,10 +343,14 @@ pub async fn server_diagnose(
             server_repair: None,
             port_in_use: None,
             orphan_pid: None,
+            corrupt_jar: None,
+            suggested_heap_mb: None,
+            conflict_mods: Vec::new(),
         });
     }
-    let signature = crate::logs::diagnose::log_signature(&content);
-    let diagnosis = diagnose_server_log(&content);
+    let diag_input = pick_diagnosable(&content, crash_text.as_deref());
+    let signature = crate::logs::diagnose::log_signature(diag_input);
+    let diagnosis = diagnose_server_log(diag_input);
 
     let mut mods: Vec<(String, crate::mods::local::ModEnvironment)> = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&p.mods) {
@@ -406,7 +366,7 @@ pub async fn server_diagnose(
             mods.push((name, env));
         }
     }
-    let tokens = dist_crash_tokens(&content);
+    let tokens = dist_crash_tokens(diag_input);
     let is_client_crash = diagnosis
         .as_ref()
         .map(|d| d.pattern_id == "server-client-only-mod-crash")
@@ -420,7 +380,7 @@ pub async fn server_diagnose(
     let handled = crate::servers_runtime::store::read_server_json(&p.json)
         .ok()
         .and_then(|f| f.handled_log_sig);
-    let status = match &diagnosis {
+    let mut status = match &diagnosis {
         Some(d) => {
             crate::logs::diagnose::classify_status(d, 0, None, &signature, handled.as_deref())
         }
@@ -433,16 +393,104 @@ pub async fn server_diagnose(
         }
     }
 
+    // Phase 2: attach the one-click repair tag + its fix-params per kind.
+    let mut server_repair = diagnosis
+        .as_ref()
+        .and_then(|d| server_repair_for(&d.pattern_id));
+    let mut corrupt_jar = None;
+    let mut suggested_heap_mb = None;
+    let mut conflict_mods = Vec::new();
+    let mut orphan_pid = None;
+    let mut server_client_mods = client_mods;
+    if let Some(tag) = server_repair {
+        let file = crate::servers_runtime::store::read_server_json(&p.json).ok();
+        match tag {
+            ServerRepairTag::RaiseHeap => {
+                let cur = file.as_ref().map(|f| f.max_heap_mb).unwrap_or(0);
+                suggested_heap_mb = crate::logs::diagnose::repair::suggest_heap_mb(
+                    cur,
+                    crate::platform::total_system_ram_mb(),
+                );
+            }
+            ServerRepairTag::LowerHeap => {
+                suggested_heap_mb = Some(crate::instances::memory::recommended_max_mb(
+                    crate::platform::total_system_ram_mb(),
+                ));
+            }
+            ServerRepairTag::RedownloadServerJar => {
+                corrupt_jar = crate::logs::diagnose::repair::extract_corrupt_jar(diag_input);
+            }
+            ServerRepairTag::DisableMods => {
+                // Conflict: cite ids from the log. Mixin: reuse the client-mod
+                // checklist seeded by dist_crash_tokens.
+                conflict_mods = crate::logs::diagnose::repair::extract_conflict_mods(diag_input);
+                if server_client_mods.is_empty() {
+                    let toks = dist_crash_tokens(diag_input);
+                    server_client_mods = classify_client_only_mods(&mods, &toks);
+                }
+            }
+            ServerRepairTag::InstallMissingDep => {
+                conflict_mods = extract_missing_dep_ids(diag_input);
+            }
+            ServerRepairTag::StopOrphanAndRetry => {
+                // The log-detected session lock needs the live orphan PID — the
+                // log path doesn't run preflight (where Phase 1 fills it).
+                let recorded = crate::servers_runtime::pid::read_pid(&p.pid);
+                orphan_pid = match crate::servers_runtime::preflight::orphan_finding(recorded) {
+                    Some(crate::servers_runtime::preflight::PreflightFinding::OrphanRunning(
+                        pid,
+                    )) => Some(pid),
+                    _ => None,
+                };
+            }
+            _ => {}
+        }
+    }
+    // A session lock with no live orphan we own has nothing to kill — drop to
+    // advisory rather than show a no-op "Stop leftover" button.
+    if server_repair == Some(ServerRepairTag::StopOrphanAndRetry) && orphan_pid.is_none() {
+        server_repair = None;
+    }
+    // Server fixes live in `server_repair`, not the client `Diagnosis.repair`, so
+    // classify_status returned Advisory. Upgrade to Actionable when a real fix is
+    // offered (never override Handled/None).
+    if server_repair.is_some() && status == crate::logs::diagnose::DiagnosisStatus::Advisory {
+        status = crate::logs::diagnose::DiagnosisStatus::Actionable;
+    }
+
     Ok(ServerDiagnosis {
         status,
         diagnosis,
-        client_mods,
-        forge_skip_count: forge_client_skip_count(&content),
+        client_mods: server_client_mods,
+        forge_skip_count: forge_client_skip_count(diag_input),
         log_signature: Some(signature),
-        server_repair: None,
+        server_repair,
         port_in_use: None,
-        orphan_pid: None,
+        orphan_pid,
+        corrupt_jar,
+        suggested_heap_mb,
+        conflict_mods,
     })
+}
+
+/// Read the newest `crash-*.txt` (by mtime) under `dir`, capped at `cap` bytes.
+/// Returns `None` when the directory is absent or holds no crash report.
+fn newest_crash_text(dir: &std::path::Path, cap: u64) -> Option<String> {
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.starts_with("crash-") || !name.ends_with(".txt") {
+            continue;
+        }
+        let Ok(m) = e.metadata().and_then(|md| md.modified()) else {
+            continue;
+        };
+        if newest.as_ref().map(|(t, _)| m > *t).unwrap_or(true) {
+            newest = Some((m, e.path()));
+        }
+    }
+    let (_, path) = newest?;
+    crate::logs::read::read_with_cap(&path, cap).ok()
 }
 
 /// Удалить список модов из папки `mods/` сервера по именам файлов.
@@ -482,6 +530,118 @@ pub async fn server_remove_mods(
         }
     }
     Ok(())
+}
+
+/// Raise the server's max heap to `to_mb` (the diagnoser's suggested value) and
+/// persist. The UI restarts the server afterward.
+#[tauri::command]
+#[specta::specta]
+pub fn server_raise_heap(app: AppHandle, id: String, to_mb: u32) -> Result<()> {
+    if to_mb == 0 {
+        return Err(Error::io("<heap>", "heap must be > 0"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    crate::servers_runtime::store::set_max_heap_mb(&p.json, to_mb)
+}
+
+/// Lower the server's max heap to `to_mb` (a safe value <= physical RAM) and
+/// persist. Used for the heap-too-big fix.
+#[tauri::command]
+#[specta::specta]
+pub fn server_lower_heap(app: AppHandle, id: String, to_mb: u32) -> Result<()> {
+    if to_mb == 0 {
+        return Err(Error::io("<heap>", "heap must be > 0"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    crate::servers_runtime::store::set_max_heap_mb(&p.json, to_mb)
+}
+
+/// Re-download the server's main jar (corrupt-jar fix). Re-runs the same
+/// create-time artifact resolution + download for the stored loader/version.
+/// Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let file = crate::servers_runtime::store::read_server_json(
+        &crate::paths::server_paths(&base, &id).json,
+    )?;
+    provision_loader(&app, &base, &file).await
+}
+
+/// Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
+/// Reversible alternative to `server_remove_mods` for conflict/mixin fixes.
+/// Records `log_signature` as handled when given. Rejects unsafe filenames.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_disable_mods(
+    app: AppHandle,
+    id: String,
+    filenames: Vec<String>,
+    log_signature: Option<String>,
+) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    for f in &filenames {
+        if !crate::servers_runtime::runtime::is_safe_mod_name(f) {
+            return Err(Error::io("<mod>", "invalid filename"));
+        }
+        let src = p.mods.join(f);
+        if !src.starts_with(&p.mods) {
+            return Err(Error::io("<mod>", "path escapes mods dir"));
+        }
+        let dst = p.mods.join(format!("{f}.disabled"));
+        match std::fs::rename(&src, &dst) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::io(src.display().to_string(), e)),
+        }
+    }
+    if let Some(sig) = log_signature {
+        if let Ok(mut file) = crate::servers_runtime::store::read_server_json(&p.json) {
+            file.handled_log_sig = Some(sig);
+            crate::servers_runtime::store::write_server_json(&p.json, &file)?;
+        }
+    }
+    Ok(())
+}
+
+/// Install missing dependency mods into the server's `mods/` (B9/B10 fix).
+/// `mod_ids` come from the diagnosis `conflict_mods`. Resolves each id to a
+/// concrete version via the shared dep resolver and downloads through `network::`.
+/// Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_missing_dep(
+    app: AppHandle,
+    id: String,
+    mod_ids: Vec<String>,
+) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    // The mod cache lives under app_dir (same root the instance installer uses).
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let cf_key = crate::mods::curseforge::keyring::resolve();
+    crate::mods::dep_resolve::install_missing_into_dir(
+        &base,
+        &p.mods,
+        &mod_ids,
+        &file.mc_version,
+        file.loader,
+        cf_key,
+    )
+    .await
 }
 
 /// Сохранить конфигурацию SFTP-загрузки сервера. Если передан `password` —
@@ -629,4 +789,137 @@ pub async fn server_open_folder(app: AppHandle, id: String) -> Result<()> {
         .open_path(dir.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| crate::error::Error::io(dir.display().to_string(), format!("opener: {e}")))?;
     Ok(())
+}
+
+/// Разрешить, скачать и установить загрузчик в `runtime/` для данного `ServerFile`.
+/// Выделено из `server_create` (DRY): используется и при создании, и при
+/// репровижне в ходе импорта.
+async fn provision_loader(
+    app: &AppHandle,
+    base: &std::path::Path,
+    file: &ServerFile,
+) -> Result<()> {
+    match file.loader {
+        LoaderKind::Vanilla => {
+            let (jar_url, sha1) = create::resolve_vanilla_jar(&file.mc_version).await?;
+            create::create_vanilla_server(base, file, &jar_url, &sha1).await?;
+        }
+        LoaderKind::Fabric => {
+            let installer = create::latest_fabric_installer(&file.mc_version).await?;
+            let lv = create::require_loader_version(file, "fabric")?;
+            let url = crate::servers_runtime::jar::fabric_server_jar_url(
+                &file.mc_version,
+                &lv,
+                &installer,
+            );
+            create::create_fabric_server(base, file, &url).await?;
+        }
+        LoaderKind::Quilt => {
+            let installer = create::latest_quilt_installer(&file.mc_version).await?;
+            let lv = create::require_loader_version(file, "quilt")?;
+            let url = crate::servers_runtime::jar::quilt_server_jar_url(
+                &file.mc_version,
+                &lv,
+                &installer,
+            );
+            create::create_quilt_server(base, file, &url).await?;
+        }
+        LoaderKind::Forge | LoaderKind::NeoForge => {
+            let lv = create::require_loader_version(file, "forge/neoforge")?;
+            let (url, label) = if matches!(file.loader, LoaderKind::Forge) {
+                (
+                    crate::servers_runtime::jar::forge_installer_url(&file.mc_version, &lv),
+                    "forge",
+                )
+            } else {
+                (
+                    crate::servers_runtime::jar::neoforge_installer_url(&lv),
+                    "neoforge",
+                )
+            };
+            let component = create::resolve_server_java_component(&file.mc_version).await?;
+            crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
+            let java_bin = crate::jre::java_executable_path(&component, app)?;
+            create::create_installer_server(base, file, &url, &java_bin, label).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Фаза 1 импорта: распаковать/просканировать источник, вернуть превью.
+#[tauri::command]
+#[specta::specta]
+pub fn server_import_inspect(
+    app: AppHandle,
+    source_path: String,
+) -> Result<import::ServerImportPreview> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    import::sweep_stale(&base);
+    import::inspect(&base, std::path::Path::new(&source_path))
+}
+
+/// Фаза 3: финализировать импорт. Preserve (staged уже запускаем) или
+/// reprovision (переустановить загрузчик + скопировать данные).
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub async fn server_import_commit(
+    app: AppHandle,
+    token: String,
+    name: String,
+    mc_version: String,
+    loader: LoaderKind,
+    loader_version: Option<String>,
+    max_heap_mb: u32,
+    eula_accepted: bool,
+) -> Result<ServerWithStatus> {
+    crate::servers_runtime::eula::require_accepted(eula_accepted)?;
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    // Decide preserve vs reprovision against the staged root.
+    let root = import::staged_root(&base, &token)?;
+    let preserve = import::detect::can_launch_as_is(&root, loader);
+
+    let id = if preserve {
+        import::commit_preserve(
+            &base,
+            &token,
+            &name,
+            &mc_version,
+            loader,
+            loader_version,
+            max_heap_mb,
+            eula_accepted,
+        )?
+    } else {
+        // Reprovision: build the server.json, provision the loader via create::,
+        // then copy the user's data on top, then drop staging.
+        let id = format!("srv-{}", crate::instances::ids::new_id());
+        let file = import::build_file(
+            &id,
+            &name,
+            &mc_version,
+            loader,
+            loader_version,
+            max_heap_mb,
+            eula_accepted,
+        );
+        provision_loader(&app, &base, &file).await?;
+        let p = crate::paths::server_paths(&base, &id);
+        import::copy::copy_into_runtime(&root, &p.runtime)?;
+        let _ = std::fs::remove_dir_all(import::staging_dir(&base, &token));
+        id
+    };
+
+    let file = crate::servers_runtime::store::read_server_json(
+        &crate::paths::server_paths(&base, &id).json,
+    )?;
+    Ok(status_of(&base, &file))
+}
+
+/// Отменить импорт: удалить staging.
+#[tauri::command]
+#[specta::specta]
+pub fn server_import_cancel(app: AppHandle, token: String) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    import::cancel(&base, &token)
 }

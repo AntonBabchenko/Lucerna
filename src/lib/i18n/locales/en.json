@@ -70,7 +70,6 @@
     "addOffline": "Add offline",
     "removeAccountLabel": "Remove {name}",
     "playerNamePlaceholder": "Player name",
-    "addAccountConfirm": "Add",
     "instance": "Instance",
     "noInstances": "No instances yet.",
     "createInstance": "+ Create",
@@ -1184,7 +1183,12 @@
     "sftpConnectFailed": "Couldn't connect to the host: {details}",
     "sftpAuthFailed": "Login failed — check the username and password",
     "sftpHostKeyMismatch": "The host's key changed — upload blocked for safety. Re-confirm only if you trust it.",
-    "sftpTransferFailed": "Upload failed: {details}"
+    "sftpTransferFailed": "Upload failed: {details}",
+    "serverImportUnsupportedSource": "Pick a .zip file or a server folder to import.",
+    "serverImportInvalidArchive": "The server archive couldn't be read: {details}",
+    "serverImportTooLarge": "That server is too large to import.",
+    "serverImportNotAServer": "That folder doesn't look like a Minecraft server (no server jar, loader files, or server.properties).",
+    "serverImportStagingExpired": "This import session expired — start the import again."
   },
   "settings": {
     "title": "Settings",
@@ -1358,7 +1362,11 @@
       "removeTitle": "Remove account?",
       "removeQuestion": "Remove {name}?",
       "removeDescription": "Lucerna will sign out of this account and forget it. Your instances, worlds, and game files are not affected. To use it again you'll need to add it back.",
-      "removeConfirm": "Remove"
+      "removeConfirm": "Remove",
+      "addOfflineTitle": "Add an offline account",
+      "addOfflineDescription": "Offline accounts let you play single-player and on a local network without a Microsoft sign-in. Enter the player name you'll use in-game.",
+      "addOfflineNameLabel": "Player name",
+      "addOfflineConfirm": "Add account"
     },
     "overview": {
       "sectionConfiguration": "Configuration",
@@ -1421,9 +1429,6 @@
         "pickVersion": "Choose a Minecraft version to finish setting up this instance.",
         "installing": "Installing files for this instance…"
       }
-    },
-    "offlineName": {
-      "cannotBeEmpty": "Name cannot be empty"
     }
   },
   "quickJoin": {
@@ -1588,13 +1593,79 @@
         "explanation": "A server process from a previous launcher session is still holding this world's files, so it can't start again.",
         "recommendation": "Stop the leftover process, then start the server."
       },
+      "oom": {
+        "title": "The server ran out of memory",
+        "explanation": "The memory given to the server wasn't enough — common for heavy modpacks or many loaded chunks.",
+        "recommendation": "Raise the server's memory below, then start it again."
+      },
+      "heapTooBig": {
+        "title": "The memory setting is too large for this computer",
+        "explanation": "Java couldn't start because the maximum memory is bigger than the free RAM on this machine.",
+        "recommendation": "Lower the server's memory below, then start it again."
+      },
+      "javaTooOld": {
+        "title": "Java is too old for this server",
+        "explanation": "A mod or the loader was built for a newer Java than the one starting this server.",
+        "recommendation": "Use a newer Minecraft version (which installs a newer Java), or update the mod that needs it."
+      },
+      "corruptJar": {
+        "title": "A server file is corrupt",
+        "explanation": "The server tried to read a jar and found it damaged or incomplete — usually an interrupted download.",
+        "recommendation": "Re-download the damaged file below, then start the server again."
+      },
+      "modConflict": {
+        "title": "Two mods conflict with each other",
+        "explanation": "The loader stopped because two installed mods can't run together — one requires a version another forbids.",
+        "recommendation": "Disable one of the conflicting mods below, then start the server again."
+      },
+      "missingDep": {
+        "title": "A mod needs another mod you don't have",
+        "explanation": "One of the server's mods requires a dependency mod that isn't installed (or is the wrong version).",
+        "recommendation": "Install the missing dependency below, or remove the mod that needs it, then start the server again."
+      },
+      "fabricApiMissing": {
+        "title": "The Fabric API mod is missing",
+        "explanation": "A mod on this server needs the Fabric API library mod, which isn't installed.",
+        "recommendation": "Install the Fabric API below, then start the server again."
+      },
+      "mixinCrash": {
+        "title": "A mod crashed while starting up",
+        "explanation": "A mod failed during its early startup (a mixin apply error). The crash names the mod responsible.",
+        "recommendation": "Disable the mod named below, then start the server again."
+      },
+      "worldCorrupt": {
+        "title": "The world data looks corrupted",
+        "explanation": "A region or chunk file appears damaged, so the world won't load.",
+        "recommendation": "Restore this world from a backup. Don't let the server overwrite it automatically — that risks losing data."
+      },
+      "sessionLock": {
+        "title": "The world is still locked by another process",
+        "explanation": "A leftover copy of this server is still holding the world's session lock, so a new copy can't open it.",
+        "recommendation": "Stop the leftover process, then start the server again."
+      },
+      "wrongLoader": {
+        "title": "A mod is for a different mod loader",
+        "explanation": "A file in the server's mods folder isn't a valid mod for this server's loader — usually a mod for a different loader.",
+        "recommendation": "Remove the mods that don't match this server's loader, then start it again."
+      },
+      "diskLow": {
+        "title": "Low disk space",
+        "explanation": "The drive this server lives on is nearly full, so creating or starting it may fail or leave a half-written world.",
+        "recommendation": "Free up space on this drive, then try again."
+      },
       "fix": {
         "acceptEula": "Accept EULA & start",
         "stopOrphan": "Stop leftover & retry",
-        "changePort": "Use port {port}"
+        "changePort": "Use port {port}",
+        "raiseHeap": "Raise memory to {mb} MB & retry",
+        "lowerHeap": "Lower memory to {mb} MB & retry",
+        "redownloadJar": "Re-download server file & retry",
+        "installMissingDep": "Install missing mods & retry"
       },
+      "conflictNamed": "The loader named these mods. Disable one of them in the server's Mods tab, then start the server again.",
       "showClientMods": "Show client-only mods",
       "removeSelected": "Remove selected",
+      "disableSelected": "Disable selected",
       "reason": {
         "manifestClient": "client-only (mod info)",
         "crash": "named in the crash"
