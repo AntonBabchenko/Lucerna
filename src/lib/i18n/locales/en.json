@@ -1180,6 +1180,7 @@
     "serverAlreadyRunning": "This server is already running",
     "serverNotRunning": "This server is not running",
     "serverModRequiredByOther": "Can't remove {filename} — {requiredBy} needs it. Remove that mod too, or keep this one.",
+    "serverNameInvalid": "That server name can't be used — it may be empty, too long, or already taken.",
     "uploadNotConfigured": "Set up the hosting connection first",
     "sftpConnectFailed": "Couldn't connect to the host: {details}",
     "sftpAuthFailed": "Login failed — check the username and password",

@@ -71,6 +71,8 @@ function makeServer(overrides: Partial<ServerWithStatus> = {}): ServerWithStatus
     port: null,
     upload: null,
     upload_password_set: false,
+    last_exit_code: null,
+    diagnosis_status: 'none',
     ...overrides,
   };
 }
@@ -99,6 +101,8 @@ describe('ServerHostingTab', () => {
       makeServer({
         upload: { host: 'myhost.com', port: 2222, user: 'alice', remote_path: '/srv/mc' },
         upload_password_set: true,
+        last_exit_code: null,
+        diagnosis_status: 'none',
       }),
     ];
     mockRunning = false;

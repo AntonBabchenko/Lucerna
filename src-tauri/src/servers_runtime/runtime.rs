@@ -1,6 +1,6 @@
 //! Долгоживущий серверный процесс: состояние, консоль-стрим, команды, стоп.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -48,6 +48,47 @@ fn state() -> &'static Mutex<HashMap<String, RunningServer>> {
     S.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Server ids whose `start()` is in flight but has not yet registered a running
+/// process. Guards the TOCTOU window between the `is_running` check and the
+/// `RunningServer` insert: without it, two concurrent starts both pass the gate
+/// and spawn two JVMs into one world (the ERROR_LOCK_VIOLATION world-region
+/// lock). Lock order is always `state()` first, then `starting()`.
+fn starting() -> &'static Mutex<HashSet<String>> {
+    static S: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// RAII claim on an in-flight start. Held from the top of `start()` until after
+/// the running entry is inserted (or any early-return error); `Drop` releases
+/// the id from `starting()`.
+struct StartClaim {
+    id: String,
+}
+
+impl Drop for StartClaim {
+    fn drop(&mut self) {
+        starting()
+            .lock()
+            .expect("server starting set poisoned")
+            .remove(&self.id);
+    }
+}
+
+/// Atomically claim the start slot for `id`. Returns `None` if the server is
+/// already running OR already starting, so the caller maps that to
+/// `ServerAlreadyRunning`. Takes both locks in the fixed order state→starting.
+fn claim_start(id: &str) -> Option<StartClaim> {
+    let running = state().lock().expect("server state poisoned");
+    if running.contains_key(id) {
+        return None;
+    }
+    let mut starting_guard = starting().lock().expect("server starting set poisoned");
+    if !starting_guard.insert(id.to_string()) {
+        return None;
+    }
+    Some(StartClaim { id: id.to_string() })
+}
+
 /// True iff a server with this id currently has a running process.
 pub fn is_running(id: &str) -> bool {
     state()
@@ -85,6 +126,40 @@ pub fn kill_all_running() {
         crate::platform::kill_process_tree(pid);
     }
     state().lock().expect("server state poisoned").clear();
+}
+
+/// Force-kill the JVM recorded in `pid_file` when it is still alive AND still
+/// ours (image match defeats PID recycling), then clear the file regardless (a
+/// stale or recycled record is removed too). Returns true iff a live owned
+/// process was killed. Shared by the exit sweep, `stop`, and `server_delete`.
+pub fn kill_owned_pid(pid_file: &Path) -> bool {
+    let Some(pid) = crate::servers_runtime::pid::read_pid(pid_file) else {
+        return false;
+    };
+    let ours =
+        crate::platform::process_alive(pid) && crate::platform::process_image_matches(pid, "java");
+    if ours {
+        crate::platform::kill_process_tree(pid);
+    }
+    // Clear unconditionally: a killed-ours pid is now dead, a stale file points
+    // at nothing, and a recycled pid was never our server.
+    crate::servers_runtime::pid::clear_pid(pid_file);
+    ours
+}
+
+/// Sweep every server's persisted `runtime/server.pid` under `servers_root`,
+/// killing any leftover JVM that is still alive and ours and clearing each PID
+/// file. Complements `kill_all_running` (this session's in-memory children
+/// only): a server adopted after a launcher restart lives only on disk, so
+/// without this sweep it would be re-orphaned on exit (re-triggering the
+/// world-lock bug). Best-effort; a missing root is a no-op.
+pub fn kill_persisted_orphans(servers_root: &Path) {
+    let Ok(entries) = std::fs::read_dir(servers_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        kill_owned_pid(&entry.path().join("runtime").join("server.pid"));
+    }
 }
 
 /// Decide the running/pid a `server_list` row should show, reconciling the
@@ -182,19 +257,31 @@ pub(crate) fn find_loader_args_file(runtime: &Path) -> Option<String> {
 /// registers an exit watcher that emits `ServerExited` and clears state.
 /// Returns the OS pid. Errors `ServerAlreadyRunning` if already up.
 pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
-    if is_running(server_id) {
-        return Err(Error::ServerAlreadyRunning {
-            id: server_id.to_string(),
-        });
-    }
+    // Atomically claim the start slot (held until the running entry is inserted
+    // below) so two concurrent starts can't both spawn a JVM into one world.
+    let _claim = claim_start(server_id).ok_or_else(|| Error::ServerAlreadyRunning {
+        id: server_id.to_string(),
+    })?;
 
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, server_id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     crate::servers_runtime::eula::require_accepted(file.eula_accepted)?;
 
-    let component =
-        crate::servers_runtime::create::resolve_server_java_component(&file.mc_version).await?;
+    // Prefer the Java component cached at create time so a server that ran once
+    // starts offline. Fall back to resolving it over the network (pre-existing
+    // servers) and lazy-persist it so the next launch is offline-capable too.
+    let component = match &file.java_component {
+        Some(c) => c.clone(),
+        None => {
+            let c = crate::servers_runtime::create::resolve_server_java_component(&file.mc_version)
+                .await?;
+            let mut upgraded = file.clone();
+            upgraded.java_component = Some(c.clone());
+            let _ = crate::servers_runtime::store::write_server_json(&p.json, &upgraded);
+            c
+        }
+    };
     crate::jre::ensure_jre(&component, app, |_, _, _| {}).await?;
     let javaw = crate::jre::java_executable_path(&component, app)?;
     let java = console_java_path(&javaw);
@@ -232,6 +319,9 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     // Persist the PID so server_list can reconcile after a launcher restart
     // (Bug A part 2) and the diagnoser can offer "stop the leftover process".
     let _ = crate::servers_runtime::pid::write_pid(&p.pid, pid);
+    // A successful (re)start makes any prior exit code stale — clear it so a
+    // running server can't show a leftover "Crashed" status (#18).
+    crate::servers_runtime::exit_state::clear(&p.runtime);
     let _ = ServerSpawned {
         server_id: server_id.to_string(),
         pid,
@@ -248,18 +338,32 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     let app_exit = app.clone();
     let id_exit = server_id.to_string();
     let pid_path = p.pid.clone();
+    let runtime_path = p.runtime.clone();
+    let watched_pid = pid;
     tokio::spawn(async move {
         let code = child.wait().await.ok().and_then(|s| s.code()).unwrap_or(-1);
-        state()
-            .lock()
-            .expect("server state poisoned")
-            .remove(&id_exit);
-        crate::servers_runtime::pid::clear_pid(&pid_path);
-        let _ = ServerExited {
-            server_id: id_exit,
-            code,
+        // Only clear/announce the exit if this map entry is still OUR process:
+        // a force-kill in stop() may have already removed us, and a restart may
+        // have inserted a new pid under the same id — never evict that (ABA).
+        let was_current = {
+            let mut map = state().lock().expect("server state poisoned");
+            if map.get(&id_exit).map(|rs| rs.pid) == Some(watched_pid) {
+                map.remove(&id_exit);
+                true
+            } else {
+                false
+            }
+        };
+        if was_current {
+            crate::servers_runtime::pid::clear_pid(&pid_path);
+            // Record the exit code so server_list can show "Crashed" vs "Stopped" (#18).
+            crate::servers_runtime::exit_state::write(&runtime_path, code);
+            let _ = ServerExited {
+                server_id: id_exit,
+                code,
+            }
+            .emit(&app_exit);
         }
-        .emit(&app_exit);
     });
 
     Ok(pid)
@@ -314,25 +418,67 @@ pub async fn send_command(server_id: &str, line: &str) -> Result<()> {
     Ok(())
 }
 
-/// Graceful stop: send `stop` to the console, wait up to ~10s for the exit
-/// watcher to clear state, then force-kill the process tree as a fallback.
-pub async fn stop(server_id: &str) -> Result<()> {
+/// Graceful-stop window before the force-kill fallback: 60s (300 × 200ms). A
+/// large modded world can take far longer than the old 10s to flush its chunks
+/// on shutdown, and force-killing mid-save can corrupt region files.
+const GRACEFUL_STOP_POLLS: usize = 300;
+const GRACEFUL_STOP_INTERVAL_MS: u64 = 200;
+
+/// Graceful stop: send `stop` to the console, wait up to `GRACEFUL_STOP_POLLS *
+/// GRACEFUL_STOP_INTERVAL_MS` for the exit watcher to clear state, then
+/// force-kill the process tree as a fallback. When the server is not tracked
+/// in-memory it may be a process adopted from before a launcher restart — there
+/// is no stdin to talk to it, so fall back to force-killing its persisted PID
+/// (alive-and-ours), which also frees the world lock the leftover JVM holds.
+pub async fn stop(app: &AppHandle, server_id: &str) -> Result<()> {
     if !is_running(server_id) {
-        return Err(Error::ServerNotRunning {
-            id: server_id.to_string(),
-        });
+        return stop_persisted(app, server_id);
     }
     let _ = send_command(server_id, "stop").await;
-    for _ in 0..50 {
+    for _ in 0..GRACEFUL_STOP_POLLS {
         if !is_running(server_id) {
             return Ok(());
         }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(GRACEFUL_STOP_INTERVAL_MS)).await;
     }
+    // Timed out: force-kill, then clear our own in-memory state immediately so an
+    // immediate restart()'s start() isn't rejected with ServerAlreadyRunning. The
+    // exit watcher is pid-matched, so it will no-op on the now-gone entry; we
+    // therefore also do its bookkeeping (clear pid, record the forced exit, emit).
     if let Some(pid) = running_pid(server_id) {
         crate::platform::kill_process_tree(pid);
+        state()
+            .lock()
+            .expect("server state poisoned")
+            .remove(server_id);
+        if let Ok(base) = crate::paths::app_dir(app) {
+            let p = crate::paths::server_paths(&base, server_id);
+            crate::servers_runtime::pid::clear_pid(&p.pid);
+            crate::servers_runtime::exit_state::write(&p.runtime, -1);
+        }
+        let _ = ServerExited {
+            server_id: server_id.to_string(),
+            code: -1,
+        }
+        .emit(app);
     }
     Ok(())
+}
+
+/// Stop a server that is NOT tracked in this session's map by force-killing its
+/// persisted PID when it is still alive and still ours, then clearing the PID
+/// file. Returns `ServerNotRunning` when there is no live owned process (a stale
+/// PID file is cleared as a side effect).
+fn stop_persisted(app: &AppHandle, server_id: &str) -> Result<()> {
+    let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, server_id);
+    if kill_owned_pid(&p.pid) {
+        Ok(())
+    } else {
+        Err(Error::ServerNotRunning {
+            id: server_id.to_string(),
+        })
+    }
 }
 
 /// Read `server-port` from `runtime/server.properties` if present/parseable.
@@ -346,7 +492,7 @@ pub fn read_port(runtime: &Path) -> Option<u16> {
 /// Restart = graceful stop (if running) then start.
 pub async fn restart(app: &AppHandle, server_id: &str) -> Result<u32> {
     if is_running(server_id) {
-        stop(server_id).await?;
+        stop(app, server_id).await?;
     }
     start(app, server_id).await
 }
@@ -388,6 +534,37 @@ mod tests {
         assert_eq!(reconcile_running(None, Some(99), true), (true, Some(99)));
         assert_eq!(reconcile_running(None, Some(99), false), (false, None));
         assert_eq!(reconcile_running(None, None, false), (false, None));
+    }
+
+    #[test]
+    fn claim_start_is_exclusive_and_releases_on_drop() {
+        let id = "srv-claim-unit-test";
+        let c = claim_start(id).expect("first claim succeeds");
+        assert!(
+            claim_start(id).is_none(),
+            "a second concurrent claim must be rejected"
+        );
+        drop(c);
+        let c2 = claim_start(id).expect("claim succeeds again after release");
+        drop(c2);
+    }
+
+    #[test]
+    fn kill_persisted_orphans_clears_dead_and_stale_pid_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("servers");
+        // u32::MAX is treated as not-alive by process_alive, so this exercises
+        // the stale-file cleanup path deterministically (no real process).
+        let pid_file = root.join("srv-x/runtime/server.pid");
+        crate::servers_runtime::pid::write_pid(&pid_file, u32::MAX).unwrap();
+        assert!(pid_file.exists());
+        kill_persisted_orphans(&root);
+        assert!(
+            !pid_file.exists(),
+            "a dead/stale pid file should be cleared"
+        );
+        // A missing servers root is a no-op (must not panic).
+        kill_persisted_orphans(&dir.path().join("does-not-exist"));
     }
 
     #[tokio::test]

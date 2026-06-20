@@ -360,6 +360,10 @@ pub enum Error {
     #[error("server not running: {id}")]
     ServerNotRunning { id: String },
 
+    /// Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное).
+    #[error("invalid server name: {reason}")]
+    ServerNameInvalid { reason: String },
+
     /// Мод нельзя удалить/отключить — он является зависимостью другого мода,
     /// который остаётся на сервере (защита от поломки рабочего мода).
     #[error("cannot remove {filename}: required by {required_by}")]

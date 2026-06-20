@@ -42,6 +42,10 @@ pub struct ServerFile {
     /// (e.g. removed client mods). Suppresses re-nagging on that same log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handled_log_sig: Option<String>,
+    /// MC Java component (e.g. "java-runtime-delta") resolved at create time so
+    /// repeat launches need no network — a server that ran once starts offline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java_component: Option<String>,
     /// SFTP upload target. Password lives in the OS keyring, never here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<UploadConfig>,
@@ -66,6 +70,11 @@ pub struct ServerWithStatus {
     pub upload: Option<UploadConfig>,
     /// Whether a keyring password is stored for the upload target.
     pub upload_password_set: bool,
+    /// Last process exit code. None = never run (no exit record); Some(0) = clean
+    /// stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
+    pub last_exit_code: Option<i32>,
+    /// Cheap last-known diagnosis status for the sidebar "needs a fix" badge.
+    pub diagnosis_status: crate::logs::diagnose::DiagnosisStatus,
 }
 
 impl ServerWithStatus {
@@ -75,6 +84,8 @@ impl ServerWithStatus {
         pid: Option<u32>,
         port: Option<u16>,
         upload_password_set: bool,
+        last_exit_code: Option<i32>,
+        diagnosis_status: crate::logs::diagnose::DiagnosisStatus,
     ) -> Self {
         Self {
             id: file.id.clone(),
@@ -92,6 +103,8 @@ impl ServerWithStatus {
             port,
             upload: file.upload.clone(),
             upload_password_set,
+            last_exit_code,
+            diagnosis_status,
         }
     }
 }
@@ -114,6 +127,7 @@ mod tests {
             eula_accepted: false,
             created_from_instance: Some("inst-1".into()),
             handled_log_sig: None,
+            java_component: None,
             upload: None,
         }
     }
@@ -132,6 +146,7 @@ mod tests {
             eula_accepted: true,
             created_from_instance: None,
             handled_log_sig: None,
+            java_component: None,
             upload: None,
         };
         assert!(!serde_json::to_string(&s)
@@ -152,10 +167,22 @@ mod tests {
             eula_accepted: true,
             created_from_instance: None,
             handled_log_sig: Some("abc".into()),
+            java_component: None,
             upload: None,
         };
         let back: ServerFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.handled_log_sig.as_deref(), Some("abc"));
+    }
+    #[test]
+    fn java_component_roundtrips_and_skips_none() {
+        let mut s = sample();
+        // Absent by default → omitted from JSON.
+        assert!(!serde_json::to_string(&s)
+            .unwrap()
+            .contains("java_component"));
+        s.java_component = Some("java-runtime-delta".into());
+        let back: ServerFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.java_component.as_deref(), Some("java-runtime-delta"));
     }
     #[test]
     fn old_server_json_without_handled_sig_deserializes() {
@@ -182,7 +209,15 @@ mod tests {
     #[test]
     fn with_status_from_file_carries_runtime_fields() {
         let s = sample();
-        let w = ServerWithStatus::from_file(&s, true, Some(4321), Some(25565), false);
+        let w = ServerWithStatus::from_file(
+            &s,
+            true,
+            Some(4321),
+            Some(25565),
+            false,
+            Some(0),
+            crate::logs::diagnose::DiagnosisStatus::None,
+        );
         assert_eq!(w.id, s.id);
         assert!(w.running);
         assert_eq!(w.pid, Some(4321));
@@ -220,7 +255,15 @@ mod tests {
             remote_path: "/s".into(),
             known_host_fp: None,
         });
-        let w = ServerWithStatus::from_file(&s, false, None, None, true);
+        let w = ServerWithStatus::from_file(
+            &s,
+            false,
+            None,
+            None,
+            true,
+            None,
+            crate::logs::diagnose::DiagnosisStatus::None,
+        );
         assert_eq!(w.upload.as_ref().unwrap().host, "h");
         assert!(w.upload_password_set);
     }

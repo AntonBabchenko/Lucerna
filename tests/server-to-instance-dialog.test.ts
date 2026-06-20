@@ -47,6 +47,8 @@ const server = {
   port: 25570,
   upload: null,
   upload_password_set: false,
+  last_exit_code: null,
+  diagnosis_status: 'none' as const,
 };
 
 beforeEach(() => {

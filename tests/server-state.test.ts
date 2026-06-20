@@ -34,6 +34,8 @@ function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
     port: 25565,
     upload: null,
     upload_password_set: false,
+    last_exit_code: null,
+    diagnosis_status: 'none',
   };
 }
 

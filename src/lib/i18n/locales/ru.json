@@ -1180,6 +1180,7 @@
     "serverAlreadyRunning": "Этот сервер уже запущен",
     "serverNotRunning": "Этот сервер не запущен",
     "serverModRequiredByOther": "Нельзя удалить {filename} — он нужен моду {requiredBy}. Удалите и тот мод, либо оставьте этот.",
+    "serverNameInvalid": "Это имя сервера нельзя использовать — оно пустое, слишком длинное или уже занято.",
     "uploadNotConfigured": "Сначала настройте подключение к хостингу",
     "sftpConnectFailed": "Не удалось подключиться к хосту: {details}",
     "sftpAuthFailed": "Вход не удался — проверьте логин и пароль",

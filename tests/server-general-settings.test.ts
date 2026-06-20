@@ -26,6 +26,8 @@ const { mockRename, mockUpdateRuntimeConfig, mockRunning, mockList } = vi.hoiste
       port: null as number | null,
       upload: null,
       upload_password_set: false,
+      last_exit_code: null,
+      diagnosis_status: 'none',
     },
   ];
   return { mockRename, mockUpdateRuntimeConfig, mockRunning, mockList };

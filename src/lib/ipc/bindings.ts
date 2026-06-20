@@ -1522,6 +1522,8 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
 { kind: "server_not_running"; id: string } | 
+/**  Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное). */
+{ kind: "server_name_invalid"; reason: string } | 
 /**
  *  Мод нельзя удалить/отключить — он является зависимостью другого мода,
  *  который остаётся на сервере (защита от поломки рабочего мода).
@@ -2937,6 +2939,13 @@ export type ServerWithStatus_Deserialize = {
 	upload: UploadConfig_Deserialize | null,
 	/**  Whether a keyring password is stored for the upload target. */
 	upload_password_set: boolean,
+	/**
+	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
+	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
+	 */
+	last_exit_code: number | null,
+	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
+	diagnosis_status: DiagnosisStatus,
 };
 
 /**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */
@@ -2957,6 +2966,13 @@ export type ServerWithStatus_Serialize = {
 	upload: UploadConfig_Serialize | null,
 	/**  Whether a keyring password is stored for the upload target. */
 	upload_password_set: boolean,
+	/**
+	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
+	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
+	 */
+	last_exit_code: number | null,
+	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
+	diagnosis_status: DiagnosisStatus,
 };
 
 /**

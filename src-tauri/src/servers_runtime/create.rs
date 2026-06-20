@@ -19,6 +19,33 @@ pub(crate) fn require_loader_version(file: &ServerFile, loader: &str) -> Result<
         })
 }
 
+/// Default MC server port, seeded into a fresh `server.properties` so the port
+/// (and thus connectivity + firewall help) is known before the first boot.
+const DEFAULT_SERVER_PORT: u16 = 25565;
+
+/// Seed a minimal `server.properties` (port + motd) when none exists yet, so
+/// `read_port`, `server_connectivity`, and firewall help work before the server
+/// has booted once. Minecraft fills in the remaining keys on first run,
+/// preserving these. Best-effort — never fails creation.
+fn seed_server_properties(runtime: &Path, name: &str) {
+    let path = runtime.join("server.properties");
+    if path.exists() {
+        return;
+    }
+    let mut props = crate::servers_runtime::properties::ServerProperties::default();
+    props.set("server-port", &DEFAULT_SERVER_PORT.to_string());
+    // Strip chars that would break the single-line `key=value` format.
+    let motd: String = name
+        .chars()
+        .filter(|c| !c.is_control() && *c != '=')
+        .collect();
+    let motd = motd.trim();
+    if !motd.is_empty() {
+        props.set("motd", motd);
+    }
+    let _ = std::fs::write(&path, props.serialize());
+}
+
 /// Общая сборка «готовый jar»: server.json + скачать jar + eula.txt.
 /// `sha1` = "" означает пропустить SHA-верификацию (Fabric/Quilt не предоставляют).
 async fn create_prebuilt_server(
@@ -39,6 +66,7 @@ async fn create_prebuilt_server(
         "servers",
     )
     .await?;
+    seed_server_properties(&p.runtime, &file.name);
     crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
     Ok(())
 }
@@ -138,6 +166,7 @@ pub async fn create_installer_server(
     let installer = p.runtime.join("installer.jar");
     crate::network::download::download_no_emit(installer_url, &installer, "", "servers").await?;
     crate::process::install_server(java_bin, &installer, &p.runtime, loader_label).await?;
+    seed_server_properties(&p.runtime, &file.name);
     crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), file.eula_accepted)?;
     Ok(())
 }
@@ -255,5 +284,21 @@ mod tests {
         let dest = dir.path().join("srv/runtime/mods");
         let n = copy_instance_mods(&dir.path().join("nope"), &dest).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn seed_writes_port_and_sanitized_motd_and_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let runtime = dir.path();
+        seed_server_properties(runtime, "My= Server\n");
+        let txt = std::fs::read_to_string(runtime.join("server.properties")).unwrap();
+        assert!(txt.contains("server-port=25565"), "got: {txt}");
+        // '=' and newline stripped from the name before it becomes the motd.
+        assert!(txt.contains("motd=My Server"), "got: {txt}");
+        // Idempotent: an existing file is never overwritten.
+        std::fs::write(runtime.join("server.properties"), "server-port=30000\n").unwrap();
+        seed_server_properties(runtime, "x");
+        let txt2 = std::fs::read_to_string(runtime.join("server.properties")).unwrap();
+        assert!(txt2.contains("server-port=30000"), "must not overwrite");
     }
 }
