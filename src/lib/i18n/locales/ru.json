@@ -91,7 +91,8 @@
     "joinServer": "Подключиться к серверу",
     "servers": "Серверы",
     "serverRunning": "Сервер запущен",
-    "importLauncher": "Импорт из лаунчера"
+    "importLauncher": "Импорт из лаунчера",
+    "offlineNameUnsupported": "Этот ник не поддерживается Minecraft — в миры не зайти. Добавь аккаунт с латинским ником."
   },
   "instance": {
     "manage": {
@@ -1171,6 +1172,7 @@
     "importSourceMissing": "Исходная папка больше не существует: {path}",
     "serversDatParse": "Не удалось прочитать список серверов (servers.dat): {reason}",
     "savedServerNameInvalid": "«{name}» — недопустимое имя сервера: {reason}",
+    "offlineNameInvalid": "Аккаунт «{name}» нельзя использовать: {reason} Смени ник на латиницу.",
     "savedServerListChanged": "Список сохранённых серверов изменился — откройте окно заново и повторите.",
     "serverInvalidProperty": "Недопустимое значение параметра сервера {key} = {value}",
     "serverEulaNotAccepted": "Прежде чем запустить этот сервер, необходимо принять лицензионное соглашение Minecraft (EULA)",
@@ -1367,7 +1369,11 @@
       "addOfflineTitle": "Добавить офлайн-аккаунт",
       "addOfflineDescription": "Офлайн-аккаунты позволяют играть в одиночной игре и в локальной сети без входа через Microsoft. Введите имя игрока, под которым вы будете в игре.",
       "addOfflineNameLabel": "Имя игрока",
-      "addOfflineConfirm": "Добавить аккаунт"
+      "addOfflineConfirm": "Добавить аккаунт",
+      "offlineNameHelp": "Латинские буквы, цифры и _ — от 3 до 16 символов.",
+      "offlineNameTooShort": "Ник должен быть не короче 3 символов.",
+      "offlineNameTooLong": "Ник должен быть не длиннее 16 символов.",
+      "offlineNameInvalidChars": "Только латинские буквы, цифры и _ — с другими символами Minecraft не пустит в миры."
     },
     "overview": {
       "sectionConfiguration": "Конфигурация",
