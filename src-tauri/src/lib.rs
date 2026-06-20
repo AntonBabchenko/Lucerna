@@ -215,6 +215,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_import_inspect,
             commands::server_import_commit,
             commands::server_import_cancel,
+            // Own server (Plan 8: connectivity / friends-join):
+            commands::server_connectivity,
         ])
         .events(collect_events![
             network::DownloadProgress,

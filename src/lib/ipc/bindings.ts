@@ -1009,6 +1009,11 @@ export const commands = {
 	serverImportCommit: (token: string, name: string, mcVersion: string, loader: LoaderKind, loaderVersion: string | null, maxHeapMb: number, eulaAccepted: boolean) => typedError<ServerWithStatus_Serialize, Error>(__TAURI_INVOKE("server_import_commit", { token, name, mcVersion, loader, loaderVersion, maxHeapMb, eulaAccepted })),
 	/**  Отменить импорт: удалить staging. */
 	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
+	/**
+	 *  Read the server's connectivity snapshot: host LAN IPv4s, the configured port,
+	 *  and `online-mode` (from `server.properties`; defaults true when unset).
+	 */
+	serverConnectivity: (id: string) => typedError<ServerConnectivity, Error>(__TAURI_INVOKE("server_connectivity", { id })),
 };
 
 /** Events */
@@ -2662,6 +2667,13 @@ export type RestoredWorld = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+/**  Join info for a server: host LAN addresses + the server's port + online-mode. */
+export type ServerConnectivity = {
+	lan_addresses: string[],
+	port: number | null,
+	online_mode: boolean,
 };
 
 /**

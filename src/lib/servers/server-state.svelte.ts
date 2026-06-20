@@ -1,6 +1,7 @@
 import {
   commands,
   events,
+  type ServerConnectivity,
   type ServerDiagnosis,
   type ServerImportPreview,
   type ServerWithStatus,
@@ -180,6 +181,11 @@ async function exportZip(
   return await commands.serverExportZip(id, destPath);
 }
 
+async function connectivity(id: string): Promise<ServerConnectivity | null> {
+  const r = await commands.serverConnectivity(id);
+  return r.status === 'ok' ? r.data : null;
+}
+
 function uploadProgressFor(id: string): { done: number; total: number; file: string } | undefined {
   return uploadProgress.get(id);
 }
@@ -315,6 +321,7 @@ export const serverState = {
   rename,
   updateRuntimeConfig,
   remove,
+  connectivity,
   importInspect,
   importCommit,
   importCancel,
