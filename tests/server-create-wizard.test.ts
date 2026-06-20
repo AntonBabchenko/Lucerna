@@ -114,6 +114,26 @@ describe('ServerCreateWizard', () => {
     expect(createBtn.disabled).toBe(false);
   });
 
+  it('names why Create is disabled and clears the reason once satisfied (#21-FE)', async () => {
+    render(ServerCreateWizard, baseProps());
+
+    // Empty name → the name requirement is surfaced.
+    expect(screen.getByTestId('wizard-disabled-reason').textContent).toContain('Enter a name');
+
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+    await fireEvent.input(nameInput, { target: { value: 'Test Server' } });
+
+    // Name ok + instance preselected → only the EULA remains.
+    expect(screen.getByTestId('wizard-disabled-reason').textContent).toContain(
+      'Accept the Minecraft EULA',
+    );
+
+    await fireEvent.click(screen.getByRole('checkbox'));
+
+    // Everything satisfied → no reason is shown.
+    expect(screen.queryByTestId('wizard-disabled-reason')).toBeNull();
+  });
+
   it('switching to Import mode shows the import source pickers', async () => {
     render(ServerCreateWizard, baseProps());
     await fireEvent.click(screen.getByRole('button', { name: 'Import existing' }));

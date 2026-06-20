@@ -9,6 +9,19 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import type { SelectOption } from '$lib/ui/Select.svelte';
+  import ToggleChip from '$lib/ui/ToggleChip.svelte';
+  import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
+  import {
+    countLevels,
+    filterLevels,
+    findMatches,
+    highlightConsoleLine,
+    levelChipTone,
+    presentLevels,
+    tagConsoleLines,
+    type Severity,
+  } from '$lib/servers/console-filter';
 
   // The live `server-latest.log` filename (matches serverlog::LATEST on the backend).
   const LATEST_LOG = 'server-latest.log';
@@ -35,7 +48,9 @@
     // Read lines.length / backfillText to re-run whenever new output appears.
     void lines.length;
     void backfillText;
-    if (container && archivedText === null) {
+    // Don't fight the user: only stick to the bottom on the live view and when
+    // not actively navigating search matches (which scrolls to the hit instead).
+    if (container && archivedText === null && !debouncedSearch) {
       container.scrollTop = container.scrollHeight;
     }
   });
@@ -153,6 +168,108 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Level filter + in-log search (#14) — applied to the live stream AND archives.
+  // ---------------------------------------------------------------------------
+  let hiddenLevels = $state<Set<Severity>>(new Set());
+  let search = $state('');
+  // Debounced mirror of `search`: the input stays responsive while the O(N)
+  // match scan + highlight key off the debounced value (jank-free on long logs).
+  let debouncedSearch = $state('');
+  const SEARCH_DEBOUNCE_MS = 120;
+  let currentMatchIndex = $state(0);
+
+  // The raw lines backing the CURRENT view (archive blob, live buffer, or the
+  // saved-log backfill), before filtering.
+  const viewLines = $derived.by<string[]>(() => {
+    if (archivedText !== null) return archivedText.length > 0 ? archivedText.split('\n') : [];
+    if (lines.length > 0) return lines;
+    if (backfillText && backfillText.length > 0) return backfillText.split('\n');
+    return [];
+  });
+  // True when the live view is falling back to the saved log (dim styling).
+  const showingBackfill = $derived(archivedText === null && lines.length === 0);
+
+  const tagged = $derived(tagConsoleLines(viewLines));
+  const levelCounts = $derived(countLevels(tagged));
+  const present = $derived(presentLevels(tagged));
+  const visible = $derived(filterLevels(tagged, hiddenLevels));
+  const matches = $derived(
+    findMatches(
+      visible.map((l) => l.text),
+      debouncedSearch,
+    ),
+  );
+  const totalMatches = $derived(matches.length);
+
+  function toggleLevel(lv: Severity): void {
+    const next = new Set(hiddenLevels);
+    if (next.has(lv)) next.delete(lv);
+    else next.add(lv);
+    hiddenLevels = next;
+  }
+
+  // Trailing-debounce search → debouncedSearch.
+  $effect(() => {
+    const s = search;
+    const id = setTimeout(() => {
+      debouncedSearch = s;
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  });
+
+  // Reset the active match when the committed query or the underlying view changes.
+  $effect(() => {
+    void debouncedSearch;
+    void viewLines.length;
+    void selectedFile;
+    currentMatchIndex = 0;
+  });
+
+  // Keep the active match in range when the match set shrinks (e.g. toggling a
+  // level chip off mid-search) so the counter never shows an impossible "9/3"
+  // and the highlight stays on a real match. Clamps to the last match rather
+  // than snapping to the first, preserving the user's position.
+  $effect(() => {
+    if (currentMatchIndex >= totalMatches) {
+      currentMatchIndex = totalMatches === 0 ? 0 : totalMatches - 1;
+    }
+  });
+
+  function scrollToCurrentMatch(): void {
+    requestAnimationFrame(() => {
+      const el = container?.querySelector('[data-match-active="true"]');
+      // Guard scrollIntoView — not implemented in every test DOM (happy-dom).
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    });
+  }
+
+  function nextMatch(): void {
+    if (totalMatches === 0) return;
+    currentMatchIndex = (currentMatchIndex + 1) % totalMatches;
+    scrollToCurrentMatch();
+  }
+
+  function prevMatch(): void {
+    if (totalMatches === 0) return;
+    currentMatchIndex = (currentMatchIndex - 1 + totalMatches) % totalMatches;
+    scrollToCurrentMatch();
+  }
+
+  function onSearchKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      search = '';
+      debouncedSearch = ''; // flush so highlights/counter clear at once
+    } else if (e.key === 'Enter') {
+      debouncedSearch = search; // flush so Enter navigates exactly what's typed
+      if (e.shiftKey) prevMatch();
+      else nextMatch();
+      e.preventDefault();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Share to mclo.gs (reuses the instance share command — content is anonymised
   // server-side before upload). Shares the archive being viewed, or the latest
   // session when on the live console.
@@ -201,8 +318,26 @@
   const archives = $derived(logs.filter((l) => !l.is_latest));
 </script>
 
+{#snippet lineList(dim: boolean)}
+  {#each visible as line, i (i)}
+    <div class="whitespace-pre-wrap break-all leading-5 {dim ? 'text-secondary' : ''}">
+      {#if debouncedSearch}
+        <!-- highlightConsoleLine HTML-escapes the text; only its own <mark> wrappers are raw. -->
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightConsoleLine(
+          line.text,
+          i,
+          matches,
+          currentMatchIndex,
+        )}
+      {:else}
+        {line.text}
+      {/if}
+    </div>
+  {/each}
+{/snippet}
+
 <div class="flex flex-col gap-2">
-  <!-- Log controls row: open-folder + past-sessions picker -->
+  <!-- Log controls row: open-folder + share + past-sessions picker -->
   <div class="flex items-center gap-2">
     <button
       type="button"
@@ -245,12 +380,83 @@
     </p>
   {/if}
 
+  <!-- Filter + search toolbar: only shown when there is output to work on. -->
+  {#if viewLines.length > 0}
+    <div class="flex flex-wrap items-center gap-2" data-testid="server-console-filterbar">
+      <div class="flex min-w-[12rem] flex-1 items-center gap-1">
+        <input
+          type="text"
+          class="h-7 flex-1 rounded border border-border-subtle bg-base px-2 text-xs text-primary"
+          placeholder={$t('servers.console.searchPlaceholder')}
+          bind:value={search}
+          onkeydown={onSearchKeydown}
+          data-testid="server-console-search"
+        />
+        {#if debouncedSearch && totalMatches > 0}
+          <span class="whitespace-nowrap text-xs text-muted">
+            {$t('servers.console.matchCounter', {
+              current: currentMatchIndex + 1,
+              total: totalMatches,
+            })}
+          </span>
+        {:else if debouncedSearch}
+          <span
+            class="whitespace-nowrap text-xs text-muted"
+            data-testid="server-console-no-matches"
+          >
+            {$t('servers.console.noMatches')}
+          </span>
+        {/if}
+        <button
+          type="button"
+          class="btn-icon btn-icon-sm"
+          disabled={totalMatches === 0}
+          aria-label={$t('servers.console.searchPrev')}
+          use:tooltip={$t('servers.console.searchPrev')}
+          onclick={prevMatch}
+        >
+          <Icon name="chevronUp" size={14} />
+        </button>
+        <button
+          type="button"
+          class="btn-icon btn-icon-sm"
+          disabled={totalMatches === 0}
+          aria-label={$t('servers.console.searchNext')}
+          use:tooltip={$t('servers.console.searchNext')}
+          onclick={nextMatch}
+        >
+          <Icon name="chevronDown" size={14} />
+        </button>
+      </div>
+
+      {#if present.length > 1}
+        <div
+          class="flex flex-wrap items-center gap-1"
+          role="group"
+          aria-label={$t('servers.console.showLevels')}
+        >
+          {#each present as lv (lv)}
+            <ToggleChip
+              active={!hiddenLevels.has(lv)}
+              tone={levelChipTone(lv)}
+              label={lv.toUpperCase()}
+              count={levelCounts.get(lv) ?? 0}
+              onToggle={() => toggleLevel(lv)}
+              testId="server-console-level-{lv}"
+            />
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <!-- Console body: live stream OR read-only archive viewer -->
   {#if selectedFile !== null}
     <!-- Read-only archive viewer -->
     <p class="text-xs text-muted">{$t('servers.logs.viewing', { name: selectedFile })}</p>
 
     <div
+      bind:this={container}
       class="h-80 overflow-y-auto rounded border border-border-subtle bg-base p-2 font-mono text-xs"
     >
       {#if loadingText}
@@ -259,8 +465,10 @@
         <span class="text-danger">{readError}</span>
       {:else if archivedText !== null && archivedText.length === 0}
         <span class="text-muted">{$t('servers.logs.noLogs')}</span>
-      {:else if archivedText !== null}
-        <div class="whitespace-pre-wrap break-all leading-5">{archivedText}</div>
+      {:else if visible.length > 0}
+        {@render lineList(false)}
+      {:else if viewLines.length > 0}
+        <span class="text-muted">{$t('servers.console.noMatchingLines')}</span>
       {/if}
     </div>
 
@@ -275,13 +483,10 @@
       bind:this={container}
       class="h-80 overflow-y-auto rounded border border-border-subtle bg-base p-2 font-mono text-xs"
     >
-      {#if lines.length > 0}
-        {#each lines as line, i (i)}
-          <div class="whitespace-pre-wrap break-all leading-5">{line}</div>
-        {/each}
-      {:else if backfillText && backfillText.length > 0}
-        <!-- No live capture — show the saved log so a running server isn't blank. -->
-        <div class="whitespace-pre-wrap break-all leading-5 text-secondary">{backfillText}</div>
+      {#if visible.length > 0}
+        {@render lineList(showingBackfill)}
+      {:else if viewLines.length > 0}
+        <span class="text-muted">{$t('servers.console.noMatchingLines')}</span>
       {:else}
         <span class="text-muted">{$t('servers.console.empty')}</span>
       {/if}

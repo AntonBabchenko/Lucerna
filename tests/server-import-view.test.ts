@@ -92,6 +92,24 @@ describe('ServerImportView', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 
+  it('warns when the loader is undetected and defaults to Vanilla (#20)', async () => {
+    importInspect.mockResolvedValue({
+      ok: true,
+      preview: preview({ loader: null, loader_version: null }),
+    });
+    render(ServerImportView, { onDone: vi.fn(), onCancel: vi.fn() });
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose .zip' }));
+    await screen.findByTestId('import-loader-unknown-warn');
+  });
+
+  it('does not warn when a loader was detected', async () => {
+    importInspect.mockResolvedValue({ ok: true, preview: preview() });
+    render(ServerImportView, { onDone: vi.fn(), onCancel: vi.fn() });
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose .zip' }));
+    await screen.findByLabelText('Name');
+    expect(screen.queryByTestId('import-loader-unknown-warn')).toBeNull();
+  });
+
   it('rejects a non-server source with the error message', async () => {
     importInspect.mockResolvedValue({ ok: false, error: { kind: 'server_import_not_a_server' } });
     render(ServerImportView, { onDone: vi.fn(), onCancel: vi.fn() });

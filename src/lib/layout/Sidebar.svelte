@@ -374,7 +374,20 @@
       >
         <Icon name="server" size={16} />
         {$t('sidebar.servers')}
-        {#if serverState.anyRunning}
+        {#if serverState.anyDiagnosisActionable}
+          <!-- A server has a one-click fix waiting — mirror the Logs button's
+               wrench. Takes precedence over the running dot (it's the more
+               urgent signal), matching the Logs button's wrench-vs-dot idiom. -->
+          <span
+            class="absolute -right-1 -top-1 text-warning-text"
+            data-testid="sidebar-servers-fix-badge"
+            role="img"
+            aria-label={$t('sidebar.serversFixAvailable')}
+            use:tooltip={$t('sidebar.serversFixAvailable')}
+          >
+            <Icon name="wrench" size={12} />
+          </span>
+        {:else if serverState.anyRunning}
           <span
             class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-success animate-pulse motion-reduce:animate-none"
             data-testid="sidebar-servers-running-dot"

@@ -91,6 +91,7 @@
     "joinServer": "Join a server",
     "servers": "Servers",
     "serverRunning": "Server running",
+    "serversFixAvailable": "A server fix is available",
     "importLauncher": "Import from launcher",
     "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname."
   },
@@ -1409,6 +1410,7 @@
       "attnLogIssue": "A recent launch reported a problem",
       "attnLogFixAvailable": "A fix is available",
       "attnModpackUpdate": "A modpack update is available",
+      "attnServerLogFix": "A server needs a one-click fix",
       "attentionView": "View",
       "attentionDismissTooltip": "I know what I'm doing",
       "attentionDismissAria": "Dismiss warnings",
@@ -1497,10 +1499,14 @@
     "title": "Servers",
     "create": "Create server",
     "empty": "No servers yet",
+    "loading": "Loading servers…",
+    "loadError": "Couldn't load your servers.",
+    "retry": "Retry",
     "lanHint": "The server listens locally and on your LAN. Internet access requires a host (separate).",
     "status": {
       "running": "Running",
-      "stopped": "Stopped"
+      "stopped": "Stopped",
+      "crashed": "Crashed"
     },
     "manage": {
       "back": "Servers"
@@ -1520,7 +1526,14 @@
       "inputPlaceholder": "Type a command (e.g. say hi, op Steve, stop)",
       "send": "Send",
       "notRunning": "Start the server to use the console",
-      "empty": "No output yet"
+      "empty": "No output yet",
+      "searchPlaceholder": "Search the console…",
+      "matchCounter": "{current}/{total}",
+      "noMatches": "No matches",
+      "searchPrev": "Previous match",
+      "searchNext": "Next match",
+      "showLevels": "Show levels",
+      "noMatchingLines": "No lines match the current filter."
     },
     "logs": {
       "openFolder": "Open logs folder",
@@ -1549,7 +1562,14 @@
       "eula": "I accept the Minecraft EULA",
       "eulaRequired": "Required to create a server",
       "create": "Create",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "disabledReason": {
+        "name": "Enter a name to continue.",
+        "instance": "Choose an instance to continue.",
+        "version": "Choose a Minecraft version to continue.",
+        "loader": "Choose a loader version to continue.",
+        "eula": "Accept the Minecraft EULA to continue."
+      }
     },
     "settings": {
       "save": "Save",
@@ -1808,8 +1828,12 @@
       "lanHint": "Friends on the same Wi-Fi / network can join with Direct Connect:",
       "copyInvite": "Copy invite",
       "copied": "Copied!",
+      "copyFailed": "Couldn't copy automatically — select the address above and press Ctrl+C.",
       "localHint": "On this PC, use localhost or 127.0.0.1.",
-      "internetHint": "For friends over the internet you'll need port-forwarding — coming soon.",
+      "internetTitle": "Over the internet",
+      "portForwardGuide": "Forward TCP port {port} on your router to this PC, then share this address with friends.",
+      "publicIpUnknown": "Couldn't detect your public IP (the server may be offline, or your network blocks the lookup).",
+      "portForwardGeneric": "To let friends join over the internet, forward TCP port {port} on your router to this PC.",
       "onlineModeOn": "online-mode is ON: only friends signed in with a Microsoft/Mojang account can join.",
       "onlineModeOff": "online-mode is OFF: offline/cracked accounts can join, but anyone can impersonate any name — only use on a trusted/LAN network.",
       "allowOffline": "Let offline players join (restarts server)",
@@ -1835,6 +1859,7 @@
       "detected": "Detected from the import — adjust if needed.",
       "willPreserve": "Ready to run as-is (offline)",
       "willReprovision": "The loader will be reinstalled",
+      "loaderUnknownWarn": "Couldn't detect the mod loader — defaulted to Vanilla. If this server uses mods, choose the correct loader below, or they won't load.",
       "modCount": "{count} mods",
       "worldPresent": "Includes a world",
       "import": "Import",

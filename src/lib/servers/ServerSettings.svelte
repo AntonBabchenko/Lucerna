@@ -51,6 +51,26 @@
     whitelist = (getProperty(text, 'white-list') ?? 'false') === 'true';
   }
 
+  // Dirty guard (#34): drop the "Saved" pill the instant the user edits any
+  // curated field or the raw text again, so it never lingers as a stale claim.
+  const formSig = $derived(
+    JSON.stringify({
+      port,
+      motd,
+      gamemode,
+      difficulty,
+      maxPlayers,
+      onlineMode,
+      pvp,
+      whitelist,
+      raw,
+    }),
+  );
+  let savedSnapshot = $state<string | null>(null);
+  $effect(() => {
+    if (saved && formSig !== savedSnapshot) saved = false;
+  });
+
   onMount(async () => {
     const res = await commands.serverReadProperties(serverId);
     if (res.status === 'ok') {
@@ -82,6 +102,7 @@
       const res = await commands.serverWriteProperties(serverId, merged);
       if (res.status === 'ok') {
         raw = merged;
+        savedSnapshot = formSig;
         saved = true;
       } else {
         saveError = formatError(res.error);

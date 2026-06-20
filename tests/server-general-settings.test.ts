@@ -80,6 +80,25 @@ describe('ServerGeneralSettings', () => {
     expect(mockUpdateRuntimeConfig).toHaveBeenCalledWith('srv-1', 4096, '');
   });
 
+  it('(c) the Saved confirmation clears once a field is edited again (#34)', async () => {
+    mockRunning.mockReturnValue(false);
+    mockRename.mockClear();
+    mockUpdateRuntimeConfig.mockClear();
+
+    render(ServerGeneralSettings, { props: { serverId: 'srv-1' } });
+
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement;
+    await fireEvent.input(nameInput, { target: { value: 'New Name' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // "Saved" appears after a successful save.
+    expect(await screen.findByText('Saved')).toBeTruthy();
+
+    // A fresh edit must drop the stale confirmation.
+    await fireEvent.input(nameInput, { target: { value: 'New Name 2' } });
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
   it('(b) shows restart warning when the server is running', () => {
     mockRunning.mockReturnValue(true);
 

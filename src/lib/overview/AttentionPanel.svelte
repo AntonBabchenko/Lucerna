@@ -23,6 +23,7 @@
     incompatible: 'page.overview.attnIncompatible',
     integrity: 'page.overview.attnIntegrity',
     modpack_update: 'page.overview.attnModpackUpdate',
+    server_log_fix: 'page.overview.attnServerLogFix',
   };
 
   const ICON_KEY: Record<AttentionKind, IconName> = {
@@ -33,6 +34,7 @@
     incompatible: 'warning',
     integrity: 'warning',
     modpack_update: 'update',
+    server_log_fix: 'wrench',
   };
 </script>
 

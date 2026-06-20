@@ -11,6 +11,7 @@ describe('attention: log_issue', () => {
       hasModpackUpdate: false,
       hasLogIssue: true,
       logFixAvailable: false,
+      serverFixAvailable: false,
     });
     expect(items.some((i) => i.kind === 'log_issue')).toBe(true);
   });
@@ -24,6 +25,7 @@ describe('attention: log_issue', () => {
       hasModpackUpdate: false,
       hasLogIssue: false,
       logFixAvailable: false,
+      serverFixAvailable: false,
     });
     expect(items.some((i) => i.kind === 'log_issue')).toBe(false);
   });
@@ -37,6 +39,7 @@ describe('attention: log_issue', () => {
       hasModpackUpdate: false,
       hasLogIssue: true,
       logFixAvailable: false,
+      serverFixAvailable: false,
     });
     expect(items[0].kind).toBe('log_issue');
   });
@@ -49,6 +52,7 @@ describe('attention: log_fix', () => {
     incompatibleCount: 0,
     integrityProblemCount: 0,
     hasModpackUpdate: false,
+    serverFixAvailable: false,
   };
 
   it('emits log_fix (not log_issue) when the log issue has a repair', () => {
