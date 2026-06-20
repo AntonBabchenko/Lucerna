@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { commands } from '$lib/ipc/bindings';
   import type { FirewallState, ServerConnectivity } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
+  import { pushSuccess } from '$lib/toasts/toasts.svelte';
+  import { setProperty } from './properties-edit';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
   let { serverId }: { serverId: string } = $props();
@@ -12,6 +16,42 @@
   let firewall = $state<FirewallState | null>(null);
   let addingRule = $state(false);
   let addRuleOutcome = $state<string | null>(null);
+  let switchingOffline = $state(false);
+  let offlineError = $state<string | null>(null);
+
+  // Turn off online-mode so offline accounts can join, then restart to apply
+  // (server.properties is only read at startup). Mirrors ServerSettings' RMW.
+  async function allowOffline(): Promise<void> {
+    switchingOffline = true;
+    offlineError = null;
+    try {
+      const r = await commands.serverReadProperties(serverId);
+      if (r.status !== 'ok') {
+        offlineError = formatError(r.error as Parameters<typeof formatError>[0]);
+        return;
+      }
+      let next = setProperty(r.data, 'online-mode', 'false');
+      // With online-mode off, secure-profile enforcement is meaningless and can
+      // kick offline clients — turn it off too.
+      next = setProperty(next, 'enforce-secure-profile', 'false');
+      const w = await commands.serverWriteProperties(serverId, next);
+      if (w.status !== 'ok') {
+        offlineError = formatError(w.error as Parameters<typeof formatError>[0]);
+        return;
+      }
+      if (serverState.running(serverId)) {
+        const rs = await commands.serverRestart(serverId);
+        if (rs.status !== 'ok') {
+          offlineError = formatError(rs.error as Parameters<typeof formatError>[0]);
+          return;
+        }
+      }
+      snapshot = await serverState.connectivity(serverId);
+      pushSuccess(get(t)('servers.connect.offlineEnabled'));
+    } finally {
+      switchingOffline = false;
+    }
+  }
 
   // Fetch connectivity and firewall status whenever running state changes.
   // svelte-ignore state_referenced_locally
@@ -156,6 +196,23 @@
             ? $t('servers.connect.onlineModeOn')
             : $t('servers.connect.onlineModeOff')}
         </p>
+        {#if snapshot.online_mode}
+          <!-- One-click fix for the most common "Invalid session" wall: let
+               offline accounts join. Restarts the server to apply. -->
+          <div class="flex items-center gap-2">
+            <BusyButton
+              class="btn-ghost btn-sm"
+              data-testid="server-allow-offline"
+              busy={switchingOffline}
+              onclick={() => void allowOffline()}
+            >
+              {$t('servers.connect.allowOffline')}
+            </BusyButton>
+            {#if offlineError}
+              <span class="text-xs text-danger" role="alert">{offlineError}</span>
+            {/if}
+          </div>
+        {/if}
       {/if}
     </div>
   {/if}

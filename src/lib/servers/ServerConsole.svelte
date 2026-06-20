@@ -25,12 +25,29 @@
   let busy = $state(false);
   let sendError = $state<string | null>(null);
   let container = $state<HTMLDivElement | null>(null);
+  // Tail of `server-latest.log`, shown in the live view when we have NO captured
+  // output (panel reopened, or the launcher was restarted while the server kept
+  // running so its stdout isn't being streamed). Live events take over once they
+  // arrive.
+  let backfillText = $state<string | null>(null);
 
   $effect(() => {
-    // Read lines.length to make this effect re-run whenever new lines arrive.
+    // Read lines.length / backfillText to re-run whenever new output appears.
     void lines.length;
+    void backfillText;
     if (container && archivedText === null) {
       container.scrollTop = container.scrollHeight;
+    }
+  });
+
+  // Load the backfill once per server while the live buffer is empty + running.
+  $effect(() => {
+    const hasLive = serverState.lines(serverId).length > 0;
+    const isRunning = serverState.running(serverId);
+    if (isRunning && !hasLive && backfillText === null) {
+      void commands.serverReadLog(serverId, LATEST_LOG).then((r) => {
+        if (r.status === 'ok') backfillText = r.data;
+      });
     }
   });
 
@@ -95,6 +112,7 @@
     selectedFile = null;
     archivedText = null;
     readError = null;
+    backfillText = null;
   });
 
   // Build picker options: "Current session" + one entry per archive.
@@ -257,12 +275,15 @@
       bind:this={container}
       class="h-80 overflow-y-auto rounded border border-border-subtle bg-base p-2 font-mono text-xs"
     >
-      {#if lines.length === 0}
-        <span class="text-muted">{$t('servers.console.empty')}</span>
-      {:else}
+      {#if lines.length > 0}
         {#each lines as line, i (i)}
           <div class="whitespace-pre-wrap break-all leading-5">{line}</div>
         {/each}
+      {:else if backfillText && backfillText.length > 0}
+        <!-- No live capture — show the saved log so a running server isn't blank. -->
+        <div class="whitespace-pre-wrap break-all leading-5 text-secondary">{backfillText}</div>
+      {:else}
+        <span class="text-muted">{$t('servers.console.empty')}</span>
       {/if}
     </div>
 
