@@ -2,12 +2,13 @@ import { render, screen } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 
-const { connectivity, running } = vi.hoisted(() => ({
+const { connectivity, running, firewallStatus } = vi.hoisted(() => ({
   connectivity: vi.fn(),
   running: vi.fn(),
+  firewallStatus: vi.fn(),
 }));
 vi.mock('$lib/servers/server-state.svelte', () => ({
-  serverState: { connectivity, running },
+  serverState: { connectivity, running, firewallStatus },
 }));
 
 // Mock navigator.clipboard so copy-invite doesn't throw in jsdom
@@ -23,6 +24,9 @@ describe('ServerConnectView', () => {
   beforeEach(() => {
     connectivity.mockReset();
     running.mockReset();
+    firewallStatus.mockReset();
+    // Default: not_applicable so the firewall banner never appears in these tests.
+    firewallStatus.mockResolvedValue('not_applicable');
   });
 
   it('shows a start hint when the server is stopped', async () => {
