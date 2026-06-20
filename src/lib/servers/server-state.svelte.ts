@@ -1,4 +1,5 @@
 import {
+  type BackupInfo,
   commands,
   events,
   type ServerConnectivity,
@@ -231,6 +232,40 @@ async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
   return { ok: false, error: r.error };
 }
 
+async function backupList(
+  id: string,
+): Promise<{ ok: boolean; list?: BackupInfo[]; error?: unknown }> {
+  const r = await commands.serverBackupList(id);
+  if (r.status === 'ok') return { ok: true, list: r.data };
+  return { ok: false, error: r.error };
+}
+
+async function backupCreate(
+  id: string,
+): Promise<{ ok: boolean; data?: BackupInfo; error?: unknown }> {
+  const r = await commands.serverBackupCreate(id);
+  if (r.status === 'ok') return { ok: true, data: r.data };
+  return { ok: false, error: r.error };
+}
+
+async function backupRestore(
+  id: string,
+  fileName: string,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverBackupRestore(id, fileName);
+  if (r.status === 'ok') return { ok: true };
+  return { ok: false, error: r.error };
+}
+
+async function backupDelete(
+  id: string,
+  fileName: string,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverBackupDelete(id, fileName);
+  if (r.status === 'ok') return { ok: true };
+  return { ok: false, error: r.error };
+}
+
 async function importInspect(
   sourcePath: string,
 ): Promise<{ ok: boolean; preview?: ServerImportPreview; error?: unknown }> {
@@ -332,4 +367,8 @@ export const serverState = {
   get anyRunning() {
     return list.some((s) => s.running);
   },
+  backupList,
+  backupCreate,
+  backupRestore,
+  backupDelete,
 };

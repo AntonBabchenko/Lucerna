@@ -1014,6 +1014,19 @@ export const commands = {
 	 *  and `online-mode` (from `server.properties`; defaults true when unset).
 	 */
 	serverConnectivity: (id: string) => typedError<ServerConnectivity, Error>(__TAURI_INVOKE("server_connectivity", { id })),
+	/**
+	 *  Create a snapshot. If the server is running, flush + pause world saves
+	 *  around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
+	 */
+	serverBackupCreate: (id: string) => typedError<BackupInfo, Error>(__TAURI_INVOKE("server_backup_create", { id })),
+	serverBackupList: (id: string) => typedError<BackupInfo[], Error>(__TAURI_INVOKE("server_backup_list", { id })),
+	/**
+	 *  Restore a snapshot. The server MUST be stopped — otherwise the live process
+	 *  holds files open and the restore would corrupt. Auto-backs-up the current
+	 *  state first (safety net), then resets `runtime/` from the snapshot.
+	 */
+	serverBackupRestore: (id: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("server_backup_restore", { id, fileName })),
+	serverBackupDelete: (id: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("server_backup_delete", { id, fileName })),
 };
 
 /** Events */
@@ -1135,6 +1148,13 @@ export type Backup = {
 	size_bytes: number | null,
 	/**  Convenience: timestamp parsed from the filename. ms since epoch. */
 	created_unix_ms: number | null,
+};
+
+/**  One snapshot file shown to the UI. */
+export type BackupInfo = {
+	file_name: string,
+	created_unix_ms: number | null,
+	size_bytes: number | null,
 };
 
 /**

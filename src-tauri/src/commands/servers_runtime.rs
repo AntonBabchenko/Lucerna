@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::instances::schema::LoaderKind;
 use crate::servers_runtime::schema::{ServerFile, ServerWithStatus, UploadConfig};
-use crate::servers_runtime::{create, import, store};
+use crate::servers_runtime::{backup, create, import, store};
 use tauri::AppHandle;
 
 /// Собрать `ServerWithStatus` из файла + живого рантайм-статуса (running/pid/
@@ -922,4 +922,54 @@ pub async fn server_import_commit(
 pub fn server_import_cancel(app: AppHandle, token: String) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     import::cancel(&base, &token)
+}
+
+/// Create a snapshot. If the server is running, flush + pause world saves
+/// around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_backup_create(app: AppHandle, id: String) -> Result<backup::BackupInfo> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let running = crate::servers_runtime::runtime::is_running(&id);
+    if running {
+        let _ = crate::servers_runtime::runtime::send_command(&id, "save-all flush").await;
+        let _ = crate::servers_runtime::runtime::send_command(&id, "save-off").await;
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let res = backup::create_backup(&base, &id, &stamp);
+    if running {
+        let _ = crate::servers_runtime::runtime::send_command(&id, "save-on").await;
+    }
+    res
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn server_backup_list(app: AppHandle, id: String) -> Result<Vec<backup::BackupInfo>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    backup::list_backups(&base, &id)
+}
+
+/// Restore a snapshot. The server MUST be stopped — otherwise the live process
+/// holds files open and the restore would corrupt. Auto-backs-up the current
+/// state first (safety net), then resets `runtime/` from the snapshot.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    // Safety net: snapshot current state before overwriting it.
+    let stamp = format!("prerestore-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+    let _ = backup::create_backup(&base, &id, &stamp);
+    backup::restore_backup(&base, &id, &file_name)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn server_backup_delete(app: AppHandle, id: String, file_name: String) -> Result<()> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    backup::delete_backup(&base, &id, &file_name)
 }
