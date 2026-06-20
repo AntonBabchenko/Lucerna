@@ -14,6 +14,7 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import ServerImportView from '$lib/servers/ServerImportView.svelte';
 
   let {
     instances,
@@ -28,7 +29,9 @@
   } = $props();
 
   // svelte-ignore state_referenced_locally
-  let mode = $state<'instance' | 'standalone'>(instances.length > 0 ? 'instance' : 'standalone');
+  let mode = $state<'instance' | 'standalone' | 'import'>(
+    instances.length > 0 ? 'instance' : 'standalone',
+  );
   let name = $state('');
   // svelte-ignore state_referenced_locally
   let instanceId = $state<string | null>(instances.length > 0 ? instances[0].id : null);
@@ -142,7 +145,7 @@
   <h2 class="text-lg font-semibold">{$t('servers.wizard.title')}</h2>
 
   <!-- Mode toggle -->
-  <div class="grid grid-cols-2 gap-2">
+  <div class="grid grid-cols-3 gap-2">
     <button
       type="button"
       class="flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors"
@@ -170,115 +173,132 @@
       <span class="text-sm font-medium">{$t('servers.wizard.standalone')}</span>
       <span class="text-xs text-muted">{$t('servers.wizard.standaloneHint')}</span>
     </button>
-  </div>
-
-  <!-- Name -->
-  <div class="flex flex-col gap-1">
-    <div class="flex items-center justify-between">
-      <label for="wizard-name" class="text-sm font-medium">{$t('servers.wizard.name')}</label>
-      <span class="text-xs text-muted">{name.length}/32</span>
-    </div>
-    <input
-      id="wizard-name"
-      type="text"
-      maxlength="32"
-      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-      bind:value={name}
-    />
-  </div>
-
-  {#if mode === 'instance'}
-    <!-- Instance selector -->
-    <div class="flex flex-col gap-1">
-      <!-- svelte-ignore a11y_label_has_associated_control -->
-      <label class="text-sm font-medium">{$t('servers.wizard.instance')}</label>
-      <Select
-        value={instanceId}
-        options={instanceOptions}
-        onChange={(v) => (instanceId = String(v))}
-        ariaLabel={$t('servers.wizard.instance')}
-      />
-    </div>
-  {:else}
-    <!-- Standalone: MC version (dropdown) + loader (with its own version) -->
-    <div class="flex flex-col gap-1">
-      <!-- svelte-ignore a11y_label_has_associated_control -->
-      <label class="text-sm font-medium">{$t('servers.wizard.version')}</label>
-      <Select
-        value={mcVersion}
-        options={mcVersionOptions}
-        onChange={(v) => (mcVersion = String(v))}
-        ariaLabel={$t('servers.wizard.version')}
-      />
-      <label class="flex items-center gap-1 text-xs">
-        <input type="checkbox" bind:checked={showSnapshots} />
-        {$t('instance.manage.showSnapshots')}
-      </label>
-    </div>
-    <div class="flex flex-col gap-1">
-      <!-- svelte-ignore a11y_label_has_associated_control -->
-      <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
-      <LoaderPicker
-        mc={mcVersion}
-        {loader}
-        {loaderVersion}
-        onchange={(l, v) => {
-          loader = l;
-          loaderVersion = v;
-        }}
-      />
-    </div>
-  {/if}
-
-  <!-- Memory: adaptive slider (same control as instance settings) -->
-  <div class="flex flex-col gap-1">
-    <!-- svelte-ignore a11y_label_has_associated_control -->
-    <label class="text-sm font-medium"
-      >{$t('servers.wizard.memory')} · {formatHeapLabel(memoryMb)}</label
+    <button
+      type="button"
+      aria-label={$t('servers.import.mode')}
+      class="flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors"
+      class:border-accent={mode === 'import'}
+      class:bg-accent-soft={mode === 'import'}
+      class:border-border-subtle={mode !== 'import'}
+      onclick={() => (mode = 'import')}
     >
-    <input
-      type="range"
-      min={memBounds.min_mb}
-      max={memBounds.max_mb}
-      step={memBounds.step_mb}
-      value={memoryMb}
-      oninput={(e) => (memoryMb = parseInt((e.currentTarget as HTMLInputElement).value, 10))}
-      class="w-full"
-    />
-    {#if isAboveRecommended(memoryMb, memBounds.recommended_max_mb, memBounds.ram_known)}
-      <p class="text-xs text-warning-text">
-        {$t('instance.manage.memoryWarnHigh', {
-          recommended: formatHeapLabel(memBounds.recommended_max_mb),
-        })}
-      </p>
-    {/if}
-  </div>
-
-  <!-- EULA -->
-  <label class="flex items-start gap-2 cursor-pointer">
-    <input
-      type="checkbox"
-      class="mt-0.5 flex-shrink-0"
-      bind:checked={eula}
-      aria-label={$t('servers.wizard.eula')}
-    />
-    <span class="flex flex-col gap-0.5">
-      <span class="text-sm">{$t('servers.wizard.eula')}</span>
-      <span class="text-xs text-muted">{$t('servers.wizard.eulaRequired')}</span>
-    </span>
-  </label>
-
-  {#if error}
-    <p class="text-sm text-danger">{error}</p>
-  {/if}
-
-  <!-- Actions -->
-  <div class="flex justify-end gap-2">
-    <button type="button" class="btn-ghost btn-sm" onclick={onCancel}>
-      {$t('servers.wizard.cancel')}
+      <span class="text-sm font-medium">{$t('servers.import.mode')}</span>
+      <span class="text-xs text-muted">{$t('servers.import.modeHint')}</span>
     </button>
-    <BusyButton class="btn-primary btn-sm" {busy} disabled={!canCreate} onclick={handleCreate}>
-      {$t('servers.wizard.create')}
-    </BusyButton>
   </div>
+
+  {#if mode === 'import'}
+    <!-- Import mode: ServerImportView owns the rest of the flow -->
+    <ServerImportView {onDone} {onCancel} />
+  {:else}
+    <!-- Name -->
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center justify-between">
+        <label for="wizard-name" class="text-sm font-medium">{$t('servers.wizard.name')}</label>
+        <span class="text-xs text-muted">{name.length}/32</span>
+      </div>
+      <input
+        id="wizard-name"
+        type="text"
+        maxlength="32"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
+        bind:value={name}
+      />
+    </div>
+
+    {#if mode === 'instance'}
+      <!-- Instance selector -->
+      <div class="flex flex-col gap-1">
+        <!-- svelte-ignore a11y_label_has_associated_control -->
+        <label class="text-sm font-medium">{$t('servers.wizard.instance')}</label>
+        <Select
+          value={instanceId}
+          options={instanceOptions}
+          onChange={(v) => (instanceId = String(v))}
+          ariaLabel={$t('servers.wizard.instance')}
+        />
+      </div>
+    {:else}
+      <!-- Standalone: MC version (dropdown) + loader (with its own version) -->
+      <div class="flex flex-col gap-1">
+        <!-- svelte-ignore a11y_label_has_associated_control -->
+        <label class="text-sm font-medium">{$t('servers.wizard.version')}</label>
+        <Select
+          value={mcVersion}
+          options={mcVersionOptions}
+          onChange={(v) => (mcVersion = String(v))}
+          ariaLabel={$t('servers.wizard.version')}
+        />
+        <label class="flex items-center gap-1 text-xs">
+          <input type="checkbox" bind:checked={showSnapshots} />
+          {$t('instance.manage.showSnapshots')}
+        </label>
+      </div>
+      <div class="flex flex-col gap-1">
+        <!-- svelte-ignore a11y_label_has_associated_control -->
+        <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
+        <LoaderPicker
+          mc={mcVersion}
+          {loader}
+          {loaderVersion}
+          onchange={(l, v) => {
+            loader = l;
+            loaderVersion = v;
+          }}
+        />
+      </div>
+    {/if}
+
+    <!-- Memory: adaptive slider (same control as instance settings) -->
+    <div class="flex flex-col gap-1">
+      <!-- svelte-ignore a11y_label_has_associated_control -->
+      <label class="text-sm font-medium"
+        >{$t('servers.wizard.memory')} · {formatHeapLabel(memoryMb)}</label
+      >
+      <input
+        type="range"
+        min={memBounds.min_mb}
+        max={memBounds.max_mb}
+        step={memBounds.step_mb}
+        value={memoryMb}
+        oninput={(e) => (memoryMb = parseInt((e.currentTarget as HTMLInputElement).value, 10))}
+        class="w-full"
+      />
+      {#if isAboveRecommended(memoryMb, memBounds.recommended_max_mb, memBounds.ram_known)}
+        <p class="text-xs text-warning-text">
+          {$t('instance.manage.memoryWarnHigh', {
+            recommended: formatHeapLabel(memBounds.recommended_max_mb),
+          })}
+        </p>
+      {/if}
+    </div>
+
+    <!-- EULA -->
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input
+        type="checkbox"
+        class="mt-0.5 flex-shrink-0"
+        bind:checked={eula}
+        aria-label={$t('servers.wizard.eula')}
+      />
+      <span class="flex flex-col gap-0.5">
+        <span class="text-sm">{$t('servers.wizard.eula')}</span>
+        <span class="text-xs text-muted">{$t('servers.wizard.eulaRequired')}</span>
+      </span>
+    </label>
+
+    {#if error}
+      <p class="text-sm text-danger">{error}</p>
+    {/if}
+
+    <!-- Actions -->
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn-ghost btn-sm" onclick={onCancel}>
+        {$t('servers.wizard.cancel')}
+      </button>
+      <BusyButton class="btn-primary btn-sm" {busy} disabled={!canCreate} onclick={handleCreate}>
+        {$t('servers.wizard.create')}
+      </BusyButton>
+    </div>
+  {/if}
 </div>

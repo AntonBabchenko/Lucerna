@@ -1707,6 +1707,22 @@
       "description": "This permanently removes the server's files (world, mods, config). This cannot be undone.",
       "confirm": "Delete",
       "runningBlock": "Stop the server before deleting"
+    },
+    "import": {
+      "mode": "Import existing",
+      "modeHint": "Bring in a server you already have (.zip or folder)",
+      "pickZip": "Choose .zip",
+      "pickFolder": "Choose folder",
+      "dropzone": "Drop a server .zip or folder here, or click to choose",
+      "inspecting": "Reading the server…",
+      "detected": "Detected from the import — adjust if needed.",
+      "willPreserve": "Ready to run as-is (offline)",
+      "willReprovision": "The loader will be reinstalled",
+      "modCount": "{count} mods",
+      "worldPresent": "Includes a world",
+      "import": "Import",
+      "importing": "Importing…",
+      "back": "Back"
     }
   }
 }

@@ -2,6 +2,7 @@ import {
   commands,
   events,
   type ServerDiagnosis,
+  type ServerImportPreview,
   type ServerWithStatus,
   type UploadConfig,
 } from '$lib/ipc/bindings';
@@ -224,6 +225,43 @@ async function remove(id: string): Promise<{ ok: boolean; error?: unknown }> {
   return { ok: false, error: r.error };
 }
 
+async function importInspect(
+  sourcePath: string,
+): Promise<{ ok: boolean; preview?: ServerImportPreview; error?: unknown }> {
+  const r = await commands.serverImportInspect(sourcePath);
+  if (r.status === 'ok') return { ok: true, preview: r.data };
+  return { ok: false, error: r.error };
+}
+
+async function importCommit(
+  token: string,
+  name: string,
+  mcVersion: string,
+  loader: ServerWithStatus['loader'],
+  loaderVersion: string | null,
+  maxHeapMb: number,
+  eulaAccepted: boolean,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverImportCommit(
+    token,
+    name,
+    mcVersion,
+    loader,
+    loaderVersion,
+    maxHeapMb,
+    eulaAccepted,
+  );
+  if (r.status === 'ok') {
+    await refresh();
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function importCancel(token: string): Promise<void> {
+  await commands.serverImportCancel(token);
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
@@ -277,6 +315,9 @@ export const serverState = {
   rename,
   updateRuntimeConfig,
   remove,
+  importInspect,
+  importCommit,
+  importCancel,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
