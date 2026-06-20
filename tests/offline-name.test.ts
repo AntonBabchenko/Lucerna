@@ -20,6 +20,7 @@ describe('validateOfflineName', () => {
     expect(validateOfflineName('a b c')).toBe('invalid_chars');
     expect(validateOfflineName('ab-cd')).toBe('invalid_chars');
     expect(validateOfflineName('ab.cd')).toBe('invalid_chars');
+    expect(validateOfflineName('   ')).toBe('invalid_chars');
   });
 
   it('checks length before charset (long Cyrillic is too_long)', () => {

@@ -58,6 +58,10 @@
       <label class="text-xs text-secondary" for="add-offline-name">
         {$t('page.accounts.addOfflineNameLabel')}
       </label>
+      <!-- maxlength clamps typed input to 16, so the `too_long` reason hint
+           isn't reachable by typing here; validateOfflineName still covers
+           too_long for names reaching us via other routes (sidebar flag on a
+           stored name, the backend OfflineNameInvalid error). -->
       <input
         id="add-offline-name"
         data-autofocus
@@ -70,7 +74,7 @@
       />
       <p class="text-xs text-muted">{$t('page.accounts.offlineNameHelp')}</p>
       {#if rejection}
-        <p class="text-xs text-danger" role="alert">
+        <p class="text-xs text-danger" role="status">
           {$t(offlineNameRejectionKey(rejection))}
         </p>
       {/if}

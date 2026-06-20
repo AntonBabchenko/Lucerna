@@ -169,6 +169,7 @@ describe('formatError', () => {
     });
     expect(msg).toContain('Игрок');
     expect(msg).not.toMatch(/^\{/);
+    expect(msg).toContain('Latin');
   });
 
   it('formats a known error in Russian', () => {
