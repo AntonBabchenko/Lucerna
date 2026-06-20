@@ -55,17 +55,58 @@ pub fn delete_server(base: &Path, id: &str) -> Result<()> {
     }
 }
 
-/// Переименовать сервер: RMW `server.json`. Имя триммится; пустое после
-/// трима — ошибка (фронт это гейтит, бэкенд защищается на границе).
-/// Возвращает обновлённый `ServerFile`.
-pub fn rename_server(base: &Path, id: &str, name: &str) -> Result<ServerFile> {
-    let json = crate::paths::server_paths(base, id).json;
-    let mut file = read_server_json(&json)?;
+/// Defensive cap on a server name length (the wizard caps shorter; this guards
+/// the boundary against absurd values).
+pub const MAX_SERVER_NAME_LEN: usize = 64;
+
+/// Trim a proposed server name and reject empty-after-trim, over-length, or a
+/// case-insensitive duplicate of an existing server. `exclude_id` skips the
+/// server's own current name (so a rename that keeps the same name is allowed).
+/// Returns the trimmed name. The wizard also gates this on the FE; the backend
+/// defends the boundary (e.g. two concurrent creates racing the same name).
+pub fn validate_name(
+    name: &str,
+    existing: &[ServerFile],
+    exclude_id: Option<&str>,
+) -> Result<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(Error::io("<server name>", "name cannot be empty"));
+        return Err(Error::ServerNameInvalid {
+            reason: "empty".into(),
+        });
     }
-    file.name = trimmed.to_string();
+    // Reject control characters (parity with the saved-servers validator): they
+    // would otherwise flow into server.properties' motd line.
+    if trimmed.chars().any(|c| c.is_control()) {
+        return Err(Error::ServerNameInvalid {
+            reason: "control characters".into(),
+        });
+    }
+    if trimmed.chars().count() > MAX_SERVER_NAME_LEN {
+        return Err(Error::ServerNameInvalid {
+            reason: "too long".into(),
+        });
+    }
+    let lower = trimmed.to_lowercase();
+    let dup = existing
+        .iter()
+        .any(|s| Some(s.id.as_str()) != exclude_id && s.name.trim().to_lowercase() == lower);
+    if dup {
+        return Err(Error::ServerNameInvalid {
+            reason: "duplicate".into(),
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Переименовать сервер: RMW `server.json`. Имя триммится и проверяется на
+/// пустоту/дубликат на границе (фронт это тоже гейтит). Возвращает обновлённый
+/// `ServerFile`.
+pub fn rename_server(base: &Path, id: &str, name: &str) -> Result<ServerFile> {
+    let validated = validate_name(name, &list_all(base)?, Some(id))?;
+    let json = crate::paths::server_paths(base, id).json;
+    let mut file = read_server_json(&json)?;
+    file.name = validated;
     write_server_json(&json, &file)?;
     Ok(file)
 }
@@ -112,6 +153,7 @@ mod tests {
             eula_accepted: false,
             created_from_instance: None,
             handled_log_sig: None,
+            java_component: None,
             upload: None,
         }
     }
@@ -122,6 +164,34 @@ mod tests {
         let p = crate::paths::server_paths(dir.path(), "srv-1");
         write_server_json(&p.json, &sample("srv-1")).unwrap();
         assert_eq!(read_server_json(&p.json).unwrap(), sample("srv-1"));
+    }
+
+    #[test]
+    fn validate_name_trims_rejects_empty_dupe_and_overlong() {
+        let existing = vec![sample("srv-1")]; // name "S"
+        assert_eq!(validate_name("  Hello ", &existing, None).unwrap(), "Hello");
+        assert!(matches!(
+            validate_name("   ", &existing, None),
+            Err(Error::ServerNameInvalid { .. })
+        ));
+        // Case-insensitive duplicate of "S" is rejected...
+        assert!(matches!(
+            validate_name("s", &existing, None),
+            Err(Error::ServerNameInvalid { .. })
+        ));
+        // ...unless it's the same server keeping its own name (rename).
+        assert!(validate_name("S", &existing, Some("srv-1")).is_ok());
+        // Over-length rejected.
+        let long = "x".repeat(MAX_SERVER_NAME_LEN + 1);
+        assert!(matches!(
+            validate_name(&long, &existing, None),
+            Err(Error::ServerNameInvalid { .. })
+        ));
+        // Control characters are rejected (parity with the saved-servers validator).
+        assert!(matches!(
+            validate_name("bad\tname", &existing, None),
+            Err(Error::ServerNameInvalid { .. })
+        ));
     }
 
     #[test]

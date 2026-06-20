@@ -28,6 +28,7 @@ fn sample(id: &str, loader: LoaderKind) -> ServerFile {
         eula_accepted: true,
         created_from_instance: None,
         handled_log_sig: None,
+        java_component: None,
         upload: None,
     }
 }

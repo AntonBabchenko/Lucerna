@@ -235,6 +235,7 @@ pub(crate) fn build_file(
         eula_accepted,
         created_from_instance: None,
         handled_log_sig: None,
+        java_component: None,
         upload: None,
     }
 }

@@ -130,6 +130,7 @@ export type TranslationKey =
   | 'errors.serverInvalidProperty'
   | 'errors.serverJarUnavailable'
   | 'errors.serverModRequiredByOther'
+  | 'errors.serverNameInvalid'
   | 'errors.serverNotRunning'
   | 'errors.serverSpawnFailed'
   | 'errors.serversDatParse'
