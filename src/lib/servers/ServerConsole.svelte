@@ -58,8 +58,9 @@
   let logs = $state<ServerLogInfo[]>([]);
   let selectedFile = $state<string | null>(null);
   let archivedText = $state<string | null>(null);
+  let readError = $state<string | null>(null);
   let loadingText = $state(false);
-  let prevRunning = $state<boolean | null>(null);
+  let prevRunning: boolean | null = null;
 
   const LIVE_VALUE = '__live__';
 
@@ -77,10 +78,17 @@
 
   // Reload when the server transitions from running → stopped (a new archive was just created).
   $effect(() => {
-    if (prevRunning === true && !running) {
-      void loadLogs();
-    }
-    prevRunning = running;
+    const cur = serverState.running(serverId);
+    if (prevRunning === true && !cur) void loadLogs();
+    prevRunning = cur;
+  });
+
+  // Reset archive view when serverId changes so stale content can't linger.
+  $effect(() => {
+    void serverId;
+    selectedFile = null;
+    archivedText = null;
+    readError = null;
   });
 
   // Build picker options: "Current session" + one entry per archive.
@@ -91,17 +99,24 @@
 
   async function onPickerChange(value: string | number): Promise<void> {
     const file = String(value);
-    selectedFile = file === LIVE_VALUE ? null : file;
+    readError = null;
 
-    if (selectedFile === null) {
+    if (file === LIVE_VALUE) {
+      selectedFile = null;
       archivedText = null;
       return;
     }
 
+    selectedFile = file;
+    archivedText = null;
     loadingText = true;
     try {
-      const r = await serverState.readLog(serverId, selectedFile);
-      archivedText = r.ok && r.text !== undefined ? r.text : null;
+      const r = await commands.serverReadLog(serverId, selectedFile);
+      if (r.status === 'ok') {
+        archivedText = r.data;
+      } else {
+        readError = formatError(r.error);
+      }
     } finally {
       loadingText = false;
     }
@@ -110,6 +125,7 @@
   function backToLive(): void {
     selectedFile = null;
     archivedText = null;
+    readError = null;
   }
 
   const archives = $derived(logs.filter((l) => !l.is_latest));
@@ -139,16 +155,20 @@
   </div>
 
   <!-- Console body: live stream OR read-only archive viewer -->
-  {#if archivedText !== null}
+  {#if selectedFile !== null}
     <!-- Read-only archive viewer -->
+    <p class="text-xs text-muted">{$t('servers.logs.viewing', { name: selectedFile })}</p>
+
     <div
       class="h-80 overflow-y-auto rounded border border-border-subtle bg-base p-2 font-mono text-xs"
     >
       {#if loadingText}
         <span class="text-muted">{$t('common.loading')}</span>
-      {:else if archivedText.length === 0}
+      {:else if readError}
+        <span class="text-danger">{readError}</span>
+      {:else if archivedText !== null && archivedText.length === 0}
         <span class="text-muted">{$t('servers.logs.noLogs')}</span>
-      {:else}
+      {:else if archivedText !== null}
         <div class="whitespace-pre-wrap break-all leading-5">{archivedText}</div>
       {/if}
     </div>

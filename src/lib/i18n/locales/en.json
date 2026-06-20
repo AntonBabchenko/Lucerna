@@ -1520,8 +1520,7 @@
       "latest": "Current session",
       "noLogs": "No logs yet",
       "viewing": "Viewing {name}",
-      "backToLive": "Back to live console",
-      "close": "Close"
+      "backToLive": "Back to live console"
     },
     "wizard": {
       "title": "New server",

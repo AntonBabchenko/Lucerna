@@ -1091,7 +1091,6 @@ export type TranslationKey =
   | 'servers.hosting.user'
   | 'servers.lanHint'
   | 'servers.logs.backToLive'
-  | 'servers.logs.close'
   | 'servers.logs.latest'
   | 'servers.logs.noLogs'
   | 'servers.logs.openFolder'
