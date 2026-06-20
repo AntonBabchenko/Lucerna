@@ -2,13 +2,14 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 
-const { connectivity, running, firewallStatus } = vi.hoisted(() => ({
+const { connectivity, running, firewallStatus, publicAddress } = vi.hoisted(() => ({
   connectivity: vi.fn(),
   running: vi.fn(),
   firewallStatus: vi.fn(),
+  publicAddress: vi.fn(),
 }));
 vi.mock('$lib/servers/server-state.svelte', () => ({
-  serverState: { connectivity, running, firewallStatus },
+  serverState: { connectivity, running, firewallStatus, publicAddress },
 }));
 
 // Mock navigator.clipboard so copy-invite doesn't throw in jsdom
@@ -25,8 +26,11 @@ describe('ServerConnectView', () => {
     connectivity.mockReset();
     running.mockReset();
     firewallStatus.mockReset();
+    publicAddress.mockReset();
     // Default: not_applicable so the firewall banner never appears in these tests.
     firewallStatus.mockResolvedValue('not_applicable');
+    // Default: no public IP detected (internet section shows the generic hint).
+    publicAddress.mockResolvedValue(null);
   });
 
   it('shows a start hint when the server is stopped', async () => {
@@ -63,6 +67,42 @@ describe('ServerConnectView', () => {
     await fireEvent.click(btn);
     // No false "Copied!" — instead the manual-select hint appears.
     expect(await screen.findByTestId('copy-invite-failed')).toBeTruthy();
+  });
+
+  it('shows the detected public IP + port-forward guidance over the internet (#6)', async () => {
+    running.mockReturnValue(true);
+    connectivity.mockResolvedValue({
+      lan_addresses: ['192.168.1.5'],
+      port: 25565,
+      online_mode: true,
+    });
+    publicAddress.mockResolvedValue({
+      lan: '192.168.1.5',
+      public_ip: '203.0.113.7',
+      port: 25565,
+      online_mode: true,
+    });
+    render(ServerConnectView, { serverId: 'srv-1' });
+    expect(await screen.findByText('203.0.113.7:25565')).toBeTruthy();
+    // Port-forward guidance carries the port.
+    expect(screen.getByText(/Forward TCP port 25565/i)).toBeTruthy();
+  });
+
+  it('falls back to a generic port-forward hint when the public IP is unknown (#6)', async () => {
+    running.mockReturnValue(true);
+    connectivity.mockResolvedValue({
+      lan_addresses: ['192.168.1.5'],
+      port: 25565,
+      online_mode: true,
+    });
+    publicAddress.mockResolvedValue({
+      lan: '192.168.1.5',
+      public_ip: null,
+      port: 25565,
+      online_mode: true,
+    });
+    render(ServerConnectView, { serverId: 'srv-1' });
+    expect(await screen.findByText(/Couldn't detect your public IP/i)).toBeTruthy();
   });
 
   it('explains online-mode ON', async () => {

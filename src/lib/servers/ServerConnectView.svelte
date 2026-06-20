@@ -3,7 +3,7 @@
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { commands } from '$lib/ipc/bindings';
-  import type { FirewallState, ServerConnectivity } from '$lib/ipc/bindings';
+  import type { FirewallState, ServerConnectivity, ServerPublicAddress } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { setProperty } from './properties-edit';
@@ -12,6 +12,9 @@
   let { serverId }: { serverId: string } = $props();
 
   let snapshot = $state<ServerConnectivity | null>(null);
+  // Public-address snapshot (#6): public IP + port-forward guidance for the
+  // internet section. Null until fetched / on IPC failure (LAN stays useful).
+  let pub = $state<ServerPublicAddress | null>(null);
   let copiedAddr = $state<string | null>(null);
   // The address whose copy attempt failed (clipboard blocked/unavailable). We
   // never claim "Copied!" then — the user is told to select + Ctrl+C instead.
@@ -69,21 +72,27 @@
         void serverState.firewallStatus(serverId).then((s) => {
           firewall = s;
         });
+        void serverState.publicAddress(serverId).then((p) => {
+          pub = p;
+        });
       } else {
         firewall = null;
         addRuleOutcome = null;
+        pub = null;
       }
     }
     _prevRunning = isRunning;
   });
 
-  function joinAddress(addr: string): string {
-    const port = snapshot?.port ?? 25565;
-    return `${addr}:${port}`;
+  // Port is passed explicitly so each section uses its own authoritative source:
+  // LAN uses the connectivity snapshot, the internet section uses the
+  // public-address snapshot (`pub.port`) it was actually built against.
+  function joinAddress(addr: string, addrPort: number): string {
+    return `${addr}:${addrPort}`;
   }
 
-  async function copyInvite(addr: string): Promise<void> {
-    const text = joinAddress(addr);
+  async function copyInvite(addr: string, addrPort: number): Promise<void> {
+    const text = joinAddress(addr, addrPort);
     copyFailedAddr = null;
     try {
       await navigator.clipboard.writeText(text);
@@ -177,12 +186,12 @@
               <div class="flex flex-col gap-1">
                 <div class="flex items-center gap-2">
                   <code class="select-all rounded bg-subtle px-2 py-1 font-mono text-xs"
-                    >{joinAddress(addr)}</code
+                    >{joinAddress(addr, port)}</code
                   >
                   <button
                     type="button"
                     class="btn-ghost btn-sm"
-                    onclick={() => void copyInvite(addr)}
+                    onclick={() => void copyInvite(addr, port)}
                   >
                     {copiedAddr === addr
                       ? $t('servers.connect.copied')
@@ -206,9 +215,42 @@
         {/if}
       </div>
 
-      <!-- Hints -->
+      <!-- Local hint -->
       <p class="text-muted text-xs">{$t('servers.connect.localHint')}</p>
-      <p class="text-muted text-xs">{$t('servers.connect.internetHint')}</p>
+
+      <!-- Over the internet: detected public IP + real port-forward guidance (#6) -->
+      <div data-testid="server-connect-internet">
+        <h3 class="font-semibold mb-1">{$t('servers.connect.internetTitle')}</h3>
+        {#if pub && pub.public_ip}
+          {@const publicIp = pub.public_ip}
+          {@const pubPort = pub.port}
+          <div class="flex items-center gap-2 mb-1">
+            <code class="select-all rounded bg-subtle px-2 py-1 font-mono text-xs"
+              >{joinAddress(publicIp, pubPort)}</code
+            >
+            <button
+              type="button"
+              class="btn-ghost btn-sm"
+              onclick={() => void copyInvite(publicIp, pubPort)}
+            >
+              {copiedAddr === publicIp
+                ? $t('servers.connect.copied')
+                : $t('servers.connect.copyInvite')}
+            </button>
+          </div>
+          {#if copyFailedAddr === publicIp}
+            <span class="text-xs text-warning-text" role="alert" data-testid="copy-invite-failed">
+              {$t('servers.connect.copyFailed')}
+            </span>
+          {/if}
+          <p class="text-muted text-xs">
+            {$t('servers.connect.portForwardGuide', { port: pubPort })}
+          </p>
+        {:else}
+          <p class="text-muted text-xs">{$t('servers.connect.publicIpUnknown')}</p>
+          <p class="text-muted text-xs">{$t('servers.connect.portForwardGeneric', { port })}</p>
+        {/if}
+      </div>
 
       <!-- Online-mode explainer -->
       {#if snapshot}

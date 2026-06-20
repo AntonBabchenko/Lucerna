@@ -1,34 +1,23 @@
-// Contract shim for the C1 cross-stream fields (S1 → S3, see
-// docs/superpowers/plans/2026-06-20-servers-parallel-coordination.md):
-//
-//   pub diagnosis_status: ServerDiagnosisStatus,  // 'none' | 'advisory' | 'actionable'
-//   pub last_exit_code: Option<i32>,              // None = clean/never-run, Some(n) = crashed
-//
-// S3 lands last, so these fields aren't on the generated `ServerWithStatus` yet.
-// We read them through this narrow, documented shim so the frontend can be coded
-// against the agreed shape now. AFTER `git merge origin/main` regenerates the
-// bindings, the casts below collapse to plain field reads — keep this module so
-// the call sites stay stable; just drop the `as` once the fields are real.
+// Small read helpers over a server's runtime status fields (C1 contract from
+// S1: `diagnosis_status` + `last_exit_code`, now present in the generated
+// bindings). Kept as a module so the call sites (sidebar badge, attention item,
+// crash pill) share one definition of "actionable" / "crashed".
 
-import type { ServerWithStatus } from '$lib/ipc/bindings';
+import type { DiagnosisStatus, ServerWithStatus } from '$lib/ipc/bindings';
 
-// Matches S1's `DiagnosisStatus` wire shape (lowercase). 'handled' = a fix was
-// already applied for the current log, so it is NOT actionable.
-export type ServerDiagnosisStatusWire = 'none' | 'advisory' | 'actionable' | 'handled';
-
-/** The server's latest diagnosis severity ('none' until S1's field lands). */
-export function diagnosisStatusOf(s: ServerWithStatus): ServerDiagnosisStatusWire {
-  return (s as { diagnosis_status?: ServerDiagnosisStatusWire }).diagnosis_status ?? 'none';
+/** The server's latest diagnosis severity. */
+export function diagnosisStatusOf(s: ServerWithStatus): DiagnosisStatus {
+  return s.diagnosis_status;
 }
 
 /** True when a one-click repair is available for this server. */
 export function isDiagnosisActionable(s: ServerWithStatus): boolean {
-  return diagnosisStatusOf(s) === 'actionable';
+  return s.diagnosis_status === 'actionable';
 }
 
 /** The last process exit code, or null for a clean exit / never run. */
 export function lastExitCodeOf(s: ServerWithStatus): number | null {
-  return (s as { last_exit_code?: number | null }).last_exit_code ?? null;
+  return s.last_exit_code;
 }
 
 /**
@@ -38,6 +27,5 @@ export function lastExitCodeOf(s: ServerWithStatus): number | null {
  */
 export function isCrashed(s: ServerWithStatus): boolean {
   if (s.running) return false;
-  const code = lastExitCodeOf(s);
-  return code !== null && code !== 0;
+  return s.last_exit_code !== null && s.last_exit_code !== 0;
 }

@@ -26,6 +26,8 @@ function makeServer(over: Record<string, unknown> = {}): ServerWithStatus_Serial
     port: 25565,
     upload: null,
     upload_password_set: false,
+    last_exit_code: null,
+    diagnosis_status: 'none',
     ...over,
   } as ServerWithStatus_Serialize;
 }

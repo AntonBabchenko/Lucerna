@@ -9,6 +9,7 @@ import {
   type ServerDiagnosis,
   type ServerImportPreview,
   type ServerLogInfo,
+  type ServerPublicAddress,
   type ServerWithStatus,
   type UploadConfig,
 } from '$lib/ipc/bindings';
@@ -228,6 +229,14 @@ async function firewallStatus(id: string): Promise<FirewallState | null> {
   return r.status === 'ok' ? r.data : null;
 }
 
+/// Public-address snapshot for the Connect view (#6, contract C3): primary LAN
+/// address, detected public IP (or null), port, and online-mode. Returns null
+/// on IPC error so the view degrades to the LAN-only section.
+async function publicAddress(id: string): Promise<ServerPublicAddress | null> {
+  const r = await commands.serverPublicAddress(id);
+  return r.status === 'ok' ? r.data : null;
+}
+
 async function firewallAddRule(id: string): Promise<{ ok: boolean; error?: unknown }> {
   const r = await commands.serverFirewallAddRule(id);
   if (r.status === 'ok') return { ok: true };
@@ -429,6 +438,7 @@ export const serverState = {
   connectivity,
   firewallStatus,
   firewallAddRule,
+  publicAddress,
   importInspect,
   importCommit,
   importCancel,
