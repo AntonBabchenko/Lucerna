@@ -1213,12 +1213,12 @@ pub async fn server_import_commit(
             Some(import::pack::PackKind::Curseforge) => {
                 let cf = import::pack::parse_cf(&root)?;
                 if !cf.bundled_mods {
-                    return Err(Error::io(
-                        "<import>",
-                        "This CurseForge pack references its mods as downloads rather than \
-                         bundling them. Import it as a client modpack first, then use \
-                         \"Create server from instance\".",
-                    ));
+                    return Err(Error::ServerImportInvalidArchive {
+                        details: "This CurseForge pack references its mods as downloads rather \
+                                  than bundling them. Import it as a client modpack first, then \
+                                  use \"Create server from instance\"."
+                            .to_string(),
+                    });
                 }
                 import::copy::copy_into_runtime(&root, &p.runtime)?;
                 import::pack::apply_overrides(&root, &p.runtime)?;
@@ -1353,6 +1353,11 @@ pub fn server_backup_policy_set(
     policy: backup::BackupPolicy,
 ) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    // The UI owns `enabled` + `interval_minutes` only; `last_run_unix_ms` is
+    // bookkeeping the scheduler stamps. Preserve the stored value so saving the
+    // policy doesn't reset the schedule to "never run" (immediately due).
+    let mut policy = policy;
+    policy.last_run_unix_ms = backup::read_policy(&base, &id).last_run_unix_ms;
     backup::write_policy(&base, &id, &policy)?;
     // Bump this server's scheduler generation. Any task spawned by a prior set()
     // sees the mismatch on its next tick and exits, so we never leak overlapping
@@ -1404,8 +1409,9 @@ fn spawn_backup_scheduler(app: AppHandle, id: String, generation: u64, interval_
             let Ok(base) = crate::paths::app_dir(&app) else {
                 continue;
             };
-            let now = chrono::Utc::now().timestamp_millis() as f64;
-            let stamp = format!("auto-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+            let t = chrono::Utc::now();
+            let now = t.timestamp_millis() as f64;
+            let stamp = format!("auto-{}", t.format("%Y%m%d-%H%M%S"));
             let _ = crate::servers_runtime::runtime::send_command(&id, "save-all flush").await;
             let _ = crate::servers_runtime::runtime::send_command(&id, "save-off").await;
             tokio::time::sleep(std::time::Duration::from_millis(800)).await;
@@ -1497,8 +1503,15 @@ async fn resolve_player_identity(
     name: &str,
 ) -> Result<(String, String)> {
     let name = name.trim();
-    if name.is_empty() {
-        return Err(Error::io("<whitelist>", "player name is empty"));
+    // Minecraft usernames are 1–16 chars of `[A-Za-z0-9_]`. Validate before
+    // interpolating into the Mojang lookup URL — a `/`, `?`, or `#` would
+    // otherwise alter the request path/query (defense in depth; the allowlist
+    // guards only the host, not the path).
+    if name.is_empty()
+        || name.len() > 16
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(Error::io("<whitelist>", "invalid Minecraft username"));
     }
     if server_online_mode(runtime) {
         let url = format!("https://api.mojang.com/users/profiles/minecraft/{name}");

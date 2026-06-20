@@ -73,12 +73,16 @@ fn write_array<T: Serialize>(path: &Path, items: &[T]) -> Result<()> {
     std::fs::write(path, json).map_err(|e| Error::io(path.display().to_string(), e))
 }
 
-/// True iff two identities refer to the same player: equal non-empty UUID, or
-/// equal name (case-insensitive) — so a name re-add with a freshly resolved
-/// UUID replaces rather than duplicates.
+/// True iff two identities refer to the same player. The UUID is the real
+/// identity: when both sides have one, compare ONLY UUIDs. Offline UUIDs are
+/// derived from the exact (case-sensitive) name, so "Steve" and "steve" are
+/// genuinely different offline players and must not collapse — hence the name
+/// fallback (used only when a UUID is missing) is case-SENSITIVE.
 fn same_player(uuid_a: &str, name_a: &str, uuid_b: &str, name_b: &str) -> bool {
-    (!uuid_a.is_empty() && uuid_a.eq_ignore_ascii_case(uuid_b))
-        || name_a.eq_ignore_ascii_case(name_b)
+    match (uuid_a.is_empty(), uuid_b.is_empty()) {
+        (false, false) => uuid_a.eq_ignore_ascii_case(uuid_b),
+        _ => name_a == name_b,
+    }
 }
 
 /// True iff `entry`'s identity matches `key` (a UUID or a player name).
@@ -180,15 +184,35 @@ mod tests {
     #[test]
     fn whitelist_add_dedupes_same_name_replacing_uuid() {
         let d = tempdir().unwrap();
+        // A hand-edited entry with no UUID, then a re-add of the same name with a
+        // now-resolved UUID → replaces, not duplicates (name fallback when a UUID
+        // is missing).
         add_whitelist(d.path(), entry("", "Alice")).unwrap();
-        // Re-add Alice with a now-resolved UUID → replaces, not duplicates.
         let list = add_whitelist(
             d.path(),
-            entry("11111111-1111-1111-1111-111111111111", "alice"),
+            entry("11111111-1111-1111-1111-111111111111", "Alice"),
         )
         .unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].uuid, "11111111-1111-1111-1111-111111111111");
+    }
+
+    #[test]
+    fn whitelist_dedupes_by_uuid_not_name_case() {
+        let d = tempdir().unwrap();
+        // Two offline players whose names differ only by case derive DIFFERENT
+        // UUIDs — they are distinct players and must both survive.
+        add_whitelist(d.path(), entry("uuid-steve", "Steve")).unwrap();
+        let list = add_whitelist(d.path(), entry("uuid-steve-lower", "steve")).unwrap();
+        assert_eq!(
+            list.len(),
+            2,
+            "case-distinct offline players are not merged"
+        );
+        // Re-adding the SAME uuid (different name casing) replaces by identity.
+        let list = add_whitelist(d.path(), entry("UUID-STEVE", "Steverino")).unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().any(|e| e.name == "Steverino"));
     }
 
     #[test]

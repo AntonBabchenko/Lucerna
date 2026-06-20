@@ -283,6 +283,27 @@ mod tests {
     }
 
     #[test]
+    fn copy_skips_pack_manifests_and_overrides() {
+        // #10: pack metadata + overrides are applied separately (pack::apply_overrides),
+        // never copied verbatim. Guards the SKIP_TOP_LEVEL additions.
+        let src = tempdir().unwrap();
+        touch(&src.path().join("manifest.json"));
+        touch(&src.path().join("modrinth.index.json"));
+        touch(&src.path().join("overrides/config/a.toml"));
+        touch(&src.path().join("server-overrides/server.properties"));
+        touch(&src.path().join("client-overrides/options.txt"));
+        touch(&src.path().join("mods/keep.jar"));
+        let dst = tempdir().unwrap();
+        copy_into_runtime(src.path(), dst.path()).unwrap();
+        assert!(dst.path().join("mods/keep.jar").is_file());
+        assert!(!dst.path().join("manifest.json").exists());
+        assert!(!dst.path().join("modrinth.index.json").exists());
+        assert!(!dst.path().join("overrides").exists());
+        assert!(!dst.path().join("server-overrides").exists());
+        assert!(!dst.path().join("client-overrides").exists());
+    }
+
+    #[test]
     fn copy_rejects_over_aggregate_cap() {
         let src = tempdir().unwrap();
         fs::write(src.path().join("a.bin"), vec![0u8; 100]).unwrap();
