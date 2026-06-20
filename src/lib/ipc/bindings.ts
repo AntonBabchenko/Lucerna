@@ -1010,6 +1010,11 @@ export const commands = {
 	/**  Отменить импорт: удалить staging. */
 	serverImportCancel: (token: string) => typedError<null, Error>(__TAURI_INVOKE("server_import_cancel", { token })),
 	/**
+	 *  Read the server's connectivity snapshot: host LAN IPv4s, the configured port,
+	 *  and `online-mode` (from `server.properties`; defaults true when unset).
+	 */
+	serverConnectivity: (id: string) => typedError<ServerConnectivity, Error>(__TAURI_INVOKE("server_connectivity", { id })),
+	/**
 	 *  Create a snapshot. If the server is running, flush + pause world saves
 	 *  around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
 	 */
@@ -2682,6 +2687,13 @@ export type RestoredWorld = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+/**  Join info for a server: host LAN addresses + the server's port + online-mode. */
+export type ServerConnectivity = {
+	lan_addresses: string[],
+	port: number | null,
+	online_mode: boolean,
 };
 
 /**
