@@ -416,6 +416,234 @@ pub async fn mods_install_with_deps(
 }
 
 // =========================================================================
+// Server browse-and-install kernel (S2 #3)
+// =========================================================================
+
+/// Lowercased filenames of the *enabled* `.jar`s already in `dir` (a server's
+/// `mods/`). Used to prune dependencies that are already satisfied. A
+/// `.jar.disabled` neither loads nor collides with a fresh `.jar`, so it is
+/// deliberately excluded — matching the instance installer's enabled-only view.
+/// Returns an empty set when `dir` is missing or unreadable (e.g. a fresh server
+/// with no `mods/` yet) — the install then re-resolves the full closure, which
+/// is wrong-but-safe (over-installs rather than under-installs).
+fn enabled_jar_filenames(dir: &std::path::Path) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let low = e.file_name().to_string_lossy().to_ascii_lowercase();
+            if low.ends_with(".jar") {
+                out.insert(low);
+            }
+        }
+    }
+    out
+}
+
+/// Download `v` through `network::` and copy its jar into `dest` (created if
+/// absent), returning the written filename. The platform-supplied filename is
+/// guarded BEFORE any join. No registry, no events — the server has neither.
+async fn copy_version_into_dir(
+    data_dir: &std::path::Path,
+    dest: &std::path::Path,
+    v: &ModVersion,
+    progress: &crate::mods::install::ProgressFn,
+) -> crate::error::Result<String> {
+    let Some(sha) = v
+        .primary_file
+        .sha1
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_ascii_lowercase())
+    else {
+        return Err(crate::error::Error::ModsSha1Unavailable);
+    };
+    if !crate::mods::modpack::path_safety::is_safe_filename(&v.primary_file.filename) {
+        return Err(crate::error::Error::ModsUnsafeFilename {
+            filename: v.primary_file.filename.clone(),
+        });
+    }
+    let cached = crate::mods::install::fetch_to_cache(
+        data_dir,
+        &v.primary_file.url,
+        &sha,
+        v.primary_file.size,
+        "servers",
+        progress,
+    )
+    .await?;
+    tokio::fs::create_dir_all(dest)
+        .await
+        .map_err(|e| crate::error::Error::io(dest.display().to_string(), e))?;
+    let out = dest.join(&v.primary_file.filename);
+    // Defense-in-depth: `is_safe_filename` above already rejects traversal, but
+    // re-assert containment after the join (the repo's two-layer pattern).
+    if !out.starts_with(dest) {
+        return Err(crate::error::Error::ModsUnsafeFilename {
+            filename: v.primary_file.filename.clone(),
+        });
+    }
+    tokio::fs::copy(&cached, &out)
+        .await
+        .map_err(|e| crate::error::Error::io(out.display().to_string(), e))?;
+    Ok(v.primary_file.filename.clone())
+}
+
+/// Install a chosen mod version + its transitive REQUIRED closure (plus any
+/// manifest-discovered required libraries) into an arbitrary `dest` mods dir.
+///
+/// The server-side counterpart of [`mods_install_with_deps`]: it reuses the
+/// exact resolution path (`resolve_closure` + `fetch_one_level` +
+/// `manifest_extra_root_versions`) but writes jars straight into `dest` with NO
+/// instance registry, NO emitted events, and NO optional deps. Required deps are
+/// installed faithfully — never dropped on a "client-only" flag, which would be
+/// the libraryferret footgun (a mis-signalled lib a real server mod needs).
+/// `dest`'s existing enabled jars prune deps already present.
+///
+/// Best-effort per dependency: a dep that fails to resolve/download is recorded
+/// in `unresolved` and the rest still install. The chosen primary is installed
+/// last; a hard failure there propagates (the user explicitly picked it).
+pub(crate) async fn install_version_into_dir(
+    data_dir: &std::path::Path,
+    dest: &std::path::Path,
+    source: ModSource,
+    project_id: &str,
+    version_id: &str,
+    mc_version: &str,
+    loader: LoaderKind,
+) -> crate::error::Result<crate::mods::dep_resolve::InstallMissingReport> {
+    // Own the borrowed inputs before the async block so the future does not hold
+    // references into the caller's frame (robust if this is ever spawned).
+    let data_dir = data_dir.to_path_buf();
+    let dest = dest.to_path_buf();
+    let project_id = project_id.to_string();
+    let version_id = version_id.to_string();
+    let mc_version = mc_version.to_string();
+    crate::network::throttle::with_interactive(async move {
+        use crate::mods::deps::{resolve_closure, ProjectKey};
+        use crate::mods::dep_resolve::{jar_provides, InstallMissingReport};
+        use std::sync::Arc;
+
+        let data_dir = data_dir.as_path();
+        let dest = dest.as_path();
+        let mc_version = mc_version.as_str();
+        let mut report = InstallMissingReport::default();
+        let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
+
+        // 1. Resolve the chosen version against the live API (mc + loader filtered).
+        let vr = VersionRef {
+            source,
+            project_id,
+            version_id,
+        };
+        let mut platform_box = platform_for(source);
+        let primary_v = find_version(&mut platform_box, &vr, mc_version, loader).await?;
+
+        // 2. Prune deps already present in `dest` (by lowercased filename only —
+        //    servers keep no installed-mods registry, so the ProjectKey set is empty).
+        let installed: std::collections::HashSet<ProjectKey> = std::collections::HashSet::new();
+        let installed_filenames = enabled_jar_filenames(dest);
+
+        // 3. Shared platform + loader cache + fetch factory (mirrors the instance path).
+        let platform_arc: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(source).into();
+        let loader_cache = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+            ProjectKey,
+            bool,
+        >::new()));
+        let make_fetch = || {
+            let platform = platform_arc.clone();
+            let loader_cache = loader_cache.clone();
+            let mc = mc_version.to_string();
+            move |v: ModVersion| {
+                let platform = platform.clone();
+                let loader_cache = loader_cache.clone();
+                let mc = mc.clone();
+                async move {
+                    fetch_one_level(platform.as_ref(), &loader_cache, &v, &mc, loader).await
+                }
+            }
+        };
+
+        // 4. Primary's transitive required closure.
+        let primary_required = resolve_closure(
+            std::slice::from_ref(&primary_v),
+            &installed,
+            &installed_filenames,
+            make_fetch(),
+        )
+        .await?
+        .required;
+
+        // 5. Manifest-discovered required libs the platform metadata omits, each
+        //    provides-verified over its DOWNLOADED jar before being committed.
+        let extras_raw =
+            manifest_extra_root_versions(data_dir, &primary_v, mc_version, loader).await;
+        let extras =
+            dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &primary_required);
+        let mut extra_install: Vec<ModVersion> = Vec::new();
+        {
+            let mut excl = installed.clone();
+            for v in &primary_required {
+                excl.insert(ProjectKey::of_version(v));
+            }
+            for (needed_id, cand) in extras {
+                if excl.contains(&ProjectKey::of_version(&cand)) {
+                    continue;
+                }
+                let sha = match cand.primary_file.sha1.as_deref() {
+                    Some(s) if !s.trim().is_empty() => s.to_ascii_lowercase(),
+                    _ => continue,
+                };
+                let Ok(cached) = crate::mods::install::fetch_to_cache(
+                    data_dir,
+                    &cand.primary_file.url,
+                    &sha,
+                    cand.primary_file.size,
+                    "servers",
+                    &nop,
+                )
+                .await
+                else {
+                    continue;
+                };
+                let Ok(bytes) = tokio::fs::read(&cached).await else {
+                    continue;
+                };
+                if !jar_provides(&bytes, &needed_id) {
+                    continue;
+                }
+                excl.insert(ProjectKey::of_version(&cand));
+                let sub = resolve_closure(
+                    std::slice::from_ref(&cand),
+                    &excl,
+                    &installed_filenames,
+                    make_fetch(),
+                )
+                .await?;
+                for v in &sub.required {
+                    excl.insert(ProjectKey::of_version(v));
+                }
+                extra_install.extend(sub.required);
+                extra_install.push(cand);
+            }
+        }
+
+        // 6. Install dependencies first (best-effort), then the chosen primary.
+        let deps = dedup_versions(primary_required.into_iter().chain(extra_install));
+        for v in &deps {
+            match copy_version_into_dir(data_dir, dest, v, &nop).await {
+                Ok(filename) => report.installed.push(filename),
+                Err(_) => report.unresolved.push(v.name.clone()),
+            }
+        }
+        let primary_filename = copy_version_into_dir(data_dir, dest, &primary_v, &nop).await?;
+        report.installed.push(primary_filename);
+        Ok(report)
+    })
+    .await
+}
+
+// =========================================================================
 // Transitive install-plan command (Task 3)
 // =========================================================================
 

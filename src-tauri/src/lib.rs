@@ -250,6 +250,14 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_ops_list,
             commands::server_ops_add,
             commands::server_ops_remove,
+            // Own server (S2: mod content management — browse-install, enable,
+            // local install, datapacks):
+            commands::server_install_mod,
+            commands::server_enable_mod,
+            commands::server_install_local,
+            commands::server_list_datapacks,
+            commands::server_install_datapack,
+            commands::server_remove_datapack,
         ])
         .events(collect_events![
             network::DownloadProgress,

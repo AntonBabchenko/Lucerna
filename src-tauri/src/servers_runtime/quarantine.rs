@@ -139,6 +139,24 @@ pub fn first_required_conflict(mods_dir: &Path, targets: &[String]) -> Option<(S
     None
 }
 
+/// Read the `disabled-filename -> reason` sidecar map for a server's `mods/`.
+/// Empty when the sidecar is absent/unreadable. The command layer uses this to
+/// label disabled rows ("set aside: client-only") instead of guessing from the
+/// `.disabled` suffix alone.
+pub fn read_reasons(mods_dir: &Path) -> BTreeMap<String, String> {
+    read_sidecar(mods_dir)
+}
+
+/// Drop a disabled jar's sidecar reason (e.g. after re-enabling it). Best-effort
+/// and non-fatal: a missing sidecar or a write failure is silently ignored —
+/// the sidecar is cosmetic. A no-op when the entry isn't present.
+pub fn forget_reason(mods_dir: &Path, disabled_filename: &str) {
+    let mut sidecar = read_sidecar(mods_dir);
+    if sidecar.remove(disabled_filename).is_some() {
+        let _ = write_sidecar(mods_dir, &sidecar);
+    }
+}
+
 fn sidecar_path(mods_dir: &Path) -> std::path::PathBuf {
     mods_dir.join(SIDECAR)
 }
@@ -264,6 +282,27 @@ mod tests {
         let disabled = apply_quarantine(dir, &result).unwrap();
         assert!(disabled.is_empty());
         assert!(!dir.join(SIDECAR).exists());
+    }
+
+    #[test]
+    fn read_reasons_surfaces_sidecar_after_quarantine() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path();
+        write_jar(dir, "betterf3.jar", b"x");
+        let result = ClassifyResult {
+            quarantine: vec!["betterf3.jar".into()],
+            kept: vec![],
+            kept_because_required: vec![],
+        };
+        apply_quarantine(dir, &result).unwrap();
+        let reasons = read_reasons(dir);
+        assert_eq!(
+            reasons.get("betterf3.jar.disabled").map(String::as_str),
+            Some(REASON_CLIENT_ONLY)
+        );
+        // A dir with no sidecar yields an empty map (no panic).
+        let empty = tempfile::tempdir().unwrap();
+        assert!(read_reasons(empty.path()).is_empty());
     }
 
     #[test]

@@ -27,6 +27,18 @@ pub struct QuarantineReport {
     pub kept_because_required: Vec<String>,
 }
 
+/// One entry in `server_list_mods`: the on-disk filename, whether it is set
+/// aside (`*.jar.disabled`), and — for disabled jars — why (from the quarantine
+/// sidecar), so the UI can label it ("set aside: client-only") instead of
+/// inferring everything from the suffix.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ServerModEntry {
+    pub filename: String,
+    pub disabled: bool,
+    /// Sidecar reason for a disabled jar (e.g. `client_only`); `None` otherwise.
+    pub reason: Option<String>,
+}
+
 /// Build `filename -> server_side` for an *instance's* mods by reading its
 /// installed-mods registry (filename → Modrinth project id) and bulk-querying
 /// `server_side`. Best-effort: any failure yields a partial/empty map, and the
@@ -387,26 +399,42 @@ pub fn server_write_properties(app: AppHandle, id: String, raw: String) -> Resul
         .map_err(|e| crate::error::Error::io("<server.properties>", e))
 }
 
-/// Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера.
-/// Возвращает отсортированный список имён файлов. Если папка отсутствует —
-/// возвращает пустой список.
+/// Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера как
+/// [`ServerModEntry`] (имя + флаг `disabled` + причина из sidecar карантина).
+/// Отсортировано по имени. Если папка отсутствует — пустой список.
 #[tauri::command]
 #[specta::specta]
-pub fn server_list_mods(app: AppHandle, id: String) -> Result<Vec<String>> {
+pub fn server_list_mods(app: AppHandle, id: String) -> Result<Vec<ServerModEntry>> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let mods = crate::paths::server_paths(&base, &id).mods;
-    let mut out = Vec::new();
+    let reasons = crate::servers_runtime::quarantine::read_reasons(&mods);
+    let mut names = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&mods) {
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
             let low = n.to_ascii_lowercase();
             if low.ends_with(".jar") || low.ends_with(".jar.disabled") {
-                out.push(n);
+                names.push(n);
             }
         }
     }
-    out.sort();
-    Ok(out)
+    names.sort();
+    Ok(names
+        .into_iter()
+        .map(|filename| {
+            let disabled = filename.to_ascii_lowercase().ends_with(".jar.disabled");
+            let reason = if disabled {
+                reasons.get(&filename).cloned()
+            } else {
+                None
+            };
+            ServerModEntry {
+                filename,
+                disabled,
+                reason,
+            }
+        })
+        .collect())
 }
 
 /// Удалить мод из папки `mods/` сервера по имени файла.
@@ -1609,6 +1637,163 @@ pub fn server_ops_remove(
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
     whitelist::remove_op(&rt, &key)
+}
+
+// Own server (Plan 2 / S2: mod content management — browse-install, enable,
+// local install, datapacks):
+
+/// Install a chosen mod version + its required dependency closure into the
+/// server's `mods/`. Resolves the server's mc_version + loader from
+/// `server.json`, then reuses the shared install kernel
+/// ([`crate::commands::install_version_into_dir`]). Server must be stopped.
+/// Returns the jars written + any dependency that could not be resolved.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_mod(
+    app: AppHandle,
+    id: String,
+    source: crate::mods::platform::ModSource,
+    project_id: String,
+    version_id: String,
+) -> Result<crate::mods::dep_resolve::InstallMissingReport> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    crate::commands::install_version_into_dir(
+        &base,
+        &p.mods,
+        source,
+        &project_id,
+        &version_id,
+        &file.mc_version,
+        file.loader,
+    )
+    .await
+}
+
+/// Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
+/// Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
+/// filenames / path escapes. Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_enable_mod(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<mod>", "invalid filename"));
+    }
+    let stripped = match filename.strip_suffix(".disabled") {
+        Some(s) => s.to_string(),
+        None => return Err(Error::io("<mod>", "not a disabled mod")),
+    };
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    let src = mods.join(&filename);
+    let dst = mods.join(&stripped);
+    if !src.starts_with(&mods) || !dst.starts_with(&mods) {
+        return Err(Error::io("<mod>", "path escapes mods dir"));
+    }
+    match std::fs::rename(&src, &dst) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(Error::io(src.display().to_string(), e)),
+    }
+    // Drop the now-stale quarantine sidecar entry so the row stops showing a
+    // "set aside" reason. Best-effort: a missing/locked sidecar is non-fatal.
+    crate::servers_runtime::quarantine::forget_reason(&mods, &filename);
+    Ok(())
+}
+
+/// Install a local mod `.jar` (chosen via the file picker) into the server's
+/// `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
+/// over IPC). Validates the jar is readable and the destination name is safe.
+/// Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub async fn server_install_local(app: AppHandle, id: String, jar_path: String) -> Result<String> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let filename = std::path::Path::new(&jar_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| Error::io("<mod>", "dropped path has no filename"))?;
+    if !crate::servers_runtime::runtime::is_safe_mod_name(&filename) {
+        return Err(Error::io("<mod>", "invalid filename"));
+    }
+    if !filename.to_ascii_lowercase().ends_with(".jar") {
+        return Err(Error::io("<mod>", "mod must be a .jar"));
+    }
+    let bytes = tokio::fs::read(&jar_path)
+        .await
+        .map_err(|e| Error::io(jar_path.clone(), e))?;
+    // Validate it parses as a jar (a zip) before committing — reject junk.
+    if crate::mods::local::read_jar_meta(&bytes).is_err() {
+        return Err(Error::io("<mod>", "not a valid mod jar"));
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let mods = crate::paths::server_paths(&base, &id).mods;
+    tokio::fs::create_dir_all(&mods)
+        .await
+        .map_err(|e| Error::io(mods.display().to_string(), e))?;
+    let dest = mods.join(&filename);
+    if !dest.starts_with(&mods) {
+        return Err(Error::io("<mod>", "path escapes mods dir"));
+    }
+    tokio::fs::write(&dest, &bytes)
+        .await
+        .map_err(|e| Error::io(dest.display().to_string(), e))?;
+    Ok(filename)
+}
+
+/// Raw `server.properties` text for a server (empty when absent) — used to
+/// resolve the `level-name` (datapacks live under `runtime/<level>/datapacks/`).
+fn server_props_raw(p: &crate::paths::ServerPaths) -> String {
+    std::fs::read_to_string(p.runtime.join("server.properties")).unwrap_or_default()
+}
+
+/// List the datapack archives installed for a server's world.
+#[tauri::command]
+#[specta::specta]
+pub fn server_list_datapacks(app: AppHandle, id: String) -> Result<Vec<String>> {
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
+    Ok(crate::servers_runtime::datapacks::list_datapacks(&dir))
+}
+
+/// Install a datapack `.zip` (chosen via the file picker) into the server's
+/// world `datapacks/`. Validates the zip carries a root `pack.mcmeta`. Returns
+/// the installed filename. Server must be stopped (live worlds hold files open).
+#[tauri::command]
+#[specta::specta]
+pub fn server_install_datapack(app: AppHandle, id: String, zip_path: String) -> Result<String> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
+    crate::servers_runtime::datapacks::install_datapack(&dir, std::path::Path::new(&zip_path))
+}
+
+/// Remove a datapack archive from a server's world `datapacks/`. Idempotent.
+/// Server must be stopped.
+#[tauri::command]
+#[specta::specta]
+pub fn server_remove_datapack(app: AppHandle, id: String, filename: String) -> Result<()> {
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(Error::ServerAlreadyRunning { id });
+    }
+    let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let dir = crate::servers_runtime::datapacks::datapacks_dir(&p.runtime, &server_props_raw(&p));
+    crate::servers_runtime::datapacks::remove_datapack(&dir, &filename)
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 
 pub mod backup;
 pub mod create;
+pub mod datapacks;
 pub mod eula;
 pub mod firewall;
 pub mod import;

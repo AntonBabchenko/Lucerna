@@ -1,34 +1,55 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { commands } from '$lib/ipc/bindings';
+  import { open as openFile } from '@tauri-apps/plugin-dialog';
+  import { commands, type ServerModEntry } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import ServerModBrowser from './mods/ServerModBrowser.svelte';
+  import ServerDatapacks from './mods/ServerDatapacks.svelte';
 
   let { serverId }: { serverId: string } = $props();
 
-  let mods = $state<string[]>([]);
+  let mods = $state<ServerModEntry[]>([]);
   let loadError = $state<string | null>(null);
-  let deleteError = $state<string | null>(null);
-  let busyDelete = $state<string | null>(null); // filename currently being deleted
+  let actionError = $state<string | null>(null);
+  let busyDelete = $state<string | null>(null);
+  let busyRestore = $state<string | null>(null);
   let busyFolder = $state(false);
   let busyQuarantine = $state(false);
-  // Per-row inline confirm: filename awaiting confirmation, or null
+  let busyLocal = $state(false);
+  let showBrowser = $state(false);
   let pendingDelete = $state<string | null>(null);
 
-  // A jar set aside (renamed to `*.jar.disabled`) — shown muted, not loadable.
-  function isDisabled(filename: string): boolean {
-    return filename.toLowerCase().endsWith('.jar.disabled');
+  // The server's own metadata drives mod applicability. Mods only attach to a
+  // mod loader; a vanilla server gets datapacks only. Mutations require a stopped
+  // server (the backend enforces it; the UI gates to avoid pointless errors).
+  const server = $derived(serverState.list.find((s) => s.id === serverId) ?? null);
+  const isVanilla = $derived(server?.loader === 'vanilla');
+  const isRunning = $derived(server?.running ?? false);
+  const canManageMods = $derived(server !== null && !isVanilla && !isRunning);
+
+  async function refresh() {
+    const res = await commands.serverListMods(serverId);
+    if (res.status === 'ok') {
+      mods = res.data;
+      loadError = null;
+    } else {
+      loadError = formatError(res.error);
+    }
   }
 
-  // Proactively set aside client-only mods (metadata + offline env, dep-safe).
+  onMount(() => {
+    void refresh();
+  });
+
   async function quarantineClientMods() {
     busyQuarantine = true;
-    deleteError = null;
+    actionError = null;
     try {
       const r = await serverState.quarantineClientMods(serverId);
       if (r.ok) {
@@ -44,45 +65,64 @@
         pushSuccess(msg);
         await refresh();
       } else {
-        deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
+        actionError = formatError(r.error as Parameters<typeof formatError>[0]);
       }
     } finally {
       busyQuarantine = false;
     }
   }
 
-  async function refresh() {
-    const res = await commands.serverListMods(serverId);
-    if (res.status === 'ok') {
-      mods = res.data;
-    } else {
-      loadError = formatError(res.error);
+  async function installLocal() {
+    actionError = null;
+    const picked = await openFile({
+      multiple: false,
+      filters: [{ name: 'Mod', extensions: ['jar'] }],
+    });
+    if (typeof picked !== 'string') return;
+    busyLocal = true;
+    try {
+      const res = await commands.serverInstallLocal(serverId, picked);
+      if (res.status === 'ok') {
+        pushSuccess(get(t)('servers.mods.localInstalled', { name: res.data }));
+        await refresh();
+      } else {
+        actionError = formatError(res.error);
+      }
+    } finally {
+      busyLocal = false;
     }
   }
 
-  onMount(() => {
-    void refresh();
-  });
+  async function restore(filename: string) {
+    busyRestore = filename;
+    actionError = null;
+    try {
+      const res = await commands.serverEnableMod(serverId, filename);
+      if (res.status === 'ok') {
+        await refresh();
+      } else {
+        actionError = formatError(res.error);
+      }
+    } finally {
+      busyRestore = null;
+    }
+  }
 
   function requestDelete(filename: string) {
     pendingDelete = filename;
-    deleteError = null;
-  }
-
-  function cancelDelete() {
-    pendingDelete = null;
+    actionError = null;
   }
 
   async function confirmDelete(filename: string) {
     busyDelete = filename;
-    deleteError = null;
+    actionError = null;
     try {
       const res = await commands.serverDeleteMod(serverId, filename);
       if (res.status === 'ok') {
         pendingDelete = null;
         await refresh();
       } else {
-        deleteError = formatError(res.error);
+        actionError = formatError(res.error);
       }
     } finally {
       busyDelete = null;
@@ -94,7 +134,7 @@
     try {
       const res = await commands.serverOpenFolder(serverId);
       if (res.status !== 'ok') {
-        deleteError = formatError(res.error);
+        actionError = formatError(res.error);
       }
     } finally {
       busyFolder = false;
@@ -102,81 +142,143 @@
   }
 </script>
 
-<div class="flex flex-col gap-3">
-  <!-- Toolbar -->
-  <div class="flex items-center gap-2">
-    <BusyButton class="btn-secondary btn-sm" busy={busyFolder} onclick={() => void openFolder()}>
-      <Icon name="folderOpen" size={14} />
-      {$t('servers.mods.openFolder')}
-    </BusyButton>
-    <BusyButton
-      class="btn-secondary btn-sm"
-      data-testid="server-mods-quarantine"
-      busy={busyQuarantine}
-      onclick={() => void quarantineClientMods()}
-    >
-      {$t('servers.diagnose.quarantineClientMods')}
-    </BusyButton>
+<div class="flex flex-col gap-4">
+  <!-- Mods section -->
+  <div class="flex flex-col gap-3">
+    <!-- Toolbar -->
+    <div class="flex flex-wrap items-center gap-2">
+      <BusyButton class="btn-secondary btn-sm" busy={busyFolder} onclick={() => void openFolder()}>
+        <Icon name="folderOpen" size={14} />
+        {$t('servers.mods.openFolder')}
+      </BusyButton>
+      {#if !isVanilla}
+        <button
+          type="button"
+          class="btn-secondary btn-sm inline-flex items-center gap-1"
+          disabled={!canManageMods}
+          onclick={() => (showBrowser = !showBrowser)}
+          data-testid="server-mods-add"
+        >
+          <Icon name="plus" size={14} />
+          {$t('servers.mods.addMods')}
+        </button>
+        <BusyButton
+          class="btn-secondary btn-sm"
+          busy={busyLocal}
+          disabled={!canManageMods}
+          onclick={() => void installLocal()}
+          data-testid="server-mods-install-local"
+        >
+          <Icon name="upload" size={14} />
+          {$t('servers.mods.installLocal')}
+        </BusyButton>
+        <BusyButton
+          class="btn-secondary btn-sm"
+          data-testid="server-mods-quarantine"
+          busy={busyQuarantine}
+          disabled={!canManageMods}
+          onclick={() => void quarantineClientMods()}
+        >
+          {$t('servers.diagnose.quarantineClientMods')}
+        </BusyButton>
+      {/if}
+    </div>
+
+    {#if isRunning}
+      <p class="text-xs text-warning-text">{$t('servers.mods.stopToManage')}</p>
+    {/if}
+
+    <!-- Server-targeted mod browser (collapsible) -->
+    {#if showBrowser && canManageMods && server}
+      <div class="rounded border border-border-subtle p-2">
+        <ServerModBrowser
+          {serverId}
+          mcVersion={server.mc_version}
+          loader={server.loader}
+          onInstalled={() => void refresh()}
+        />
+      </div>
+    {/if}
+
+    <!-- Note -->
+    <p class="text-xs text-secondary">{$t('servers.mods.note')}</p>
+
+    {#if loadError}
+      <p class="text-sm text-danger">{loadError}</p>
+    {/if}
+    {#if actionError}
+      <p class="text-sm text-danger">{actionError}</p>
+    {/if}
+
+    {#if mods.length === 0 && !loadError}
+      <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
+    {:else}
+      <ul class="flex flex-col divide-y divide-border-subtle rounded border border-border-subtle">
+        {#each mods as entry (entry.filename)}
+          <li class="flex items-center gap-2 px-3 py-2 text-sm">
+            <span
+              class="flex-1 truncate font-mono text-xs {entry.disabled
+                ? 'text-muted line-through'
+                : 'text-primary'}">{entry.filename}</span
+            >
+            {#if entry.disabled}
+              <span class="shrink-0 text-xs text-muted"
+                >{entry.reason === 'client_only'
+                  ? $t('servers.mods.setAsideClientOnly')
+                  : $t('servers.mods.setAside')}</span
+              >
+            {/if}
+
+            {#if pendingDelete === entry.filename}
+              <!-- Inline confirm row -->
+              <span class="text-xs text-secondary shrink-0">
+                {$t('servers.mods.deleteConfirm', { name: entry.filename })}
+              </span>
+              <BusyButton
+                class="btn-danger btn-xs"
+                busy={busyDelete === entry.filename}
+                onclick={() => void confirmDelete(entry.filename)}
+              >
+                {$t('servers.mods.delete')}
+              </BusyButton>
+              <button
+                type="button"
+                class="btn-ghost btn-xs"
+                disabled={busyDelete === entry.filename}
+                onclick={() => (pendingDelete = null)}
+              >
+                {$t('common.cancel')}
+              </button>
+            {:else}
+              {#if entry.disabled && canManageMods}
+                <BusyButton
+                  class="btn-ghost btn-xs inline-flex items-center gap-1"
+                  busy={busyRestore === entry.filename}
+                  onclick={() => void restore(entry.filename)}
+                  data-testid="server-mod-restore"
+                >
+                  <Icon name="restore" size={13} />
+                  {$t('servers.mods.restore')}
+                </BusyButton>
+              {/if}
+              <button
+                type="button"
+                class="btn-ghost btn-xs"
+                title={$t('servers.mods.delete')}
+                disabled={isRunning}
+                onclick={() => requestDelete(entry.filename)}
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 
-  <!-- Note -->
-  <p class="text-xs text-secondary">{$t('servers.mods.note')}</p>
-
-  {#if loadError}
-    <p class="text-sm text-danger">{loadError}</p>
-  {/if}
-
-  {#if deleteError}
-    <p class="text-sm text-danger">{deleteError}</p>
-  {/if}
-
-  {#if mods.length === 0 && !loadError}
-    <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
-  {:else}
-    <ul class="flex flex-col divide-y divide-border-subtle rounded border border-border-subtle">
-      {#each mods as filename (filename)}
-        <li class="flex items-center gap-2 px-3 py-2 text-sm">
-          <span
-            class="flex-1 truncate font-mono text-xs {isDisabled(filename)
-              ? 'text-muted line-through'
-              : 'text-primary'}">{filename}</span
-          >
-          {#if isDisabled(filename)}
-            <span class="shrink-0 text-xs text-muted">{$t('servers.mods.setAside')}</span>
-          {/if}
-
-          {#if pendingDelete === filename}
-            <!-- Inline confirm row -->
-            <span class="text-xs text-secondary shrink-0">
-              {$t('servers.mods.deleteConfirm', { name: filename })}
-            </span>
-            <BusyButton
-              class="btn-danger btn-xs"
-              busy={busyDelete === filename}
-              onclick={() => void confirmDelete(filename)}
-            >
-              {$t('servers.mods.delete')}
-            </BusyButton>
-            <button
-              type="button"
-              class="btn-ghost btn-xs"
-              disabled={busyDelete === filename}
-              onclick={cancelDelete}
-            >
-              {$t('common.cancel')}
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="btn-ghost btn-xs"
-              title={$t('servers.mods.delete')}
-              onclick={() => requestDelete(filename)}
-            >
-              <Icon name="trash" size={13} />
-            </button>
-          {/if}
-        </li>
-      {/each}
-    </ul>
-  {/if}
+  <!-- Datapacks section (applies to every loader, incl. vanilla) -->
+  <div class="border-t border-border-subtle pt-4">
+    <ServerDatapacks {serverId} disabled={isRunning} />
+  </div>
 </div>
