@@ -66,6 +66,13 @@ static JAVA_VERSION_RE: Lazy<Regex> = Lazy::new(|| {
     .expect("regex compiles — covered by `all_patterns_regexes_compile`")
 });
 
+/// True iff the log shows a Java-too-old failure (`UnsupportedClassVersionError`
+/// with a class-file version newer than the running JRE recognizes). Exposed for
+/// the server diagnoser so it can reuse the client regex without leaking it.
+pub fn detect_java_version_too_old(log: &str) -> bool {
+    JAVA_VERSION_RE.is_match(log)
+}
+
 static CORRUPT_JAR_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"java\.util\.zip\.ZipException|Invalid or corrupt jarfile")
         .expect("regex compiles — covered by `all_patterns_regexes_compile`")
@@ -283,5 +290,21 @@ mod tests {
         // 7 → 8 for `server-missing-mods`; 8 → 9 for `client-extra-mods`
         // (the inverse "your mods block this server" diagnosis).
         assert_eq!(PATTERNS.len(), 9);
+    }
+
+    #[test]
+    fn detect_java_version_too_old_true_on_unsupported_class_version() {
+        let log = "Exception in thread \"main\" java.lang.UnsupportedClassVersionError: \
+                   foo/Bar has been compiled by a more recent version of the Java Runtime \
+                   (class file version 65.0), this version of the Java Runtime only \
+                   recognizes class file versions up to 61.0";
+        assert!(super::detect_java_version_too_old(log));
+    }
+
+    #[test]
+    fn detect_java_version_too_old_false_on_unrelated_log() {
+        assert!(!super::detect_java_version_too_old(
+            "[Server thread/INFO]: Done (4.1s)! For help, type \"help\"\n"
+        ));
     }
 }

@@ -13,12 +13,61 @@
   const diag = $derived(serverState.diagnosisFor(serverId));
 
   // Map pattern_id → i18n subkey. Unknown patterns fall through to raw title.
-  function patternKey(patternId: string): 'clientOnly' | 'portInUse' | 'eula' | 'orphan' | null {
-    if (patternId === 'server-client-only-mod-crash') return 'clientOnly';
-    if (patternId === 'server-port-in-use') return 'portInUse';
-    if (patternId === 'server-eula-not-accepted') return 'eula';
-    if (patternId === 'server-orphan-running') return 'orphan';
-    return null;
+  type PatternKey =
+    | 'clientOnly'
+    | 'portInUse'
+    | 'eula'
+    | 'orphan'
+    | 'oom'
+    | 'heapTooBig'
+    | 'javaTooOld'
+    | 'corruptJar'
+    | 'modConflict'
+    | 'missingDep'
+    | 'fabricApiMissing'
+    | 'mixinCrash'
+    | 'worldCorrupt'
+    | 'sessionLock'
+    | 'wrongLoader'
+    | 'diskLow';
+
+  function patternKey(patternId: string): PatternKey | null {
+    switch (patternId) {
+      case 'server-client-only-mod-crash':
+        return 'clientOnly';
+      case 'server-port-in-use':
+        return 'portInUse';
+      case 'server-eula-not-accepted':
+        return 'eula';
+      case 'server-orphan-running':
+        return 'orphan';
+      case 'server-out-of-memory':
+        return 'oom';
+      case 'server-heap-too-big':
+        return 'heapTooBig';
+      case 'server-java-too-old':
+        return 'javaTooOld';
+      case 'server-corrupt-jar':
+        return 'corruptJar';
+      case 'server-mod-conflict':
+        return 'modConflict';
+      case 'server-missing-dep':
+        return 'missingDep';
+      case 'server-fabric-api-missing':
+        return 'fabricApiMissing';
+      case 'server-mixin-crash':
+        return 'mixinCrash';
+      case 'server-world-corrupt':
+        return 'worldCorrupt';
+      case 'server-session-lock':
+        return 'sessionLock';
+      case 'server-wrong-loader-mod':
+        return 'wrongLoader';
+      case 'server-disk-low':
+        return 'diskLow';
+      default:
+        return null;
+    }
   }
 
   const key = $derived(diag?.diagnosis ? patternKey(diag.diagnosis.pattern_id) : null);
@@ -72,7 +121,12 @@
     busyRemove = true;
     removeError = null;
     try {
-      const r = await serverState.removeClientMods(serverId, sel, diag?.log_signature ?? null);
+      // disable_mods (conflict/mixin) renames to *.disabled (reversible); the
+      // client-only-crash path deletes. Pick the right command per repair tag.
+      const r =
+        diag?.server_repair === 'disable_mods'
+          ? await serverState.disableMods(serverId, sel, diag?.log_signature ?? null)
+          : await serverState.removeClientMods(serverId, sel, diag?.log_signature ?? null);
       if (r.ok) {
         pushSuccess(
           `${get(t)('servers.diagnose.removed', { count: sel.length })} ${get(t)('servers.diagnose.restartHint')}`,
@@ -127,6 +181,7 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-accept-eula"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.acceptEula')}
             onclick={() => void runFix(() => serverState.acceptEula(serverId))}
           >
             {$t('servers.diagnose.fix.acceptEula')}
@@ -136,6 +191,7 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-stop-orphan"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.stopOrphan')}
             onclick={() =>
               void runFix(() => serverState.stopOrphan(serverId, diag.orphan_pid ?? 0))}
           >
@@ -146,15 +202,69 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-change-port"
             busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.changePort', {
+              port: (diag.port_in_use ?? 25565) + 1,
+            })}
             onclick={() =>
               void runFix(() => serverState.changePort(serverId, (diag.port_in_use ?? 25565) + 1))}
           >
             {$t('servers.diagnose.fix.changePort', { port: (diag.port_in_use ?? 25565) + 1 })}
           </BusyButton>
+        {:else if diag.server_repair === 'raise_heap'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-raise-heap"
+            busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.raiseHeap', {
+              mb: diag.suggested_heap_mb ?? 4096,
+            })}
+            onclick={() =>
+              void runFix(() => serverState.raiseHeap(serverId, diag.suggested_heap_mb ?? 4096))}
+          >
+            {$t('servers.diagnose.fix.raiseHeap', { mb: diag.suggested_heap_mb ?? 4096 })}
+          </BusyButton>
+        {:else if diag.server_repair === 'lower_heap'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-lower-heap"
+            busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.lowerHeap', {
+              mb: diag.suggested_heap_mb ?? 2048,
+            })}
+            onclick={() =>
+              void runFix(() => serverState.lowerHeap(serverId, diag.suggested_heap_mb ?? 2048))}
+          >
+            {$t('servers.diagnose.fix.lowerHeap', { mb: diag.suggested_heap_mb ?? 2048 })}
+          </BusyButton>
+        {:else if diag.server_repair === 'redownload_server_jar'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-redownload-jar"
+            busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.redownloadJar')}
+            onclick={() => void runFix(() => serverState.redownloadJar(serverId))}
+          >
+            {$t('servers.diagnose.fix.redownloadJar')}
+          </BusyButton>
+        {:else if diag.server_repair === 'install_missing_dep'}
+          <BusyButton
+            class="btn-warning btn-sm mt-2"
+            data-testid="server-fix-install-dep"
+            busy={busyFix}
+            aria-label={$t('servers.diagnose.fix.installMissingDep', {
+              count: diag.conflict_mods.length,
+            })}
+            onclick={() =>
+              void runFix(() => serverState.installMissingDep(serverId, diag.conflict_mods))}
+          >
+            {$t('servers.diagnose.fix.installMissingDep', { count: diag.conflict_mods.length })}
+          </BusyButton>
         {/if}
 
         {#if fixError}
-          <p class="mt-2 text-sm text-danger">{fixError}</p>
+          <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-fix-error">
+            {fixError}
+          </p>
         {/if}
 
         {#if diag.status === 'actionable' && diag.client_mods.length > 0}
@@ -198,14 +308,31 @@
                 disabled={!diag.client_mods.some((f) => checked[f.filename])}
                 onclick={() => void removeSelected()}
               >
-                {$t('servers.diagnose.removeSelected')}
+                {diag.server_repair === 'disable_mods'
+                  ? $t('servers.diagnose.disableSelected')
+                  : $t('servers.diagnose.removeSelected')}
               </BusyButton>
             {/if}
           </div>
         {/if}
 
+        <!-- Conflict (B8): the loader cited mod ids but the classifier matched no
+             installed jar to disable automatically — list them as guidance. -->
+        {#if diag.server_repair === 'disable_mods' && diag.client_mods.length === 0 && diag.conflict_mods.length > 0}
+          <div class="mt-2 text-sm text-primary" data-testid="server-fix-disable-mods">
+            <p>{$t('servers.diagnose.conflictNamed')}</p>
+            <ul class="mt-1 list-disc pl-5">
+              {#each diag.conflict_mods as id (id)}
+                <li class="font-mono text-xs">{id}</li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
         {#if removeError}
-          <p class="mt-2 text-sm text-danger">{removeError}</p>
+          <p class="mt-2 text-sm text-danger" role="alert" data-testid="server-remove-error">
+            {removeError}
+          </p>
         {/if}
       </div>
     </div>

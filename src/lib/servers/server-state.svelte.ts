@@ -3,6 +3,7 @@ import {
   commands,
   events,
   type ServerDiagnosis,
+  type ServerImportPreview,
   type ServerWithStatus,
   type UploadConfig,
 } from '$lib/ipc/bindings';
@@ -97,6 +98,60 @@ async function stopOrphan(id: string, pid: number): Promise<{ ok: boolean; error
 
 async function changePort(id: string, port: number): Promise<{ ok: boolean; error?: unknown }> {
   const r = await commands.serverChangePort(id, port);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+/// Class-B (post-spawn log) fixes. Each clears the diagnosis on success; the
+/// caller re-runs `diagnose` (or the user retries Start) afterwards.
+async function raiseHeap(id: string, toMb: number): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverRaiseHeap(id, toMb);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function lowerHeap(id: string, toMb: number): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverLowerHeap(id, toMb);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function redownloadJar(id: string): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverRedownloadJar(id);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function disableMods(
+  id: string,
+  filenames: string[],
+  logSignature: string | null,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverDisableMods(id, filenames, logSignature);
+  if (r.status === 'ok') {
+    clearDiagnosis(id);
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function installMissingDep(
+  id: string,
+  modIds: string[],
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverInstallMissingDep(id, modIds);
   if (r.status === 'ok') {
     clearDiagnosis(id);
     return { ok: true };
@@ -205,6 +260,43 @@ async function backupDelete(
   return { ok: false, error: r.error };
 }
 
+async function importInspect(
+  sourcePath: string,
+): Promise<{ ok: boolean; preview?: ServerImportPreview; error?: unknown }> {
+  const r = await commands.serverImportInspect(sourcePath);
+  if (r.status === 'ok') return { ok: true, preview: r.data };
+  return { ok: false, error: r.error };
+}
+
+async function importCommit(
+  token: string,
+  name: string,
+  mcVersion: string,
+  loader: ServerWithStatus['loader'],
+  loaderVersion: string | null,
+  maxHeapMb: number,
+  eulaAccepted: boolean,
+): Promise<{ ok: boolean; error?: unknown }> {
+  const r = await commands.serverImportCommit(
+    token,
+    name,
+    mcVersion,
+    loader,
+    loaderVersion,
+    maxHeapMb,
+    eulaAccepted,
+  );
+  if (r.status === 'ok') {
+    await refresh();
+    return { ok: true };
+  }
+  return { ok: false, error: r.error };
+}
+
+async function importCancel(token: string): Promise<void> {
+  await commands.serverImportCancel(token);
+}
+
 function init(): void {
   if (initialized) return;
   initialized = true;
@@ -245,6 +337,11 @@ export const serverState = {
   acceptEula,
   stopOrphan,
   changePort,
+  raiseHeap,
+  lowerHeap,
+  redownloadJar,
+  disableMods,
+  installMissingDep,
   setUploadConfig,
   upload,
   exportZip,
@@ -253,6 +350,9 @@ export const serverState = {
   rename,
   updateRuntimeConfig,
   remove,
+  importInspect,
+  importCommit,
+  importCancel,
   init,
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;

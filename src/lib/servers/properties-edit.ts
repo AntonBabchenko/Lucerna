@@ -1,7 +1,7 @@
 /** Read a property value from raw `key=value` text (last wins), or null. */
 export function getProperty(raw: string, key: string): string | null {
   let found: string | null = null;
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split(/\r?\n/)) {
     const t = line.trimStart();
     if (t.startsWith('#') || !t.includes('=')) continue;
     const i = line.indexOf('=');
@@ -12,7 +12,7 @@ export function getProperty(raw: string, key: string): string | null {
 
 /** Set/replace a property in raw text, preserving other lines; appends if absent. */
 export function setProperty(raw: string, key: string, value: string): string {
-  const lines = raw.length ? raw.split('\n') : [];
+  const lines = raw.length ? raw.split(/\r?\n/) : [];
   let replaced = false;
   const out = lines.map((line) => {
     const t = line.trimStart();
