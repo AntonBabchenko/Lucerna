@@ -24,6 +24,8 @@ const { mockList, mockRemove } = vi.hoisted(() => {
       port: null as number | null,
       upload: null,
       upload_password_set: false,
+      last_exit_code: null,
+      diagnosis_status: 'none',
     },
   ];
   const mockRemove = vi.fn().mockResolvedValue({ ok: true });

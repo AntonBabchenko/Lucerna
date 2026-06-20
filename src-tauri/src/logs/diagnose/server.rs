@@ -288,6 +288,44 @@ pub fn server_repair_for(pattern_id: &str) -> Option<ServerRepairTag> {
     }
 }
 
+/// Cheap status-only classification for the sidebar "needs a fix" badge: derive
+/// a `DiagnosisStatus` from a server's latest log WITHOUT reading mod jars or the
+/// network, so `server_list` can flag a stopped server that needs a one-click
+/// fix. Mirrors `server_diagnose`'s status logic: classify the log, then upgrade
+/// Advisory→Actionable only when a real one-click fix is available. The two
+/// param-dependent tags (stop-orphan, install-missing-dep) count only when their
+/// target actually exists, so we never badge a no-op fix. `handled` (the acted-on
+/// log signature) suppresses an already-fixed log; `has_live_orphan` is whether a
+/// leftover owned JVM is alive (the caller checks the persisted PID).
+pub fn classify_server_status(
+    log: &str,
+    handled: Option<&str>,
+    has_live_orphan: bool,
+) -> crate::logs::diagnose::DiagnosisStatus {
+    use crate::logs::diagnose::DiagnosisStatus;
+    let Some(d) = diagnose_server_log(log) else {
+        return DiagnosisStatus::None;
+    };
+    let signature = crate::logs::diagnose::log_signature(log);
+    let status = crate::logs::diagnose::classify_status(&d, 0, None, &signature, handled);
+    // None / Handled / already-Actionable are authoritative; only a server
+    // Advisory (server fixes aren't in Diagnosis.repair) may upgrade.
+    if status != DiagnosisStatus::Advisory {
+        return status;
+    }
+    let has_fix = match server_repair_for(&d.pattern_id) {
+        Some(ServerRepairTag::StopOrphanAndRetry) => has_live_orphan,
+        Some(ServerRepairTag::InstallMissingDep) => !extract_missing_dep_ids(log).is_empty(),
+        Some(_) => true,
+        None => false,
+    };
+    if has_fix {
+        DiagnosisStatus::Actionable
+    } else {
+        DiagnosisStatus::Advisory
+    }
+}
+
 /// Choose which text to diagnose: prefer the crash report when it yields a
 /// diagnosis, otherwise the server log. Pure — the command layer reads the two
 /// files and passes their contents. Returns a borrow of the chosen input.
@@ -560,6 +598,48 @@ mod tests {
         let d = diagnosis_from_preflight(PreflightFinding::OrphanRunning(9999));
         assert_eq!(d.server_repair, Some(ServerRepairTag::StopOrphanAndRetry));
         assert_eq!(d.orphan_pid, Some(9999));
+    }
+
+    #[test]
+    fn classify_server_status_none_for_clean_or_empty_log() {
+        use crate::logs::diagnose::DiagnosisStatus;
+        // No diagnosable problem → no badge.
+        assert_eq!(
+            classify_server_status("", None, false),
+            DiagnosisStatus::None
+        );
+        assert_eq!(
+            classify_server_status("[Server] Done (1.2s)! For help, type \"help\"", None, false),
+            DiagnosisStatus::None
+        );
+    }
+
+    #[test]
+    fn classify_server_status_upgrades_fixable_and_suppresses_handled() {
+        use crate::logs::diagnose::DiagnosisStatus;
+        // OOM carries a one-click RaiseHeap fix → Actionable.
+        let oom = "java.lang.OutOfMemoryError: Java heap space\n\tat x.y(Z.java:1)";
+        assert_eq!(
+            classify_server_status(oom, None, false),
+            DiagnosisStatus::Actionable
+        );
+        // Same log, already acted on (matching signature) → Handled (no badge).
+        let sig = crate::logs::diagnose::log_signature(oom);
+        assert_eq!(
+            classify_server_status(oom, Some(&sig), false),
+            DiagnosisStatus::Handled
+        );
+        // Session-lock with no live orphan → Advisory (don't badge a no-op fix).
+        let lock = "Failed to check session lock for this world";
+        assert_eq!(
+            classify_server_status(lock, None, false),
+            DiagnosisStatus::Advisory
+        );
+        // World corruption has no one-click fix → Advisory.
+        assert_eq!(
+            classify_server_status("Failed to load world", None, false),
+            DiagnosisStatus::Advisory
+        );
     }
 
     #[test]

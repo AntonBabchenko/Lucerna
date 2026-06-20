@@ -439,11 +439,17 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
+        .run(|app_handle, event| {
             // Bug A root fix: never orphan server children. On launcher exit,
-            // synchronously force-kill every tracked server process.
+            // synchronously force-kill every tracked server process, then sweep
+            // persisted PID files so a server adopted after a restart (alive on
+            // disk but not in this session's map) is killed too, not left to
+            // hold its world lock.
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 crate::servers_runtime::runtime::kill_all_running();
+                if let Ok(dir) = crate::paths::servers_dir(app_handle) {
+                    crate::servers_runtime::runtime::kill_persisted_orphans(&dir);
+                }
             }
         });
 }

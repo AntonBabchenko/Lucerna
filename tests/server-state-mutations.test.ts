@@ -35,6 +35,8 @@ const srv = (over: Partial<ServerWithStatus_Serialize> = {}): ServerWithStatus_S
   port: null,
   upload: null,
   upload_password_set: false,
+  last_exit_code: null,
+  diagnosis_status: 'none',
   ...over,
 });
 

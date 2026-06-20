@@ -91,7 +91,8 @@
     "joinServer": "Join a server",
     "servers": "Servers",
     "serverRunning": "Server running",
-    "importLauncher": "Import from launcher"
+    "importLauncher": "Import from launcher",
+    "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname."
   },
   "instance": {
     "manage": {
@@ -1171,6 +1172,7 @@
     "importSourceMissing": "The original source folder no longer exists: {path}",
     "serversDatParse": "Could not read the server list (servers.dat): {reason}",
     "savedServerNameInvalid": "“{name}” isn't a valid server name: {reason}",
+    "offlineNameInvalid": "The account \"{name}\" can't be used: {reason} Switch to a Latin nickname.",
     "savedServerListChanged": "The saved server list changed — reopen the dialog and try again.",
     "serverInvalidProperty": "Invalid server setting {key} = {value}",
     "serverEulaNotAccepted": "You must accept the Minecraft EULA before starting this server",
@@ -1180,6 +1182,7 @@
     "serverAlreadyRunning": "This server is already running",
     "serverNotRunning": "This server is not running",
     "serverModRequiredByOther": "Can't remove {filename} — {requiredBy} needs it. Remove that mod too, or keep this one.",
+    "serverNameInvalid": "That server name can't be used — it may be empty, too long, or already taken.",
     "uploadNotConfigured": "Set up the hosting connection first",
     "sftpConnectFailed": "Couldn't connect to the host: {details}",
     "sftpAuthFailed": "Login failed — check the username and password",
@@ -1367,7 +1370,11 @@
       "addOfflineTitle": "Add an offline account",
       "addOfflineDescription": "Offline accounts let you play single-player and on a local network without a Microsoft sign-in. Enter the player name you'll use in-game.",
       "addOfflineNameLabel": "Player name",
-      "addOfflineConfirm": "Add account"
+      "addOfflineConfirm": "Add account",
+      "offlineNameHelp": "Latin letters, digits and _ — 3 to 16 characters.",
+      "offlineNameTooShort": "The nickname must be at least 3 characters.",
+      "offlineNameTooLong": "The nickname must be at most 16 characters.",
+      "offlineNameInvalidChars": "Only Latin letters, digits and _ — Minecraft won't let you into worlds with other characters."
     },
     "overview": {
       "sectionConfiguration": "Configuration",

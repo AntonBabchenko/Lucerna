@@ -6,6 +6,7 @@
 pub mod keychain;
 pub mod microsoft;
 pub mod offline;
+pub mod offline_name;
 pub mod ops;
 pub mod skins;
 pub mod store;
@@ -77,7 +78,7 @@ pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
 pub fn add_offline_account(app: &tauri::AppHandle, name: &str) -> Result<Account> {
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
     let mut file = read_account_file(&path)?;
-    let account = ops::add_offline(&mut file, name);
+    let account = ops::add_offline(&mut file, name)?;
     write_account_file(&path, &file)?;
     Ok(account)
 }

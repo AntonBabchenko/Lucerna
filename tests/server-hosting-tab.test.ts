@@ -93,6 +93,8 @@ function makeServer(overrides: Partial<ServerWithStatus> = {}): ServerWithStatus
     port: null,
     upload: null,
     upload_password_set: false,
+    last_exit_code: null,
+    diagnosis_status: 'none',
     ...overrides,
   };
 }

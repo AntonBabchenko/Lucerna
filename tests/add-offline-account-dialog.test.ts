@@ -88,4 +88,34 @@ describe('AddOfflineAccountDialog', () => {
     });
     expect(screen.getByRole('alert').textContent).toMatch(/already taken/i);
   });
+
+  it('disables confirm and shows a reason hint for a Cyrillic name', async () => {
+    render(AddOfflineAccountDialog, {
+      props: { error: null, onCancel: vi.fn(), onSubmit: vi.fn() },
+    });
+    const confirm = screen.getByRole('button', { name: /add account/i }) as HTMLButtonElement;
+
+    await fireEvent.input(screen.getByLabelText(/player name/i), { target: { value: 'Игрок' } });
+
+    expect(confirm.disabled).toBe(true);
+    expect(screen.getByText(/only latin letters/i)).toBeTruthy();
+  });
+
+  it('does not call onSubmit for an invalid name on Enter', async () => {
+    const onSubmit = vi.fn();
+    render(AddOfflineAccountDialog, { props: { error: null, onCancel: vi.fn(), onSubmit } });
+
+    const input = screen.getByLabelText(/player name/i) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'Игрок' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('always shows the format helper text', () => {
+    render(AddOfflineAccountDialog, {
+      props: { error: null, onCancel: vi.fn(), onSubmit: vi.fn() },
+    });
+    expect(screen.getByText(/3 to 16 characters/i)).toBeTruthy();
+  });
 });

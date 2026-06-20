@@ -21,6 +21,11 @@ pub struct ServerLogInfo {
 /// `server-latest.log` is never counted/pruned.
 pub const KEEP_LOGS: usize = 15;
 
+/// Byte budget for rotated archives (the live `server-latest.log` is excluded).
+/// Bounds disk use when a crash/restart loop spams sessions, mirroring the
+/// client log-retention byte budget.
+pub const MAX_TOTAL_MB: u64 = 200;
+
 pub const LATEST: &str = "server-latest.log";
 
 /// Move `server-latest.log` to `server-<stamp>.log` if it exists (so the prior
@@ -34,21 +39,46 @@ pub fn rotate_log(logs_dir: &Path, stamp: &str) -> Result<()> {
     std::fs::rename(&latest, &archive).map_err(|e| Error::io(archive.display().to_string(), e))
 }
 
-/// Keep the newest `KEEP_LOGS` archives (`server-*.log` except `server-latest.log`);
-/// delete the rest. Best-effort. `server-latest.log` is always kept.
+/// Prune rotated archives to satisfy BOTH the count cap (`KEEP_LOGS`) and the
+/// byte budget (`MAX_TOTAL_MB`); the live `server-latest.log` is never pruned.
+/// Best-effort.
 pub fn prune_logs(logs_dir: &Path) {
-    let mut archives: Vec<(std::path::PathBuf, f64)> = match std::fs::read_dir(logs_dir) {
+    let archives: Vec<(std::path::PathBuf, f64, u64)> = match std::fs::read_dir(logs_dir) {
         Ok(rd) => rd
             .flatten()
             .filter(|e| is_archive(&e.file_name().to_string_lossy()))
-            .filter_map(|e| e.metadata().ok().map(|m| (e.path(), mtime_ms(&m))))
+            .filter_map(|e| e.metadata().ok().map(|m| (e.path(), mtime_ms(&m), m.len())))
             .collect(),
         Err(_) => return,
     };
-    archives.sort_by(|a, b| b.1.total_cmp(&a.1)); // newest first
-    for (path, _) in archives.into_iter().skip(KEEP_LOGS) {
+    for path in select_archives_to_delete(archives, KEEP_LOGS, MAX_TOTAL_MB * 1024 * 1024) {
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// Pure: from `(path, mtime_ms, size_bytes)` archives, choose which to delete so
+/// the survivors satisfy the count cap (`keep` newest) AND the byte budget
+/// (`budget_bytes`). The single newest archive is always kept regardless of
+/// size. Greedy newest-first: keep an archive when it's within the count and
+/// still fits the running byte total, else delete it.
+fn select_archives_to_delete(
+    mut archives: Vec<(std::path::PathBuf, f64, u64)>,
+    keep: usize,
+    budget_bytes: u64,
+) -> Vec<std::path::PathBuf> {
+    archives.sort_by(|a, b| b.1.total_cmp(&a.1)); // newest first
+    let mut total: u64 = 0;
+    let mut to_delete = Vec::new();
+    for (i, (path, _mtime, size)) in archives.into_iter().enumerate() {
+        let over_count = i >= keep;
+        let over_bytes = i > 0 && total.saturating_add(size) > budget_bytes;
+        if over_count || over_bytes {
+            to_delete.push(path);
+        } else {
+            total = total.saturating_add(size);
+        }
+    }
+    to_delete
 }
 
 /// All server logs (latest + archives), newest first, `is_latest` flagged.
@@ -148,6 +178,29 @@ mod tests {
             .filter(|l| !l.is_latest)
             .count();
         assert_eq!(archives, KEEP_LOGS);
+    }
+
+    #[test]
+    fn select_respects_count_cap() {
+        let archives: Vec<_> = (0..5)
+            .map(|i| (std::path::PathBuf::from(format!("a{i}")), i as f64, 1u64))
+            .collect();
+        // keep newest 2, huge budget → the 3 oldest are deleted.
+        let del = select_archives_to_delete(archives, 2, 1_000_000);
+        assert_eq!(del.len(), 3);
+        assert!(del.contains(&std::path::PathBuf::from("a0")));
+        assert!(!del.contains(&std::path::PathBuf::from("a4")));
+    }
+
+    #[test]
+    fn select_respects_byte_budget_keeping_newest() {
+        let archives = vec![
+            (std::path::PathBuf::from("new"), 5.0, 6u64), // newest, always kept (total=6)
+            (std::path::PathBuf::from("mid"), 4.0, 6u64), // 6+6=12 > 10 → delete
+            (std::path::PathBuf::from("old"), 3.0, 2u64), // 6+2=8 <= 10 → kept
+        ];
+        let del = select_archives_to_delete(archives, 100, 10);
+        assert_eq!(del, vec![std::path::PathBuf::from("mid")]);
     }
 
     #[test]

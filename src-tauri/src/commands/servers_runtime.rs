@@ -151,7 +151,36 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
     .ok()
     .flatten()
     .is_some();
-    ServerWithStatus::from_file(file, running, pid, port, upw)
+    let last_exit_code = crate::servers_runtime::exit_state::read(&rp.runtime);
+    // Cheap badge signal: a stopped server's latest log is classified here (no
+    // jar reads, no network); a running server has no pending diagnosis.
+    let diagnosis_status = if running {
+        crate::logs::diagnose::DiagnosisStatus::None
+    } else {
+        // Classify the SAME diagnosable input the diagnosis + handled_log_sig use
+        // (latest log + freshest crash report, 1 MB cap, pick_diagnosable) so the
+        // handled-fix suppression signature matches and the badge clears after a
+        // fix. (One bounded per-server read; server_list is infrequent.)
+        let content =
+            crate::logs::read::read_with_cap(&rp.logs.join("server-latest.log"), 1024 * 1024)
+                .unwrap_or_default();
+        let crash = newest_crash_text(&rp.runtime.join("crash-reports"), 1024 * 1024);
+        let input = crate::logs::diagnose::server::pick_diagnosable(&content, crash.as_deref());
+        crate::logs::diagnose::server::classify_server_status(
+            input,
+            file.handled_log_sig.as_deref(),
+            alive_ours,
+        )
+    };
+    ServerWithStatus::from_file(
+        file,
+        running,
+        pid,
+        port,
+        upw,
+        last_exit_code,
+        diagnosis_status,
+    )
 }
 
 /// Pre-spawn launch-outcome diagnosis: when the server is stopped and the log
@@ -244,8 +273,11 @@ pub async fn server_create(
     created_from_instance: Option<String>,
 ) -> Result<ServerCreated> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    // Trim + reject empty/duplicate names at the boundary (the wizard also gates
+    // this, but two concurrent creates could still collide on the same name).
+    let name = store::validate_name(&name, &store::list_all(&base)?, None)?;
     let id = format!("srv-{}", crate::instances::ids::new_id());
-    let file = ServerFile {
+    let mut file = ServerFile {
         id,
         name,
         mc_version,
@@ -257,8 +289,16 @@ pub async fn server_create(
         eula_accepted,
         created_from_instance,
         handled_log_sig: None,
+        java_component: None,
         upload: None,
     };
+    // Cache the MC Java component now (create is online — it downloads the jar)
+    // so repeat launches start offline. Best-effort: a miss leaves None and
+    // start() resolves + persists it on the next online launch.
+    file.java_component =
+        crate::servers_runtime::create::resolve_server_java_component(&file.mc_version)
+            .await
+            .ok();
     provision_loader(&app, &base, &file).await?;
     let mut quarantined: Vec<String> = Vec::new();
     if let Some(inst_id) = &file.created_from_instance {
@@ -282,7 +322,15 @@ pub async fn server_create(
         }
     }
     Ok(ServerCreated {
-        server: ServerWithStatus::from_file(&file, false, None, None, false),
+        server: ServerWithStatus::from_file(
+            &file,
+            false,
+            None,
+            None,
+            false,
+            None,
+            crate::logs::diagnose::DiagnosisStatus::None,
+        ),
         quarantined,
     })
 }
@@ -309,8 +357,8 @@ pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
 /// Остановить сервер (graceful stop, затем принудительное завершение при необходимости).
 #[tauri::command]
 #[specta::specta]
-pub async fn server_stop(id: String) -> Result<()> {
-    crate::servers_runtime::runtime::stop(&id).await
+pub async fn server_stop(app: AppHandle, id: String) -> Result<()> {
+    crate::servers_runtime::runtime::stop(&app, &id).await
 }
 
 /// Перезапустить сервер (stop если запущен, затем start).
@@ -327,6 +375,19 @@ pub async fn server_send_command(id: String, line: String) -> Result<()> {
     crate::servers_runtime::runtime::send_command(&id, &line).await
 }
 
+/// Best-effort removal of the Windows firewall allow-rule for this server's port
+/// (only when one is present), so deleting a server doesn't leave a stale
+/// open-port rule. No-op on non-Windows / when no port or rule exists; gating on
+/// presence means UAC is only prompted when there is actually a rule to remove.
+fn remove_firewall_rule_if_present(runtime: &std::path::Path) {
+    if let Some(port) = crate::servers_runtime::runtime::read_port(runtime) {
+        let name = crate::servers_runtime::firewall::rule_name(port);
+        if crate::process::firewall_rule_present(&name) {
+            let _ = crate::process::firewall_remove_rule_elevated(&name);
+        }
+    }
+}
+
 /// Удалить сервер и все его данные. Идемпотентно (уже удалён → Ok).
 /// Возвращает ошибку если сервер запущен — сначала остановите его.
 #[tauri::command]
@@ -336,6 +397,15 @@ pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    // A server adopted from before a restart isn't in the in-memory map, so the
+    // is_running guard above passes; kill any leftover JVM still holding this
+    // server's world before removing the directory, or the delete would fail
+    // (or re-orphan the process).
+    crate::servers_runtime::runtime::kill_owned_pid(&p.pid);
+    // Remove the firewall allow-rule we may have added for this server's port so
+    // it doesn't linger after the server is gone.
+    remove_firewall_rule_if_present(&p.runtime);
     store::delete_server(&base, &id)?;
     let _ = crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
     Ok(())
@@ -700,6 +770,26 @@ pub async fn server_remove_mods(
     Ok(())
 }
 
+/// Mark the current latest-log signature as handled for this server, so the
+/// diagnosis (and the sidebar "needs a fix" badge) doesn't re-fire after a fix
+/// that didn't already record it. Mirrors what remove/disable-mods persist via
+/// their `log_signature` param, but derived from disk so the heap/redownload/dep
+/// fixes need no extra FE plumbing (no binding change). Best-effort.
+fn mark_current_log_handled(p: &crate::paths::ServerPaths) {
+    let content = crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), 1024 * 1024)
+        .unwrap_or_default();
+    let crash = newest_crash_text(&p.runtime.join("crash-reports"), 1024 * 1024);
+    let input = crate::logs::diagnose::server::pick_diagnosable(&content, crash.as_deref());
+    if input.is_empty() {
+        return;
+    }
+    let sig = crate::logs::diagnose::log_signature(input);
+    if let Ok(mut file) = crate::servers_runtime::store::read_server_json(&p.json) {
+        file.handled_log_sig = Some(sig);
+        let _ = crate::servers_runtime::store::write_server_json(&p.json, &file);
+    }
+}
+
 /// Raise the server's max heap to `to_mb` (the diagnoser's suggested value) and
 /// persist. The UI restarts the server afterward.
 #[tauri::command]
@@ -710,7 +800,9 @@ pub fn server_raise_heap(app: AppHandle, id: String, to_mb: u32) -> Result<()> {
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    crate::servers_runtime::store::set_max_heap_mb(&p.json, to_mb)
+    crate::servers_runtime::store::set_max_heap_mb(&p.json, to_mb)?;
+    mark_current_log_handled(&p);
+    Ok(())
 }
 
 /// Lower the server's max heap to `to_mb` (a safe value <= physical RAM) and
@@ -723,7 +815,9 @@ pub fn server_lower_heap(app: AppHandle, id: String, to_mb: u32) -> Result<()> {
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    crate::servers_runtime::store::set_max_heap_mb(&p.json, to_mb)
+    crate::servers_runtime::store::set_max_heap_mb(&p.json, to_mb)?;
+    mark_current_log_handled(&p);
+    Ok(())
 }
 
 /// Re-download the server's main jar (corrupt-jar fix). Re-runs the same
@@ -736,10 +830,11 @@ pub async fn server_redownload_jar(app: AppHandle, id: String) -> Result<()> {
         return Err(Error::ServerAlreadyRunning { id });
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let file = crate::servers_runtime::store::read_server_json(
-        &crate::paths::server_paths(&base, &id).json,
-    )?;
-    provision_loader(&app, &base, &file).await
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    provision_loader(&app, &base, &file).await?;
+    mark_current_log_handled(&p);
+    Ok(())
 }
 
 /// Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
@@ -810,7 +905,7 @@ pub async fn server_install_missing_dep(
     let p = crate::paths::server_paths(&base, &id);
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
-    crate::mods::dep_resolve::install_missing_into_dir(
+    let report = crate::mods::dep_resolve::install_missing_into_dir(
         &base,
         &p.mods,
         &mod_ids,
@@ -818,7 +913,9 @@ pub async fn server_install_missing_dep(
         file.loader,
         cf_key,
     )
-    .await
+    .await?;
+    mark_current_log_handled(&p);
+    Ok(report)
 }
 
 /// Set aside client-only mods on an existing server (rename to `*.disabled`,

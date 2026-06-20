@@ -287,6 +287,29 @@ pub fn firewall_add_rule_elevated(_rule_name: &str, _port: u16) -> crate::error:
     Err(crate::error::Error::io("<firewall>", "Windows-only"))
 }
 
+/// Windows: remove the inbound allow rule named `rule_name`, ELEVATED via a UAC
+/// prompt. Best-effort (we can't observe the elevated result). Mirrors
+/// `firewall_add_rule_elevated` so deleting a server can clean up the rule it
+/// added instead of leaving a stale open-port rule behind.
+#[cfg(target_os = "windows")]
+pub fn firewall_remove_rule_elevated(rule_name: &str) -> crate::error::Result<()> {
+    let args =
+        format!("'advfirewall','firewall','delete','rule','name=\"{rule_name}\"','protocol=TCP'");
+    let cmd = format!(
+        "Start-Process -FilePath netsh -ArgumentList {args} -Verb RunAs -WindowStyle Hidden"
+    );
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &cmd])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| crate::error::Error::io("<firewall>", format!("elevation spawn: {e}")))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn firewall_remove_rule_elevated(_rule_name: &str) -> crate::error::Result<()> {
+    Err(crate::error::Error::io("<firewall>", "Windows-only"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
