@@ -126,6 +126,12 @@ pub enum Error {
     #[error("Instance name is too long: {actual} characters (max {max})")]
     InstanceNameTooLong { max: u32, actual: u32 },
 
+    #[error("Offline account name '{name}' is not valid for Minecraft (reason: {reason:?})")]
+    OfflineNameInvalid {
+        name: String,
+        reason: crate::accounts::offline_name::OfflineNameRejection,
+    },
+
     #[error("Network error talking to {url}: {details}")]
     ModsNetwork { url: String, details: String },
 
@@ -643,6 +649,21 @@ mod tests {
         );
         assert!(json.contains(r#""max":32"#), "got: {json}");
         assert!(json.contains(r#""actual":50"#), "got: {json}");
+    }
+
+    #[test]
+    fn offline_name_invalid_serializes_with_tag_and_reason() {
+        let e = Error::OfflineNameInvalid {
+            name: "Игрок".into(),
+            reason: crate::accounts::offline_name::OfflineNameRejection::InvalidChars,
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"offline_name_invalid""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""reason":"invalid_chars""#), "got: {json}");
+        assert!(json.contains(r#""name":"Игрок""#), "got: {json}");
     }
 
     #[test]
