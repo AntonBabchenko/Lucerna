@@ -196,7 +196,6 @@ mod tests {
 
     #[tokio::test]
     async fn returns_ok_for_200_with_body() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/req-200"))
@@ -204,16 +203,15 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-200", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get(&url, &[], "test").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"hello");
     }
 
     #[tokio::test]
     async fn returns_ok_for_404_not_err() {
-        let _g = test_lock();
         // A non-2xx status is NOT an error at this layer — the caller
         // owns status-to-error mapping.
         let server = MockServer::start().await;
@@ -223,15 +221,14 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-404", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get(&url, &[], "test").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 404);
     }
 
     #[tokio::test]
     async fn applies_request_headers() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/req-hdr"))
@@ -240,25 +237,23 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-hdr", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get(&url, &[("x-api-key", "secret-123")], "test").await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_ok(), "header should have matched the mock: {r:?}");
     }
 
     #[tokio::test]
     async fn transport_failure_is_err() {
-        let _g = test_lock();
         // Port 1 is unreachable — the connection fails before any status.
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get("http://127.0.0.1:1/nope", &[], "test").await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(r, Err(Error::Network { .. })), "got: {r:?}");
     }
 
     #[tokio::test]
     async fn post_sends_body_and_returns_ok() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/req-post"))
@@ -267,16 +262,15 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-post", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = post(&url, &[], b"{\"k\":1}", "test").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"done");
     }
 
     #[tokio::test]
     async fn post_applies_headers() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/req-post-hdr"))
@@ -285,9 +279,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/req-post-hdr", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = post(&url, &[("x-api-key", "k-9")], b"{}", "test").await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_ok(), "header should have matched the mock: {r:?}");
     }
 
@@ -311,7 +305,6 @@ mod tests {
 
     #[tokio::test]
     async fn retries_on_429_then_succeeds() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/rl"))
@@ -325,9 +318,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/rl", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get(&url, &[], "test").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200, "should have retried past the 429");
     }
 
@@ -353,7 +346,6 @@ mod tests {
 
     #[tokio::test]
     async fn sustained_429_gives_up_and_returns_429() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/always"))
@@ -361,9 +353,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/always", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get(&url, &[], "test").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(
             r.status, 429,
             "sustained 429 must return 429, not hang/loop"
@@ -372,7 +364,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_still_succeeds_through_throttle() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/t"))
@@ -380,9 +371,9 @@ mod tests {
             .mount(&server)
             .await;
         let url = format!("{}/t", server.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = get(&url, &[], "test").await.unwrap(); // 127.0.0.1 = unlimited host
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(r.status, 200);
     }
 }

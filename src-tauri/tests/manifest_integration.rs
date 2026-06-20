@@ -57,11 +57,13 @@ async fn list_manifest_fetches_parses_sorts_and_caches() {
     // Override the production URL via env var for the duration of this
     // test. Single-threaded execution makes this safe — set/unset
     // happens within the same test body.
-    std::env::set_var(
-        "LUCERNA_MANIFEST_URL_OVERRIDE",
-        format!("{}/mc/game/version_manifest_v2.json", server.uri()),
-    );
-    std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+    let _seam = lucerna_lib::test_seam::scope(&[
+        (
+            "LUCERNA_MANIFEST_URL_OVERRIDE",
+            &format!("{}/mc/game/version_manifest_v2.json", server.uri()),
+        ),
+        ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+    ]);
 
     let first = list_manifest().await.expect("first fetch");
     assert_eq!(first.len(), 3);
@@ -87,7 +89,4 @@ async fn list_manifest_fetches_parses_sorts_and_caches() {
         1,
         "cached call should not produce additional network requests"
     );
-
-    std::env::remove_var("LUCERNA_MANIFEST_URL_OVERRIDE");
-    std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 }

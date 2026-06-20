@@ -169,13 +169,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     #[tokio::test]
     async fn all_packs_parses_catalogue() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "error": false, "code": 200, "message": null,
@@ -193,9 +188,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let packs = all_packs(&s.uri()).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(packs.len(), 2);
         assert_eq!(packs[0].safe_name, "ResonantRise");
         assert_eq!(packs[0].pack_type, "public");
@@ -204,7 +199,6 @@ mod tests {
 
     #[tokio::test]
     async fn configs_parses_loader_and_mods() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "version": "5.0.0-pre.3", "minecraft": "1.12.2",
@@ -224,11 +218,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let c = configs(&s.uri(), "ResonantRise", "5.0.0-pre.3")
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(c.loader.as_ref().unwrap().loader_type, "forge");
         assert_eq!(
             c.loader

@@ -607,7 +607,6 @@ mod tests {
 
     #[tokio::test]
     async fn summaries_batches_projects_in_one_request() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/projects"))
@@ -624,9 +623,9 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let out = c.summaries(&["jei", "sodium"]).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].name, "JEI");
         assert_eq!(out[0].slug.as_deref(), Some("jei"));
@@ -646,7 +645,6 @@ mod tests {
 
     #[tokio::test]
     async fn versions_by_ids_parses_versions_with_deps() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/versions"))
@@ -661,9 +659,9 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let out = c.versions_by_ids(&["vid1"]).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].project_id, "jei");
         assert_eq!(out[0].deps.len(), 1);
@@ -672,7 +670,6 @@ mod tests {
 
     #[tokio::test]
     async fn search_parses_hits() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/search"))
@@ -698,9 +695,9 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = c.search(&q).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].name, "JEI");
         assert_eq!(page.hits[0].project_id, "u6dRKJwZ");
@@ -709,7 +706,6 @@ mod tests {
 
     #[tokio::test]
     async fn search_5xx_maps_to_network_error() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/search"))
@@ -727,15 +723,14 @@ mod tests {
             page_size: 20,
             offset: 0,
         };
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = c.search(&q).await.unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNetwork { .. }), "got: {err:?}");
     }
 
     #[tokio::test]
     async fn project_404_maps_to_not_found() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/project/missing"))
@@ -743,15 +738,14 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = c.project("missing").await.unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(matches!(err, Error::ModsNotFound { .. }), "got: {err:?}");
     }
 
     #[tokio::test]
     async fn project_renders_body_and_orders_gallery() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/project/jei"))
@@ -766,10 +760,10 @@ mod tests {
             ))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let c = ModrinthClient::with_base(s.uri());
         let p = c.project("jei").await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(p.body_html.contains("<h1>"));
         assert!(p.body_html.contains("https://media.modrinth.com/b.png"));
         // Featured image sorts first regardless of ordering value.
@@ -779,7 +773,6 @@ mod tests {
 
     #[tokio::test]
     async fn versions_parses_primary_file_and_deps() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/project/jei/version"))
@@ -797,12 +790,12 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let vs = c
             .versions("jei", Some("1.20.1"), Some(LoaderKind::Fabric))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].primary_file.filename, "jei-15.0.0.jar");
         assert_eq!(vs[0].primary_file.sha1.as_deref(), Some("abc"));
@@ -815,7 +808,6 @@ mod tests {
         // Real Xaero's Minimap 1.20.4 data: the author tags BOTH the Forge and
         // the NeoForge build with the `forge` loader, and the NeoForge build is
         // newest (so it sorts first). A Forge request must not install it.
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/project/xaeros-minimap/version"))
@@ -839,12 +831,12 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let vs = c
             .versions("xaeros-minimap", Some("1.20.4"), Some(LoaderKind::Forge))
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(vs.len(), 1, "the mis-tagged NeoForge jar must be dropped");
         assert_eq!(
             vs[0].primary_file.filename,
@@ -854,7 +846,6 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_deps_flags_only_required_when_no_compatible_version() {
-        let _g = test_lock();
         let s = server().await;
         // Neither dep has a compatible build (both endpoints return []).
         for pid in ["optdep", "reqdep"] {
@@ -865,7 +856,8 @@ mod tests {
                 .await;
         }
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
 
         let v = ModVersion {
             source: ModSource::Modrinth,
@@ -904,7 +896,6 @@ mod tests {
             .resolve_deps(&v, "1.20.4", LoaderKind::Forge)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         // The optional dep with no compatible build is skipped silently; only
         // the missing *required* dep is surfaced as unresolvable.
@@ -919,7 +910,6 @@ mod tests {
 
     #[tokio::test]
     async fn server_side_bulk_extracts_support_per_project() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("GET"))
             .and(path("/v2/projects"))
@@ -935,12 +925,12 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let m = c
             .server_side_bulk(&["betterf3", "jei", "voicechat", "weird", "nofield"])
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(m.get("betterf3"), Some(&ServerSideSupport::Unsupported));
         assert_eq!(m.get("jei"), Some(&ServerSideSupport::Optional));
         assert_eq!(m.get("voicechat"), Some(&ServerSideSupport::Required));
@@ -961,7 +951,6 @@ mod tests {
 
     #[tokio::test]
     async fn project_ids_by_hash_maps_sha_to_project_lowercased() {
-        let _g = test_lock();
         let s = server().await;
         Mock::given(method("POST"))
             .and(path("/v2/version_files"))
@@ -974,9 +963,9 @@ mod tests {
             .mount(&s)
             .await;
         let c = ModrinthClient::with_base(s.uri());
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let m = c.project_ids_by_hash(&["AABBCC", "ddeeff"]).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(m.get("aabbcc"), Some(&"betterf3".to_string()));
         assert_eq!(m.get("ddeeff"), Some(&"jei".to_string()));
     }

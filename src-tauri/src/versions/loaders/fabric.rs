@@ -35,7 +35,8 @@ const META_DEFAULT: &str = "https://meta.fabricmc.net";
 /// In production, `meta.fabricmc.net`. Tests set
 /// `LUCERNA_FABRIC_META_OVERRIDE` to a wiremock URI.
 fn meta_base() -> String {
-    std::env::var("LUCERNA_FABRIC_META_OVERRIDE").unwrap_or_else(|_| META_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_FABRIC_META_OVERRIDE")
+        .unwrap_or_else(|| META_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,10 +88,6 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     const FIXTURE_LIST: &str = r#"[
       {"loader":{"separator":".","build":7,"maven":"net.fabricmc:fabric-loader:0.15.7","version":"0.15.7","stable":true},"intermediary":{},"launcherMeta":{}},
       {"loader":{"separator":".","build":6,"maven":"net.fabricmc:fabric-loader:0.15.6","version":"0.15.6","stable":true},"intermediary":{},"launcherMeta":{}},
@@ -115,7 +112,6 @@ mod tests {
 
     #[tokio::test]
     async fn list_against_wiremock_returns_sorted_loader_versions() {
-        let _g = test_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v2/versions/loader/1.20.4"))
@@ -123,8 +119,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_FABRIC_META_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_FABRIC_META_OVERRIDE", &server.uri()),
+        ]);
 
         let out = list("1.20.4").await.expect("list");
         assert_eq!(out.len(), 3);
@@ -134,9 +132,6 @@ mod tests {
         assert!(out[0].stable);
         assert_eq!(out[2].version, "0.15.5-beta.1");
         assert!(!out[2].stable);
-
-        std::env::remove_var("LUCERNA_FABRIC_META_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[test]

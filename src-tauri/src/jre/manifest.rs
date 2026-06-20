@@ -109,8 +109,7 @@ pub async fn fetch_top_level() -> Result<TopLevelManifest> {
         }
     }
 
-    let url = std::env::var("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE")
-        .ok()
+    let url = crate::test_seam::resolve("LUCERNA_JRE_TOPLEVEL_URL_OVERRIDE")
         .unwrap_or_else(|| TOP_LEVEL_URL.to_string());
     let manifest: TopLevelManifest = get_json(&url, "jre").await?;
 

@@ -82,8 +82,7 @@ pub async fn list_manifest() -> Result<Vec<VersionEntry>> {
         }
     }
 
-    let url = std::env::var("LUCERNA_MANIFEST_URL_OVERRIDE")
-        .ok()
+    let url = crate::test_seam::resolve("LUCERNA_MANIFEST_URL_OVERRIDE")
         .unwrap_or_else(|| MANIFEST_URL.to_string());
     let raw: RawManifest = get_json(&url, "versions").await?;
     let entries = parse_and_sort(raw);
