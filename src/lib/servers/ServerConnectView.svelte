@@ -13,6 +13,9 @@
 
   let snapshot = $state<ServerConnectivity | null>(null);
   let copiedAddr = $state<string | null>(null);
+  // The address whose copy attempt failed (clipboard blocked/unavailable). We
+  // never claim "Copied!" then — the user is told to select + Ctrl+C instead.
+  let copyFailedAddr = $state<string | null>(null);
   let firewall = $state<FirewallState | null>(null);
   let addingRule = $state(false);
   let addRuleOutcome = $state<string | null>(null);
@@ -81,11 +84,18 @@
 
   async function copyInvite(addr: string): Promise<void> {
     const text = joinAddress(addr);
-    void navigator.clipboard.writeText(text);
-    copiedAddr = addr;
-    setTimeout(() => {
-      copiedAddr = null;
-    }, 1500);
+    copyFailedAddr = null;
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedAddr = addr;
+      setTimeout(() => {
+        copiedAddr = null;
+      }, 1500);
+    } catch {
+      // Clipboard write rejected (permissions / unavailable) — be honest rather
+      // than flashing "Copied!"; point the user at the selectable address.
+      copyFailedAddr = addr;
+    }
   }
 
   async function handleAddRule(): Promise<void> {
@@ -164,19 +174,30 @@
         {:else if snapshot.lan_addresses.length > 0}
           <div class="flex flex-col gap-2">
             {#each snapshot.lan_addresses as addr (addr)}
-              <div class="flex items-center gap-2">
-                <code class="rounded bg-subtle px-2 py-1 font-mono text-xs"
-                  >{joinAddress(addr)}</code
-                >
-                <button
-                  type="button"
-                  class="btn-ghost btn-sm"
-                  onclick={() => void copyInvite(addr)}
-                >
-                  {copiedAddr === addr
-                    ? $t('servers.connect.copied')
-                    : $t('servers.connect.copyInvite')}
-                </button>
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center gap-2">
+                  <code class="select-all rounded bg-subtle px-2 py-1 font-mono text-xs"
+                    >{joinAddress(addr)}</code
+                  >
+                  <button
+                    type="button"
+                    class="btn-ghost btn-sm"
+                    onclick={() => void copyInvite(addr)}
+                  >
+                    {copiedAddr === addr
+                      ? $t('servers.connect.copied')
+                      : $t('servers.connect.copyInvite')}
+                  </button>
+                </div>
+                {#if copyFailedAddr === addr}
+                  <span
+                    class="text-xs text-warning-text"
+                    role="alert"
+                    data-testid="copy-invite-failed"
+                  >
+                    {$t('servers.connect.copyFailed')}
+                  </span>
+                {/if}
               </div>
             {/each}
           </div>

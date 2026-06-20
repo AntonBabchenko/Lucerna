@@ -52,6 +52,15 @@
 
   const canSave = $derived(name.trim().length > 0);
 
+  // Dirty guard (#34): the "Saved" confirmation must not linger once the user
+  // starts editing again. We snapshot the fields on a successful save and clear
+  // `saved` as soon as the live values diverge from that snapshot.
+  const formSig = $derived(JSON.stringify({ name, memoryMb, jvmArgs }));
+  let savedSnapshot = $state<string | null>(null);
+  $effect(() => {
+    if (saved && formSig !== savedSnapshot) saved = false;
+  });
+
   async function save() {
     if (!canSave || busy) return;
     busy = true;
@@ -68,6 +77,7 @@
         error = formatError(r2.error as Parameters<typeof formatError>[0]);
         return;
       }
+      savedSnapshot = formSig;
       saved = true;
     } finally {
       busy = false;

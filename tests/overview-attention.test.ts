@@ -9,6 +9,7 @@ const none = {
   hasModpackUpdate: false,
   hasLogIssue: false,
   logFixAvailable: false,
+  serverFixAvailable: false,
 };
 
 describe('buildAttentionItems', () => {
@@ -25,6 +26,7 @@ describe('buildAttentionItems', () => {
       hasModpackUpdate: true,
       hasLogIssue: false,
       logFixAvailable: false,
+      serverFixAvailable: false,
     });
     expect(items.map((i) => i.kind)).toEqual([
       'pick_version',
@@ -33,6 +35,11 @@ describe('buildAttentionItems', () => {
       'integrity',
       'modpack_update',
     ]);
+  });
+
+  it('appends a server_log_fix item (count 0) last when a server fix is available', () => {
+    const items = buildAttentionItems({ ...none, serverFixAvailable: true });
+    expect(items).toEqual([{ kind: 'server_log_fix', count: 0 }]);
   });
 
   it('appends a modpack_update item (count 0) last when an update is available', () => {

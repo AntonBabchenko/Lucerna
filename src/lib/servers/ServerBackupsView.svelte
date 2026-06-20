@@ -100,11 +100,11 @@
   </div>
 
   {#if createError}
-    <p class="text-sm text-danger">{createError}</p>
+    <p class="text-sm text-danger" role="alert">{createError}</p>
   {/if}
 
   {#if actionError}
-    <p class="text-sm text-danger">{actionError}</p>
+    <p class="text-sm text-danger" role="alert">{actionError}</p>
   {/if}
 
   {#if running}
@@ -112,7 +112,7 @@
   {/if}
 
   {#if listError}
-    <p class="text-sm text-danger">{listError}</p>
+    <p class="text-sm text-danger" role="alert">{listError}</p>
   {:else if backups.length === 0}
     <p class="text-sm text-muted py-6 text-center">{$t('servers.backups.empty')}</p>
   {:else}
@@ -132,7 +132,7 @@
           <!-- Row actions or inline confirm -->
           {#if confirmFor?.file_name === backup.file_name}
             <span class="flex items-center gap-1.5 shrink-0">
-              <span class="text-xs text-secondary">
+              <span class="text-xs text-secondary" role="alert">
                 {confirmFor.kind === 'restore'
                   ? $t('servers.backups.restoreConfirm', { name: backup.file_name })
                   : $t('servers.backups.deleteConfirm', { name: backup.file_name })}

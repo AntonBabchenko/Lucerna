@@ -5,7 +5,8 @@ export type AttentionKind =
   | 'missing_mods'
   | 'incompatible'
   | 'integrity'
-  | 'modpack_update';
+  | 'modpack_update'
+  | 'server_log_fix';
 
 export interface AttentionItem {
   kind: AttentionKind;
@@ -26,6 +27,9 @@ export interface AttentionInputs {
   /** Whether the surfaced log issue has a one-click repair available
    *  (diagnosis status 'actionable'). Only meaningful when hasLogIssue is true. */
   logFixAvailable: boolean;
+  /** Whether any owned server has a one-click repair available (C1
+   *  diagnosis_status === 'actionable'). Global, not tied to this instance. */
+  serverFixAvailable: boolean;
 }
 
 /** Build the ordered "needs attention" list from instance signals. */
@@ -45,5 +49,7 @@ export function buildAttentionItems(input: AttentionInputs): AttentionItem[] {
     items.push({ kind: 'integrity', count: input.integrityProblemCount });
   }
   if (input.hasModpackUpdate) items.push({ kind: 'modpack_update', count: 0 });
+  // Global server signal, listed last (not specific to this instance).
+  if (input.serverFixAvailable) items.push({ kind: 'server_log_fix', count: 0 });
   return items;
 }

@@ -839,6 +839,7 @@
               logsInitialPath = null;
               logsOpen = true;
             }}
+            onOpenServers={() => (serversModalOpen = true)}
           />
         {/snippet}
       </MainTabs>

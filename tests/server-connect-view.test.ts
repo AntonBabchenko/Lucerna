@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 
@@ -46,6 +46,23 @@ describe('ServerConnectView', () => {
     render(ServerConnectView, { serverId: 'srv-1' });
     expect(await screen.findByText('192.168.1.5:25565')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Copy invite' })).toBeTruthy();
+  });
+
+  it('surfaces a manual-copy fallback when the clipboard write fails (#32)', async () => {
+    running.mockReturnValue(true);
+    connectivity.mockResolvedValue({
+      lan_addresses: ['192.168.1.5'],
+      port: 25565,
+      online_mode: true,
+    });
+    (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('clipboard blocked'),
+    );
+    render(ServerConnectView, { serverId: 'srv-1' });
+    const btn = await screen.findByRole('button', { name: 'Copy invite' });
+    await fireEvent.click(btn);
+    // No false "Copied!" — instead the manual-select hint appears.
+    expect(await screen.findByTestId('copy-invite-failed')).toBeTruthy();
   });
 
   it('explains online-mode ON', async () => {

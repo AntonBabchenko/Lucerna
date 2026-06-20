@@ -66,6 +66,7 @@ const baseProps = {
   onDismissInstallError: () => {},
   onDismissModsError: () => {},
   onOpenLogs: () => {},
+  onOpenServers: () => {},
 };
 
 describe('OverviewTab', () => {

@@ -234,9 +234,12 @@
 </script>
 
 {#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled' && !running}
+  <!-- role="alert" so screen-reader users hear the diagnosis when it appears
+       after a crash (it renders conditionally, not on mount). -->
   <div
     class="rounded border border-warning-text/30 bg-warning-bg p-3 text-warning-text"
     data-testid="server-diagnosis-banner"
+    role="alert"
   >
     <div class="flex items-start gap-2">
       <Icon name="warning" class="mt-0.5 shrink-0 text-warning-text" />

@@ -5,6 +5,7 @@
   import { relativeTime } from '$lib/format/relative-time';
   import { isIntegrityStale } from '$lib/instances/integrity-freshness';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+  import { serverState } from '$lib/servers/server-state.svelte';
   import { hasDiagnosisIndicator, diagnosisStatus } from '$lib/logs/log-diagnosis.svelte';
   import { t } from '$lib/i18n';
   import CloseButton from '$lib/ui/CloseButton.svelte';
@@ -43,6 +44,7 @@
     onDismissInstallError,
     onDismissModsError,
     onOpenLogs,
+    onOpenServers,
   }: {
     activeInstance: InstanceWithStatus | null;
     installedStats: { total: number; enabled: number; disabled: number };
@@ -67,6 +69,7 @@
     onDismissInstallError: () => void;
     onDismissModsError: () => void;
     onOpenLogs: () => void;
+    onOpenServers: () => void;
   } = $props();
 
   // An unhealthy integrity result is always an actionable problem (never
@@ -88,6 +91,7 @@
           hasModpackUpdate: modpackUpdates.hasUpdate(activeInstance.id),
           hasLogIssue: hasDiagnosisIndicator(),
           logFixAvailable: diagnosisStatus() === 'actionable',
+          serverFixAvailable: serverState.anyDiagnosisActionable,
         })
       : [],
   );
@@ -103,6 +107,7 @@
     if (kind === 'log_issue' || kind === 'log_fix') onOpenLogs();
     else if (kind === 'missing_mods' || kind === 'modpack_update') onOpenPackDrawer();
     else if (kind === 'incompatible') onNavInstalled();
+    else if (kind === 'server_log_fix') onOpenServers();
     else onManage(); // pick_version + integrity
   }
 

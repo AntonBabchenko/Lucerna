@@ -15,6 +15,7 @@
   import ServerConnectView from './ServerConnectView.svelte';
   import ServerToInstanceDialog from './ServerToInstanceDialog.svelte';
   import ServerBackupsView from './ServerBackupsView.svelte';
+  import { isCrashed } from './runtime-extra';
 
   let {
     serverId,
@@ -34,6 +35,8 @@
     serverState.list.find((s) => s.id === serverId) as ServerWithStatus_Serialize | undefined,
   );
   const running = $derived(serverState.running(serverId));
+  // #18: distinguish a crash from a clean stop in the header pill (C1 shim).
+  const crashed = $derived(server ? isCrashed(server) : false);
 
   let tab = $state<ServerTab>('console');
   let showToInstance = $state(false);
@@ -114,11 +117,15 @@
     <span
       class="rounded-full px-2 py-0.5 text-xs font-medium {running
         ? 'bg-success/15 text-success'
-        : 'bg-muted/15 text-muted'}"
+        : crashed
+          ? 'bg-danger/15 text-danger'
+          : 'bg-muted/15 text-muted'}"
     >
-      {running ? $t('servers.status.running') : $t('servers.status.stopped')}{server?.port
-        ? ' · ' + server.port
-        : ''}
+      {running
+        ? $t('servers.status.running')
+        : crashed
+          ? $t('servers.status.crashed')
+          : $t('servers.status.stopped')}{server?.port ? ' · ' + server.port : ''}
     </span>
 
     <!-- Actions -->

@@ -13,6 +13,7 @@ import {
   type UploadConfig,
 } from '$lib/ipc/bindings';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
+import { isDiagnosisActionable } from './runtime-extra';
 
 // Single source of truth for own-server runtime state.
 // All UI surfaces (sidebar, server list, console panel) read from this store
@@ -23,10 +24,23 @@ let lines = $state<Map<string, string[]>>(new Map());
 let diagnoses = $state<Map<string, ServerDiagnosis>>(new Map());
 let uploadProgress = $state<Map<string, { done: number; total: number; file: string }>>(new Map());
 let initialized = false;
+// List fetch state (#23): the view distinguishes a first-load spinner and an
+// error/retry surface from a genuinely empty list, instead of every failure
+// silently rendering as "no servers yet". Raw error kept so callers/the view
+// format it consistently with the rest of the store.
+let listLoading = $state(false);
+let listError = $state<unknown>(null);
 
 async function refresh(): Promise<void> {
-  const res = await commands.serverList();
-  if (res.status === 'ok') list = res.data;
+  listLoading = true;
+  listError = null;
+  try {
+    const res = await commands.serverList();
+    if (res.status === 'ok') list = res.data;
+    else listError = res.error;
+  } finally {
+    listLoading = false;
+  }
 }
 
 function lineFor(id: string): string[] {
@@ -383,6 +397,12 @@ export const serverState = {
   get list() {
     return list;
   },
+  get listLoading() {
+    return listLoading;
+  },
+  get listError() {
+    return listError;
+  },
   lines: lineFor,
   refresh,
   clearLines,
@@ -421,6 +441,12 @@ export const serverState = {
   },
   get anyRunning() {
     return list.some((s) => s.running);
+  },
+  // True when any server has a one-click repair available (C1 diagnosis_status
+  // === 'actionable'). Drives the sidebar wrench badge + the attention item.
+  // Reads through the runtime-extra shim until S1's field lands in bindings.
+  get anyDiagnosisActionable() {
+    return list.some((s) => isDiagnosisActionable(s));
   },
   backupList,
   backupCreate,

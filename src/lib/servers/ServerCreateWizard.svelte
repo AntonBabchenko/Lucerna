@@ -97,6 +97,23 @@
         : mcVersion.trim().length > 0 && (loader === 'vanilla' || loaderVersion !== null)),
   );
 
+  // Tell the user WHY Create is disabled instead of leaving a dead button
+  // (#21-FE). Mirrors canCreate's checks in the same order so the first missing
+  // requirement is named; null once everything is satisfied.
+  const disabledReason = $derived.by<string | null>(() => {
+    if (name.trim().length === 0) return $t('servers.wizard.disabledReason.name');
+    if (mode === 'instance') {
+      if (instanceId === null) return $t('servers.wizard.disabledReason.instance');
+    } else {
+      if (mcVersion.trim().length === 0) return $t('servers.wizard.disabledReason.version');
+      if (loader !== 'vanilla' && loaderVersion === null) {
+        return $t('servers.wizard.disabledReason.loader');
+      }
+    }
+    if (!eula) return $t('servers.wizard.disabledReason.eula');
+    return null;
+  });
+
   async function handleCreate() {
     if (!canCreate || busy) return;
 
@@ -299,13 +316,22 @@
     {/if}
 
     <!-- Actions -->
-    <div class="flex justify-end gap-2">
-      <button type="button" class="btn-ghost btn-sm" onclick={onCancel}>
-        {$t('servers.wizard.cancel')}
-      </button>
-      <BusyButton class="btn-primary btn-sm" {busy} disabled={!canCreate} onclick={handleCreate}>
-        {$t('servers.wizard.create')}
-      </BusyButton>
+    <div class="flex items-center justify-between gap-2">
+      {#if disabledReason}
+        <span class="text-xs text-muted" data-testid="wizard-disabled-reason">
+          {disabledReason}
+        </span>
+      {:else}
+        <span></span>
+      {/if}
+      <div class="flex gap-2">
+        <button type="button" class="btn-ghost btn-sm" onclick={onCancel}>
+          {$t('servers.wizard.cancel')}
+        </button>
+        <BusyButton class="btn-primary btn-sm" {busy} disabled={!canCreate} onclick={handleCreate}>
+          {$t('servers.wizard.create')}
+        </BusyButton>
+      </div>
     </div>
   {/if}
 </div>

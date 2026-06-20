@@ -31,6 +31,10 @@
   let canLaunchAsIs = $state(false);
   let modCount = $state(0);
   let worldPresent = $state(false);
+  // The loader couldn't be auto-detected, so it was defaulted to Vanilla (#20).
+  // Surfaced as a warning until the user picks a real loader — otherwise mods
+  // silently won't load.
+  let loaderUnknown = $state(false);
 
   // Adaptive memory bounds — same pattern as ServerCreateWizard.
   const FALLBACK_BOUNDS: MemoryBounds = {
@@ -122,6 +126,7 @@
         token = r.preview.token;
         name = r.preview.detected_name;
         mcVersion = r.preview.mc_version ?? '';
+        loaderUnknown = r.preview.loader === null;
         loader = (r.preview.loader as LoaderKind | null) ?? 'vanilla';
         loaderVersion = r.preview.loader_version ?? null;
         canLaunchAsIs = r.preview.can_launch_as_is;
@@ -265,6 +270,15 @@
     <div class="flex flex-col gap-1">
       <!-- svelte-ignore a11y_label_has_associated_control -->
       <label class="text-sm font-medium">{$t('servers.wizard.loader')}</label>
+      {#if loaderUnknown && loader === 'vanilla'}
+        <p
+          class="rounded bg-warning-bg px-2 py-1 text-xs text-warning-text"
+          role="alert"
+          data-testid="import-loader-unknown-warn"
+        >
+          {$t('servers.import.loaderUnknownWarn')}
+        </p>
+      {/if}
       <LoaderPicker
         mc={mcVersion}
         {loader}
