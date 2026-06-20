@@ -1,11 +1,17 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { commands } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
   import type { ServerLogInfo } from '$lib/ipc/bindings';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { pushSuccess } from '$lib/toasts/toasts.svelte';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select from '$lib/ui/Select.svelte';
   import type { SelectOption } from '$lib/ui/Select.svelte';
+
+  // The live `server-latest.log` filename (matches serverlog::LATEST on the backend).
+  const LATEST_LOG = 'server-latest.log';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -128,6 +134,52 @@
     readError = null;
   }
 
+  // ---------------------------------------------------------------------------
+  // Share to mclo.gs (reuses the instance share command — content is anonymised
+  // server-side before upload). Shares the archive being viewed, or the latest
+  // session when on the live console.
+  // ---------------------------------------------------------------------------
+  let busyShare = $state(false);
+  let shareUrl = $state<string | null>(null);
+  let shareError = $state<string | null>(null);
+
+  async function shareLog(): Promise<void> {
+    busyShare = true;
+    shareError = null;
+    shareUrl = null;
+    try {
+      // Prefer the already-loaded archive text; otherwise read the latest log.
+      let content = archivedText;
+      if (content === null) {
+        const r = await commands.serverReadLog(serverId, LATEST_LOG);
+        if (r.status !== 'ok') {
+          shareError = formatError(r.error);
+          return;
+        }
+        content = r.data;
+      }
+      if (!content || content.length === 0) {
+        shareError = get(t)('servers.logs.shareEmpty');
+        return;
+      }
+      const res = await commands.shareLogToMclogs(content);
+      if (res.status === 'ok') {
+        shareUrl = res.data;
+        // Best-effort copy; the URL is also shown for manual copy.
+        try {
+          await navigator.clipboard?.writeText(res.data);
+        } catch {
+          // clipboard unavailable — the URL is still displayed below
+        }
+        pushSuccess(get(t)('servers.logs.shareCopied'));
+      } else {
+        shareError = formatError(res.error);
+      }
+    } finally {
+      busyShare = false;
+    }
+  }
+
   const archives = $derived(logs.filter((l) => !l.is_latest));
 </script>
 
@@ -142,6 +194,15 @@
       {$t('servers.logs.openFolder')}
     </button>
 
+    <BusyButton
+      class="btn-ghost btn-sm shrink-0"
+      data-testid="server-log-share"
+      busy={busyShare}
+      onclick={() => void shareLog()}
+    >
+      {$t('servers.logs.share')}
+    </BusyButton>
+
     {#if archives.length > 0}
       <div class="flex-1">
         <Select
@@ -153,6 +214,18 @@
       </div>
     {/if}
   </div>
+
+  {#if shareError}
+    <p class="text-xs text-danger" role="alert" data-testid="server-log-share-error">
+      {shareError}
+    </p>
+  {/if}
+  {#if shareUrl}
+    <p class="text-xs text-secondary" data-testid="server-log-share-url">
+      {$t('servers.logs.sharedAt')}
+      <span class="select-all break-all font-mono text-primary">{shareUrl}</span>
+    </p>
+  {/if}
 
   <!-- Console body: live stream OR read-only archive viewer -->
   {#if selectedFile !== null}

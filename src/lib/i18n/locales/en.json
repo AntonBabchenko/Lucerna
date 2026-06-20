@@ -1521,7 +1521,11 @@
       "latest": "Current session",
       "noLogs": "No logs yet",
       "viewing": "Viewing {name}",
-      "backToLive": "Back to live console"
+      "backToLive": "Back to live console",
+      "share": "Share log",
+      "shareCopied": "Log uploaded — link copied to clipboard.",
+      "shareEmpty": "Nothing to share yet — no log output.",
+      "sharedAt": "Shareable link:"
     },
     "wizard": {
       "title": "New server",
