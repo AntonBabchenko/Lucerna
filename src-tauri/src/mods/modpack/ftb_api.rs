@@ -255,13 +255,8 @@ mod tests {
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     #[tokio::test]
     async fn search_returns_pack_ids() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
             "packs": [91u64, 35u64],
@@ -275,16 +270,15 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let r = search_ids(&s.uri(), "x", 20).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(r, vec![91, 35]);
     }
 
     #[tokio::test]
     async fn version_manifest_parses_files_and_targets() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
             "files": [
@@ -351,9 +345,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let v = version_manifest(&s.uri(), 91, 6495).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(v.files.len(), 2);
         let mod_file = &v.files[0];
@@ -392,7 +386,6 @@ mod tests {
 
     #[tokio::test]
     async fn pack_detail_parses_core_fields() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let resp = serde_json::json!({
             "id": 91,
@@ -440,9 +433,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let detail = pack_detail(&s.uri(), 91).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(detail.id, 91);
         assert_eq!(detail.name, "FTB Presents Direwolf20 1.16");
@@ -469,7 +462,6 @@ mod tests {
 
     #[tokio::test]
     async fn search_non_2xx_is_error() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/public/modpack/search/20"))
@@ -477,9 +469,9 @@ mod tests {
             .mount(&s)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let result = search_ids(&s.uri(), "x", 20).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(
             matches!(result, Err(Error::ModsNetwork { .. })),

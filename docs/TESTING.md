@@ -121,35 +121,40 @@ Several tests are gated behind `#[ignore]` because they:
 
 CI doesn't run them by default. The maintainer runs them locally before merges that touch install/launch paths. Phase 2 and Phase 3 had a strict pre-merge protocol of "run the era-specific `_e2e` test green before squash". Phase 3 raised the bar to "the cross-loader matrix green".
 
-## Known flaky test: the allowlist env-race
+## The allowlist env-race flake (resolved — `test_seam`)
 
-A wiremock-backed unit test can fail on CI with an assertion like `200 + matches
-should be succeeded=true`, preceded by a log line `host not on allowlist:
-http://127.0.0.1:<port>/...`. It has surfaced on `mods::enrich::tests` (both the
-modrinth and curseforge resolve tests) and is a **pre-existing flake, not a
-regression** — a clean `gh run rerun --failed` passes.
+Historically the wiremock tests redirected production URLs and widened the
+network allowlist by mutating `LUCERNA_*` environment variables
+(`std::env::set_var` / `remove_var`), serialized only by `crate::test_env_lock()`.
+This produced **two** distinct failure modes on the Linux/macOS runners:
 
-**Why it happens.** The wiremock tests reach a local server on `127.0.0.1`,
-which the network allowlist permits only when `LUCERNA_EXTRA_ALLOWED_HOSTS` is
-set. Tests that *mutate* that env var hold `crate::test_env_lock()` (a single
-process-wide mutex) for their duration, so mutator-vs-mutator is serialised. The
-hole is **mutator-vs-reader**: a test that issues an allowlist-checked request
-but does not itself mutate the var never takes the lock, so a concurrent mutator
-test that momentarily sets the var to `""` / `remove_var`s it can clear the host
-allowance mid-request. Only the parallel-execution + thread-scheduling combo on
-the macOS/Ubuntu runners loses the race; Windows-local and `--test-threads=1`
-win it, which is why it stays invisible in normal local dev.
+1. A *logical* race: a wiremock test reading the allowlist but not itself
+   mutating the env var never took the lock, so a concurrent mutator clearing
+   `LUCERNA_EXTRA_ALLOWED_HOSTS` mid-request produced `host not on allowlist:
+   http://127.0.0.1:<port>/...`.
+2. A far nastier *heap-corruption* race: on glibc, `setenv`/`unsetenv` can
+   `realloc` the process `environ` array while another thread is inside
+   `getenv` (e.g. `tempfile` reading `TMPDIR`). That is undefined behavior and
+   can corrupt arbitrary heap — including a **completely unrelated**, network-free
+   test's buffers. The signature was a bystander failing with corrupted data
+   (e.g. `mods::modpack::overrides::tests::extracts_normal_file` asserting a
+   zipped file's bytes), only on `rust (ubuntu)`, passing on rerun and under
+   `--test-threads=1`. `std::env::set_var` is `unsafe` as of the 2024 edition
+   for exactly this reason.
 
-**What to do when you see it.** Confirm the failure is exactly this signature
-(one `mods::enrich` test, `host not on allowlist` for a `127.0.0.1` port), then
-`gh run rerun --failed`. Don't treat a red macOS `rust` job with this signature
-as a blocker for an unrelated diff.
-
-**The proper fix (Epic E6, not yet done).** Introduce an RAII helper —
-`with_extra_allowed_hosts(hosts, || { ... })` — that takes `test_env_lock()`
-*and* sets/clears the env var atomically, then migrate every wiremock test onto
-it so readers hold the lock for the duration of their request too, not just
-mutators. Until then, coverage runs already dodge it with `--test-threads=1`.
+**The fix.** All `LUCERNA_*` test overrides moved to the in-process
+[`test_seam`](../src-tauri/src/test_seam.rs) registry — no process-env mutation
+happens during the test run at all. Tests call
+`test_seam::scope(&[("LUCERNA_…", value), …])`, which returns an RAII guard that
+installs the overrides in a process-local table, holds a process-wide lock for
+the test's whole body (closing the reader-vs-mutator hole), and reverts on drop.
+Production reads go through `test_seam::resolve(key)`, which short-circuits on a
+relaxed atomic in production and falls back to `std::env::var` — so production
+behavior, including any operator-set override, is unchanged. The
+[`structural_no_env_mutation`](../src-tauri/tests/structural_no_env_mutation.rs)
+guard fails the build if `set_var`/`remove_var` ever creeps back in. Integration
+tests keep their file-local `test_lock()` (it serializes global caches, not just
+env) and add the seam guard alongside it.
 
 ## Testing external source integrations (mods, modpacks)
 

@@ -660,10 +660,6 @@ mod tests {
     use super::*;
     use crate::error::Error;
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     #[test]
     fn greet_includes_name() {
         let g = greet("World".to_string());
@@ -749,7 +745,6 @@ mod tests {
 
     #[tokio::test]
     async fn modpack_get_versions_parses_modrinth_list() {
-        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -762,11 +757,11 @@ mod tests {
             ))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let entries = crate::commands::fetch_modpack_versions(&server.uri(), "abc")
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "v1");
         assert_eq!(entries[0].game_versions, vec!["1.20.1"]);
@@ -774,7 +769,6 @@ mod tests {
 
     #[tokio::test]
     async fn modpack_get_versions_non_2xx_is_error() {
-        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -783,11 +777,11 @@ mod tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = crate::commands::fetch_modpack_versions(&server.uri(), "missing")
             .await
             .unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(
             matches!(err, crate::error::Error::ModsNotFound { .. }),
             "got: {err:?}"
@@ -796,7 +790,6 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_modrinth_modpack_project_renders_body_and_gallery() {
-        let _g = test_lock();
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
         let server = MockServer::start().await;
@@ -808,11 +801,11 @@ mod tests {
             ))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let p = crate::commands::fetch_modrinth_modpack_project(&server.uri(), "abc")
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(p.body_html.contains("<h1>"));
         assert_eq!(p.gallery[0].url, "https://media.modrinth.com/g.png");
         assert_eq!(p.website_url.as_deref(), Some("https://src.example"));

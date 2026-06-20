@@ -67,8 +67,8 @@ const SESSIONSERVER_DEFAULT: &str = "https://sessionserver.mojang.com";
 /// `LUCERNA_SESSIONSERVER_URL_OVERRIDE` (mirrors the MS-auth URL-override
 /// pattern in `accounts/microsoft/mc_services.rs`).
 fn sessionserver_base() -> String {
-    std::env::var("LUCERNA_SESSIONSERVER_URL_OVERRIDE")
-        .unwrap_or_else(|_| SESSIONSERVER_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_SESSIONSERVER_URL_OVERRIDE")
+        .unwrap_or_else(|| SESSIONSERVER_DEFAULT.to_string())
 }
 
 fn profile_url(uuid_no_dashes: &str) -> String {
@@ -194,11 +194,6 @@ pub async fn get_account_skin(
 }
 
 #[cfg(test)]
-fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    crate::test_env_lock()
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
@@ -253,7 +248,6 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_skin_happy_path_returns_png_base64() {
-        let _g = test_env_lock();
         let server = MockServer::start().await;
         // sessionserver returns a profile whose textures point at the SAME
         // mock server's /texture/<hash> path (so the host check passes via
@@ -276,16 +270,15 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_SESSIONSERVER_URL_OVERRIDE", &server.uri()),
+        ]);
 
         let skin = fetch_skin("7e8d9c0a-1234-5678-9abc-def012345678")
             .await
             .unwrap()
             .expect("expected a skin");
-
-        std::env::remove_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(skin.texture_url, texture_url);
         assert_eq!(
@@ -298,22 +291,21 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_skin_204_returns_none() {
-        let _g = test_env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path_regex(r"^/session/minecraft/profile/.*$"))
             .respond_with(ResponseTemplate::new(204))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_SESSIONSERVER_URL_OVERRIDE", &server.uri()),
+        ]);
 
         let skin = fetch_skin("00000000-0000-0000-0000-000000000000")
             .await
             .unwrap();
 
-        std::env::remove_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(skin, None);
     }
 
@@ -354,7 +346,6 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_skin_texture_404_returns_none() {
-        let _g = test_env_lock();
         let server = MockServer::start().await;
         let texture_url = format!("{}/texture/missing", server.uri());
         let textures_json = format!(r#"{{"textures":{{"SKIN":{{"url":"{texture_url}"}}}}}}"#);
@@ -374,15 +365,15 @@ mod tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE", server.uri());
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            ("LUCERNA_SESSIONSERVER_URL_OVERRIDE", &server.uri()),
+        ]);
 
         let skin = fetch_skin("7e8d9c0a-1234-5678-9abc-def012345678")
             .await
             .unwrap();
 
-        std::env::remove_var("LUCERNA_SESSIONSERVER_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(skin, None);
     }
 }

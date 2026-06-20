@@ -250,10 +250,6 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        crate::test_env_lock()
-    }
-
     /// Build a minimal `ModpackSummary` with one ATLauncher forgecdn-direct
     /// placeholder file (the state emitted by `map_configs` for a forgecdn mod
     /// with no md5 — sha1 empty, md5 None, source=Atlauncher).
@@ -291,7 +287,6 @@ mod tests {
     /// filled in (lowercased), unresolvable stays empty.
     #[tokio::test]
     async fn resolve_forgecdn_sha1_fills_sha1_on_success() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let body = serde_json::json!({
             "data": [{
@@ -305,13 +300,13 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let mut summary = summary_with_forgecdn_placeholder(
             "4499899",
             "https://edge.forgecdn.net/files/4499/899/ae2.jar",
         );
         resolve_forgecdn_sha1(&mut summary, &s.uri(), Some("test-key")).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert_eq!(
             summary.files.len(),
@@ -359,7 +354,6 @@ mod tests {
     /// unresolvable (no-TOFU), forgecdn URL preserved.
     #[tokio::test]
     async fn resolve_forgecdn_sha1_missing_sha1_degrades() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let forgecdn_url = "https://edge.forgecdn.net/files/4499/899/ae2.jar";
         let body = serde_json::json!({
@@ -374,10 +368,10 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let mut summary = summary_with_forgecdn_placeholder("4499899", forgecdn_url);
         resolve_forgecdn_sha1(&mut summary, &s.uri(), Some("test-key")).await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
 
         assert!(
             summary.files.is_empty(),
@@ -413,16 +407,15 @@ mod tests {
 
     #[tokio::test]
     async fn search_filters_public_sorts_and_paginates() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/packs/full/all"))
             .respond_with(ResponseTemplate::new(200).set_body_json(catalogue()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "", 0, None, None, 20).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 2, "private pack excluded");
         assert_eq!(page.hits[0].title, "Alpha Pack", "alphabetical order");
         assert_eq!(page.hits[0].source, ModSource::Atlauncher);
@@ -434,18 +427,17 @@ mod tests {
 
     #[tokio::test]
     async fn search_mc_filter_client_side() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/packs/full/all"))
             .respond_with(ResponseTemplate::new(200).set_body_json(catalogue()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let page = search_impl(&s.uri(), "", 0, Some("1.20.1"), None, 20)
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(page.total, 1);
         assert_eq!(page.hits[0].project_id, "BetaPack");
     }

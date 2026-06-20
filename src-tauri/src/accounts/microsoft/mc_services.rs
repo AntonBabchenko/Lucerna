@@ -9,10 +9,12 @@ pub const LOGIN_DEFAULT: &str = "https://api.minecraftservices.com/authenticatio
 pub const PROFILE_DEFAULT: &str = "https://api.minecraftservices.com/minecraft/profile";
 
 pub fn login_url() -> String {
-    std::env::var("LUCERNA_MC_LOGIN_URL_OVERRIDE").unwrap_or_else(|_| LOGIN_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_MC_LOGIN_URL_OVERRIDE")
+        .unwrap_or_else(|| LOGIN_DEFAULT.to_string())
 }
 pub fn profile_url() -> String {
-    std::env::var("LUCERNA_MC_PROFILE_URL_OVERRIDE").unwrap_or_else(|_| PROFILE_DEFAULT.to_string())
+    crate::test_seam::resolve("LUCERNA_MC_PROFILE_URL_OVERRIDE")
+        .unwrap_or_else(|| PROFILE_DEFAULT.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,7 +142,6 @@ mod tests {
 
     #[tokio::test]
     async fn login_with_xbox_happy_path() {
-        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/authentication/login_with_xbox"))
@@ -150,23 +151,21 @@ mod tests {
             )
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
-            format!("{}/authentication/login_with_xbox", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_MC_LOGIN_URL_OVERRIDE",
+                &format!("{}/authentication/login_with_xbox", server.uri()),
+            ),
+        ]);
 
         let r = login_with_xbox("uhs", "xsts-tok").await.unwrap();
         assert_eq!(r.access_token, "mc-tok");
         assert_eq!(r.expires_in, 86_400);
-
-        std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
     async fn fetch_profile_happy_path_no_dashes_id() {
-        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/minecraft/profile"))
@@ -178,40 +177,37 @@ mod tests {
             )
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_MC_PROFILE_URL_OVERRIDE",
-            format!("{}/minecraft/profile", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_MC_PROFILE_URL_OVERRIDE",
+                &format!("{}/minecraft/profile", server.uri()),
+            ),
+        ]);
 
         let profile = fetch_profile("mc-tok").await.unwrap();
         assert_eq!(profile.id, "7e8d9c0a123456789abcdef012345678");
         assert_eq!(profile.name, "PlayerMC");
-
-        std::env::remove_var("LUCERNA_MC_PROFILE_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
     async fn fetch_profile_404_no_minecraft_profile() {
-        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/minecraft/profile"))
             .respond_with(ResponseTemplate::new(404).set_body_string("{}"))
             .mount(&server)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
-        std::env::set_var(
-            "LUCERNA_MC_PROFILE_URL_OVERRIDE",
-            format!("{}/minecraft/profile", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost"),
+            (
+                "LUCERNA_MC_PROFILE_URL_OVERRIDE",
+                &format!("{}/minecraft/profile", server.uri()),
+            ),
+        ]);
 
         let result = fetch_profile("mc-tok").await;
         assert!(matches!(result, Err(Error::NoMinecraftProfile)));
-
-        std::env::remove_var("LUCERNA_MC_PROFILE_URL_OVERRIDE");
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 }
 
@@ -223,7 +219,6 @@ mod variant_a_tests {
 
     #[tokio::test]
     async fn login_with_xbox_403_invalid_app_registration_maps_to_pending_approval() {
-        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/authentication/login_with_xbox"))
@@ -241,16 +236,15 @@ mod variant_a_tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
-        std::env::set_var(
-            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
-            format!("{}/authentication/login_with_xbox", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1"),
+            (
+                "LUCERNA_MC_LOGIN_URL_OVERRIDE",
+                &format!("{}/authentication/login_with_xbox", server.uri()),
+            ),
+        ]);
 
         let result = login_with_xbox("uhs-abc", "xsts-xyz").await;
-
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-        std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
 
         assert!(
             matches!(result, Err(crate::error::Error::AuthPendingApproval)),
@@ -261,7 +255,6 @@ mod variant_a_tests {
 
     #[tokio::test]
     async fn login_with_xbox_403_other_body_falls_through_to_auth_failed() {
-        let _guard = super::super::env_lock();
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/authentication/login_with_xbox"))
@@ -273,16 +266,15 @@ mod variant_a_tests {
             .mount(&server)
             .await;
 
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1");
-        std::env::set_var(
-            "LUCERNA_MC_LOGIN_URL_OVERRIDE",
-            format!("{}/authentication/login_with_xbox", server.uri()),
-        );
+        let _seam = crate::test_seam::scope(&[
+            ("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1"),
+            (
+                "LUCERNA_MC_LOGIN_URL_OVERRIDE",
+                &format!("{}/authentication/login_with_xbox", server.uri()),
+            ),
+        ]);
 
         let result = login_with_xbox("uhs-abc", "xsts-xyz").await;
-
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
-        std::env::remove_var("LUCERNA_MC_LOGIN_URL_OVERRIDE");
 
         assert!(
             matches!(

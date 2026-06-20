@@ -722,7 +722,6 @@ mod tests {
 
     #[tokio::test]
     async fn cold_download_populates_cache_and_installs() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let payload = b"hello-mod-bytes";
         let sha = hex::encode(Sha1::digest(payload));
@@ -740,11 +739,11 @@ mod tests {
             payload.len() as u64,
             "x.jar",
         );
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let installed = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(installed.sha1, sha);
         assert!(installed::mods_dir(td_inst.path()).join("x.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists());
@@ -755,7 +754,6 @@ mod tests {
 
     #[tokio::test]
     async fn idempotent_reinstall_succeeds() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let payload = b"abc";
         let sha = hex::encode(Sha1::digest(payload));
@@ -768,19 +766,18 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = || fake_version(format!("{}/y.jar", s.uri()), sha.clone(), 3, "y.jar");
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
             .await
             .unwrap();
         install_one(td_data.path(), td_inst.path(), v(), &nop_progress())
             .await
             .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
     async fn filename_conflict_with_different_sha_errors() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/z.jar"))
@@ -794,11 +791,11 @@ mod tests {
         fs::write(dir.join("z.jar"), b"first").await.unwrap(); // pre-existing different bytes
         let sha = hex::encode(Sha1::digest(b"second"));
         let v = fake_version(format!("{}/z.jar", s.uri()), sha, 6, "z.jar");
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let err = install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap_err();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(
             matches!(err, Error::ModsFilenameConflict { .. }),
             "expected ModsFilenameConflict, got {err:?}"
@@ -819,7 +816,6 @@ mod tests {
 
     #[tokio::test]
     async fn disable_then_enable_round_trip() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let payload = b"dd";
         let sha = hex::encode(Sha1::digest(payload));
@@ -831,7 +827,8 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = fake_version(format!("{}/d.jar", s.uri()), sha.clone(), 2, "d.jar");
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap();
@@ -842,7 +839,6 @@ mod tests {
         assert!(!installed::mods_dir(td_inst.path()).join("d.jar").exists());
         enable(td_inst.path(), &sha).await.unwrap();
         assert!(installed::mods_dir(td_inst.path()).join("d.jar").exists());
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
     }
 
     #[tokio::test]
@@ -920,7 +916,6 @@ mod tests {
 
     #[tokio::test]
     async fn install_asset_writes_to_declared_path() {
-        let _g = test_lock();
         let body = b"resourcepack-bytes";
         let sha = hex::encode(Sha1::digest(body));
         let s = MockServer::start().await;
@@ -931,7 +926,8 @@ mod tests {
             .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_asset(
             td_data.path(),
             td_inst.path(),
@@ -943,7 +939,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         let dest = td_inst.path().join(".minecraft/resourcepacks/RP.zip");
         assert_eq!(tokio::fs::read(&dest).await.unwrap(), body);
     }
@@ -970,7 +965,6 @@ mod tests {
 
     #[tokio::test]
     async fn uninstall_removes_file_and_record_but_keeps_cache() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let payload = b"uu";
         let sha = hex::encode(Sha1::digest(payload));
@@ -982,12 +976,12 @@ mod tests {
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
         let v = fake_version(format!("{}/u.jar", s.uri()), sha.clone(), 2, "u.jar");
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(td_data.path(), td_inst.path(), v, &nop_progress())
             .await
             .unwrap();
         uninstall(td_inst.path(), &sha).await.unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(!installed::mods_dir(td_inst.path()).join("u.jar").exists());
         assert!(cache::cache_path_for(td_data.path(), &sha).exists()); // cache survives
         assert!(installed::list(td_inst.path()).await.unwrap().is_empty());
@@ -995,7 +989,6 @@ mod tests {
 
     #[tokio::test]
     async fn update_one_swaps_the_installed_version() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let v1_bytes = b"version-one";
         let v2_bytes = b"version-two";
@@ -1019,7 +1012,8 @@ mod tests {
             v1_bytes.len() as u64,
             "v1.jar",
         );
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(td_data.path(), td_inst.path(), v1, &nop_progress())
             .await
             .unwrap();
@@ -1039,7 +1033,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(outcome.removed_sha1, v1_sha);
         assert_eq!(outcome.primary.sha1, v2_sha);
         assert!(installed::mods_dir(td_inst.path()).join("v2.jar").exists());
@@ -1051,7 +1044,6 @@ mod tests {
 
     #[tokio::test]
     async fn update_one_preserves_disabled_state() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let v1b = b"d-one";
         let v2b = b"d-two";
@@ -1069,7 +1061,8 @@ mod tests {
             .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(
             td_data.path(),
             td_inst.path(),
@@ -1100,7 +1093,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(installed::mods_dir(td_inst.path())
             .join("d2.jar.disabled")
             .exists());
@@ -1111,7 +1103,6 @@ mod tests {
 
     #[tokio::test]
     async fn update_one_aborts_before_swap_when_download_fails() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let v1b = b"keep-me";
         let v1s = hex::encode(Sha1::digest(v1b));
@@ -1124,7 +1115,8 @@ mod tests {
         // pre-warm download fails before the swap.
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(
             td_data.path(),
             td_inst.path(),
@@ -1153,7 +1145,6 @@ mod tests {
             &nop_progress(),
         )
         .await;
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(r.is_err());
         // The old version must be untouched.
         assert!(installed::mods_dir(td_inst.path()).join("k1.jar").exists());
@@ -1164,7 +1155,6 @@ mod tests {
 
     #[tokio::test]
     async fn update_one_installs_required_deps() {
-        let _g = test_lock();
         let s = MockServer::start().await;
         let oldb = b"primary-v1";
         let pb = b"primary-v2";
@@ -1185,7 +1175,8 @@ mod tests {
         }
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_one(
             td_data.path(),
             td_inst.path(),
@@ -1221,7 +1212,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(installed::mods_dir(td_inst.path()).join("p2.jar").exists());
         assert!(installed::mods_dir(td_inst.path()).join("dep.jar").exists());
         let list = installed::list(td_inst.path()).await.unwrap();
@@ -1278,7 +1268,6 @@ mod tests {
     #[tokio::test]
     async fn install_asset_tracked_routes_shader_and_records() {
         use crate::mods::platform::{ContentKind, ModSource};
-        let _g = test_lock();
         let body = b"shader-bytes";
         let sha = hex::encode(Sha1::digest(body));
         let s = MockServer::start().await;
@@ -1289,7 +1278,8 @@ mod tests {
             .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_asset_tracked(
             td_data.path(),
             td_inst.path(),
@@ -1307,7 +1297,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(td_inst
             .path()
             .join(".minecraft/shaderpacks/Complementary-r5.3.zip")
@@ -1323,7 +1312,6 @@ mod tests {
     #[tokio::test]
     async fn install_asset_tracked_routes_resourcepack() {
         use crate::mods::platform::{ContentKind, ModSource};
-        let _g = test_lock();
         let body = b"resourcepack-tracked-bytes";
         let sha = hex::encode(Sha1::digest(body));
         let s = MockServer::start().await;
@@ -1334,7 +1322,8 @@ mod tests {
             .await;
         let td_data = TempDir::new().unwrap();
         let td_inst = TempDir::new().unwrap();
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         install_asset_tracked(
             td_data.path(),
             td_inst.path(),
@@ -1352,7 +1341,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert!(td_inst
             .path()
             .join(".minecraft/resourcepacks/Faithful.zip")
@@ -1406,7 +1394,6 @@ mod tests {
     #[tokio::test]
     async fn fetch_to_cache_md5_warms_cache_and_returns_sha1() {
         use md5::Digest as _;
-        let _g = test_lock();
         let body = b"atl-md5-mod";
         let md5_hex = hex::encode(md5::Md5::digest(body));
         let sha1_hex = hex::encode(Sha1::digest(body));
@@ -1416,7 +1403,8 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
             .mount(&s)
             .await;
-        std::env::set_var("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost");
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let data = TempDir::new().unwrap();
         let noop: ProgressFn = Box::new(|_, _, _| {});
         let (path, got_sha1) = fetch_to_cache_md5(
@@ -1429,7 +1417,6 @@ mod tests {
         )
         .await
         .unwrap();
-        std::env::remove_var("LUCERNA_EXTRA_ALLOWED_HOSTS");
         assert_eq!(got_sha1, sha1_hex);
         assert!(
             path.exists(),
