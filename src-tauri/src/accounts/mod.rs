@@ -6,6 +6,7 @@
 pub mod keychain;
 pub mod microsoft;
 pub mod offline;
+pub mod offline_name;
 pub mod ops;
 pub mod skins;
 pub mod store;
