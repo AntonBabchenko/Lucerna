@@ -52,9 +52,25 @@ pub enum ServerRepairTag {
     InstallMissingDep,
 }
 
+/// True iff the dedicated server finished starting — Minecraft prints
+/// `Done (X.XXXs)! For help, type "help"` once the world is up. A mod-loading
+/// failure aborts before this line, so anything that reached it loaded fine.
+fn server_started(log: &str) -> bool {
+    log.contains("! For help, type")
+}
+
 /// First matching server-log diagnosis, if any. Order = specificity.
 pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
-    if log.contains("invalid dist DEDICATED_SERVER") || log.contains("RuntimeDistCleaner") {
+    // A client-only class load is logged as a NON-FATAL `RuntimeDistCleaner ...
+    // invalid dist DEDICATED_SERVER` warning on many working modpack servers —
+    // Forge refuses the class and the mod copes. It is only a crash when the
+    // server failed to finish loading; if it reached "Done … For help", the
+    // warning was harmless, so don't report a crash. (A real client-mod crash
+    // aborts loading and never reaches that line; the crash-report path, which
+    // has no success line, is unaffected.)
+    if !server_started(log)
+        && (log.contains("invalid dist DEDICATED_SERVER") || log.contains("RuntimeDistCleaner"))
+    {
         return Some(Diagnosis {
             pattern_id: "server-client-only-mod-crash".into(),
             title: "A client-only mod crashed the server".into(),
@@ -612,6 +628,29 @@ mod tests {
         let d = diagnose_server_log(ETF_CRASH).unwrap();
         assert_eq!(d.pattern_id, "server-client-only-mod-crash");
         assert!(d.repair.is_some());
+    }
+    #[test]
+    fn client_only_warning_suppressed_when_server_started() {
+        // Forge logs `invalid dist DEDICATED_SERVER` as a NON-FATAL warning on
+        // many working modpack servers (it refuses the class and the mod copes).
+        // If the server reached "Done … For help", it loaded fine and must NOT
+        // be reported as a client-mod crash.
+        let log = "[Server thread/ERROR] [ne.mi.fm.lo.RuntimeDistCleaner/DISTXFORM]: Attempted to load class net/minecraft/client/Foo for invalid dist DEDICATED_SERVER\n\
+                   [Server thread/INFO] [minecraft/DedicatedServer/]: Done (138.077s)! For help, type \"help\"\n";
+        assert!(
+            diagnose_server_log(log).is_none(),
+            "a server that reached Done must not be flagged as a client-mod crash"
+        );
+    }
+    #[test]
+    fn client_only_crash_still_fires_without_success_line() {
+        // The real crash (no "Done … For help") must still be diagnosed.
+        let log = "[main/ERROR] [ne.mi.fm.lo.RuntimeDistCleaner/DISTXFORM]: Attempted to load class net/minecraft/client/Foo for invalid dist DEDICATED_SERVER\n\
+                   [main/FATAL] [ne.mi.fm.ModLoader/CORE]: Error during pre-loading phase\n";
+        assert_eq!(
+            diagnose_server_log(log).map(|d| d.pattern_id),
+            Some("server-client-only-mod-crash".into())
+        );
     }
     #[test]
     fn detects_port_in_use() {

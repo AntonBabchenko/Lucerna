@@ -11,6 +11,9 @@
   let { serverId }: { serverId: string } = $props();
 
   const diag = $derived(serverState.diagnosisFor(serverId));
+  // A running server hasn't crashed — never show a crash/repair banner while it
+  // is up, even if a stale or non-fatal-warning diagnosis lingers in the store.
+  const running = $derived(serverState.running(serverId));
 
   // Map pattern_id → i18n subkey. Unknown patterns fall through to raw title.
   type PatternKey =
@@ -230,7 +233,7 @@
   }
 </script>
 
-{#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled'}
+{#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled' && !running}
   <div
     class="rounded border border-warning-text/30 bg-warning-bg p-3 text-warning-text"
     data-testid="server-diagnosis-banner"
