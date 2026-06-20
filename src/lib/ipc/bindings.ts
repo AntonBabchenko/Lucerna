@@ -897,11 +897,11 @@ export const commands = {
 	 */
 	serverWriteProperties: (id: string, raw: string) => typedError<null, Error>(__TAURI_INVOKE("server_write_properties", { id, raw })),
 	/**
-	 *  Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера.
-	 *  Возвращает отсортированный список имён файлов. Если папка отсутствует —
-	 *  возвращает пустой список.
+	 *  Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера как
+	 *  [`ServerModEntry`] (имя + флаг `disabled` + причина из sidecar карантина).
+	 *  Отсортировано по имени. Если папка отсутствует — пустой список.
 	 */
-	serverListMods: (id: string) => typedError<string[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
+	serverListMods: (id: string) => typedError<ServerModEntry[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
 	/**
 	 *  Удалить мод из папки `mods/` сервера по имени файла.
 	 *  Идемпотентно: файл уже удалён → `Ok`.
@@ -1054,6 +1054,40 @@ export const commands = {
 	 *  observable from within the launcher process.
 	 */
 	serverFirewallAddRule: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_firewall_add_rule", { id })),
+	/**
+	 *  Install a chosen mod version + its required dependency closure into the
+	 *  server's `mods/`. Resolves the server's mc_version + loader from
+	 *  `server.json`, then reuses the shared install kernel
+	 *  ([`crate::commands::install_version_into_dir`]). Server must be stopped.
+	 *  Returns the jars written + any dependency that could not be resolved.
+	 */
+	serverInstallMod: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_mod", { id, source, projectId, versionId })),
+	/**
+	 *  Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
+	 *  Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
+	 *  filenames / path escapes. Server must be stopped.
+	 */
+	serverEnableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_enable_mod", { id, filename })),
+	/**
+	 *  Install a local mod `.jar` (chosen via the file picker) into the server's
+	 *  `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
+	 *  over IPC). Validates the jar is readable and the destination name is safe.
+	 *  Server must be stopped.
+	 */
+	serverInstallLocal: (id: string, jarPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_local", { id, jarPath })),
+	/**  List the datapack archives installed for a server's world. */
+	serverListDatapacks: (id: string) => typedError<string[], Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
+	/**
+	 *  Install a datapack `.zip` (chosen via the file picker) into the server's
+	 *  world `datapacks/`. Validates the zip carries a root `pack.mcmeta`. Returns
+	 *  the installed filename. Server must be stopped (live worlds hold files open).
+	 */
+	serverInstallDatapack: (id: string, zipPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_datapack", { id, zipPath })),
+	/**
+	 *  Remove a datapack archive from a server's world `datapacks/`. Idempotent.
+	 *  Server must be stopped.
+	 */
+	serverRemoveDatapack: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_remove_datapack", { id, filename })),
 };
 
 /** Events */
@@ -2844,6 +2878,19 @@ export type ServerLogInfo = {
 export type ServerLogLine = {
 	server_id: string,
 	line: string,
+};
+
+/**
+ *  One entry in `server_list_mods`: the on-disk filename, whether it is set
+ *  aside (`*.jar.disabled`), and — for disabled jars — why (from the quarantine
+ *  sidecar), so the UI can label it ("set aside: client-only") instead of
+ *  inferring everything from the suffix.
+ */
+export type ServerModEntry = {
+	filename: string,
+	disabled: boolean,
+	/**  Sidecar reason for a disabled jar (e.g. `client_only`); `None` otherwise. */
+	reason: string | null,
 };
 
 /**
