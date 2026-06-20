@@ -2893,8 +2893,8 @@ export type ServerWithStatus_Deserialize = {
 	/**  Whether a keyring password is stored for the upload target. */
 	upload_password_set: boolean,
 	/**
-	 *  Last process exit code (None = clean/never-run; Some(n) with n != 0
-	 *  indicates a crash) — drives a "Crashed" vs "Stopped" distinction (#18).
+	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
+	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
 	 */
 	last_exit_code: number | null,
 	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
@@ -2920,8 +2920,8 @@ export type ServerWithStatus_Serialize = {
 	/**  Whether a keyring password is stored for the upload target. */
 	upload_password_set: boolean,
 	/**
-	 *  Last process exit code (None = clean/never-run; Some(n) with n != 0
-	 *  indicates a crash) — drives a "Crashed" vs "Stopped" distinction (#18).
+	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
+	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
 	 */
 	last_exit_code: number | null,
 	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
