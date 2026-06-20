@@ -124,7 +124,8 @@ describe('ServerHostingTab', () => {
 
     expect(screen.getByLabelText('Host')).toBeTruthy();
     expect(screen.getByLabelText('User')).toBeTruthy();
-    expect(screen.getByLabelText('Password')).toBeTruthy();
+    // "Password" also names the auth-method radio, so scope to the field input.
+    expect(screen.getByLabelText('Password', { selector: 'input[type="password"]' })).toBeTruthy();
     expect(screen.getByLabelText('Remote folder')).toBeTruthy();
   });
 
@@ -246,7 +247,7 @@ describe('ServerHostingTab', () => {
     // Password mode: no key field yet.
     expect(screen.queryByLabelText('Private key file')).toBeNull();
 
-    await fireEvent.click(screen.getByLabelText('SSH key'));
+    await fireEvent.click(screen.getByRole('radio', { name: 'SSH key' }));
     expect(screen.getByLabelText('Private key file')).toBeTruthy();
     // The password field is relabelled as the key passphrase.
     expect(screen.getByLabelText('Key passphrase (if any)')).toBeTruthy();
@@ -258,7 +259,7 @@ describe('ServerHostingTab', () => {
     mockList = [makeServer()];
     render(ServerHostingTab, { props: { serverId: 'srv-1' } });
 
-    await fireEvent.click(screen.getByText('Back up automatically'));
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Back up automatically' }));
     await fireEvent.click(screen.getByText('Apply'));
 
     expect(backupPolicySetMock).toHaveBeenCalledWith(
