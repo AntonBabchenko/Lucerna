@@ -22,6 +22,8 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 // NOTE: object literal must be plain — no references to outer variables —
 // because vi.mock factories are hoisted before any top-level declarations.
 const mockDiagnoses: Record<string, ServerDiagnosis | undefined> = {};
+// Per-server running flag (unset → not running).
+const mockRunning: Record<string, boolean> = {};
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
   serverState: {
@@ -39,7 +41,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     redownloadJar: vi.fn().mockResolvedValue({ ok: true }),
     disableMods: vi.fn().mockResolvedValue({ ok: true }),
     installMissingDep: vi.fn().mockResolvedValue({ ok: true }),
-    running: (_id: string) => false,
+    running: (id: string) => mockRunning[id] ?? false,
     refresh: vi.fn().mockResolvedValue(undefined),
     init: vi.fn(),
   },
@@ -141,6 +143,17 @@ describe('ServerDiagnosisBanner', () => {
     });
     const { container } = render(ServerDiagnosisBanner, {
       props: { serverId: 'srv-none-status' },
+    });
+    expect(container.querySelector('[data-testid="server-diagnosis-banner"]')).toBeNull();
+  });
+
+  it('renders nothing while the server is running, even with an actionable diagnosis', () => {
+    // A running server hasn't crashed — a lingering/non-fatal-warning diagnosis
+    // must not surface as a crash banner.
+    mockDiagnoses['srv-running'] = makeClientOnlyDiagnosis();
+    mockRunning['srv-running'] = true;
+    const { container } = render(ServerDiagnosisBanner, {
+      props: { serverId: 'srv-running' },
     });
     expect(container.querySelector('[data-testid="server-diagnosis-banner"]')).toBeNull();
   });
