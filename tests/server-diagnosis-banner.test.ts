@@ -37,7 +37,6 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     raiseHeap: vi.fn().mockResolvedValue({ ok: true }),
     lowerHeap: vi.fn().mockResolvedValue({ ok: true }),
     redownloadJar: vi.fn().mockResolvedValue({ ok: true }),
-    reinstallLoader: vi.fn().mockResolvedValue({ ok: true }),
     disableMods: vi.fn().mockResolvedValue({ ok: true }),
     installMissingDep: vi.fn().mockResolvedValue({ ok: true }),
     running: (_id: string) => false,
@@ -305,15 +304,6 @@ describe('ServerDiagnosisBanner', () => {
     expect(redownloadSpy).toHaveBeenCalledWith('srv-corrupt');
   });
 
-  it('shows Reinstall-loader button for reinstall_loader repair', () => {
-    mockDiagnoses['srv-reinstall'] = makePreflightDiagnosis(
-      'server-corrupt-jar',
-      'reinstall_loader',
-    );
-    render(ServerDiagnosisBanner, { props: { serverId: 'srv-reinstall' } });
-    expect(screen.getByTestId('server-fix-reinstall-loader')).toBeTruthy();
-  });
-
   it('shows Install-dep button for install_missing_dep repair', async () => {
     const mod = await import('$lib/servers/server-state.svelte');
     const installSpy = mod.serverState.installMissingDep as ReturnType<typeof vi.fn>;
@@ -326,6 +316,16 @@ describe('ServerDiagnosisBanner', () => {
     expect(btn).toBeTruthy();
     await fireEvent.click(btn);
     expect(installSpy).toHaveBeenCalledWith('srv-dep', ['jei']);
+  });
+
+  it('every fix button carries an aria-label and aria-busy', () => {
+    mockDiagnoses['srv-a11y'] = makePreflightDiagnosis('server-port-in-use', 'change_port', {
+      port_in_use: 25565,
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-a11y' } });
+    const btn = screen.getByTestId('server-fix-change-port');
+    expect(btn.getAttribute('aria-label')).toBeTruthy();
+    expect(btn.hasAttribute('aria-busy')).toBe(true);
   });
 
   it('lists named conflict mods as guidance when no installed jar matched', () => {

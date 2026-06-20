@@ -82,6 +82,16 @@ export const droppedAssets = $state<{ value: { kind: ContentKind; paths: string[
 // and resets it to null. Mirrors `droppedMods`.
 export const droppedWorld = $state<{ value: string[] | null }>({ value: null });
 
+// A server import source — a `.zip` or a server folder — dropped onto the open
+// Server-import view. Routed by the import view's OWN window-level listener (NOT
+// MainTabs), so this is consumed there. Mirrors `droppedWorld`.
+export const droppedServer = $state<{ value: string[] | null }>({ value: null });
+
+// True while the Server-import view is mounted and owns drag-drop. MainTabs'
+// window-level listener checks this and early-returns so a drop on the import
+// modal isn't ALSO routed into the Worlds/Mods tabs underneath.
+export const serverImportActive = $state<{ value: boolean }>({ value: false });
+
 // True while an OS file-drag is hovering an accepting tab. MainTabs'
 // drag-drop listener sets it; FileDropzone reads it to show its drag
 // highlight.

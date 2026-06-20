@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
-import { commands } from '$lib/ipc/bindings';
 import type { ServerLogInfo } from '$lib/ipc/bindings';
+import { commands } from '$lib/ipc/bindings';
 import ServerConsole from '$lib/servers/ServerConsole.svelte';
 
 // ---------------------------------------------------------------------------
@@ -110,7 +110,10 @@ describe('ServerConsole — log controls', () => {
     mockLinesMap['srv-3'] = [];
     mockRunningMap['srv-3'] = false;
     mockListLogs.mockResolvedValue({ ok: true, list: [LATEST_INFO, ARCHIVE_INFO] });
-    vi.mocked(commands.serverReadLog).mockResolvedValue({ status: 'ok', data: '[INFO] old session line' });
+    vi.mocked(commands.serverReadLog).mockResolvedValue({
+      status: 'ok',
+      data: '[INFO] old session line',
+    });
 
     render(ServerConsole, { props: { serverId: 'srv-3' } });
 
@@ -138,7 +141,10 @@ describe('ServerConsole — log controls', () => {
     mockLinesMap['srv-4'] = ['[INFO] live line'];
     mockRunningMap['srv-4'] = true;
     mockListLogs.mockResolvedValue({ ok: true, list: [LATEST_INFO, ARCHIVE_INFO] });
-    vi.mocked(commands.serverReadLog).mockResolvedValue({ status: 'ok', data: '[INFO] archived text' });
+    vi.mocked(commands.serverReadLog).mockResolvedValue({
+      status: 'ok',
+      data: '[INFO] archived text',
+    });
 
     render(ServerConsole, { props: { serverId: 'srv-4' } });
 

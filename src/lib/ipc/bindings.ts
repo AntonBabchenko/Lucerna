@@ -962,12 +962,6 @@ export const commands = {
 	 */
 	serverRedownloadJar: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_redownload_jar", { id })),
 	/**
-	 *  Reinstall the loader (Forge/NeoForge/Fabric/Quilt) for this server by
-	 *  re-running the create-time installer. No-op-safe for Vanilla. Server must be
-	 *  stopped.
-	 */
-	serverReinstallLoader: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_reinstall_loader", { id })),
-	/**
 	 *  Disable (rename to `*.disabled`) a list of mods in the server's `mods/`.
 	 *  Reversible alternative to `server_remove_mods` for conflict/mixin fixes.
 	 *  Records `log_signature` as handled when given. Rejects unsafe filenames.
@@ -2745,7 +2739,7 @@ export type ServerLogLine = {
  *  One-click server fix the diagnosis banner can offer. snake_case on the wire.
  *  Phase 1 introduces the first four; later phases extend this enum.
  */
-export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods" | "raise_heap" | "lower_heap" | "redownload_server_jar" | "reinstall_loader" | "disable_mods" | "install_missing_dep";
+export type ServerRepairTag = "accept_eula" | "stop_orphan_and_retry" | "change_port" | "remove_client_mods" | "raise_heap" | "lower_heap" | "redownload_server_jar" | "disable_mods" | "install_missing_dep";
 
 /**  Emitted when a server process starts. */
 export type ServerSpawned = {

@@ -1656,6 +1656,11 @@
         "explanation": "A file in the server's mods folder isn't a valid mod for this server's loader — usually a mod for a different loader.",
         "recommendation": "Remove the mods that don't match this server's loader, then start it again."
       },
+      "diskLow": {
+        "title": "Low disk space",
+        "explanation": "The drive this server lives on is nearly full, so creating or starting it may fail or leave a half-written world.",
+        "recommendation": "Free up space on this drive, then try again."
+      },
       "fix": {
         "acceptEula": "Accept EULA & start",
         "stopOrphan": "Stop leftover & retry",
@@ -1663,7 +1668,6 @@
         "raiseHeap": "Raise memory to {mb} MB & retry",
         "lowerHeap": "Lower memory to {mb} MB & retry",
         "redownloadJar": "Re-download server file & retry",
-        "reinstallLoader": "Reinstall loader & retry",
         "installMissingDep": "Install missing mods & retry"
       },
       "conflictNamed": "The loader named these mods. Disable one of them in the server's Mods tab, then start the server again.",
@@ -1711,6 +1715,22 @@
       "description": "This permanently removes the server's files (world, mods, config). This cannot be undone.",
       "confirm": "Delete",
       "runningBlock": "Stop the server before deleting"
+    },
+    "import": {
+      "mode": "Import existing",
+      "modeHint": "Bring in a server you already have (.zip or folder)",
+      "pickZip": "Choose .zip",
+      "pickFolder": "Choose folder",
+      "dropzone": "Drop a server .zip or folder here, or click to choose",
+      "inspecting": "Reading the server…",
+      "detected": "Detected from the import — adjust if needed.",
+      "willPreserve": "Ready to run as-is (offline)",
+      "willReprovision": "The loader will be reinstalled",
+      "modCount": "{count} mods",
+      "worldPresent": "Includes a world",
+      "import": "Import",
+      "importing": "Importing…",
+      "back": "Back"
     }
   }
 }

@@ -12,6 +12,7 @@
     droppedWorld,
     addonsKind,
     dragActive,
+    serverImportActive,
   } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
 
@@ -80,6 +81,10 @@
   // off the active `addonsKind`.
   onMount(() => {
     const pending = getCurrentWebview().onDragDropEvent((event) => {
+      if (serverImportActive.value) {
+        dragActive.value = false;
+        return;
+      }
       const payload = (event as { payload: { type: string; paths?: string[] } }).payload;
       const t = payload.type;
       // Only the Add-ons and Worlds tabs accept drops.
