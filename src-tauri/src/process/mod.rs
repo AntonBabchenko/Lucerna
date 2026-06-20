@@ -188,6 +188,50 @@ pub fn taskkill_tree(pid: u32) {
         .status();
 }
 
+/// Parse private (RFC1918) IPv4 addresses out of `ipconfig` output. `ipconfig`
+/// labels are localized, so we extract IPv4 tokens and filter by range — not by
+/// label. Drops loopback (127.) and link-local (169.254.). De-duped, order-
+/// preserved. Pure (testable); the OS call lives in `local_ipv4_addresses`.
+pub fn parse_lan_ipv4(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tok in text.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
+        let parts: Vec<&str> = tok.split('.').collect();
+        if parts.len() != 4 {
+            continue;
+        }
+        let octets: Option<Vec<u8>> = parts.iter().map(|p| p.parse::<u8>().ok()).collect();
+        let Some(o) = octets else { continue };
+        let is_private = o[0] == 10
+            || (o[0] == 172 && (16..=31).contains(&o[1]))
+            || (o[0] == 192 && o[1] == 168);
+        let is_loopback = o[0] == 127;
+        let is_link_local = o[0] == 169 && o[1] == 254;
+        if is_private && !is_loopback && !is_link_local {
+            let s = format!("{}.{}.{}.{}", o[0], o[1], o[2], o[3]);
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+/// Host's private LAN IPv4 addresses. Windows: parse `ipconfig` (via the
+/// process chokepoint). Other OSes: empty (the launcher targets Windows).
+#[cfg(target_os = "windows")]
+pub fn local_ipv4_addresses() -> Vec<String> {
+    let out = std::process::Command::new("ipconfig").output();
+    match out {
+        Ok(o) => parse_lan_ipv4(&String::from_utf8_lossy(&o.stdout)),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn local_ipv4_addresses() -> Vec<String> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,5 +327,34 @@ mod tests {
             matches!(r, Err(Error::ServerSpawnFailed { .. })),
             "got: {r:?}"
         );
+    }
+
+    #[test]
+    fn parse_lan_ipv4_keeps_private_drops_loopback_and_linklocal() {
+        // ipconfig output is localized, so we parse IPv4 tokens, not labels.
+        let sample = "
+Windows IP Configuration
+   IPv4 Address. . . . . . . . . . . : 192.168.1.42
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+Ethernet adapter Ethernet:
+   IPv4 Address. . . . . . . . . . . : 10.0.0.5
+   Autoconfiguration IPv4 Address. . : 169.254.13.7
+   IPv4 Address. . . . . . . . . . . : 127.0.0.1
+   Default Gateway . . . . . . . . . : 192.168.1.1
+";
+        let got = super::parse_lan_ipv4(sample);
+        assert!(got.contains(&"192.168.1.42".to_string()));
+        assert!(got.contains(&"10.0.0.5".to_string()));
+        assert!(!got.iter().any(|a| a == "169.254.13.7"), "drop link-local");
+        assert!(!got.iter().any(|a| a == "127.0.0.1"), "drop loopback");
+        // Gateway is also private (192.168.1.1) — acceptable to include; the
+        // important negatives are loopback + link-local. De-duped.
+    }
+
+    #[test]
+    fn parse_lan_ipv4_dedupes_and_empty_on_none() {
+        assert!(super::parse_lan_ipv4("no addresses here").is_empty());
+        let dup = "10.1.2.3 ... 10.1.2.3";
+        assert_eq!(super::parse_lan_ipv4(dup), vec!["10.1.2.3".to_string()]);
     }
 }
