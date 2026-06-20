@@ -4,16 +4,76 @@
 
 use crate::error::{Error, Result};
 use crate::servers_runtime::schema::UploadConfig;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_specta::Event;
 use tokio::io::AsyncWriteExt;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
+
+/// How the SFTP upload authenticates (#28). Stored in an S4-owned sidecar
+/// (`upload-auth.json`) next to the server, NOT in `server.json` (whose
+/// `UploadConfig` is owned by another stream). The secret itself — the password,
+/// or the passphrase of an encrypted key — lives in the OS keyring, never here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadAuthMethod {
+    /// Password authentication (the default; back-compat for existing configs).
+    #[default]
+    Password,
+    /// OpenSSH private-key authentication (for key-only hosts).
+    Key,
+}
+
+/// Persisted SFTP auth method + optional private-key path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+pub struct UploadAuth {
+    #[serde(default)]
+    pub method: UploadAuthMethod,
+    /// Absolute path to the OpenSSH private key (when `method == Key`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_key_path: Option<String>,
+}
+
+fn upload_auth_path(base: &Path, server_id: &str) -> PathBuf {
+    crate::paths::server_paths(base, server_id)
+        .root
+        .join("upload-auth.json")
+}
+
+/// Read a server's SFTP auth method. Absent/invalid → password (back-compat).
+pub fn read_upload_auth(base: &Path, server_id: &str) -> UploadAuth {
+    std::fs::read_to_string(upload_auth_path(base, server_id))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Persist a server's SFTP auth method (creates the server root if needed).
+pub fn write_upload_auth(base: &Path, server_id: &str, auth: &UploadAuth) -> Result<()> {
+    let path = upload_auth_path(base, server_id);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
+    }
+    let json = serde_json::to_string_pretty(auth)
+        .map_err(|e| Error::io(path.display().to_string(), format!("auth: {e}")))?;
+    std::fs::write(&path, json).map_err(|e| Error::io(path.display().to_string(), e))
+}
+
+/// Host-key fingerprint surfaced to the user on first connect (#24). `trusted`
+/// is true iff this exact fingerprint is already the stored TOFU value.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct HostKeyPreview {
+    /// SHA-256 hex fingerprint of the server's host key.
+    pub fingerprint: String,
+    /// Whether this fingerprint is already trusted (matches the stored one).
+    pub trusted: bool,
+}
 
 /// Progress for an in-flight SFTP server upload, emitted once per file as it is
 /// written. `files_done` counts files completed including the current one.
@@ -127,6 +187,103 @@ impl russh::client::Handler for CaptureHostKey {
     }
 }
 
+/// Connect to the SFTP target and capture the server's host-key fingerprint at
+/// key exchange — BEFORE any password/key is sent. Shared by the host-key
+/// preview (#24) and the upload, so both observe the key the same way.
+async fn connect_capture(
+    cfg: &UploadConfig,
+) -> Result<(russh::client::Handle<CaptureHostKey>, String)> {
+    let captured_fp = Arc::new(std::sync::Mutex::new(None));
+    let handler = CaptureHostKey {
+        captured_fp: captured_fp.clone(),
+    };
+    let config = Arc::new(russh::client::Config::default());
+    let session = russh::client::connect(config, (cfg.host.as_str(), cfg.port), handler)
+        .await
+        .map_err(|e| Error::SftpConnectFailed {
+            details: e.to_string(),
+        })?;
+    let seen_fp = captured_fp
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .ok_or_else(|| Error::SftpConnectFailed {
+            details: "server presented no usable host key".to_string(),
+        })?;
+    Ok((session, seen_fp))
+}
+
+/// Connect and return the server's host-key fingerprint for the user to verify
+/// against their provider on first connect (#24). No password or key is sent —
+/// the session is dropped immediately after key exchange. `trusted` reflects
+/// whether this fingerprint already matches the stored TOFU value.
+pub async fn preview_host_key(cfg: &UploadConfig) -> Result<HostKeyPreview> {
+    let (_session, fingerprint) = connect_capture(cfg).await?;
+    let trusted = cfg.known_host_fp.as_deref() == Some(fingerprint.as_str());
+    Ok(HostKeyPreview {
+        fingerprint,
+        trusted,
+    })
+}
+
+/// Authenticate the SSH session by the configured method (#28). `secret` is the
+/// password (password auth) or the key passphrase (key auth; empty = none).
+async fn authenticate(
+    session: &mut russh::client::Handle<CaptureHostKey>,
+    cfg: &UploadConfig,
+    auth: &UploadAuth,
+    secret: &str,
+) -> Result<()> {
+    let ok = match auth.method {
+        UploadAuthMethod::Password => session
+            .authenticate_password(&cfg.user, secret)
+            .await
+            .map_err(|e| Error::SftpAuthFailed {
+                details: e.to_string(),
+            })?
+            .success(),
+        UploadAuthMethod::Key => {
+            let key_path =
+                auth.private_key_path
+                    .as_deref()
+                    .ok_or_else(|| Error::SftpAuthFailed {
+                        details: "key auth selected but no private-key path is set".to_string(),
+                    })?;
+            let passphrase = (!secret.is_empty()).then_some(secret);
+            let key = russh::keys::load_secret_key(key_path, passphrase).map_err(|e| {
+                Error::SftpAuthFailed {
+                    details: format!("load private key: {e}"),
+                }
+            })?;
+            // For RSA keys, negotiate the best hash the server advertises
+            // (modern servers reject the legacy SHA-1 `ssh-rsa`); ignored for
+            // ed25519/ecdsa keys.
+            let hash_alg = session
+                .best_supported_rsa_hash()
+                .await
+                .ok()
+                .flatten()
+                .flatten();
+            session
+                .authenticate_publickey(
+                    &cfg.user,
+                    russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                )
+                .await
+                .map_err(|e| Error::SftpAuthFailed {
+                    details: e.to_string(),
+                })?
+                .success()
+        }
+    };
+    if !ok {
+        return Err(Error::SftpAuthFailed {
+            details: "server rejected the credentials".to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Upload the server `runtime` directory to the configured SFTP target.
 ///
 /// Security ordering is load-bearing: connect → capture host-key fingerprint →
@@ -136,13 +293,18 @@ impl russh::client::Handler for CaptureHostKey {
 ///
 /// Returns `Some(fingerprint)` when the host key is being trusted for the first
 /// time or re-trusted (so the caller can persist it in `UploadConfig`), or
-/// `None` when the already-known fingerprint matched. The password is never
-/// logged, emitted, or stored by this function.
+/// `None` when the already-known fingerprint matched. `auth` selects password or
+/// key authentication; `secret` is the password or key passphrase. The secret is
+/// never logged, emitted, or stored by this function.
+///
+/// Files are streamed to the remote (`tokio::io::copy`) rather than buffered in
+/// memory, so a multi-GB world no longer risks OOM (#28).
 pub async fn upload_server(
     app: &AppHandle,
     server_id: &str,
     cfg: &UploadConfig,
-    password: &str,
+    auth: &UploadAuth,
+    secret: &str,
     accept_new_host_key: bool,
 ) -> Result<Option<String>> {
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
@@ -150,26 +312,9 @@ pub async fn upload_server(
     let files = enumerate_upload_files(&runtime)?;
 
     // --- connect + capture host-key fingerprint ---
-    let captured_fp = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let handler = CaptureHostKey {
-        captured_fp: captured_fp.clone(),
-    };
-    let config = std::sync::Arc::new(russh::client::Config::default());
-    let mut session = russh::client::connect(config, (cfg.host.as_str(), cfg.port), handler)
-        .await
-        .map_err(|e| Error::SftpConnectFailed {
-            details: e.to_string(),
-        })?;
+    let (mut session, seen_fp) = connect_capture(cfg).await?;
 
-    let seen_fp = captured_fp
-        .lock()
-        .ok()
-        .and_then(|slot| slot.clone())
-        .ok_or_else(|| Error::SftpConnectFailed {
-            details: "server presented no usable host key".to_string(),
-        })?;
-
-    // --- TOFU decision BEFORE sending the password ---
+    // --- TOFU decision BEFORE sending any credential ---
     if !host_key_decision(cfg.known_host_fp.as_deref(), &seen_fp) && !accept_new_host_key {
         return Err(Error::SftpHostKeyMismatch {
             expected: cfg.known_host_fp.clone().unwrap_or_default(),
@@ -182,18 +327,8 @@ pub async fn upload_server(
         None
     };
 
-    // --- authenticate (password) ---
-    let auth = session
-        .authenticate_password(&cfg.user, password)
-        .await
-        .map_err(|e| Error::SftpAuthFailed {
-            details: e.to_string(),
-        })?;
-    if !auth.success() {
-        return Err(Error::SftpAuthFailed {
-            details: "password rejected by server".to_string(),
-        });
-    }
+    // --- authenticate (password or key) ---
+    authenticate(&mut session, cfg, auth, secret).await?;
 
     // --- open the SFTP subsystem ---
     let channel = session
@@ -214,26 +349,30 @@ pub async fn upload_server(
             details: e.to_string(),
         })?;
 
-    // --- upload each file, creating remote dirs as needed ---
+    // --- stream each file, creating remote dirs as needed ---
     let remote_root = cfg.remote_path.trim_end_matches('/');
     let total = files.len() as u32;
     for (i, (local, rel)) in files.iter().enumerate() {
         ensure_remote_dirs(&sftp, remote_root, rel).await;
 
-        let data = std::fs::read(local).map_err(|e| Error::io(local.display().to_string(), e))?;
         let remote = format!("{remote_root}/{rel}");
-        let mut file =
+        let mut local_file = tokio::fs::File::open(local)
+            .await
+            .map_err(|e| Error::io(local.display().to_string(), e))?;
+        let mut remote_file =
             sftp.create(remote.clone())
                 .await
                 .map_err(|e| Error::SftpTransferFailed {
                     details: format!("{remote}: {e}"),
                 })?;
-        file.write_all(&data)
+        // Streamed copy: constant memory regardless of file size (#28).
+        tokio::io::copy(&mut local_file, &mut remote_file)
             .await
             .map_err(|e| Error::SftpTransferFailed {
                 details: format!("{remote}: {e}"),
             })?;
-        file.shutdown()
+        remote_file
+            .shutdown()
             .await
             .map_err(|e| Error::SftpTransferFailed {
                 details: format!("{remote}: {e}"),
@@ -319,6 +458,37 @@ mod tests {
         assert!(host_key_decision(None, "abc")); // first use → accept
         assert!(host_key_decision(Some("abc"), "abc")); // same → accept
         assert!(!host_key_decision(Some("abc"), "xyz")); // changed → reject
+    }
+
+    #[test]
+    fn upload_auth_defaults_to_password() {
+        let a = UploadAuth::default();
+        assert_eq!(a.method, UploadAuthMethod::Password);
+        assert!(a.private_key_path.is_none());
+    }
+
+    #[test]
+    fn upload_auth_absent_sidecar_reads_as_password() {
+        let base = tempdir().unwrap();
+        let a = read_upload_auth(base.path(), "srv-1");
+        assert_eq!(a.method, UploadAuthMethod::Password);
+    }
+
+    #[test]
+    fn upload_auth_sidecar_roundtrips() {
+        let base = tempdir().unwrap();
+        let auth = UploadAuth {
+            method: UploadAuthMethod::Key,
+            private_key_path: Some("/home/me/.ssh/id_ed25519".into()),
+        };
+        write_upload_auth(base.path(), "srv-1", &auth).unwrap();
+        assert_eq!(read_upload_auth(base.path(), "srv-1"), auth);
+    }
+
+    #[test]
+    fn upload_auth_method_serializes_snake_case() {
+        let json = serde_json::to_string(&UploadAuthMethod::Key).unwrap();
+        assert_eq!(json, "\"key\"");
     }
 
     /// Regular files still enumerate correctly and symlinks inside the runtime

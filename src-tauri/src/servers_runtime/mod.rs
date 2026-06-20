@@ -3,7 +3,9 @@
 
 pub mod backup;
 pub mod create;
+pub mod datapacks;
 pub mod eula;
+pub mod exit_state;
 pub mod firewall;
 pub mod import;
 pub mod jar;
@@ -18,3 +20,4 @@ pub mod serverlog;
 pub mod store;
 pub mod to_instance;
 pub mod transfer;
+pub mod whitelist;

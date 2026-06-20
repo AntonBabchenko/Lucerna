@@ -45,6 +45,9 @@ pub async fn launch_instance(
     let instance = crate::instances::store::read_instance_json(&json_path)?;
     let account =
         crate::accounts::get_active_account(&app)?.ok_or(crate::error::Error::AccountNotSet)?;
+    // Gate accounts Minecraft can't actually play with (e.g. an offline name it
+    // rejects, like Cyrillic) — see ensure_account_launchable for the rationale.
+    crate::accounts::ops::ensure_account_launchable(&account)?;
     crate::launch::start(
         &instance,
         &effective_id,

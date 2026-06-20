@@ -3,6 +3,7 @@
 
 pub mod copy;
 pub mod detect;
+pub mod pack;
 
 use crate::error::{Error, Result};
 use crate::instances::ids::new_id;
@@ -235,6 +236,7 @@ pub(crate) fn build_file(
         eula_accepted,
         created_from_instance: None,
         handled_log_sig: None,
+        java_component: None,
         upload: None,
     }
 }

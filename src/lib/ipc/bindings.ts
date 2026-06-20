@@ -897,11 +897,11 @@ export const commands = {
 	 */
 	serverWriteProperties: (id: string, raw: string) => typedError<null, Error>(__TAURI_INVOKE("server_write_properties", { id, raw })),
 	/**
-	 *  Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера.
-	 *  Возвращает отсортированный список имён файлов. Если папка отсутствует —
-	 *  возвращает пустой список.
+	 *  Перечислить `.jar` и `.jar.disabled` файлы в папке `mods/` сервера как
+	 *  [`ServerModEntry`] (имя + флаг `disabled` + причина из sidecar карантина).
+	 *  Отсортировано по имени. Если папка отсутствует — пустой список.
 	 */
-	serverListMods: (id: string) => typedError<string[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
+	serverListMods: (id: string) => typedError<ServerModEntry[], Error>(__TAURI_INVOKE("server_list_mods", { id })),
 	/**
 	 *  Удалить мод из папки `mods/` сервера по имени файла.
 	 *  Идемпотентно: файл уже удалён → `Ok`.
@@ -1002,6 +1002,21 @@ export const commands = {
 	 */
 	serverExportZip: (id: string, destPath: string) => typedError<null, Error>(__TAURI_INVOKE("server_export_zip", { id, destPath })),
 	/**
+	 *  Read the server's SFTP host-key fingerprint for first-connect verification
+	 *  (#24). Connects and captures the key at key-exchange — NO password or key is
+	 *  sent and nothing is uploaded; the session is dropped immediately. The user
+	 *  verifies the returned fingerprint against their provider before trusting it.
+	 */
+	serverHostKeyPreview: (id: string) => typedError<HostKeyPreview, Error>(__TAURI_INVOKE("server_host_key_preview", { id })),
+	/**  Read the server's SFTP auth method (#28). Absent → password (back-compat). */
+	serverGetUploadAuth: (id: string) => typedError<UploadAuth_Serialize, Error>(__TAURI_INVOKE("server_get_upload_auth", { id })),
+	/**
+	 *  Set the server's SFTP auth method (#28). When `auth.method == Key`, the
+	 *  `password` field of the upload form is treated as the key passphrase and
+	 *  stored in the keyring exactly like a password (never in `auth.json`).
+	 */
+	serverSetUploadAuth: (id: string, auth: UploadAuth_Deserialize) => typedError<null, Error>(__TAURI_INVOKE("server_set_upload_auth", { id, auth })),
+	/**
 	 *  Создать клиентский инстанс из сервера: та же версия + лоадер, моды сервера
 	 *  скопированы в инстанс, и опционально сервер прописан в список мультиплеера
 	 *  (`servers.dat`) нового инстанса. Сервер читается только на чтение.
@@ -1022,6 +1037,14 @@ export const commands = {
 	 */
 	serverConnectivity: (id: string) => typedError<ServerConnectivity, Error>(__TAURI_INVOKE("server_connectivity", { id })),
 	/**
+	 *  Detect the server's public address for port-forward guidance (#6). The
+	 *  public-IP lookup is **user-initiated and on-demand** (the user opens the
+	 *  hosting view and asks) — never automatic — and goes through the `network::`
+	 *  chokepoint to the allowlisted `api.ipify.org`. Per maintainer default #6 this
+	 *  is detection + manual guidance only: NO UPnP / automatic port mapping.
+	 */
+	serverPublicAddress: (id: string) => typedError<ServerPublicAddress, Error>(__TAURI_INVOKE("server_public_address", { id })),
+	/**
 	 *  Create a snapshot. If the server is running, flush + pause world saves
 	 *  around the zip so the snapshot isn't torn, then resume. Prunes to keep-N.
 	 */
@@ -1034,6 +1057,19 @@ export const commands = {
 	 */
 	serverBackupRestore: (id: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("server_backup_restore", { id, fileName })),
 	serverBackupDelete: (id: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("server_backup_delete", { id, fileName })),
+	/**  Read the server's automatic-backup policy (#29). Absent → disabled default. */
+	serverBackupPolicyGet: (id: string) => typedError<BackupPolicy, Error>(__TAURI_INVOKE("server_backup_policy_get", { id })),
+	/**
+	 *  Set the server's automatic-backup policy (#29) and (re)arm the session
+	 *  interval scheduler. Setting `enabled=false` or a zero interval cancels any
+	 *  running scheduler for this server (via the generation bump below).
+	 * 
+	 *  Scope note: the scheduler is **session-scoped** — it runs while the launcher
+	 *  is open and the server is running. Cross-restart durability and an on-exit
+	 *  snapshot need the server-lifecycle exit hook (S1-owned) and are a documented
+	 *  follow-up; the spec's "and/or interval" sanctions the interval-only delivery.
+	 */
+	serverBackupPolicySet: (id: string, policy: BackupPolicy) => typedError<null, Error>(__TAURI_INVOKE("server_backup_policy_set", { id, policy })),
 	/**  Список логов сервера (текущий + архивы), отсортированных от новых к старым. */
 	serverListLogs: (id: string) => typedError<ServerLogInfo[], Error>(__TAURI_INVOKE("server_list_logs", { id })),
 	/**  Прочитать файл лога сервера (текущий или архив) с ограничением 1 МиБ. */
@@ -1054,6 +1090,55 @@ export const commands = {
 	 *  observable from within the launcher process.
 	 */
 	serverFirewallAddRule: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_firewall_add_rule", { id })),
+	serverWhitelistList: (id: string) => typedError<WhitelistEntry[], Error>(__TAURI_INVOKE("server_whitelist_list", { id })),
+	/**
+	 *  Whitelist a player by name (#9). Resolves the correct UUID for the server's
+	 *  online-mode, then writes the entry. Pair with the `white-list=true` toggle in
+	 *  the UI so enabling the whitelist never locks the owner out (the lockout fix).
+	 */
+	serverWhitelistAdd: (id: string, name: string) => typedError<WhitelistEntry[], Error>(__TAURI_INVOKE("server_whitelist_add", { id, name })),
+	serverWhitelistRemove: (id: string, key: string) => typedError<WhitelistEntry[], Error>(__TAURI_INVOKE("server_whitelist_remove", { id, key })),
+	serverOpsList: (id: string) => typedError<OpEntry[], Error>(__TAURI_INVOKE("server_ops_list", { id })),
+	/**
+	 *  Grant a player operator status by name (#9). Resolves the UUID for the
+	 *  server's online-mode and writes a level-4 op entry.
+	 */
+	serverOpsAdd: (id: string, name: string) => typedError<OpEntry[], Error>(__TAURI_INVOKE("server_ops_add", { id, name })),
+	serverOpsRemove: (id: string, key: string) => typedError<OpEntry[], Error>(__TAURI_INVOKE("server_ops_remove", { id, key })),
+	/**
+	 *  Install a chosen mod version + its required dependency closure into the
+	 *  server's `mods/`. Resolves the server's mc_version + loader from
+	 *  `server.json`, then reuses the shared install kernel
+	 *  ([`crate::commands::install_version_into_dir`]). Server must be stopped.
+	 *  Returns the jars written + any dependency that could not be resolved.
+	 */
+	serverInstallMod: (id: string, source: ModSource, projectId: string, versionId: string) => typedError<InstallMissingReport, Error>(__TAURI_INVOKE("server_install_mod", { id, source, projectId, versionId })),
+	/**
+	 *  Re-enable a set-aside mod: rename `<name>.jar.disabled` → `<name>.jar`.
+	 *  Inverse of `server_disable_mods`. Idempotent (absent → `Ok`). Rejects unsafe
+	 *  filenames / path escapes. Server must be stopped.
+	 */
+	serverEnableMod: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_enable_mod", { id, filename })),
+	/**
+	 *  Install a local mod `.jar` (chosen via the file picker) into the server's
+	 *  `mods/`. Mirrors the client `mods_install_local` (path-based — no heavy bytes
+	 *  over IPC). Validates the jar is readable and the destination name is safe.
+	 *  Server must be stopped.
+	 */
+	serverInstallLocal: (id: string, jarPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_local", { id, jarPath })),
+	/**  List the datapack archives installed for a server's world. */
+	serverListDatapacks: (id: string) => typedError<string[], Error>(__TAURI_INVOKE("server_list_datapacks", { id })),
+	/**
+	 *  Install a datapack `.zip` (chosen via the file picker) into the server's
+	 *  world `datapacks/`. Validates the zip carries a root `pack.mcmeta`. Returns
+	 *  the installed filename. Server must be stopped (live worlds hold files open).
+	 */
+	serverInstallDatapack: (id: string, zipPath: string) => typedError<string, Error>(__TAURI_INVOKE("server_install_datapack", { id, zipPath })),
+	/**
+	 *  Remove a datapack archive from a server's world `datapacks/`. Idempotent.
+	 *  Server must be stopped.
+	 */
+	serverRemoveDatapack: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_remove_datapack", { id, filename })),
 };
 
 /** Events */
@@ -1182,6 +1267,29 @@ export type BackupInfo = {
 	file_name: string,
 	created_unix_ms: number | null,
 	size_bytes: number | null,
+};
+
+/**
+ *  Opt-in automatic-backup policy (#29). Persisted per server in
+ *  `backup-policy.json` under the server root. An absent or unparseable file
+ *  means "disabled" (the back-compat default), so existing servers keep their
+ *  current behaviour until the user opts in. The interval scheduler that acts
+ *  on this lives in the command layer (it needs an `AppHandle`); the pure
+ *  due-logic and persistence live here so they are unit-testable.
+ */
+export type BackupPolicy = {
+	/**  Master switch. When false, no automatic snapshots are taken. */
+	enabled?: boolean,
+	/**
+	 *  Minimum minutes between automatic snapshots. `0` is treated as disabled
+	 *  even when `enabled` is true (guards against a hot loop).
+	 */
+	interval_minutes?: number,
+	/**
+	 *  Epoch-ms of the last automatic snapshot, stamped by [`maybe_auto_backup`].
+	 *  `0.0` = never run, so the first check after enabling is immediately due.
+	 */
+	last_run_unix_ms?: number | null,
 };
 
 /**
@@ -1470,7 +1578,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  Курируемое поле server.properties не прошло валидацию. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Попытка собрать/запустить сервер без принятого EULA. */
@@ -1488,6 +1596,8 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_already_running"; id: string } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
 { kind: "server_not_running"; id: string } | 
+/**  Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное). */
+{ kind: "server_name_invalid"; reason: string } | 
 /**
  *  Мод нельзя удалить/отключить — он является зависимостью другого мода,
  *  который остаётся на сервере (защита от поломки рабочего мода).
@@ -1706,6 +1816,17 @@ export type GpuPreference = "auto" | "high_performance" | "power_saving";
 
 export type Greeting = {
 	message: string,
+};
+
+/**
+ *  Host-key fingerprint surfaced to the user on first connect (#24). `trusted`
+ *  is true iff this exact fingerprint is already the stored TOFU value.
+ */
+export type HostKeyPreview = {
+	/**  SHA-256 hex fingerprint of the server's host key. */
+	fingerprint: string,
+	/**  Whether this fingerprint is already trusted (matches the stored one). */
+	trusted: boolean,
 };
 
 /**  Typed progress streamed to the UI during an import. */
@@ -2463,6 +2584,13 @@ export type NotCheckableReason =
 /**  CurseForge pack but no API key is stored, so versions can't be listed. */
 "needs_curseforge_key";
 
+/**
+ *  Why an offline name was rejected. Serializes snake_case (`too_short`,
+ *  `too_long`, `invalid_chars`) and is exported to `bindings.ts` via specta,
+ *  so the frontend reuses the exact same reason values.
+ */
+export type OfflineNameRejection = "too_short" | "too_long" | "invalid_chars";
+
 export type OnboardingState = OnboardingState_Serialize | OnboardingState_Deserialize;
 
 export type OnboardingState_Deserialize = {
@@ -2471,6 +2599,19 @@ export type OnboardingState_Deserialize = {
 
 export type OnboardingState_Serialize = {
 	tour_completed_version?: string | null,
+};
+
+/**
+ *  One `ops.json` entry. `level` 4 = full operator; `bypassesPlayerLimit`
+ *  lets the op join past `max-players`. The on-disk key is camelCase
+ *  (`bypassesPlayerLimit`) — serde rename keeps disk, IPC, and the generated
+ *  TS binding in agreement (specta honours serde renames in this project).
+ */
+export type OpEntry = {
+	uuid: string,
+	name: string,
+	level?: number,
+	bypassesPlayerLimit?: boolean,
 };
 
 /**
@@ -2847,6 +2988,36 @@ export type ServerLogLine = {
 };
 
 /**
+ *  One entry in `server_list_mods`: the on-disk filename, whether it is set
+ *  aside (`*.jar.disabled`), and — for disabled jars — why (from the quarantine
+ *  sidecar), so the UI can label it ("set aside: client-only") instead of
+ *  inferring everything from the suffix.
+ */
+export type ServerModEntry = {
+	filename: string,
+	disabled: boolean,
+	/**  Sidecar reason for a disabled jar (e.g. `client_only`); `None` otherwise. */
+	reason: string | null,
+};
+
+/**
+ *  Public-address snapshot for the hosting view (#6, contract C3): a primary LAN
+ *  address, the detected public IP (for manual port-forward guidance), the
+ *  server port, and online-mode. `public_ip` is `None` when the on-demand echo
+ *  can't be reached (offline / host down) — LAN + port stay useful regardless.
+ */
+export type ServerPublicAddress = {
+	/**  Primary LAN IPv4 (first detected), or empty when none is available. */
+	lan: string,
+	/**  Detected public IP, or `None` when the echo lookup failed. */
+	public_ip: string | null,
+	/**  Configured server port (Mojang's default 25565 when unset). */
+	port: number,
+	/**  `online-mode` from `server.properties` (defaults true when unset). */
+	online_mode: boolean,
+};
+
+/**
  *  One-click server fix the diagnosis banner can offer. snake_case on the wire.
  *  Phase 1 introduces the first four; later phases extend this enum.
  */
@@ -2890,6 +3061,13 @@ export type ServerWithStatus_Deserialize = {
 	upload: UploadConfig_Deserialize | null,
 	/**  Whether a keyring password is stored for the upload target. */
 	upload_password_set: boolean,
+	/**
+	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
+	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
+	 */
+	last_exit_code: number | null,
+	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
+	diagnosis_status: DiagnosisStatus,
 };
 
 /**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */
@@ -2910,6 +3088,13 @@ export type ServerWithStatus_Serialize = {
 	upload: UploadConfig_Serialize | null,
 	/**  Whether a keyring password is stored for the upload target. */
 	upload_password_set: boolean,
+	/**
+	 *  Last process exit code. None = never run (no exit record); Some(0) = clean
+	 *  stop; Some(n != 0) = crash. Only meaningful when `running == false` (#18).
+	 */
+	last_exit_code: number | null,
+	/**  Cheap last-known diagnosis status for the sidebar "needs a fix" badge. */
+	diagnosis_status: DiagnosisStatus,
 };
 
 /**
@@ -2973,6 +3158,35 @@ export type UpdateInfo = {
 	installer: ReleaseAsset | null,
 	sha256sums: ReleaseAsset | null,
 	cosign_bundle: ReleaseAsset | null,
+};
+
+/**  Persisted SFTP auth method + optional private-key path. */
+export type UploadAuth = UploadAuth_Serialize | UploadAuth_Deserialize;
+
+/**
+ *  How the SFTP upload authenticates (#28). Stored in an S4-owned sidecar
+ *  (`upload-auth.json`) next to the server, NOT in `server.json` (whose
+ *  `UploadConfig` is owned by another stream). The secret itself — the password,
+ *  or the passphrase of an encrypted key — lives in the OS keyring, never here.
+ */
+export type UploadAuthMethod = 
+/**  Password authentication (the default; back-compat for existing configs). */
+"password" | 
+/**  OpenSSH private-key authentication (for key-only hosts). */
+"key";
+
+/**  Persisted SFTP auth method + optional private-key path. */
+export type UploadAuth_Deserialize = {
+	method?: UploadAuthMethod,
+	/**  Absolute path to the OpenSSH private key (when `method == Key`). */
+	private_key_path?: string | null,
+};
+
+/**  Persisted SFTP auth method + optional private-key path. */
+export type UploadAuth_Serialize = {
+	method: UploadAuthMethod,
+	/**  Absolute path to the OpenSSH private key (when `method == Key`). */
+	private_key_path?: string | null,
 };
 
 /**
@@ -3072,6 +3286,12 @@ export type ViolationKind =
  *  the declared version range.
  */
 "version_out_of_range";
+
+/**  One `whitelist.json` entry. Minecraft matches whitelisted players by UUID. */
+export type WhitelistEntry = {
+	uuid: string,
+	name: string,
+};
 
 /**
  *  A singleplayer world inside an instance, surfaced to the UI.

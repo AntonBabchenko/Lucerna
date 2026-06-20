@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { offlineNameRejectionKey } from '$lib/accounts/offline-name';
 import { t } from '$lib/i18n';
 import { displayLoader } from '$lib/instances/loader-display';
 import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
@@ -32,6 +33,11 @@ export function formatError(e: IpcError): string {
       return translate('errors.alreadyRunning');
     case 'account_not_set':
       return translate('errors.accountNotSet');
+    case 'offline_name_invalid':
+      return translate('errors.offlineNameInvalid', {
+        name: e.name,
+        reason: translate(offlineNameRejectionKey(e.reason)),
+      });
     case 'instance_busy':
       return translate('errors.instanceBusy');
     case 'auth_cancelled':
@@ -247,6 +253,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.serverAlreadyRunning');
     case 'server_not_running':
       return translate('errors.serverNotRunning');
+    case 'server_name_invalid':
+      return translate('errors.serverNameInvalid');
     case 'server_mod_required_by_other':
       return translate('errors.serverModRequiredByOther', {
         filename: e.filename,

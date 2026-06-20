@@ -161,6 +161,17 @@ describe('formatError', () => {
     );
   });
 
+  it('renders offline_name_invalid with the name and a localized reason', () => {
+    const msg = formatError({
+      kind: 'offline_name_invalid',
+      name: 'Игрок',
+      reason: 'invalid_chars',
+    });
+    expect(msg).toContain('Игрок');
+    expect(msg).not.toMatch(/^\{/);
+    expect(msg).toContain('Latin');
+  });
+
   it('formats a known error in Russian', () => {
     locale.set('ru');
     const msg = formatError({ kind: 'already_running' });
@@ -335,6 +346,11 @@ describe('formatError', () => {
         name: 'x',
         reason: 'empty name',
       },
+      offline_name_invalid: {
+        kind: 'offline_name_invalid',
+        name: 'Игрок',
+        reason: 'invalid_chars',
+      },
       saved_server_list_changed: { kind: 'saved_server_list_changed' },
       server_invalid_property: {
         kind: 'server_invalid_property',
@@ -362,6 +378,7 @@ describe('formatError', () => {
         filename: 'libraryferret.jar',
         required_by: 'bettervillage.jar',
       },
+      server_name_invalid: { kind: 'server_name_invalid', reason: 'duplicate' },
       upload_not_configured: { kind: 'upload_not_configured' },
       sftp_connect_failed: { kind: 'sftp_connect_failed', details: 'connection refused' },
       sftp_auth_failed: { kind: 'sftp_auth_failed', details: 'wrong password' },
@@ -391,7 +408,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(101);
+      expect(Object.keys(samples)).toHaveLength(102);
     });
   });
 

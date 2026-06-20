@@ -34,10 +34,21 @@ pub const SKIP_TOP_LEVEL: &[&str] = &[
     // eula=true and make Minecraft exit on launch — so skip it on the reprovision
     // copy. (The preserve path uses SKIP_PRESERVE + a write_eula afterwards.)
     "eula.txt",
+    // Server-pack metadata + overrides (#10): the manifests are launcher input,
+    // not runnable state, and overrides are merged into the root by
+    // `pack::apply_overrides` — never copied verbatim as a stray subdir.
+    "manifest.json",
+    "modrinth.index.json",
+    "overrides",
+    "server-overrides",
+    "client-overrides",
 ];
 
 /// Признаки «здесь корень сервера»: server.jar / любой *.jar лаунчера /
-/// libraries / eula.txt / server.properties / папка world с level.dat.
+/// libraries / eula.txt / server.properties / папка world с level.dat, ИЛИ
+/// манифест серверного пака (CurseForge `manifest.json` / Modrinth
+/// `modrinth.index.json`) — последние ещё не запускаемы, но материализуются
+/// при commit (#10).
 fn looks_like_server_root(dir: &Path) -> bool {
     dir.join("server.jar").exists()
         || dir.join("fabric-server-launch.jar").exists()
@@ -46,6 +57,8 @@ fn looks_like_server_root(dir: &Path) -> bool {
         || dir.join("eula.txt").exists()
         || dir.join("server.properties").exists()
         || dir.join("world/level.dat").exists()
+        || dir.join("manifest.json").is_file()
+        || dir.join("modrinth.index.json").is_file()
 }
 
 /// BFS: самый «мелкий» каталог с признаками сервера (zip может содержать один
@@ -270,6 +283,27 @@ mod tests {
     }
 
     #[test]
+    fn copy_skips_pack_manifests_and_overrides() {
+        // #10: pack metadata + overrides are applied separately (pack::apply_overrides),
+        // never copied verbatim. Guards the SKIP_TOP_LEVEL additions.
+        let src = tempdir().unwrap();
+        touch(&src.path().join("manifest.json"));
+        touch(&src.path().join("modrinth.index.json"));
+        touch(&src.path().join("overrides/config/a.toml"));
+        touch(&src.path().join("server-overrides/server.properties"));
+        touch(&src.path().join("client-overrides/options.txt"));
+        touch(&src.path().join("mods/keep.jar"));
+        let dst = tempdir().unwrap();
+        copy_into_runtime(src.path(), dst.path()).unwrap();
+        assert!(dst.path().join("mods/keep.jar").is_file());
+        assert!(!dst.path().join("manifest.json").exists());
+        assert!(!dst.path().join("modrinth.index.json").exists());
+        assert!(!dst.path().join("overrides").exists());
+        assert!(!dst.path().join("server-overrides").exists());
+        assert!(!dst.path().join("client-overrides").exists());
+    }
+
+    #[test]
     fn copy_rejects_over_aggregate_cap() {
         let src = tempdir().unwrap();
         fs::write(src.path().join("a.bin"), vec![0u8; 100]).unwrap();
@@ -301,6 +335,18 @@ mod tests {
         let d = tempdir().unwrap();
         touch(&d.path().join("readme.txt"));
         assert_eq!(find_server_root(d.path()), None);
+    }
+
+    #[test]
+    fn find_server_root_accepts_pack_manifests() {
+        // CurseForge pack (#10).
+        let cf = tempdir().unwrap();
+        touch(&cf.path().join("Pack/manifest.json"));
+        assert_eq!(find_server_root(cf.path()), Some(cf.path().join("Pack")));
+        // Modrinth pack (#10).
+        let mr = tempdir().unwrap();
+        touch(&mr.path().join("modrinth.index.json"));
+        assert_eq!(find_server_root(mr.path()).as_deref(), Some(mr.path()));
     }
 
     #[test]
