@@ -1043,7 +1043,11 @@ pub fn server_firewall_status(app: AppHandle, id: String) -> Result<firewall::Fi
 pub fn server_firewall_add_rule(app: AppHandle, id: String) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let rt = crate::paths::server_paths(&base, &id).runtime;
-    let port = crate::servers_runtime::runtime::read_port(&rt)
-        .ok_or_else(|| Error::io("<firewall>", "server.properties not found — start the server first"))?;
+    let port = crate::servers_runtime::runtime::read_port(&rt).ok_or_else(|| {
+        Error::io(
+            "<firewall>",
+            "server.properties not found — start the server first",
+        )
+    })?;
     crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)
 }
