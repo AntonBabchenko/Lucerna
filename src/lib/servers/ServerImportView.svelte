@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { open as openFile } from '@tauri-apps/plugin-dialog';
-  import { commands, type LoaderKind, type MemoryBounds } from '$lib/ipc/bindings';
+  import { type LoaderKind } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
+  import { formatHeapLabel } from '$lib/instances/heap';
+  import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
@@ -36,30 +37,8 @@
   // silently won't load.
   let loaderUnknown = $state(false);
 
-  // Adaptive memory bounds — same pattern as ServerCreateWizard.
-  const FALLBACK_BOUNDS: MemoryBounds = {
-    min_mb: 1024,
-    max_mb: 8192,
-    recommended_max_mb: 8192,
-    step_mb: 256,
-    ram_known: false,
-  };
-  let memBounds = $state<MemoryBounds>(FALLBACK_BOUNDS);
+  // Heap for the imported server. The adaptive bounds live inside MemorySlider.
   let memoryMb = $state(4096);
-  let memBoundsLoaded = false;
-  $effect(() => {
-    if (memBoundsLoaded) return;
-    memBoundsLoaded = true;
-    commands
-      .instanceMemoryBounds()
-      .then((b) => {
-        memBounds = b;
-        memoryMb = Math.min(Math.max(memoryMb, b.min_mb), b.max_mb);
-      })
-      .catch(() => {
-        // Graceful degradation: keep FALLBACK_BOUNDS.
-      });
-  });
 
   // Mark the import view as active on mount; register own drag-drop listener.
   onMount(() => {
@@ -296,22 +275,7 @@
       <label class="text-sm font-medium">
         {$t('servers.wizard.memory')} · {formatHeapLabel(memoryMb)}
       </label>
-      <input
-        type="range"
-        min={memBounds.min_mb}
-        max={memBounds.max_mb}
-        step={memBounds.step_mb}
-        value={memoryMb}
-        oninput={(e) => (memoryMb = parseInt((e.currentTarget as HTMLInputElement).value, 10))}
-        class="w-full"
-      />
-      {#if isAboveRecommended(memoryMb, memBounds.recommended_max_mb, memBounds.ram_known)}
-        <p class="text-xs text-warning-text">
-          {$t('instance.manage.memoryWarnHigh', {
-            recommended: formatHeapLabel(memBounds.recommended_max_mb),
-          })}
-        </p>
-      {/if}
+      <MemorySlider valueMb={memoryMb} onInput={(mb) => (memoryMb = mb)} />
     </div>
 
     <!-- EULA -->
