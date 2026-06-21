@@ -109,9 +109,11 @@ describe('ServerBackupsView', () => {
     await fireEvent.click(restoreBtn);
 
     // Confirm dialog should appear
-    const confirmBtn = await screen.findByText('Restore', {
-      selector: 'button[data-confirm]',
-    });
+    // The confirm action is a BusyButton, so the label sits in a nested <span>;
+    // match the text then walk up to the data-confirm button it belongs to.
+    const confirmBtn = (await screen.findByText('Restore')).closest(
+      'button[data-confirm]',
+    ) as HTMLButtonElement;
     await fireEvent.click(confirmBtn);
 
     expect(mocks.backupRestore).toHaveBeenCalledWith('srv-1', backup.file_name);

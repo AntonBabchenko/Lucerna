@@ -16,6 +16,7 @@
   import ServerToInstanceDialog from './ServerToInstanceDialog.svelte';
   import ServerBackupsView from './ServerBackupsView.svelte';
   import { isCrashed } from './runtime-extra';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
 
   let {
     serverId,
@@ -40,6 +41,32 @@
 
   let tab = $state<ServerTab>('console');
   let showToInstance = $state(false);
+
+  // WAI-ARIA tabs pattern: roving tabindex with arrow-key navigation.
+  const TAB_ORDER: ServerTab[] = [
+    'console',
+    'connect',
+    'general',
+    'settings',
+    'mods',
+    'hosting',
+    'backups',
+  ];
+  let tabEls = $state<(HTMLButtonElement | null)[]>([]);
+
+  function onTablistKeydown(e: KeyboardEvent) {
+    const current = TAB_ORDER.indexOf(tab);
+    if (current === -1) return;
+    let next = current;
+    if (e.key === 'ArrowRight') next = (current + 1) % TAB_ORDER.length;
+    else if (e.key === 'ArrowLeft') next = (current - 1 + TAB_ORDER.length) % TAB_ORDER.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = TAB_ORDER.length - 1;
+    else return;
+    e.preventDefault();
+    tab = TAB_ORDER[next];
+    tabEls[next]?.focus();
+  }
   let busyStart = $state(false);
   let busyStop = $state(false);
   let busyRestart = $state(false);
@@ -114,19 +141,13 @@
     <span class="flex-1 font-semibold truncate">{server?.name ?? serverId}</span>
 
     <!-- Status pill -->
-    <span
-      class="rounded-full px-2 py-0.5 text-xs font-medium {running
-        ? 'bg-success/15 text-success'
-        : crashed
-          ? 'bg-danger/15 text-danger'
-          : 'bg-muted/15 text-muted'}"
-    >
+    <StatusBadge variant={running ? 'success' : crashed ? 'danger' : 'muted'}>
       {running
         ? $t('servers.status.running')
         : crashed
           ? $t('servers.status.crashed')
           : $t('servers.status.stopped')}{server?.port ? ' · ' + server.port : ''}
-    </span>
+    </StatusBadge>
 
     <!-- Actions -->
     <div class="flex items-center gap-1.5">
@@ -140,15 +161,15 @@
         {$t('servers.toInstance.button')}
       </button>
       {#if !running}
-        <BusyButton class="btn-primary btn-sm" busy={busyStart} onclick={() => void start()}>
-          {$t('servers.action.start')}
+        <BusyButton class="btn-success btn-sm" busy={busyStart} onclick={() => void start()}>
+          <Icon name="play" size={14} />{$t('servers.action.start')}
         </BusyButton>
       {:else}
-        <BusyButton class="btn-ghost btn-sm" busy={busyRestart} onclick={() => void restart()}>
-          {$t('servers.action.restart')}
+        <BusyButton class="btn-secondary btn-sm" busy={busyRestart} onclick={() => void restart()}>
+          <Icon name="refresh" size={14} />{$t('servers.action.restart')}
         </BusyButton>
         <BusyButton class="btn-ghost btn-sm" busy={busyStop} onclick={() => void stop()}>
-          {$t('servers.action.stop')}
+          <Icon name="stop" size={14} />{$t('servers.action.stop')}
         </BusyButton>
       {/if}
     </div>
@@ -170,10 +191,14 @@
 
   <!-- Sub-tabs -->
   <!-- svelte-ignore a11y_interactive_supports_focus -->
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div role="tablist" class="flex gap-1 border-b border-border-subtle px-4 bg-surface">
+  <div
+    role="tablist"
+    class="flex gap-1 border-b border-border-subtle px-4 bg-surface"
+    onkeydown={onTablistKeydown}
+  >
     {#each [['console', $t('servers.tab.console')], ['connect', $t('servers.connect.tab')], ['general', $t('servers.tab.general')], ['settings', $t('servers.tab.settings')], ['mods', $t('servers.tab.mods')], ['hosting', $t('servers.hosting.tab')], ['backups', $t('servers.backups.tab')]] as const as [id, label] (id)}
       <button
+        bind:this={tabEls[TAB_ORDER.indexOf(id)]}
         type="button"
         role="tab"
         aria-selected={tab === id}

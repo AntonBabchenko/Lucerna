@@ -12,6 +12,7 @@
   import ToggleChip from '$lib/ui/ToggleChip.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import {
     countLevels,
     filterLevels,
@@ -240,7 +241,8 @@
       const el = container?.querySelector('[data-match-active="true"]');
       // Guard scrollIntoView — not implemented in every test DOM (happy-dom).
       if (el && typeof el.scrollIntoView === 'function') {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
       }
     });
   }
@@ -341,10 +343,10 @@
   <div class="flex items-center gap-2">
     <button
       type="button"
-      class="btn-ghost btn-sm shrink-0"
+      class="btn-secondary btn-sm shrink-0 inline-flex items-center gap-1"
       onclick={() => void serverState.openLogsFolder(serverId)}
     >
-      {$t('servers.logs.openFolder')}
+      <Icon name="folderOpen" size={14} />{$t('servers.logs.openFolder')}
     </button>
 
     <BusyButton
@@ -386,7 +388,7 @@
       <div class="flex min-w-[12rem] flex-1 items-center gap-1">
         <input
           type="text"
-          class="h-7 flex-1 rounded border border-border-subtle bg-base px-2 text-xs text-primary"
+          class="filter-control flex-1"
           placeholder={$t('servers.console.searchPlaceholder')}
           bind:value={search}
           onkeydown={onSearchKeydown}
@@ -460,7 +462,7 @@
       class="h-80 overflow-y-auto rounded border border-border-subtle bg-base p-2 font-mono text-xs"
     >
       {#if loadingText}
-        <span class="text-muted">{$t('common.loading')}</span>
+        <Spinner size="sm" labelPlacement="right" label={$t('common.loading')} class="text-muted" />
       {:else if readError}
         <span class="text-danger">{readError}</span>
       {:else if archivedText !== null && archivedText.length === 0}

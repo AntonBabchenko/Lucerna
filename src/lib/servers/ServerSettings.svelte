@@ -5,6 +5,7 @@
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { getProperty, setProperty } from './properties-edit';
 
   let { serverId }: { serverId: string } = $props();
@@ -129,7 +130,7 @@
       type="number"
       min="1"
       max="65535"
-      class="h-8 rounded border border-border-emphasis bg-surface px-2 text-primary"
+      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={port}
     />
 
@@ -140,7 +141,7 @@
     <input
       id="sp-motd"
       type="text"
-      class="h-8 rounded border border-border-emphasis bg-surface px-2 text-primary"
+      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={motd}
     />
 
@@ -176,38 +177,49 @@
       id="sp-max-players"
       type="number"
       min="1"
-      class="h-8 rounded border border-border-emphasis bg-surface px-2 text-primary"
+      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={maxPlayers}
     />
 
     <!-- Online mode -->
-    <span class="text-secondary whitespace-nowrap">
+    <label class="text-secondary whitespace-nowrap" for="sp-online-mode">
       {$t('servers.settings.onlineMode')}
-    </span>
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" class="accent-accent" bind:checked={onlineMode} />
     </label>
+    <div class="flex items-center gap-2">
+      <input
+        id="sp-online-mode"
+        type="checkbox"
+        class="accent-accent cursor-pointer"
+        bind:checked={onlineMode}
+      />
+    </div>
 
     <!-- PvP -->
-    <span class="text-secondary whitespace-nowrap">
+    <label class="text-secondary whitespace-nowrap" for="sp-pvp">
       {$t('servers.settings.pvp')}
-    </span>
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" class="accent-accent" bind:checked={pvp} />
     </label>
+    <div class="flex items-center gap-2">
+      <input id="sp-pvp" type="checkbox" class="accent-accent cursor-pointer" bind:checked={pvp} />
+    </div>
 
     <!-- Whitelist -->
-    <span class="text-secondary whitespace-nowrap">
+    <label class="text-secondary whitespace-nowrap" for="sp-whitelist">
       {$t('servers.settings.whitelist')}
-    </span>
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" class="accent-accent" bind:checked={whitelist} />
     </label>
+    <div class="flex items-center gap-2">
+      <input
+        id="sp-whitelist"
+        type="checkbox"
+        class="accent-accent cursor-pointer"
+        bind:checked={whitelist}
+      />
+    </div>
   </div>
 
   <!-- Advanced raw editor -->
   <details class="mt-2">
-    <summary class="cursor-pointer text-sm text-secondary select-none">
+    <summary class="inline-flex items-center cursor-pointer text-sm text-secondary select-none">
+      <span class="disclosure-caret mr-1"><Icon name="caret" size={14} /></span>
       {$t('servers.settings.raw')}
     </summary>
     <textarea

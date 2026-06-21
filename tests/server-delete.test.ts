@@ -53,6 +53,14 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     init: vi.fn(),
     remove: mockRemove,
   },
+  // ServersView's row imports the pure per-server status helper from this module;
+  // mirror its precedence here so the mocked module stays API-complete.
+  serverNavStatus: (s: ServerWithStatus_Serialize) => {
+    if (s.diagnosis_status === 'actionable') return 'fixable';
+    if (!s.running && s.last_exit_code !== null && s.last_exit_code !== 0) return 'crashed';
+    if (s.running) return 'running';
+    return 'idle';
+  },
 }));
 
 function baseProps() {
