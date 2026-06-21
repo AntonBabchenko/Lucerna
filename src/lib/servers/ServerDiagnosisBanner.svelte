@@ -6,7 +6,10 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
+  import { serverDiagnosisSignature } from './server-diagnosis-view';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -14,6 +17,14 @@
   // A running server hasn't crashed — never show a crash/repair banner while it
   // is up, even if a stale or non-fatal-warning diagnosis lingers in the store.
   const running = $derived(serverState.running(serverId));
+
+  // The user can dismiss the banner ("I know about this problem"). Dismissal is
+  // keyed by the diagnosis signature, so a different/new crash resurfaces it on
+  // its own; the restore badge in ServerManageView brings the same one back.
+  const signature = $derived(serverDiagnosisSignature(diag));
+  const dismissed = $derived(
+    signature !== null && diagnosisDismiss.isDismissed(`server:${serverId}`, signature),
+  );
 
   // Map pattern_id → i18n subkey. Unknown patterns fall through to raw title.
   type PatternKey =
@@ -250,7 +261,7 @@
   }
 </script>
 
-{#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled' && !running}
+{#if diag && diag.diagnosis && diag.status !== 'none' && diag.status !== 'handled' && !running && !dismissed}
   <!-- role="alert" so screen-reader users hear the diagnosis when it appears
        after a crash (it renders conditionally, not on mount). -->
   <div
@@ -464,6 +475,14 @@
           </p>
         {/if}
       </div>
+      <button
+        type="button"
+        class="btn-icon -my-1 -mr-1 shrink-0 !text-warning-text hover:!bg-warning-text/10"
+        aria-label={$t('common.dismissWarning')}
+        use:tooltip={$t('common.dismissWarningTooltip')}
+        onclick={() => signature && diagnosisDismiss.dismiss(`server:${serverId}`, signature)}
+        data-testid="server-diagnosis-dismiss"><Icon name="close" size={16} /></button
+      >
     </div>
   </div>
 {/if}

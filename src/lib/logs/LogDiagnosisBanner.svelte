@@ -14,7 +14,10 @@
   import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
   import FixModRepairCard from '$lib/logs/FixModRepairCard.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
+  import { logDiagnosisSignature } from '$lib/logs/log-diagnosis-view';
 
   let {
     instanceId,
@@ -33,6 +36,16 @@
   const status = $derived(diagnosisStatus());
   const diag = $derived(latestDiagnosis()?.diagnosis ?? null);
   const copy = $derived(diag ? DIAGNOSIS_COPY[diag.pattern_id] : undefined);
+
+  // Dismissal ("I know about this problem"), keyed by the log signature so a
+  // different diagnosis resurfaces on its own; the restore badge in LogsPopover
+  // brings the same one back.
+  const signature = $derived(logDiagnosisSignature(latestDiagnosis()));
+  const dismissed = $derived(
+    instanceId !== null &&
+      signature !== null &&
+      diagnosisDismiss.isDismissed(`log:${instanceId}`, signature),
+  );
 
   let repairPlan = $state<RepairPlan | null>(null);
   let repairLoading = $state(false);
@@ -76,7 +89,7 @@
   }
 </script>
 
-{#if (status === 'actionable' || status === 'advisory') && diag}
+{#if (status === 'actionable' || status === 'advisory') && diag && !dismissed}
   <div
     class="mb-3 rounded-xl border border-warning-text bg-warning-bg p-3"
     data-testid="log-diagnosis-banner"
@@ -139,6 +152,15 @@
           {/if}
         {/if}
       </div>
+      <button
+        type="button"
+        class="btn-icon -my-1 -mr-1 shrink-0 !text-warning-text hover:!bg-warning-text/10"
+        aria-label={$t('common.dismissWarning')}
+        use:tooltip={$t('common.dismissWarningTooltip')}
+        onclick={() =>
+          instanceId && signature && diagnosisDismiss.dismiss(`log:${instanceId}`, signature)}
+        data-testid="log-diagnosis-dismiss"><Icon name="close" size={16} /></button
+      >
     </div>
   </div>
 {/if}

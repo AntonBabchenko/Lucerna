@@ -1,4 +1,4 @@
-import { render } from '@testing-library/svelte';
+import { fireEvent, render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
@@ -8,6 +8,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { commands } from '$lib/ipc/bindings';
 import LogDiagnosisBanner from '$lib/logs/LogDiagnosisBanner.svelte';
 import { __resetLogDiagnosisForTest, refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
+import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
 
 const props = {
   instanceId: 'inst-1',
@@ -17,8 +18,30 @@ const props = {
   gameRunning: false,
 };
 
+// Advisory fixture: a non-actionable diagnosis (banner visible, no fix button).
+function mockAdvisory(signature = 's') {
+  vi.mocked(commands.diagnoseLatest).mockResolvedValue({
+    status: 'ok',
+    data: {
+      status: 'advisory',
+      diagnosis: {
+        pattern_id: 'disk-full',
+        title: 't',
+        explanation: 'e',
+        recommendation: 'r',
+        matched_excerpt: 'x',
+        repair: null,
+      },
+      path: 'p',
+      signature,
+    },
+    // biome-ignore lint/suspicious/noExplicitAny: test fixture for the mocked command result
+  } as any);
+}
+
 afterEach(() => {
   __resetLogDiagnosisForTest();
+  diagnosisDismiss.reset();
   vi.clearAllMocks();
 });
 
@@ -52,5 +75,14 @@ describe('LogDiagnosisBanner', () => {
     const { queryByTestId } = render(LogDiagnosisBanner, { props });
     expect(queryByTestId('log-diagnosis-banner')).not.toBeNull();
     expect(queryByTestId('diagnosis-fix')).toBeNull();
+  });
+
+  it('hides the banner when the dismiss button is clicked', async () => {
+    mockAdvisory();
+    await refreshDiagnosis('inst-1');
+    const { queryByTestId, getByTestId } = render(LogDiagnosisBanner, { props });
+    expect(queryByTestId('log-diagnosis-banner')).not.toBeNull();
+    await fireEvent.click(getByTestId('log-diagnosis-dismiss'));
+    expect(queryByTestId('log-diagnosis-banner')).toBeNull();
   });
 });
