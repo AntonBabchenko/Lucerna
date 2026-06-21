@@ -12,6 +12,7 @@
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
 
   function formatLoaderError(e: IpcError): string {
     // Picker keeps shorter wording for the 3 variants it surfaces most
@@ -186,6 +187,4 @@
   {/if}
 {/if}
 
-{#if error}
-  <p class="text-xs text-danger mb-2">{error}</p>
-{/if}
+<StatusMessage tone="danger" message={error} class="mb-2" />

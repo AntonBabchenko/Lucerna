@@ -22,6 +22,7 @@
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { Icon } from '$lib/ui/icons';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
@@ -75,10 +76,27 @@
 
   // Mod-compat summary for the current instance after an MC/loader change.
   let compatRows = $state<ModCompat[] | null>(null);
-  // Reset compat rows when the selected instance changes.
+  // Set when a compat check could not be computed (command error / throw) so the
+  // user gets a quiet "couldn't check" note instead of a silent degradation.
+  let compatCheckFailed = $state(false);
+  // Reset compat state when the selected instance changes.
   $effect(() => {
     void selectedId;
     compatRows = null;
+    compatCheckFailed = false;
+  });
+
+  // The error region scrolls into view when an error first appears, so a failure
+  // from a control above the fold isn't missed at the bottom of the panel. Gate
+  // on the null→message transition (non-reactive cursor, like lastNameSyncId) so
+  // a second failure on an already-visible region doesn't yank the viewport.
+  let errorRegionEl = $state<HTMLElement | null>(null);
+  let lastScrolledError: string | null = null;
+  $effect(() => {
+    if (modalError && !lastScrolledError && errorRegionEl) {
+      errorRegionEl.scrollIntoView?.({ block: 'nearest' });
+    }
+    lastScrolledError = modalError;
   });
 
   // Pending pack-detach confirm state.
@@ -239,10 +257,17 @@
   async function runModCompatCheck(id: string, mc: string, loader: LoaderKind) {
     try {
       const r = await commands.checkInstanceModCompat(id, mc, loader);
-      if (r.status === 'ok') compatRows = r.data;
-      // On error: swallow gracefully — compat check is best-effort UX.
+      if (r.status === 'ok') {
+        compatRows = r.data;
+        compatCheckFailed = false;
+      } else {
+        // Non-blocking degradation: surface a quiet note rather than a modal error.
+        compatRows = null;
+        compatCheckFailed = true;
+      }
     } catch {
-      // Unexpected throw: silently ignore.
+      compatRows = null;
+      compatCheckFailed = true;
     }
   }
 
@@ -345,13 +370,19 @@
   async function openFolder() {
     if (!selected) return;
     const result = await commands.openInstanceFolder(selected.id);
-    if (result.status === 'error') modalError = ipcErrorMessage(result.error);
+    // Folder-open is not tied to a visible field, so a toast is the right
+    // channel (ToastHost is aria-live=polite) rather than the inline alert.
+    if (result.status === 'error')
+      pushWarning(get(t)('instance.manage.openFolderFailed'), [ipcErrorMessage(result.error)]);
   }
 
   async function openSourceFolder() {
     if (!selected?.imported_from) return;
     const result = await commands.openImportedSourceFolder(selected.id);
-    if (result.status === 'error') modalError = ipcErrorMessage(result.error);
+    if (result.status === 'error')
+      pushWarning(get(t)('instance.manage.openSourceFolderFailed'), [
+        ipcErrorMessage(result.error),
+      ]);
   }
 
   async function deleteSelected() {
@@ -596,15 +627,21 @@
             {/key}
           </span>
 
-          {#if compatRows !== null && compatSummary(compatRows) !== null}
-            <p
-              class="text-xs text-warning-text bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
-            >
-              <span class="flex items-center gap-1.5"
-                ><Icon name="warning" /> {compatSummary(compatRows)}</span
-              >
-            </p>
-          {/if}
+          <!-- Compat summary + check-failure note share a polite live region so
+               screen readers hear the advisory; both are empty in the idle state. -->
+          <StatusMessage
+            tone="warning"
+            live="polite"
+            withIcon
+            message={compatRows !== null ? compatSummary(compatRows) : null}
+            class="bg-warning-bg border border-warning-text/30 rounded px-2 py-1.5 mt-2 mb-1"
+          />
+          <StatusMessage
+            tone="info"
+            live="polite"
+            message={compatCheckFailed ? $t('instance.manage.compatCheckUnavailable') : null}
+            class="mt-2 mb-1"
+          />
 
           <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
             {$t('instance.manage.memoryLabel', {
@@ -731,9 +768,9 @@
           <p class="text-muted text-sm">{$t('instance.manage.emptyState')}</p>
         {/if}
 
-        {#if modalError}
-          <p class="text-xs text-danger mt-3">{modalError}</p>
-        {/if}
+        <div bind:this={errorRegionEl}>
+          <StatusMessage tone="danger" message={modalError} class="mt-3" />
+        </div>
       </section>
     </div>
   </Modal>

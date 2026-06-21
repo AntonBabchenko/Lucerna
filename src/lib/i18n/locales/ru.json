@@ -123,7 +123,10 @@
       "jvmArgsLabel": "Дополнительные аргументы JVM",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
       "cannotDeleteLast": "Нельзя удалить последний профиль",
-      "runningBlocked": "Сначала остановите запущенную игру."
+      "runningBlocked": "Сначала остановите запущенную игру.",
+      "compatCheckUnavailable": "Не удалось проверить совместимость модов.",
+      "openFolderFailed": "Не удалось открыть папку профиля.",
+      "openSourceFolderFailed": "Не удалось открыть исходную папку."
     },
     "error": {
       "nameRequired": "Имя обязательно",

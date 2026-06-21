@@ -126,6 +126,23 @@ describe('LoaderPicker', () => {
     expect(trigger).toBeTruthy();
   });
 
+  it('announces a loader-load failure in a live region (role=alert)', async () => {
+    const mod = await import('$lib/ipc/bindings');
+    (mod.commands.listFabricLoaders as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'error',
+      error: { kind: 'loader_unavailable', loader: 'fabric', mc_version: '1.20.1' },
+    });
+
+    const { getByText, getByRole } = render(LoaderPicker, {
+      props: { mc: '1.20.1', loader: 'vanilla', loaderVersion: null },
+    });
+    await fireEvent.click(getByText('Fabric'));
+
+    // The persistent StatusMessage region is always role=alert; wait for the
+    // localized error text to populate it.
+    await waitFor(() => expect(getByRole('alert').textContent).toMatch(/does not support/i));
+  });
+
   it('resets to the new loader stable on switch, even when versions overlap', async () => {
     // Regression: a previous fix preserved loaderVersion across remount
     // by checking "is the current value in the fetched list" — but that
