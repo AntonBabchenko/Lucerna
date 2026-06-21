@@ -285,7 +285,7 @@ export function formatError(e: IpcError): string {
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':
-      return translate('errors.serverImportInvalidArchive', { details: e.details });
+      return withDetailTail(translate('errors.serverImportInvalidArchive'), e.details);
     case 'server_import_too_large':
       return translate('errors.serverImportTooLarge');
     case 'server_import_not_a_server':

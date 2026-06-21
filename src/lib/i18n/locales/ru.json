@@ -1191,7 +1191,7 @@
     "sftpHostKeyMismatch": "Ключ хоста изменился — заливка заблокирована для безопасности. Подтвердите повторно, только если доверяете.",
     "sftpTransferFailed": "Заливка не удалась",
     "serverImportUnsupportedSource": "Выберите .zip-файл или папку с сервером для импорта.",
-    "serverImportInvalidArchive": "Не удалось прочитать архив сервера: {details}",
+    "serverImportInvalidArchive": "Не удалось прочитать архив сервера",
     "serverImportTooLarge": "Этот сервер слишком большой для импорта.",
     "serverImportNotAServer": "Эта папка не похожа на сервер Minecraft (нет server jar, файлов загрузчика или server.properties).",
     "serverImportStagingExpired": "Сессия импорта истекла — начните импорт заново."
