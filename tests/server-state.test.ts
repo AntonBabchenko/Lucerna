@@ -17,7 +17,12 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { commands } from '$lib/ipc/bindings';
 import { serverState } from '$lib/servers/server-state.svelte';
 
-function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
+function makeServer(
+  id: string,
+  running: boolean,
+  lastExitCode: number | null = null,
+  diagnosisStatus: ServerWithStatus_Serialize['diagnosis_status'] = 'none',
+): ServerWithStatus_Serialize {
   return {
     id,
     name: id,
@@ -34,37 +39,50 @@ function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
     port: 25565,
     upload: null,
     upload_password_set: false,
-    last_exit_code: null,
-    diagnosis_status: 'none',
+    last_exit_code: lastExitCode,
+    diagnosis_status: diagnosisStatus,
   };
 }
 
-describe('serverState.anyRunning', () => {
+describe('serverState.serversNavStatus', () => {
   beforeEach(() => {
     vi.mocked(commands.serverList).mockReset();
   });
 
-  it('is true when at least one server is running', async () => {
-    vi.mocked(commands.serverList).mockResolvedValue({
-      status: 'ok',
-      data: [makeServer('srv-a', false), makeServer('srv-b', true)],
-    });
+  async function load(data: ServerWithStatus_Serialize[]) {
+    vi.mocked(commands.serverList).mockResolvedValue({ status: 'ok', data });
     await serverState.refresh();
-    expect(serverState.anyRunning).toBe(true);
+  }
+
+  it("is 'fixable' when a server has an actionable diagnosis, outranking a running server", async () => {
+    await load([makeServer('running', true), makeServer('broken', false, 1, 'actionable')]);
+    expect(serverState.serversNavStatus).toBe('fixable');
   });
 
-  it('is false when no server is running', async () => {
-    vi.mocked(commands.serverList).mockResolvedValue({
-      status: 'ok',
-      data: [makeServer('srv-a', false), makeServer('srv-b', false)],
-    });
-    await serverState.refresh();
-    expect(serverState.anyRunning).toBe(false);
+  it("is 'fixable' even when the same server also registers as crashed", async () => {
+    // A crashed server (non-zero exit) whose diagnosis is actionable must read
+    // as 'fixable', not 'crashed' — guards the order of the precedence branches.
+    await load([makeServer('broken', false, 1, 'actionable')]);
+    expect(serverState.serversNavStatus).toBe('fixable');
   });
 
-  it('is false when the server list is empty', async () => {
-    vi.mocked(commands.serverList).mockResolvedValue({ status: 'ok', data: [] });
-    await serverState.refresh();
-    expect(serverState.anyRunning).toBe(false);
+  it("is 'crashed' for a non-zero exit with no actionable fix, outranking running", async () => {
+    await load([makeServer('running', true), makeServer('dead', false, 1, 'none')]);
+    expect(serverState.serversNavStatus).toBe('crashed');
+  });
+
+  it("is 'running' when a server runs and none crashed/fixable", async () => {
+    await load([makeServer('up', true), makeServer('stopped', false, 0, 'none')]);
+    expect(serverState.serversNavStatus).toBe('running');
+  });
+
+  it("is 'idle' when all servers are cleanly stopped", async () => {
+    await load([makeServer('a', false, null, 'none'), makeServer('b', false, 0, 'none')]);
+    expect(serverState.serversNavStatus).toBe('idle');
+  });
+
+  it("is 'idle' for an empty list", async () => {
+    await load([]);
+    expect(serverState.serversNavStatus).toBe('idle');
   });
 });

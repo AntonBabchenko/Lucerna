@@ -234,6 +234,24 @@ pub const PATTERNS: &[Pattern] = &[
              you want to start there.",
         source_hint: SourceHint::Any,
     },
+    Pattern {
+        id: "create-goggle-overlay-crash",
+        // A specific Create-addon mixin (tfmg / Big Cannons) casts the player's
+        // hit-result to BlockHitResult while rendering the goggles overlay; when
+        // the player looks at an ENTITY it is an EntityHitResult and the cast
+        // throws every render frame. Forge catches it, so the game does not
+        // crash — but the log fills with this error and the overlay flickers.
+        matcher: Matcher::Substring("Error rendering overlay 'create:goggle_info'"),
+        title: "Create goggles are spamming errors",
+        explanation:
+            "While wearing Create goggles and looking at a mob or other entity, a Create \
+             add-on (The Factory Must Grow / Big Cannons) throws an error every frame. The \
+             game keeps running, but the log fills up and the goggle overlay flickers.",
+        recommendation:
+            "Lucerna can install a small community fix mod that resolves this. It's a \
+             third-party mod, not an official patch — review it before installing.",
+        source_hint: SourceHint::GameLog,
+    },
 ];
 
 #[cfg(test)]
@@ -286,10 +304,9 @@ mod tests {
     }
 
     #[test]
-    fn v1_ships_exactly_nine_patterns() {
-        // 7 → 8 for `server-missing-mods`; 8 → 9 for `client-extra-mods`
-        // (the inverse "your mods block this server" diagnosis).
-        assert_eq!(PATTERNS.len(), 9);
+    fn ships_exactly_ten_patterns() {
+        // 9 → 10 for `create-goggle-overlay-crash` (first fix-mod-backed pattern).
+        assert_eq!(PATTERNS.len(), 10);
     }
 
     #[test]

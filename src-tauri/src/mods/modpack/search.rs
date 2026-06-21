@@ -97,10 +97,7 @@ pub async fn search(
     );
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,

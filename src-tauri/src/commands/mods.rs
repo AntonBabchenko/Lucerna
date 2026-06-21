@@ -1479,11 +1479,15 @@ pub async fn mods_dependency_graph(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> crate::error::Result<crate::mods::depgraph::DependencyGraph> {
-    use crate::mods::depgraph::{build_graph, DepChild, DependencyGraph, InstalledNode, NodeDeps};
+    use crate::mods::depgraph::{build_graph, DependencyGraph, InstalledNode, NodeDeps};
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
     let root = instance_root(&app, &instance_id)?;
+    // The instance loader scopes the graph: a declaring mod whose loader family
+    // this instance cannot load is inert here, so its declared deps must not be
+    // shown as required (the depgraph analogue of preflight's #154 scoping).
+    let loader = crate::instances::read_instance(&app, &instance_id)?.loader;
     let installed_mods = crate::mods::installed::list(&root).await?;
 
     // Roots: platform-identified installed mods only (anonymous local jars have
@@ -1516,7 +1520,7 @@ pub async fn mods_dependency_graph(
         }
     }
     // (source, project_id) -> that mod's installed-version dependency links.
-    let mut deps_by_project: HashMap<(ModSource, String), Vec<ModDepLink>> = HashMap::new();
+    let mut deps_by_project: HashMap<(ModSource, String), DepNodeMeta> = HashMap::new();
     for (source, vids) in &version_ids {
         let refs: Vec<&str> = vids.iter().map(String::as_str).collect();
         let versions = match platform_for(*source).versions_by_ids(&refs).await {
@@ -1529,7 +1533,13 @@ pub async fn mods_dependency_graph(
             }
         };
         for v in versions {
-            deps_by_project.insert((*source, v.project_id.clone()), v.deps);
+            deps_by_project.insert(
+                (*source, v.project_id.clone()),
+                DepNodeMeta {
+                    loaders: v.loaders,
+                    deps: v.deps,
+                },
+            );
         }
     }
 
@@ -1545,8 +1555,8 @@ pub async fn mods_dependency_graph(
             .or_default()
             .insert(n.project_id.clone());
     }
-    for deps in deps_by_project.values() {
-        for d in deps {
+    for node in deps_by_project.values() {
+        for d in &node.deps {
             let (src, pid) = dep_ref_key(&d.project_ref);
             ids_by_source.entry(src).or_default().insert(pid);
         }
@@ -1582,41 +1592,11 @@ pub async fn mods_dependency_graph(
         let deps_by_project = deps_by_project.clone();
         let summaries = summaries.clone();
         async move {
-            let Some(links) = deps_by_project.get(&(source, project_id)) else {
-                return Ok(NodeDeps::default());
+            let result = match deps_by_project.get(&(source, project_id)) {
+                Some(node) => node_deps_scoped(node, loader, &summaries),
+                None => NodeDeps::default(),
             };
-            let mut required = Vec::new();
-            let mut optional = Vec::new();
-            for link in links {
-                if matches!(link.kind, DepKind::Incompatible | DepKind::Embedded) {
-                    continue;
-                }
-                let (child_src, child_pid) = dep_ref_key(&link.project_ref);
-                let summary = summaries.get(&(child_src, child_pid.clone()));
-                // Loader projects (fabric/forge/…) are instance-managed and never
-                // shown as a mod dependency — drop them by their cached slug.
-                let is_loader = summary
-                    .and_then(|s| s.slug.as_deref())
-                    .map(|slug| LOADER_SLUGS.contains(&slug.to_ascii_lowercase().as_str()))
-                    .unwrap_or(false);
-                if is_loader {
-                    continue;
-                }
-                let name = summary
-                    .map(|s| s.name.clone())
-                    .unwrap_or_else(|| child_pid.clone());
-                let child = DepChild {
-                    source: child_src,
-                    project_id: child_pid,
-                    name,
-                };
-                match link.kind {
-                    DepKind::Required => required.push(child),
-                    DepKind::Optional => optional.push(child),
-                    _ => {}
-                }
-            }
-            Ok::<NodeDeps, crate::error::Error>(NodeDeps { required, optional })
+            Ok::<NodeDeps, crate::error::Error>(result)
         }
     };
 
@@ -1631,6 +1611,63 @@ fn dep_ref_key(r: &DepProjectRef) -> (ModSource, String) {
         DepProjectRef::Modrinth { project_id, .. } => (ModSource::Modrinth, project_id.clone()),
         DepProjectRef::Curseforge { mod_id, .. } => (ModSource::Curseforge, mod_id.to_string()),
     }
+}
+
+/// One installed mod's installed-version metadata needed to build its graph
+/// children: the platform-declared `loaders` (for instance-loader scoping) and
+/// the declared dependency links.
+struct DepNodeMeta {
+    loaders: Vec<crate::mods::platform::LoaderKind>,
+    deps: Vec<ModDepLink>,
+}
+
+/// Project a declaring node's required/optional graph children from its platform
+/// metadata, scoped to the instance loader. A node inert on this instance (its
+/// declared loaders are family-disjoint from `loader`) yields no children — this
+/// is what stops a Forge instance from showing an inert Fabric jar's `fabric-api`
+/// requirement (the dependency-graph analogue of preflight's loader scoping,
+/// PR #154). Synchronous, pure in-memory projection.
+fn node_deps_scoped(
+    node: &DepNodeMeta,
+    loader: crate::mods::platform::LoaderKind,
+    summaries: &std::collections::HashMap<(ModSource, String), ModSummary>,
+) -> crate::mods::depgraph::NodeDeps {
+    use crate::mods::depgraph::{DepChild, NodeDeps};
+    if crate::mods::local::loaders_disjoint_from_instance(&node.loaders, loader) {
+        return NodeDeps::default();
+    }
+    let mut required = Vec::new();
+    let mut optional = Vec::new();
+    for link in &node.deps {
+        if matches!(link.kind, DepKind::Incompatible | DepKind::Embedded) {
+            continue;
+        }
+        let (child_src, child_pid) = dep_ref_key(&link.project_ref);
+        let summary = summaries.get(&(child_src, child_pid.clone()));
+        // Loader projects (fabric/forge/…) are instance-managed and never
+        // shown as a mod dependency — drop them by their cached slug.
+        let is_loader = summary
+            .and_then(|s| s.slug.as_deref())
+            .map(|slug| LOADER_SLUGS.contains(&slug.to_ascii_lowercase().as_str()))
+            .unwrap_or(false);
+        if is_loader {
+            continue;
+        }
+        let name = summary
+            .map(|s| s.name.clone())
+            .unwrap_or_else(|| child_pid.clone());
+        let child = DepChild {
+            source: child_src,
+            project_id: child_pid,
+            name,
+        };
+        match link.kind {
+            DepKind::Required => required.push(child),
+            DepKind::Optional => optional.push(child),
+            _ => {}
+        }
+    }
+    NodeDeps { required, optional }
 }
 
 // =========================================================================
@@ -1662,8 +1699,65 @@ pub async fn instance_dependency_preflight(
 mod tests {
     use super::*;
     use crate::mods::deps::ProjectKey;
-    use crate::mods::platform::{LoaderKind, ModFile, ModSource, ModVersion};
+    use crate::mods::platform::{
+        DepKind, DepProjectRef, LoaderKind, ModDepLink, ModFile, ModSource, ModVersion,
+    };
     use std::collections::HashSet;
+
+    #[test]
+    fn node_deps_scoped_suppresses_inert_fabric_node_on_forge() {
+        // A Fabric-only declaring node whose only child is the (phantom) Fabric API.
+        let node = DepNodeMeta {
+            loaders: vec![LoaderKind::Fabric],
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Modrinth {
+                    project_id: "P7dR8mSH".into(),
+                    version_id: None,
+                },
+            }],
+        };
+        let out = node_deps_scoped(&node, LoaderKind::Forge, &std::collections::HashMap::new());
+        assert!(
+            out.required.is_empty(),
+            "inert Fabric node must yield no required deps on Forge"
+        );
+        assert!(out.optional.is_empty());
+    }
+
+    #[test]
+    fn node_deps_scoped_keeps_deps_for_matching_loader() {
+        let node = DepNodeMeta {
+            loaders: vec![LoaderKind::Forge],
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Modrinth {
+                    project_id: "abc".into(),
+                    version_id: None,
+                },
+            }],
+        };
+        let out = node_deps_scoped(&node, LoaderKind::Forge, &std::collections::HashMap::new());
+        assert_eq!(out.required.len(), 1);
+        assert_eq!(out.required[0].project_id, "abc");
+    }
+
+    #[test]
+    fn node_deps_scoped_keeps_deps_when_loaders_unknown() {
+        // Platform reported no loader tags → conservative: do not suppress.
+        let node = DepNodeMeta {
+            loaders: vec![],
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Modrinth {
+                    project_id: "abc".into(),
+                    version_id: None,
+                },
+            }],
+        };
+        let out = node_deps_scoped(&node, LoaderKind::Forge, &std::collections::HashMap::new());
+        assert_eq!(out.required.len(), 1, "unknown loaders must not suppress");
+    }
 
     /// Mirror the `mv` helper from `dep_resolve.rs` tests: a minimal Modrinth
     /// `ModVersion` whose `project_id` and jar filename derive from `slug`.

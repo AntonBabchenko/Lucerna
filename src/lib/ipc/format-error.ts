@@ -4,6 +4,154 @@ import { t } from '$lib/i18n';
 import { displayLoader } from '$lib/instances/loader-display';
 import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
 
+// Detail-bearing errors are truncated to this many code points in the UI; the
+// full text lives in the launcher log. Slicing is by code point (spread), not
+// UTF-16 unit, so a surrogate pair at the boundary is never split.
+const DETAIL_TRUNCATE_CODE_POINTS = 120;
+
+/**
+ * Render an Opaque error's `headline` plus its raw `detail`:
+ *   - no detail            → `headline`
+ *   - detail ≤ 120 cp      → `headline: detail`
+ *   - detail >  120 cp     → `headline: <first 120>… (open Logs for full text)`
+ *
+ * Single source of truth for the "human sentence + truncated detail + point at
+ * Logs" convention. Every Opaque variant in formatError routes through here so
+ * the formatting is identical everywhere (generalises the old inline `io` case).
+ */
+export function withDetailTail(headline: string, raw: string | null | undefined): string {
+  if (!raw) return headline;
+  const codePoints = [...raw];
+  if (codePoints.length <= DETAIL_TRUNCATE_CODE_POINTS) {
+    return `${headline}: ${raw}`;
+  }
+  const hint = get(t)('errors.ioTruncatedHint');
+  return `${headline}: ${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}… (${hint})`;
+}
+
+export type ErrorClass = 'clean' | 'transport' | 'opaque';
+
+/**
+ * The display-policy registry. Every Error variant is assigned exactly one
+ * class; the `Record<IpcError['kind'], …>` type makes a missing assignment a
+ * compile error, so a new variant in bindings.ts cannot land unclassified. The
+ * vitest sweep enforces the per-class invariants at runtime (transport hides
+ * url/detail; opaque truncates + points at Logs). Together they keep every
+ * error rendered consistently.
+ *
+ *   clean     — message fully built from structured fields (the default).
+ *   transport — network/availability; clean actionable, no raw detail.
+ *   opaque    — parse/io/spawn; headline + truncated detail + "open Logs".
+ */
+export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
+  // Transport — clean actionable, detail to log only.
+  network: 'transport',
+  mods_network: 'transport',
+  mods_platform_unreachable: 'transport',
+  // Opaque — headline + truncated detail + "open Logs".
+  io: 'opaque',
+  java_spawn: 'opaque',
+  auth_failed: 'opaque',
+  forge_maven_metadata_parse_failed: 'opaque',
+  forge_installer_corrupted: 'opaque',
+  forge_patcher_failed: 'opaque',
+  mods_decode: 'opaque',
+  mods_cache_io: 'opaque',
+  mods_instance_path: 'opaque',
+  modpack_invalid_archive: 'opaque',
+  modpack_manifest_invalid: 'opaque',
+  modpack_instance_creation_failed: 'opaque',
+  modpack_export_failed: 'opaque',
+  backup_corrupt: 'opaque',
+  world_import_invalid_archive: 'opaque',
+  playtime_io: 'opaque',
+  tray_io: 'opaque',
+  window_io: 'opaque',
+  update_check_failed: 'opaque',
+  update_verification_failed: 'opaque',
+  update_install_failed: 'opaque',
+  import_instance_unreadable: 'opaque',
+  server_spawn_failed: 'opaque',
+  server_installer_failed: 'opaque',
+  sftp_connect_failed: 'opaque',
+  sftp_transfer_failed: 'opaque',
+  mc_logs_upload: 'opaque',
+  server_import_invalid_archive: 'opaque',
+  servers_dat_parse: 'opaque',
+  // Clean — everything else (self-contained from structured fields).
+  host_not_allowed: 'clean',
+  hash_mismatch: 'clean',
+  already_running: 'clean',
+  account_not_set: 'clean',
+  instance_busy: 'clean',
+  auth_cancelled: 'clean',
+  no_minecraft_profile: 'clean',
+  auth_pending_approval: 'clean',
+  unknown_version: 'clean',
+  unsupported_platform: 'clean',
+  loader_unavailable: 'clean',
+  last_instance: 'clean',
+  no_version_selected: 'clean',
+  instance_not_found: 'clean',
+  forge_promotions_unavailable: 'clean',
+  forge_no_build_for: 'clean',
+  forge_unsupported_processor: 'clean',
+  forge_mappings_missing: 'clean',
+  instance_name_empty: 'clean',
+  instance_name_too_long: 'clean',
+  mods_platform_auth: 'clean',
+  mods_distribution_disabled: 'clean',
+  mods_not_found: 'clean',
+  mods_platform_unsupported: 'clean',
+  mods_sha1_unavailable: 'clean',
+  mods_sha1_mismatch: 'clean',
+  mods_dependency_unresolvable: 'clean',
+  mods_filename_conflict: 'clean',
+  mods_unsafe_filename: 'clean',
+  modpack_format_unknown: 'clean',
+  modpack_unsupported_manifest_version: 'clean',
+  modpack_unsupported_loader: 'clean',
+  modpack_download_host_not_allowed: 'clean',
+  modpack_sha1_unavailable: 'clean',
+  modpack_mod_distribution_disabled: 'clean',
+  modpack_overrides_path_escape: 'clean',
+  modpack_overrides_too_large: 'clean',
+  modpack_no_files_selected: 'clean',
+  modpack_partial_failure: 'clean',
+  modpack_bundled_no_url: 'clean',
+  modpack_cf_distribution_disabled: 'clean',
+  world_not_found: 'clean',
+  world_in_use: 'clean',
+  world_path_invalid: 'clean',
+  world_name_unresolvable: 'clean',
+  backup_not_found: 'clean',
+  world_import_not_a_world: 'clean',
+  world_import_unsupported_source: 'clean',
+  world_import_too_large: 'clean',
+  quick_play_address_invalid: 'clean',
+  import_unsupported_loader: 'clean',
+  import_source_unrecognized: 'clean',
+  import_no_provenance: 'clean',
+  import_source_missing: 'clean',
+  saved_server_name_invalid: 'clean',
+  offline_name_invalid: 'clean',
+  saved_server_list_changed: 'clean',
+  server_invalid_property: 'clean',
+  server_eula_not_accepted: 'clean',
+  server_jar_unavailable: 'clean',
+  server_already_running: 'clean',
+  server_not_running: 'clean',
+  server_mod_required_by_other: 'clean',
+  server_name_invalid: 'clean',
+  upload_not_configured: 'clean',
+  sftp_auth_failed: 'clean',
+  sftp_host_key_mismatch: 'clean',
+  server_import_unsupported_source: 'clean',
+  server_import_too_large: 'clean',
+  server_import_not_a_server: 'clean',
+  server_import_staging_expired: 'clean',
+};
+
 /**
  * Render a typed IPC Error as a human-readable single-line string.
  *
@@ -22,13 +170,13 @@ export function formatError(e: IpcError): string {
   const translate = get(t);
   switch (e.kind) {
     case 'network':
-      return translate('errors.network', { url: e.url, details: e.details });
+      return translate('errors.network');
     case 'host_not_allowed':
       return translate('errors.hostNotAllowed', { url: e.url });
     case 'hash_mismatch':
       return translate('errors.hashMismatch', { path: e.path });
     case 'java_spawn':
-      return translate('errors.javaSpawn', { details: e.details });
+      return withDetailTail(translate('errors.javaSpawn'), e.details);
     case 'already_running':
       return translate('errors.alreadyRunning');
     case 'account_not_set':
@@ -43,7 +191,7 @@ export function formatError(e: IpcError): string {
     case 'auth_cancelled':
       return translate('errors.authCancelled');
     case 'auth_failed':
-      return translate('errors.authFailed', { stage: e.stage, details: e.details });
+      return withDetailTail(translate('errors.authFailed', { stage: e.stage }), e.details);
     case 'no_minecraft_profile':
       return translate('errors.noMinecraftProfile');
     case 'auth_pending_approval':
@@ -63,35 +211,26 @@ export function formatError(e: IpcError): string {
       return translate('errors.noVersionSelected');
     case 'instance_not_found':
       return translate('errors.instanceNotFound', { id: e.id });
-    case 'io': {
-      // `details` can be a long parse-error dump (e.g. account.json contents
-      // on a schema-mismatch). Toasts can't wrap 1000+ chars usefully —
-      // truncate and point the user at the launcher log for the full text.
-      // Slice by code points, not UTF-16 code units, so an emoji or other
-      // surrogate-pair character at the boundary never gets split in half.
-      const codePoints = [...e.details];
-      const details =
-        codePoints.length > 120
-          ? `${codePoints.slice(0, 120).join('')}… (${translate('errors.ioTruncatedHint')})`
-          : e.details;
-      return translate('errors.io', { path: e.path, details });
-    }
+    case 'io':
+      return withDetailTail(translate('errors.io', { path: e.path }), e.details);
     case 'forge_promotions_unavailable':
       return translate('errors.forgePromotionsUnavailable', { flavor: e.flavor });
     case 'forge_maven_metadata_parse_failed':
-      return translate('errors.forgeMavenMetadataParseFailed', { details: e.details });
+      return withDetailTail(translate('errors.forgeMavenMetadataParseFailed'), e.details);
     case 'forge_no_build_for':
       return translate('errors.forgeNoBuildFor', { mc: e.mc });
     case 'forge_installer_corrupted':
-      return translate('errors.forgeInstallerCorrupted', {
-        mc: e.mc,
-        fv: e.fv,
-        details: e.details,
-      });
+      return withDetailTail(
+        translate('errors.forgeInstallerCorrupted', { mc: e.mc, fv: e.fv }),
+        e.details,
+      );
     case 'forge_unsupported_processor':
       return translate('errors.forgeUnsupportedProcessor', { coord: e.coord });
     case 'forge_patcher_failed':
-      return translate('errors.forgePatcherFailed', { processor: e.processor, details: e.details });
+      return withDetailTail(
+        translate('errors.forgePatcherFailed', { processor: e.processor }),
+        e.details,
+      );
     case 'forge_mappings_missing':
       return translate('errors.forgeMappingsMissing', { mc: e.mc });
     case 'instance_name_empty':
@@ -99,9 +238,9 @@ export function formatError(e: IpcError): string {
     case 'instance_name_too_long':
       return translate('errors.instanceNameTooLong', { actual: e.actual, max: e.max });
     case 'mc_logs_upload':
-      return translate('errors.mcLogsUpload', { details: e.details });
+      return withDetailTail(translate('errors.mcLogsUpload'), e.details);
     case 'mods_network':
-      return translate('errors.modsNetwork', { url: e.url, details: e.details });
+      return translate('errors.modsNetwork');
     case 'mods_platform_auth':
       return e.kind_detail === 'invalid'
         ? translate('errors.modsPlatformAuthInvalid')
@@ -115,7 +254,7 @@ export function formatError(e: IpcError): string {
     case 'mods_platform_unsupported':
       return translate('errors.modsPlatformUnsupported', { source: e.source });
     case 'mods_decode':
-      return translate('errors.modsDecode', { source: e.source, details: e.details });
+      return withDetailTail(translate('errors.modsDecode', { source: e.source }), e.details);
     case 'mods_sha1_unavailable':
       return translate('errors.modsSha1Unavailable');
     case 'mods_sha1_mismatch':
@@ -129,15 +268,18 @@ export function formatError(e: IpcError): string {
     case 'mods_unsafe_filename':
       return translate('errors.modsUnsafeFilename', { filename: e.filename });
     case 'mods_cache_io':
-      return translate('errors.modsCacheIo', { details: e.details });
+      return withDetailTail(translate('errors.modsCacheIo'), e.details);
     case 'mods_instance_path':
-      return translate('errors.modsInstancePath', { path: e.path, details: e.details });
+      return withDetailTail(translate('errors.modsInstancePath', { path: e.path }), e.details);
     case 'modpack_invalid_archive':
-      return translate('errors.modpackInvalidArchive', { details: e.details });
+      return withDetailTail(translate('errors.modpackInvalidArchive'), e.details);
     case 'modpack_format_unknown':
       return translate('errors.modpackFormatUnknown');
     case 'modpack_manifest_invalid':
-      return translate('errors.modpackManifestInvalid', { format: e.format, details: e.details });
+      return withDetailTail(
+        translate('errors.modpackManifestInvalid', { format: e.format }),
+        e.details,
+      );
     case 'modpack_unsupported_manifest_version':
       return translate('errors.modpackUnsupportedManifestVersion', {
         format: e.format,
@@ -171,7 +313,7 @@ export function formatError(e: IpcError): string {
     case 'modpack_no_files_selected':
       return translate('errors.modpackNoFilesSelected');
     case 'modpack_instance_creation_failed':
-      return translate('errors.modpackInstanceCreationFailed', { details: e.details });
+      return withDetailTail(translate('errors.modpackInstanceCreationFailed'), e.details);
     case 'modpack_partial_failure':
       return translate('errors.modpackPartialFailure', { count: e.failed.length });
     case 'modpack_bundled_no_url':
@@ -179,7 +321,7 @@ export function formatError(e: IpcError): string {
     case 'modpack_cf_distribution_disabled':
       return translate('errors.modpackCfDistributionDisabled', { packName: e.pack_name });
     case 'modpack_export_failed':
-      return translate('errors.modpackExportFailed', { details: e.details });
+      return withDetailTail(translate('errors.modpackExportFailed'), e.details);
     case 'world_not_found':
       return translate('errors.worldNotFound', { folderName: e.folder_name });
     case 'world_in_use':
@@ -191,37 +333,37 @@ export function formatError(e: IpcError): string {
     case 'backup_not_found':
       return translate('errors.backupNotFound', { filename: e.filename });
     case 'backup_corrupt':
-      return translate('errors.backupCorrupt', { filename: e.filename, details: e.details });
+      return withDetailTail(translate('errors.backupCorrupt', { filename: e.filename }), e.details);
     case 'world_import_not_a_world':
       return translate('errors.worldImportNotAWorld');
     case 'world_import_unsupported_source':
       return translate('errors.worldImportUnsupportedSource');
     case 'world_import_invalid_archive':
-      return translate('errors.worldImportInvalidArchive', { details: e.details });
+      return withDetailTail(translate('errors.worldImportInvalidArchive'), e.details);
     case 'world_import_too_large':
       return translate('errors.worldImportTooLarge');
     case 'playtime_io':
-      return translate('errors.playtimeIo', { details: e.details });
+      return withDetailTail(translate('errors.playtimeIo'), e.details);
     case 'tray_io':
-      return translate('errors.trayIo', { details: e.details });
+      return withDetailTail(translate('errors.trayIo'), e.details);
     case 'window_io':
-      return translate('errors.windowIo', { details: e.details });
+      return withDetailTail(translate('errors.windowIo'), e.details);
     case 'update_check_failed':
-      return translate('errors.updateCheckFailed', { details: e.details });
+      return withDetailTail(translate('errors.updateCheckFailed'), e.details);
     case 'update_verification_failed':
-      return translate('errors.updateVerificationFailed', { details: e.details });
+      return withDetailTail(translate('errors.updateVerificationFailed'), e.details);
     case 'update_install_failed':
-      return translate('errors.updateInstallFailed', { details: e.details });
+      return withDetailTail(translate('errors.updateInstallFailed'), e.details);
     case 'quick_play_address_invalid':
       return translate('errors.quickPlayAddressInvalid', {
         address: e.address,
         reason: e.reason,
       });
     case 'import_instance_unreadable':
-      return translate('errors.importInstanceUnreadable', {
-        launcher: e.launcher,
-        details: e.details,
-      });
+      return withDetailTail(
+        translate('errors.importInstanceUnreadable', { launcher: e.launcher }),
+        e.details,
+      );
     case 'import_unsupported_loader':
       return translate('errors.importUnsupportedLoader', { loader: e.loader });
     case 'import_source_unrecognized':
@@ -231,7 +373,10 @@ export function formatError(e: IpcError): string {
     case 'import_source_missing':
       return translate('errors.importSourceMissing', { path: e.path });
     case 'servers_dat_parse':
-      return translate('errors.serversDatParse', { reason: e.reason });
+      // `reason` is a raw fastnbt parse-error dump in two of the construction
+      // sites — Opaque, so it truncates and points at Logs rather than leaking
+      // English library text into the UI.
+      return withDetailTail(translate('errors.serversDatParse'), e.reason);
     case 'saved_server_name_invalid':
       return translate('errors.savedServerNameInvalid', { name: e.name, reason: e.reason });
     case 'saved_server_list_changed':
@@ -246,9 +391,12 @@ export function formatError(e: IpcError): string {
         mcVersion: e.mc_version,
       });
     case 'server_installer_failed':
-      return translate('errors.serverInstallerFailed', { loader: e.loader });
+      return withDetailTail(
+        translate('errors.serverInstallerFailed', { loader: e.loader }),
+        e.details,
+      );
     case 'server_spawn_failed':
-      return translate('errors.serverSpawnFailed', { details: e.details });
+      return withDetailTail(translate('errors.serverSpawnFailed'), e.details);
     case 'server_already_running':
       return translate('errors.serverAlreadyRunning');
     case 'server_not_running':
@@ -263,7 +411,7 @@ export function formatError(e: IpcError): string {
     case 'server_import_unsupported_source':
       return translate('errors.serverImportUnsupportedSource');
     case 'server_import_invalid_archive':
-      return translate('errors.serverImportInvalidArchive', { details: e.details });
+      return withDetailTail(translate('errors.serverImportInvalidArchive'), e.details);
     case 'server_import_too_large':
       return translate('errors.serverImportTooLarge');
     case 'server_import_not_a_server':
@@ -273,13 +421,13 @@ export function formatError(e: IpcError): string {
     case 'upload_not_configured':
       return translate('errors.uploadNotConfigured');
     case 'sftp_connect_failed':
-      return translate('errors.sftpConnectFailed', { details: e.details });
+      return withDetailTail(translate('errors.sftpConnectFailed'), e.details);
     case 'sftp_auth_failed':
       return translate('errors.sftpAuthFailed');
     case 'sftp_host_key_mismatch':
       return translate('errors.sftpHostKeyMismatch');
     case 'sftp_transfer_failed':
-      return translate('errors.sftpTransferFailed', { details: e.details });
+      return withDetailTail(translate('errors.sftpTransferFailed'), e.details);
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

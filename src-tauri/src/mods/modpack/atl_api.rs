@@ -117,10 +117,7 @@ pub async fn all_packs(base: &str) -> Result<Vec<AtlPack>, Error> {
     let url = format!("{base}/v1/packs/full/all");
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,
@@ -140,10 +137,7 @@ pub async fn configs(cdn_base: &str, safe_name: &str, version: &str) -> Result<A
     let url = format!("{cdn_base}/packs/{safe_name}/versions/{version}/Configs.json");
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,
