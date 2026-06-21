@@ -47,6 +47,18 @@
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
 
+  // Local name filter for the sidebar list — only surfaces once the list is
+  // long enough that scanning becomes a chore. Display-only: filtering never
+  // changes the selection, so the detail panel keeps showing the selected
+  // instance even if it is hidden from the list.
+  const FILTER_THRESHOLD = 8;
+  let filterQuery = $state('');
+  let filteredInstances = $derived(
+    filterQuery.trim()
+      ? instances.filter((i) => i.name.toLowerCase().includes(filterQuery.trim().toLowerCase()))
+      : instances,
+  );
+
   // When the modal opens, default the selection to the currently-active
   // instance (the one the user is playing on the main view). Otherwise
   // the detail panel either shows empty state (selectedId=null) or
@@ -170,6 +182,7 @@
     draftLoader = 'vanilla';
     draftLoaderVersion = null;
     modalError = null;
+    filterQuery = '';
   }
 
   async function submitCreate() {
@@ -368,8 +381,17 @@
     // on close, not resurrected on reopen).
     lastNameSyncId = null;
     lastHeapSyncId = null;
+    filterQuery = '';
   }
 </script>
+
+{#snippet activeChip()}
+  <span
+    class="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+  >
+    {$t('instance.manage.activeBadge')}
+  </span>
+{/snippet}
 
 {#if open}
   <Modal
@@ -384,53 +406,67 @@
       <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
     </header>
     <div class="flex flex-1 overflow-hidden">
-      <aside
-        class="w-[220px] border-r overflow-y-auto p-2 flex flex-col gap-1"
-        data-tour-ctx="manage-list"
-      >
-        {#each instances as i}
-          <button
-            class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
-            class:bg-accent-soft={i.id === selectedId}
-            onclick={() => {
-              createMode = false;
-              selectedId = i.id;
-            }}
-          >
-            <div class="font-medium flex items-center gap-1.5">
-              <Icon name={i.ready ? 'success' : 'download'} />
-              {i.name}
-              {#if i.integrity && !i.integrity.healthy}
-                <!-- The span carries the hover tooltip (title); the icon
+      <aside class="w-[220px] border-r p-2 flex flex-col gap-2" data-tour-ctx="manage-list">
+        <button type="button" class="shrink-0 btn-primary btn-sm w-full" onclick={openCreate}>
+          {$t('instance.manage.newInstanceBtn')}
+        </button>
+        {#if instances.length > FILTER_THRESHOLD}
+          <input
+            type="text"
+            class="shrink-0 border rounded px-2 py-1 text-sm"
+            placeholder={$t('instance.manage.filterPlaceholder')}
+            aria-label={$t('instance.manage.filterPlaceholder')}
+            bind:value={filterQuery}
+          />
+        {/if}
+        <div class="flex-1 overflow-y-auto flex flex-col gap-1">
+          {#each filteredInstances as i (i.id)}
+            <button
+              class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
+              class:bg-accent-soft={i.id === selectedId}
+              onclick={() => {
+                createMode = false;
+                selectedId = i.id;
+              }}
+            >
+              <div class="font-medium flex items-center gap-1.5">
+                <Icon name={i.ready ? 'success' : 'download'} class="shrink-0" />
+                <span
+                  class="truncate min-w-0 flex-1"
+                  use:tooltip={{ text: i.name, whenOverflowing: true }}>{i.name}</span
+                >
+                {#if i.integrity && !i.integrity.healthy}
+                  <!-- The span carries the hover tooltip (title); the icon
                        carries the accessible name (label → role="img" +
                        aria-label), so pointer and screen-reader users get
                        the same "N problems" text. -->
-                <span
-                  class="inline-flex text-warning-text"
-                  use:tooltip={$t('instance.integrity.statusProblems', {
-                    count: i.integrity.problem_count,
-                  })}
-                >
-                  <Icon
-                    name="warning"
-                    label={$t('instance.integrity.statusProblems', {
+                  <span
+                    class="inline-flex shrink-0 text-warning-text"
+                    use:tooltip={$t('instance.integrity.statusProblems', {
                       count: i.integrity.problem_count,
                     })}
-                  />
-                </span>
-              {/if}
-              {#if i.id === activeInstance?.id}
-                <span class="text-xs text-muted">{$t('instance.manage.activeLabel')}</span>
-              {/if}
-            </div>
-            <div class="text-xs text-muted">
-              {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
-            </div>
-          </button>
-        {/each}
-        <button type="button" class="mt-2 btn-primary btn-sm w-full" onclick={openCreate}>
-          {$t('instance.manage.newInstanceBtn')}
-        </button>
+                  >
+                    <Icon
+                      name="warning"
+                      label={$t('instance.integrity.statusProblems', {
+                        count: i.integrity.problem_count,
+                      })}
+                    />
+                  </span>
+                {/if}
+                {#if i.id === activeInstance?.id}
+                  {@render activeChip()}
+                {/if}
+              </div>
+              <div class="text-xs text-muted truncate">
+                {displayLoader(i.loader)} · {i.mc_version || $t('instance.manage.pickMc')}
+              </div>
+            </button>
+          {/each}
+          {#if filterQuery.trim() && filteredInstances.length === 0}
+            <p class="text-xs text-muted px-2 py-1">{$t('instance.manage.filterNoMatches')}</p>
+          {/if}
+        </div>
       </aside>
       <section class="flex-1 overflow-y-auto p-4" data-tour-ctx="manage-form">
         {#if createMode}
@@ -486,11 +522,9 @@
             </span>
           </div>
         {:else if selected}
-          <h3 class="font-semibold text-primary mb-3">
-            {selected.name}
-            {#if selected.id === activeInstance?.id}<span class="text-xs text-muted"
-                >{$t('instance.manage.activeLabel')}</span
-              >{/if}
+          <h3 class="font-semibold text-primary mb-3 flex items-center gap-2">
+            <span class="truncate min-w-0">{selected.name}</span>
+            {#if selected.id === activeInstance?.id}{@render activeChip()}{/if}
           </h3>
 
           <label

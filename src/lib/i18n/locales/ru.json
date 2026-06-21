@@ -99,9 +99,11 @@
     "manage": {
       "title": "Управление профилями",
       "closeLabel": "Закрыть управление профилями",
-      "activeLabel": "(активный)",
+      "activeBadge": "Активный",
       "pickMc": "(выбрать MC)",
       "newInstanceBtn": "+ Новый профиль",
+      "filterPlaceholder": "Фильтр профилей…",
+      "filterNoMatches": "Нет совпадений.",
       "createHeading": "Новый профиль",
       "nameLabel": "Имя",
       "mcVersionLabel": "Версия Minecraft",
