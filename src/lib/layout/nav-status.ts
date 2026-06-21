@@ -28,6 +28,7 @@ export function navVisual(kind: NavStatusKind): NavVisual {
     case 'fixable':
     case 'actionable':
       return { iconClass: 'text-warning-text', wrench: true };
+    // advisory shares the amber colour with fixable/actionable; wrench:false is the distinction.
     case 'advisory':
       return { iconClass: 'text-warning-text', wrench: false };
     case 'idle':

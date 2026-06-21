@@ -92,6 +92,13 @@ describe('serverState.serversNavStatus', () => {
     expect(serverState.serversNavStatus).toBe('fixable');
   });
 
+  it("is 'fixable' even when the same server also registers as crashed", async () => {
+    // A crashed server (non-zero exit) whose diagnosis is actionable must read
+    // as 'fixable', not 'crashed' — guards the order of the precedence branches.
+    await load([makeServer('broken', false, 1, 'actionable')]);
+    expect(serverState.serversNavStatus).toBe('fixable');
+  });
+
   it("is 'crashed' for a non-zero exit with no actionable fix, outranking running", async () => {
     await load([
       makeServer('running', true),
