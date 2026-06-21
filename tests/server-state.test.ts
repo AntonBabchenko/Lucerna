@@ -55,10 +55,7 @@ describe('serverState.serversNavStatus', () => {
   }
 
   it("is 'fixable' when a server has an actionable diagnosis, outranking a running server", async () => {
-    await load([
-      makeServer('running', true),
-      makeServer('broken', false, 1, 'actionable'),
-    ]);
+    await load([makeServer('running', true), makeServer('broken', false, 1, 'actionable')]);
     expect(serverState.serversNavStatus).toBe('fixable');
   });
 
@@ -70,10 +67,7 @@ describe('serverState.serversNavStatus', () => {
   });
 
   it("is 'crashed' for a non-zero exit with no actionable fix, outranking running", async () => {
-    await load([
-      makeServer('running', true),
-      makeServer('dead', false, 1, 'none'),
-    ]);
+    await load([makeServer('running', true), makeServer('dead', false, 1, 'none')]);
     expect(serverState.serversNavStatus).toBe('crashed');
   });
 
