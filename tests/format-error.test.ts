@@ -433,7 +433,12 @@ describe('formatError', () => {
     );
 
     it.each(opaqueKinds)('opaque %s truncates a long detail and points at Logs', (kind) => {
-      const sample = { ...samples[kind], details: 'x'.repeat(200) } as IpcError;
+      const base = samples[kind];
+      // Most opaque variants carry the free-form text in `details`;
+      // servers_dat_parse uses `reason`. Override whichever this variant renders.
+      const longField =
+        'details' in base ? { details: 'x'.repeat(200) } : { reason: 'x'.repeat(200) };
+      const sample = { ...base, ...longField } as IpcError;
       const msg = formatError(sample);
       expect(msg).toContain('… (open Logs for full text)');
       expect(msg).not.toContain('x'.repeat(200));

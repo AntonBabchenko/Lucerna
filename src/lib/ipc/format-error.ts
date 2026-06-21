@@ -77,6 +77,7 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   sftp_transfer_failed: 'opaque',
   mc_logs_upload: 'opaque',
   server_import_invalid_archive: 'opaque',
+  servers_dat_parse: 'opaque',
   // Clean — everything else (self-contained from structured fields).
   host_not_allowed: 'clean',
   hash_mismatch: 'clean',
@@ -132,7 +133,6 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   import_source_unrecognized: 'clean',
   import_no_provenance: 'clean',
   import_source_missing: 'clean',
-  servers_dat_parse: 'clean',
   saved_server_name_invalid: 'clean',
   offline_name_invalid: 'clean',
   saved_server_list_changed: 'clean',
@@ -373,7 +373,10 @@ export function formatError(e: IpcError): string {
     case 'import_source_missing':
       return translate('errors.importSourceMissing', { path: e.path });
     case 'servers_dat_parse':
-      return translate('errors.serversDatParse', { reason: e.reason });
+      // `reason` is a raw fastnbt parse-error dump in two of the construction
+      // sites — Opaque, so it truncates and points at Logs rather than leaking
+      // English library text into the UI.
+      return withDetailTail(translate('errors.serversDatParse'), e.reason);
     case 'saved_server_name_invalid':
       return translate('errors.savedServerNameInvalid', { name: e.name, reason: e.reason });
     case 'saved_server_list_changed':

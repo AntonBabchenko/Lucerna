@@ -1172,7 +1172,7 @@
     "importSourceUnrecognized": "Эта папка не распознана как сборка лаунчера: {path}",
     "importNoProvenance": "Этот инстанс не был импортирован из другого лаунчера.",
     "importSourceMissing": "Исходная папка больше не существует: {path}",
-    "serversDatParse": "Не удалось прочитать список серверов (servers.dat): {reason}",
+    "serversDatParse": "Не удалось прочитать список серверов (servers.dat)",
     "savedServerNameInvalid": "«{name}» — недопустимое имя сервера: {reason}",
     "offlineNameInvalid": "Аккаунт «{name}» нельзя использовать: {reason} Смени ник на латиницу.",
     "savedServerListChanged": "Список сохранённых серверов изменился — откройте окно заново и повторите.",
