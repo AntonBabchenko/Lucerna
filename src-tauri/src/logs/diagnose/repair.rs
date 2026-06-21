@@ -670,7 +670,11 @@ mod tests {
         let j = r#"{"kind":"install_fix_mod","source":"curseforge","project_id":"123","version_id":"456"}"#;
         let c: RepairChoice = serde_json::from_str(j).unwrap();
         match c {
-            RepairChoice::InstallFixMod { source, project_id, version_id } => {
+            RepairChoice::InstallFixMod {
+                source,
+                project_id,
+                version_id,
+            } => {
                 assert_eq!(source, crate::mods::platform::ModSource::Curseforge);
                 assert_eq!(project_id, "123");
                 assert_eq!(version_id, "456");

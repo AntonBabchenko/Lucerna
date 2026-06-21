@@ -115,9 +115,15 @@ mod tests {
             crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
         let s = server_returning(versions_body("v-pin", "deadbeef", true)).await;
         let mr = ModrinthClient::with_base(s.uri());
-        let out =
-            resolve_pinned(ModSource::Modrinth, "p1", "v-pin", "1.20.1", LoaderKind::Forge, &mr)
-                .await;
+        let out = resolve_pinned(
+            ModSource::Modrinth,
+            "p1",
+            "v-pin",
+            "1.20.1",
+            LoaderKind::Forge,
+            &mr,
+        )
+        .await;
         let pinned = out.expect("pinned version resolves");
         assert_eq!(pinned.target.version_id, "v-pin");
         assert_eq!(pinned.version_label, "1.0.3");
@@ -130,9 +136,15 @@ mod tests {
         // Modrinth returns a different version_id — the pinned id is not present.
         let s = server_returning(versions_body("v-other", "deadbeef", true)).await;
         let mr = ModrinthClient::with_base(s.uri());
-        let out =
-            resolve_pinned(ModSource::Modrinth, "p1", "v-pin", "1.20.1", LoaderKind::Forge, &mr)
-                .await;
+        let out = resolve_pinned(
+            ModSource::Modrinth,
+            "p1",
+            "v-pin",
+            "1.20.1",
+            LoaderKind::Forge,
+            &mr,
+        )
+        .await;
         assert!(out.is_none(), "absent pinned id must degrade");
     }
 
@@ -147,9 +159,15 @@ mod tests {
         // explicit distribution flag; absence of a file IS the signal).
         let s = server_returning(versions_body("v-pin", "", false)).await;
         let mr = ModrinthClient::with_base(s.uri());
-        let out =
-            resolve_pinned(ModSource::Modrinth, "p1", "v-pin", "1.20.1", LoaderKind::Forge, &mr)
-                .await;
+        let out = resolve_pinned(
+            ModSource::Modrinth,
+            "p1",
+            "v-pin",
+            "1.20.1",
+            LoaderKind::Forge,
+            &mr,
+        )
+        .await;
         assert!(out.is_none(), "distribution_allowed=false must degrade");
     }
 
@@ -162,9 +180,15 @@ mod tests {
         // sha1-only degrade path.
         let s = server_returning(versions_body("v-pin", "", true)).await;
         let mr = ModrinthClient::with_base(s.uri());
-        let out =
-            resolve_pinned(ModSource::Modrinth, "p1", "v-pin", "1.20.1", LoaderKind::Forge, &mr)
-                .await;
+        let out = resolve_pinned(
+            ModSource::Modrinth,
+            "p1",
+            "v-pin",
+            "1.20.1",
+            LoaderKind::Forge,
+            &mr,
+        )
+        .await;
         assert!(out.is_none(), "empty sha1 (no-TOFU) must degrade");
     }
 
@@ -176,9 +200,15 @@ mod tests {
         // error. The .ok()? on plat.versions() degrades gracefully to None.
         let s = MockServer::start().await;
         let mr = ModrinthClient::with_base(s.uri());
-        let out =
-            resolve_pinned(ModSource::Modrinth, "p1", "v-pin", "1.20.1", LoaderKind::Forge, &mr)
-                .await;
+        let out = resolve_pinned(
+            ModSource::Modrinth,
+            "p1",
+            "v-pin",
+            "1.20.1",
+            LoaderKind::Forge,
+            &mr,
+        )
+        .await;
         assert!(out.is_none(), "platform error must degrade, not panic");
     }
 }

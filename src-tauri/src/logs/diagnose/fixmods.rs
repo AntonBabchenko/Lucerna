@@ -66,11 +66,7 @@ pub fn fix_mod_for(pattern_id: &str) -> Option<&'static FixModRef> {
 
 /// The pinned version for an instance configuration, or `None` to degrade
 /// (no curated pin for this mc + loader → UI offers the project link instead).
-pub fn pin_for<'a>(
-    r: &'a FixModRef,
-    mc: &str,
-    loader: LoaderKind,
-) -> Option<&'a FixModPin> {
+pub fn pin_for<'a>(r: &'a FixModRef, mc: &str, loader: LoaderKind) -> Option<&'a FixModPin> {
     r.rows.iter().find(|p| p.mc == mc && p.loader == loader)
 }
 
