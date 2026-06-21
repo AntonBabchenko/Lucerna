@@ -139,9 +139,9 @@
       "confirmBtn": "Delete"
     },
     "packDetach": {
-      "title": "Modpack instance",
-      "descriptionMc": "This instance was imported from {pack}. Changing its Minecraft version detaches it from the pack.",
-      "descriptionLoader": "This instance was imported from {pack}. Changing its loader detaches it from the pack.",
+      "title": "Change a modpack instance?",
+      "descriptionMc": "This instance came from {pack}. Keep it linked and it stays attached to the pack but will differ from it; detach to sever the link and manage it freely. Either way its Minecraft version changes.",
+      "descriptionLoader": "This instance came from {pack}. Keep it linked and it stays attached to the pack but will differ from it; detach to sever the link and manage it freely. Either way its loader changes.",
       "keepBtn": "Keep & continue",
       "detachBtn": "Detach & continue"
     },
