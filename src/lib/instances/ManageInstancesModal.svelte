@@ -4,7 +4,6 @@
     commands,
     type InstanceWithStatus,
     type LoaderKind,
-    type MemoryBounds,
     type VersionEntry,
     type Error as IpcError,
     type ModCompat,
@@ -12,9 +11,10 @@
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
-  import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
+  import { formatHeapLabel } from '$lib/instances/heap';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -47,22 +47,6 @@
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
 
-  // Static fallback mirrors the historical slider before bounds load / if the
-  // command fails — the control is never broken.
-  const FALLBACK_BOUNDS: MemoryBounds = {
-    min_mb: 1024,
-    max_mb: 8192,
-    recommended_max_mb: 8192,
-    step_mb: 256,
-    ram_known: false,
-  };
-  let memBounds = $state<MemoryBounds>(FALLBACK_BOUNDS);
-  // Plain `let`, not `$state`: a one-shot fetch guard. This modal is persistently
-  // mounted (opened via the `open` prop, never re-keyed), so the flag lives for
-  // the session and bounds are fetched once. Physical RAM doesn't change at
-  // runtime, so there's nothing to refresh.
-  let memBoundsLoaded = false;
-
   // When the modal opens, default the selection to the currently-active
   // instance (the one the user is playing on the main view). Otherwise
   // the detail panel either shows empty state (selectedId=null) or
@@ -71,22 +55,6 @@
   $effect(() => {
     if (open && selectedId === null) {
       selectedId = activeInstance?.id ?? instances[0]?.id ?? null;
-    }
-  });
-
-  // Fetch adaptive memory bounds once, the first time the modal opens.
-  $effect(() => {
-    if (open && !memBoundsLoaded) {
-      memBoundsLoaded = true;
-      commands
-        .instanceMemoryBounds()
-        .then((b) => {
-          memBounds = b;
-        })
-        .catch(() => {
-          // Intentional: keep FALLBACK_BOUNDS so the slider stays usable if the
-          // bounds query fails. No user-facing error — this is graceful degradation.
-        });
     }
   });
 
@@ -564,25 +532,14 @@
               value: formatHeapLabel(selected.max_heap_mb),
             })}
           </label>
-          <input
+          <MemorySlider
             id="detail-memory"
-            type="range"
-            min={memBounds.min_mb}
-            max={memBounds.max_mb}
-            step={memBounds.step_mb}
-            value={selected.max_heap_mb}
-            oninput={(e) => setMemory(parseInt((e.currentTarget as HTMLInputElement).value, 10))}
-            class="w-full mb-1"
+            class="mb-1"
+            warnClass="mb-3"
+            reserveWarnSpace
+            valueMb={selected.max_heap_mb}
+            onInput={(mb) => setMemory(mb)}
           />
-          {#if isAboveRecommended(selected.max_heap_mb, memBounds.recommended_max_mb, memBounds.ram_known)}
-            <p class="text-xs text-warning-text mb-3">
-              {$t('instance.manage.memoryWarnHigh', {
-                recommended: formatHeapLabel(memBounds.recommended_max_mb),
-              })}
-            </p>
-          {:else}
-            <div class="mb-3"></div>
-          {/if}
 
           <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
             >{$t('instance.manage.jvmArgsLabel')}</label
