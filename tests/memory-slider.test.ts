@@ -160,4 +160,64 @@ describe('MemorySlider', () => {
     const warning = await screen.findByText(/may leave little memory/);
     expect(warning.classList.contains('mb-3')).toBe(true);
   });
+
+  it('numeric field fires onInput live and onCommit (clamped + step-rounded) on change', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB); // min 1024, max 32768, step 512
+    const onInput = vi.fn();
+    const onCommit = vi.fn();
+    render(MemorySlider, { props: { valueMb: 4096, onInput, onCommit } });
+
+    await waitFor(() => expect((screen.getByRole('slider') as HTMLInputElement).max).toBe('32768'));
+    const num = screen.getByRole('spinbutton') as HTMLInputElement;
+
+    await fireEvent.input(num, { target: { value: '8000' } });
+    expect(onInput).toHaveBeenLastCalledWith(8000); // live, unclamped
+    expect(onCommit).not.toHaveBeenCalled();
+
+    await fireEvent.change(num, { target: { value: '8000' } });
+    expect(onCommit).toHaveBeenLastCalledWith(8192); // 8000 → nearest 512 step
+
+    await fireEvent.change(num, { target: { value: '99999' } });
+    expect(onCommit).toHaveBeenLastCalledWith(32768); // clamped to max
+
+    await fireEvent.change(num, { target: { value: '10' } });
+    expect(onCommit).toHaveBeenLastCalledWith(1024); // clamped to min
+  });
+
+  it('renders min/max endpoint labels from the adaptive bounds', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB);
+    render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
+
+    expect(await screen.findByText(formatHeapLabel(32768))).toBeTruthy();
+    expect(screen.getByText(formatHeapLabel(1024))).toBeTruthy();
+  });
+
+  it('shows the recommended-max marker only when RAM is known', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB); // ram_known: true, recommended 24576 < max
+    const { unmount } = render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
+    expect(await screen.findByText(/recommended maximum/i)).toBeTruthy();
+    unmount();
+
+    mockLoad.mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    });
+    render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
+    await waitFor(() => expect((screen.getByRole('slider') as HTMLInputElement).max).toBe('8192'));
+    expect(screen.queryByText(/recommended maximum/i)).toBeNull();
+  });
+
+  it('keeps the numeric field in sync when valueMb changes', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB);
+    const { rerender } = render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
+
+    const num = screen.getByRole('spinbutton') as HTMLInputElement;
+    expect(num.value).toBe('4096');
+
+    await rerender({ valueMb: 16384, onInput: vi.fn() });
+    expect(num.value).toBe('16384');
+  });
 });

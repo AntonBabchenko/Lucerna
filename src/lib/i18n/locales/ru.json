@@ -128,6 +128,8 @@
       "emptyState": "Выберите профиль слева или нажмите + Новый профиль.",
       "memoryLabel": "Память (макс. heap): {value}",
       "memoryWarnHigh": "Выделение более {recommended} может оставить мало памяти для ОС и самого Minecraft.",
+      "memoryInputLabel": "Память в МиБ",
+      "memoryRecommendedMarker": "Рекомендуемый максимум: {value}",
       "jvmArgsLabel": "Дополнительные аргументы JVM",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
       "cannotDeleteLast": "Нельзя удалить единственный профиль — лаунчеру всегда нужен хотя бы один. Сначала создайте другой, потом удалите этот.",
