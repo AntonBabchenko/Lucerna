@@ -178,4 +178,22 @@ describe('ManageInstancesModal — error surfacing', () => {
     expect(note.closest('[role="status"]')).not.toBeNull();
     expect(note.closest('[role="alert"]')).toBeNull();
   });
+
+  it('toasts that a newly created profile became active', async () => {
+    m.createInstance.mockResolvedValueOnce({
+      status: 'ok',
+      data: { id: 'new-id', name: 'Fresh' },
+    });
+    renderOne();
+    await screen.findByDisplayValue('Default');
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ New instance' }));
+    await fireEvent.input(screen.getByLabelText(/name/i), { target: { value: 'Fresh' } });
+    await fireEvent.click(screen.getByRole('combobox'));
+    await fireEvent.mouseDown(screen.getByRole('option', { name: '1.20.1' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(vi.mocked(toasts.pushSuccess)).toHaveBeenCalled());
+    expect(vi.mocked(toasts.pushSuccess).mock.calls[0][0]).toMatch(/created fresh and switched/i);
+  });
 });

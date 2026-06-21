@@ -97,22 +97,25 @@ describe('ManageInstancesModal — destructive footer pattern', () => {
     expect(btn).toHaveBtnSize('sm');
   });
 
-  it('footer Delete instance is btn-ghost-danger (LEFT) and Done is btn-primary (RIGHT)', () => {
+  it('footer Delete instance is btn-ghost-danger (LEFT) and Close is btn-secondary (RIGHT)', () => {
     render(ManageInstancesModal, { props: manageProps });
     // Label is "Delete instance" (a trash <Icon> sits beside it) — match the text part
     const deleteBtn = screen.getByRole('button', { name: /delete instance/i });
-    const doneBtn = screen.getByRole('button', { name: /^\s*done\s*$/i });
+    // Footer dismiss button is a plain "Close" (the header CloseButton's name is
+    // "Close manage instances", excluded by the anchored regex). It auto-saves
+    // each field, so it must NOT read as primary/commit.
+    const closeBtn = screen.getByRole('button', { name: /^\s*close\s*$/i });
     expect(deleteBtn).toHaveBtnVariant('ghost-danger');
-    expect(doneBtn).toHaveBtnVariant('primary');
+    expect(closeBtn).toHaveBtnVariant('secondary');
 
-    // The footer row uses justify-between; Done sits inside a nested flex
+    // The footer row uses justify-between; Close sits inside a nested flex
     // div alongside "Open folder". querySelectorAll still returns all buttons
-    // in document order, so deleteBtn must precede doneBtn.
-    const footer = doneBtn.closest('[class*="justify-between"]') as HTMLElement;
+    // in document order, so deleteBtn must precede closeBtn.
+    const footer = closeBtn.closest('[class*="justify-between"]') as HTMLElement;
     expect(footer).not.toBeNull();
     const buttons = Array.from(footer.querySelectorAll<HTMLButtonElement>('button'));
     expect(buttons.indexOf(deleteBtn as HTMLButtonElement)).toBeLessThan(
-      buttons.indexOf(doneBtn as HTMLButtonElement),
+      buttons.indexOf(closeBtn as HTMLButtonElement),
     );
   });
 });

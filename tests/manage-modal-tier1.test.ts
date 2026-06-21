@@ -449,3 +449,68 @@ describe('ManageInstancesModal — async feedback & double-submit', () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 });
+
+describe('ManageInstancesModal — persistence legibility', () => {
+  it('the footer dismiss button reads as Close (secondary), not a primary commit', async () => {
+    const inst = makeInstance();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+
+    const closeBtn = screen.getByRole('button', { name: /^\s*close\s*$/i });
+    expect(closeBtn.className).toContain('btn-secondary');
+    expect(closeBtn.className).not.toContain('btn-primary');
+
+    await fireEvent.click(closeBtn);
+    expect(screen.queryByDisplayValue('Default')).toBeNull();
+  });
+
+  it('shows a transient Saved badge after a name edit and hides it on re-edit', async () => {
+    const inst = makeInstance({ name: 'Alpha' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+
+    const input = (await screen.findByDisplayValue('Alpha')) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'Renamed' } });
+    await fireEvent.blur(input);
+
+    expect(await screen.findByText('Saved')).toBeTruthy();
+
+    await fireEvent.input(input, { target: { value: 'Renamed2' } });
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('reverts a blanked name to the saved value without calling setInstanceName', async () => {
+    const inst = makeInstance({ name: 'Alpha' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+
+    const input = (await screen.findByDisplayValue('Alpha')) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: '   ' } });
+    await fireEvent.blur(input);
+
+    expect(await screen.findByDisplayValue('Alpha')).toBeTruthy();
+    expect(m.setInstanceName).not.toHaveBeenCalled();
+  });
+});
