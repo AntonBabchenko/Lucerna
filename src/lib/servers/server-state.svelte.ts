@@ -13,6 +13,7 @@ import {
   type ServerWithStatus,
   type UploadConfig,
 } from '$lib/ipc/bindings';
+import { formatError } from '$lib/ipc/format-error';
 import type { NavStatusKind } from '$lib/layout/nav-status';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 import { isCrashed, isDiagnosisActionable } from './runtime-extra';
@@ -37,6 +38,36 @@ let list = $state<ServerWithStatus[]>([]);
 let lines = $state<Map<string, string[]>>(new Map());
 let diagnoses = $state<Map<string, ServerDiagnosis>>(new Map());
 let uploadProgress = $state<Map<string, { done: number; total: number; file: string }>>(new Map());
+
+export type UploadPhase = 'uploading' | 'done' | 'error' | 'cancelled';
+export interface UploadState {
+  phase: UploadPhase;
+  filesDone: number;
+  filesTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
+  currentFile: string;
+  startedAtMs: number;
+  error?: string;
+}
+let uploads = $state<Map<string, UploadState>>(new Map());
+
+function setUploadState(id: string, patch: Partial<UploadState>): void {
+  const m = new Map(uploads);
+  const prev = m.get(id);
+  const base: UploadState = prev ?? {
+    phase: 'uploading',
+    filesDone: 0,
+    filesTotal: 0,
+    bytesDone: 0,
+    bytesTotal: 0,
+    currentFile: '',
+    startedAtMs: 0,
+  };
+  m.set(id, { ...base, ...patch });
+  uploads = m;
+}
+
 let initialized = false;
 // List fetch state (#23): the view distinguishes a first-load spinner and an
 // error/retry surface from a genuinely empty list, instead of every failure
@@ -222,7 +253,41 @@ async function upload(
   id: string,
   acceptNewHostKey: boolean,
 ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
-  return await commands.serverUpload(id, acceptNewHostKey);
+  setUploadState(id, {
+    phase: 'uploading',
+    filesDone: 0,
+    filesTotal: 0,
+    bytesDone: 0,
+    bytesTotal: 0,
+    currentFile: '',
+    startedAtMs: Date.now(),
+    error: undefined,
+  });
+  let r: { status: 'ok'; data: null } | { status: 'error'; error: unknown };
+  try {
+    r = await commands.serverUpload(id, acceptNewHostKey);
+  } catch (e) {
+    setUploadState(id, { phase: 'error', error: String(e) });
+    return { status: 'error', error: e };
+  }
+  if (r.status === 'ok') {
+    setUploadState(id, { phase: 'done' });
+  } else {
+    const err = r.error as { kind?: string };
+    const phase: UploadPhase = err?.kind === 'upload_cancelled' ? 'cancelled' : 'error';
+    setUploadState(id, {
+      phase,
+      error:
+        phase === 'error' ? formatError(r.error as Parameters<typeof formatError>[0]) : undefined,
+    });
+  }
+  return r;
+}
+
+async function cancelUpload(
+  id: string,
+): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
+  return await commands.serverCancelUpload(id);
 }
 
 async function exportZip(
@@ -389,6 +454,14 @@ function init(): void {
     }
   });
   void events.serverUploadProgress.listen((e) => {
+    setUploadState(e.payload.server_id, {
+      phase: 'uploading',
+      filesDone: e.payload.files_done,
+      filesTotal: e.payload.files_total,
+      bytesDone: e.payload.bytes_done ?? 0,
+      bytesTotal: e.payload.bytes_total ?? 0,
+      currentFile: e.payload.current_file,
+    });
     const m = new Map(uploadProgress);
     m.set(e.payload.server_id, {
       done: e.payload.files_done,
@@ -442,9 +515,19 @@ export const serverState = {
   quarantineClientMods,
   setUploadConfig,
   upload,
+  cancelUpload,
   exportZip,
   uploadProgressFor,
   clearUploadProgress,
+  uploadStateFor(id: string): UploadState | undefined {
+    return uploads.get(id);
+  },
+  isUploading(id: string): boolean {
+    return uploads.get(id)?.phase === 'uploading';
+  },
+  get anyUploading(): boolean {
+    return [...uploads.values()].some((u) => u.phase === 'uploading');
+  },
   rename,
   updateRuntimeConfig,
   remove,
