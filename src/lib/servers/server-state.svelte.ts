@@ -13,12 +13,25 @@ import {
   type ServerWithStatus,
   type UploadConfig,
 } from '$lib/ipc/bindings';
+import type { NavStatusKind } from '$lib/layout/nav-status';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
 import { isCrashed, isDiagnosisActionable } from './runtime-extra';
 
 // Single source of truth for own-server runtime state.
 // All UI surfaces (sidebar, server list, console panel) read from this store
 // so a refresh hits the IPC layer once and every surface reflects it.
+
+// Per-server status, mirroring `serversNavStatus`'s precedence for ONE server so
+// each list row can paint its icon exactly like the sidebar aggregate does:
+// fixable (a crash with a one-click fix) > crashed (a crash with none) >
+// running > idle. Pure (takes the server as an arg) so it can't be a store
+// getter; the row derives its NavStatusIcon colour/pulse + StatusBadge from it.
+export function serverNavStatus(s: ServerWithStatus): NavStatusKind {
+  if (isDiagnosisActionable(s)) return 'fixable';
+  if (isCrashed(s)) return 'crashed';
+  if (s.running) return 'running';
+  return 'idle';
+}
 
 let list = $state<ServerWithStatus[]>([]);
 let lines = $state<Map<string, string[]>>(new Map());

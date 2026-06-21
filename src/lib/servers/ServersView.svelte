@@ -1,12 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { serverState } from '$lib/servers/server-state.svelte';
+  import { serverNavStatus, serverState } from '$lib/servers/server-state.svelte';
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { tooltip } from '$lib/ui/tooltip';
-  import { isCrashed } from '$lib/servers/runtime-extra';
   import { displayLoader } from '$lib/instances/loader-display';
-  import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
+  import { navVisual, type NavStatusKind } from '$lib/layout/nav-status';
+  import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
+  import CardShell from '$lib/ui/cards/CardShell.svelte';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import type { CardAccent, BadgeVariant } from '$lib/ui/cards/card-status';
+  import type { InstanceWithStatus, ServerWithStatus, VersionEntry } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import { formatError } from '$lib/ipc/format-error';
   import ServerCreateWizard from './ServerCreateWizard.svelte';
@@ -39,6 +43,47 @@
     pendingDelete = null;
     const r = await serverState.remove(target.id);
     if (!r.ok) deleteError = formatError(r.error as Parameters<typeof formatError>[0]);
+  }
+
+  // Row presentation derived from the per-server status. The icon (NavStatusIcon)
+  // reuses the sidebar's colour/pulse via navVisual(); the CardShell accent strip
+  // and the textual StatusBadge variant come from the same kind so the row's
+  // colour is never the only signal. Every state has a non-null label so the
+  // icon's colour always has an accessible text alternative (idle included).
+  const STATUS_ACCENT: Record<NavStatusKind, CardAccent> = {
+    running: 'success',
+    crashed: 'danger',
+    fixable: 'warning',
+    idle: 'none',
+    advisory: 'warning',
+    actionable: 'warning',
+  };
+  const STATUS_BADGE: Record<NavStatusKind, BadgeVariant> = {
+    running: 'success',
+    crashed: 'danger',
+    fixable: 'warning',
+    idle: 'muted',
+    advisory: 'warning',
+    actionable: 'warning',
+  };
+
+  function statusLabel(s: ServerWithStatus): string {
+    const kind = serverNavStatus(s);
+    if (kind === 'running') return $t('sidebar.serverRunning');
+    if (kind === 'crashed') return $t('sidebar.serverCrashed');
+    if (kind === 'fixable') return $t('sidebar.serversFixAvailable');
+    return $t('servers.status.stopped');
+  }
+
+  // The compact textual state word for the StatusBadge (running/crashed/stopped).
+  // Fixable reuses the "fix available" sidebar phrasing so the badge text matches
+  // the amber tone; other states use the existing servers.status.* vocabulary.
+  function statusText(s: ServerWithStatus): string {
+    const kind = serverNavStatus(s);
+    if (kind === 'running') return $t('servers.status.running');
+    if (kind === 'crashed') return $t('servers.status.crashed');
+    if (kind === 'fixable') return $t('sidebar.serversFixAvailable');
+    return $t('servers.status.stopped');
   }
 </script>
 
@@ -96,59 +141,64 @@
     {:else if serverState.list.length === 0}
       <p class="text-muted text-sm">{$t('servers.empty')}</p>
     {:else}
-      {#each serverState.list as s (s.id)}
-        {@const crashed = isCrashed(s)}
-        <div
-          class="flex items-stretch gap-1 rounded-lg border border-border-subtle hover:border-accent"
-        >
-          <button
-            type="button"
-            class="flex flex-1 items-center gap-3 p-3 text-left"
-            onclick={() => (selected = s.id)}
-          >
-            <Icon name="server" size={20} />
-            <span class="flex-1">
-              <span class="block font-medium">{s.name}</span>
-              <span class="block text-xs text-muted"
-                >{s.mc_version} · {displayLoader(s.loader)}{s.created_from_instance
-                  ? ' · ' + s.created_from_instance
-                  : ''}</span
-              >
-            </span>
-            <span
-              class="text-xs {s.running ? 'text-success' : crashed ? 'text-danger' : 'text-muted'}"
-            >
-              {s.running
-                ? $t('servers.status.running')
-                : crashed
-                  ? $t('servers.status.crashed')
-                  : $t('servers.status.stopped')}{s.port ? ' · ' + s.port : ''}
-            </span>
-            <Icon name="arrowRight" size={16} />
-          </button>
-          <!-- Wrapper span carries the tooltip so the "why disabled" hint still
-               shows while the button is disabled (disabled elements swallow
-               pointer events). aria-label stays the accessible name; the tooltip
-               is describe:false so it isn't double-announced. -->
-          <span
-            class="inline-flex shrink-0"
-            use:tooltip={{
-              text: s.running ? $t('servers.delete.runningBlock') : $t('servers.delete.trigger'),
-              describe: false,
-            }}
-          >
+      <!-- One bordered/rounded container holds the whole list; each CardShell
+           row carries its own border-b separator (the canonical row-variant
+           container pattern, matching InstalledAssetsView). -->
+      <div class="overflow-hidden rounded-lg border border-border-subtle">
+        {#each serverState.list as s (s.id)}
+          {@const navKind = serverNavStatus(s)}
+          <CardShell variant="row" accent={STATUS_ACCENT[navKind]}>
             <button
               type="button"
-              class="btn-icon-sm text-muted hover:text-danger disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={$t('servers.delete.trigger')}
-              disabled={s.running}
-              onclick={() => (pendingDelete = { id: s.id, name: s.name })}
+              class="flex flex-1 items-center gap-3 text-left"
+              onclick={() => (selected = s.id)}
             >
-              <Icon name="trash" size={16} />
+              <!-- Same colour + green saturation pulse / red / amber / neutral as the
+                   sidebar "Servers" icon, with a text alternative so status is never
+                   colour-only (DESIGN.md §13). -->
+              <NavStatusIcon
+                name="server"
+                size={20}
+                iconClass={navVisual(navKind).iconClass}
+                statusLabel={statusLabel(s)}
+              />
+              <span class="flex-1">
+                <span class="block font-medium">{s.name}</span>
+                <span class="block text-xs text-muted"
+                  >{s.mc_version} · {displayLoader(s.loader)}{s.created_from_instance
+                    ? ' · ' + s.created_from_instance
+                    : ''}</span
+                >
+              </span>
+              <StatusBadge variant={STATUS_BADGE[navKind]}>
+                {statusText(s)}{s.port ? ' · ' + s.port : ''}
+              </StatusBadge>
+              <Icon name="arrowRight" size={16} />
             </button>
-          </span>
-        </div>
-      {/each}
+            <!-- Wrapper span carries the tooltip so the "why disabled" hint still
+                 shows while the button is disabled (disabled elements swallow
+                 pointer events). aria-label stays the accessible name; the tooltip
+                 is describe:false so it isn't double-announced. -->
+            <span
+              class="inline-flex shrink-0"
+              use:tooltip={{
+                text: s.running ? $t('servers.delete.runningBlock') : $t('servers.delete.trigger'),
+                describe: false,
+              }}
+            >
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-danger"
+                aria-label={$t('servers.delete.trigger')}
+                disabled={s.running}
+                onclick={() => (pendingDelete = { id: s.id, name: s.name })}
+              >
+                <Icon name="trash" size={16} />
+              </button>
+            </span>
+          </CardShell>
+        {/each}
+      </div>
     {/if}
     <p class="text-xs text-muted border border-dashed border-border-subtle rounded-lg p-3">
       {$t('servers.lanHint')}
