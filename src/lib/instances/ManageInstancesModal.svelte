@@ -19,6 +19,7 @@
   import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+  import BusyButton from '$lib/ui/BusyButton.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
@@ -127,6 +128,16 @@
   let draftMc = $state('');
   let draftLoader = $state<LoaderKind>('vanilla');
   let draftLoaderVersion = $state<string | null>(null);
+  // Guards a double-clicked Create from spawning two profiles (the disabled
+  // reason stays satisfied across the await, so only a busy flag stops re-entry).
+  let createPending = $state(false);
+
+  // True when an in-flight command's target instance is no longer the live
+  // selection (switched away) or the modal closed — used to no-op stale
+  // completions so a previous instance's result never lands on the current one.
+  function isStale(id: string) {
+    return !open || selectedId !== id;
+  }
 
   // Detail form state — reactive to `selected`.
   let nameDraft = $state('');
@@ -204,6 +215,9 @@
   }
 
   async function submitCreate() {
+    // Re-entry guard for a rapid double-click (validation runs first so a
+    // validation early-return never strands the busy flag).
+    if (createPending) return;
     if (!draftName.trim()) {
       modalError = get(t)('instance.error.nameRequired');
       return;
@@ -222,29 +236,36 @@
       });
       return;
     }
-    const result = await commands.createInstance(
-      draftName.trim(),
-      draftMc,
-      draftLoader,
-      draftLoaderVersion,
-    );
-    if (result.status === 'ok') {
-      createMode = false;
-      // Make the newly created instance active — matches user intent
-      // ("I just made this thing to play it"). Editing an existing
-      // non-active instance still leaves the active unchanged.
-      await commands.setActiveInstance(result.data.id);
-      onChanged();
-      selectedId = result.data.id;
-    } else {
-      modalError = ipcErrorMessage(result.error);
+    createPending = true;
+    try {
+      const result = await commands.createInstance(
+        draftName.trim(),
+        draftMc,
+        draftLoader,
+        draftLoaderVersion,
+      );
+      if (result.status === 'ok') {
+        createMode = false;
+        // Make the newly created instance active — matches user intent
+        // ("I just made this thing to play it"). Editing an existing
+        // non-active instance still leaves the active unchanged.
+        await commands.setActiveInstance(result.data.id);
+        onChanged();
+        selectedId = result.data.id;
+      } else {
+        modalError = ipcErrorMessage(result.error);
+      }
+    } finally {
+      createPending = false;
     }
   }
 
   async function commitName() {
     if (!selected || nameDraft === selected.name) return;
     if (!nameDraft.trim()) return;
-    const result = await commands.setInstanceName(selected.id, nameDraft.trim());
+    const id = selected.id;
+    const result = await commands.setInstanceName(id, nameDraft.trim());
+    if (isStale(id)) return;
     if (result.status === 'ok') onChanged();
     else modalError = ipcErrorMessage(result.error);
   }
@@ -257,6 +278,7 @@
   async function runModCompatCheck(id: string, mc: string, loader: LoaderKind) {
     try {
       const r = await commands.checkInstanceModCompat(id, mc, loader);
+      if (isStale(id)) return;
       if (r.status === 'ok') {
         compatRows = r.data;
         compatCheckFailed = false;
@@ -266,14 +288,17 @@
         compatCheckFailed = true;
       }
     } catch {
+      if (isStale(id)) return;
       compatRows = null;
       compatCheckFailed = true;
     }
   }
 
-  async function applyMcChange(mc: string) {
-    if (!selected) return;
-    const result = await commands.changeInstanceMc(selected.id, mc);
+  // `id` is captured by the caller before any await so a mid-flight selection
+  // switch can't redirect this change's side effects onto another instance.
+  async function applyMcChange(id: string, mc: string) {
+    const result = await commands.changeInstanceMc(id, mc);
+    if (isStale(id)) return;
     if (result.status === 'ok') {
       const toast = loaderOutcomeToast(result.data.loader_outcome, mc);
       if (toast?.kind === 'success') pushSuccess(toast.text);
@@ -292,16 +317,12 @@
       pendingChange = { kind: 'mc', value: mc };
       return;
     }
-    await applyMcChange(mc);
+    await applyMcChange(selected.id, mc);
   }
 
-  async function applyLoaderChange(kind: LoaderKind, version: string | null) {
-    if (!selected) return;
-    if (kind !== 'vanilla' && !selected.mc_version) {
-      modalError = get(t)('instance.error.pickMcFirst');
-      return;
-    }
-    const result = await commands.setInstanceLoader(selected.id, kind, version);
+  async function applyLoaderChange(id: string, kind: LoaderKind, version: string | null) {
+    const result = await commands.setInstanceLoader(id, kind, version);
+    if (isStale(id)) return;
     if (result.status === 'ok') {
       onChanged();
       await runModCompatCheck(result.data.id, result.data.mc_version, result.data.loader);
@@ -312,18 +333,26 @@
 
   async function commitLoader(kind: LoaderKind, version: string | null) {
     if (!selected) return;
+    // Validate up front (selected is fresh here, pre-await) so a missing MC
+    // version fails fast instead of after the detach prompt.
+    if (kind !== 'vanilla' && !selected.mc_version) {
+      modalError = get(t)('instance.error.pickMcFirst');
+      return;
+    }
     if (selected.mrpack_name) {
       pendingChange = { kind: 'loader', loaderKind: kind, loaderVersion: version };
       return;
     }
-    await applyLoaderChange(kind, version);
+    await applyLoaderChange(selected.id, kind, version);
   }
 
   async function confirmDetachAndContinue() {
     if (!selected || !pendingChange) return;
+    const id = selected.id;
     const change = pendingChange;
     pendingChange = null;
-    const detachResult = await commands.detachInstancePack(selected.id);
+    const detachResult = await commands.detachInstancePack(id);
+    if (isStale(id)) return;
     if (detachResult.status === 'error') {
       modalError = ipcErrorMessage(detachResult.error);
       return;
@@ -332,20 +361,21 @@
     // apply the change against the updated selected. Trigger the change directly.
     onChanged();
     if (change.kind === 'mc') {
-      await applyMcChange(change.value);
+      await applyMcChange(id, change.value);
     } else {
-      await applyLoaderChange(change.loaderKind, change.loaderVersion);
+      await applyLoaderChange(id, change.loaderKind, change.loaderVersion);
     }
   }
 
   async function keepAndContinue() {
     if (!selected || !pendingChange) return;
+    const id = selected.id;
     const change = pendingChange;
     pendingChange = null;
     if (change.kind === 'mc') {
-      await applyMcChange(change.value);
+      await applyMcChange(id, change.value);
     } else {
-      await applyLoaderChange(change.loaderKind, change.loaderVersion);
+      await applyLoaderChange(id, change.loaderKind, change.loaderVersion);
     }
   }
 
@@ -355,14 +385,18 @@
 
   async function setMemory(mb: number) {
     if (!selected) return;
-    const result = await commands.setInstanceMemory(selected.id, mb);
+    const id = selected.id;
+    const result = await commands.setInstanceMemory(id, mb);
+    if (isStale(id)) return;
     if (result.status === 'ok') onChanged();
     else modalError = ipcErrorMessage(result.error);
   }
 
   async function setJvmArgs(args: string) {
     if (!selected) return;
-    const result = await commands.setInstanceJvmArgs(selected.id, args);
+    const id = selected.id;
+    const result = await commands.setInstanceJvmArgs(id, args);
+    if (isStale(id)) return;
     if (result.status === 'ok') onChanged();
     else modalError = ipcErrorMessage(result.error);
   }
@@ -542,14 +576,14 @@
               {$t('instance.manage.cancelBtn')}
             </button>
             <span class="inline-flex" use:tooltip={{ text: createDisabledReason, describe: false }}>
-              <button
-                type="button"
+              <BusyButton
                 class="btn-primary btn-sm"
+                busy={createPending}
                 disabled={!!createDisabledReason}
                 onclick={submitCreate}
               >
                 {$t('instance.manage.createBtn')}
-              </button>
+              </BusyButton>
             </span>
           </div>
         {:else if selected}
