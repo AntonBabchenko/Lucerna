@@ -94,7 +94,7 @@
     </span>
   </label>
 
-  <p class="rounded-md bg-subtle px-3 py-2 text-xs text-muted">
+  <p class="rounded bg-subtle px-3 py-2 text-xs text-muted">
     {$t('servers.toInstance.clientModsHint')}
   </p>
 

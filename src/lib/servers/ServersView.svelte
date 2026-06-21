@@ -104,7 +104,7 @@
 {:else}
   <div class="flex flex-col gap-3 p-4 overflow-y-auto">
     <div class="flex items-center justify-between">
-      <span class="text-lg font-semibold">{$t('servers.title')}</span>
+      <span class="text-base font-semibold">{$t('servers.title')}</span>
       <button
         type="button"
         class="btn-primary btn-sm flex items-center gap-1.5"
