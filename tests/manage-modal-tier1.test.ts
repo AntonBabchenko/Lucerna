@@ -140,7 +140,9 @@ describe('ManageInstancesModal — name edit survives background refresh', () =>
     const input = (await screen.findByDisplayValue('Default')) as HTMLInputElement;
     await fireEvent.input(input, { target: { value: 'Unsaved' } });
 
-    await rerender({ open: false, ...baseProps });
+    // Close via the real close button (runs close(), which clears the resync
+    // cursor) — toggling the `open` prop alone would bypass close().
+    await fireEvent.click(screen.getByRole('button', { name: /close manage instances/i }));
     await rerender({ open: true, ...baseProps });
 
     expect(await screen.findByDisplayValue('Default')).toBeTruthy();
@@ -219,7 +221,7 @@ describe('ManageInstancesModal — running guard', () => {
       (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect((screen.getByRole('combobox') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: /vanilla/i }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole('button', { name: 'Vanilla' }) as HTMLButtonElement).disabled).toBe(
       true,
     );
   });
@@ -232,7 +234,7 @@ describe('ManageInstancesModal — running guard', () => {
       (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
     ).toBe(false);
     expect((screen.getByRole('combobox') as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole('button', { name: /vanilla/i }) as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByRole('button', { name: 'Vanilla' }) as HTMLButtonElement).disabled).toBe(
       false,
     );
   });
