@@ -412,6 +412,12 @@ describe('formatError', () => {
     });
   });
 
+  it('truncates a long java_spawn detail + points at Logs', () => {
+    const msg = formatError({ kind: 'java_spawn', details: 'x'.repeat(200) });
+    expect(msg).toContain('… (open Logs for full text)');
+    expect(msg).not.toContain('x'.repeat(200));
+  });
+
   describe('withDetailTail', () => {
     beforeAll(() => locale.set('en'));
 

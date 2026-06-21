@@ -53,7 +53,7 @@ export function formatError(e: IpcError): string {
     case 'hash_mismatch':
       return translate('errors.hashMismatch', { path: e.path });
     case 'java_spawn':
-      return translate('errors.javaSpawn', { details: e.details });
+      return withDetailTail(translate('errors.javaSpawn'), e.details);
     case 'already_running':
       return translate('errors.alreadyRunning');
     case 'account_not_set':
@@ -68,7 +68,7 @@ export function formatError(e: IpcError): string {
     case 'auth_cancelled':
       return translate('errors.authCancelled');
     case 'auth_failed':
-      return translate('errors.authFailed', { stage: e.stage, details: e.details });
+      return withDetailTail(translate('errors.authFailed', { stage: e.stage }), e.details);
     case 'no_minecraft_profile':
       return translate('errors.noMinecraftProfile');
     case 'auth_pending_approval':
@@ -93,19 +93,21 @@ export function formatError(e: IpcError): string {
     case 'forge_promotions_unavailable':
       return translate('errors.forgePromotionsUnavailable', { flavor: e.flavor });
     case 'forge_maven_metadata_parse_failed':
-      return translate('errors.forgeMavenMetadataParseFailed', { details: e.details });
+      return withDetailTail(translate('errors.forgeMavenMetadataParseFailed'), e.details);
     case 'forge_no_build_for':
       return translate('errors.forgeNoBuildFor', { mc: e.mc });
     case 'forge_installer_corrupted':
-      return translate('errors.forgeInstallerCorrupted', {
-        mc: e.mc,
-        fv: e.fv,
-        details: e.details,
-      });
+      return withDetailTail(
+        translate('errors.forgeInstallerCorrupted', { mc: e.mc, fv: e.fv }),
+        e.details,
+      );
     case 'forge_unsupported_processor':
       return translate('errors.forgeUnsupportedProcessor', { coord: e.coord });
     case 'forge_patcher_failed':
-      return translate('errors.forgePatcherFailed', { processor: e.processor, details: e.details });
+      return withDetailTail(
+        translate('errors.forgePatcherFailed', { processor: e.processor }),
+        e.details,
+      );
     case 'forge_mappings_missing':
       return translate('errors.forgeMappingsMissing', { mc: e.mc });
     case 'instance_name_empty':
@@ -113,7 +115,7 @@ export function formatError(e: IpcError): string {
     case 'instance_name_too_long':
       return translate('errors.instanceNameTooLong', { actual: e.actual, max: e.max });
     case 'mc_logs_upload':
-      return translate('errors.mcLogsUpload', { details: e.details });
+      return withDetailTail(translate('errors.mcLogsUpload'), e.details);
     case 'mods_network':
       return translate('errors.modsNetwork', { url: e.url, details: e.details });
     case 'mods_platform_auth':
@@ -129,7 +131,7 @@ export function formatError(e: IpcError): string {
     case 'mods_platform_unsupported':
       return translate('errors.modsPlatformUnsupported', { source: e.source });
     case 'mods_decode':
-      return translate('errors.modsDecode', { source: e.source, details: e.details });
+      return withDetailTail(translate('errors.modsDecode', { source: e.source }), e.details);
     case 'mods_sha1_unavailable':
       return translate('errors.modsSha1Unavailable');
     case 'mods_sha1_mismatch':
@@ -143,15 +145,18 @@ export function formatError(e: IpcError): string {
     case 'mods_unsafe_filename':
       return translate('errors.modsUnsafeFilename', { filename: e.filename });
     case 'mods_cache_io':
-      return translate('errors.modsCacheIo', { details: e.details });
+      return withDetailTail(translate('errors.modsCacheIo'), e.details);
     case 'mods_instance_path':
-      return translate('errors.modsInstancePath', { path: e.path, details: e.details });
+      return withDetailTail(translate('errors.modsInstancePath', { path: e.path }), e.details);
     case 'modpack_invalid_archive':
-      return translate('errors.modpackInvalidArchive', { details: e.details });
+      return withDetailTail(translate('errors.modpackInvalidArchive'), e.details);
     case 'modpack_format_unknown':
       return translate('errors.modpackFormatUnknown');
     case 'modpack_manifest_invalid':
-      return translate('errors.modpackManifestInvalid', { format: e.format, details: e.details });
+      return withDetailTail(
+        translate('errors.modpackManifestInvalid', { format: e.format }),
+        e.details,
+      );
     case 'modpack_unsupported_manifest_version':
       return translate('errors.modpackUnsupportedManifestVersion', {
         format: e.format,
@@ -185,7 +190,7 @@ export function formatError(e: IpcError): string {
     case 'modpack_no_files_selected':
       return translate('errors.modpackNoFilesSelected');
     case 'modpack_instance_creation_failed':
-      return translate('errors.modpackInstanceCreationFailed', { details: e.details });
+      return withDetailTail(translate('errors.modpackInstanceCreationFailed'), e.details);
     case 'modpack_partial_failure':
       return translate('errors.modpackPartialFailure', { count: e.failed.length });
     case 'modpack_bundled_no_url':
@@ -193,7 +198,7 @@ export function formatError(e: IpcError): string {
     case 'modpack_cf_distribution_disabled':
       return translate('errors.modpackCfDistributionDisabled', { packName: e.pack_name });
     case 'modpack_export_failed':
-      return translate('errors.modpackExportFailed', { details: e.details });
+      return withDetailTail(translate('errors.modpackExportFailed'), e.details);
     case 'world_not_found':
       return translate('errors.worldNotFound', { folderName: e.folder_name });
     case 'world_in_use':
@@ -205,37 +210,37 @@ export function formatError(e: IpcError): string {
     case 'backup_not_found':
       return translate('errors.backupNotFound', { filename: e.filename });
     case 'backup_corrupt':
-      return translate('errors.backupCorrupt', { filename: e.filename, details: e.details });
+      return withDetailTail(translate('errors.backupCorrupt', { filename: e.filename }), e.details);
     case 'world_import_not_a_world':
       return translate('errors.worldImportNotAWorld');
     case 'world_import_unsupported_source':
       return translate('errors.worldImportUnsupportedSource');
     case 'world_import_invalid_archive':
-      return translate('errors.worldImportInvalidArchive', { details: e.details });
+      return withDetailTail(translate('errors.worldImportInvalidArchive'), e.details);
     case 'world_import_too_large':
       return translate('errors.worldImportTooLarge');
     case 'playtime_io':
-      return translate('errors.playtimeIo', { details: e.details });
+      return withDetailTail(translate('errors.playtimeIo'), e.details);
     case 'tray_io':
-      return translate('errors.trayIo', { details: e.details });
+      return withDetailTail(translate('errors.trayIo'), e.details);
     case 'window_io':
-      return translate('errors.windowIo', { details: e.details });
+      return withDetailTail(translate('errors.windowIo'), e.details);
     case 'update_check_failed':
-      return translate('errors.updateCheckFailed', { details: e.details });
+      return withDetailTail(translate('errors.updateCheckFailed'), e.details);
     case 'update_verification_failed':
-      return translate('errors.updateVerificationFailed', { details: e.details });
+      return withDetailTail(translate('errors.updateVerificationFailed'), e.details);
     case 'update_install_failed':
-      return translate('errors.updateInstallFailed', { details: e.details });
+      return withDetailTail(translate('errors.updateInstallFailed'), e.details);
     case 'quick_play_address_invalid':
       return translate('errors.quickPlayAddressInvalid', {
         address: e.address,
         reason: e.reason,
       });
     case 'import_instance_unreadable':
-      return translate('errors.importInstanceUnreadable', {
-        launcher: e.launcher,
-        details: e.details,
-      });
+      return withDetailTail(
+        translate('errors.importInstanceUnreadable', { launcher: e.launcher }),
+        e.details,
+      );
     case 'import_unsupported_loader':
       return translate('errors.importUnsupportedLoader', { loader: e.loader });
     case 'import_source_unrecognized':
@@ -260,9 +265,12 @@ export function formatError(e: IpcError): string {
         mcVersion: e.mc_version,
       });
     case 'server_installer_failed':
-      return translate('errors.serverInstallerFailed', { loader: e.loader });
+      return withDetailTail(
+        translate('errors.serverInstallerFailed', { loader: e.loader }),
+        e.details,
+      );
     case 'server_spawn_failed':
-      return translate('errors.serverSpawnFailed', { details: e.details });
+      return withDetailTail(translate('errors.serverSpawnFailed'), e.details);
     case 'server_already_running':
       return translate('errors.serverAlreadyRunning');
     case 'server_not_running':
@@ -287,13 +295,13 @@ export function formatError(e: IpcError): string {
     case 'upload_not_configured':
       return translate('errors.uploadNotConfigured');
     case 'sftp_connect_failed':
-      return translate('errors.sftpConnectFailed', { details: e.details });
+      return withDetailTail(translate('errors.sftpConnectFailed'), e.details);
     case 'sftp_auth_failed':
       return translate('errors.sftpAuthFailed');
     case 'sftp_host_key_mismatch':
       return translate('errors.sftpHostKeyMismatch');
     case 'sftp_transfer_failed':
-      return translate('errors.sftpTransferFailed', { details: e.details });
+      return withDetailTail(translate('errors.sftpTransferFailed'), e.details);
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of
