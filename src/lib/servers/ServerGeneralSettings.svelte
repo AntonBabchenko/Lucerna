@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { commands, type MemoryBounds } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
-  import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
+  import MemorySlider from '$lib/instances/MemorySlider.svelte';
+  import { formatHeapLabel } from '$lib/instances/heap';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
@@ -23,27 +23,6 @@
       memoryMb = s.max_heap_mb;
       jvmArgs = s.extra_jvm_args;
     }
-  });
-
-  const FALLBACK_BOUNDS: MemoryBounds = {
-    min_mb: 1024,
-    max_mb: 8192,
-    recommended_max_mb: 8192,
-    step_mb: 256,
-    ram_known: false,
-  };
-  let memBounds = $state<MemoryBounds>(FALLBACK_BOUNDS);
-  let memBoundsLoaded = false;
-  $effect(() => {
-    if (memBoundsLoaded) return;
-    memBoundsLoaded = true;
-    commands
-      .instanceMemoryBounds()
-      .then((b) => {
-        memBounds = b;
-        memoryMb = Math.min(Math.max(memoryMb, b.min_mb), b.max_mb);
-      })
-      .catch(() => {});
   });
 
   let busy = $state(false);
@@ -102,22 +81,7 @@
     <label class="text-sm font-medium"
       >{$t('servers.general.memory')} · {formatHeapLabel(memoryMb)}</label
     >
-    <input
-      type="range"
-      min={memBounds.min_mb}
-      max={memBounds.max_mb}
-      step={memBounds.step_mb}
-      value={memoryMb}
-      oninput={(e) => (memoryMb = parseInt((e.currentTarget as HTMLInputElement).value, 10))}
-      class="w-full"
-    />
-    {#if isAboveRecommended(memoryMb, memBounds.recommended_max_mb, memBounds.ram_known)}
-      <p class="text-xs text-warning-text">
-        {$t('instance.manage.memoryWarnHigh', {
-          recommended: formatHeapLabel(memBounds.recommended_max_mb),
-        })}
-      </p>
-    {/if}
+    <MemorySlider valueMb={memoryMb} onInput={(mb) => (memoryMb = mb)} />
   </div>
 
   <div class="flex flex-col gap-1">

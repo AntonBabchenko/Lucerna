@@ -4,7 +4,6 @@
     commands,
     type InstanceWithStatus,
     type LoaderKind,
-    type MemoryBounds,
     type VersionEntry,
     type Error as IpcError,
     type ModCompat,
@@ -12,9 +11,10 @@
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
+  import MemorySlider from '$lib/instances/MemorySlider.svelte';
   import { displayLoader } from '$lib/instances/loader-display';
   import { loaderOutcomeToast, compatSummary } from '$lib/instances/integrity-messages';
-  import { formatHeapLabel, isAboveRecommended } from '$lib/instances/heap';
+  import { formatHeapLabel } from '$lib/instances/heap';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import { formatError } from '$lib/ipc/format-error';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -47,22 +47,6 @@
   let selected = $derived(instances.find((i) => i.id === selectedId) ?? null);
   let createMode = $state(false);
 
-  // Static fallback mirrors the historical slider before bounds load / if the
-  // command fails — the control is never broken.
-  const FALLBACK_BOUNDS: MemoryBounds = {
-    min_mb: 1024,
-    max_mb: 8192,
-    recommended_max_mb: 8192,
-    step_mb: 256,
-    ram_known: false,
-  };
-  let memBounds = $state<MemoryBounds>(FALLBACK_BOUNDS);
-  // Plain `let`, not `$state`: a one-shot fetch guard. This modal is persistently
-  // mounted (opened via the `open` prop, never re-keyed), so the flag lives for
-  // the session and bounds are fetched once. Physical RAM doesn't change at
-  // runtime, so there's nothing to refresh.
-  let memBoundsLoaded = false;
-
   // When the modal opens, default the selection to the currently-active
   // instance (the one the user is playing on the main view). Otherwise
   // the detail panel either shows empty state (selectedId=null) or
@@ -71,22 +55,6 @@
   $effect(() => {
     if (open && selectedId === null) {
       selectedId = activeInstance?.id ?? instances[0]?.id ?? null;
-    }
-  });
-
-  // Fetch adaptive memory bounds once, the first time the modal opens.
-  $effect(() => {
-    if (open && !memBoundsLoaded) {
-      memBoundsLoaded = true;
-      commands
-        .instanceMemoryBounds()
-        .then((b) => {
-          memBounds = b;
-        })
-        .catch(() => {
-          // Intentional: keep FALLBACK_BOUNDS so the slider stays usable if the
-          // bounds query fails. No user-facing error — this is graceful degradation.
-        });
     }
   });
 
@@ -132,10 +100,30 @@
 
   // Detail form state — reactive to `selected`.
   let nameDraft = $state('');
-
+  // Resync the editable name only when the SELECTED INSTANCE changes, not on
+  // every `selected` object-identity churn. A background refreshInstances()
+  // (game exit, integrity/import completion) replaces the whole `instances`
+  // array with the same selectedId; gating on the id keeps an in-progress edit
+  // from being silently clobbered. Switching to another instance still resyncs.
+  let lastNameSyncId: string | null = null;
   $effect(() => {
-    if (selected) {
+    if (selected && selected.id !== lastNameSyncId) {
       nameDraft = selected.name;
+      lastNameSyncId = selected.id;
+    }
+  });
+
+  // Local heap draft so dragging the slider updates the label live WITHOUT a
+  // disk write per tick: onInput updates the draft, and we persist once on
+  // release via MemorySlider's onCommit. Seeded id-gated like the name draft so
+  // a background refresh doesn't reset an active drag. (MemorySlider owns the
+  // thumb-tracking fix and adaptive bounds, so no imperative re-apply here.)
+  let heapDraft = $state(0);
+  let lastHeapSyncId: string | null = null;
+  $effect(() => {
+    if (selected && selected.id !== lastHeapSyncId) {
+      heapDraft = selected.max_heap_mb;
+      lastHeapSyncId = selected.id;
     }
   });
 
@@ -359,6 +347,8 @@
     const result = await commands.deleteInstance(selected.id);
     if (result.status === 'ok') {
       selectedId = null;
+      lastNameSyncId = null;
+      lastHeapSyncId = null;
       onChanged();
     } else {
       modalError = ipcErrorMessage(result.error);
@@ -373,6 +363,11 @@
     // and reopening would still surface the previously-selected
     // instance, not the new active one.
     selectedId = null;
+    // Also clear the name-resync cursor so reopening on the same instance
+    // re-seeds nameDraft from the saved name (an uncommitted edit is discarded
+    // on close, not resurrected on reopen).
+    lastNameSyncId = null;
+    lastHeapSyncId = null;
   }
 </script>
 
@@ -516,13 +511,22 @@
           <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label
           >
-          <Select
-            id="detail-mc-version"
-            class="w-full mb-1"
-            value={selected.mc_version}
-            options={mcVersionOptions}
-            onChange={(v) => setMc(String(v))}
-          />
+          <span
+            class="block mb-1"
+            use:tooltip={{
+              text: isRunning ? $t('instance.manage.runningBlocked') : '',
+              describe: false,
+            }}
+          >
+            <Select
+              id="detail-mc-version"
+              class="w-full"
+              value={selected.mc_version}
+              options={mcVersionOptions}
+              disabled={isRunning}
+              onChange={(v) => setMc(String(v))}
+            />
+          </span>
           <label class="text-xs flex items-center gap-1 mb-3">
             <input type="checkbox" bind:checked={showSnapshots} />
             {$t('instance.manage.showSnapshots')}
@@ -536,18 +540,27 @@
               across instances, so swapping to a modpack instance was mis-read as
               a loader change and falsely raised the pack-detach prompt.
             -->
-          {#key selected.id}
-            <LoaderPicker
-              mc={selected.mc_version}
-              loader={selected.loader}
-              loaderVersion={selected.loader_version}
-              onchange={async (l, v) => {
-                if (l !== selected!.loader || v !== selected!.loader_version) {
-                  await commitLoader(l, v);
-                }
-              }}
-            />
-          {/key}
+          <span
+            class="block"
+            use:tooltip={{
+              text: isRunning ? $t('instance.manage.runningBlocked') : '',
+              describe: false,
+            }}
+          >
+            {#key selected.id}
+              <LoaderPicker
+                mc={selected.mc_version}
+                loader={selected.loader}
+                loaderVersion={selected.loader_version}
+                disabled={isRunning}
+                onchange={async (l, v) => {
+                  if (l !== selected!.loader || v !== selected!.loader_version) {
+                    await commitLoader(l, v);
+                  }
+                }}
+              />
+            {/key}
+          </span>
 
           {#if compatRows !== null && compatSummary(compatRows) !== null}
             <p
@@ -561,28 +574,18 @@
 
           <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
             {$t('instance.manage.memoryLabel', {
-              value: formatHeapLabel(selected.max_heap_mb),
+              value: formatHeapLabel(heapDraft),
             })}
           </label>
-          <input
+          <MemorySlider
             id="detail-memory"
-            type="range"
-            min={memBounds.min_mb}
-            max={memBounds.max_mb}
-            step={memBounds.step_mb}
-            value={selected.max_heap_mb}
-            oninput={(e) => setMemory(parseInt((e.currentTarget as HTMLInputElement).value, 10))}
-            class="w-full mb-1"
+            class="mb-1"
+            warnClass="mb-3"
+            reserveWarnSpace
+            valueMb={heapDraft}
+            onInput={(mb) => (heapDraft = mb)}
+            onCommit={(mb) => setMemory(mb)}
           />
-          {#if isAboveRecommended(selected.max_heap_mb, memBounds.recommended_max_mb, memBounds.ram_known)}
-            <p class="text-xs text-warning-text mb-3">
-              {$t('instance.manage.memoryWarnHigh', {
-                recommended: formatHeapLabel(memBounds.recommended_max_mb),
-              })}
-            </p>
-          {:else}
-            <div class="mb-3"></div>
-          {/if}
 
           <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
             >{$t('instance.manage.jvmArgsLabel')}</label
@@ -658,14 +661,18 @@
             <span
               class="inline-flex"
               use:tooltip={{
-                text: instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : '',
+                text: isRunning
+                  ? $t('instance.manage.runningBlocked')
+                  : instances.length <= 1
+                    ? $t('instance.manage.cannotDeleteLast')
+                    : '',
                 describe: false,
               }}
             >
               <button
                 type="button"
                 class="btn-ghost-danger inline-flex items-center gap-1.5"
-                disabled={instances.length <= 1}
+                disabled={instances.length <= 1 || isRunning}
                 onclick={() => (deleteConfirmOpen = true)}
               >
                 <Icon name="trash" size={14} />

@@ -219,6 +219,14 @@ pub async fn extract<F: FnMut(u32, u32)>(
                     path: target.display().to_string(),
                     details: e.to_string(),
                 })?;
+                // Flush before the handle drops: a tokio `File` does NOT flush on
+                // drop, so without this the final buffered write can be lost on
+                // Linux/macOS, leaving an empty/truncated override on disk (the
+                // root of the `extracts_normal_file` failure — and a real data bug).
+                f.flush().await.map_err(|e| Error::Io {
+                    path: target.display().to_string(),
+                    details: e.to_string(),
+                })?;
 
                 if is_tracked_bundled_path(&rel) {
                     let filename = rel.rsplit('/').next().unwrap_or(&rel).to_string();

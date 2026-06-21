@@ -8,7 +8,7 @@ This file is the working agreement between the human maintainer and Claude. Clau
 
 Lucerna is a clean, transparent open-source Minecraft Java Edition launcher for Windows. It supports Microsoft / Xbox Live sign-in and offline play (LAN, single-player without internet, development testing) as equal first-class options, integrates the official Modrinth and CurseForge mod APIs, and isolates per-instance Minecraft state. It ships no telemetry, no ad injection, no hidden processes, and no bundled adware, and it never modifies the Minecraft client. (The Microsoft sign-in chain works end-to-end: Microsoft approved Lucerna's Azure app, so live sign-in is functional. A typed pending-approval response is retained as a defensive fallback should the registration ever lapse; offline play is a first-class option regardless.) The UI ships in English and Russian, switchable live in-app (Settings → General).
 
-The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes.
+The principles that constrain every decision live in [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md). The release and supply chain stance lives in [`docs/SECURITY.md`](docs/SECURITY.md). Read both before significant changes. The UI design system — tokens, component vocabulary, and which variant/element to use when — is documented in [`docs/DESIGN.md`](docs/DESIGN.md); consult it before UI changes.
 
 ## Core principle — do it properly
 
@@ -56,7 +56,7 @@ static/                             Static assets served at root
 tools/                              Small CI/dev helper scripts (Node, .mjs)
 tests/                              Vitest unit tests
 tests-e2e/                          Playwright e2e tests
-docs/                               Public docs: PRINCIPLES, SECURITY, TESTING, UI-TESTING (superpowers/ is gitignored, local-only)
+docs/                               Public docs: PRINCIPLES, SECURITY, DESIGN, TESTING, UI-TESTING (superpowers/ is gitignored, local-only)
 .github/workflows/ci.yml            CI: rust-ubuntu/windows/macos, linux-bundle, frontend, lint, coverage (SHA-pinned)
 ```
 

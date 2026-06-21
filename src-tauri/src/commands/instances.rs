@@ -200,6 +200,12 @@ pub fn create_instance(
 #[tauri::command]
 #[specta::specta]
 pub fn delete_instance(app: tauri::AppHandle, id: String) -> Result<(), crate::error::Error> {
+    // Refuse while a game is running: on Windows the live JVM holds OS locks on
+    // the instance dir, so remove_dir_all can partially fail and corrupt it.
+    // Mirrors the verify/repair guards in this file.
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     crate::instances::delete_instance(&app, &id)
 }
 
@@ -229,6 +235,9 @@ pub async fn change_instance_mc(
     use crate::instances::{self, LoaderDecision, LoaderOutcome};
     use crate::versions::loaders::{list_loaders, Loader};
 
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     let current = instances::read_instance(&app, &id)?;
     let loader = current.loader;
 
@@ -282,6 +291,9 @@ pub fn set_instance_loader(
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     crate::instances::set_instance_loader(&app, &id, loader, loader_version)
 }
 
@@ -340,6 +352,9 @@ pub fn detach_instance_pack(
     app: tauri::AppHandle,
     id: String,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    if crate::launch::spawn::is_running() {
+        return Err(crate::error::Error::InstanceBusy);
+    }
     crate::instances::detach_instance_pack(&app, &id)
 }
 
