@@ -150,7 +150,12 @@ describe('ManageInstancesModal — error surfacing', () => {
   });
 
   it('shows the compat summary in a polite (role=status) region after a loader change', async () => {
-    m.checkInstanceModCompat.mockResolvedValueOnce({
+    // A loader switch runs the compat check twice — LoaderPicker fires `onchange`
+    // on the click (old version) and again once it auto-resolves the new loader's
+    // version. Use a stable mock (not ...Once) so both checks report the same
+    // incompatibility; otherwise the second (resolved-version) check returns the
+    // default empty list and clobbers the summary.
+    m.checkInstanceModCompat.mockResolvedValue({
       status: 'ok',
       data: [{ sha1: 'a', name: 'X', status: { status: 'incompatible' } }],
     });
@@ -165,7 +170,10 @@ describe('ManageInstancesModal — error surfacing', () => {
   });
 
   it('shows a quiet "couldn\'t check" note (role=status) when the compat check fails', async () => {
-    m.checkInstanceModCompat.mockResolvedValueOnce({
+    // Stable mock (not ...Once): the loader switch runs the compat check twice, so
+    // both attempts must fail for the "couldn't check" note to stay up — a single
+    // ...Once would let the second (resolved-version) check succeed and clear it.
+    m.checkInstanceModCompat.mockResolvedValue({
       status: 'error',
       error: { kind: 'io', path: '/x', details: 'boom' },
     });
