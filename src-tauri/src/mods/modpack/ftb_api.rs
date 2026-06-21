@@ -152,10 +152,7 @@ pub async fn search_ids(base: &str, query: &str, limit: u32) -> Result<Vec<u64>,
     let url = format!("{base}/public/modpack/search/{limit}?term={q}");
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,
@@ -184,10 +181,7 @@ pub async fn popular_ids(base: &str, limit: u32) -> Result<Vec<u64>, Error> {
     let url = format!("{base}/public/modpack/popular/installs/{limit}");
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,
@@ -208,10 +202,7 @@ pub async fn pack_detail(base: &str, id: u64) -> Result<FtbPackDetail, Error> {
     let url = format!("{base}/public/modpack/{id}");
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,
@@ -231,10 +222,7 @@ pub async fn version_manifest(base: &str, id: u64, version_id: u64) -> Result<Ft
     let url = format!("{base}/public/modpack/{id}/{version_id}");
     let resp = crate::network::request::get(&url, &[("user-agent", UA)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,

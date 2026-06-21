@@ -1,19 +1,20 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { Error as IpcError } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
+import { ERROR_CLASS, formatError, withDetailTail } from '$lib/ipc/format-error';
 
 describe('formatError', () => {
   beforeAll(() => locale.set('en'));
 
-  it('formats network errors with URL and details', () => {
+  it('formats network as a clean actionable message — no url/detail leak', () => {
     const msg = formatError({
       kind: 'network',
       url: 'https://piston-meta.mojang.com/v1/version.json',
       details: 'connection refused',
     });
-    expect(msg).toContain('https://piston-meta.mojang.com/v1/version.json');
-    expect(msg).toContain('connection refused');
+    expect(msg).not.toContain('https://piston-meta.mojang.com/v1/version.json');
+    expect(msg).not.toContain('connection refused');
+    expect(msg.toLowerCase()).toContain('internet');
   });
 
   it('formats loader_unavailable with brand-canonical loader name', () => {
@@ -65,14 +66,15 @@ describe('formatError', () => {
     expect(formatError({ kind: 'instance_name_empty' })).toBe('Instance name cannot be empty');
   });
 
-  it('formats mods_network with url and details', () => {
+  it('formats mods_network as a clean actionable message — no triple URL, no English jargon', () => {
     const msg = formatError({
       kind: 'mods_network',
       url: 'https://api.modrinth.com/v2/search',
-      details: 'timeout',
+      details: 'error sending request for url (https://api.modrinth.com/v2/search)',
     });
-    expect(msg).toContain('https://api.modrinth.com/v2/search');
-    expect(msg).toContain('timeout');
+    expect(msg).not.toContain('https://api.modrinth.com/v2/search');
+    expect(msg).not.toContain('error sending request');
+    expect(msg.toLowerCase()).toContain('internet');
   });
 
   it('formats mods_platform_auth missing as a key prompt', () => {
@@ -189,7 +191,7 @@ describe('formatError', () => {
     beforeAll(() => locale.set('en'));
 
     const samples: Record<IpcError['kind'], IpcError> = {
-      network: { kind: 'network', url: 'https://x/y', details: 'refused' },
+      network: { kind: 'network', url: 'https://leak.test/net', details: 'RAW_TRANSPORT_DETAIL' },
       host_not_allowed: { kind: 'host_not_allowed', url: 'https://x/y' },
       update_check_failed: { kind: 'update_check_failed', details: 'd' },
       update_verification_failed: { kind: 'update_verification_failed', details: 'd' },
@@ -227,7 +229,11 @@ describe('formatError', () => {
       forge_mappings_missing: { kind: 'forge_mappings_missing', mc: '1.20.1' },
       instance_name_empty: { kind: 'instance_name_empty' },
       instance_name_too_long: { kind: 'instance_name_too_long', max: 32, actual: 50 },
-      mods_network: { kind: 'mods_network', url: 'https://x', details: 'd' },
+      mods_network: {
+        kind: 'mods_network',
+        url: 'https://leak.test/mods',
+        details: 'RAW_TRANSPORT_DETAIL',
+      },
       mods_platform_auth: { kind: 'mods_platform_auth', kind_detail: 'missing' },
       mods_platform_unreachable: {
         kind: 'mods_platform_unreachable',
@@ -401,6 +407,11 @@ describe('formatError', () => {
       // i18n resolved — a missing key echoes the raw `errors.<key>` path, and
       // every key passed in formatError starts with `errors.`.
       expect(msg.startsWith('errors.')).toBe(false);
+      // Policy: transport variants never leak the raw url or transport detail.
+      if (ERROR_CLASS[sample.kind] === 'transport') {
+        if ('url' in sample && sample.url) expect(msg).not.toContain(sample.url);
+        if ('details' in sample && sample.details) expect(msg).not.toContain(sample.details);
+      }
     });
 
     it('has a distinct sample for every Error variant (Record completeness)', () => {
@@ -409,6 +420,54 @@ describe('formatError', () => {
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
       expect(Object.keys(samples)).toHaveLength(103);
+    });
+
+    it('classifies every Error variant (ERROR_CLASS completeness)', () => {
+      // Record<IpcError['kind'], …> fails the build on a missing key; this exact
+      // count is the runtime complement that also catches a duplicate key.
+      expect(Object.keys(ERROR_CLASS)).toHaveLength(103);
+    });
+
+    const opaqueKinds = (Object.keys(samples) as IpcError['kind'][]).filter(
+      (k) => ERROR_CLASS[k] === 'opaque',
+    );
+
+    it.each(opaqueKinds)('opaque %s truncates a long detail and points at Logs', (kind) => {
+      const base = samples[kind];
+      // Most opaque variants carry the free-form text in `details`;
+      // servers_dat_parse uses `reason`. Override whichever this variant renders.
+      const longField =
+        'details' in base ? { details: 'x'.repeat(200) } : { reason: 'x'.repeat(200) };
+      const sample = { ...base, ...longField } as IpcError;
+      const msg = formatError(sample);
+      expect(msg).toContain('… (open Logs for full text)');
+      expect(msg).not.toContain('x'.repeat(200));
+    });
+  });
+
+  it('truncates a long java_spawn detail + points at Logs', () => {
+    const msg = formatError({ kind: 'java_spawn', details: 'x'.repeat(200) });
+    expect(msg).toContain('… (open Logs for full text)');
+    expect(msg).not.toContain('x'.repeat(200));
+  });
+
+  describe('withDetailTail', () => {
+    beforeAll(() => locale.set('en'));
+
+    it('returns the headline unchanged when there is no detail', () => {
+      expect(withDetailTail('Headline', null)).toBe('Headline');
+      expect(withDetailTail('Headline', '')).toBe('Headline');
+    });
+
+    it('appends a short detail after a colon, with no Logs hint', () => {
+      expect(withDetailTail('Headline', 'boom')).toBe('Headline: boom');
+    });
+
+    it('truncates a long detail at 120 code points and appends the Logs hint', () => {
+      const msg = withDetailTail('Headline', 'x'.repeat(200));
+      expect(msg).toContain('x'.repeat(120));
+      expect(msg).not.toContain('x'.repeat(121));
+      expect(msg).toContain('… (open Logs for full text)');
     });
   });
 
