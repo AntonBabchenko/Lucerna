@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { locale } from '$lib/i18n';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
 const m = vi.hoisted(() => ({
@@ -598,5 +599,105 @@ describe('ManageInstancesModal — accessibility', () => {
     expect(createBtn.disabled).toBe(false);
     // The reason is on-screen (not hidden in a tooltip on a disabled button).
     expect(screen.getByText(/name is required/i)).toBeTruthy();
+  });
+});
+
+describe('ManageInstancesModal — microcopy & i18n', () => {
+  afterEach(() => locale.set('en'));
+
+  const unhealthy = (problem_count: number): InstanceWithStatus['integrity'] => ({
+    healthy: false,
+    checked_unix_ms: null,
+    categories: [],
+    problem_count,
+  });
+
+  it('pluralises integrity wording in EN (singular vs plural)', async () => {
+    const one = makeInstance({ id: 'a', name: 'One', integrity: unhealthy(1) });
+    const two = makeInstance({ id: 'b', name: 'Two', integrity: unhealthy(2) });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [one, two],
+        activeInstance: one,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('One');
+
+    expect(screen.getByRole('img', { name: '1 integrity problem' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '2 integrity problems' })).toBeTruthy();
+  });
+
+  it('uses Russian plural categories (one / many) for integrity wording', async () => {
+    locale.set('ru');
+    const one = makeInstance({ id: 'a', name: 'One', integrity: unhealthy(1) });
+    const many = makeInstance({ id: 'b', name: 'Many', integrity: unhealthy(5) });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [one, many],
+        activeInstance: one,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('One');
+
+    expect(screen.getByRole('img', { name: '1 проблема целостности' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '5 проблем целостности' })).toBeTruthy();
+  });
+
+  it('drives the name counter and maxlength from a single constant', async () => {
+    const inst = makeInstance({ name: 'Alpha' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    const input = (await screen.findByDisplayValue('Alpha')) as HTMLInputElement;
+    expect(input.getAttribute('maxlength')).toBe('32');
+    expect(screen.getByText('5/32')).toBeTruthy();
+  });
+
+  it('shows a connection notice when no versions are available at all', async () => {
+    const inst = makeInstance();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+    expect(screen.getByText(/version list unavailable/i)).toBeTruthy();
+  });
+
+  it('nudges to enable snapshots when only snapshot versions exist', async () => {
+    const snapshot: VersionEntry = {
+      id: '24w01a',
+      version_type: 'snapshot',
+      release_date: '2024-01-01T00:00:00+00:00',
+      url: '',
+    };
+    const inst = makeInstance();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [snapshot],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+    expect(screen.getByText(/no release versions available/i)).toBeTruthy();
   });
 });
