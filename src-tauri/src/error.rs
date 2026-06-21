@@ -428,6 +428,24 @@ impl Error {
         }
     }
 
+    /// Build a `ModsNetwork` error from a lower-level cause, carrying only the
+    /// LEAF transport detail. When `cause` is already an
+    /// `Error::Network { details, .. }` — the usual case, since it came straight
+    /// from `network::request` — take that leaf `details` instead of
+    /// re-Displaying the whole parent (which would embed the URL a second time
+    /// and leak the English `#[error(..)]` text). Any other cause falls back to
+    /// its `Display`.
+    pub fn mods_network(url: impl Into<String>, cause: Error) -> Self {
+        let details = match cause {
+            Error::Network { details, .. } => details,
+            other => other.to_string(),
+        };
+        Self::ModsNetwork {
+            url: url.into(),
+            details,
+        }
+    }
+
     pub fn io(path: impl Into<String>, cause: impl std::fmt::Display) -> Self {
         Self::Io {
             path: path.into(),
@@ -446,6 +464,41 @@ mod tests {
         let msg = format!("{e}");
         assert!(msg.contains("https://example.com/x"));
         assert!(msg.contains("connection refused"));
+    }
+
+    #[test]
+    fn mods_network_carries_leaf_detail_from_nested_network() {
+        // The mods layer wraps a lower-level network error. The constructor must
+        // carry ONLY the leaf transport detail, not re-Display the parent (which
+        // would re-embed the URL and leak the English `#[error(..)]` text).
+        let url = "https://api.modrinth.com/v2/search?query=x";
+        let leaf = "error sending request for url (https://api.modrinth.com/v2/search?query=x)";
+        let inner = Error::network(url, leaf);
+        let e = Error::mods_network(url, inner);
+        match &e {
+            Error::ModsNetwork { url: u, details } => {
+                assert_eq!(u, url);
+                assert_eq!(details, leaf);
+                // The doubled wrapper is gone.
+                let rendered = format!("{e}");
+                assert!(
+                    !rendered.contains("Network error fetching"),
+                    "double-wrapped: {rendered}"
+                );
+            }
+            other => panic!("expected ModsNetwork, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mods_network_falls_back_to_display_for_non_network_cause() {
+        let e = Error::mods_network("https://x", Error::AlreadyRunning);
+        match e {
+            Error::ModsNetwork { details, .. } => {
+                assert_eq!(details, "Minecraft is already running");
+            }
+            other => panic!("expected ModsNetwork, got {other:?}"),
+        }
     }
 
     #[test]

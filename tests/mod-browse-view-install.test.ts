@@ -386,7 +386,10 @@ describe('ModBrowseView install flow', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /^install$/i }));
 
     await waitFor(() => expect(modsVersions).toHaveBeenCalled());
-    expect(await screen.findByText(/timeout/)).toBeTruthy();
+    // mods_network is a Transport-class error: the raw transport detail
+    // ('timeout') is intentionally kept out of the UI (it goes to the launcher
+    // log); the surfaced banner is the clean actionable message instead.
+    expect(await screen.findByText(/internet/i)).toBeTruthy();
     expect(modsInstallWithDeps).not.toHaveBeenCalled();
   });
 

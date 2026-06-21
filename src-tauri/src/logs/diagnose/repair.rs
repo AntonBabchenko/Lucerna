@@ -25,6 +25,9 @@ pub enum RepairKind {
     /// server-specific `server_remove_mods` command, not the instance repair
     /// pipeline — `build_repair_plan` returns `Ok(None)` for this variant.
     RemoveClientServerMods,
+    /// A known mod bug has a curated third-party fix mod. `build_repair_plan`
+    /// resolves the pinned version and emits `RepairPlan::InstallFixMod`.
+    InstallFixMod,
 }
 
 /// Map a diagnoser `pattern_id` to its repair kind, or `None` for the
@@ -38,6 +41,7 @@ pub fn repair_kind_for(pattern_id: &str) -> Option<RepairKind> {
         "mod-resolution-conflict" => Some(RepairKind::ResolveConflict),
         "server-missing-mods" => Some(RepairKind::InstallMissingMods),
         "client-extra-mods" => Some(RepairKind::DisableBlockingMods),
+        "create-goggle-overlay-crash" => Some(RepairKind::InstallFixMod),
         _ => None,
     }
 }
@@ -162,6 +166,18 @@ pub enum RepairPlan {
     DisableBlockingMods {
         mods: Vec<BlockingMod>,
     },
+    InstallFixMod {
+        /// Human title for the suggested mod.
+        title: String,
+        source: crate::mods::platform::ModSource,
+        /// Project slug — builds the degraded "open project page" link.
+        slug: String,
+        /// The resolved version label (e.g. "1.0.3"), when `install` is `Some`.
+        version_label: Option<String>,
+        /// `Some` ⇒ one-click install; `None` ⇒ degraded (no compatible pinned
+        /// version / no CF key / distribution disabled) ⇒ UI shows a project link.
+        install: Option<VersionRef>,
+    },
 }
 
 /// One mod the server rejected during the FML channel handshake. The user can
@@ -222,6 +238,12 @@ pub enum RepairChoice {
     },
     DisableMod {
         sha1: String,
+    },
+    /// Install the curated, pinned fix mod the user confirmed.
+    InstallFixMod {
+        source: crate::mods::platform::ModSource,
+        project_id: String,
+        version_id: String,
     },
 }
 
@@ -620,5 +642,44 @@ mod tests {
     fn heap_tiny_ram_collapses_to_floor() {
         // recommended_max_mb(Some(512)) == 1024 (slider floor); current already there.
         assert_eq!(suggest_heap_mb(1024, Some(512)), None);
+    }
+
+    #[test]
+    fn repair_kind_maps_goggle_overlay_to_install_fix_mod() {
+        assert_eq!(
+            repair_kind_for("create-goggle-overlay-crash"),
+            Some(RepairKind::InstallFixMod)
+        );
+    }
+
+    #[test]
+    fn install_fix_mod_plan_serializes_with_kind_tag() {
+        let plan = RepairPlan::InstallFixMod {
+            title: "X".into(),
+            source: crate::mods::platform::ModSource::Curseforge,
+            slug: "x".into(),
+            version_label: None,
+            install: None,
+        };
+        let j = serde_json::to_string(&plan).unwrap();
+        assert!(j.contains(r#""kind":"install_fix_mod""#), "got: {j}");
+    }
+
+    #[test]
+    fn install_fix_mod_choice_deserializes() {
+        let j = r#"{"kind":"install_fix_mod","source":"curseforge","project_id":"123","version_id":"456"}"#;
+        let c: RepairChoice = serde_json::from_str(j).unwrap();
+        match c {
+            RepairChoice::InstallFixMod {
+                source,
+                project_id,
+                version_id,
+            } => {
+                assert_eq!(source, crate::mods::platform::ModSource::Curseforge);
+                assert_eq!(project_id, "123");
+                assert_eq!(version_id, "456");
+            }
+            other => panic!("expected InstallFixMod, got {other:?}"),
+        }
     }
 }

@@ -712,12 +712,42 @@ pub struct CompatVerdict {
 /// Map an instance `LoaderKind` to a loader family. `Vanilla` has no
 /// family — callers must not invoke `compat_verdict` for a vanilla
 /// instance (the UI disables the dropzone there).
-fn instance_family(loader: LoaderKind) -> Option<LoaderFamily> {
+pub(crate) fn instance_family(loader: LoaderKind) -> Option<LoaderFamily> {
     match loader {
         LoaderKind::Fabric | LoaderKind::Quilt => Some(LoaderFamily::Fabric),
         LoaderKind::Forge | LoaderKind::NeoForge => Some(LoaderFamily::Forge),
         LoaderKind::Vanilla => None,
     }
+}
+
+/// True when `node_loaders` (a mod version's platform-declared loaders) belong
+/// to a loader family the `instance` loader cannot load — i.e. the mod is inert
+/// on this instance and its declared deps are never enforced at runtime.
+/// Conservative (only ever suppress when confidently disjoint):
+/// - empty/unknown loaders never suppress;
+/// - a Vanilla *instance* never suppresses (it has no family);
+/// - a node tagged `Vanilla` (Modrinth's "minecraft", loader-agnostic — e.g. a
+///   datapack) is kept on any instance: it is not inert on a real loader;
+/// - a multi-loader set that overlaps the instance family is kept.
+/// This is the dependency-graph analogue of `preflight`'s `dep_applies_to_loader`
+/// scoping (PR #154), applied one level up at declaring-node granularity —
+/// platform metadata carries per-version loaders, not per-dependency families.
+pub(crate) fn loaders_disjoint_from_instance(
+    node_loaders: &[LoaderKind],
+    instance: LoaderKind,
+) -> bool {
+    let Some(inf) = instance_family(instance) else {
+        return false;
+    };
+    if node_loaders.is_empty() {
+        return false;
+    }
+    // A Vanilla-tagged node is loader-agnostic (not inert on any loader) → keep.
+    // Otherwise the node is inert here only if NO declared loader shares the
+    // instance's family.
+    !node_loaders
+        .iter()
+        .any(|l| *l == LoaderKind::Vanilla || instance_family(*l) == Some(inf))
 }
 
 /// Judge a jar's loader/MC compatibility with an instance. Conservative:
@@ -896,6 +926,36 @@ mod tests {
     use super::*;
     use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
+
+    #[test]
+    fn loader_scope_matrix() {
+        use LoaderKind::*;
+        // Forge instance: a Fabric-family declaring node is inert → suppress.
+        assert!(loaders_disjoint_from_instance(&[Fabric], Forge));
+        assert!(loaders_disjoint_from_instance(&[Quilt], Forge));
+        // Forge instance: Forge / multi-loader incl. Forge / NeoForge (same family) → keep.
+        assert!(!loaders_disjoint_from_instance(&[Forge], Forge));
+        assert!(!loaders_disjoint_from_instance(&[Forge, Fabric], Forge));
+        assert!(!loaders_disjoint_from_instance(&[NeoForge], Forge));
+        // Fabric instance.
+        assert!(!loaders_disjoint_from_instance(&[Fabric], Fabric));
+        assert!(loaders_disjoint_from_instance(&[Forge], Fabric));
+        // Quilt runs Fabric mods → keep Fabric; reject Forge.
+        assert!(!loaders_disjoint_from_instance(&[Fabric], Quilt));
+        assert!(!loaders_disjoint_from_instance(&[Quilt], Quilt));
+        assert!(loaders_disjoint_from_instance(&[Forge], Quilt));
+        // Unknown/empty loaders → conservative keep.
+        assert!(!loaders_disjoint_from_instance(&[], Forge));
+        assert!(!loaders_disjoint_from_instance(&[], Fabric));
+        // Vanilla instance has no family → never suppress.
+        assert!(!loaders_disjoint_from_instance(&[Fabric], Vanilla));
+        assert!(!loaders_disjoint_from_instance(&[Forge], Vanilla));
+        // A node tagged Vanilla (Modrinth "minecraft", loader-agnostic) is kept
+        // on any instance — it is not inert on a real loader.
+        assert!(!loaders_disjoint_from_instance(&[Vanilla], Forge));
+        assert!(!loaders_disjoint_from_instance(&[Vanilla], Fabric));
+        assert!(!loaders_disjoint_from_instance(&[Vanilla, Fabric], Forge));
+    }
 
     /// Build an in-memory `.jar` (zip) with the given (name, contents) entries.
     fn jar(entries: &[(&str, &str)]) -> Vec<u8> {
