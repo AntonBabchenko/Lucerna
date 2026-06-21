@@ -570,23 +570,6 @@ pub fn is_crash_exit(code: i32) -> bool {
     code != 0 && code != -1
 }
 
-/// Human-readable hint for a few well-known Windows NTSTATUS exit codes that a
-/// JVM can die with before producing any output. Returned alongside the raw
-/// code so the banner can show "exited with 0xC0000142" plus a plain cause.
-/// `None` for codes we don't specifically recognize (the banner shows a generic
-/// "unrecognized crash" message with the raw code).
-pub fn windows_status_hint(code: i32) -> Option<&'static str> {
-    // NTSTATUS values are unsigned 32-bit; an i32 exit code carries them as the
-    // same bit pattern (e.g. 0xC0000142 == -1073741502).
-    match code as u32 {
-        0xC0000142 => Some("dll_init_failed"), // STATUS_DLL_INIT_FAILED
-        0xC0000005 => Some("access_violation"), // STATUS_ACCESS_VIOLATION
-        0xC0000017 => Some("no_memory"),       // STATUS_NO_MEMORY
-        0xC00000FD => Some("stack_overflow"),  // STATUS_STACK_OVERFLOW
-        _ => None,
-    }
-}
-
 /// Build a fallback `ServerDiagnosis` for a crash the log/crash-report patterns
 /// didn't recognize: a non-zero exit (other than our force-kill sentinel) that
 /// left no diagnosable output. Advisory — there is no one-click fix (the cause
@@ -1195,19 +1178,6 @@ mod tests {
         assert!(is_crash_exit(1), "exit 1 is a crash");
         // 0xC0000142 == STATUS_DLL_INIT_FAILED, stored as a negative i32.
         assert!(is_crash_exit(-1073741502), "0xC0000142 is a crash");
-    }
-
-    #[test]
-    fn windows_status_hint_decodes_known_codes() {
-        // -1073741502 == 0xC0000142
-        assert_eq!(windows_status_hint(-1073741502), Some("dll_init_failed"));
-        // -1073741819 == 0xC0000005
-        assert_eq!(windows_status_hint(-1073741819), Some("access_violation"));
-        assert_eq!(
-            windows_status_hint(1),
-            None,
-            "plain exit 1 has no NTSTATUS hint"
-        );
     }
 
     #[test]
