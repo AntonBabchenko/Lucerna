@@ -261,6 +261,7 @@ export type TranslationKey =
   | 'instance.manage.openFolderBtn'
   | 'instance.manage.openSourceFolderBtn'
   | 'instance.manage.pickMc'
+  | 'instance.manage.runningBlocked'
   | 'instance.manage.showSnapshots'
   | 'instance.manage.title'
   | 'instance.packDetach.descriptionLoader'

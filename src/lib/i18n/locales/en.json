@@ -120,7 +120,8 @@
       "memoryWarnHigh": "Allocating more than {recommended} may leave little memory for the OS and Minecraft itself.",
       "jvmArgsLabel": "Extra JVM args",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
-      "cannotDeleteLast": "Cannot delete the last instance"
+      "cannotDeleteLast": "Cannot delete the last instance",
+      "runningBlocked": "Stop the running game first."
     },
     "error": {
       "nameRequired": "Name is required",
