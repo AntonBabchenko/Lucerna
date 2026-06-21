@@ -54,6 +54,10 @@
   // changes the selection, so the detail panel keeps showing the selected
   // instance even if it is hidden from the list.
   const FILTER_THRESHOLD = 8;
+  // Mirrors MAX_INSTANCE_NAME_LEN in src-tauri/src/commands/mod.rs — the backend
+  // is the source of truth and rejects longer names; this only drives the input
+  // maxlength + counter so the UI agrees with the validator.
+  const NAME_MAX = 32;
   let filterQuery = $state('');
   let filteredInstances = $derived(
     filterQuery.trim()
@@ -132,9 +136,11 @@
     | { kind: 'loader'; loaderKind: LoaderKind; loaderVersion: string | null };
   let pendingChange = $state<PendingChange | null>(null);
 
-  // Snapshot toggle for the MC version pickers. Off by default —
-  // most users want stable releases. Shared across the create form
-  // and the detail editor so flipping it once applies to both.
+  // Snapshot toggle for the MC version pickers. Off by default — most users
+  // want stable releases. Deliberately shared across the create form and the
+  // detail editor: the cross-flip is invisible in practice because `createMode`
+  // gates which of the two checkboxes renders (they never show at once), and a
+  // user who wants snapshots usually wants them in both contexts.
   let showSnapshots = $state(false);
   let visibleVersions = $derived(
     versions.filter((v) => (showSnapshots ? true : v.version_type === 'release')),
@@ -504,10 +510,20 @@
 
 {#snippet savedBadge(field: SavedField)}
   {#if savedField === field}
-    <span class="inline-flex items-center gap-1 normal-case font-normal text-success">
+    <span class="inline-flex items-center gap-1 font-normal text-success">
       <Icon name="success" size={12} />
       {$t('instance.manage.saved')}
     </span>
+  {/if}
+{/snippet}
+
+{#snippet noVersionsNotice()}
+  {#if visibleVersions.length === 0}
+    <p class="mb-3 text-xs text-warning-text">
+      {versions.length === 0
+        ? $t('instance.manage.noVersions')
+        : $t('instance.manage.noReleasesEnableSnapshots')}
+    </p>
   {/if}
 {/snippet}
 
@@ -600,21 +616,23 @@
       <section class="flex-1 overflow-y-auto p-4" data-tour-ctx="manage-form">
         {#if createMode}
           <h3 class="font-semibold text-primary mb-3">{$t('instance.manage.createHeading')}</h3>
-          <label
-            for="create-name"
-            class="block text-xs uppercase text-secondary mb-1 flex justify-between"
-          >
+          <label for="create-name" class="mb-1 flex justify-between text-xs text-secondary">
             <span>{$t('instance.manage.nameLabel')}</span>
-            <span class="text-placeholder normal-case font-normal">{draftName.length}/32</span>
+            <span class="text-placeholder font-normal"
+              >{$t('instance.manage.nameCounter', {
+                count: draftName.length,
+                max: NAME_MAX,
+              })}</span
+            >
           </label>
           <input
             id="create-name"
             class="border rounded px-2 py-1 w-full mb-3"
-            maxlength="32"
+            maxlength={NAME_MAX}
             bind:value={draftName}
           />
 
-          <label for="create-mc-version" class="block text-xs uppercase text-secondary mb-1"
+          <label for="create-mc-version" class="block text-xs text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label
           >
           <Select
@@ -628,6 +646,7 @@
             <input type="checkbox" bind:checked={showSnapshots} />
             {$t('instance.manage.showSnapshots')}
           </label>
+          {@render noVersionsNotice()}
 
           <LoaderPicker
             mc={draftMc}
@@ -655,26 +674,28 @@
             {#if selected.id === activeInstance?.id}{@render activeChip()}{/if}
           </h3>
 
-          <label
-            for="detail-name"
-            class="block text-xs uppercase text-secondary mb-1 flex justify-between"
-          >
+          <label for="detail-name" class="mb-1 flex justify-between text-xs text-secondary">
             <span>{$t('instance.manage.nameLabel')}</span>
             <span class="flex items-center gap-2">
               {@render savedBadge('name')}
-              <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
+              <span class="text-placeholder font-normal"
+                >{$t('instance.manage.nameCounter', {
+                  count: nameDraft.length,
+                  max: NAME_MAX,
+                })}</span
+              >
             </span>
           </label>
           <input
             id="detail-name"
             class="border rounded px-2 py-1 w-full mb-3"
-            maxlength="32"
+            maxlength={NAME_MAX}
             bind:value={nameDraft}
             oninput={() => clearSaved('name')}
             onblur={commitName}
           />
 
-          <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
+          <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label
           >
           <span
@@ -697,6 +718,7 @@
             <input type="checkbox" bind:checked={showSnapshots} />
             {$t('instance.manage.showSnapshots')}
           </label>
+          {@render noVersionsNotice()}
 
           <!--
               Keyed on the instance id so the picker REMOUNTS when the user
@@ -746,7 +768,7 @@
 
           <label
             for="detail-memory"
-            class="mb-1 flex items-center justify-between text-xs uppercase text-secondary"
+            class="mb-1 flex items-center justify-between text-xs text-secondary"
           >
             <span>
               {$t('instance.manage.memoryLabel', {
@@ -770,7 +792,7 @@
 
           <label
             for="detail-jvm-args"
-            class="mb-1 flex items-center justify-between text-xs uppercase text-secondary"
+            class="mb-1 flex items-center justify-between text-xs text-secondary"
           >
             <span>{$t('instance.manage.jvmArgsLabel')}</span>
             {@render savedBadge('jvm')}
