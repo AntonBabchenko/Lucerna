@@ -514,3 +514,89 @@ describe('ManageInstancesModal — persistence legibility', () => {
     expect(m.setInstanceName).not.toHaveBeenCalled();
   });
 });
+
+describe('ManageInstancesModal — accessibility', () => {
+  it('marks the selected instance row with aria-current and migrates it on switch', async () => {
+    const a = makeInstance({ id: 'a', name: 'Alpha' });
+    const b = makeInstance({ id: 'b', name: 'Beta' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [a, b],
+        activeInstance: a,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Alpha');
+
+    expect(screen.getByRole('button', { name: /Alpha/ }).getAttribute('aria-current')).toBe('true');
+    expect(screen.getByRole('button', { name: /Beta/ }).getAttribute('aria-current')).toBe('false');
+
+    await fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+    expect(screen.getByRole('button', { name: /Beta/ }).getAttribute('aria-current')).toBe('true');
+    expect(screen.getByRole('button', { name: /Alpha/ }).getAttribute('aria-current')).toBe(
+      'false',
+    );
+  });
+
+  it('names the instance list and labels the ready/download status icons', async () => {
+    const ready = makeInstance({ id: 'a', name: 'Ready One', ready: true });
+    const pending = makeInstance({ id: 'b', name: 'Pending One', ready: false });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [ready, pending],
+        activeInstance: ready,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Ready One');
+
+    expect(screen.getByRole('complementary', { name: 'Instances' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: /assets downloaded/i })).toBeTruthy();
+    expect(screen.getByRole('img', { name: /download needed/i })).toBeTruthy();
+  });
+
+  it('marks the active loader button with aria-pressed', async () => {
+    const inst = makeInstance({ loader: 'vanilla' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+
+    expect(screen.getByRole('button', { name: 'Vanilla' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Fabric' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+  });
+
+  it('keeps Create keyboard-reachable with a visible disabled reason (no native disabled)', async () => {
+    const inst = makeInstance();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+    await fireEvent.click(screen.getByRole('button', { name: '+ New instance' }));
+
+    const createBtn = screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(false);
+    // The reason is on-screen (not hidden in a tooltip on a disabled button).
+    expect(screen.getByText(/name is required/i)).toBeTruthy();
+  });
+});

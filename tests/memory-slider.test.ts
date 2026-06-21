@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
+import { formatHeapLabel } from '$lib/instances/heap';
 import MemorySlider from '$lib/instances/MemorySlider.svelte';
 
 const { mockLoad } = vi.hoisted(() => ({ mockLoad: vi.fn() }));
@@ -37,6 +38,17 @@ describe('MemorySlider', () => {
     await waitFor(() => expect(slider.max).toBe('32768'));
     expect(slider.min).toBe('1024');
     expect(slider.step).toBe('512');
+  });
+
+  it('exposes a human-readable aria-valuetext that tracks valueMb', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB);
+    const { rerender } = render(MemorySlider, { props: { valueMb: 4096, onInput: vi.fn() } });
+
+    const slider = screen.getByRole('slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-valuetext')).toBe(formatHeapLabel(4096));
+
+    await rerender({ valueMb: 8192, onInput: vi.fn() });
+    expect(slider.getAttribute('aria-valuetext')).toBe(formatHeapLabel(8192));
   });
 
   it('fires onInput with the parsed integer MB when dragged', async () => {
