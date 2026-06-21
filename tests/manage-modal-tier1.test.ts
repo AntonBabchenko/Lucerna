@@ -194,3 +194,46 @@ describe('ManageInstancesModal — memory slider', () => {
     expect(slider.value).toBe('12288');
   });
 });
+
+describe('ManageInstancesModal — running guard', () => {
+  function renderTwo(isRunning: boolean) {
+    const a = makeInstance({ id: 'a', name: 'Alpha' });
+    const b = makeInstance({ id: 'b', name: 'Beta' });
+    return render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [a, b],
+        activeInstance: a,
+        versions: [version],
+        onChanged: () => {},
+        isRunning,
+      },
+    });
+  }
+
+  it('disables delete, MC version, and loader picker while running', async () => {
+    renderTwo(true);
+    await screen.findByDisplayValue('Alpha');
+
+    expect(
+      (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect((screen.getByRole('combobox') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /vanilla/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('leaves delete, MC version, and loader picker enabled when not running', async () => {
+    renderTwo(false);
+    await screen.findByDisplayValue('Alpha');
+
+    expect(
+      (screen.getByRole('button', { name: /Delete instance/ }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect((screen.getByRole('combobox') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: /vanilla/i }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+});

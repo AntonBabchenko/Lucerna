@@ -558,13 +558,22 @@
           <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label
           >
-          <Select
-            id="detail-mc-version"
-            class="w-full mb-1"
-            value={selected.mc_version}
-            options={mcVersionOptions}
-            onChange={(v) => setMc(String(v))}
-          />
+          <span
+            class="block mb-1"
+            use:tooltip={{
+              text: isRunning ? $t('instance.manage.runningBlocked') : '',
+              describe: false,
+            }}
+          >
+            <Select
+              id="detail-mc-version"
+              class="w-full"
+              value={selected.mc_version}
+              options={mcVersionOptions}
+              disabled={isRunning}
+              onChange={(v) => setMc(String(v))}
+            />
+          </span>
           <label class="text-xs flex items-center gap-1 mb-3">
             <input type="checkbox" bind:checked={showSnapshots} />
             {$t('instance.manage.showSnapshots')}
@@ -578,18 +587,27 @@
               across instances, so swapping to a modpack instance was mis-read as
               a loader change and falsely raised the pack-detach prompt.
             -->
-          {#key selected.id}
-            <LoaderPicker
-              mc={selected.mc_version}
-              loader={selected.loader}
-              loaderVersion={selected.loader_version}
-              onchange={async (l, v) => {
-                if (l !== selected!.loader || v !== selected!.loader_version) {
-                  await commitLoader(l, v);
-                }
-              }}
-            />
-          {/key}
+          <span
+            class="block"
+            use:tooltip={{
+              text: isRunning ? $t('instance.manage.runningBlocked') : '',
+              describe: false,
+            }}
+          >
+            {#key selected.id}
+              <LoaderPicker
+                mc={selected.mc_version}
+                loader={selected.loader}
+                loaderVersion={selected.loader_version}
+                disabled={isRunning}
+                onchange={async (l, v) => {
+                  if (l !== selected!.loader || v !== selected!.loader_version) {
+                    await commitLoader(l, v);
+                  }
+                }}
+              />
+            {/key}
+          </span>
 
           {#if compatRows !== null && compatSummary(compatRows) !== null}
             <p
@@ -702,14 +720,18 @@
             <span
               class="inline-flex"
               use:tooltip={{
-                text: instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : '',
+                text: isRunning
+                  ? $t('instance.manage.runningBlocked')
+                  : instances.length <= 1
+                    ? $t('instance.manage.cannotDeleteLast')
+                    : '',
                 describe: false,
               }}
             >
               <button
                 type="button"
                 class="btn-ghost-danger inline-flex items-center gap-1.5"
-                disabled={instances.length <= 1}
+                disabled={instances.length <= 1 || isRunning}
                 onclick={() => (deleteConfirmOpen = true)}
               >
                 <Icon name="trash" size={14} />
