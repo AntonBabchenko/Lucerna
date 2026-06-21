@@ -75,6 +75,29 @@
   let modalError = $state<string | null>(null);
   let deleteConfirmOpen = $state(false);
 
+  // Transient per-field "Saved" confirmation. The detail editor auto-saves each
+  // field independently (no Save button), so the user otherwise gets no signal a
+  // blur/drag actually persisted. Track the most-recently-saved field; clear it
+  // after a short delay or when the user re-edits that field.
+  const SAVED_HINT_MS = 1500;
+  type SavedField = 'name' | 'memory' | 'jvm';
+  let savedField = $state<SavedField | null>(null);
+  let savedTimer: ReturnType<typeof setTimeout> | null = null;
+  function markSaved(f: SavedField) {
+    savedField = f;
+    if (savedTimer) clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => {
+      if (savedField === f) savedField = null;
+    }, SAVED_HINT_MS);
+  }
+  function clearSaved(f: SavedField) {
+    if (savedField === f) savedField = null;
+  }
+  // Clear any pending "Saved" timer when the modal unmounts.
+  $effect(() => () => {
+    if (savedTimer) clearTimeout(savedTimer);
+  });
+
   // Mod-compat summary for the current instance after an MC/loader change.
   let compatRows = $state<ModCompat[] | null>(null);
   // Set when a compat check could not be computed (command error / throw) so the
@@ -85,6 +108,7 @@
     void selectedId;
     compatRows = null;
     compatCheckFailed = false;
+    savedField = null;
   });
 
   // The error region scrolls into view when an error first appears, so a failure
@@ -252,6 +276,8 @@
         await commands.setActiveInstance(result.data.id);
         onChanged();
         selectedId = result.data.id;
+        // Creating a profile silently switches the active one — say so.
+        pushSuccess(get(t)('instance.manage.createdActiveToast', { name: result.data.name }));
       } else {
         modalError = ipcErrorMessage(result.error);
       }
@@ -262,12 +288,21 @@
 
   async function commitName() {
     if (!selected || nameDraft === selected.name) return;
-    if (!nameDraft.trim()) return;
+    if (!nameDraft.trim()) {
+      // Empty/whitespace: snap the field back to the saved name rather than
+      // leaving a blank box (an accidental clear reads as a silent no-op).
+      nameDraft = selected.name;
+      return;
+    }
     const id = selected.id;
     const result = await commands.setInstanceName(id, nameDraft.trim());
     if (isStale(id)) return;
-    if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
+    if (result.status === 'ok') {
+      onChanged();
+      markSaved('name');
+    } else {
+      modalError = ipcErrorMessage(result.error);
+    }
   }
 
   // Takes the NEW mc/loader explicitly rather than reading `selected`: after a
@@ -388,8 +423,12 @@
     const id = selected.id;
     const result = await commands.setInstanceMemory(id, mb);
     if (isStale(id)) return;
-    if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
+    if (result.status === 'ok') {
+      onChanged();
+      markSaved('memory');
+    } else {
+      modalError = ipcErrorMessage(result.error);
+    }
   }
 
   async function setJvmArgs(args: string) {
@@ -397,8 +436,12 @@
     const id = selected.id;
     const result = await commands.setInstanceJvmArgs(id, args);
     if (isStale(id)) return;
-    if (result.status === 'ok') onChanged();
-    else modalError = ipcErrorMessage(result.error);
+    if (result.status === 'ok') {
+      onChanged();
+      markSaved('jvm');
+    } else {
+      modalError = ipcErrorMessage(result.error);
+    }
   }
 
   async function openFolder() {
@@ -447,6 +490,7 @@
     lastNameSyncId = null;
     lastHeapSyncId = null;
     filterQuery = '';
+    savedField = null;
   }
 </script>
 
@@ -456,6 +500,15 @@
   >
     {$t('instance.manage.activeBadge')}
   </span>
+{/snippet}
+
+{#snippet savedBadge(field: SavedField)}
+  {#if savedField === field}
+    <span class="inline-flex items-center gap-1 normal-case font-normal text-success">
+      <Icon name="success" size={12} />
+      {$t('instance.manage.saved')}
+    </span>
+  {/if}
 {/snippet}
 
 {#if open}
@@ -597,13 +650,17 @@
             class="block text-xs uppercase text-secondary mb-1 flex justify-between"
           >
             <span>{$t('instance.manage.nameLabel')}</span>
-            <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
+            <span class="flex items-center gap-2">
+              {@render savedBadge('name')}
+              <span class="text-placeholder normal-case font-normal">{nameDraft.length}/32</span>
+            </span>
           </label>
           <input
             id="detail-name"
             class="border rounded px-2 py-1 w-full mb-3"
             maxlength="32"
             bind:value={nameDraft}
+            oninput={() => clearSaved('name')}
             onblur={commitName}
           />
 
@@ -677,10 +734,16 @@
             class="mt-2 mb-1"
           />
 
-          <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
-            {$t('instance.manage.memoryLabel', {
-              value: formatHeapLabel(heapDraft),
-            })}
+          <label
+            for="detail-memory"
+            class="mb-1 flex items-center justify-between text-xs uppercase text-secondary"
+          >
+            <span>
+              {$t('instance.manage.memoryLabel', {
+                value: formatHeapLabel(heapDraft),
+              })}
+            </span>
+            {@render savedBadge('memory')}
           </label>
           <MemorySlider
             id="detail-memory"
@@ -688,18 +751,26 @@
             warnClass="mb-3"
             reserveWarnSpace
             valueMb={heapDraft}
-            onInput={(mb) => (heapDraft = mb)}
+            onInput={(mb) => {
+              heapDraft = mb;
+              clearSaved('memory');
+            }}
             onCommit={(mb) => setMemory(mb)}
           />
 
-          <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
-            >{$t('instance.manage.jvmArgsLabel')}</label
+          <label
+            for="detail-jvm-args"
+            class="mb-1 flex items-center justify-between text-xs uppercase text-secondary"
           >
+            <span>{$t('instance.manage.jvmArgsLabel')}</span>
+            {@render savedBadge('jvm')}
+          </label>
           <input
             id="detail-jvm-args"
             class="border rounded px-2 py-1 w-full mb-3 font-mono text-xs"
             placeholder={$t('instance.manage.jvmArgsPlaceholder')}
             value={selected.extra_jvm_args}
+            oninput={() => clearSaved('jvm')}
             onchange={(e) => setJvmArgs((e.currentTarget as HTMLInputElement).value)}
           />
 
@@ -793,8 +864,8 @@
                 <Icon name="folderOpen" size={14} />
                 {$t('instance.manage.openFolderBtn')}
               </button>
-              <button type="button" class="btn-primary btn-sm" onclick={close}>
-                {$t('instance.manage.doneBtn')}
+              <button type="button" class="btn-secondary btn-sm" onclick={close}>
+                {$t('instance.manage.closeBtn')}
               </button>
             </div>
           </div>
