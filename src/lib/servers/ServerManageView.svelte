@@ -6,6 +6,9 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import { Icon } from '$lib/ui/icons';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import DiagnosisRestoreButton from '$lib/ui/DiagnosisRestoreButton.svelte';
+  import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
+  import { serverBannerEligible, serverDiagnosisSignature } from './server-diagnosis-view';
   import ServerConsole from './ServerConsole.svelte';
   import ServerGeneralSettings from './ServerGeneralSettings.svelte';
   import ServerSettings from './ServerSettings.svelte';
@@ -38,6 +41,17 @@
   const running = $derived(serverState.running(serverId));
   // #18: distinguish a crash from a clean stop in the header pill (C1 shim).
   const crashed = $derived(server ? isCrashed(server) : false);
+
+  // Restore affordance for a dismissed diagnosis banner: shown only when the
+  // banner would otherwise be visible but the user hid it (mirror of the
+  // overview's attention-restore badge).
+  const diagnosis = $derived(serverState.diagnosisFor(serverId));
+  const diagSignature = $derived(serverDiagnosisSignature(diagnosis));
+  const showDiagnosisRestore = $derived(
+    serverBannerEligible(diagnosis, running) &&
+      diagSignature !== null &&
+      diagnosisDismiss.isDismissed(`server:${serverId}`, diagSignature),
+  );
 
   let tab = $state<ServerTab>('console');
   let showToInstance = $state(false);
@@ -139,6 +153,14 @@
     </button>
 
     <span class="flex-1 font-semibold truncate">{server?.name ?? serverId}</span>
+
+    <!-- Restore a dismissed diagnosis banner -->
+    {#if showDiagnosisRestore}
+      <DiagnosisRestoreButton
+        testid="server-diagnosis-restore"
+        onRestore={() => diagnosisDismiss.restore(`server:${serverId}`)}
+      />
+    {/if}
 
     <!-- Status pill -->
     <StatusBadge variant={running ? 'success' : crashed ? 'danger' : 'muted'}>

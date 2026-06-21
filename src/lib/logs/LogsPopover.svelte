@@ -11,7 +11,10 @@
   import { t } from '$lib/i18n';
   import { formatSize } from '$lib/format/size';
   import LogDiagnosisBanner from '$lib/logs/LogDiagnosisBanner.svelte';
-  import { refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
+  import { latestDiagnosis, refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
+  import { logBannerEligible, logDiagnosisSignature } from '$lib/logs/log-diagnosis-view';
+  import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
+  import DiagnosisRestoreButton from '$lib/ui/DiagnosisRestoreButton.svelte';
   import { clearOldPreview } from '$lib/logs/manage';
   import { chooseOpenLog } from '$lib/logs/select-log';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
@@ -59,6 +62,17 @@
     // the game closes instead of failing with InstanceBusy.
     gameRunning?: boolean;
   } = $props();
+
+  // Restore affordance for a dismissed log diagnosis banner: shown only when the
+  // banner would otherwise be visible but the user hid it.
+  const latestLogDiagnosis = $derived(latestDiagnosis());
+  const logRestoreSignature = $derived(logDiagnosisSignature(latestLogDiagnosis));
+  const showLogRestore = $derived(
+    logBannerEligible(latestLogDiagnosis) &&
+      instanceId !== null &&
+      logRestoreSignature !== null &&
+      diagnosisDismiss.isDismissed(`log:${instanceId}`, logRestoreSignature),
+  );
 
   // ---------------------------------------------------------------------------
   // Read-cap
@@ -710,6 +724,12 @@
         <div class="flex items-center justify-between px-4 py-2">
           <h2 class="text-sm font-semibold text-primary">{$t('logs.toolbar.title')}</h2>
           <div class="flex items-center gap-1.5">
+            {#if showLogRestore && instanceId}
+              <DiagnosisRestoreButton
+                testid="log-diagnosis-restore"
+                onRestore={() => diagnosisDismiss.restore(`log:${instanceId}`)}
+              />
+            {/if}
             <button
               type="button"
               class="btn-icon"

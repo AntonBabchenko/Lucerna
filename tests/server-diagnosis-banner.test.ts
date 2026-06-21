@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerDiagnosis } from '$lib/ipc/bindings';
 import ServerDiagnosisBanner from '$lib/servers/ServerDiagnosisBanner.svelte';
+import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
 
 // Mock bindings — not needed for this component directly but imported transitively.
 vi.mock('$lib/ipc/bindings', () => ({
@@ -121,6 +122,11 @@ describe('ServerDiagnosisBanner', () => {
     const mod = await import('$lib/servers/server-state.svelte');
     // mod.serverState.removeClientMods is the vi.fn() from our factory above.
     removeClientModsSpy = mod.serverState.removeClientMods as ReturnType<typeof vi.fn>;
+  });
+
+  beforeEach(() => {
+    // The dismiss store is a module singleton — clear it so dismissals don't leak.
+    diagnosisDismiss.reset();
   });
 
   it('renders nothing when diagnosisFor returns undefined', () => {
@@ -393,6 +399,48 @@ describe('ServerDiagnosisBanner', () => {
     expect(screen.getByTestId('server-fix-disable-mods')).toBeTruthy();
     expect(screen.getByText('sodium')).toBeTruthy();
     expect(screen.getByText('oldlib')).toBeTruthy();
+  });
+
+  it('hides the banner when the dismiss button is clicked', async () => {
+    mockDiagnoses['srv-dismiss'] = makeClientOnlyDiagnosis();
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-dismiss' } });
+    expect(screen.getByTestId('server-diagnosis-banner')).toBeTruthy();
+    await fireEvent.click(screen.getByTestId('server-diagnosis-dismiss'));
+    expect(screen.queryByTestId('server-diagnosis-banner')).toBeNull();
+  });
+
+  it('stays hidden for the same diagnosis but resurfaces for a different one', async () => {
+    // Dismiss the client-only crash (signature = pattern|log_signature).
+    mockDiagnoses['srv-sig'] = makeClientOnlyDiagnosis();
+    const first = render(ServerDiagnosisBanner, { props: { serverId: 'srv-sig' } });
+    await fireEvent.click(screen.getByTestId('server-diagnosis-dismiss'));
+    expect(screen.queryByTestId('server-diagnosis-banner')).toBeNull();
+    first.unmount();
+
+    // Same diagnosis → still hidden on a fresh mount.
+    const second = render(ServerDiagnosisBanner, { props: { serverId: 'srv-sig' } });
+    expect(screen.queryByTestId('server-diagnosis-banner')).toBeNull();
+    second.unmount();
+
+    // A different problem (different pattern) → banner returns.
+    mockDiagnoses['srv-sig'] = makePreflightDiagnosis('server-port-in-use', 'change_port', {
+      port_in_use: 25565,
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-sig' } });
+    expect(screen.getByTestId('server-diagnosis-banner')).toBeTruthy();
+  });
+
+  it('re-shows a dismissed banner once the dismissal is cleared (restore)', async () => {
+    mockDiagnoses['srv-restore'] = makeClientOnlyDiagnosis();
+    const first = render(ServerDiagnosisBanner, { props: { serverId: 'srv-restore' } });
+    await fireEvent.click(screen.getByTestId('server-diagnosis-dismiss'));
+    expect(screen.queryByTestId('server-diagnosis-banner')).toBeNull();
+    first.unmount();
+    // The restore badge lives in ServerManageView; here we assert the banner
+    // returns once the dismissal is cleared (what that badge does on click).
+    diagnosisDismiss.restore('server:srv-restore');
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-restore' } });
+    expect(screen.getByTestId('server-diagnosis-banner')).toBeTruthy();
   });
 
   it('routes disable_mods through disableMods (reversible) for the checklist', async () => {
