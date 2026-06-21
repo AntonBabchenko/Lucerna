@@ -62,10 +62,7 @@ impl ModrinthClient {
             let url = format!("{}/v2/projects?ids={}", self.base, urlencode(&ids_json));
             let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
                 .await
-                .map_err(|e| Error::ModsNetwork {
-                    url: url.clone(),
-                    details: e.to_string(),
-                })?;
+                .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
                 return Err(Error::ModsNetwork {
                     url,
@@ -117,10 +114,7 @@ impl ModrinthClient {
                 "mods",
             )
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
                 return Err(Error::ModsNetwork {
                     url,
@@ -162,10 +156,7 @@ impl ModPlatform for ModrinthClient {
         );
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
         if resp.status == 404 {
             return Err(Error::ModsNotFound {
                 platform: "modrinth".into(),
@@ -208,10 +199,7 @@ impl ModPlatform for ModrinthClient {
         let url = format!("{}/v2/project/{}", self.base, project_id);
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
         if resp.status == 404 {
             return Err(Error::ModsNotFound {
                 platform: "modrinth".into(),
@@ -286,10 +274,7 @@ impl ModPlatform for ModrinthClient {
         let url = format!("{}/v2/project/{}/version{}", self.base, project_id, query);
         let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
         if !(200..300).contains(&resp.status) {
             return Err(Error::ModsNetwork {
                 url,
@@ -380,10 +365,7 @@ impl ModPlatform for ModrinthClient {
             let url = format!("{}/v2/projects?ids={}", self.base, urlencode(&ids_json));
             let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
                 .await
-                .map_err(|e| Error::ModsNetwork {
-                    url: url.clone(),
-                    details: e.to_string(),
-                })?;
+                .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
                 return Err(Error::ModsNetwork {
                     url,
@@ -411,10 +393,7 @@ impl ModPlatform for ModrinthClient {
             let url = format!("{}/v2/versions?ids={}", self.base, urlencode(&ids_json));
             let resp = crate::network::request::get(&url, &[("user-agent", UA)], "mods")
                 .await
-                .map_err(|e| Error::ModsNetwork {
-                    url: url.clone(),
-                    details: e.to_string(),
-                })?;
+                .map_err(|e| Error::mods_network(url.clone(), e))?;
             if !(200..300).contains(&resp.status) {
                 return Err(Error::ModsNetwork {
                     url,
