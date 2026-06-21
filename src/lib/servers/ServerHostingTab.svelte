@@ -405,7 +405,7 @@
   <!-- ── Host-key confirm inline (#24) ───────────────────────────────────── -->
   {#if showHostKeyConfirm}
     <section
-      class="flex flex-col gap-3 border border-warning/40 rounded-lg p-4 bg-warning/5"
+      class="flex flex-col gap-3 border border-warning-text rounded-lg p-4 bg-warning-bg"
       data-testid="host-key-confirm"
     >
       <p class="text-sm font-semibold text-primary">

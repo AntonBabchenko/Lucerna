@@ -139,8 +139,10 @@
     <div class="flex flex-col gap-3">
       <!-- Firewall banner — only on Windows when a rule is missing -->
       {#if firewall === 'needs_rule'}
-        <div class="rounded border border-warning/40 bg-warning/10 p-3 flex flex-col gap-2">
-          <p class="font-semibold text-warning">{$t('servers.connect.firewall.blockedTitle')}</p>
+        <div class="rounded border border-warning-text bg-warning-bg p-3 flex flex-col gap-2">
+          <p class="font-semibold text-warning-text">
+            {$t('servers.connect.firewall.blockedTitle')}
+          </p>
           <p class="text-muted text-xs">
             {$t('servers.connect.firewall.blockedHint', { port })}
           </p>
@@ -254,7 +256,7 @@
 
       <!-- Online-mode explainer -->
       {#if snapshot}
-        <p class={snapshot.online_mode ? 'text-muted text-xs' : 'text-warning text-xs'}>
+        <p class={snapshot.online_mode ? 'text-muted text-xs' : 'text-warning-text text-xs'}>
           {snapshot.online_mode
             ? $t('servers.connect.onlineModeOn')
             : $t('servers.connect.onlineModeOff')}

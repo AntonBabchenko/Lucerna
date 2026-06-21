@@ -108,7 +108,7 @@
   {/if}
 
   {#if running}
-    <p class="text-xs text-warning">{$t('servers.backups.runningBlock')}</p>
+    <p class="text-xs text-warning-text">{$t('servers.backups.runningBlock')}</p>
   {/if}
 
   {#if listError}

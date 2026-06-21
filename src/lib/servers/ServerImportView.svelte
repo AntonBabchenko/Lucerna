@@ -206,7 +206,7 @@
     <p
       class="text-xs rounded px-2 py-1"
       class:bg-success-bg={canLaunchAsIs}
-      class:text-success-text={canLaunchAsIs}
+      class:text-success={canLaunchAsIs}
       class:bg-warning-bg={!canLaunchAsIs}
       class:text-warning-text={!canLaunchAsIs}
     >
