@@ -1241,6 +1241,7 @@ export type TranslationKey =
   | 'servers.hosting.runningBlock'
   | 'servers.hosting.save'
   | 'servers.hosting.saved'
+  | 'servers.hosting.startBlockedByUpload'
   | 'servers.hosting.tab'
   | 'servers.hosting.upload'
   | 'servers.hosting.uploaded'

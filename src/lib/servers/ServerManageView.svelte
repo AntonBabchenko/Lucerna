@@ -39,6 +39,7 @@
     serverState.list.find((s) => s.id === serverId) as ServerWithStatus_Serialize | undefined,
   );
   const running = $derived(serverState.running(serverId));
+  const uploading = $derived(serverState.isUploading(serverId));
   // #18: distinguish a crash from a clean stop in the header pill (C1 shim).
   const crashed = $derived(server ? isCrashed(server) : false);
 
@@ -183,16 +184,29 @@
         {$t('servers.toInstance.button')}
       </button>
       {#if !running}
-        <BusyButton class="btn-success btn-sm" busy={busyStart} onclick={() => void start()}>
+        <BusyButton
+          class="btn-success btn-sm"
+          busy={busyStart}
+          disabled={uploading}
+          onclick={() => void start()}
+        >
           <Icon name="play" size={14} />{$t('servers.action.start')}
         </BusyButton>
       {:else}
-        <BusyButton class="btn-secondary btn-sm" busy={busyRestart} onclick={() => void restart()}>
+        <BusyButton
+          class="btn-secondary btn-sm"
+          busy={busyRestart}
+          disabled={uploading}
+          onclick={() => void restart()}
+        >
           <Icon name="refresh" size={14} />{$t('servers.action.restart')}
         </BusyButton>
         <BusyButton class="btn-ghost btn-sm" busy={busyStop} onclick={() => void stop()}>
           <Icon name="stop" size={14} />{$t('servers.action.stop')}
         </BusyButton>
+      {/if}
+      {#if uploading}
+        <span class="text-xs text-muted">{$t('servers.hosting.startBlockedByUpload')}</span>
       {/if}
     </div>
   </div>

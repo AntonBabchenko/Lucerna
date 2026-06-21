@@ -1666,6 +1666,7 @@
       "uploaded": "Upload complete",
       "exportZip": "Export .zip",
       "exported": "Exported",
+      "startBlockedByUpload": "Idle while uploading to hosting",
       "runningBlock": "Stop the server before uploading",
       "exportRunningBlock": "Stop the server first — exporting a running world can capture it mid-save. Use Backups for a safe snapshot of a live server.",
       "passwordStored": "Password saved",
