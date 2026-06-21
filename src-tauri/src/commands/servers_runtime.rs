@@ -367,6 +367,9 @@ pub fn server_list(app: AppHandle) -> Result<Vec<ServerWithStatus>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_start(app: AppHandle, id: String) -> Result<u32> {
+    if crate::servers_runtime::upload_control::upload_is_active(&id) {
+        return Err(crate::error::Error::ServerUploadInProgress { id });
+    }
     crate::servers_runtime::runtime::start(&app, &id).await
 }
 
@@ -381,6 +384,9 @@ pub async fn server_stop(app: AppHandle, id: String) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn server_restart(app: AppHandle, id: String) -> Result<u32> {
+    if crate::servers_runtime::upload_control::upload_is_active(&id) {
+        return Err(crate::error::Error::ServerUploadInProgress { id });
+    }
     crate::servers_runtime::runtime::restart(&app, &id).await
 }
 
@@ -1079,37 +1085,35 @@ pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool
     if crate::servers_runtime::runtime::is_running(&id) {
         return Err(crate::error::Error::ServerAlreadyRunning { id });
     }
+    if crate::servers_runtime::upload_control::upload_is_active(&id) {
+        return Err(crate::error::Error::ServerUploadInProgress { id });
+    }
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    let cfg = file
-        .upload
-        .ok_or(crate::error::Error::UploadNotConfigured)?;
+    let cfg = file.upload.ok_or(crate::error::Error::UploadNotConfigured)?;
     let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
     let stored =
         crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
-    // Password auth requires a stored secret; key auth may use an unencrypted
-    // key (no passphrase), so an absent secret is fine there.
     let secret = match (auth.method, stored) {
         (crate::servers_runtime::transfer::UploadAuthMethod::Password, None) => {
             return Err(crate::error::Error::UploadNotConfigured)
         }
         (_, s) => s.unwrap_or_default(),
     };
-    let new_fp = crate::servers_runtime::transfer::upload_server(
-        &app,
-        &id,
-        &cfg,
-        &auth,
-        &secret,
-        accept_new_host_key,
+    let cancel = crate::servers_runtime::upload_control::upload_begin(&id);
+    let result = crate::servers_runtime::transfer::upload_server(
+        &app, &id, &cfg, &auth, &secret, accept_new_host_key, &cancel,
     )
-    .await?;
-    if let Some(fp) = new_fp {
-        let mut f2 = crate::servers_runtime::store::read_server_json(&p.json)?;
-        if let Some(u) = f2.upload.as_mut() {
-            u.known_host_fp = Some(fp);
-        }
-        crate::servers_runtime::store::write_server_json(&p.json, &f2)?;
-    }
+    .await;
+    crate::servers_runtime::upload_control::upload_end(&id);
+    result
+}
+
+/// Запросить отмену активной заливки на хостинг (no-op, если её нет).
+/// Частично залитые файлы остаются на хосте (докачка — отдельная фича).
+#[tauri::command]
+#[specta::specta]
+pub fn server_cancel_upload(id: String) -> Result<()> {
+    crate::servers_runtime::upload_control::upload_cancel(&id);
     Ok(())
 }
 

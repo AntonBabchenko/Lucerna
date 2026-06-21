@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_specta::Event;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
@@ -83,6 +84,11 @@ pub struct ServerUploadProgress {
     pub current_file: String,
     pub files_done: u32,
     pub files_total: u32,
+    /// f64 not u64 — specta forbids BigInt-style exports. 2^53 bytes (8 PiB) is
+    /// far beyond any plausible server-runtime upload size.
+    pub bytes_done: f64,
+    /// f64 not u64 — specta forbids BigInt-style exports (see `bytes_done`).
+    pub bytes_total: f64,
 }
 
 /// Files to upload: recursively under `runtime`, EXCLUDING the `logs/` dir and
@@ -92,6 +98,15 @@ pub(crate) fn enumerate_upload_files(runtime: &Path) -> Result<Vec<(PathBuf, Str
     let mut out = Vec::new();
     walk(runtime, runtime, &mut out)?;
     Ok(out)
+}
+
+/// Sum of byte sizes of the enumerated upload set (missing/unreadable files
+/// count as 0; the real `create`/`copy` later surfaces any true error).
+pub(crate) fn upload_total_bytes(files: &[(PathBuf, String)]) -> u64 {
+    files
+        .iter()
+        .map(|(local, _)| std::fs::metadata(local).map(|m| m.len()).unwrap_or(0))
+        .sum()
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()> {
@@ -291,14 +306,16 @@ async fn authenticate(
 /// changed/unknown host key with `accept_new_host_key == false` we bail with
 /// [`Error::SftpHostKeyMismatch`] **before** the password leaves the process.
 ///
-/// Returns `Some(fingerprint)` when the host key is being trusted for the first
-/// time or re-trusted (so the caller can persist it in `UploadConfig`), or
-/// `None` when the already-known fingerprint matched. `auth` selects password or
-/// key authentication; `secret` is the password or key passphrase. The secret is
-/// never logged, emitted, or stored by this function.
+/// A newly-trusted host key is persisted to `server.json` immediately (before
+/// auth/transfer), so an interrupted or cancelled transfer doesn't re-prompt the
+/// host-key dialog. `auth` selects password or key authentication; `secret` is
+/// the password or key passphrase. The secret is never logged, emitted, or
+/// stored by this function.
 ///
-/// Files are streamed to the remote (`tokio::io::copy`) rather than buffered in
-/// memory, so a multi-GB world no longer risks OOM (#28).
+/// Files are streamed to the remote in fixed-size chunks rather than buffered in
+/// memory, so a multi-GB world no longer risks OOM (#28). `cancel` is polled
+/// before each file and between chunks; a flipped flag aborts with
+/// [`Error::UploadCancelled`] (partially-written files are left on the host).
 pub async fn upload_server(
     app: &AppHandle,
     server_id: &str,
@@ -306,7 +323,8 @@ pub async fn upload_server(
     auth: &UploadAuth,
     secret: &str,
     accept_new_host_key: bool,
-) -> Result<Option<String>> {
+    cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let runtime = crate::paths::server_paths(&base, server_id).runtime;
     let files = enumerate_upload_files(&runtime)?;
@@ -326,6 +344,18 @@ pub async fn upload_server(
     } else {
         None
     };
+
+    // Persist a newly-trusted host key NOW (before auth/transfer), so an
+    // interrupted/cancelled transfer doesn't re-prompt the host-key dialog.
+    if let Some(fp) = new_fp {
+        let p = crate::paths::server_paths(&base, server_id);
+        if let Ok(mut f2) = crate::servers_runtime::store::read_server_json(&p.json) {
+            if let Some(u) = f2.upload.as_mut() {
+                u.known_host_fp = Some(fp);
+                let _ = crate::servers_runtime::store::write_server_json(&p.json, &f2);
+            }
+        }
+    }
 
     // --- authenticate (password or key) ---
     authenticate(&mut session, cfg, auth, secret).await?;
@@ -352,6 +382,8 @@ pub async fn upload_server(
     // --- stream each file, creating remote dirs as needed ---
     let remote_root = cfg.remote_path.trim_end_matches('/');
     let total = files.len() as u32;
+    let bytes_total = upload_total_bytes(&files);
+    let mut bytes_done: u64 = 0;
     for (i, (local, rel)) in files.iter().enumerate() {
         ensure_remote_dirs(&sftp, remote_root, rel).await;
 
@@ -365,12 +397,31 @@ pub async fn upload_server(
                 .map_err(|e| Error::SftpTransferFailed {
                     details: format!("{remote}: {e}"),
                 })?;
-        // Streamed copy: constant memory regardless of file size (#28).
-        tokio::io::copy(&mut local_file, &mut remote_file)
-            .await
-            .map_err(|e| Error::SftpTransferFailed {
-                details: format!("{remote}: {e}"),
-            })?;
+        // Streamed copy in fixed-size chunks: constant memory regardless of file
+        // size (#28), with cancellation polled before and between chunks.
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(Error::UploadCancelled);
+        }
+        let mut buf = vec![0u8; 256 * 1024];
+        loop {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(Error::UploadCancelled);
+            }
+            let n = local_file
+                .read(&mut buf)
+                .await
+                .map_err(|e| Error::io(local.display().to_string(), e))?;
+            if n == 0 {
+                break;
+            }
+            remote_file
+                .write_all(&buf[..n])
+                .await
+                .map_err(|e| Error::SftpTransferFailed {
+                    details: format!("{remote}: {e}"),
+                })?;
+            bytes_done += n as u64;
+        }
         remote_file
             .shutdown()
             .await
@@ -383,11 +434,13 @@ pub async fn upload_server(
             current_file: rel.clone(),
             files_done: i as u32 + 1,
             files_total: total,
+            bytes_done: bytes_done as f64,
+            bytes_total: bytes_total as f64,
         }
         .emit(app);
     }
 
-    Ok(new_fp)
+    Ok(())
 }
 
 /// Best-effort `mkdir -p` of the parent directories for `rel` under
@@ -434,6 +487,19 @@ mod tests {
             got,
             vec!["mods/a.jar".to_string(), "server.jar".to_string()]
         );
+    }
+
+    #[test]
+    fn upload_total_bytes_sums_enumerated_files() {
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::create_dir_all(rt.join("logs")).unwrap();
+        std::fs::write(rt.join("a.jar"), b"1234567890").unwrap(); // 10
+        std::fs::write(rt.join("b.txt"), b"abc").unwrap(); // 3
+        std::fs::write(rt.join("installer.jar"), b"x").unwrap(); // excluded
+        std::fs::write(rt.join("logs/s.log"), b"yyyy").unwrap(); // excluded
+        let files = enumerate_upload_files(rt).unwrap();
+        assert_eq!(upload_total_bytes(&files), 13);
     }
 
     #[test]
