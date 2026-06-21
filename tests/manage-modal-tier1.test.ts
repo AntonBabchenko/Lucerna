@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
@@ -213,5 +213,142 @@ describe('ManageInstancesModal — running guard', () => {
     expect((screen.getByRole('button', { name: 'Vanilla' }) as HTMLButtonElement).disabled).toBe(
       false,
     );
+  });
+});
+
+describe('ManageInstancesModal — list & sidebar usability', () => {
+  function makeMany(n: number): InstanceWithStatus[] {
+    return Array.from({ length: n }, (_, idx) =>
+      makeInstance({ id: `inst-${idx}`, name: `Profile ${idx}` }),
+    );
+  }
+
+  it('pins the New-instance button ahead of the scrollable list', async () => {
+    const a = makeInstance({ id: 'a', name: 'Alpha' });
+    const b = makeInstance({ id: 'b', name: 'Beta' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [a, b],
+        activeInstance: a,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Alpha');
+
+    const createBtn = screen.getByRole('button', { name: '+ New instance' });
+    const row = screen.getByRole('button', { name: /Beta/ });
+    // The create button must come BEFORE the list rows in DOM order so it stays
+    // pinned while the list scrolls.
+    expect(createBtn.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders long instance names in a truncating span', async () => {
+    const longName = 'A really really long instance name that overflows the sidebar';
+    const inst = makeInstance({ id: 'a', name: longName });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue(longName);
+
+    const truncating = screen
+      .getAllByText(longName)
+      .filter((el) => el.className.includes('truncate'));
+    expect(truncating.length).toBeGreaterThan(0);
+  });
+
+  it('marks the active instance row with an Active chip and leaves others unmarked', async () => {
+    const a = makeInstance({ id: 'a', name: 'Alpha' });
+    const b = makeInstance({ id: 'b', name: 'Beta' });
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [a, b],
+        activeInstance: a,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Alpha');
+
+    const alphaRow = screen.getByRole('button', { name: /Alpha/ });
+    const betaRow = screen.getByRole('button', { name: /Beta/ });
+    expect(within(alphaRow).getByText('Active')).toBeTruthy();
+    expect(within(betaRow).queryByText('Active')).toBeNull();
+  });
+
+  it('hides the filter below the threshold and shows it once the list grows', async () => {
+    const few = makeMany(3);
+    const { rerender } = render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: few,
+        activeInstance: few[0],
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Profile 0');
+    expect(screen.queryByPlaceholderText(/filter/i)).toBeNull();
+
+    const many = makeMany(9);
+    await rerender({
+      open: true,
+      instances: many,
+      activeInstance: many[0],
+      versions: [version],
+      onChanged: () => {},
+    });
+    expect(screen.getByPlaceholderText(/filter/i)).toBeTruthy();
+  });
+
+  it('filters rows by name and shows a no-matches note', async () => {
+    const many = makeMany(9); // Profile 0 .. Profile 8
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: many,
+        activeInstance: many[0],
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    const filter = await screen.findByPlaceholderText(/filter/i);
+
+    await fireEvent.input(filter, { target: { value: 'Profile 3' } });
+    expect(screen.getByRole('button', { name: /Profile 3/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Profile 4/ })).toBeNull();
+
+    await fireEvent.input(filter, { target: { value: 'zzz-no-such-name' } });
+    expect(screen.getByText('No instances match.')).toBeTruthy();
+  });
+
+  it('clears the filter after the modal is closed', async () => {
+    const many = makeMany(9);
+    const baseProps = {
+      instances: many,
+      activeInstance: many[0],
+      versions: [version],
+      onChanged: () => {},
+    };
+    const { rerender } = render(ManageInstancesModal, { props: { open: true, ...baseProps } });
+
+    const filter = (await screen.findByPlaceholderText(/filter/i)) as HTMLInputElement;
+    await fireEvent.input(filter, { target: { value: 'Profile 3' } });
+    expect(filter.value).toBe('Profile 3');
+
+    // Close via the real close button so close() runs and resets the filter.
+    await fireEvent.click(screen.getByRole('button', { name: /close manage instances/i }));
+    await rerender({ open: true, ...baseProps });
+
+    const reopened = (await screen.findByPlaceholderText(/filter/i)) as HTMLInputElement;
+    expect(reopened.value).toBe('');
   });
 });
