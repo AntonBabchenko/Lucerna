@@ -43,6 +43,23 @@ pub fn port_in_use(port: u16) -> bool {
     TcpListener::bind(("0.0.0.0", port)).is_err()
 }
 
+/// How many ports above the busy one to probe before giving up. A small bounded
+/// scan keeps the "Use port N" suggestion cheap; 64 candidates is far more than
+/// any realistic local clash.
+const FREE_PORT_SCAN: u16 = 64;
+
+/// Find the next actually-bindable port at or after `from`, never equal to
+/// `avoid` (the currently-configured port — suggesting it would be a no-op).
+/// Returns `None` if the whole bounded window is busy. Used to drive the
+/// "Use port N" one-click fix with a port that is genuinely free, instead of a
+/// blind `current + 1` that might also be taken or unchanged.
+pub fn next_free_port(from: u16, avoid: u16) -> Option<u16> {
+    let start = from.max(1);
+    (0..FREE_PORT_SCAN)
+        .filter_map(|i| start.checked_add(i))
+        .find(|&p| p != avoid && !port_in_use(p))
+}
+
 /// `EulaNotAccepted` when the stored flag is false.
 pub fn eula_finding(eula_accepted: bool) -> Option<PreflightFinding> {
     (!eula_accepted).then_some(PreflightFinding::EulaNotAccepted)
@@ -73,6 +90,28 @@ mod tests {
         let l = TcpListener::bind(("0.0.0.0", 0)).unwrap();
         let port = l.local_addr().unwrap().port();
         assert!(port_in_use(port), "held port {port} must read as in use");
+    }
+
+    #[test]
+    fn next_free_port_skips_a_held_port_and_avoid() {
+        // Hold a port so it reads as in-use; the finder must skip past it.
+        let l = TcpListener::bind(("0.0.0.0", 0)).unwrap();
+        let held = l.local_addr().unwrap().port();
+        let found = next_free_port(held, held).expect("a free port exists nearby");
+        assert_ne!(found, held, "must not return the held/avoid port");
+        assert!(!port_in_use(found), "returned port must be bindable");
+    }
+
+    #[test]
+    fn next_free_port_never_returns_avoid_even_when_free() {
+        // Pick a likely-free base by binding+dropping to learn a free port.
+        let free = {
+            let l = TcpListener::bind(("0.0.0.0", 0)).unwrap();
+            l.local_addr().unwrap().port()
+        };
+        // Ask starting at `free` but forbid it — result must differ.
+        let found = next_free_port(free, free).expect("another free port exists");
+        assert_ne!(found, free);
     }
 
     #[test]

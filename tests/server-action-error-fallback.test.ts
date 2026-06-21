@@ -92,6 +92,8 @@ describe('ServerManageView inline action error gate', () => {
       corrupt_jar: null,
       suggested_heap_mb: null,
       conflict_mods: [],
+      suggested_port: 25566,
+      exit_code: null,
     };
     serverStart.mockResolvedValue({ status: 'error', error: 'x' });
 

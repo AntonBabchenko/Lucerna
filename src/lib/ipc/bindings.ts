@@ -2950,6 +2950,18 @@ export type ServerDiagnosis = {
 	suggested_heap_mb: number | null,
 	/**  DisableMods / missing-dep: the cited mod ids or filenames the user acts on. */
 	conflict_mods: string[],
+	/**
+	 *  ChangePort: the next actually-free port the "Use port N" button switches
+	 *  to (probed in the command layer; never equal to the current port). The UI
+	 *  uses this directly instead of guessing `current + 1`.
+	 */
+	suggested_port: number | null,
+	/**
+	 *  The process exit code for a `server-crash-unknown` fallback diagnosis — a
+	 *  non-zero crash the log/crash-report patterns didn't recognize (e.g. a
+	 *  Windows process-init failure that produced no output). `None` otherwise.
+	 */
+	exit_code: number | null,
 };
 
 /**  Emitted when a server process exits. `code` is -1 if signal-terminated. */
