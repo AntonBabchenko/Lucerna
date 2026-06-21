@@ -99,9 +99,11 @@
     "manage": {
       "title": "Manage Instances",
       "closeLabel": "Close manage instances",
-      "activeLabel": "(active)",
+      "activeBadge": "Active",
       "pickMc": "(pick MC)",
       "newInstanceBtn": "+ New instance",
+      "filterPlaceholder": "Filter instances…",
+      "filterNoMatches": "No instances match.",
       "createHeading": "New instance",
       "nameLabel": "Name",
       "mcVersionLabel": "Minecraft version",
