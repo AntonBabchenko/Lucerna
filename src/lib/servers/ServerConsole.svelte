@@ -12,6 +12,7 @@
   import ToggleChip from '$lib/ui/ToggleChip.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import {
     countLevels,
     filterLevels,
@@ -240,7 +241,8 @@
       const el = container?.querySelector('[data-match-active="true"]');
       // Guard scrollIntoView — not implemented in every test DOM (happy-dom).
       if (el && typeof el.scrollIntoView === 'function') {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
       }
     });
   }
@@ -460,7 +462,7 @@
       class="h-80 overflow-y-auto rounded border border-border-subtle bg-base p-2 font-mono text-xs"
     >
       {#if loadingText}
-        <span class="text-muted">{$t('common.loading')}</span>
+        <Spinner size="sm" labelPlacement="right" label={$t('common.loading')} class="text-muted" />
       {:else if readError}
         <span class="text-danger">{readError}</span>
       {:else if archivedText !== null && archivedText.length === 0}

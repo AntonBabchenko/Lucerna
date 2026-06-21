@@ -5,6 +5,7 @@
   import { t } from '$lib/i18n';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import Select, { type SelectOption } from '$lib/ui/Select.svelte';
+  import { Icon } from '$lib/ui/icons';
   import { getProperty, setProperty } from './properties-edit';
 
   let { serverId }: { serverId: string } = $props();
@@ -217,7 +218,8 @@
 
   <!-- Advanced raw editor -->
   <details class="mt-2">
-    <summary class="cursor-pointer text-sm text-secondary select-none">
+    <summary class="inline-flex items-center cursor-pointer text-sm text-secondary select-none">
+      <span class="disclosure-caret mr-1"><Icon name="caret" size={14} /></span>
       {$t('servers.settings.raw')}
     </summary>
     <textarea

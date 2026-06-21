@@ -164,7 +164,10 @@
             </div>
 
             <details class="text-xs">
-              <summary class="cursor-pointer text-muted hover:text-foreground">
+              <summary
+                class="inline-flex items-center cursor-pointer text-muted hover:text-foreground"
+              >
+                <span class="disclosure-caret mr-1"><Icon name="caret" size={14} /></span>
                 {$t('servers.connect.firewall.manual')}
               </summary>
               <p class="mt-1 text-muted">{$t('servers.connect.firewall.manualSteps')}</p>

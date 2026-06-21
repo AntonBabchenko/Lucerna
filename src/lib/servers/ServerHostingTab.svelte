@@ -387,12 +387,11 @@
     </div>
 
     {#if busyUpload && progress}
+      {@const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}
       <div class="w-full bg-muted/20 rounded-full h-1.5 overflow-hidden">
         <div
-          class="bg-accent h-full transition-all"
-          style="width: {progress.total > 0
-            ? Math.round((progress.done / progress.total) * 100)
-            : 0}%"
+          class="bg-accent h-full w-full origin-left transition-transform"
+          style="transform: scaleX({pct / 100})"
         ></div>
       </div>
       <p class="text-xs text-muted truncate">{progress.file}</p>

@@ -136,16 +136,16 @@
                   ? $t('servers.backups.restoreConfirm', { name: backup.file_name })
                   : $t('servers.backups.deleteConfirm', { name: backup.file_name })}
               </span>
-              <button
-                type="button"
+              <BusyButton
                 data-confirm
                 class={confirmFor.kind === 'restore' ? 'btn-primary btn-xs' : 'btn-danger btn-xs'}
+                busy={busyAction === backup.file_name}
                 onclick={() => void confirmAction()}
               >
                 {confirmFor.kind === 'restore'
                   ? $t('servers.backups.restore')
                   : $t('servers.backups.delete')}
-              </button>
+              </BusyButton>
               <button type="button" class="btn-ghost btn-xs" onclick={cancelConfirm}>
                 {$t('common.cancel')}
               </button>

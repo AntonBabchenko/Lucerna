@@ -9,6 +9,7 @@
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import Spinner from '$lib/ui/Spinner.svelte';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import { droppedServer, serverImportActive, dragActive } from '$lib/settings/state.svelte';
 
@@ -175,16 +176,26 @@
     <FileDropzone label={$t('servers.import.dropzone')} onClick={() => void pickZip()} />
 
     <div class="flex gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={() => void pickZip()}>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        disabled={busy}
+        onclick={() => void pickZip()}
+      >
         {$t('servers.import.pickZip')}
       </button>
-      <button type="button" class="btn-secondary btn-sm" onclick={() => void pickFolder()}>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        disabled={busy}
+        onclick={() => void pickFolder()}
+      >
         {$t('servers.import.pickFolder')}
       </button>
     </div>
 
     {#if busy}
-      <p class="text-sm text-muted">{$t('servers.import.inspecting')}</p>
+      <Spinner size="sm" labelPlacement="right" label={$t('servers.import.inspecting')} />
     {/if}
 
     {#if error}
