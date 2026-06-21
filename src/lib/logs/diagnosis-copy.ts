@@ -58,4 +58,9 @@ export const DIAGNOSIS_COPY: Record<string, DiagnosisCopyKeys> = {
     explanation: 'logs.diagnosis.patterns.clientExtraMods.explanation',
     recommendation: 'logs.diagnosis.patterns.clientExtraMods.recommendation',
   },
+  'create-goggle-overlay-crash': {
+    title: 'logs.diagnosis.patterns.createGoggleOverlayCrash.title',
+    explanation: 'logs.diagnosis.patterns.createGoggleOverlayCrash.explanation',
+    recommendation: 'logs.diagnosis.patterns.createGoggleOverlayCrash.recommendation',
+  },
 };
