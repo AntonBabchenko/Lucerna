@@ -111,6 +111,13 @@ const savedUpload = {
 // Tests
 // ---------------------------------------------------------------------------
 
+// Let the async onMount loads (serverGetUploadAuth + serverBackupPolicyGet) and
+// their state updates settle before interacting. Without this, the mocks resolve
+// on a microtask AFTER a synchronous click and overwrite the user's change (a
+// race that only exists in tests — in the app the IPC load finishes long before
+// the user touches the radio/checkbox). One macrotask drains the microtask queue.
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
 describe('ServerHostingTab', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
@@ -245,6 +252,7 @@ describe('ServerHostingTab', () => {
   it('reveals the private-key field when SSH key auth is chosen', async () => {
     mockList = [makeServer()];
     render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle(); // let the onMount auth/policy load apply before interacting
 
     // Password mode: no key field yet.
     expect(screen.queryByLabelText('Private key file')).toBeNull();
@@ -260,6 +268,7 @@ describe('ServerHostingTab', () => {
   it('saves the automatic-backup policy', async () => {
     mockList = [makeServer()];
     render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle(); // let the onMount policy load apply before toggling
 
     await fireEvent.click(screen.getByRole('checkbox', { name: 'Back up automatically' }));
     await fireEvent.click(screen.getByText('Apply'));

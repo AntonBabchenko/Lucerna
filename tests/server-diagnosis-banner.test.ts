@@ -74,6 +74,8 @@ function makeClientOnlyDiagnosis(overrides: Partial<ServerDiagnosis> = {}): Serv
     corrupt_jar: null,
     suggested_heap_mb: null,
     conflict_mods: [],
+    suggested_port: null,
+    exit_code: null,
     ...overrides,
   };
 }
@@ -103,6 +105,8 @@ function makePreflightDiagnosis(
     corrupt_jar: null,
     suggested_heap_mb: null,
     conflict_mods: [],
+    suggested_port: null,
+    exit_code: null,
     ...overrides,
   };
 }
@@ -256,19 +260,59 @@ describe('ServerDiagnosisBanner', () => {
     expect(stopOrphanSpy).toHaveBeenCalledWith('srv-orphan', 9999);
   });
 
-  it('shows the Change-port fix button suggesting the next port', async () => {
+  it('shows the Change-port fix button using the backend-probed free port', async () => {
     const mod = await import('$lib/servers/server-state.svelte');
     const changePortSpy = mod.serverState.changePort as ReturnType<typeof vi.fn>;
     changePortSpy.mockClear();
+    // Busy port is 25566 but the next free one is 25570 — the button must use the
+    // backend's suggested_port, NOT a blind current+1 (which could be busy/no-op).
     mockDiagnoses['srv-port'] = makePreflightDiagnosis('server-port-in-use', 'change_port', {
-      port_in_use: 25565,
+      port_in_use: 25566,
+      suggested_port: 25570,
     });
     render(ServerDiagnosisBanner, { props: { serverId: 'srv-port' } });
     const btn = screen.getByTestId('server-fix-change-port');
     expect(btn).toBeTruthy();
     await fireEvent.click(btn);
-    // Suggests port_in_use + 1.
-    expect(changePortSpy).toHaveBeenCalledWith('srv-port', 25566);
+    expect(changePortSpy).toHaveBeenCalledWith('srv-port', 25570);
+  });
+
+  it('falls back to current+1 when no suggested_port was probed', async () => {
+    const mod = await import('$lib/servers/server-state.svelte');
+    const changePortSpy = mod.serverState.changePort as ReturnType<typeof vi.fn>;
+    changePortSpy.mockClear();
+    mockDiagnoses['srv-port-fallback'] = makePreflightDiagnosis(
+      'server-port-in-use',
+      'change_port',
+      { port_in_use: 25565, suggested_port: null },
+    );
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-port-fallback' } });
+    await fireEvent.click(screen.getByTestId('server-fix-change-port'));
+    expect(changePortSpy).toHaveBeenCalledWith('srv-port-fallback', 25566);
+  });
+
+  it('shows the crash-unknown advisory with the exit code (no fix button)', () => {
+    // A crash with no recognized cause (e.g. a Windows process-init failure that
+    // produced no output): advisory banner naming the exit code, no one-click fix.
+    mockDiagnoses['srv-crash'] = makeClientOnlyDiagnosis({
+      status: 'advisory',
+      diagnosis: {
+        pattern_id: 'server-crash-unknown',
+        title: 'The server stopped unexpectedly',
+        explanation: '',
+        recommendation: '',
+        matched_excerpt: '',
+        repair: null,
+      },
+      server_repair: null,
+      exit_code: -1073741502, // 0xC0000142
+    });
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-crash' } });
+    expect(screen.getByText('The server stopped unexpectedly')).toBeTruthy();
+    // The hex-formatted NTSTATUS code is shown in the explanation.
+    expect(screen.getByText(/0xC0000142/)).toBeTruthy();
+    // No port/heap/etc fix button for an environmental crash.
+    expect(screen.queryByTestId('server-fix-change-port')).toBeNull();
   });
 
   // --- Phase 2: class-B fix buttons ----------------------------------------

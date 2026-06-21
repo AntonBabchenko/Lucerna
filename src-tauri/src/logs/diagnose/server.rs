@@ -32,6 +32,14 @@ pub struct ServerDiagnosis {
     pub suggested_heap_mb: Option<u32>,
     /// DisableMods / missing-dep: the cited mod ids or filenames the user acts on.
     pub conflict_mods: Vec<String>,
+    /// ChangePort: the next actually-free port the "Use port N" button switches
+    /// to (probed in the command layer; never equal to the current port). The UI
+    /// uses this directly instead of guessing `current + 1`.
+    pub suggested_port: Option<u16>,
+    /// The process exit code for a `server-crash-unknown` fallback diagnosis — a
+    /// non-zero crash the log/crash-report patterns didn't recognize (e.g. a
+    /// Windows process-init failure that produced no output). `None` otherwise.
+    pub exit_code: Option<i32>,
 }
 
 /// One-click server fix the diagnosis banner can offer. snake_case on the wire.
@@ -549,7 +557,51 @@ pub fn diagnosis_from_preflight(
         corrupt_jar: None,
         suggested_heap_mb: None,
         conflict_mods: vec![],
+        // The command layer probes for a free port and fills this for PortInUse.
+        suggested_port: None,
+        exit_code: None,
     }
+}
+
+/// True iff `code` is a real crash worth surfacing: non-zero AND not our
+/// force-kill sentinel (`-1`, written by `stop()`'s force-kill fallback — a
+/// user-initiated stop is not a crash).
+pub fn is_crash_exit(code: i32) -> bool {
+    code != 0 && code != -1
+}
+
+/// Build a fallback `ServerDiagnosis` for a crash the log/crash-report patterns
+/// didn't recognize: a non-zero exit (other than our force-kill sentinel) that
+/// left no diagnosable output. Advisory — there is no one-click fix (the cause
+/// is usually environmental: security software, low resources, or a failed
+/// Java/process init). Returns `None` for a clean or force-stopped exit.
+pub fn diagnosis_from_exit_code(code: i32) -> Option<ServerDiagnosis> {
+    use crate::logs::diagnose::{Diagnosis, DiagnosisStatus};
+    if !is_crash_exit(code) {
+        return None;
+    }
+    Some(ServerDiagnosis {
+        status: DiagnosisStatus::Advisory,
+        diagnosis: Some(Diagnosis {
+            pattern_id: "server-crash-unknown".into(),
+            title: "The server stopped unexpectedly".into(),
+            explanation: String::new(),
+            recommendation: String::new(),
+            matched_excerpt: String::new(),
+            repair: None,
+        }),
+        client_mods: vec![],
+        forge_skip_count: None,
+        log_signature: None,
+        server_repair: None,
+        port_in_use: None,
+        orphan_pid: None,
+        corrupt_jar: None,
+        suggested_heap_mb: None,
+        conflict_mods: vec![],
+        suggested_port: None,
+        exit_code: Some(code),
+    })
 }
 
 #[cfg(test)]
@@ -577,10 +629,13 @@ mod tests {
             corrupt_jar: None,
             suggested_heap_mb: None,
             conflict_mods: vec![],
+            suggested_port: Some(25566),
+            exit_code: None,
         };
         let j = serde_json::to_string(&d).unwrap();
         assert!(j.contains("\"server_repair\":\"change_port\""), "got: {j}");
         assert!(j.contains("\"port_in_use\":25565"), "got: {j}");
+        assert!(j.contains("\"suggested_port\":25566"), "got: {j}");
     }
 
     #[test]
@@ -820,6 +875,8 @@ mod tests {
             corrupt_jar: Some("sodium-fabric-0.5.3.jar".into()),
             suggested_heap_mb: Some(6144),
             conflict_mods: vec!["sodium".into()],
+            suggested_port: None,
+            exit_code: None,
         };
         let j = serde_json::to_string(&d).unwrap();
         assert!(
@@ -1110,5 +1167,35 @@ mod tests {
     #[test]
     fn extract_missing_dep_ids_empty_on_clean_log() {
         assert!(extract_missing_dep_ids("All mods loaded\n").is_empty());
+    }
+
+    // --- Exit-code fallback (crash with no diagnosable output) -------------
+
+    #[test]
+    fn is_crash_exit_excludes_clean_and_force_kill() {
+        assert!(!is_crash_exit(0), "clean exit is not a crash");
+        assert!(!is_crash_exit(-1), "our force-kill sentinel is not a crash");
+        assert!(is_crash_exit(1), "exit 1 is a crash");
+        // 0xC0000142 == STATUS_DLL_INIT_FAILED, stored as a negative i32.
+        assert!(is_crash_exit(-1073741502), "0xC0000142 is a crash");
+    }
+
+    #[test]
+    fn diagnosis_from_exit_code_none_for_clean_or_force_kill() {
+        assert!(diagnosis_from_exit_code(0).is_none());
+        assert!(diagnosis_from_exit_code(-1).is_none());
+    }
+
+    #[test]
+    fn diagnosis_from_exit_code_advisory_carries_code() {
+        let d = diagnosis_from_exit_code(-1073741502).expect("0xC0000142 yields a fallback");
+        assert_eq!(d.exit_code, Some(-1073741502));
+        assert_eq!(d.status, crate::logs::diagnose::DiagnosisStatus::Advisory);
+        assert_eq!(
+            d.diagnosis.as_ref().map(|x| x.pattern_id.as_str()),
+            Some("server-crash-unknown")
+        );
+        // No one-click fix — the cause is environmental.
+        assert!(d.server_repair.is_none());
     }
 }
