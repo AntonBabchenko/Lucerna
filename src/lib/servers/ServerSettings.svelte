@@ -129,7 +129,7 @@
       type="number"
       min="1"
       max="65535"
-      class="h-8 rounded border border-border-emphasis bg-surface px-2 text-primary"
+      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={port}
     />
 
@@ -140,7 +140,7 @@
     <input
       id="sp-motd"
       type="text"
-      class="h-8 rounded border border-border-emphasis bg-surface px-2 text-primary"
+      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={motd}
     />
 
@@ -176,7 +176,7 @@
       id="sp-max-players"
       type="number"
       min="1"
-      class="h-8 rounded border border-border-emphasis bg-surface px-2 text-primary"
+      class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={maxPlayers}
     />
 

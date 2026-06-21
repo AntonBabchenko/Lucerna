@@ -386,7 +386,7 @@
       <div class="flex min-w-[12rem] flex-1 items-center gap-1">
         <input
           type="text"
-          class="h-7 flex-1 rounded border border-border-subtle bg-base px-2 text-xs text-primary"
+          class="filter-control flex-1"
           placeholder={$t('servers.console.searchPlaceholder')}
           bind:value={search}
           onkeydown={onSearchKeydown}

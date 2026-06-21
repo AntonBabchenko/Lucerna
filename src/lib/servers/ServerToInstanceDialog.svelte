@@ -71,7 +71,7 @@
     <span class="text-xs text-muted">{$t('servers.toInstance.nameLabel')}</span>
     <input
       type="text"
-      class="w-full rounded border border-border-emphasis px-3 py-1.5 text-sm"
+      class="h-8 w-full rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
       bind:value={name}
       disabled={busy}
       data-testid="client-instance-name"

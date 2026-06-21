@@ -235,7 +235,7 @@
         <label class="text-xs text-muted" for="hosting-host">{$t('servers.hosting.host')}</label>
         <input
           id="hosting-host"
-          class="border rounded px-2 py-1 text-sm"
+          class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
           class:border-danger={!hostValid && host.length > 0}
           bind:value={host}
           placeholder="example.com"
@@ -249,7 +249,7 @@
         <label class="text-xs text-muted" for="hosting-port">{$t('servers.hosting.port')}</label>
         <input
           id="hosting-port"
-          class="border rounded px-2 py-1 text-sm w-20"
+          class="h-8 w-20 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
           type="number"
           min={1}
           max={65535}
@@ -262,7 +262,7 @@
       <label class="text-xs text-muted" for="hosting-user">{$t('servers.hosting.user')}</label>
       <input
         id="hosting-user"
-        class="border rounded px-2 py-1 text-sm"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
         class:border-danger={!userValid && user.length > 0}
         bind:value={user}
         autocomplete="username"
@@ -295,7 +295,7 @@
         <div class="flex gap-2">
           <input
             id="hosting-key-path"
-            class="border rounded px-2 py-1 text-sm flex-1"
+            class="h-8 flex-1 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
             class:border-danger={!keyValid && privateKeyPath.length > 0}
             bind:value={privateKeyPath}
             placeholder="~/.ssh/id_ed25519"
@@ -317,7 +317,7 @@
       </label>
       <input
         id="hosting-password"
-        class="border rounded px-2 py-1 text-sm"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
         type="password"
         bind:value={password}
         autocomplete="current-password"
@@ -337,7 +337,7 @@
       >
       <input
         id="hosting-remote-path"
-        class="border rounded px-2 py-1 text-sm"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
         bind:value={remotePath}
         placeholder="/home/mc/server"
         autocomplete="off"
@@ -454,17 +454,18 @@
       {$t('servers.backups.autoEnable')}
     </label>
     {#if backupEnabled}
-      <label class="flex items-center gap-2 text-sm">
-        {$t('servers.backups.autoInterval')}
+      <div class="flex items-center gap-2 text-sm">
+        <label for="hosting-backup-interval">{$t('servers.backups.autoInterval')}</label>
         <input
-          class="border rounded px-2 py-1 text-sm w-20"
+          id="hosting-backup-interval"
+          class="h-8 w-20 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
           type="number"
           min={1}
           max={1440}
           bind:value={backupIntervalMinutes}
         />
-        {$t('servers.backups.autoIntervalUnit')}
-      </label>
+        <span>{$t('servers.backups.autoIntervalUnit')}</span>
+      </div>
     {/if}
     <div class="flex items-center gap-3">
       <BusyButton
