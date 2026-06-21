@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
@@ -350,5 +350,102 @@ describe('ManageInstancesModal — list & sidebar usability', () => {
 
     const reopened = (await screen.findByPlaceholderText(/filter/i)) as HTMLInputElement;
     expect(reopened.value).toBe('');
+  });
+});
+
+describe('ManageInstancesModal — async feedback & double-submit', () => {
+  it('does not double-create when Create is clicked twice', async () => {
+    let resolveCreate!: (v: unknown) => void;
+    m.createInstance.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveCreate = r;
+      }),
+    );
+
+    const inst = makeInstance();
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ New instance' }));
+    await fireEvent.input(screen.getByLabelText(/name/i), { target: { value: 'My Instance' } });
+    // Pick an MC version via the custom Select (options commit on mousedown).
+    await fireEvent.click(screen.getByRole('combobox'));
+    await fireEvent.mouseDown(screen.getByRole('option', { name: '1.20.1' }));
+
+    const createBtn = screen.getByRole('button', { name: 'Create' });
+    await fireEvent.click(createBtn);
+    await fireEvent.click(createBtn); // second rapid click — must be a no-op
+
+    expect(m.createInstance).toHaveBeenCalledTimes(1);
+    expect(createBtn.getAttribute('aria-busy')).toBe('true');
+
+    resolveCreate({ status: 'ok', data: { id: 'new-id' } });
+    await waitFor(() => expect(m.setActiveInstance).toHaveBeenCalledTimes(1));
+  });
+
+  it('discards a name-save that resolves after switching to another instance', async () => {
+    const onChanged = vi.fn();
+    let resolveName!: (v: unknown) => void;
+    m.setInstanceName.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveName = r;
+      }),
+    );
+
+    const a = makeInstance({ id: 'a', name: 'Alpha' });
+    const b = makeInstance({ id: 'b', name: 'Beta' });
+    render(ManageInstancesModal, {
+      props: { open: true, instances: [a, b], activeInstance: a, versions: [version], onChanged },
+    });
+
+    const input = (await screen.findByDisplayValue('Alpha')) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'Renamed' } });
+    await fireEvent.blur(input); // commitName captures id='a', then awaits
+
+    // Switch selection before the save resolves.
+    await fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+
+    resolveName({ status: 'ok', data: null });
+    // commitName has exactly one await, so its post-await continuation (where the
+    // isStale gate runs) settles within one microtask; the second tick is buffer.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The stale completion must not fire onChanged against the previous selection.
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('does not surface an error from a save that resolves after the modal closes', async () => {
+    const onChanged = vi.fn();
+    let resolveName!: (v: unknown) => void;
+    m.setInstanceName.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveName = r;
+      }),
+    );
+
+    const inst = makeInstance({ name: 'Alpha' });
+    const baseProps = { instances: [inst], activeInstance: inst, versions: [version], onChanged };
+    const { rerender } = render(ManageInstancesModal, { props: { open: true, ...baseProps } });
+
+    const input = (await screen.findByDisplayValue('Alpha')) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'Renamed' } });
+    await fireEvent.blur(input);
+
+    // Close via the real close button so close() runs (open=false, selection cleared).
+    await fireEvent.click(screen.getByRole('button', { name: /close manage instances/i }));
+
+    resolveName({ status: 'error', error: { kind: 'instance_name_empty' } });
+    await rerender({ open: true, ...baseProps });
+
+    expect(screen.queryByText(/name cannot be empty/i)).toBeNull();
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });
