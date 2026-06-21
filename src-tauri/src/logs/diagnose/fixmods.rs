@@ -30,19 +30,17 @@ pub struct FixModPin {
     pub version_id: &'static str,
 }
 
-// --- Concrete pins (Task 8 fills the two FILL_ consts via the CF API) -------
+// --- Concrete pins -----------------------------------------------------------
 
-/// CurseForge numeric project id for `tfmg-lag-fix`. Task 8: fetch via
-/// `GET https://api.curseforge.com/v1/mods/search?gameId=432&slug=tfmg-lag-fix`.
-const FILL_TFMG_LAG_FIX_PROJECT_ID: &str = "REPLACE_WITH_CF_PROJECT_ID";
-/// CurseForge file id of the 1.20.1 / Forge build. Task 8: fetch via
-/// `GET https://api.curseforge.com/v1/mods/{id}/files?gameVersion=1.20.1&modLoaderType=1`.
-const FILL_TFMG_LAG_FIX_VERSION_ID_1201_FORGE: &str = "REPLACE_WITH_CF_FILE_ID";
+/// CurseForge project id for tfmg-lag-fix (curseforge.com/minecraft/mc-mods/tfmg-lag-fix).
+const TFMG_LAG_FIX_PROJECT_ID: &str = "1456944";
+/// CurseForge file id of tfmg-lag-fix 1.0.2 for MC 1.20.1 / Forge.
+const TFMG_LAG_FIX_VERSION_ID_1201_FORGE: &str = "8007822";
 
 const TFMG_LAG_FIX_ROWS: &[FixModPin] = &[FixModPin {
     mc: "1.20.1",
     loader: LoaderKind::Forge,
-    version_id: FILL_TFMG_LAG_FIX_VERSION_ID_1201_FORGE,
+    version_id: TFMG_LAG_FIX_VERSION_ID_1201_FORGE,
 }];
 
 /// The curated table. Keep deliberately small and high-precision — breadth here
@@ -52,7 +50,7 @@ pub const FIX_MODS: &[(&str, FixModRef)] = &[(
     FixModRef {
         human_title: "Create: The Factory Must Grow Lag Fix",
         source: ModSource::Curseforge,
-        project_id: FILL_TFMG_LAG_FIX_PROJECT_ID,
+        project_id: TFMG_LAG_FIX_PROJECT_ID,
         slug: "tfmg-lag-fix",
         rows: TFMG_LAG_FIX_ROWS,
     },
