@@ -449,9 +449,6 @@ export const serverState = {
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
   },
-  get anyRunning() {
-    return list.some((s) => s.running);
-  },
   // True when any server has a one-click repair available (C1 diagnosis_status
   // === 'actionable'). Drives the sidebar wrench badge + the attention item.
   // Reads through the runtime-extra shim until S1's field lands in bindings.

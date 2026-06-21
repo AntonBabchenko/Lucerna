@@ -44,36 +44,6 @@ function makeServer(
   };
 }
 
-describe('serverState.anyRunning', () => {
-  beforeEach(() => {
-    vi.mocked(commands.serverList).mockReset();
-  });
-
-  it('is true when at least one server is running', async () => {
-    vi.mocked(commands.serverList).mockResolvedValue({
-      status: 'ok',
-      data: [makeServer('srv-a', false), makeServer('srv-b', true)],
-    });
-    await serverState.refresh();
-    expect(serverState.anyRunning).toBe(true);
-  });
-
-  it('is false when no server is running', async () => {
-    vi.mocked(commands.serverList).mockResolvedValue({
-      status: 'ok',
-      data: [makeServer('srv-a', false), makeServer('srv-b', false)],
-    });
-    await serverState.refresh();
-    expect(serverState.anyRunning).toBe(false);
-  });
-
-  it('is false when the server list is empty', async () => {
-    vi.mocked(commands.serverList).mockResolvedValue({ status: 'ok', data: [] });
-    await serverState.refresh();
-    expect(serverState.anyRunning).toBe(false);
-  });
-});
-
 describe('serverState.serversNavStatus', () => {
   beforeEach(() => {
     vi.mocked(commands.serverList).mockReset();
