@@ -125,7 +125,10 @@
       "jvmArgsLabel": "Extra JVM args",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
       "cannotDeleteLast": "Cannot delete the last instance",
-      "runningBlocked": "Stop the running game first."
+      "runningBlocked": "Stop the running game first.",
+      "compatCheckUnavailable": "Couldn't check mod compatibility.",
+      "openFolderFailed": "Couldn't open the instance folder.",
+      "openSourceFolderFailed": "Couldn't open the source folder."
     },
     "error": {
       "nameRequired": "Name is required",
