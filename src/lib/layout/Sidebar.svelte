@@ -17,6 +17,9 @@
   import { tooltip } from '$lib/ui/tooltip';
   import { validateOfflineName } from '$lib/accounts/offline-name';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { navVisual, type NavStatusKind } from '$lib/layout/nav-status';
+  import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
+  import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
 
   let {
     accounts,
@@ -114,6 +117,26 @@
       label: `${i.name} · ${displayLoader(i.loader)} ${i.mc_version || $t('sidebar.pickMcVersion')}`,
     })),
   );
+
+  const serversNav = $derived(serverState.serversNavStatus);
+  const serversVisual = $derived(navVisual(serversNav));
+  const serversStatusLabel = $derived(
+    serversNav === 'running'
+      ? $t('sidebar.serverRunning')
+      : serversNav === 'crashed'
+        ? $t('sidebar.serverCrashed')
+        : null,
+  );
+
+  const logsNav: NavStatusKind = $derived(
+    diagnosisStatus() === 'actionable'
+      ? 'actionable'
+      : diagnosisStatus() === 'advisory'
+        ? 'advisory'
+        : 'idle',
+  );
+  const logsVisual = $derived(navVisual(logsNav));
+  const logsStatusLabel = $derived(logsNav === 'advisory' ? $t('sidebar.logsAdvisory') : null);
 </script>
 
 <aside data-sidebar class="h-full bg-base border-r border-border-subtle p-3 overflow-y-auto">
@@ -368,60 +391,40 @@
       </button>
       <button
         type="button"
-        class="btn-secondary btn-sm relative flex items-center justify-center gap-1.5"
+        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
         data-testid="sidebar-open-servers"
         onclick={onOpenServers}
       >
-        <Icon name="server" size={16} />
+        <NavStatusIcon
+          name="server"
+          size={16}
+          iconClass={serversVisual.iconClass}
+          statusLabel={serversStatusLabel}
+        />
         {$t('sidebar.servers')}
-        {#if serverState.anyDiagnosisActionable}
-          <!-- A server has a one-click fix waiting — mirror the Logs button's
-               wrench. Takes precedence over the running dot (it's the more
-               urgent signal), matching the Logs button's wrench-vs-dot idiom. -->
-          <span
-            class="absolute -right-1 -top-1 text-warning-text"
-            data-testid="sidebar-servers-fix-badge"
-            role="img"
-            aria-label={$t('sidebar.serversFixAvailable')}
-            use:tooltip={$t('sidebar.serversFixAvailable')}
-          >
-            <Icon name="wrench" size={12} />
-          </span>
-        {:else if serverState.anyRunning}
-          <span
-            class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-success animate-pulse motion-reduce:animate-none"
-            data-testid="sidebar-servers-running-dot"
-            role="img"
-            aria-label={$t('sidebar.serverRunning')}
-            use:tooltip={$t('sidebar.serverRunning')}
-          ></span>
+        {#if serversVisual.wrench}
+          <NavFixWrench
+            label={$t('sidebar.serversFixAvailable')}
+            testid="sidebar-servers-fix-badge"
+          />
         {/if}
       </button>
       <div class="flex gap-1">
         <button
           type="button"
-          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1 relative"
+          class="btn-secondary btn-xs flex-1 flex items-center justify-center gap-1"
           data-testid="sidebar-open-logs"
           onclick={onOpenLogs}
         >
-          <Icon name="scrollText" size={14} />
+          <NavStatusIcon
+            name="scrollText"
+            size={14}
+            iconClass={logsVisual.iconClass}
+            statusLabel={logsStatusLabel}
+          />
           {$t('sidebar.logs')}
-          {#if diagnosisStatus() === 'actionable'}
-            <span
-              class="absolute -right-1 -top-1 text-warning-text"
-              data-testid="logs-button-fix-badge"
-              role="img"
-              aria-label={$t('sidebar.logsFixAvailable')}
-              use:tooltip={$t('sidebar.logsFixAvailable')}
-            >
-              <Icon name="wrench" size={12} />
-            </span>
-          {:else if diagnosisStatus() === 'advisory'}
-            <span
-              class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-warning-text"
-              data-testid="logs-button-badge"
-              aria-hidden="true"
-            ></span>
+          {#if logsVisual.wrench}
+            <NavFixWrench label={$t('sidebar.logsFixAvailable')} testid="logs-button-fix-badge" />
           {/if}
         </button>
         <button

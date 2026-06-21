@@ -14,7 +14,7 @@ import {
   type UploadConfig,
 } from '$lib/ipc/bindings';
 import { appendCapped, MAX_CONSOLE_LINES } from './console-buffer';
-import { isDiagnosisActionable } from './runtime-extra';
+import { isCrashed, isDiagnosisActionable } from './runtime-extra';
 
 // Single source of truth for own-server runtime state.
 // All UI surfaces (sidebar, server list, console panel) read from this store
@@ -449,14 +449,20 @@ export const serverState = {
   running(id: string): boolean {
     return list.find((s) => s.id === id)?.running ?? false;
   },
-  get anyRunning() {
-    return list.some((s) => s.running);
-  },
   // True when any server has a one-click repair available (C1 diagnosis_status
   // === 'actionable'). Drives the sidebar wrench badge + the attention item.
   // Reads through the runtime-extra shim until S1's field lands in bindings.
   get anyDiagnosisActionable() {
     return list.some((s) => isDiagnosisActionable(s));
+  },
+  // Single resolved status for the sidebar "Servers" icon. Precedence:
+  // fixable (a crash with a one-click fix) > crashed (a crash with none) >
+  // running > idle. The sidebar reads only this so the precedence lives once.
+  get serversNavStatus(): 'fixable' | 'crashed' | 'running' | 'idle' {
+    if (list.some(isDiagnosisActionable)) return 'fixable';
+    if (list.some(isCrashed)) return 'crashed';
+    if (list.some((s) => s.running)) return 'running';
+    return 'idle';
   },
   backupList,
   backupCreate,
