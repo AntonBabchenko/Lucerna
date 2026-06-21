@@ -161,15 +161,15 @@
         {$t('servers.toInstance.button')}
       </button>
       {#if !running}
-        <BusyButton class="btn-primary btn-sm" busy={busyStart} onclick={() => void start()}>
-          {$t('servers.action.start')}
+        <BusyButton class="btn-success btn-sm" busy={busyStart} onclick={() => void start()}>
+          <Icon name="play" size={14} />{$t('servers.action.start')}
         </BusyButton>
       {:else}
-        <BusyButton class="btn-ghost btn-sm" busy={busyRestart} onclick={() => void restart()}>
-          {$t('servers.action.restart')}
+        <BusyButton class="btn-secondary btn-sm" busy={busyRestart} onclick={() => void restart()}>
+          <Icon name="refresh" size={14} />{$t('servers.action.restart')}
         </BusyButton>
         <BusyButton class="btn-ghost btn-sm" busy={busyStop} onclick={() => void stop()}>
-          {$t('servers.action.stop')}
+          <Icon name="stop" size={14} />{$t('servers.action.stop')}
         </BusyButton>
       {/if}
     </div>

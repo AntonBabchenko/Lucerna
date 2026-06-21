@@ -7,6 +7,7 @@
   import { commands } from '$lib/ipc/bindings';
   import type { UploadConfig, UploadAuthMethod } from '$lib/ipc/bindings';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -405,42 +406,45 @@
   <!-- ── Host-key confirm inline (#24) ───────────────────────────────────── -->
   {#if showHostKeyConfirm}
     <section
-      class="flex flex-col gap-3 border border-warning-text rounded-lg p-4 bg-warning-bg"
+      class="flex items-start gap-2 border border-warning-text rounded-xl p-4 bg-warning-bg"
       data-testid="host-key-confirm"
     >
-      <p class="text-sm font-semibold text-primary">
-        {hostKeyIsFirstConnect
-          ? $t('servers.hosting.hostKeyFirstTitle')
-          : $t('servers.hosting.hostKeyTitle')}
-      </p>
-      <p class="text-sm text-secondary">
-        {hostKeyIsFirstConnect
-          ? $t('servers.hosting.hostKeyFirstBody')
-          : $t('servers.hosting.hostKeyBody')}
-      </p>
-      {#if hostKeyFingerprint}
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted">{$t('servers.hosting.hostKeyFingerprint')}</span>
-          <code class="text-xs break-all font-mono bg-muted/20 rounded px-2 py-1"
-            >{hostKeyFingerprint}</code
+      <Icon name="warning" size={16} class="mt-0.5 shrink-0 text-warning-text" />
+      <div class="flex-1 flex flex-col gap-3">
+        <p class="text-sm font-semibold text-primary">
+          {hostKeyIsFirstConnect
+            ? $t('servers.hosting.hostKeyFirstTitle')
+            : $t('servers.hosting.hostKeyTitle')}
+        </p>
+        <p class="text-sm text-secondary">
+          {hostKeyIsFirstConnect
+            ? $t('servers.hosting.hostKeyFirstBody')
+            : $t('servers.hosting.hostKeyBody')}
+        </p>
+        {#if hostKeyFingerprint}
+          <div class="flex flex-col gap-1">
+            <span class="text-xs text-muted">{$t('servers.hosting.hostKeyFingerprint')}</span>
+            <code class="text-xs break-all font-mono bg-muted/20 rounded px-2 py-1"
+              >{hostKeyFingerprint}</code
+            >
+          </div>
+        {/if}
+        <div class="flex gap-2">
+          <BusyButton
+            class="btn-primary btn-sm"
+            busy={busyHostKeyTrust}
+            onclick={() => void handleTrustAndUpload()}
           >
+            {$t('servers.hosting.hostKeyTrust')}
+          </BusyButton>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onclick={() => (showHostKeyConfirm = false)}
+          >
+            {$t('servers.hosting.cancel')}
+          </button>
         </div>
-      {/if}
-      <div class="flex gap-2">
-        <BusyButton
-          class="btn-primary btn-sm"
-          busy={busyHostKeyTrust}
-          onclick={() => void handleTrustAndUpload()}
-        >
-          {$t('servers.hosting.hostKeyTrust')}
-        </BusyButton>
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onclick={() => (showHostKeyConfirm = false)}
-        >
-          {$t('servers.hosting.cancel')}
-        </button>
       </div>
     </section>
   {/if}

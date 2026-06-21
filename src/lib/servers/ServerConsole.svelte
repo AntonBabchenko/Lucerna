@@ -341,10 +341,10 @@
   <div class="flex items-center gap-2">
     <button
       type="button"
-      class="btn-ghost btn-sm shrink-0"
+      class="btn-secondary btn-sm shrink-0 inline-flex items-center gap-1"
       onclick={() => void serverState.openLogsFolder(serverId)}
     >
-      {$t('servers.logs.openFolder')}
+      <Icon name="folderOpen" size={14} />{$t('servers.logs.openFolder')}
     </button>
 
     <BusyButton

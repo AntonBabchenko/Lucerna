@@ -156,14 +156,13 @@
                 type="button"
                 class="btn-secondary btn-xs"
                 disabled={running || busyAction === backup.file_name}
-                title={running ? $t('servers.backups.runningBlock') : undefined}
                 onclick={() => startConfirm(backup.file_name, 'restore')}
               >
                 {$t('servers.backups.restore')}
               </button>
               <button
                 type="button"
-                class="btn-ghost btn-xs text-danger hover:bg-danger/10"
+                class="btn-ghost-danger btn-xs"
                 disabled={busyAction === backup.file_name}
                 onclick={() => startConfirm(backup.file_name, 'delete')}
               >

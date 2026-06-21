@@ -8,6 +8,7 @@
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import { setProperty } from './properties-edit';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -139,37 +140,40 @@
     <div class="flex flex-col gap-3">
       <!-- Firewall banner — only on Windows when a rule is missing -->
       {#if firewall === 'needs_rule'}
-        <div class="rounded border border-warning-text bg-warning-bg p-3 flex flex-col gap-2">
-          <p class="font-semibold text-warning-text">
-            {$t('servers.connect.firewall.blockedTitle')}
-          </p>
-          <p class="text-muted text-xs">
-            {$t('servers.connect.firewall.blockedHint', { port })}
-          </p>
+        <div class="rounded-xl border border-warning-text bg-warning-bg p-3 flex items-start gap-2">
+          <Icon name="warning" size={16} class="mt-0.5 shrink-0 text-warning-text" />
+          <div class="flex-1 flex flex-col gap-2">
+            <p class="font-semibold text-warning-text">
+              {$t('servers.connect.firewall.blockedTitle')}
+            </p>
+            <p class="text-muted text-xs">
+              {$t('servers.connect.firewall.blockedHint', { port })}
+            </p>
 
-          <div class="flex items-center gap-2">
-            <BusyButton
-              busy={addingRule}
-              class="btn-warning btn-sm"
-              onclick={() => void handleAddRule()}
-            >
-              {$t('servers.connect.firewall.addRule')}
-            </BusyButton>
-            {#if addRuleOutcome}
-              <span class="text-xs text-muted">{addRuleOutcome}</span>
-            {/if}
+            <div class="flex items-center gap-2">
+              <BusyButton
+                busy={addingRule}
+                class="btn-warning btn-sm"
+                onclick={() => void handleAddRule()}
+              >
+                {$t('servers.connect.firewall.addRule')}
+              </BusyButton>
+              {#if addRuleOutcome}
+                <span class="text-xs text-muted">{addRuleOutcome}</span>
+              {/if}
+            </div>
+
+            <details class="text-xs">
+              <summary class="cursor-pointer text-muted hover:text-foreground">
+                {$t('servers.connect.firewall.manual')}
+              </summary>
+              <p class="mt-1 text-muted">{$t('servers.connect.firewall.manualSteps')}</p>
+              <code class="mt-1 block rounded bg-subtle px-2 py-1 font-mono break-all">
+                netsh advfirewall firewall add rule name="Lucerna Minecraft Server (TCP {port})"
+                dir=in action=allow protocol=TCP localport={port}
+              </code>
+            </details>
           </div>
-
-          <details class="text-xs">
-            <summary class="cursor-pointer text-muted hover:text-foreground">
-              {$t('servers.connect.firewall.manual')}
-            </summary>
-            <p class="mt-1 text-muted">{$t('servers.connect.firewall.manualSteps')}</p>
-            <code class="mt-1 block rounded bg-subtle px-2 py-1 font-mono break-all">
-              netsh advfirewall firewall add rule name="Lucerna Minecraft Server (TCP {port})"
-              dir=in action=allow protocol=TCP localport={port}
-            </code>
-          </details>
         </div>
       {:else if firewall === 'allowed'}
         <p class="text-xs text-muted">{$t('servers.connect.firewall.allowed')}</p>
