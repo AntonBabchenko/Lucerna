@@ -1491,6 +1491,7 @@ export type TranslationKey =
   | 'sidebar.serverRunning'
   | 'sidebar.servers'
   | 'sidebar.serversFixAvailable'
+  | 'sidebar.serversUploading'
   | 'sidebar.stop'
   | 'sidebar.working'
   | 'worlds.backups.backupNow'

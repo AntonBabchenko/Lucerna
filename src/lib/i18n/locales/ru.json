@@ -97,6 +97,7 @@
     "serverRunning": "Сервер запущен",
     "serverCrashed": "Сервер упал",
     "serversFixAvailable": "Доступно исправление сервера",
+    "serversUploading": "Идёт заливка на хостинг…",
     "importLauncher": "Импорт из лаунчера",
     "offlineNameUnsupported": "Этот ник не поддерживается Minecraft — в миры не зайти. Добавь аккаунт с латинским ником."
   },

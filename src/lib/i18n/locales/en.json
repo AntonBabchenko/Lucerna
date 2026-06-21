@@ -97,6 +97,7 @@
     "serverRunning": "Server running",
     "serverCrashed": "Server crashed",
     "serversFixAvailable": "A server fix is available",
+    "serversUploading": "Uploading to hosting…",
     "importLauncher": "Import from launcher",
     "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname."
   },
