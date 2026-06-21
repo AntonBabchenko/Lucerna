@@ -274,7 +274,10 @@ async function upload(
     setUploadState(id, { phase: 'done' });
   } else {
     const err = r.error as { kind?: string };
-    const phase: UploadPhase = err?.kind === 'upload_cancelled' ? 'cancelled' : 'error';
+    // sftp_host_key_mismatch is handled by the UI (re-trust dialog); treat it as
+    // cancelled so no persisted generic error is shown alongside the dialog.
+    const silentKinds = ['upload_cancelled', 'sftp_host_key_mismatch'];
+    const phase: UploadPhase = silentKinds.includes(err?.kind ?? '') ? 'cancelled' : 'error';
     setUploadState(id, {
       phase,
       error:

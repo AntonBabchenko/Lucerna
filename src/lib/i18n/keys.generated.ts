@@ -1218,6 +1218,7 @@ export type TranslationKey =
   | 'servers.hosting.authPassword'
   | 'servers.hosting.browse'
   | 'servers.hosting.cancel'
+  | 'servers.hosting.cancelUpload'
   | 'servers.hosting.exportRunningBlock'
   | 'servers.hosting.exportZip'
   | 'servers.hosting.exported'

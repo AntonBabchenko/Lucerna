@@ -1684,7 +1684,8 @@
       "hostKeyTitle": "Host key changed",
       "hostKeyBody": "This host's key has changed since you last connected. That can happen if the server was reinstalled — but it can also mean the connection is being intercepted. Only continue if you trust this host.",
       "hostKeyTrust": "Trust & upload",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "cancelUpload": "Cancel upload"
     },
     "diagnose": {
       "clientOnly": {
