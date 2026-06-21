@@ -17,7 +17,12 @@ vi.mock('$lib/ipc/bindings', () => ({
 import { commands } from '$lib/ipc/bindings';
 import { serverState } from '$lib/servers/server-state.svelte';
 
-function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
+function makeServer(
+  id: string,
+  running: boolean,
+  lastExitCode: number | null = null,
+  diagnosisStatus: ServerWithStatus_Serialize['diagnosis_status'] = 'none',
+): ServerWithStatus_Serialize {
   return {
     id,
     name: id,
@@ -34,8 +39,8 @@ function makeServer(id: string, running: boolean): ServerWithStatus_Serialize {
     port: 25565,
     upload: null,
     upload_password_set: false,
-    last_exit_code: null,
-    diagnosis_status: 'none',
+    last_exit_code: lastExitCode,
+    diagnosis_status: diagnosisStatus,
   };
 }
 
@@ -66,5 +71,47 @@ describe('serverState.anyRunning', () => {
     vi.mocked(commands.serverList).mockResolvedValue({ status: 'ok', data: [] });
     await serverState.refresh();
     expect(serverState.anyRunning).toBe(false);
+  });
+});
+
+describe('serverState.serversNavStatus', () => {
+  beforeEach(() => {
+    vi.mocked(commands.serverList).mockReset();
+  });
+
+  async function load(data: ServerWithStatus_Serialize[]) {
+    vi.mocked(commands.serverList).mockResolvedValue({ status: 'ok', data });
+    await serverState.refresh();
+  }
+
+  it("is 'fixable' when a server has an actionable diagnosis, outranking a running server", async () => {
+    await load([
+      makeServer('running', true),
+      makeServer('broken', false, 1, 'actionable'),
+    ]);
+    expect(serverState.serversNavStatus).toBe('fixable');
+  });
+
+  it("is 'crashed' for a non-zero exit with no actionable fix, outranking running", async () => {
+    await load([
+      makeServer('running', true),
+      makeServer('dead', false, 1, 'none'),
+    ]);
+    expect(serverState.serversNavStatus).toBe('crashed');
+  });
+
+  it("is 'running' when a server runs and none crashed/fixable", async () => {
+    await load([makeServer('up', true), makeServer('stopped', false, 0, 'none')]);
+    expect(serverState.serversNavStatus).toBe('running');
+  });
+
+  it("is 'idle' when all servers are cleanly stopped", async () => {
+    await load([makeServer('a', false, null, 'none'), makeServer('b', false, 0, 'none')]);
+    expect(serverState.serversNavStatus).toBe('idle');
+  });
+
+  it("is 'idle' for an empty list", async () => {
+    await load([]);
+    expect(serverState.serversNavStatus).toBe('idle');
   });
 });
