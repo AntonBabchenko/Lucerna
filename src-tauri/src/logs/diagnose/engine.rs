@@ -497,4 +497,22 @@ mod tests {
                        [ERROR] [net.minecraftforge.network.HandshakeHandler/FMLHANDSHAKE]: Terminating connection with server, mismatched mod list";
         assert_diag(content, LogSource::Game, "server-missing-mods");
     }
+
+    // 10. create-goggle-overlay-crash (per-frame render spam, not a boot crash)
+
+    #[test]
+    fn pattern_goggle_overlay_matches_forge_overlay_error() {
+        let content = "[Render thread/ERROR] [net.minecraftforge.client.gui.overlay.ForgeGui/]: Error rendering overlay 'create:goggle_info'\n\
+                       java.lang.ClassCastException: class net.minecraft.world.phys.EntityHitResult cannot be cast to class net.minecraft.world.phys.BlockHitResult";
+        assert_diag(content, LogSource::Game, "create-goggle-overlay-crash");
+    }
+
+    #[test]
+    fn pattern_goggle_overlay_does_not_match_other_overlay_error() {
+        // A different overlay erroring must NOT be claimed by the goggle pattern.
+        assert_no_diag(
+            "[Render thread/ERROR] [ForgeGui]: Error rendering overlay 'jei:bookmarks'",
+            LogSource::Game,
+        );
+    }
 }

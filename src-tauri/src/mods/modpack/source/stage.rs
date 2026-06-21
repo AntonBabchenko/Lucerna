@@ -25,10 +25,7 @@ pub(crate) async fn download_modrinth_mrpack(
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork {
-        url: url.clone(),
-        details: e.to_string(),
-    })?;
+    .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Err(Error::ModsNetwork {
             url,
@@ -62,10 +59,7 @@ pub(crate) async fn download_modrinth_mrpack(
         })?;
     let bytes = crate::network::get_bytes(&f.url, "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: f.url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(f.url.clone(), e))?;
 
     write_to_temp(app, &bytes, "mrpack").await
 }
@@ -84,10 +78,7 @@ pub(crate) async fn download_curseforge_zip(
         .await?;
     let bytes = crate::network::get_bytes(&dl, "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: dl.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(dl.clone(), e))?;
     write_to_temp(app, &bytes, "zip").await
 }
 

@@ -974,10 +974,7 @@ async fn fetch_modrinth_metadata(version_id: &str) -> Result<(Option<String>, Pa
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork {
-        url: v_url.clone(),
-        details: e.to_string(),
-    })?;
+    .map_err(|e| Error::mods_network(v_url.clone(), e))?;
     if !(200..300).contains(&v_resp.status) {
         return Ok((None, PackMeta::default()));
     }
@@ -1009,10 +1006,7 @@ async fn fetch_modrinth_project(project_id: &str) -> Result<PackMeta, Error> {
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork {
-        url: p_url.clone(),
-        details: e.to_string(),
-    })?;
+    .map_err(|e| Error::mods_network(p_url.clone(), e))?;
     if !(200..300).contains(&p_resp.status) {
         return Ok(PackMeta::default());
     }
