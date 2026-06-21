@@ -12,6 +12,7 @@ const baseInst = {
   loader: 'fabric' as const,
   loader_version: '0.15.7',
   max_heap_mb: 2048,
+  min_heap_mb: null,
   extra_jvm_args: '',
   created_unix_ms: Date.now() - 24 * 60 * 60 * 1000, // ~1 day ago
   ready: true,
@@ -109,6 +110,7 @@ const inst: InstanceWithStatus = {
   loader: 'fabric',
   loader_version: '0.16.5',
   max_heap_mb: 4096,
+  min_heap_mb: null,
   extra_jvm_args: '',
   created_unix_ms: 1_700_000_000_000,
   ready: true,

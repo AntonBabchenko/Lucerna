@@ -73,6 +73,11 @@ pub struct InstanceFile {
     pub loader: LoaderKind,
     pub loader_version: Option<String>,
     pub max_heap_mb: u32,
+    /// Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default (the
+    /// historical behaviour). Additive — old instance.json without it
+    /// deserialises to None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_heap_mb: Option<u32>,
     pub extra_jvm_args: String,
     /// f64 because specta-typescript 0.0.12 forbids u64. JS `Date.now()`
     /// values round-trip cleanly within the 2^53 safe-integer range.
@@ -313,6 +318,8 @@ pub struct InstanceWithStatus {
     pub loader: LoaderKind,
     pub loader_version: Option<String>,
     pub max_heap_mb: u32,
+    /// Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default.
+    pub min_heap_mb: Option<u32>,
     pub extra_jvm_args: String,
     pub created_unix_ms: f64,
     /// True iff the effective version JAR is on disk. UI shows ✓/↓ icon.
@@ -337,6 +344,7 @@ impl InstanceWithStatus {
             loader: file.loader,
             loader_version: file.loader_version.clone(),
             max_heap_mb: file.max_heap_mb,
+            min_heap_mb: file.min_heap_mb,
             extra_jvm_args: file.extra_jvm_args.clone(),
             created_unix_ms: file.created_unix_ms,
             ready,
@@ -394,6 +402,7 @@ mod tests {
             loader: LoaderKind::Vanilla,
             loader_version: None,
             max_heap_mb: 2048,
+            min_heap_mb: None,
             extra_jvm_args: String::new(),
             created_unix_ms: 1_700_000_000_000.0,
             mrpack_name: None,
@@ -467,6 +476,38 @@ mod tests {
         }"#;
         let f: InstanceFile = serde_json::from_str(json).unwrap();
         assert_eq!(f.handled_log_sig, None);
+    }
+
+    #[test]
+    fn min_heap_mb_defaults_to_none_for_old_json() {
+        // An instance.json written before -Xms support must still parse.
+        let json = r#"{
+            "id": "abc", "name": "X", "mc_version": "1.20.1",
+            "loader": "vanilla", "loader_version": null, "max_heap_mb": 2048,
+            "extra_jvm_args": "", "created_unix_ms": 0
+        }"#;
+        let f: InstanceFile = serde_json::from_str(json).unwrap();
+        assert_eq!(f.min_heap_mb, None);
+    }
+
+    #[test]
+    fn min_heap_mb_roundtrips_when_set_and_is_omitted_when_none() {
+        // None: skipped on serialize, restored as None.
+        let s = sample();
+        assert_eq!(s.min_heap_mb, None);
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(
+            !json.contains("min_heap_mb"),
+            "None must be omitted: {json}"
+        );
+
+        // Some: present in JSON and survives the round-trip.
+        let mut s2 = sample();
+        s2.min_heap_mb = Some(2048);
+        let json2 = serde_json::to_string(&s2).unwrap();
+        assert!(json2.contains(r#""min_heap_mb":2048"#), "got: {json2}");
+        let back: InstanceFile = serde_json::from_str(&json2).unwrap();
+        assert_eq!(back.min_heap_mb, Some(2048));
     }
 
     #[test]

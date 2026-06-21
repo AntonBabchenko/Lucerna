@@ -147,6 +147,7 @@ pub fn create_instance(
         loader,
         loader_version,
         max_heap_mb: memory::default_heap_mb(crate::platform::total_system_ram_mb()),
+        min_heap_mb: None,
         extra_jvm_args: String::new(),
         created_unix_ms: unix_ms_f64(),
         mrpack_name,
@@ -239,6 +240,17 @@ pub fn set_instance_memory(
     max_heap_mb: u32,
 ) -> Result<InstanceWithStatus> {
     mutate(app, id, |i| i.max_heap_mb = max_heap_mb)
+}
+
+/// Set the optional JVM initial heap (`-Xms`). `None` clears it (JVM default).
+pub fn set_instance_min_heap(
+    app: &tauri::AppHandle,
+    id: &str,
+    min_heap_mb: Option<u32>,
+) -> Result<InstanceWithStatus> {
+    // Treat 0 as "unset" so an empty field and an explicit 0 behave the same.
+    let normalized = min_heap_mb.filter(|&m| m > 0);
+    mutate(app, id, |i| i.min_heap_mb = normalized)
 }
 
 pub fn set_instance_jvm_args(
@@ -410,6 +422,7 @@ mod tests {
             loader: schema::LoaderKind::Fabric,
             loader_version: Some("0.16.5".into()),
             max_heap_mb: 4096,
+            min_heap_mb: None,
             extra_jvm_args: String::new(),
             created_unix_ms: 1_700_000_000_000.0,
             mrpack_name: Some("All The Mods 10".into()),
@@ -433,6 +446,7 @@ mod tests {
             loader: schema::LoaderKind::Vanilla,
             loader_version: None,
             max_heap_mb: 2048,
+            min_heap_mb: None,
             extra_jvm_args: String::new(),
             created_unix_ms: 1_700_000_000_000.0,
             mrpack_name: None,

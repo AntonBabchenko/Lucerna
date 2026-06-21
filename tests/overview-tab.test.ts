@@ -31,6 +31,7 @@ const fabricInst = {
   loader: 'fabric' as const,
   loader_version: '0.16.5',
   max_heap_mb: 2048,
+  min_heap_mb: null,
   extra_jvm_args: '',
   created_unix_ms: null,
   ready: true,

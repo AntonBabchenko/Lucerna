@@ -98,9 +98,12 @@ describe('MemorySlider', () => {
     mockLoad.mockResolvedValue(RAM_32GB);
 
     // 30 GB > 24 GB recommended → warning, naming the 24.0 GB recommendation.
+    // Match the warning text specifically: the recommended-max marker (PR8) also
+    // renders an sr-only "Recommended maximum: 24.0 GB", so a bare /24.0 GB/
+    // would match two elements.
     render(MemorySlider, { props: { valueMb: 30720, onInput: vi.fn() } });
 
-    expect(await screen.findByText(/24\.0 GB/)).toBeTruthy();
+    expect(await screen.findByText(/Allocating more than 24\.0 GB/)).toBeTruthy();
   });
 
   it('does not warn when RAM is unknown, even for a large heap', async () => {

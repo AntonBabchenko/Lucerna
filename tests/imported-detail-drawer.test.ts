@@ -101,6 +101,7 @@ function instance(overrides: Partial<InstanceWithStatus> = {}): InstanceWithStat
     loader: 'fabric',
     loader_version: '0.15.7',
     max_heap_mb: 2048,
+    min_heap_mb: null,
     extra_jvm_args: '',
     created_unix_ms: Date.now() - 86400000,
     ready: true,

@@ -94,6 +94,7 @@ mod tests {
             loader,
             loader_version: lv.map(String::from),
             max_heap_mb: 2048,
+            min_heap_mb: None,
             extra_jvm_args: String::new(),
             created_unix_ms: 0.0,
             mrpack_name: None,
