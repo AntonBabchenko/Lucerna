@@ -1,6 +1,6 @@
 # Design
 
-This document is the single source of truth for Lucerna's UI surface: the design tokens, the component vocabulary, and — crucially — *which* element or variant to reach for *when*. It is descriptive of what the code actually does, not aspirational. The implementation source of truth is [`src/app.css`](../src/app.css) (tokens, `@layer base` theming, the `.btn-*` / icon / filter-control utilities) plus the shared primitives under `src/lib/ui/`. Button *intent* is not just convention — it is enforced by tests: the `toHaveBtnVariant` / `toHaveBtnSize` matchers in [`tests/test-utils/button-matchers.ts`](../tests/test-utils/button-matchers.ts) fail the build when a button's variant or size drifts from its intent (see §14).
+This document is the single source of truth for Lucerna's UI surface: the design tokens, the component vocabulary, and — crucially — *which* element or variant to reach for *when*. It is descriptive of what the code actually does, not aspirational. The implementation source of truth is [`src/app.css`](../src/app.css) (tokens, `@layer base` theming, the `.btn-*` / icon / filter-control utilities) plus the shared primitives under `src/lib/ui/`. Button *intent* is not just convention — it is enforced by tests: the `toHaveBtnVariant` / `toHaveBtnSize` matchers in [`tests/test-utils/button-matchers.ts`](../tests/test-utils/button-matchers.ts) fail the build when a button's variant or size drifts from its intent (see §15).
 
 Where this doc and the code disagree, fix the code or update this file in the same PR — same rule as `docs/PRINCIPLES.md`.
 
@@ -110,7 +110,53 @@ Every button reaches for a `.btn-*` purpose class plus a size class — never ha
 
 The `Variant`/`Size` unions in `button-matchers.ts` are **closed** — a new variant must be added there. The matchers split the className and assert `btn-<variant>` / `btn-<size>` inclusion; they're used by the `button-intents-*` and `close-button` tests.
 
-## 5. Form controls
+## 5. Action affordances (icon vs label · tooltip · animation)
+
+An action's affordance is decided by its **role and density**, not its verb. A repeatable per-row / per-card / toolbar tool whose meaning is carried by a well-known glyph (delete, install, toggle, refresh, move, search-next) renders **icon-only** on `.btn-icon` / `.btn-icon-sm` and MUST carry a `use:tooltip` *and* an `aria-label` from the **same** i18n key. A focal, committing, or standalone action — a modal-footer Cancel/Save, a destructive *confirm*, a multi-select bulk action, a link that opens a page — renders **text-labelled**, no icon (or a trailing `externalLink` for the link role). An icon is **added to a label** (always *leading*) only for the loud launch / create CTAs and refresh tools. Two carve-outs are permanent: the green **Play / Connect** CTA keeps `.btn-success` even when icon-only (its colour *is* its meaning, so it is not demoted to `.btn-icon`), and **Open-folder is always icon+label**, never icon-only.
+
+| Action | Affordance | Tooltip | `aria-label` | Animation |
+|---|---|---|---|---|
+| Delete / uninstall (dense row/card) | icon-only `.btn-icon-sm .btn-icon-danger` | yes (= aria-label) | yes | zoom |
+| Destructive confirm (dialog footer) | text `.btn-danger` (or `.btn-ghost-danger` in bars) | no | — | none |
+| Refresh / recheck | text `.btn-secondary` + leading `<Icon name="refresh" class="icon-spin-hover" />` | no | — | spin 180° |
+| Apply available update (badge) | icon-only `.btn-icon-sm .btn-icon-warning` | yes | yes | zoom — **no spin** (not a re-run) |
+| Enable / disable toggle | icon-only (`.btn-icon-success` on, `!text-muted` off) | yes | yes | zoom; colour = state |
+| Install (dense version / card row) | icon-only `.btn-icon-sm !text-accent` | yes | yes | zoom; `Spinner` while busy |
+| Install (prominent CTA) | icon+label `.btn-primary` + leading `download` | no | — | none |
+| Open-folder (always) | icon+label `.btn-secondary` + leading `folderOpen` — never icon-only | no | — | none |
+| Open-external / view on page | `.btn-link` + trailing `externalLink` | only if it carries the URL | — | none |
+| Inline "jump elsewhere" | text-only `.btn-tertiary`, no icon | no | — | none |
+| Close / dismiss | shared `<CloseButton>` | yes | yes (required prop) | zoom |
+| Kebab / overflow (toolbar / header) | shared `<OverflowMenu>` | yes | yes | zoom |
+| Expand / collapse `<details>` | `<Icon name="caret" />` in `.disclosure-caret` | — | — | caret rotate 90° |
+| Headline launch (Play / Stop / Install) | icon+label `.btn-lg` + leading glyph | no | — | none |
+| Play / Connect (icon-only secondary) | icon-only on `.btn-success .btn-sm` — carve-out, *not* `.btn-icon` | yes (on wrapping `<span>`) | yes | none |
+| Move / cancel-queue / search prev-next | icon-only `.btn-icon-sm` (cancel → `.btn-icon-danger`) | yes | yes | zoom |
+| Disabled-capable icon button | as its type, but `use:tooltip` on a wrapping `<span>` (a disabled button fires no pointer events); `aria-label` stays on the button | yes (span) | yes (button) | zoom |
+
+The canonical reference row is [`ModCard.svelte`](../src/lib/mods/ModCard.svelte) — icon-only enable / update / install / delete, each with tooltip + aria-label; `CloseButton` and `OverflowMenu` are the shared dismiss / overflow primitives.
+
+**Tooltip rule.**
+
+- Every icon-only action button carries **both** `use:tooltip` and `aria-label`, from the same i18n key — the tooltip is the visible mirror of the accessible name, surfaced once not twice. This holds even for "obvious" header singletons (the back arrow, close).
+- **Never `title=`** — it is unreliable for assistive tech / touch and bypasses the singleton tooltip layer. (A `title` prop forwarded *into* `use:tooltip` internally is fine — the prop name is incidental.)
+- A **disabled-reason** tooltip wraps the control in `<span use:tooltip={{ text, describe: false }}>`; `describe: false` marks it as *supplementary* info, not the accessible name.
+- **Text-labelled buttons take no tooltip** (the label is the name) — except a `.btn-link` whose tooltip carries the destination URL.
+- **`HelpPopover` (`(?)`) is for a sentence of conceptual help next to a header — never to name an action.** A hover tooltip names a control tersely; a HelpPopover explains.
+- Tooltip copy is i18n (`$t`); raw strings only for non-translatable data (URLs, file paths).
+
+**Animation rule.** Motion is a small, mostly-semantic vocabulary; nothing else may be hand-rolled on a button.
+
+- **zoom** (`.fx-icon-zoom`, scale 1.2) — decorative and **uniform**: every `.btn-icon` / `.btn-icon-sm` gets it automatically (root-gated by the `iconZoomFx` pref). Labelled buttons never zoom.
+- **spin** (`.icon-spin-hover`, 180° on hover) — means "point at this and it **re-runs**": refresh / recheck only, always with `name="refresh"`; **withheld** from the same-glyph apply-update action (which is not a re-run).
+- **caret rotate** (`.disclosure-caret`, 90°) — every `<details>` disclosure. A menu / select trigger rotates a `chevronDown` 180° to mean *open* — use the shared rotation, never an inline one-off.
+- **rainbow** (`.icon-rainbow-hover`) — playful delight on the two opt-in sidebar icons only (Browse-modpacks, Shaders); never on a destructive / primary / task action.
+- **continuous spin** is **only** `<Spinner>` (= "loading"), distinct from the hover-only refresh spin.
+- No ad-hoc `transition-transform` / `hover:scale` / inline `animate-spin` on buttons. The **icon-button no-background-plate** rule (hover feedback = colour-shift + zoom) currently has zero violations — keep it that way.
+
+Conformance to this section is checked by the design audit.
+
+## 6. Form controls
 
 Lucerna deliberately avoids native OS widgets in favour of small, fully-themeable headless Svelte 5 controls. Two idioms recur: WAI-ARIA roving arrow-key navigation, and the `h-8` / `text-sm` / `border-border-emphasis` / `rounded` sizing baseline expressed via `.filter-control`.
 
@@ -131,7 +177,7 @@ Lucerna deliberately avoids native OS widgets in favour of small, fully-themeabl
 | `ToggleChipGroup` | Pill options that carry per-option tones or counts, all kept visible. |
 | `Select` | A long list, or you want a compact trigger that hides the options until opened. |
 
-## 6. Icons
+## 7. Icons
 
 Every UI icon flows through one wrapper, `<Icon name="…" />` (`src/lib/ui/icons/Icon.svelte`), which maps a **semantic** name to a Lucide component via the central registry (`src/lib/ui/icons/registry.ts` — the *only* module importing `@lucide/svelte`; swapping an icon or the whole library is a one-line change there).
 
@@ -147,7 +193,7 @@ Three decorative motion effects layer on, each preference-gated and reduced-moti
 
 All three are zeroed for `prefers-reduced-motion` users via the global block; the zoom additionally forces `transform: none` on its end-state. Note these FX preferences are deliberately client-only (not in the Rust settings struct) — no FOUC need.
 
-## 7. Overlays & dialogs
+## 8. Overlays & dialogs
 
 All overlays split into two families.
 
@@ -166,7 +212,7 @@ All overlays split into two families.
 - **Tooltips** are a singleton: one `role="tooltip"` bubble mounted in `+layout.svelte`, driven by shared state, opted into via `use:tooltip={label}`. At most one is visible at a time. Never mount per-component tooltip bubbles.
 - **`HelpPopover`** is a click-toggle `(?)` helper with persistent body text — distinct from the hover tooltip.
 
-## 8. Cards & status
+## 9. Cards & status
 
 Cards share a 3-primitive core plus a single status map.
 
@@ -182,7 +228,7 @@ Cards share a 3-primitive core plus a single status map.
 
 **Status is centralized.** A surface derives a semantic `CardStatusKind` from its own state and asks `cardStatusStyle(kind)` (`src/lib/ui/cards/card-status.ts`) for `{accent, badge, dim}`. Route every card's status through this map rather than picking accent/badge inline — that is the drift-prevention layer. Colour encodes attention, not decoration: `enabled` resolves to **no accent** + a `success` badge, so a screen of installed mods is not a wall of green; only `warning`/`danger`/`info`/`update`/`pack-update` paint the strip. `accentStripClass(accent)` gives the row's left strip; `accentDotClass(accent)` gives the grid-tile corner dot.
 
-## 9. Banners & inline messaging
+## 10. Banners & inline messaging
 
 Severity is expressed entirely through the token families from §1 — never ad-hoc hex. `warning` → `--warning-text` / `--warning-bg`; `danger` → `--danger` / `--danger-bg`; `success` → `--success` / `--success-bg`; `accent` → `--accent` (used for an in-progress / "queued" state). Opacity suffixes (`/30`, `/40`, `/80`) soften borders and secondary hints.
 
@@ -202,7 +248,7 @@ Severity is expressed entirely through the token families from §1 — never ad-
 
 **Action hierarchy inside banners & cards.** Confirm = `.btn-primary.btn-sm`, Cancel = `.btn-secondary.btn-sm`, and the single destructive per-row action = solid `.btn-warning.btn-xs`; async actions wrap in `BusyButton` (or render an inline `Spinner`).
 
-## 10. Loading & busy states
+## 11. Loading & busy states
 
 The cross-cutting rule: every loading place renders a spinner **and** a label (visible or screen-reader), and the wrapper carries exactly one `role="status"` + `aria-label` so assistive tech announces the state once.
 
@@ -213,7 +259,7 @@ The cross-cutting rule: every loading place renders a spinner **and** a label (v
 
 **The `delayMs` gotcha.** `Spinner`/`LoadingPanel` support an anti-flicker `delayMs` — the spinner isn't rendered until the load exceeds the delay. `LoadingPanel`'s default is **150ms**, which means a synchronous test doing `getByRole('status')` immediately after render finds nothing. Surfaces whose intent tests assert the loading status synchronously pass `delayMs={0}` (e.g. `ModBrowseView`, `ModpackBrowseView`, `ModpackDetailModal`); others keep the 150ms default and use `waitFor()`. Set `delayMs={150}` for loads that are usually fast and would otherwise flash a spinner.
 
-## 11. Motion
+## 12. Motion
 
 Two hard rules govern all motion: animate only `transform` / `opacity` / `color`, and let the global `prefers-reduced-motion` block zero everything. The vocabulary on top is deliberately small.
 
@@ -221,7 +267,7 @@ Two hard rules govern all motion: animate only `transform` / `opacity` / `color`
 - **Compositor-friendly only.** Every animated property is `transform`, `opacity`, or `color` — never layout-bound props (`width`/`height`/`top`/`left`/`margin`/`padding`/`border`/`font-size`). Colour animation works because icons use `currentColor`.
 - **The motion vocabulary:** icon hover zoom (`scale(1.2)` / 120ms ease-out, preference-gated), rainbow cycle (2.5s linear infinite, opt-in), refresh spin (180° / 0.5s ease), disclosure caret rotate (90° / 0.15s ease), and Tailwind `transition-colors` (~150ms) on button hover/focus. `.btn-tertiary` intentionally omits `transition-colors` (instant underline). `will-change` is not used (acceptable at this scale).
 
-## 12. Accessibility
+## 13. Accessibility
 
 A11y is convention-driven and centralized in shared primitives:
 
@@ -232,7 +278,7 @@ A11y is convention-driven and centralized in shared primitives:
 - **Live regions — role, not colour, signals urgency.** Pending state uses `role="status"`; errors that render *after* mount use `role="alert"`; progress uses `aria-live="polite"`. The toast region is an always-mounted `aria-live="polite"` container.
 - **Reduced motion** is honoured via the global CSS block (plus Tailwind `motion-reduce:` and a JS `matchMedia` check in the tooltip layer). Per-theme `color-scheme` keeps native controls legible in dark. Icons are `aria-hidden` unless given a `label`.
 
-## 13. Layout
+## 14. Layout
 
 Lucerna is a single SvelteKit route (`src/routes/+page.svelte` holds the whole app — sidebar, tabs, all modals); navigation is state-driven, not client routing. The thin `+layout.svelte` imports `app.css`, mounts the singleton `TooltipLayer`, blocks the native WebView context menu, and toggles the root `.fx-icon-zoom` class.
 
@@ -242,7 +288,7 @@ Lucerna is a single SvelteKit route (`src/routes/+page.svelte` holds the whole a
 - **Compact/expanded** is a `$state` rune (`compact.svelte.ts`) that reshapes the grid and resizes the window; opening any wide overlay (Manage / Modpacks / Logs / Settings / Export / MS sign-in) auto-expands.
 - **Sidebar attention badges.** Nav buttons carry an absolutely-positioned wrench (`text-warning-text`) for an actionable one-click fix, which outranks a pulsing dot (`bg-success`/`bg-warning-text`, `animate-pulse motion-reduce:animate-none`) for running/advisory state. Modpacks uses a count pill instead.
 
-## 14. How these rules are enforced
+## 15. How these rules are enforced
 
 Two complementary test layers, documented in [`docs/UI-TESTING.md`](UI-TESTING.md):
 
