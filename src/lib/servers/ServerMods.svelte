@@ -9,6 +9,7 @@
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import ServerModBrowser from './mods/ServerModBrowser.svelte';
   import ServerDatapacks from './mods/ServerDatapacks.svelte';
 
@@ -261,15 +262,28 @@
                   {$t('servers.mods.restore')}
                 </BusyButton>
               {/if}
-              <button
-                type="button"
-                class="btn-ghost btn-xs"
-                title={$t('servers.mods.delete')}
-                disabled={isRunning}
-                onclick={() => requestDelete(entry.filename)}
-              >
-                <Icon name="trash" size={13} />
-              </button>
+              {#if isRunning}
+                <span use:tooltip={{ text: $t('servers.mods.stopToManage'), describe: false }}>
+                  <button
+                    type="button"
+                    class="btn-icon btn-icon-sm btn-icon-danger"
+                    aria-label={$t('servers.mods.delete')}
+                    disabled
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                </span>
+              {:else}
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  aria-label={$t('servers.mods.delete')}
+                  use:tooltip={$t('servers.mods.delete')}
+                  onclick={() => requestDelete(entry.filename)}
+                >
+                  <Icon name="trash" size={13} />
+                </button>
+              {/if}
             {/if}
           </li>
         {/each}

@@ -7,6 +7,7 @@
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
 
   // Datapack management for a server's world (S2 #27). Datapacks live under
   // runtime/<level>/datapacks/ and apply to every loader (incl. vanilla), so
@@ -123,12 +124,23 @@
             >
               {$t('common.cancel')}
             </button>
+          {:else if disabled}
+            <span use:tooltip={{ text: $t('servers.mods.stopToManage'), describe: false }}>
+              <button
+                type="button"
+                class="btn-icon btn-icon-sm btn-icon-danger"
+                aria-label={$t('servers.mods.remove')}
+                disabled
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </span>
           {:else}
             <button
               type="button"
-              class="btn-ghost btn-xs"
-              title={$t('servers.mods.remove')}
-              {disabled}
+              class="btn-icon btn-icon-sm btn-icon-danger"
+              aria-label={$t('servers.mods.remove')}
+              use:tooltip={$t('servers.mods.remove')}
               onclick={() => (pendingRemove = filename)}
             >
               <Icon name="trash" size={13} />

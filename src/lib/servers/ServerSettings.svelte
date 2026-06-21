@@ -181,28 +181,38 @@
     />
 
     <!-- Online mode -->
-    <span class="text-secondary whitespace-nowrap">
+    <label class="text-secondary whitespace-nowrap" for="sp-online-mode">
       {$t('servers.settings.onlineMode')}
-    </span>
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" class="accent-accent" bind:checked={onlineMode} />
     </label>
+    <div class="flex items-center gap-2">
+      <input
+        id="sp-online-mode"
+        type="checkbox"
+        class="accent-accent cursor-pointer"
+        bind:checked={onlineMode}
+      />
+    </div>
 
     <!-- PvP -->
-    <span class="text-secondary whitespace-nowrap">
+    <label class="text-secondary whitespace-nowrap" for="sp-pvp">
       {$t('servers.settings.pvp')}
-    </span>
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" class="accent-accent" bind:checked={pvp} />
     </label>
+    <div class="flex items-center gap-2">
+      <input id="sp-pvp" type="checkbox" class="accent-accent cursor-pointer" bind:checked={pvp} />
+    </div>
 
     <!-- Whitelist -->
-    <span class="text-secondary whitespace-nowrap">
+    <label class="text-secondary whitespace-nowrap" for="sp-whitelist">
       {$t('servers.settings.whitelist')}
-    </span>
-    <label class="flex items-center gap-2 cursor-pointer">
-      <input type="checkbox" class="accent-accent" bind:checked={whitelist} />
     </label>
+    <div class="flex items-center gap-2">
+      <input
+        id="sp-whitelist"
+        type="checkbox"
+        class="accent-accent cursor-pointer"
+        bind:checked={whitelist}
+      />
+    </div>
   </div>
 
   <!-- Advanced raw editor -->
