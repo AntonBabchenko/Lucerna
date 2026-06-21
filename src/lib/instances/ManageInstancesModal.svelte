@@ -132,10 +132,16 @@
 
   // Detail form state — reactive to `selected`.
   let nameDraft = $state('');
-
+  // Resync the editable name only when the SELECTED INSTANCE changes, not on
+  // every `selected` object-identity churn. A background refreshInstances()
+  // (game exit, integrity/import completion) replaces the whole `instances`
+  // array with the same selectedId; gating on the id keeps an in-progress edit
+  // from being silently clobbered. Switching to another instance still resyncs.
+  let lastNameSyncId: string | null = null;
   $effect(() => {
-    if (selected) {
+    if (selected && selected.id !== lastNameSyncId) {
       nameDraft = selected.name;
+      lastNameSyncId = selected.id;
     }
   });
 
