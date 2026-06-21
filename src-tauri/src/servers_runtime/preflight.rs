@@ -93,25 +93,30 @@ mod tests {
     }
 
     #[test]
-    fn next_free_port_skips_a_held_port_and_avoid() {
-        // Hold a port so it reads as in-use; the finder must skip past it.
+    fn next_free_port_skips_an_in_use_port() {
+        // Hold a port so it reads as in-use; the finder must skip past it. Bind on
+        // 0.0.0.0 to match `port_in_use`'s probe address (a 127.0.0.1 hold would not
+        // collide on Windows, so the port would read as free). Assert only race-free
+        // invariants (NOT `!port_in_use(found)`, which re-binds and would flake under
+        // parallel tests). Guard the u16::MAX scan-window edge.
         let l = TcpListener::bind(("0.0.0.0", 0)).unwrap();
         let held = l.local_addr().unwrap().port();
-        let found = next_free_port(held, held).expect("a free port exists nearby");
-        assert_ne!(found, held, "must not return the held/avoid port");
-        assert!(!port_in_use(found), "returned port must be bindable");
+        if held >= u16::MAX - FREE_PORT_SCAN {
+            return; // degenerate top-of-range: window can't fit, not worth asserting
+        }
+        let found = next_free_port(held, 0).expect("a free port above the held one exists");
+        assert_ne!(found, held, "an in-use port must be skipped");
+        assert!(found > held, "scan moves forward from the in-use port");
     }
 
     #[test]
-    fn next_free_port_never_returns_avoid_even_when_free() {
-        // Pick a likely-free base by binding+dropping to learn a free port.
-        let free = {
-            let l = TcpListener::bind(("0.0.0.0", 0)).unwrap();
-            l.local_addr().unwrap().port()
-        };
-        // Ask starting at `free` but forbid it — result must differ.
-        let found = next_free_port(free, free).expect("another free port exists");
-        assert_ne!(found, free);
+    fn next_free_port_never_returns_the_avoid_port() {
+        // 25565 (Minecraft's default) is almost certainly free in the test env;
+        // even so, with avoid == from the function must skip it and move forward.
+        // Deterministic: `avoid` is excluded regardless of whether it is bindable.
+        let found = next_free_port(25565, 25565).expect("a nearby port is free");
+        assert_ne!(found, 25565, "must never suggest the avoid (current) port");
+        assert!(found > 25565, "scans forward from the avoid port");
     }
 
     #[test]
