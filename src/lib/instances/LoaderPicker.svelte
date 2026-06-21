@@ -31,6 +31,11 @@
   }
 
   const LOADER_KINDS: LoaderKind[] = ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge'];
+  // Unique per instance so two LoaderPickers on a page never collide on the
+  // group-label or version-select ids.
+  const uid = crypto.randomUUID();
+  const groupLabelId = `loader-group-${uid}`;
+  const versionSelectId = `loader-version-${uid}`;
 
   let {
     mc,
@@ -146,14 +151,17 @@
   );
 </script>
 
-<p class="block text-xs uppercase text-secondary mb-1">{$t('instance.loader.label')}</p>
-<div class="flex gap-1 mb-3">
+<p id={groupLabelId} class="block text-xs uppercase text-secondary mb-1">
+  {$t('instance.loader.label')}
+</p>
+<div class="flex gap-1 mb-3" role="group" aria-labelledby={groupLabelId}>
   {#each LOADER_KINDS as lk}
     <button
       type="button"
       class="flex-1 btn-sm"
       class:btn-primary={loader === lk}
       class:btn-secondary={loader !== lk}
+      aria-pressed={loader === lk}
       {disabled}
       onclick={() => pickLoader(lk)}
     >
@@ -163,7 +171,7 @@
 </div>
 
 {#if loader !== 'vanilla' && (versions.length > 0 || isLoadingVersions)}
-  <label class="block text-xs uppercase text-secondary mb-1" for="loader-version-select">
+  <label class="block text-xs uppercase text-secondary mb-1" for={versionSelectId}>
     {$t('instance.loader.versionLabel')}
   </label>
   {#if isLoadingVersions}
@@ -177,7 +185,7 @@
     </div>
   {:else}
     <Select
-      id="loader-version-select"
+      id={versionSelectId}
       class="w-full mb-3"
       value={loaderVersion ?? ''}
       options={versionOptions}

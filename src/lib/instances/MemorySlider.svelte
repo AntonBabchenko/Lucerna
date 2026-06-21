@@ -77,6 +77,7 @@
   max={bounds.max_mb}
   step={bounds.step_mb}
   value={valueMb}
+  aria-valuetext={formatHeapLabel(valueMb)}
   oninput={handleInput}
   onchange={handleChange}
   class="w-full {extraClass}"

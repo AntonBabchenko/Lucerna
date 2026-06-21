@@ -524,7 +524,11 @@
       <CloseButton onClick={close} ariaLabel={$t('instance.manage.closeLabel')} />
     </header>
     <div class="flex flex-1 overflow-hidden">
-      <aside class="w-[220px] border-r p-2 flex flex-col gap-2" data-tour-ctx="manage-list">
+      <aside
+        class="w-[220px] border-r p-2 flex flex-col gap-2"
+        data-tour-ctx="manage-list"
+        aria-label={$t('instance.manage.listRegionLabel')}
+      >
         <button type="button" class="shrink-0 btn-primary btn-sm w-full" onclick={openCreate}>
           {$t('instance.manage.newInstanceBtn')}
         </button>
@@ -542,13 +546,20 @@
             <button
               class="text-left px-2 py-1 rounded text-sm hover:bg-subtle"
               class:bg-accent-soft={i.id === selectedId}
+              aria-current={i.id === selectedId}
               onclick={() => {
                 createMode = false;
                 selectedId = i.id;
               }}
             >
               <div class="font-medium flex items-center gap-1.5">
-                <Icon name={i.ready ? 'success' : 'download'} class="shrink-0" />
+                <Icon
+                  name={i.ready ? 'success' : 'download'}
+                  class="shrink-0"
+                  label={i.ready
+                    ? $t('instance.manage.iconReady')
+                    : $t('instance.manage.iconDownloadNeeded')}
+                />
                 <span
                   class="truncate min-w-0 flex-1"
                   use:tooltip={{ text: i.name, whenOverflowing: true }}>{i.name}</span
@@ -624,20 +635,19 @@
             bind:loaderVersion={draftLoaderVersion}
           />
 
-          <div class="flex justify-end gap-2 mt-4">
+          <div class="flex items-center justify-end gap-2 mt-4">
+            <!-- Visible reason instead of a tooltip on a disabled button: the
+                 button stays keyboard-reachable and submitCreate surfaces the
+                 same reason as an announced modalError on click. -->
+            {#if createDisabledReason}
+              <span class="mr-auto text-xs text-secondary">{createDisabledReason}</span>
+            {/if}
             <button type="button" class="btn-secondary btn-sm" onclick={() => (createMode = false)}>
               {$t('instance.manage.cancelBtn')}
             </button>
-            <span class="inline-flex" use:tooltip={{ text: createDisabledReason, describe: false }}>
-              <BusyButton
-                class="btn-primary btn-sm"
-                busy={createPending}
-                disabled={!!createDisabledReason}
-                onclick={submitCreate}
-              >
-                {$t('instance.manage.createBtn')}
-              </BusyButton>
-            </span>
+            <BusyButton class="btn-primary btn-sm" busy={createPending} onclick={submitCreate}>
+              {$t('instance.manage.createBtn')}
+            </BusyButton>
           </div>
         {:else if selected}
           <h3 class="font-semibold text-primary mb-3 flex items-center gap-2">
