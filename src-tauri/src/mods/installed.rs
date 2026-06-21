@@ -29,7 +29,9 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable, SkippedOverride};
+use crate::mods::modpack::schema::{
+    EnvSupport, InertLoaderJar, ModpackUnresolvable, SkippedOverride,
+};
 use crate::mods::platform::{InstalledMod, ModSource};
 
 const FILE_VERSION: u32 = 4;
@@ -98,6 +100,11 @@ pub struct PackOrigin {
     /// feature load with an empty list.
     #[serde(default)]
     pub resolved_missing: Vec<ResolvedMissing>,
+    /// Installed jars built for a loader family this instance cannot load
+    /// (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
+    /// so pre-feature registry files load with an empty list.
+    #[serde(default)]
+    pub inert_loader_jars: Vec<InertLoaderJar>,
 }
 
 /// A user-chosen substitute that closes a `missing_mods` entry the pack
@@ -624,6 +631,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         }
     }
 
@@ -726,6 +734,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                inert_loader_jars: vec![],
             }),
         };
         write(td.path(), &v1).await.unwrap();
@@ -857,6 +866,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                inert_loader_jars: vec![],
             }),
         };
         write(td.path(), &v2).await.unwrap();

@@ -122,6 +122,10 @@ pub fn build_pack_origin(
         // pure (no archive access), so it always starts empty here.
         skipped_overrides: vec![],
         resolved_missing: Vec::new(),
+        // Populated by the orchestrator after it scans the installed mods for
+        // jars built for a loader family this instance cannot load.
+        // build_pack_origin is pure (no disk access), so it starts empty.
+        inert_loader_jars: vec![],
     }
 }
 
@@ -893,6 +897,7 @@ pub async fn install_resolved_pack(
     on_progress(ModpackProgress::Done {
         instance_id: inst.id.clone(),
         skipped_overrides,
+        inert_loader_jars: vec![],
     });
 
     if failures.is_empty() {
@@ -1299,6 +1304,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true), installed("b", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1319,6 +1325,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         // "b" no longer installed.
         let installed = vec![installed("a", true)];
@@ -1340,6 +1347,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         // User added "z" manually.
         let installed = vec![installed("a", true), installed("z", false)];
@@ -1362,6 +1370,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1384,6 +1393,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
         let s = compute_status(origin, &installed, &std::collections::HashSet::new());
@@ -1405,6 +1415,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let mut m = installed("ABC", true);
         m.sha1 = "abc".into();
@@ -1499,6 +1510,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         }
     }
 
@@ -1590,6 +1602,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let mut wanted = origin.files[0].clone();
         wanted.sha1 = "AbCdEf".into();
@@ -1629,6 +1642,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =
@@ -1709,6 +1723,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         };
         let installed = vec![installed("a", true)];
         let present: std::collections::HashSet<String> =

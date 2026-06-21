@@ -87,6 +87,17 @@ pub struct SkippedOverride {
     pub size: f64,
 }
 
+/// A jar installed into an instance whose loader family the instance cannot
+/// load — e.g. a Fabric-only jar in a Forge instance. Forge never reads
+/// `fabric.mod.json`, so the jar is inert (loads nothing) and is safe to ignore
+/// or remove. The import still succeeds; surfaced purely for transparency.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
+pub struct InertLoaderJar {
+    pub filename: String,
+    /// Loader family detected in the jar's descriptor — "Fabric" / "Forge".
+    pub detected_loader: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq)]
 pub struct ModpackUnresolvable {
     pub reason: UnresolvableReason,
@@ -205,6 +216,11 @@ pub enum ModpackProgress {
         /// Empty in the common case; non-empty drives a non-fatal "N file(s)
         /// skipped" note on the import-complete toast.
         skipped_overrides: Vec<SkippedOverride>,
+        /// Installed jars built for a loader family this instance cannot load
+        /// (inert — e.g. a Fabric jar on a Forge instance — see
+        /// `InertLoaderJar`). Empty in the common case; non-empty drives a
+        /// non-fatal "N inert jar(s)" note on the import-complete toast.
+        inert_loader_jars: Vec<InertLoaderJar>,
     },
 }
 
