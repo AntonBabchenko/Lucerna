@@ -1392,7 +1392,7 @@
       "imported": "Импортировано: {name}",
       "importedSkipped": "Импортировано: {name} — пропущено вложенных файлов: {count}",
       "skippedOverrideLine": "{name} ({mb} МБ) — слишком большой, не является загружаемым модом; пропущено",
-      "importedInertLoader": "Не загрузятся файлов: {count} (собраны под другой загрузчик)",
+      "importedInertLoader": "Импортировано: {name} — не загрузятся файлов: {count}",
       "inertLoaderLine": "{filename} — собран под {loader}, не загружен",
       "partialFailure": "Сборка импортирована — {count} мод(ов) не удалось",
       "failed": "Не удалось импортировать сборку"

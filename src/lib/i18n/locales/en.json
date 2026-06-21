@@ -1392,7 +1392,7 @@
       "imported": "Imported {name}",
       "importedSkipped": "Imported {name} — {count} bundled file(s) skipped",
       "skippedOverrideLine": "{name} ({mb} MB) — too large to be a loadable mod; skipped",
-      "importedInertLoader": "{count} bundled file(s) won't load (built for another loader)",
+      "importedInertLoader": "Imported {name} — {count} bundled file(s) won't load",
       "inertLoaderLine": "{filename} — built for {loader}, not loaded",
       "partialFailure": "Modpack imported — {count} mod(s) failed",
       "failed": "Modpack import failed"

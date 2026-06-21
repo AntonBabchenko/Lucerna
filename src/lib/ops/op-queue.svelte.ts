@@ -217,6 +217,7 @@ async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<v
           })
         : outcome.inertLoaderJars.length > 0
           ? tr('page.modpackImport.importedInertLoader', {
+              name: outcome.name,
               count: outcome.inertLoaderJars.length,
             })
           : tr('page.modpackImport.imported', { name: outcome.name });
