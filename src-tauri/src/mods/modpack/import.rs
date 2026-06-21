@@ -920,10 +920,20 @@ pub async fn install_resolved_pack(
         )
         .await;
     }
+    // Scan the freshly-installed mods folder for jars built for a loader
+    // family this instance cannot load (inert — e.g. a Fabric jar on a Forge
+    // instance). Best-effort and non-fatal: the import already succeeded; this
+    // is surfaced for transparency only. Loader-family only, so it never
+    // false-positives on a bundled multi-loader or descriptor-less jar.
+    let mods_dir = instance_root.join(".minecraft").join("mods");
+    let inert_loader_jars =
+        classify_inert_loader_jars(&mods_dir, summary.loader, &summary.game_version);
+
     // Record the skipped oversized overrides so the Imported drawer can
     // show the informational "skipped" note after a restart (the Done
     // event below only reaches the live import toast).
     origin.skipped_overrides = skipped_overrides.clone();
+    origin.inert_loader_jars = inert_loader_jars.clone();
     if let Err(e) = crate::mods::installed::set_pack_origin(&instance_root, origin).await {
         crate::diag!("[modpack::import] set_pack_origin failed (non-fatal): {e}");
     }
@@ -948,7 +958,7 @@ pub async fn install_resolved_pack(
     on_progress(ModpackProgress::Done {
         instance_id: inst.id.clone(),
         skipped_overrides,
-        inert_loader_jars: vec![],
+        inert_loader_jars,
     });
 
     if failures.is_empty() {

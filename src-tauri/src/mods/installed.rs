@@ -909,6 +909,25 @@ mod tests {
         // skipped_overrides is also #[serde(default)] — a registry written
         // before this feature must load with an empty list, not fail.
         assert!(origin.skipped_overrides.is_empty());
+        // inert_loader_jars is #[serde(default)] too — pre-feature JSON has no
+        // such key and must load as an empty list rather than "missing field".
+        assert!(origin.inert_loader_jars.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pack_origin_inert_loader_jars_round_trip() {
+        use crate::mods::modpack::schema::InertLoaderJar;
+        let td = TempDir::new().unwrap();
+        place_jar(&mods_dir(td.path()), "any.jar", b"any").await;
+        let _ = list(td.path()).await.unwrap();
+        let mut origin = sample_origin();
+        origin.inert_loader_jars = vec![InertLoaderJar {
+            filename: "sodium-fabric.jar".into(),
+            detected_loader: "Fabric".into(),
+        }];
+        set_pack_origin(td.path(), origin.clone()).await.unwrap();
+        let got = get_pack_origin(td.path()).await.unwrap();
+        assert_eq!(got, Some(origin));
     }
 
     #[tokio::test]
