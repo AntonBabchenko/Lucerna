@@ -3,6 +3,7 @@
 //! sessions. `server-latest.log` is never an archive and never pruned.
 
 use crate::error::{Error, Result};
+use crate::instances::schema::LogRetentionPolicy;
 use serde::Serialize;
 use specta::Type;
 use std::path::Path;
@@ -17,13 +18,16 @@ pub struct ServerLogInfo {
     pub is_latest: bool,
 }
 
-/// Keep at most this many rotated archives (`server-<ts>.log`). The live
+/// Safety-floor count cap for rotated archives (`server-<ts>.log`), applied
+/// only when the user has NOT enabled log retention. It keeps a crash/restart
+/// loop from growing the log dir without bound even with retention off. When
+/// retention IS enabled, the user's `max_files` governs instead. The live
 /// `server-latest.log` is never counted/pruned.
 pub const KEEP_LOGS: usize = 15;
 
-/// Byte budget for rotated archives (the live `server-latest.log` is excluded).
-/// Bounds disk use when a crash/restart loop spams sessions, mirroring the
-/// client log-retention byte budget.
+/// Safety-floor byte budget for rotated archives, applied only when retention
+/// is disabled (the user's `max_total_mb` governs when enabled). The live
+/// `server-latest.log` is excluded.
 pub const MAX_TOTAL_MB: u64 = 200;
 
 pub const LATEST: &str = "server-latest.log";
@@ -39,10 +43,13 @@ pub fn rotate_log(logs_dir: &Path, stamp: &str) -> Result<()> {
     std::fs::rename(&latest, &archive).map_err(|e| Error::io(archive.display().to_string(), e))
 }
 
-/// Prune rotated archives to satisfy BOTH the count cap (`KEEP_LOGS`) and the
-/// byte budget (`MAX_TOTAL_MB`); the live `server-latest.log` is never pruned.
-/// Best-effort.
-pub fn prune_logs(logs_dir: &Path) {
+/// Prune rotated archives best-effort. Honors the user's log-retention policy
+/// when enabled — the same `max_files` / `max_total_mb` the launcher applies to
+/// instance logs (parity, via the shared [`crate::logs::retention::select_excess`]
+/// selector). When retention is disabled, falls back to the built-in safety
+/// floor (`KEEP_LOGS` / `MAX_TOTAL_MB`) so disk use stays bounded regardless.
+/// The live `server-latest.log` is never an archive and never pruned.
+pub fn prune_logs(logs_dir: &Path, policy: &LogRetentionPolicy) {
     let archives: Vec<(std::path::PathBuf, f64, u64)> = match std::fs::read_dir(logs_dir) {
         Ok(rd) => rd
             .flatten()
@@ -51,34 +58,24 @@ pub fn prune_logs(logs_dir: &Path) {
             .collect(),
         Err(_) => return,
     };
-    for path in select_archives_to_delete(archives, KEEP_LOGS, MAX_TOTAL_MB * 1024 * 1024) {
-        let _ = std::fs::remove_file(path);
+    let (max_files, budget_bytes): (usize, u64) = if policy.enabled {
+        (
+            policy.max_files as usize,
+            (policy.max_total_mb as u64).saturating_mul(1024 * 1024),
+        )
+    } else {
+        (KEEP_LOGS, MAX_TOTAL_MB.saturating_mul(1024 * 1024))
+    };
+    let inputs: Vec<crate::logs::retention::RetentionInput> = archives
+        .iter()
+        .map(|(_, mtime, size)| crate::logs::retention::RetentionInput {
+            mtime_ms: *mtime,
+            size_bytes: *size,
+        })
+        .collect();
+    for idx in crate::logs::retention::select_excess(&inputs, max_files, budget_bytes) {
+        let _ = std::fs::remove_file(&archives[idx].0);
     }
-}
-
-/// Pure: from `(path, mtime_ms, size_bytes)` archives, choose which to delete so
-/// the survivors satisfy the count cap (`keep` newest) AND the byte budget
-/// (`budget_bytes`). The single newest archive is always kept regardless of
-/// size. Greedy newest-first: keep an archive when it's within the count and
-/// still fits the running byte total, else delete it.
-fn select_archives_to_delete(
-    mut archives: Vec<(std::path::PathBuf, f64, u64)>,
-    keep: usize,
-    budget_bytes: u64,
-) -> Vec<std::path::PathBuf> {
-    archives.sort_by(|a, b| b.1.total_cmp(&a.1)); // newest first
-    let mut total: u64 = 0;
-    let mut to_delete = Vec::new();
-    for (i, (path, _mtime, size)) in archives.into_iter().enumerate() {
-        let over_count = i >= keep;
-        let over_bytes = i > 0 && total.saturating_add(size) > budget_bytes;
-        if over_count || over_bytes {
-            to_delete.push(path);
-        } else {
-            total = total.saturating_add(size);
-        }
-    }
-    to_delete
 }
 
 /// All server logs (latest + archives), newest first, `is_latest` flagged.
@@ -162,45 +159,82 @@ mod tests {
         assert!(fs::read_dir(d.path()).unwrap().next().is_none());
     }
 
+    fn policy(enabled: bool, max_files: u32, max_total_mb: u32) -> LogRetentionPolicy {
+        LogRetentionPolicy {
+            enabled,
+            max_files,
+            max_total_mb,
+        }
+    }
+
+    fn count_archives(dir: &Path) -> usize {
+        list_logs(dir)
+            .unwrap()
+            .into_iter()
+            .filter(|l| !l.is_latest)
+            .count()
+    }
+
     #[test]
-    fn prune_keeps_newest_archives_not_latest() {
+    fn prune_floor_applies_when_retention_disabled() {
         let d = tempdir().unwrap();
         fs::write(d.path().join(LATEST), b"live").unwrap();
         for i in 0..(KEEP_LOGS + 4) {
             fs::write(d.path().join(format!("server-arc-{i:03}.log")), b"x").unwrap();
         }
-        prune_logs(d.path());
-        // latest survives
-        assert!(d.path().join(LATEST).is_file());
-        let archives = list_logs(d.path())
-            .unwrap()
-            .into_iter()
-            .filter(|l| !l.is_latest)
-            .count();
-        assert_eq!(archives, KEEP_LOGS);
+        // Disabled → the (1, 1) values are ignored; the KEEP_LOGS floor governs.
+        prune_logs(d.path(), &policy(false, 1, 1));
+        assert!(d.path().join(LATEST).is_file(), "latest survives");
+        assert_eq!(count_archives(d.path()), KEEP_LOGS);
     }
 
     #[test]
-    fn select_respects_count_cap() {
-        let archives: Vec<_> = (0..5)
-            .map(|i| (std::path::PathBuf::from(format!("a{i}")), i as f64, 1u64))
-            .collect();
-        // keep newest 2, huge budget → the 3 oldest are deleted.
-        let del = select_archives_to_delete(archives, 2, 1_000_000);
-        assert_eq!(del.len(), 3);
-        assert!(del.contains(&std::path::PathBuf::from("a0")));
-        assert!(!del.contains(&std::path::PathBuf::from("a4")));
+    fn prune_honors_user_policy_when_enabled() {
+        let d = tempdir().unwrap();
+        fs::write(d.path().join(LATEST), b"live").unwrap();
+        for i in 0..6 {
+            fs::write(d.path().join(format!("server-arc-{i:03}.log")), b"x").unwrap();
+        }
+        // Enabled with a tighter cap than the floor → user's max_files wins.
+        prune_logs(d.path(), &policy(true, 2, 9999));
+        assert!(d.path().join(LATEST).is_file(), "latest survives");
+        assert_eq!(count_archives(d.path()), 2);
     }
 
     #[test]
-    fn select_respects_byte_budget_keeping_newest() {
-        let archives = vec![
-            (std::path::PathBuf::from("new"), 5.0, 6u64), // newest, always kept (total=6)
-            (std::path::PathBuf::from("mid"), 4.0, 6u64), // 6+6=12 > 10 → delete
-            (std::path::PathBuf::from("old"), 3.0, 2u64), // 6+2=8 <= 10 → kept
-        ];
-        let del = select_archives_to_delete(archives, 100, 10);
-        assert_eq!(del, vec![std::path::PathBuf::from("mid")]);
+    fn prune_honors_byte_budget_when_enabled() {
+        // Count is effectively infinite (9999); only the BYTE budget can bind.
+        // Six 400 KiB archives, budget 1 MiB → newest two fit (800 KiB ≤ 1 MiB),
+        // the third overflows (1.2 MiB) so it and all older are prefix-cut.
+        // Sizes are equal, so the survivor COUNT is deterministic regardless of
+        // same-second mtime ties. A dropped/mis-scaled budget arg would keep all
+        // six (huge budget) or just one (zero budget) — both caught here.
+        let d = tempdir().unwrap();
+        fs::write(d.path().join(LATEST), b"live").unwrap();
+        let blob = vec![b'x'; 400 * 1024];
+        for i in 0..6 {
+            fs::write(d.path().join(format!("server-arc-{i:03}.log")), &blob).unwrap();
+        }
+        prune_logs(d.path(), &policy(true, 9999, 1));
+        assert!(d.path().join(LATEST).is_file(), "latest survives");
+        assert_eq!(count_archives(d.path()), 2);
+    }
+
+    #[test]
+    fn prune_floor_uses_byte_floor_not_policy_when_disabled() {
+        // Disabled → the 200 MiB byte FLOOR governs, not the policy's tiny
+        // max_total_mb=1. Four 400 KiB archives total 1.6 MiB: over the policy's
+        // 1 MiB (which is ignored) but well under the 200 MiB floor and the
+        // KEEP_LOGS count floor → nothing is pruned. A bug that used the policy
+        // budget when disabled would byte-cut down to ~2.
+        let d = tempdir().unwrap();
+        fs::write(d.path().join(LATEST), b"live").unwrap();
+        let blob = vec![b'x'; 400 * 1024];
+        for i in 0..4 {
+            fs::write(d.path().join(format!("server-arc-{i:03}.log")), &blob).unwrap();
+        }
+        prune_logs(d.path(), &policy(false, 9999, 1));
+        assert_eq!(count_archives(d.path()), 4);
     }
 
     #[test]

@@ -293,7 +293,14 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     // timestamped archive, then bound the archives with keep-N.
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let _ = crate::servers_runtime::serverlog::rotate_log(&p.logs, &stamp);
-    crate::servers_runtime::serverlog::prune_logs(&p.logs);
+    // Honor the user's log-retention policy for server logs too (parity with
+    // instance logs); default-on-error falls back to serverlog's safety floor.
+    let retention = crate::paths::app_file(app)
+        .ok()
+        .and_then(|f| crate::instances::store::read_app_json(&f).ok())
+        .map(|s| s.general.log_retention)
+        .unwrap_or_default();
+    crate::servers_runtime::serverlog::prune_logs(&p.logs, &retention);
     let log_path = p.logs.join("server-latest.log");
     let log_file = std::fs::File::create(&log_path)
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
