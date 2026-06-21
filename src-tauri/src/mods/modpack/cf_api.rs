@@ -251,10 +251,7 @@ pub async fn search(
         let url = format!("{base}/v1/mods/search?{}", encode_pairs(&params));
         let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
         check_status(&resp, &url)?;
         let env: ListEnv<CfMod> =
             serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
@@ -318,10 +315,7 @@ pub async fn list_files(
     let url = format!("{base}/v1/mods/{project_id}/files?pageSize=50");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     check_status(&resp, &url)?;
     // `.pagination` is intentionally ignored here — the version drawer
     // shows a fixed window of the most recent files (pageSize=50).
@@ -366,10 +360,7 @@ pub async fn fetch_summary(
     let url = format!("{base}/v1/mods/{project_id}");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     if !(200..300).contains(&resp.status) {
         return Ok((None, None));
     }
@@ -392,10 +383,7 @@ pub async fn fetch_project_detail(
     let url = format!("{base}/v1/mods/{project_id}");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     check_status(&resp, &url)?;
     let env: Env<CfMod> = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "curseforge".into(),
@@ -470,10 +458,7 @@ pub(crate) async fn resolve_files(
         "modpacks",
     )
     .await
-    .map_err(|e| Error::ModsNetwork {
-        url: url.clone(),
-        details: e.to_string(),
-    })?;
+    .map_err(|e| Error::mods_network(url.clone(), e))?;
     check_status(&resp, &url)?;
 
     #[derive(Deserialize)]
@@ -536,10 +521,7 @@ pub async fn resolve_file_download(
     let url = format!("{base}/v1/mods/{project_id}/files/{file_id}");
     let resp = crate::network::request::get(&url, &[("x-api-key", key)], "modpacks")
         .await
-        .map_err(|e| Error::ModsNetwork {
-            url: url.clone(),
-            details: e.to_string(),
-        })?;
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
     check_status(&resp, &url)?;
     let env: Env<CfFile> = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
         platform: "curseforge".into(),

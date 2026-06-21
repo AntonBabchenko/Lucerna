@@ -4,6 +4,7 @@
 //! no automatic actions, no network, no telemetry.
 
 pub mod engine;
+pub mod fixmods;
 pub mod patterns;
 pub mod repair;
 pub mod server;
