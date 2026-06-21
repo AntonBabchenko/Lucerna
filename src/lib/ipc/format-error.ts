@@ -140,6 +140,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_eula_not_accepted: 'clean',
   server_jar_unavailable: 'clean',
   server_already_running: 'clean',
+  server_upload_in_progress: 'clean',
+  upload_cancelled: 'clean',
   server_not_running: 'clean',
   server_mod_required_by_other: 'clean',
   server_name_invalid: 'clean',
@@ -399,6 +401,10 @@ export function formatError(e: IpcError): string {
       return withDetailTail(translate('errors.serverSpawnFailed'), e.details);
     case 'server_already_running':
       return translate('errors.serverAlreadyRunning');
+    case 'server_upload_in_progress':
+      return translate('errors.serverUploadInProgress');
+    case 'upload_cancelled':
+      return translate('errors.uploadCancelled');
     case 'server_not_running':
       return translate('errors.serverNotRunning');
     case 'server_name_invalid':
