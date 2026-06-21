@@ -103,8 +103,9 @@
   {/key}
 {:else}
   <div class="flex flex-col gap-3 p-4 overflow-y-auto">
-    <div class="flex items-center justify-between">
-      <span class="text-base font-semibold">{$t('servers.title')}</span>
+    <!-- No list heading here — ServersModal already renders the "Servers" title
+         (h2#servers-modal-title); a second one inside the list was redundant. -->
+    <div class="flex items-center justify-end">
       <button
         type="button"
         class="btn-primary btn-sm flex items-center gap-1.5"
