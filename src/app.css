@@ -21,6 +21,7 @@
   --accent-soft: 239 246 255; /* blue-50 */
   --success: 22 163 74; /* green-600 */
   --success-bg: 240 253 244; /* green-50 */
+  --success-muted: 48 132 79; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 220 38 38; /* red-600 */
   --danger-bg: 254 226 226; /* red-100 */
   --warning-bg: 255 251 235; /* amber-50 */
@@ -59,6 +60,7 @@
   --accent-soft: 30 58 138; /* blue-900 — was 23 37 84 (blue-950) */
   --success: 34 197 94;
   --success-bg: 20 83 45; /* green-900 */
+  --success-muted: 64 161 100; /* same green hue/lightness as --success, lower saturation — running-pulse trough */
   --danger: 239 68 68;
   --danger-bg: 127 29 29; /* red-900 */
   --warning-bg: 120 53 15; /* amber-900 — was 69 26 3 (amber-950) */
@@ -489,6 +491,30 @@ button:active > .icon-spin-hover {
 button:hover .icon-rainbow-hover,
 button:focus-visible .icon-rainbow-hover {
   animation: lucerna-icon-rainbow 2.5s linear infinite;
+}
+
+/* Sidebar "Servers" running indicator: the server icon breathes on a SINGLE
+   green — hue and lightness stay put, only saturation moves (full --success ↔
+   softened --success-muted). currentColor on the Lucide stroke makes `color`
+   the animated channel (compositor-friendly). Reduced-motion rests at the
+   saturated end, which is exactly the app's --success. */
+@keyframes lucerna-server-running {
+  0%,
+  100% {
+    color: rgb(var(--success));
+  }
+  50% {
+    color: rgb(var(--success-muted));
+  }
+}
+.nav-icon-running {
+  animation: lucerna-server-running 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-icon-running {
+    animation: none;
+    color: rgb(var(--success));
+  }
 }
 
 /* Gentle hover/focus zoom on icon-only buttons, gated by the .fx-icon-zoom
