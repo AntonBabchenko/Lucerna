@@ -1107,7 +1107,7 @@
     "lastInstance": "Нельзя удалить последний профиль — должен оставаться хотя бы один",
     "noVersionSelected": "Сначала выберите версию Minecraft",
     "instanceNotFound": "Профиль {id} не найден",
-    "io": "Ошибка ввода-вывода в {path}: {details}",
+    "io": "Ошибка ввода-вывода в {path}",
     "ioTruncatedHint": "откройте «Логи» для полного текста",
     "forgePromotionsUnavailable": "Лента релизов Forge для {flavor} недоступна — версии не будут помечены как рекомендуемые",
     "forgeMavenMetadataParseFailed": "Не удалось разобрать maven-metadata.xml Forge: {details}",

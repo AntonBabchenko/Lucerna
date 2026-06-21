@@ -1107,7 +1107,7 @@
     "lastInstance": "Cannot delete the last instance — at least one must remain",
     "noVersionSelected": "Pick a Minecraft version first",
     "instanceNotFound": "Instance {id} not found",
-    "io": "IO error at {path}: {details}",
+    "io": "IO error at {path}",
     "ioTruncatedHint": "open Logs for full text",
     "forgePromotionsUnavailable": "Forge promotions feed for {flavor} is unavailable — versions will not be marked recommended",
     "forgeMavenMetadataParseFailed": "Failed to parse Forge maven-metadata.xml: {details}",

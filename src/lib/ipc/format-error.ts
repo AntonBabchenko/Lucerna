@@ -4,6 +4,31 @@ import { t } from '$lib/i18n';
 import { displayLoader } from '$lib/instances/loader-display';
 import type { Error as IpcError, LoaderKind } from '$lib/ipc/bindings';
 
+// Detail-bearing errors are truncated to this many code points in the UI; the
+// full text lives in the launcher log. Slicing is by code point (spread), not
+// UTF-16 unit, so a surrogate pair at the boundary is never split.
+const DETAIL_TRUNCATE_CODE_POINTS = 120;
+
+/**
+ * Render an Opaque error's `headline` plus its raw `detail`:
+ *   - no detail            → `headline`
+ *   - detail ≤ 120 cp      → `headline: detail`
+ *   - detail >  120 cp     → `headline: <first 120>… (open Logs for full text)`
+ *
+ * Single source of truth for the "human sentence + truncated detail + point at
+ * Logs" convention. Every Opaque variant in formatError routes through here so
+ * the formatting is identical everywhere (generalises the old inline `io` case).
+ */
+export function withDetailTail(headline: string, raw: string | null | undefined): string {
+  if (!raw) return headline;
+  const codePoints = [...raw];
+  if (codePoints.length <= DETAIL_TRUNCATE_CODE_POINTS) {
+    return `${headline}: ${raw}`;
+  }
+  const hint = get(t)('errors.ioTruncatedHint');
+  return `${headline}: ${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}… (${hint})`;
+}
+
 /**
  * Render a typed IPC Error as a human-readable single-line string.
  *
@@ -63,19 +88,8 @@ export function formatError(e: IpcError): string {
       return translate('errors.noVersionSelected');
     case 'instance_not_found':
       return translate('errors.instanceNotFound', { id: e.id });
-    case 'io': {
-      // `details` can be a long parse-error dump (e.g. account.json contents
-      // on a schema-mismatch). Toasts can't wrap 1000+ chars usefully —
-      // truncate and point the user at the launcher log for the full text.
-      // Slice by code points, not UTF-16 code units, so an emoji or other
-      // surrogate-pair character at the boundary never gets split in half.
-      const codePoints = [...e.details];
-      const details =
-        codePoints.length > 120
-          ? `${codePoints.slice(0, 120).join('')}… (${translate('errors.ioTruncatedHint')})`
-          : e.details;
-      return translate('errors.io', { path: e.path, details });
-    }
+    case 'io':
+      return withDetailTail(translate('errors.io', { path: e.path }), e.details);
     case 'forge_promotions_unavailable':
       return translate('errors.forgePromotionsUnavailable', { flavor: e.flavor });
     case 'forge_maven_metadata_parse_failed':

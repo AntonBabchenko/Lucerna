@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { Error as IpcError } from '$lib/ipc/bindings';
-import { formatError } from '$lib/ipc/format-error';
+import { formatError, withDetailTail } from '$lib/ipc/format-error';
 
 describe('formatError', () => {
   beforeAll(() => locale.set('en'));
@@ -409,6 +409,26 @@ describe('formatError', () => {
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
       expect(Object.keys(samples)).toHaveLength(103);
+    });
+  });
+
+  describe('withDetailTail', () => {
+    beforeAll(() => locale.set('en'));
+
+    it('returns the headline unchanged when there is no detail', () => {
+      expect(withDetailTail('Headline', null)).toBe('Headline');
+      expect(withDetailTail('Headline', '')).toBe('Headline');
+    });
+
+    it('appends a short detail after a colon, with no Logs hint', () => {
+      expect(withDetailTail('Headline', 'boom')).toBe('Headline: boom');
+    });
+
+    it('truncates a long detail at 120 code points and appends the Logs hint', () => {
+      const msg = withDetailTail('Headline', 'x'.repeat(200));
+      expect(msg).toContain('x'.repeat(120));
+      expect(msg).not.toContain('x'.repeat(121));
+      expect(msg).toContain('… (open Logs for full text)');
     });
   });
 
