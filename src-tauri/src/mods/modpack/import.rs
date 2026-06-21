@@ -129,6 +129,57 @@ pub fn build_pack_origin(
     }
 }
 
+/// Scan jars in `mods_dir`, returning those built for a loader family the
+/// `instance_loader` cannot load (inert here). Best-effort: an unreadable jar
+/// is skipped, never fatal. Deduped by filename. Loader-FAMILY only (delegates
+/// to `compat_verdict`; MC-version mismatch is deliberately ignored — it
+/// false-positives on bundled jars). A Vanilla instance has no loader family,
+/// so nothing is ever flagged.
+fn classify_inert_loader_jars(
+    mods_dir: &std::path::Path,
+    instance_loader: crate::instances::schema::LoaderKind,
+    instance_mc: &str,
+) -> Vec<InertLoaderJar> {
+    let Ok(entries) = std::fs::read_dir(mods_dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<InertLoaderJar> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jar") {
+            continue;
+        }
+        let Some(filename) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(meta) = crate::mods::local::read_jar_meta(&bytes) else {
+            continue;
+        };
+        let verdict = crate::mods::local::compat_verdict(&meta, instance_loader, instance_mc);
+        if verdict.loader_mismatch {
+            out.push(InertLoaderJar {
+                filename,
+                detected_loader: verdict.detected_loader.unwrap_or_default(),
+            });
+        }
+    }
+    dedupe_inert(out)
+}
+
+/// Collapse duplicate `InertLoaderJar` entries by filename, keeping first seen.
+fn dedupe_inert(mut jars: Vec<InertLoaderJar>) -> Vec<InertLoaderJar> {
+    let mut seen = std::collections::HashSet::new();
+    jars.retain(|j| seen.insert(j.filename.clone()));
+    jars
+}
+
 /// A pack-origin file is a *tracked mod* iff it lands as a direct child
 /// of `mods/` with a `.jar` extension — exactly what the installed-mods
 /// scan (and Forge's loader) recognises. Anything else under `mods/` —
@@ -2154,5 +2205,144 @@ mod tests {
             status.removed_files[0].sha1, "bbbb2222",
             "the failed-install file must surface as removed_files so Restore is available"
         );
+    }
+
+    // ── classify_inert_loader_jars (import-time wrong-loader detection) ────────
+
+    /// Build an in-memory `.jar` (zip) from (entry-name, body) pairs.
+    fn inert_jar(entries: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = Vec::new();
+        {
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            for (name, body) in entries {
+                w.start_file(*name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                w.write_all(body.as_bytes()).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        buf
+    }
+
+    /// A Fabric-only descriptor (read_jar_meta detects family Fabric).
+    const FABRIC_DESCRIPTOR: (&str, &str) =
+        ("fabric.mod.json", r#"{"name":"Sodium","id":"sodium"}"#);
+    /// A Forge descriptor (read_jar_meta detects family Forge).
+    const FORGE_DESCRIPTOR: (&str, &str) = ("META-INF/mods.toml", "modLoader=\"javafml\"\n");
+
+    use crate::instances::schema::LoaderKind;
+
+    async fn write_jar(dir: &std::path::Path, name: &str, bytes: &[u8]) {
+        tokio::fs::create_dir_all(dir).await.unwrap();
+        tokio::fs::write(dir.join(name), bytes).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn classify_flags_fabric_jar_on_forge_instance() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        write_jar(&dir, "sodium.jar", &inert_jar(&[FABRIC_DESCRIPTOR])).await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Forge, "1.20.1");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].filename, "sodium.jar");
+        assert_eq!(out[0].detected_loader, "Fabric");
+    }
+
+    #[tokio::test]
+    async fn classify_does_not_flag_forge_jar_on_forge_instance() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        write_jar(&dir, "jei.jar", &inert_jar(&[FORGE_DESCRIPTOR])).await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Forge, "1.20.1");
+        assert!(out.is_empty(), "same-family jar is not inert: {out:?}");
+    }
+
+    #[tokio::test]
+    async fn classify_does_not_flag_descriptorless_jar() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        write_jar(
+            &dir,
+            "lib.jar",
+            &inert_jar(&[("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n")]),
+        )
+        .await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Forge, "1.20.1");
+        assert!(out.is_empty(), "no descriptor → never flagged: {out:?}");
+    }
+
+    #[tokio::test]
+    async fn classify_does_not_flag_fabric_jar_on_quilt_instance() {
+        // Quilt loads Fabric mods (same family) — never inert.
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        write_jar(&dir, "sodium.jar", &inert_jar(&[FABRIC_DESCRIPTOR])).await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Quilt, "1.20.1");
+        assert!(out.is_empty(), "Fabric on Quilt is loadable: {out:?}");
+    }
+
+    #[tokio::test]
+    async fn classify_vanilla_instance_flags_nothing() {
+        // Vanilla has no loader family — compat_verdict never reports a mismatch.
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        write_jar(&dir, "sodium.jar", &inert_jar(&[FABRIC_DESCRIPTOR])).await;
+        write_jar(&dir, "jei.jar", &inert_jar(&[FORGE_DESCRIPTOR])).await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Vanilla, "1.20.1");
+        assert!(out.is_empty(), "Vanilla instance flags nothing: {out:?}");
+    }
+
+    #[tokio::test]
+    async fn classify_missing_dir_returns_empty() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("does-not-exist");
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Forge, "1.20.1");
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn classify_skips_unreadable_jar_but_keeps_flagging_real_one() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        // A "jar" that is not a valid zip — read_jar_meta errors → skipped.
+        write_jar(&dir, "broken.jar", b"not a zip at all").await;
+        // A genuine Fabric jar alongside it — still flagged.
+        write_jar(&dir, "sodium.jar", &inert_jar(&[FABRIC_DESCRIPTOR])).await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Forge, "1.20.1");
+        assert_eq!(out.len(), 1, "broken jar skipped, real one kept: {out:?}");
+        assert_eq!(out[0].filename, "sodium.jar");
+    }
+
+    #[tokio::test]
+    async fn classify_ignores_non_jar_files() {
+        let td = tempfile::tempdir().unwrap();
+        let dir = td.path().join("mods");
+        // A Fabric descriptor inside a .txt — not a .jar, never read.
+        write_jar(&dir, "readme.txt", &inert_jar(&[FABRIC_DESCRIPTOR])).await;
+        let out = classify_inert_loader_jars(&dir, LoaderKind::Forge, "1.20.1");
+        assert!(out.is_empty(), "non-jar files are ignored: {out:?}");
+    }
+
+    #[test]
+    fn dedupe_inert_collapses_duplicate_filenames() {
+        let jars = vec![
+            InertLoaderJar {
+                filename: "x.jar".into(),
+                detected_loader: "Fabric".into(),
+            },
+            InertLoaderJar {
+                filename: "x.jar".into(),
+                detected_loader: "Fabric".into(),
+            },
+            InertLoaderJar {
+                filename: "y.jar".into(),
+                detected_loader: "Forge".into(),
+            },
+        ];
+        let out = dedupe_inert(jars);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].filename, "x.jar");
+        assert_eq!(out[1].filename, "y.jar");
     }
 }
