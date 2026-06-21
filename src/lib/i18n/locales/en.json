@@ -130,6 +130,8 @@
       "emptyState": "Pick an instance on the left, or click + New instance.",
       "memoryLabel": "Memory (max heap): {value}",
       "memoryWarnHigh": "Allocating more than {recommended} may leave little memory for the OS and Minecraft itself.",
+      "memoryInputLabel": "Memory in MiB",
+      "memoryRecommendedMarker": "Recommended maximum: {value}",
       "jvmArgsLabel": "Extra JVM args",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
       "cannotDeleteLast": "You can't delete your only instance — the launcher always needs at least one. Create another first, then delete this one.",
