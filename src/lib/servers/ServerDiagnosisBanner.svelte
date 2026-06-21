@@ -254,7 +254,7 @@
   <!-- role="alert" so screen-reader users hear the diagnosis when it appears
        after a crash (it renders conditionally, not on mount). -->
   <div
-    class="rounded border border-warning-text/30 bg-warning-bg p-3 text-warning-text"
+    class="rounded-xl border border-warning-text bg-warning-bg p-3 text-warning-text"
     data-testid="server-diagnosis-banner"
     role="alert"
   >

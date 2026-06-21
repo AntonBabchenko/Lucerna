@@ -9,8 +9,11 @@
   import { pushSuccess } from '$lib/toasts/toasts.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import ServerModBrowser from './mods/ServerModBrowser.svelte';
   import ServerDatapacks from './mods/ServerDatapacks.svelte';
+  import CardShell from '$lib/ui/cards/CardShell.svelte';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -213,20 +216,17 @@
     {#if mods.length === 0 && !loadError}
       <p class="text-sm text-muted">{$t('servers.mods.empty')}</p>
     {:else}
-      <ul class="flex flex-col divide-y divide-border-subtle rounded border border-border-subtle">
+      <div class="overflow-hidden rounded-lg border border-border-subtle">
         {#each mods as entry (entry.filename)}
-          <li class="flex items-center gap-2 px-3 py-2 text-sm">
-            <span
-              class="flex-1 truncate font-mono text-xs {entry.disabled
-                ? 'text-muted line-through'
-                : 'text-primary'}">{entry.filename}</span
-            >
+          <CardShell variant="compact-row" dim={entry.disabled}>
+            <span class="flex-1 truncate font-mono text-xs text-primary">{entry.filename}</span>
+
             {#if entry.disabled}
-              <span class="shrink-0 text-xs text-muted"
-                >{entry.reason === 'client_only'
+              <StatusBadge variant="muted">
+                {entry.reason === 'client_only'
                   ? $t('servers.mods.setAsideClientOnly')
-                  : $t('servers.mods.setAside')}</span
-              >
+                  : $t('servers.mods.setAside')}
+              </StatusBadge>
             {/if}
 
             {#if pendingDelete === entry.filename}
@@ -261,19 +261,32 @@
                   {$t('servers.mods.restore')}
                 </BusyButton>
               {/if}
-              <button
-                type="button"
-                class="btn-ghost btn-xs"
-                title={$t('servers.mods.delete')}
-                disabled={isRunning}
-                onclick={() => requestDelete(entry.filename)}
-              >
-                <Icon name="trash" size={13} />
-              </button>
+              {#if isRunning}
+                <span use:tooltip={{ text: $t('servers.mods.stopToManage'), describe: false }}>
+                  <button
+                    type="button"
+                    class="btn-icon btn-icon-sm btn-icon-danger"
+                    aria-label={$t('servers.mods.delete')}
+                    disabled
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                </span>
+              {:else}
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  aria-label={$t('servers.mods.delete')}
+                  use:tooltip={$t('servers.mods.delete')}
+                  onclick={() => requestDelete(entry.filename)}
+                >
+                  <Icon name="trash" size={13} />
+                </button>
+              {/if}
             {/if}
-          </li>
+          </CardShell>
         {/each}
-      </ul>
+      </div>
     {/if}
   </div>
 

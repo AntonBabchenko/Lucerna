@@ -7,6 +7,7 @@
   import { commands } from '$lib/ipc/bindings';
   import type { UploadConfig, UploadAuthMethod } from '$lib/ipc/bindings';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import { Icon } from '$lib/ui/icons';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -235,7 +236,7 @@
         <label class="text-xs text-muted" for="hosting-host">{$t('servers.hosting.host')}</label>
         <input
           id="hosting-host"
-          class="border rounded px-2 py-1 text-sm"
+          class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
           class:border-danger={!hostValid && host.length > 0}
           bind:value={host}
           placeholder="example.com"
@@ -249,7 +250,7 @@
         <label class="text-xs text-muted" for="hosting-port">{$t('servers.hosting.port')}</label>
         <input
           id="hosting-port"
-          class="border rounded px-2 py-1 text-sm w-20"
+          class="h-8 w-20 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
           type="number"
           min={1}
           max={65535}
@@ -262,7 +263,7 @@
       <label class="text-xs text-muted" for="hosting-user">{$t('servers.hosting.user')}</label>
       <input
         id="hosting-user"
-        class="border rounded px-2 py-1 text-sm"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
         class:border-danger={!userValid && user.length > 0}
         bind:value={user}
         autocomplete="username"
@@ -295,7 +296,7 @@
         <div class="flex gap-2">
           <input
             id="hosting-key-path"
-            class="border rounded px-2 py-1 text-sm flex-1"
+            class="h-8 flex-1 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
             class:border-danger={!keyValid && privateKeyPath.length > 0}
             bind:value={privateKeyPath}
             placeholder="~/.ssh/id_ed25519"
@@ -317,7 +318,7 @@
       </label>
       <input
         id="hosting-password"
-        class="border rounded px-2 py-1 text-sm"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
         type="password"
         bind:value={password}
         autocomplete="current-password"
@@ -337,7 +338,7 @@
       >
       <input
         id="hosting-remote-path"
-        class="border rounded px-2 py-1 text-sm"
+        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
         bind:value={remotePath}
         placeholder="/home/mc/server"
         autocomplete="off"
@@ -386,12 +387,11 @@
     </div>
 
     {#if busyUpload && progress}
+      {@const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}
       <div class="w-full bg-muted/20 rounded-full h-1.5 overflow-hidden">
         <div
-          class="bg-accent h-full transition-all"
-          style="width: {progress.total > 0
-            ? Math.round((progress.done / progress.total) * 100)
-            : 0}%"
+          class="bg-accent h-full w-full origin-left transition-transform"
+          style="transform: scaleX({pct / 100})"
         ></div>
       </div>
       <p class="text-xs text-muted truncate">{progress.file}</p>
@@ -405,42 +405,45 @@
   <!-- ── Host-key confirm inline (#24) ───────────────────────────────────── -->
   {#if showHostKeyConfirm}
     <section
-      class="flex flex-col gap-3 border border-warning/40 rounded-lg p-4 bg-warning/5"
+      class="flex items-start gap-2 border border-warning-text rounded-xl p-4 bg-warning-bg"
       data-testid="host-key-confirm"
     >
-      <p class="text-sm font-semibold text-primary">
-        {hostKeyIsFirstConnect
-          ? $t('servers.hosting.hostKeyFirstTitle')
-          : $t('servers.hosting.hostKeyTitle')}
-      </p>
-      <p class="text-sm text-secondary">
-        {hostKeyIsFirstConnect
-          ? $t('servers.hosting.hostKeyFirstBody')
-          : $t('servers.hosting.hostKeyBody')}
-      </p>
-      {#if hostKeyFingerprint}
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-muted">{$t('servers.hosting.hostKeyFingerprint')}</span>
-          <code class="text-xs break-all font-mono bg-muted/20 rounded px-2 py-1"
-            >{hostKeyFingerprint}</code
+      <Icon name="warning" size={16} class="mt-0.5 shrink-0 text-warning-text" />
+      <div class="flex-1 flex flex-col gap-3">
+        <p class="text-sm font-semibold text-primary">
+          {hostKeyIsFirstConnect
+            ? $t('servers.hosting.hostKeyFirstTitle')
+            : $t('servers.hosting.hostKeyTitle')}
+        </p>
+        <p class="text-sm text-secondary">
+          {hostKeyIsFirstConnect
+            ? $t('servers.hosting.hostKeyFirstBody')
+            : $t('servers.hosting.hostKeyBody')}
+        </p>
+        {#if hostKeyFingerprint}
+          <div class="flex flex-col gap-1">
+            <span class="text-xs text-muted">{$t('servers.hosting.hostKeyFingerprint')}</span>
+            <code class="text-xs break-all font-mono bg-muted/20 rounded px-2 py-1"
+              >{hostKeyFingerprint}</code
+            >
+          </div>
+        {/if}
+        <div class="flex gap-2">
+          <BusyButton
+            class="btn-primary btn-sm"
+            busy={busyHostKeyTrust}
+            onclick={() => void handleTrustAndUpload()}
           >
+            {$t('servers.hosting.hostKeyTrust')}
+          </BusyButton>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onclick={() => (showHostKeyConfirm = false)}
+          >
+            {$t('servers.hosting.cancel')}
+          </button>
         </div>
-      {/if}
-      <div class="flex gap-2">
-        <BusyButton
-          class="btn-primary btn-sm"
-          busy={busyHostKeyTrust}
-          onclick={() => void handleTrustAndUpload()}
-        >
-          {$t('servers.hosting.hostKeyTrust')}
-        </BusyButton>
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onclick={() => (showHostKeyConfirm = false)}
-        >
-          {$t('servers.hosting.cancel')}
-        </button>
       </div>
     </section>
   {/if}
@@ -454,17 +457,18 @@
       {$t('servers.backups.autoEnable')}
     </label>
     {#if backupEnabled}
-      <label class="flex items-center gap-2 text-sm">
-        {$t('servers.backups.autoInterval')}
+      <div class="flex items-center gap-2 text-sm">
+        <label for="hosting-backup-interval">{$t('servers.backups.autoInterval')}</label>
         <input
-          class="border rounded px-2 py-1 text-sm w-20"
+          id="hosting-backup-interval"
+          class="h-8 w-20 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
           type="number"
           min={1}
           max={1440}
           bind:value={backupIntervalMinutes}
         />
-        {$t('servers.backups.autoIntervalUnit')}
-      </label>
+        <span>{$t('servers.backups.autoIntervalUnit')}</span>
+      </div>
     {/if}
     <div class="flex items-center gap-3">
       <BusyButton
