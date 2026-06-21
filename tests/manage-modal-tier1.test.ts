@@ -126,4 +126,23 @@ describe('ManageInstancesModal — name edit survives background refresh', () =>
 
     expect(screen.getByDisplayValue('Beta')).toBeTruthy();
   });
+
+  it('discards an uncommitted name edit when the modal is closed and reopened on the same instance', async () => {
+    const inst = makeInstance({ name: 'Default' });
+    const baseProps = {
+      instances: [inst],
+      activeInstance: inst,
+      versions: [version],
+      onChanged: () => {},
+    };
+    const { rerender } = render(ManageInstancesModal, { props: { open: true, ...baseProps } });
+
+    const input = (await screen.findByDisplayValue('Default')) as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'Unsaved' } });
+
+    await rerender({ open: false, ...baseProps });
+    await rerender({ open: true, ...baseProps });
+
+    expect(await screen.findByDisplayValue('Default')).toBeTruthy();
+  });
 });

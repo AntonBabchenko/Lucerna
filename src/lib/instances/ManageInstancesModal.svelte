@@ -365,6 +365,7 @@
     const result = await commands.deleteInstance(selected.id);
     if (result.status === 'ok') {
       selectedId = null;
+      lastNameSyncId = null;
       onChanged();
     } else {
       modalError = ipcErrorMessage(result.error);
@@ -379,6 +380,10 @@
     // and reopening would still surface the previously-selected
     // instance, not the new active one.
     selectedId = null;
+    // Also clear the name-resync cursor so reopening on the same instance
+    // re-seeds nameDraft from the saved name (an uncommitted edit is discarded
+    // on close, not resurrected on reopen).
+    lastNameSyncId = null;
   }
 </script>
 
