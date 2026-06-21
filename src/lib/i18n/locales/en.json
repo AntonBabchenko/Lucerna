@@ -1090,7 +1090,7 @@
     }
   },
   "errors": {
-    "network": "Network error fetching {url}: {details}",
+    "network": "Couldn't reach the server — check your internet connection.",
     "hostNotAllowed": "Network request to {url} is not on the allowed-host list",
     "hashMismatch": "Hash mismatch for {path}",
     "javaSpawn": "Java spawn failed",
@@ -1119,7 +1119,7 @@
     "instanceNameEmpty": "Instance name cannot be empty",
     "instanceNameTooLong": "Instance name is too long: {actual}/{max} characters",
     "mcLogsUpload": "Couldn't upload log to mclo.gs",
-    "modsNetwork": "Network error talking to {url}: {details}",
+    "modsNetwork": "Couldn't reach the mod service — check your internet connection (or VPN / antivirus).",
     "modsPlatformAuthInvalid": "CurseForge API key is invalid — please enter a new one in Settings",
     "modsPlatformAuthMissing": "CurseForge requires an API key — set it in Settings",
     "modsPlatformUnreachable": "CurseForge appears blocked on this network or region. Try a VPN, or disable HTTPS/SSL scanning in your antivirus.",

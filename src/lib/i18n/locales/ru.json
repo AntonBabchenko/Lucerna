@@ -1090,7 +1090,7 @@
     }
   },
   "errors": {
-    "network": "Ошибка сети при запросе {url}: {details}",
+    "network": "Не удалось связаться с сервером — проверьте интернет-соединение.",
     "hostNotAllowed": "Запрос к {url} не разрешён списком допустимых хостов",
     "hashMismatch": "Несоответствие хеша для {path}",
     "javaSpawn": "Не удалось запустить Java",
@@ -1119,7 +1119,7 @@
     "instanceNameEmpty": "Имя профиля не может быть пустым",
     "instanceNameTooLong": "Имя профиля слишком длинное: {actual}/{max} символов",
     "mcLogsUpload": "Не удалось загрузить лог на mclo.gs",
-    "modsNetwork": "Ошибка сети при запросе к {url}: {details}",
+    "modsNetwork": "Не удалось связаться с сервисом модов — проверьте интернет-соединение (или VPN / антивирус).",
     "modsPlatformAuthInvalid": "API-ключ CurseForge недействителен — введите новый в настройках",
     "modsPlatformAuthMissing": "CurseForge требует API-ключ — укажите его в настройках",
     "modsPlatformUnreachable": "CurseForge, похоже, заблокирован в этой сети или регионе. Попробуйте VPN или отключите проверку HTTPS/SSL в антивирусе.",

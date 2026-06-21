@@ -6,14 +6,15 @@ import { formatError, withDetailTail } from '$lib/ipc/format-error';
 describe('formatError', () => {
   beforeAll(() => locale.set('en'));
 
-  it('formats network errors with URL and details', () => {
+  it('formats network as a clean actionable message — no url/detail leak', () => {
     const msg = formatError({
       kind: 'network',
       url: 'https://piston-meta.mojang.com/v1/version.json',
       details: 'connection refused',
     });
-    expect(msg).toContain('https://piston-meta.mojang.com/v1/version.json');
-    expect(msg).toContain('connection refused');
+    expect(msg).not.toContain('https://piston-meta.mojang.com/v1/version.json');
+    expect(msg).not.toContain('connection refused');
+    expect(msg.toLowerCase()).toContain('internet');
   });
 
   it('formats loader_unavailable with brand-canonical loader name', () => {
@@ -65,14 +66,15 @@ describe('formatError', () => {
     expect(formatError({ kind: 'instance_name_empty' })).toBe('Instance name cannot be empty');
   });
 
-  it('formats mods_network with url and details', () => {
+  it('formats mods_network as a clean actionable message — no triple URL, no English jargon', () => {
     const msg = formatError({
       kind: 'mods_network',
       url: 'https://api.modrinth.com/v2/search',
-      details: 'timeout',
+      details: 'error sending request for url (https://api.modrinth.com/v2/search)',
     });
-    expect(msg).toContain('https://api.modrinth.com/v2/search');
-    expect(msg).toContain('timeout');
+    expect(msg).not.toContain('https://api.modrinth.com/v2/search');
+    expect(msg).not.toContain('error sending request');
+    expect(msg.toLowerCase()).toContain('internet');
   });
 
   it('formats mods_platform_auth missing as a key prompt', () => {

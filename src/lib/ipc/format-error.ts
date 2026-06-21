@@ -47,7 +47,7 @@ export function formatError(e: IpcError): string {
   const translate = get(t);
   switch (e.kind) {
     case 'network':
-      return translate('errors.network', { url: e.url, details: e.details });
+      return translate('errors.network');
     case 'host_not_allowed':
       return translate('errors.hostNotAllowed', { url: e.url });
     case 'hash_mismatch':
@@ -117,7 +117,7 @@ export function formatError(e: IpcError): string {
     case 'mc_logs_upload':
       return withDetailTail(translate('errors.mcLogsUpload'), e.details);
     case 'mods_network':
-      return translate('errors.modsNetwork', { url: e.url, details: e.details });
+      return translate('errors.modsNetwork');
     case 'mods_platform_auth':
       return e.kind_detail === 'invalid'
         ? translate('errors.modsPlatformAuthInvalid')
