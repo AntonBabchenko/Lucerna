@@ -49,44 +49,78 @@ pub fn select_for_clear_old(files: &[LogFileMeta]) -> Vec<LogFileMeta> {
         .collect()
 }
 
-/// Files to delete to satisfy `policy`. Eligible = non-protected, newest
-/// first. Keep the newest `max_files`; then, within that kept set, keep
-/// the newest run whose cumulative size stays under `max_total_mb` (the
-/// single newest eligible file is always retained even if it alone
-/// exceeds the budget). Everything not kept is returned for deletion.
-/// Disabled policy returns an empty list. Pure — no I/O.
+/// A retention candidate reduced to the only two facts the selector needs:
+/// modification time and size. Lets one selector serve both instance logs
+/// (`LogFileMeta`) and server logs (`server-<ts>.log` archives), so the two
+/// retention paths can't silently diverge again.
+#[derive(Debug, Clone, Copy)]
+pub struct RetentionInput {
+    pub mtime_ms: f64,
+    pub size_bytes: u64,
+}
+
+/// Pure core shared by instance- and server-log retention. Returns the indices
+/// (into `items`, in the caller's original order) to delete so the survivors
+/// satisfy BOTH the count cap and the byte budget. Newest-first semantics:
+/// - **count:** every file ranked at or beyond `max_files` is dropped;
+/// - **bytes:** keep the newest contiguous prefix whose cumulative size stays
+///   within `max_total_bytes` — once a file overflows the budget, it and every
+///   older file are dropped (a prefix cut, not a sparse best-fit). The single
+///   newest file always survives the byte rule.
+///
+/// The caller pre-filters eligibility (e.g. protected/launcher logs, or the
+/// live `server-latest.log`). No I/O.
+///
+/// Assumes `mtime_ms` is finite (production log mtimes always are — they come
+/// from `as_millis() as f64` / `unwrap_or(0.0)`). Files sharing an identical
+/// `mtime_ms` are ranked arbitrarily, so the specific victim within a
+/// same-timestamp tie is unspecified; the survivor *count* is still
+/// deterministic.
+pub fn select_excess(
+    items: &[RetentionInput],
+    max_files: usize,
+    max_total_bytes: u64,
+) -> Vec<usize> {
+    let mut ranked: Vec<usize> = (0..items.len()).collect();
+    ranked.sort_by(|&a, &b| items[b].mtime_ms.total_cmp(&items[a].mtime_ms)); // newest first
+
+    let mut running: u64 = 0;
+    let mut over_budget = false;
+    let mut to_delete = Vec::new();
+    for (rank, &i) in ranked.iter().enumerate() {
+        if rank >= max_files {
+            to_delete.push(i); // count cap: drop everything older than the newest `max_files`
+            continue;
+        }
+        running = running.saturating_add(items[i].size_bytes);
+        if rank > 0 && (over_budget || running > max_total_bytes) {
+            over_budget = true; // prefix cut: latch so all older files are dropped too
+            to_delete.push(i);
+        }
+    }
+    to_delete
+}
+
+/// Files to delete to satisfy `policy` — delegates to [`select_excess`].
+/// Eligible = non-protected, non-launcher. Disabled policy returns an empty
+/// list. Pure — no I/O.
 pub fn select_for_policy(files: &[LogFileMeta], policy: &LogRetentionPolicy) -> Vec<LogFileMeta> {
     if !policy.enabled {
         return Vec::new();
     }
-    let mut eligible: Vec<LogFileMeta> = files
+    let eligible: Vec<&LogFileMeta> = files.iter().filter(|f| is_retention_eligible(f)).collect();
+    let inputs: Vec<RetentionInput> = eligible
         .iter()
-        .filter(|f| is_retention_eligible(f))
-        .cloned()
+        .map(|f| RetentionInput {
+            mtime_ms: f.modified_unix_ms,
+            size_bytes: f.size_bytes.max(0.0) as u64,
+        })
         .collect();
-    eligible.sort_by(|a, b| {
-        b.modified_unix_ms
-            .partial_cmp(&a.modified_unix_ms)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let keep_n = (policy.max_files as usize).min(eligible.len());
-    let mut to_delete: Vec<LogFileMeta> = eligible.split_off(keep_n);
-
-    let budget: u64 = (policy.max_total_mb as u64).saturating_mul(1024 * 1024);
-    let mut running: u64 = 0;
-    let mut over = false;
-    for (i, f) in eligible.into_iter().enumerate() {
-        let size = f.size_bytes.max(0.0) as u64;
-        running = running.saturating_add(size);
-        if i == 0 || (!over && running <= budget) {
-            // kept — no action
-        } else {
-            over = true;
-            to_delete.push(f);
-        }
-    }
-    to_delete
+    let budget = (policy.max_total_mb as u64).saturating_mul(1024 * 1024);
+    select_excess(&inputs, policy.max_files as usize, budget)
+        .into_iter()
+        .map(|idx| eligible[idx].clone())
+        .collect()
 }
 
 /// Delete one file after confirming it is under one of `roots`. Returns
@@ -287,5 +321,77 @@ mod tests {
             max_total_mb: 1,
         };
         assert!(select_for_policy(&[], &policy).is_empty());
+    }
+
+    // --- select_excess: the shared pure core (also backs server-log pruning) ---
+
+    fn ri(mtime_ms: f64, size_bytes: u64) -> RetentionInput {
+        RetentionInput {
+            mtime_ms,
+            size_bytes,
+        }
+    }
+
+    #[test]
+    fn select_excess_count_cap_drops_oldest_beyond_n() {
+        // newest-first by mtime: idx0(40), idx1(30), idx2(20), idx3(10); keep 2.
+        let items = vec![ri(40.0, 1), ri(30.0, 1), ri(20.0, 1), ri(10.0, 1)];
+        let del = select_excess(&items, 2, u64::MAX);
+        assert_eq!(del.len(), 2);
+        assert!(del.contains(&2));
+        assert!(del.contains(&3));
+    }
+
+    #[test]
+    fn select_excess_byte_budget_is_a_prefix_cut_keeping_newest() {
+        // newest-first new(6), mid(6), old(2), budget 10. Newest always kept;
+        // mid overflows (6+6 > 10) → mid AND every older file (old) are dropped.
+        // This is the prefix-cut semantics (NOT greedy best-fit, which would
+        // have kept `old` because 6+2 <= 10).
+        let items = vec![ri(5.0, 6), ri(4.0, 6), ri(3.0, 2)];
+        let del = select_excess(&items, usize::MAX, 10);
+        assert_eq!(del, vec![1, 2]);
+    }
+
+    #[test]
+    fn select_excess_count_zero_deletes_all() {
+        let items = vec![ri(2.0, 1), ri(1.0, 1)];
+        let del = select_excess(&items, 0, u64::MAX);
+        assert_eq!(del.len(), 2);
+    }
+
+    #[test]
+    fn select_excess_empty_is_noop() {
+        assert!(select_excess(&[], 5, 1000).is_empty());
+    }
+
+    #[test]
+    fn select_excess_sorts_unsorted_input_and_returns_original_indices() {
+        // Provided out of order (idx0 oldest, idx1 newest, idx2 middle): the
+        // selector must rank by mtime internally and return indices into the
+        // ORIGINAL slice.
+        let items = vec![ri(10.0, 1), ri(40.0, 1), ri(20.0, 1)];
+        let del = select_excess(&items, 1, u64::MAX); // keep only the newest (idx1)
+        assert_eq!(del.len(), 2);
+        assert!(del.contains(&0));
+        assert!(del.contains(&2));
+        assert!(!del.contains(&1));
+    }
+
+    #[test]
+    fn select_excess_count_and_bytes_both_bind() {
+        // newest-first idx0..idx4 (size 4 each), max_files=3, budget 10.
+        // byte rule cuts idx2 (4+4+4=12 > 10) and latches; count rule cuts
+        // idx3, idx4 (rank >= 3) — the `continue` must NOT add their size to
+        // the running total. Survivors: idx0, idx1.
+        let items = vec![
+            ri(50.0, 4),
+            ri(40.0, 4),
+            ri(30.0, 4),
+            ri(20.0, 4),
+            ri(10.0, 4),
+        ];
+        let del = select_excess(&items, 3, 10);
+        assert_eq!(del, vec![2, 3, 4]);
     }
 }
