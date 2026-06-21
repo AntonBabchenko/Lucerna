@@ -5,8 +5,8 @@
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { Icon } from '$lib/ui/icons';
-  import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
+  import DiagnosisRestoreButton from '$lib/ui/DiagnosisRestoreButton.svelte';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
   import { serverBannerEligible, serverDiagnosisSignature } from './server-diagnosis-view';
   import ServerConsole from './ServerConsole.svelte';
@@ -156,14 +156,10 @@
 
     <!-- Restore a dismissed diagnosis banner -->
     {#if showDiagnosisRestore}
-      <button
-        type="button"
-        class="btn-icon !text-warning-text hover:!bg-warning-text/10"
-        aria-label={$t('common.restoreWarning')}
-        use:tooltip={$t('common.restoreWarning')}
-        onclick={() => diagnosisDismiss.restore(`server:${serverId}`)}
-        data-testid="server-diagnosis-restore"><Icon name="warning" size={16} /></button
-      >
+      <DiagnosisRestoreButton
+        testid="server-diagnosis-restore"
+        onRestore={() => diagnosisDismiss.restore(`server:${serverId}`)}
+      />
     {/if}
 
     <!-- Status pill -->

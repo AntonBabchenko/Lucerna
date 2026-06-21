@@ -45,7 +45,6 @@ describe('diagnosisDismiss', () => {
   it('persists the dismissed map to localStorage', () => {
     diagnosisDismiss.dismiss('server:s1', 'sig-a');
     const raw = localStorage.getItem(KEY);
-    expect(raw).toBeTruthy();
     expect(JSON.parse(raw as string)).toEqual({ 'server:s1': 'sig-a' });
   });
 

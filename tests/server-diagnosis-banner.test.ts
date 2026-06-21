@@ -430,6 +430,19 @@ describe('ServerDiagnosisBanner', () => {
     expect(screen.getByTestId('server-diagnosis-banner')).toBeTruthy();
   });
 
+  it('re-shows a dismissed banner once the dismissal is cleared (restore)', async () => {
+    mockDiagnoses['srv-restore'] = makeClientOnlyDiagnosis();
+    const first = render(ServerDiagnosisBanner, { props: { serverId: 'srv-restore' } });
+    await fireEvent.click(screen.getByTestId('server-diagnosis-dismiss'));
+    expect(screen.queryByTestId('server-diagnosis-banner')).toBeNull();
+    first.unmount();
+    // The restore badge lives in ServerManageView; here we assert the banner
+    // returns once the dismissal is cleared (what that badge does on click).
+    diagnosisDismiss.restore('server:srv-restore');
+    render(ServerDiagnosisBanner, { props: { serverId: 'srv-restore' } });
+    expect(screen.getByTestId('server-diagnosis-banner')).toBeTruthy();
+  });
+
   it('routes disable_mods through disableMods (reversible) for the checklist', async () => {
     const mod = await import('$lib/servers/server-state.svelte');
     const disableSpy = mod.serverState.disableMods as ReturnType<typeof vi.fn>;

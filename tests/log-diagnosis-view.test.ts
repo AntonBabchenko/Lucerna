@@ -25,8 +25,9 @@ describe('logBannerEligible', () => {
     expect(logBannerEligible(latest({ status: 'advisory' }))).toBe(true);
   });
 
-  it('is false for none / missing diagnosis / null', () => {
+  it('is false for none / handled / missing diagnosis / null', () => {
     expect(logBannerEligible(latest({ status: 'none' }))).toBe(false);
+    expect(logBannerEligible(latest({ status: 'handled' }))).toBe(false);
     expect(logBannerEligible(latest({ diagnosis: null }))).toBe(false);
     expect(logBannerEligible(null)).toBe(false);
   });

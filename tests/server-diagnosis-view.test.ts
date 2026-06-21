@@ -72,6 +72,12 @@ describe('serverDiagnosisSignature', () => {
     );
   });
 
+  it('differs when only the log_signature differs (same pattern, different log)', () => {
+    expect(serverDiagnosisSignature(diag({ log_signature: 'x' }))).not.toBe(
+      serverDiagnosisSignature(diag({ log_signature: 'y' })),
+    );
+  });
+
   it('is null when there is no diagnosis', () => {
     expect(serverDiagnosisSignature(diag({ diagnosis: null }))).toBeNull();
     expect(serverDiagnosisSignature(null)).toBeNull();

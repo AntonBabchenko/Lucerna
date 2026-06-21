@@ -90,9 +90,13 @@
 </script>
 
 {#if (status === 'actionable' || status === 'advisory') && diag && !dismissed}
+  <!-- role="alert" so screen-reader users hear the diagnosis when it appears
+       (it renders conditionally after a run, not on mount) — matches the server
+       banner. -->
   <div
     class="mb-3 rounded-xl border border-warning-text bg-warning-bg p-3"
     data-testid="log-diagnosis-banner"
+    role="alert"
   >
     <div class="flex items-start gap-2">
       <Icon name="warning" class="mt-0.5 text-warning-text" />

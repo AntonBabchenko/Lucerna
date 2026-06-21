@@ -17,6 +17,12 @@ export function logBannerEligible(latest: LatestDiagnosis | null): boolean {
  * Stable identity for the current log diagnosis, used as the dismissal
  * signature. Prefers the backend log-content `signature`; falls back to the
  * pattern id when the signature is null. Null when there is no diagnosis.
+ *
+ * Accepted limitation: the `pattern_id` fallback is the best available identity
+ * for a log-less diagnosis but does not distinguish repeated occurrences of the
+ * same pattern — a dismissed pattern stays hidden if it recurs without a
+ * signature. In practice diagnoses carry a content signature; this is the rare
+ * degenerate path, not the norm.
  */
 export function logDiagnosisSignature(latest: LatestDiagnosis | null): string | null {
   if (!latest?.diagnosis) return null;
