@@ -166,6 +166,9 @@ fn classify_inert_loader_jars(
         if verdict.loader_mismatch {
             out.push(InertLoaderJar {
                 filename,
+                // loader_mismatch is only set when the jar declares a non-empty
+                // family set, so compat_verdict always carries a detected_loader
+                // label here — the unwrap_or_default "" fallback is unreachable.
                 detected_loader: verdict.detected_loader.unwrap_or_default(),
             });
         }
