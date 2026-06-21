@@ -32,7 +32,9 @@ vi.mock('$lib/ipc/format-error', () => ({
 vi.mock('$lib/i18n', () => ({
   t: {
     subscribe: (run: (v: unknown) => void) => {
-      run(() => 'tr');
+      // Identity translator: returns the key so tests can assert which
+      // i18n key a toast title/line resolved to (the params are ignored).
+      run((key: string) => key);
       return () => {};
     },
   },
@@ -165,7 +167,7 @@ describe('op-queue store', () => {
 
     expect(pushWarning).toHaveBeenCalledTimes(1);
     // tr is identity → title is the key; the count is threaded as a placeholder
-    // value to the translator (deterministic via our `t` mock returning 'tr').
+    // value to the translator (deterministic via our key-echoing `t` mock).
     expect(pushSuccess).not.toHaveBeenCalled();
   });
 
@@ -287,6 +289,7 @@ describe('op-queue store', () => {
         (args[6] as { onmessage: (m: unknown) => void }).onmessage({
           phase: 'done',
           skipped_overrides: [],
+          inert_loader_jars: [],
         });
         return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
       },
@@ -317,6 +320,7 @@ describe('op-queue store', () => {
         (args[6] as { onmessage: (m: unknown) => void }).onmessage({
           phase: 'done',
           skipped_overrides: [],
+          inert_loader_jars: [],
         });
         return { status: 'ok', data: { name: 'Pack', id: 'i9' } };
       },
@@ -335,6 +339,61 @@ describe('op-queue store', () => {
     };
     action.run();
     await vi.waitFor(() => expect(commands.setActiveInstance).toHaveBeenCalledWith('i9'));
+  });
+
+  it('import with only inert loader jars → inert title + one line per inert jar', async () => {
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
+      async (...args: unknown[]) => {
+        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
+          phase: 'done',
+          skipped_overrides: [],
+          inert_loader_jars: [
+            { filename: 'a-Fabric.jar', detected_loader: 'Fabric' },
+            { filename: 'b-Fabric.jar', detected_loader: 'Fabric' },
+          ],
+        });
+        return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
+      },
+    );
+
+    enqueueImport('Pack', importReq('/tmp/p.mrpack'));
+    await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
+
+    // pushActionToast(type, title, action, lines) — tr echoes the key.
+    const call = (pushActionToast as ReturnType<typeof vi.fn>).mock.calls[0];
+    const title = call[1] as string;
+    const lines = call[3] as string[];
+    expect(title).toBe('page.modpackImport.importedInertLoader');
+    expect(lines).toEqual([
+      'page.modpackImport.inertLoaderLine',
+      'page.modpackImport.inertLoaderLine',
+    ]);
+  });
+
+  it('import with both skipped overrides and inert jars → skipped title covers both, lines list both', async () => {
+    (commands.modpackImport as ReturnType<typeof vi.fn>).mockImplementation(
+      async (...args: unknown[]) => {
+        (args[6] as { onmessage: (m: unknown) => void }).onmessage({
+          phase: 'done',
+          skipped_overrides: [{ path: 'mods/mods.rar', size: 261361205 }],
+          inert_loader_jars: [{ filename: 'a-Fabric.jar', detected_loader: 'Fabric' }],
+        });
+        return { status: 'ok', data: { name: 'Pack', id: 'i1' } };
+      },
+    );
+
+    enqueueImport('Pack', importReq('/tmp/p.mrpack'));
+    await vi.waitFor(() => expect(pushActionToast).toHaveBeenCalledTimes(1));
+
+    const call = (pushActionToast as ReturnType<typeof vi.fn>).mock.calls[0];
+    const title = call[1] as string;
+    const lines = call[3] as string[];
+    // Skipped takes precedence in the title; both line kinds are listed.
+    expect(title).toBe('page.modpackImport.importedSkipped');
+    expect(lines).toEqual([
+      'page.modpackImport.skippedOverrideLine',
+      'page.modpackImport.inertLoaderLine',
+    ]);
   });
 
   const mockForeign = {

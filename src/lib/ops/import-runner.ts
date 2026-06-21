@@ -4,7 +4,12 @@
 // owns completionTick), so this stays pure (and unit-testable).
 
 import { Channel } from '@tauri-apps/api/core';
-import type { ModpackProgress, ProgressTick, SkippedOverride } from '$lib/ipc/bindings';
+import type {
+  InertLoaderJar,
+  ModpackProgress,
+  ProgressTick,
+  SkippedOverride,
+} from '$lib/ipc/bindings';
 import { commands } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import type { ModpackImportRequest } from '$lib/modpacks/import-request';
@@ -12,7 +17,13 @@ import type { ModpackImportRequest } from '$lib/modpacks/import-request';
 export type ImportProgressCb = (phase: ModpackProgress | null, bytes: ProgressTick | null) => void;
 
 export type ImportOutcome =
-  | { status: 'ok'; name: string; instanceId: string; skipped: SkippedOverride[] }
+  | {
+      status: 'ok';
+      name: string;
+      instanceId: string;
+      skipped: SkippedOverride[];
+      inertLoaderJars: InertLoaderJar[];
+    }
   | { status: 'partial'; failed: string[] }
   | { status: 'error'; message: string };
 
@@ -23,6 +34,7 @@ export async function runImport(
   let latestPhase: ModpackProgress | null = null;
   let latestBytes: ProgressTick | null = null;
   let skipped: SkippedOverride[] = [];
+  let inertLoaderJars: InertLoaderJar[] = [];
   onProgress(null, null);
 
   const phaseChannel = new Channel<ModpackProgress>();
@@ -30,6 +42,7 @@ export async function runImport(
     latestPhase = m;
     if (m.phase === 'done') {
       skipped = m.skipped_overrides;
+      inertLoaderJars = m.inert_loader_jars;
     }
     onProgress(latestPhase, latestBytes);
   };
@@ -51,7 +64,7 @@ export async function runImport(
   );
 
   if (r.status === 'ok') {
-    return { status: 'ok', name: r.data.name, instanceId: r.data.id, skipped };
+    return { status: 'ok', name: r.data.name, instanceId: r.data.id, skipped, inertLoaderJars };
   }
   if (r.error.kind === 'modpack_partial_failure') {
     return { status: 'partial', failed: r.error.failed.map(([p]) => p.split('/').pop() ?? p) };
