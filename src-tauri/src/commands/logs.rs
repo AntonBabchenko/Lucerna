@@ -299,6 +299,37 @@ pub async fn build_repair_plan(
             }
             Ok(Some(RepairPlan::DisableBlockingMods { mods }))
         }
+        RepairKind::InstallFixMod => {
+            use crate::logs::diagnose::fixmods::{fix_mod_for, pin_for};
+            let Some(fix) = fix_mod_for(&diag.pattern_id) else {
+                return Ok(None);
+            };
+            // Try to pin-resolve for this instance's config. Any failure
+            // (no pinned row / no CF key / incompatible / distribution off)
+            // degrades to install=None — the card still offers the project link.
+            let install = match pin_for(fix, &instance.mc_version, instance.loader) {
+                Some(pin) => {
+                    let plat = platform_for(fix.source);
+                    crate::mods::fix_resolve::resolve_pinned(
+                        fix.source,
+                        fix.project_id,
+                        pin.version_id,
+                        &instance.mc_version,
+                        instance.loader,
+                        plat.as_ref(),
+                    )
+                    .await
+                }
+                None => None,
+            };
+            Ok(Some(RepairPlan::InstallFixMod {
+                title: fix.human_title.to_string(),
+                source: fix.source,
+                slug: fix.slug.to_string(),
+                version_label: install.as_ref().map(|p| p.version_label.clone()),
+                install: install.map(|p| p.target),
+            }))
+        }
         // Server-side client-only-mod removal is handled by the dedicated
         // server_remove_mods command, not this instance repair pipeline.
         RepairKind::RemoveClientServerMods => Ok(None),
@@ -440,6 +471,21 @@ pub async fn execute_repair(
             // has the same filename as the broken jar — installing first would
             // collide on disk.
             crate::mods::install::uninstall(&inst_root, &old_sha1).await?;
+            mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
+        }
+        RepairChoice::InstallFixMod {
+            source,
+            project_id,
+            version_id,
+        } => {
+            // Install via the verified path (SHA-1 verify + required-deps
+            // closure). The fix mod's own deps (e.g. the base mod it patches)
+            // are already present; install_with_deps no-ops on installed ones.
+            let target = crate::mods::platform::VersionRef {
+                source,
+                project_id,
+                version_id,
+            };
             mods_install_with_deps(app.clone(), instance_id.clone(), target, vec![]).await?;
         }
     }

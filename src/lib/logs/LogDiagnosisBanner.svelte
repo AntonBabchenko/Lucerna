@@ -12,6 +12,7 @@
   import RepairConfirmCard from '$lib/logs/RepairConfirmCard.svelte';
   import MissingModsRepairCard from '$lib/logs/MissingModsRepairCard.svelte';
   import BlockingModsRepairCard from '$lib/logs/BlockingModsRepairCard.svelte';
+  import FixModRepairCard from '$lib/logs/FixModRepairCard.svelte';
   import { Icon } from '$lib/ui/icons';
   import BusyButton from '$lib/ui/BusyButton.svelte';
 
@@ -107,6 +108,13 @@
               {loader}
               {gameRunning}
               onClose={() => (repairPlan = null)}
+            />
+          {:else if repairPlan && repairPlan.kind === 'install_fix_mod'}
+            <FixModRepairCard
+              plan={repairPlan}
+              busy={repairApplying}
+              onConfirm={applyRepair}
+              onCancel={() => (repairPlan = null)}
             />
           {:else if repairPlan}
             <RepairConfirmCard

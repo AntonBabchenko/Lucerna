@@ -444,6 +444,13 @@ describe('ManageInstancesModal — async feedback & double-submit', () => {
     await fireEvent.click(screen.getByRole('button', { name: /close manage instances/i }));
 
     resolveName({ status: 'error', error: { kind: 'instance_name_empty' } });
+    // Let commitName's post-await continuation (the isStale gate) settle while the
+    // modal is still closed — mirrors production, where the save resolves a micro-
+    // task after close, long before any reopen. Without this flush the rerender
+    // below races the gate and re-opens (open=true, selection restored) first, so
+    // the stale error would surface. Two ticks: one await per microtask hop.
+    await Promise.resolve();
+    await Promise.resolve();
     await rerender({ open: true, ...baseProps });
 
     expect(screen.queryByText(/name cannot be empty/i)).toBeNull();
