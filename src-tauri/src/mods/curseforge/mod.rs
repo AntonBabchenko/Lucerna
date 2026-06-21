@@ -139,10 +139,7 @@ impl ModPlatform for CurseForgeClient {
             let url = format!("{}/v1/mods/search?{}", self.base, encode_pairs(&params));
             let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
                 .await
-                .map_err(|e| Error::ModsNetwork {
-                    url: url.clone(),
-                    details: e.to_string(),
-                })?;
+                .map_err(|e| Error::mods_network(url.clone(), e))?;
             let env: types::ListEnvelope<types::Mod> = self.map_status(resp, url)?;
             let got = env.data.len() as u32;
             total = env
@@ -171,10 +168,7 @@ impl ModPlatform for CurseForgeClient {
         let url = format!("{}/v1/mods/{}", self.base, project_id);
         let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
         let env: types::Envelope<types::Mod> = self.map_status(resp, url)?;
         let mut m = env.data;
         let screenshots = std::mem::take(&mut m.screenshots);
@@ -239,10 +233,7 @@ impl ModPlatform for CurseForgeClient {
         );
         let resp = crate::network::request::get(&url, &[("x-api-key", auth)], "mods")
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
         let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
         let versions: Vec<ModVersion> = env
             .data
@@ -347,10 +338,7 @@ impl ModPlatform for CurseForgeClient {
                 "mods",
             )
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
             let env: types::ListEnvelope<types::Mod> = self.map_status(resp, url)?;
             out.extend(env.data.into_iter().map(convert_mod_summary));
         }
@@ -386,10 +374,7 @@ impl ModPlatform for CurseForgeClient {
                 "mods",
             )
             .await
-            .map_err(|e| Error::ModsNetwork {
-                url: url.clone(),
-                details: e.to_string(),
-            })?;
+            .map_err(|e| Error::mods_network(url.clone(), e))?;
             let env: types::ListEnvelope<types::File> = self.map_status(resp, url)?;
             out.extend(env.data.into_iter().filter_map(|f| {
                 let pid = f.mod_id.to_string();

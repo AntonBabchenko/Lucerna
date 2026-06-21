@@ -160,7 +160,18 @@ export const commands = {
 	 *  clicks "Fix this", so the network swap-lookup for conflicts runs
 	 *  only on intent.
 	 */
-	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
+	buildRepairPlan: (instanceId: string, path: string) => typedError<{ kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] } | { kind: "install_fix_mod"; 
+/**  Human title for the suggested mod. */
+title: string; source: ModSource; 
+/**  Project slug — builds the degraded "open project page" link. */
+slug: string; 
+/**  The resolved version label (e.g. "1.0.3"), when `install` is `Some`. */
+version_label: string | null; 
+/**
+ *  `Some` ⇒ one-click install; `None` ⇒ degraded (no compatible pinned
+ *  version / no CF key / distribution disabled) ⇒ UI shows a project link.
+ */
+install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", { instanceId, path })),
 	/**
 	 *  Apply a user-confirmed repair choice by dispatching to the existing
 	 *  mutation commands. No resolution happens here — `build_repair_plan`
@@ -2801,7 +2812,9 @@ export type RepairChoice = { kind: "raise_heap"; to_mb: number } | { kind: "rein
  *  both corrupt-redownload (same version) and conflict-swap (new
  *  version).
  */
-{ kind: "reinstall"; old_sha1: string; target: VersionRef } | { kind: "disable_mod"; sha1: string };
+{ kind: "reinstall"; old_sha1: string; target: VersionRef } | { kind: "disable_mod"; sha1: string } | 
+/**  Install the curated, pinned fix mod the user confirmed. */
+{ kind: "install_fix_mod"; source: ModSource; project_id: string; version_id: string };
 
 /**
  *  Static tag attached to a `Diagnosis` so the UI knows whether to
@@ -2815,14 +2828,30 @@ export type RepairKind = "raise_heap" | "reinstall_loader" | "redownload_mod" | 
  *  server-specific `server_remove_mods` command, not the instance repair
  *  pipeline — `build_repair_plan` returns `Ok(None)` for this variant.
  */
-"remove_client_server_mods";
+"remove_client_server_mods" | 
+/**
+ *  A known mod bug has a curated third-party fix mod. `build_repair_plan`
+ *  resolves the pinned version and emits `RepairPlan::InstallFixMod`.
+ */
+"install_fix_mod";
 
 /**
  *  The concrete, parameterised fix proposal returned by
  *  `build_repair_plan`. Every variant carries everything the executor
  *  needs — the executor itself does no resolution.
  */
-export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] };
+export type RepairPlan = { kind: "raise_heap"; from_mb: number; to_mb: number } | { kind: "reinstall_loader"; loader: LoaderKind } | { kind: "redownload_mod"; old_sha1: string; filename: string; target: VersionRef } | { kind: "resolve_conflict"; candidates: ConflictCandidate[] } | { kind: "install_missing_mods"; mods: ResolvedMod[] } | { kind: "disable_blocking_mods"; mods: BlockingMod[] } | { kind: "install_fix_mod"; 
+/**  Human title for the suggested mod. */
+title: string; source: ModSource; 
+/**  Project slug — builds the degraded "open project page" link. */
+slug: string; 
+/**  The resolved version label (e.g. "1.0.3"), when `install` is `Some`. */
+version_label: string | null; 
+/**
+ *  `Some` ⇒ one-click install; `None` ⇒ degraded (no compatible pinned
+ *  version / no CF key / distribution disabled) ⇒ UI shows a project link.
+ */
+install: VersionRef | null };
 
 export type ResolveTier = { tier: "exact"; candidate: ResolvedCandidate } | { tier: "fuzzy"; candidates: ResolvedCandidate[] } | { tier: "unresolved" };
 
