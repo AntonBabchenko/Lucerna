@@ -52,6 +52,36 @@ describe('MemorySlider', () => {
     expect(onInput).toHaveBeenCalledWith(8192);
   });
 
+  it('fires onCommit on change (release) with the parsed MB, not on input', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB);
+    const onInput = vi.fn();
+    const onCommit = vi.fn();
+
+    render(MemorySlider, { props: { valueMb: 6144, onInput, onCommit } });
+
+    const slider = screen.getByRole('slider') as HTMLInputElement;
+    await waitFor(() => expect(slider.max).toBe('32768'));
+
+    await fireEvent.input(slider, { target: { value: '8192' } });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    await fireEvent.change(slider, { target: { value: '8192' } });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(8192);
+  });
+
+  it('treats change as a safe no-op when onCommit is omitted', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB);
+
+    render(MemorySlider, { props: { valueMb: 6144, onInput: vi.fn() } });
+
+    const slider = screen.getByRole('slider') as HTMLInputElement;
+    await waitFor(() => expect(slider.max).toBe('32768'));
+    // Server surfaces omit onCommit; releasing the drag must not throw.
+    await fireEvent.change(slider, { target: { value: '8192' } });
+    expect(screen.getByRole('slider')).toBeTruthy();
+  });
+
   it('warns when the chosen heap exceeds the recommendation and RAM is known', async () => {
     mockLoad.mockResolvedValue(RAM_32GB);
 

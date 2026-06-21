@@ -7,6 +7,7 @@
   let {
     valueMb,
     onInput,
+    onCommit,
     id,
     class: extraClass = '',
     warnClass = '',
@@ -14,8 +15,15 @@
   }: {
     /** Current heap in MB. The parent owns and persists this value. */
     valueMb: number;
-    /** Fired with the parsed MB whenever the user drags the slider. */
+    /** Fired with the parsed MB on every drag tick — for live UI (no persist). */
     onInput: (mb: number) => void;
+    /**
+     * Optional: fired once with the parsed MB when the drag is released
+     * (the input's `change` event). Auto-saving surfaces persist here so they
+     * write once per drag instead of on every tick. Surfaces that persist on a
+     * separate Save/Create action simply omit it.
+     */
+    onCommit?: (mb: number) => void;
     /** Optional id so an external `<label for=…>` can target the range input. */
     id?: string;
     /** Extra classes appended to the range input (base is always `w-full`). */
@@ -55,6 +63,10 @@
   function handleInput(event: Event) {
     onInput(parseInt((event.currentTarget as HTMLInputElement).value, 10));
   }
+
+  function handleChange(event: Event) {
+    onCommit?.(parseInt((event.currentTarget as HTMLInputElement).value, 10));
+  }
 </script>
 
 <input
@@ -66,6 +78,7 @@
   step={bounds.step_mb}
   value={valueMb}
   oninput={handleInput}
+  onchange={handleChange}
   class="w-full {extraClass}"
 />
 {#if isAboveRecommended(valueMb, bounds.recommended_max_mb, bounds.ram_known)}

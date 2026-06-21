@@ -120,7 +120,8 @@
       "memoryWarnHigh": "Выделение более {recommended} может оставить мало памяти для ОС и самого Minecraft.",
       "jvmArgsLabel": "Дополнительные аргументы JVM",
       "jvmArgsPlaceholder": "-XX:+UseG1GC -XX:MaxGCPauseMillis=200",
-      "cannotDeleteLast": "Нельзя удалить последний профиль"
+      "cannotDeleteLast": "Нельзя удалить последний профиль",
+      "runningBlocked": "Сначала остановите запущенную игру."
     },
     "error": {
       "nameRequired": "Имя обязательно",

@@ -100,10 +100,30 @@
 
   // Detail form state — reactive to `selected`.
   let nameDraft = $state('');
-
+  // Resync the editable name only when the SELECTED INSTANCE changes, not on
+  // every `selected` object-identity churn. A background refreshInstances()
+  // (game exit, integrity/import completion) replaces the whole `instances`
+  // array with the same selectedId; gating on the id keeps an in-progress edit
+  // from being silently clobbered. Switching to another instance still resyncs.
+  let lastNameSyncId: string | null = null;
   $effect(() => {
-    if (selected) {
+    if (selected && selected.id !== lastNameSyncId) {
       nameDraft = selected.name;
+      lastNameSyncId = selected.id;
+    }
+  });
+
+  // Local heap draft so dragging the slider updates the label live WITHOUT a
+  // disk write per tick: onInput updates the draft, and we persist once on
+  // release via MemorySlider's onCommit. Seeded id-gated like the name draft so
+  // a background refresh doesn't reset an active drag. (MemorySlider owns the
+  // thumb-tracking fix and adaptive bounds, so no imperative re-apply here.)
+  let heapDraft = $state(0);
+  let lastHeapSyncId: string | null = null;
+  $effect(() => {
+    if (selected && selected.id !== lastHeapSyncId) {
+      heapDraft = selected.max_heap_mb;
+      lastHeapSyncId = selected.id;
     }
   });
 
@@ -327,6 +347,8 @@
     const result = await commands.deleteInstance(selected.id);
     if (result.status === 'ok') {
       selectedId = null;
+      lastNameSyncId = null;
+      lastHeapSyncId = null;
       onChanged();
     } else {
       modalError = ipcErrorMessage(result.error);
@@ -341,6 +363,11 @@
     // and reopening would still surface the previously-selected
     // instance, not the new active one.
     selectedId = null;
+    // Also clear the name-resync cursor so reopening on the same instance
+    // re-seeds nameDraft from the saved name (an uncommitted edit is discarded
+    // on close, not resurrected on reopen).
+    lastNameSyncId = null;
+    lastHeapSyncId = null;
   }
 </script>
 
@@ -484,13 +511,22 @@
           <label for="detail-mc-version" class="block text-xs uppercase text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label
           >
-          <Select
-            id="detail-mc-version"
-            class="w-full mb-1"
-            value={selected.mc_version}
-            options={mcVersionOptions}
-            onChange={(v) => setMc(String(v))}
-          />
+          <span
+            class="block mb-1"
+            use:tooltip={{
+              text: isRunning ? $t('instance.manage.runningBlocked') : '',
+              describe: false,
+            }}
+          >
+            <Select
+              id="detail-mc-version"
+              class="w-full"
+              value={selected.mc_version}
+              options={mcVersionOptions}
+              disabled={isRunning}
+              onChange={(v) => setMc(String(v))}
+            />
+          </span>
           <label class="text-xs flex items-center gap-1 mb-3">
             <input type="checkbox" bind:checked={showSnapshots} />
             {$t('instance.manage.showSnapshots')}
@@ -504,18 +540,27 @@
               across instances, so swapping to a modpack instance was mis-read as
               a loader change and falsely raised the pack-detach prompt.
             -->
-          {#key selected.id}
-            <LoaderPicker
-              mc={selected.mc_version}
-              loader={selected.loader}
-              loaderVersion={selected.loader_version}
-              onchange={async (l, v) => {
-                if (l !== selected!.loader || v !== selected!.loader_version) {
-                  await commitLoader(l, v);
-                }
-              }}
-            />
-          {/key}
+          <span
+            class="block"
+            use:tooltip={{
+              text: isRunning ? $t('instance.manage.runningBlocked') : '',
+              describe: false,
+            }}
+          >
+            {#key selected.id}
+              <LoaderPicker
+                mc={selected.mc_version}
+                loader={selected.loader}
+                loaderVersion={selected.loader_version}
+                disabled={isRunning}
+                onchange={async (l, v) => {
+                  if (l !== selected!.loader || v !== selected!.loader_version) {
+                    await commitLoader(l, v);
+                  }
+                }}
+              />
+            {/key}
+          </span>
 
           {#if compatRows !== null && compatSummary(compatRows) !== null}
             <p
@@ -529,7 +574,7 @@
 
           <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
             {$t('instance.manage.memoryLabel', {
-              value: formatHeapLabel(selected.max_heap_mb),
+              value: formatHeapLabel(heapDraft),
             })}
           </label>
           <MemorySlider
@@ -537,8 +582,9 @@
             class="mb-1"
             warnClass="mb-3"
             reserveWarnSpace
-            valueMb={selected.max_heap_mb}
-            onInput={(mb) => setMemory(mb)}
+            valueMb={heapDraft}
+            onInput={(mb) => (heapDraft = mb)}
+            onCommit={(mb) => setMemory(mb)}
           />
 
           <label for="detail-jvm-args" class="block text-xs uppercase text-secondary mb-1"
@@ -615,14 +661,18 @@
             <span
               class="inline-flex"
               use:tooltip={{
-                text: instances.length <= 1 ? $t('instance.manage.cannotDeleteLast') : '',
+                text: isRunning
+                  ? $t('instance.manage.runningBlocked')
+                  : instances.length <= 1
+                    ? $t('instance.manage.cannotDeleteLast')
+                    : '',
                 describe: false,
               }}
             >
               <button
                 type="button"
                 class="btn-ghost-danger inline-flex items-center gap-1.5"
-                disabled={instances.length <= 1}
+                disabled={instances.length <= 1 || isRunning}
                 onclick={() => (deleteConfirmOpen = true)}
               >
                 <Icon name="trash" size={14} />
