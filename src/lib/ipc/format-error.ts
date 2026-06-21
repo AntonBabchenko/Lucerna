@@ -29,6 +29,129 @@ export function withDetailTail(headline: string, raw: string | null | undefined)
   return `${headline}: ${codePoints.slice(0, DETAIL_TRUNCATE_CODE_POINTS).join('')}… (${hint})`;
 }
 
+export type ErrorClass = 'clean' | 'transport' | 'opaque';
+
+/**
+ * The display-policy registry. Every Error variant is assigned exactly one
+ * class; the `Record<IpcError['kind'], …>` type makes a missing assignment a
+ * compile error, so a new variant in bindings.ts cannot land unclassified. The
+ * vitest sweep enforces the per-class invariants at runtime (transport hides
+ * url/detail; opaque truncates + points at Logs). Together they keep every
+ * error rendered consistently.
+ *
+ *   clean     — message fully built from structured fields (the default).
+ *   transport — network/availability; clean actionable, no raw detail.
+ *   opaque    — parse/io/spawn; headline + truncated detail + "open Logs".
+ */
+export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
+  // Transport — clean actionable, detail to log only.
+  network: 'transport',
+  mods_network: 'transport',
+  mods_platform_unreachable: 'transport',
+  // Opaque — headline + truncated detail + "open Logs".
+  io: 'opaque',
+  java_spawn: 'opaque',
+  auth_failed: 'opaque',
+  forge_maven_metadata_parse_failed: 'opaque',
+  forge_installer_corrupted: 'opaque',
+  forge_patcher_failed: 'opaque',
+  mods_decode: 'opaque',
+  mods_cache_io: 'opaque',
+  mods_instance_path: 'opaque',
+  modpack_invalid_archive: 'opaque',
+  modpack_manifest_invalid: 'opaque',
+  modpack_instance_creation_failed: 'opaque',
+  modpack_export_failed: 'opaque',
+  backup_corrupt: 'opaque',
+  world_import_invalid_archive: 'opaque',
+  playtime_io: 'opaque',
+  tray_io: 'opaque',
+  window_io: 'opaque',
+  update_check_failed: 'opaque',
+  update_verification_failed: 'opaque',
+  update_install_failed: 'opaque',
+  import_instance_unreadable: 'opaque',
+  server_spawn_failed: 'opaque',
+  server_installer_failed: 'opaque',
+  sftp_connect_failed: 'opaque',
+  sftp_transfer_failed: 'opaque',
+  mc_logs_upload: 'opaque',
+  server_import_invalid_archive: 'opaque',
+  // Clean — everything else (self-contained from structured fields).
+  host_not_allowed: 'clean',
+  hash_mismatch: 'clean',
+  already_running: 'clean',
+  account_not_set: 'clean',
+  instance_busy: 'clean',
+  auth_cancelled: 'clean',
+  no_minecraft_profile: 'clean',
+  auth_pending_approval: 'clean',
+  unknown_version: 'clean',
+  unsupported_platform: 'clean',
+  loader_unavailable: 'clean',
+  last_instance: 'clean',
+  no_version_selected: 'clean',
+  instance_not_found: 'clean',
+  forge_promotions_unavailable: 'clean',
+  forge_no_build_for: 'clean',
+  forge_unsupported_processor: 'clean',
+  forge_mappings_missing: 'clean',
+  instance_name_empty: 'clean',
+  instance_name_too_long: 'clean',
+  mods_platform_auth: 'clean',
+  mods_distribution_disabled: 'clean',
+  mods_not_found: 'clean',
+  mods_platform_unsupported: 'clean',
+  mods_sha1_unavailable: 'clean',
+  mods_sha1_mismatch: 'clean',
+  mods_dependency_unresolvable: 'clean',
+  mods_filename_conflict: 'clean',
+  mods_unsafe_filename: 'clean',
+  modpack_format_unknown: 'clean',
+  modpack_unsupported_manifest_version: 'clean',
+  modpack_unsupported_loader: 'clean',
+  modpack_download_host_not_allowed: 'clean',
+  modpack_sha1_unavailable: 'clean',
+  modpack_mod_distribution_disabled: 'clean',
+  modpack_overrides_path_escape: 'clean',
+  modpack_overrides_too_large: 'clean',
+  modpack_no_files_selected: 'clean',
+  modpack_partial_failure: 'clean',
+  modpack_bundled_no_url: 'clean',
+  modpack_cf_distribution_disabled: 'clean',
+  world_not_found: 'clean',
+  world_in_use: 'clean',
+  world_path_invalid: 'clean',
+  world_name_unresolvable: 'clean',
+  backup_not_found: 'clean',
+  world_import_not_a_world: 'clean',
+  world_import_unsupported_source: 'clean',
+  world_import_too_large: 'clean',
+  quick_play_address_invalid: 'clean',
+  import_unsupported_loader: 'clean',
+  import_source_unrecognized: 'clean',
+  import_no_provenance: 'clean',
+  import_source_missing: 'clean',
+  servers_dat_parse: 'clean',
+  saved_server_name_invalid: 'clean',
+  offline_name_invalid: 'clean',
+  saved_server_list_changed: 'clean',
+  server_invalid_property: 'clean',
+  server_eula_not_accepted: 'clean',
+  server_jar_unavailable: 'clean',
+  server_already_running: 'clean',
+  server_not_running: 'clean',
+  server_mod_required_by_other: 'clean',
+  server_name_invalid: 'clean',
+  upload_not_configured: 'clean',
+  sftp_auth_failed: 'clean',
+  sftp_host_key_mismatch: 'clean',
+  server_import_unsupported_source: 'clean',
+  server_import_too_large: 'clean',
+  server_import_not_a_server: 'clean',
+  server_import_staging_expired: 'clean',
+};
+
 /**
  * Render a typed IPC Error as a human-readable single-line string.
  *
