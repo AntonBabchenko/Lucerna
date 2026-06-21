@@ -198,6 +198,17 @@
     }
   });
 
+  // Advanced: optional initial heap (-Xms). null = unset (JVM default). Seeded
+  // id-gated like the other drafts so a background refresh doesn't clobber it.
+  let minHeapDraft = $state<number | null>(null);
+  let lastMinHeapSyncId: string | null = null;
+  $effect(() => {
+    if (selected && selected.id !== lastMinHeapSyncId) {
+      minHeapDraft = selected.min_heap_mb;
+      lastMinHeapSyncId = selected.id;
+    }
+  });
+
   // Auto-clear stale modalError when the user navigates away from
   // whatever caused it — switching instances, opening/closing the
   // create form, or picking a different MC/loader in create draft.
@@ -450,6 +461,21 @@
     }
   }
 
+  async function commitMinHeap() {
+    if (!selected) return;
+    const id = selected.id;
+    // Empty/0 clears it (None). Cap at the current max heap — an Xms larger than
+    // Xmx makes the JVM refuse to start.
+    const raw = minHeapDraft && minHeapDraft > 0 ? minHeapDraft : null;
+    const value = raw === null ? null : Math.min(raw, heapDraft);
+    minHeapDraft = value; // reflect the clamp/clear back into the field
+    if (value === selected.min_heap_mb) return; // unchanged — no write
+    const result = await commands.setInstanceMinHeap(id, value);
+    if (isStale(id)) return;
+    if (result.status === 'ok') onChanged();
+    else modalError = ipcErrorMessage(result.error);
+  }
+
   async function openFolder() {
     if (!selected) return;
     const result = await commands.openInstanceFolder(selected.id);
@@ -476,6 +502,7 @@
       selectedId = null;
       lastNameSyncId = null;
       lastHeapSyncId = null;
+      lastMinHeapSyncId = null;
       onChanged();
     } else {
       modalError = ipcErrorMessage(result.error);
@@ -495,6 +522,7 @@
     // on close, not resurrected on reopen).
     lastNameSyncId = null;
     lastHeapSyncId = null;
+    lastMinHeapSyncId = null;
     filterQuery = '';
     savedField = null;
   }
@@ -789,6 +817,40 @@
             }}
             onCommit={(mb) => setMemory(mb)}
           />
+
+          <details class="mb-3">
+            <summary class="cursor-pointer select-none text-xs text-secondary">
+              {$t('instance.manage.advancedSummary')}
+            </summary>
+            <div class="mt-2">
+              <div class="mb-1 flex items-center justify-between">
+                <label for="detail-min-heap" class="text-xs text-secondary">
+                  {$t('instance.manage.minHeapLabel')}
+                </label>
+                <button
+                  type="button"
+                  class="btn-link text-xs"
+                  onclick={() => {
+                    minHeapDraft = heapDraft;
+                    commitMinHeap();
+                  }}
+                >
+                  {$t('instance.manage.minHeapEqualsMax')}
+                </button>
+              </div>
+              <input
+                id="detail-min-heap"
+                type="number"
+                class="border rounded px-2 py-1 w-full text-sm"
+                min="0"
+                max={heapDraft}
+                placeholder={$t('instance.manage.minHeapPlaceholder')}
+                bind:value={minHeapDraft}
+                onchange={commitMinHeap}
+              />
+              <p class="mt-1 text-xs text-placeholder">{$t('instance.manage.minHeapHint')}</p>
+            </div>
+          </details>
 
           <label
             for="detail-jvm-args"

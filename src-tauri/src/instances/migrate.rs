@@ -78,6 +78,7 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
         loader: LoaderKind::Vanilla,
         loader_version: None,
         max_heap_mb: 2048,
+        min_heap_mb: None,
         extra_jvm_args: String::new(),
         created_unix_ms: now_ms,
         mrpack_name: None,

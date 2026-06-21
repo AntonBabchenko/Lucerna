@@ -29,6 +29,7 @@ const sampleInstance: InstanceWithStatus = {
   loader_version: null,
   ready: true,
   max_heap_mb: 4096,
+  min_heap_mb: null,
   extra_jvm_args: '',
   created_unix_ms: null,
   mrpack_name: null,

@@ -68,6 +68,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     loader: 'vanilla',
     loader_version: null,
     max_heap_mb: 2048,
+    min_heap_mb: null,
     extra_jvm_args: '',
     created_unix_ms: null,
     ready: true,

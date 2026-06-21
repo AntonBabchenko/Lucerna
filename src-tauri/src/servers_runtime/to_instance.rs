@@ -225,6 +225,7 @@ mod tests {
             loader: LoaderKind::Fabric,
             loader_version: Some("0.16.5".into()),
             max_heap_mb: 4096,
+            min_heap_mb: None,
             extra_jvm_args: String::new(),
             created_unix_ms: 1.0,
             mrpack_name: None,

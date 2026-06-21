@@ -21,6 +21,7 @@ const m = vi.hoisted(() => ({
   setActiveInstance: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   setInstanceName: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   setInstanceMemory: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+  setInstanceMinHeap: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   setInstanceJvmArgs: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   setInstanceLoader: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   changeInstanceMc: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
@@ -54,6 +55,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     loader: 'vanilla',
     loader_version: null,
     max_heap_mb: 2048,
+    min_heap_mb: null,
     extra_jvm_args: '',
     created_unix_ms: null,
     ready: true,
@@ -706,5 +708,91 @@ describe('ManageInstancesModal — microcopy & i18n', () => {
     });
     await screen.findByDisplayValue('Default');
     expect(screen.getByText(/no release versions available/i)).toBeTruthy();
+  });
+});
+
+describe('ManageInstancesModal — advanced initial heap (-Xms)', () => {
+  function renderOne(over: Partial<InstanceWithStatus> = {}) {
+    const inst = makeInstance(over);
+    render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+  }
+
+  // Expand the collapsed <details> so its controls are visible to role queries
+  // (content inside a closed <details> is treated as hidden).
+  function openAdvanced() {
+    const details = screen.getByText('Advanced').closest('details') as HTMLDetailsElement;
+    details.open = true;
+  }
+
+  it('keeps the Advanced section collapsed by default', async () => {
+    const inst = makeInstance();
+    const { container } = render(ManageInstancesModal, {
+      props: {
+        open: true,
+        instances: [inst],
+        activeInstance: inst,
+        versions: [version],
+        onChanged: () => {},
+      },
+    });
+    await screen.findByDisplayValue('Default');
+
+    const details = container.querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details?.hasAttribute('open')).toBe(false);
+  });
+
+  it('persists a typed initial heap', async () => {
+    renderOne({ max_heap_mb: 4096 });
+    await screen.findByDisplayValue('Default');
+    openAdvanced();
+
+    const xms = (await screen.findByLabelText(/initial heap/i)) as HTMLInputElement;
+    await fireEvent.input(xms, { target: { value: '2048' } });
+    await fireEvent.change(xms, { target: { value: '2048' } });
+
+    expect(m.setInstanceMinHeap).toHaveBeenCalledWith('inst-1', 2048);
+  });
+
+  it('caps the initial heap at the current max', async () => {
+    renderOne({ max_heap_mb: 4096 });
+    await screen.findByDisplayValue('Default');
+    openAdvanced();
+
+    const xms = (await screen.findByLabelText(/initial heap/i)) as HTMLInputElement;
+    await fireEvent.input(xms, { target: { value: '9000' } });
+    await fireEvent.change(xms, { target: { value: '9000' } });
+
+    expect(m.setInstanceMinHeap).toHaveBeenLastCalledWith('inst-1', 4096);
+  });
+
+  it('"= max" sets the initial heap to the current maximum', async () => {
+    renderOne({ max_heap_mb: 4096 });
+    await screen.findByDisplayValue('Default');
+    openAdvanced();
+
+    await fireEvent.click(screen.getByRole('button', { name: /=\s*max/i }));
+
+    expect(m.setInstanceMinHeap).toHaveBeenCalledWith('inst-1', 4096);
+  });
+
+  it('clearing the field clears the initial heap (null)', async () => {
+    renderOne({ max_heap_mb: 4096, min_heap_mb: 2048 });
+    await screen.findByDisplayValue('Default');
+    openAdvanced();
+
+    const xms = (await screen.findByLabelText(/initial heap/i)) as HTMLInputElement;
+    await fireEvent.input(xms, { target: { value: '' } });
+    await fireEvent.change(xms, { target: { value: '' } });
+
+    expect(m.setInstanceMinHeap).toHaveBeenCalledWith('inst-1', null);
   });
 });

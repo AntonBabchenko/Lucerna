@@ -59,6 +59,7 @@ const mockInstance: InstanceWithStatus = {
   loader: 'fabric',
   loader_version: '0.16.0',
   max_heap_mb: 4096,
+  min_heap_mb: null,
   extra_jvm_args: '',
   created_unix_ms: null,
   ready: true,

@@ -67,6 +67,7 @@ const inst = (
     loader: overrides.loader ?? ('fabric' as const),
     loader_version: overrides.loader_version ?? '0.15.7',
     max_heap_mb: 2048,
+    min_heap_mb: null,
     extra_jvm_args: '',
     created_unix_ms: ms,
     ready: true,

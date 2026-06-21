@@ -148,6 +148,7 @@ function makeInstance(over: Partial<InstanceWithStatus> = {}): InstanceWithStatu
     loader: 'fabric',
     loader_version: '0.15.0',
     max_heap_mb: 2048,
+    min_heap_mb: null,
     extra_jvm_args: '',
     created_unix_ms: Date.now(),
     ready: true,

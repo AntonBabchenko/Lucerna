@@ -307,6 +307,17 @@ pub fn set_instance_memory(
     crate::instances::set_instance_memory(&app, &id, max_heap_mb)
 }
 
+/// Set the optional JVM initial heap (`-Xms`). `None`/0 clears it.
+#[tauri::command]
+#[specta::specta]
+pub fn set_instance_min_heap(
+    app: tauri::AppHandle,
+    id: String,
+    min_heap_mb: Option<u32>,
+) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::instances::set_instance_min_heap(&app, &id, min_heap_mb)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn set_instance_jvm_args(

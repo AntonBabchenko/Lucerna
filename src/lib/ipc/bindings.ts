@@ -316,6 +316,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	loader: LoaderKind,
 	loader_version: string | null,
 	max_heap_mb: number,
+	/**  Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default. */
+	min_heap_mb: number | null,
 	extra_jvm_args: string,
 	created_unix_ms: number | null,
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */
@@ -352,6 +354,8 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	changeInstanceMc: (id: string, mc: string) => typedError<McChangeReport, Error>(__TAURI_INVOKE("change_instance_mc", { id, mc })),
 	setInstanceLoader: (id: string, loader: LoaderKind, loaderVersion: string | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_loader", { id, loader, loaderVersion })),
 	setInstanceMemory: (id: string, maxHeapMb: number) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_memory", { id, maxHeapMb })),
+	/**  Set the optional JVM initial heap (`-Xms`). `None`/0 clears it. */
+	setInstanceMinHeap: (id: string, minHeapMb: number | null) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_min_heap", { id, minHeapMb })),
 	setInstanceJvmArgs: (id: string, args: string) => typedError<InstanceWithStatus, Error>(__TAURI_INVOKE("set_instance_jvm_args", { id, args })),
 	instanceMemoryBounds: () => __TAURI_INVOKE<MemoryBounds>("instance_memory_bounds"),
 	/**
@@ -1971,6 +1975,8 @@ export type InstanceWithStatus = {
 	loader: LoaderKind,
 	loader_version: string | null,
 	max_heap_mb: number,
+	/**  Optional JVM initial heap (`-Xms`) in MB. `None` = JVM default. */
+	min_heap_mb: number | null,
 	extra_jvm_args: string,
 	created_unix_ms: number | null,
 	/**  True iff the effective version JAR is on disk. UI shows ✓/↓ icon. */

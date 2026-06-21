@@ -30,6 +30,7 @@ const modrinthInst = {
   loader: 'forge' as const,
   loader_version: '47.2.0',
   max_heap_mb: 4096,
+  min_heap_mb: null,
   extra_jvm_args: '',
   created_unix_ms: null,
   ready: true,

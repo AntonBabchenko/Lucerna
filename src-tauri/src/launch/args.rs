@@ -344,6 +344,21 @@ pub(crate) fn clamp_heap_mb(requested: u32, total_ram_mb: Option<u64>) -> u32 {
     }
 }
 
+/// Build the heap JVM args: `-Xms` only when `min_heap_mb` is set (Some and
+/// non-zero), always `-Xmx{heap_mb}m`. The initial heap is clamped to `heap_mb`
+/// because an `-Xms` larger than `-Xmx` makes the JVM refuse to start. `-Xms`
+/// precedes `-Xmx` (order is irrelevant to the JVM, but deterministic for tests).
+pub(crate) fn heap_args(min_heap_mb: Option<u32>, heap_mb: u32) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(min) = min_heap_mb {
+        if min > 0 {
+            args.push(format!("-Xms{}m", min.min(heap_mb)));
+        }
+    }
+    args.push(format!("-Xmx{heap_mb}m"));
+    args
+}
+
 /// Split the user's `extra_jvm_args` into argv tokens, dropping any token that
 /// contains a control character (never legitimate in a JVM flag) and capping
 /// the total length so an unbounded blob cannot be passed to the process.
@@ -794,6 +809,26 @@ mod tests {
         assert_eq!(clamp_heap_mb(16384, None), 16384);
         // Tiny system where RAM < floor → RAM (no panic on inverted bounds).
         assert_eq!(clamp_heap_mb(2048, Some(256)), 256);
+    }
+
+    // ---- heap_args ----------------------------------------------------------
+
+    #[test]
+    fn heap_args_omits_xms_when_unset() {
+        assert_eq!(heap_args(None, 4096), vec!["-Xmx4096m"]);
+        // Explicit 0 is treated as unset.
+        assert_eq!(heap_args(Some(0), 4096), vec!["-Xmx4096m"]);
+    }
+
+    #[test]
+    fn heap_args_emits_xms_before_xmx_when_set() {
+        assert_eq!(heap_args(Some(2048), 4096), vec!["-Xms2048m", "-Xmx4096m"]);
+    }
+
+    #[test]
+    fn heap_args_clamps_xms_to_xmx() {
+        // An Xms above Xmx would make the JVM refuse to start → clamp to Xmx.
+        assert_eq!(heap_args(Some(8192), 4096), vec!["-Xms4096m", "-Xmx4096m"]);
     }
 
     // ---- sanitize_jvm_args --------------------------------------------------

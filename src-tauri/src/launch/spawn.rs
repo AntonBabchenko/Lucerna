@@ -308,7 +308,11 @@ pub async fn start(
         instance.max_heap_mb,
         crate::platform::total_system_ram_mb(),
     );
-    let mut argv: Vec<String> = vec![format!("-Xmx{heap_mb}m")];
+    // Initial heap (-Xms, when set) + max heap (-Xmx). Built by a pure helper so
+    // the clamp (Xms never exceeds Xmx, or the JVM refuses to start) is unit
+    // tested. Both go BEFORE the manifest's JVM args so a manifest flag can
+    // still override.
+    let mut argv: Vec<String> = crate::launch::args::heap_args(instance.min_heap_mb, heap_mb);
     argv.extend(crate::launch::args::sanitize_jvm_args(
         &instance.extra_jvm_args,
     ));
