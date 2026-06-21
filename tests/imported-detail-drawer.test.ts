@@ -643,6 +643,67 @@ describe('ImportedDetailDrawer', () => {
     expect(section.textContent).toContain('(1)');
   });
 
+  it('renders inert wrong-loader jars as an informational section', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'Some Forge Pack',
+          version: '1.0',
+          files: [],
+          missing_mods: [],
+          skipped_overrides: [],
+          // A Fabric-only jar bundled in a Forge instance — inert.
+          inert_loader_jars: [{ filename: 'fabric-only-mod.jar', detected_loader: 'Fabric' }],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    const section = await findByTestId('imported-detail-inert-section');
+    expect(section.textContent).toContain('fabric-only-mod.jar');
+    expect(section.textContent).toContain('Fabric');
+    // Heading count reflects the one inert jar.
+    expect(section.textContent).toContain('(1)');
+  });
+
+  it('omits the inert section when inert_loader_jars is empty', async () => {
+    vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
+      status: 'ok',
+      data: {
+        origin: {
+          project_id: null,
+          source: 'modrinth',
+          project_name: 'Clean Pack',
+          version: '1.0',
+          files: [],
+          missing_mods: [],
+          skipped_overrides: [],
+          inert_loader_jars: [],
+        },
+        installed_shas: [],
+        removed_files: [],
+        added_count: 0,
+        is_modified: false,
+        missing_mods: [],
+      },
+    });
+    const { queryByTestId, findByTestId } = render(ImportedDetailDrawer, {
+      props: { inst: instance(), onClose: () => {}, onOpenInstance: () => {}, onDeleted: () => {} },
+    });
+    // Wait for the status fetch to settle (mods list resolves), then assert absence.
+    await findByTestId('imported-detail-mods-list');
+    expect(queryByTestId('imported-detail-inert-section')).toBeNull();
+  });
+
   it('does not count a .zip.txt under shaderpacks/ as a shaderpack', async () => {
     vi.mocked(commands.modpackStatus).mockResolvedValueOnce({
       status: 'ok',
