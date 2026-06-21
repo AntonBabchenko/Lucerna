@@ -8,6 +8,8 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
+  import CardShell from '$lib/ui/cards/CardShell.svelte';
+  import CardMedia from '$lib/ui/cards/CardMedia.svelte';
 
   // Datapack management for a server's world (S2 #27). Datapacks live under
   // runtime/<level>/datapacks/ and apply to every loader (incl. vanilla), so
@@ -100,10 +102,10 @@
   {#if packs.length === 0 && !loadError}
     <p class="text-sm text-muted">{$t('servers.mods.datapacksEmpty')}</p>
   {:else}
-    <ul class="flex flex-col divide-y divide-border-subtle rounded border border-border-subtle">
+    <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each packs as filename (filename)}
-        <li class="flex items-center gap-2 px-3 py-2 text-sm">
-          <Icon name="package" size={14} class="shrink-0 text-muted" />
+        <CardShell variant="compact-row">
+          <CardMedia placeholder="package" size="sm" />
           <span class="flex-1 truncate font-mono text-xs text-primary">{filename}</span>
           {#if pendingRemove === filename}
             <span class="shrink-0 text-xs text-secondary">
@@ -146,8 +148,8 @@
               <Icon name="trash" size={13} />
             </button>
           {/if}
-        </li>
+        </CardShell>
       {/each}
-    </ul>
+    </div>
   {/if}
 </div>

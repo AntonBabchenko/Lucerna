@@ -7,6 +7,7 @@
   import { serverState } from '$lib/servers/server-state.svelte';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import type { BackupInfo } from '$lib/ipc/bindings';
+  import CardShell from '$lib/ui/cards/CardShell.svelte';
 
   const KEEP = 10;
 
@@ -116,11 +117,9 @@
   {:else if backups.length === 0}
     <p class="text-sm text-muted py-6 text-center">{$t('servers.backups.empty')}</p>
   {:else}
-    <ul class="flex flex-col gap-1">
+    <div class="overflow-hidden rounded-lg border border-border-subtle">
       {#each backups as backup (backup.file_name)}
-        <li
-          class="flex items-center gap-3 rounded-md border border-border-subtle px-3 py-2 text-sm"
-        >
+        <CardShell variant="compact-row">
           <span class="flex-1 truncate font-mono text-xs text-primary">{backup.file_name}</span>
           <span class="text-muted text-xs shrink-0">
             {relativeTime($t, backup.created_unix_ms ?? 0)}
@@ -172,8 +171,8 @@
               </button>
             </span>
           {/if}
-        </li>
+        </CardShell>
       {/each}
-    </ul>
+    </div>
   {/if}
 </div>

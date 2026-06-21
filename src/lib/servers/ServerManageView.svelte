@@ -16,6 +16,7 @@
   import ServerToInstanceDialog from './ServerToInstanceDialog.svelte';
   import ServerBackupsView from './ServerBackupsView.svelte';
   import { isCrashed } from './runtime-extra';
+  import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
 
   let {
     serverId,
@@ -140,19 +141,13 @@
     <span class="flex-1 font-semibold truncate">{server?.name ?? serverId}</span>
 
     <!-- Status pill -->
-    <span
-      class="rounded-full px-2 py-0.5 text-xs font-medium {running
-        ? 'bg-success/15 text-success'
-        : crashed
-          ? 'bg-danger/15 text-danger'
-          : 'bg-muted/15 text-muted'}"
-    >
+    <StatusBadge variant={running ? 'success' : crashed ? 'danger' : 'muted'}>
       {running
         ? $t('servers.status.running')
         : crashed
           ? $t('servers.status.crashed')
           : $t('servers.status.stopped')}{server?.port ? ' · ' + server.port : ''}
-    </span>
+    </StatusBadge>
 
     <!-- Actions -->
     <div class="flex items-center gap-1.5">
