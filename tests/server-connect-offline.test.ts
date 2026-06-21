@@ -2,10 +2,13 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 
-const { connectivity, running, firewallStatus } = vi.hoisted(() => ({
+const { connectivity, running, firewallStatus, publicAddress } = vi.hoisted(() => ({
   connectivity: vi.fn(),
   running: vi.fn(),
   firewallStatus: vi.fn(),
+  // ServerConnectView fetches the public address on mount via `.then(...)`, so the
+  // mock must return a Promise (a bare vi.fn() returns undefined → no `.then`).
+  publicAddress: vi.fn().mockResolvedValue(null),
 }));
 const { serverReadProperties, serverWriteProperties, serverRestart } = vi.hoisted(() => ({
   serverReadProperties: vi.fn(),
@@ -14,7 +17,7 @@ const { serverReadProperties, serverWriteProperties, serverRestart } = vi.hoiste
 }));
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
-  serverState: { connectivity, running, firewallStatus },
+  serverState: { connectivity, running, firewallStatus, publicAddress },
 }));
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
