@@ -77,4 +77,45 @@ describe('MemorySlider', () => {
     await waitFor(() => expect(slider.max).toBe('8192'));
     expect(screen.queryByText(/may leave little memory/)).toBeNull();
   });
+
+  it('reserves spacer height and forwards id/class when no warning shows (instance detail)', async () => {
+    mockLoad.mockResolvedValue({
+      min_mb: 1024,
+      max_mb: 8192,
+      recommended_max_mb: 8192,
+      step_mb: 256,
+      ram_known: false,
+    });
+
+    const { container } = render(MemorySlider, {
+      props: {
+        valueMb: 4096,
+        onInput: vi.fn(),
+        id: 'detail-memory',
+        class: 'mb-1',
+        warnClass: 'mb-3',
+        reserveWarnSpace: true,
+      },
+    });
+
+    const slider = screen.getByRole('slider') as HTMLInputElement;
+    await waitFor(() => expect(slider.max).toBe('8192'));
+    // id is forwarded so an external <label for> can target it; extra class applied.
+    expect(slider.id).toBe('detail-memory');
+    expect(slider.classList.contains('mb-1')).toBe(true);
+    // No warning, but the spacer keeps the layout from shifting.
+    expect(screen.queryByText(/may leave little memory/)).toBeNull();
+    expect(container.querySelector('div.mb-3')).toBeTruthy();
+  });
+
+  it('applies warnClass to the warning when reserving space and above recommendation', async () => {
+    mockLoad.mockResolvedValue(RAM_32GB);
+
+    render(MemorySlider, {
+      props: { valueMb: 30720, onInput: vi.fn(), warnClass: 'mb-3', reserveWarnSpace: true },
+    });
+
+    const warning = await screen.findByText(/may leave little memory/);
+    expect(warning.classList.contains('mb-3')).toBe(true);
+  });
 });
