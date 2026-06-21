@@ -152,7 +152,7 @@ describe('ManageInstancesModal — selecting a modpack instance does not prompt 
     await new Promise((r) => setTimeout(r, 0));
 
     // No detach prompt, and nothing was committed/detached by a mere switch.
-    expect(screen.queryByText('Modpack instance')).toBeNull();
+    expect(screen.queryByText(/change a modpack instance/i)).toBeNull();
     expect(setInstanceLoader).not.toHaveBeenCalled();
     expect(detachInstancePack).not.toHaveBeenCalled();
   });
@@ -171,8 +171,46 @@ describe('ManageInstancesModal — selecting a modpack instance does not prompt 
     const quiltBtn = screen.getByRole('button', { name: /^quilt$/i });
     await fireEvent.click(quiltBtn);
 
-    await waitFor(() => expect(screen.queryByText('Modpack instance')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/change a modpack instance/i)).not.toBeNull());
     // Still gated behind the confirm — not committed yet.
     expect(setInstanceLoader).not.toHaveBeenCalled();
+  });
+});
+
+describe('ManageInstancesModal — pack-detach dialog framing', () => {
+  async function openDetachPrompt() {
+    renderModal();
+    await waitFor(() => expect(listForgeLoaders).toHaveBeenCalled());
+    const packRow = screen
+      .getAllByRole('button')
+      .find((b) => b.textContent?.includes('Sodium Plus') && b.querySelector('.font-medium'));
+    await fireEvent.click(packRow as HTMLElement);
+    await waitFor(() => expect(listFabricLoaders).toHaveBeenCalled());
+    const quiltBtn = screen.getByRole('button', { name: /^quilt$/i });
+    await fireEvent.click(quiltBtn);
+    await waitFor(() => expect(screen.queryByText(/change a modpack instance/i)).not.toBeNull());
+  }
+
+  it('weights the safe Keep action as primary and Detach as danger', async () => {
+    await openDetachPrompt();
+
+    const keep = screen.getByRole('button', { name: 'Keep & continue' });
+    const detach = screen.getByRole('button', { name: 'Detach & continue' });
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+
+    // The safe, link-preserving path is emphasised; the irreversible one is danger.
+    expect(keep.className).toContain('btn-primary');
+    expect(detach.className).toContain('btn-danger');
+    expect(cancel.className).toContain('btn-secondary');
+  });
+
+  it('frames the title as a question and explains both outcomes', async () => {
+    await openDetachPrompt();
+
+    // Title is a question, not a bare noun label.
+    expect(screen.getByText(/change a modpack instance\?/i)).toBeTruthy();
+    // Body explains the keep outcome AND the detach outcome (not just detach).
+    const body = screen.getByText(/keep it linked/i);
+    expect(body.textContent).toMatch(/detach/i);
   });
 });

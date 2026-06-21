@@ -794,10 +794,10 @@
         <button type="button" class="btn-secondary btn-sm" onclick={cancelPending}>
           {$t('instance.manage.cancelBtn')}
         </button>
-        <button type="button" class="btn-secondary btn-sm" onclick={keepAndContinue}>
+        <button type="button" class="btn-primary btn-sm" onclick={keepAndContinue}>
           {$t('instance.packDetach.keepBtn')}
         </button>
-        <button type="button" class="btn-primary btn-sm" onclick={confirmDetachAndContinue}>
+        <button type="button" class="btn-danger btn-sm" onclick={confirmDetachAndContinue}>
           {$t('instance.packDetach.detachBtn')}
         </button>
       </div>
