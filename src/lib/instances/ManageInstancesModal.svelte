@@ -82,6 +82,10 @@
         .instanceMemoryBounds()
         .then((b) => {
           memBounds = b;
+          // Clamp against the REAL bounds (never the fallback) in case a saved
+          // heap is now outside the machine's range; the imperative $effect on
+          // memBounds.max_mb repositions the thumb after the max grows.
+          heapDraft = Math.min(Math.max(heapDraft, b.min_mb), b.max_mb);
         })
         .catch(() => {
           // Intentional: keep FALLBACK_BOUNDS so the slider stays usable if the
@@ -143,6 +147,31 @@
       nameDraft = selected.name;
       lastNameSyncId = selected.id;
     }
+  });
+
+  // Local heap draft: dragging updates the label/warning live WITHOUT a disk
+  // write per tick (oninput -> draft; persist once on release). Seeded id-gated
+  // like the name draft so a background refresh doesn't reset an active drag.
+  let heapDraft = $state(0);
+  let lastHeapSyncId: string | null = null;
+  // `$state` (not plain `let`) so the imperative-reapply $effect below re-runs
+  // when `bind:this` lands the element — otherwise an effect that ran before the
+  // input mounted would never see `memEl` and the thumb fix wouldn't fire.
+  let memEl = $state<HTMLInputElement | undefined>(undefined);
+  $effect(() => {
+    if (selected && selected.id !== lastHeapSyncId) {
+      heapDraft = selected.max_heap_mb;
+      lastHeapSyncId = selected.id;
+    }
+  });
+  // A range input clamps its rendered value to the CURRENT max. memBounds load
+  // async after open (FALLBACK max first), and Svelte 5 won't re-emit an
+  // unchanged `value`, so an instance whose heap exceeds the fallback would
+  // leave the thumb stuck at the fallback once real bounds arrive. Re-apply the
+  // value imperatively whenever the bounds (max) — or the draft — change.
+  $effect(() => {
+    void memBounds.max_mb;
+    if (memEl) memEl.value = String(heapDraft);
   });
 
   // Auto-clear stale modalError when the user navigates away from
@@ -366,6 +395,7 @@
     if (result.status === 'ok') {
       selectedId = null;
       lastNameSyncId = null;
+      lastHeapSyncId = null;
       onChanged();
     } else {
       modalError = ipcErrorMessage(result.error);
@@ -384,6 +414,7 @@
     // re-seeds nameDraft from the saved name (an uncommitted edit is discarded
     // on close, not resurrected on reopen).
     lastNameSyncId = null;
+    lastHeapSyncId = null;
   }
 </script>
 
@@ -572,20 +603,22 @@
 
           <label for="detail-memory" class="block text-xs uppercase text-secondary mb-1">
             {$t('instance.manage.memoryLabel', {
-              value: formatHeapLabel(selected.max_heap_mb),
+              value: formatHeapLabel(heapDraft),
             })}
           </label>
           <input
             id="detail-memory"
+            bind:this={memEl}
             type="range"
             min={memBounds.min_mb}
             max={memBounds.max_mb}
             step={memBounds.step_mb}
-            value={selected.max_heap_mb}
-            oninput={(e) => setMemory(parseInt((e.currentTarget as HTMLInputElement).value, 10))}
+            value={heapDraft}
+            oninput={(e) => (heapDraft = parseInt((e.currentTarget as HTMLInputElement).value, 10))}
+            onchange={() => setMemory(heapDraft)}
             class="w-full mb-1"
           />
-          {#if isAboveRecommended(selected.max_heap_mb, memBounds.recommended_max_mb, memBounds.ram_known)}
+          {#if isAboveRecommended(heapDraft, memBounds.recommended_max_mb, memBounds.ram_known)}
             <p class="text-xs text-warning-text mb-3">
               {$t('instance.manage.memoryWarnHigh', {
                 recommended: formatHeapLabel(memBounds.recommended_max_mb),
