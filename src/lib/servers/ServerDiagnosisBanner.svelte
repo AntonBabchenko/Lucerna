@@ -32,7 +32,8 @@
     | 'worldCorrupt'
     | 'sessionLock'
     | 'wrongLoader'
-    | 'diskLow';
+    | 'diskLow'
+    | 'crashUnknown';
 
   function patternKey(patternId: string): PatternKey | null {
     switch (patternId) {
@@ -68,12 +69,28 @@
         return 'wrongLoader';
       case 'server-disk-low':
         return 'diskLow';
+      case 'server-crash-unknown':
+        return 'crashUnknown';
       default:
         return null;
     }
   }
 
   const key = $derived(diag?.diagnosis ? patternKey(diag.diagnosis.pattern_id) : null);
+
+  // The "Use port N" target: the backend-probed free port (never the current one
+  // and verified bindable). Falls back to current+1 only if probing returned
+  // nothing (whole scan window busy) — keeps the button functional regardless.
+  const suggestedPort = $derived(diag?.suggested_port ?? (diag?.port_in_use ?? 25565) + 1);
+
+  // Exit code for the crash-unknown fallback, shown to the user. NTSTATUS-style
+  // negative codes (Windows process failures) read best in hex (e.g. 0xC0000142);
+  // small positive codes stay decimal.
+  const exitCodeLabel = $derived.by(() => {
+    const c = diag?.exit_code;
+    if (c == null) return null;
+    return c < 0 ? `0x${(c >>> 0).toString(16).toUpperCase()}` : String(c);
+  });
 
   // Client-mod checklist state
   let showChecklist = $state(false);
@@ -248,7 +265,13 @@
           {key ? $t(`servers.diagnose.${key}.title`) : diag.diagnosis.title}
         </p>
         <p class="mt-1 text-sm text-primary">
-          {key ? $t(`servers.diagnose.${key}.explanation`) : diag.diagnosis.explanation}
+          {#if key === 'crashUnknown'}
+            {$t('servers.diagnose.crashUnknown.explanation', { code: exitCodeLabel ?? '?' })}
+          {:else if key}
+            {$t(`servers.diagnose.${key}.explanation`)}
+          {:else}
+            {diag.diagnosis.explanation}
+          {/if}
         </p>
         <p class="mt-1 text-sm text-primary">
           {key ? $t(`servers.diagnose.${key}.recommendation`) : diag.diagnosis.recommendation}
@@ -306,13 +329,10 @@
             class="btn-warning btn-sm mt-2"
             data-testid="server-fix-change-port"
             busy={busyFix}
-            aria-label={$t('servers.diagnose.fix.changePort', {
-              port: (diag.port_in_use ?? 25565) + 1,
-            })}
-            onclick={() =>
-              void runFix(() => serverState.changePort(serverId, (diag.port_in_use ?? 25565) + 1))}
+            aria-label={$t('servers.diagnose.fix.changePort', { port: suggestedPort })}
+            onclick={() => void runFix(() => serverState.changePort(serverId, suggestedPort))}
           >
-            {$t('servers.diagnose.fix.changePort', { port: (diag.port_in_use ?? 25565) + 1 })}
+            {$t('servers.diagnose.fix.changePort', { port: suggestedPort })}
           </BusyButton>
         {:else if diag.server_repair === 'raise_heap'}
           <BusyButton

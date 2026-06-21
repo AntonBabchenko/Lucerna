@@ -408,7 +408,7 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(102);
+      expect(Object.keys(samples)).toHaveLength(103);
     });
   });
 

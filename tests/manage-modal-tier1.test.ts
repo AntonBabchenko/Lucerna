@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceWithStatus, VersionEntry } from '$lib/ipc/bindings';
 
@@ -170,30 +170,6 @@ describe('ManageInstancesModal — memory slider', () => {
     await fireEvent.change(slider, { target: { value: '4096' } });
     expect(m.setInstanceMemory).toHaveBeenCalledTimes(1);
     expect(m.setInstanceMemory).toHaveBeenCalledWith('inst-1', 4096);
-  });
-
-  it('shows a heap above the fallback max once real bounds load (thumb tracks)', async () => {
-    m.instanceMemoryBounds.mockResolvedValueOnce({
-      min_mb: 1024,
-      max_mb: 24576,
-      recommended_max_mb: 16384,
-      step_mb: 256,
-      ram_known: true,
-    });
-    const inst = makeInstance({ max_heap_mb: 12288 });
-    render(ManageInstancesModal, {
-      props: {
-        open: true,
-        instances: [inst],
-        activeInstance: inst,
-        versions: [version],
-        onChanged: () => {},
-      },
-    });
-
-    const slider = (await screen.findByRole('slider')) as HTMLInputElement;
-    await waitFor(() => expect(slider.max).toBe('24576'));
-    expect(slider.value).toBe('12288');
   });
 });
 

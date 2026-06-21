@@ -1728,6 +1728,11 @@
         "explanation": "The drive this server lives on is nearly full, so creating or starting it may fail or leave a half-written world.",
         "recommendation": "Free up space on this drive, then try again."
       },
+      "crashUnknown": {
+        "title": "The server stopped unexpectedly",
+        "explanation": "The server process exited with code {code} before it could report a problem — usually caused by security software, low memory, or a failed startup.",
+        "recommendation": "Try starting it again. If it keeps happening, add the launcher and Java to your antivirus exclusions, lower the server's memory in Settings, or open the log folder to look closer."
+      },
       "fix": {
         "acceptEula": "Accept EULA & start",
         "stopOrphan": "Stop leftover & retry",

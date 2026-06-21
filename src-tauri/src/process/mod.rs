@@ -148,6 +148,18 @@ pub fn spawn_server(
         .stderr(std::process::Stdio::piped());
     #[cfg(unix)]
     cmd.process_group(0);
+    // CREATE_NO_WINDOW: the server uses the CONSOLE `java.exe` (so stdout is
+    // produced) with all three stdio handles redirected to pipes. Launched from
+    // the GUI (windows-subsystem) launcher without this flag, java.exe allocates
+    // a console at startup — both a stray flashing window AND a known trigger for
+    // STATUS_DLL_INIT_FAILED (0xC0000142): the process dies during console/DLL
+    // init before emitting any output. Suppressing the console removes that init
+    // step; piped stdout still works.
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.spawn().map_err(|e| Error::ServerSpawnFailed {
         details: format!("spawn {}: {e}", java_bin.display()),
     })

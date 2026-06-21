@@ -158,13 +158,10 @@ fn status_of(base: &std::path::Path, file: &ServerFile) -> ServerWithStatus {
         crate::logs::diagnose::DiagnosisStatus::None
     } else {
         // Classify the SAME diagnosable input the diagnosis + handled_log_sig use
-        // (latest log + freshest crash report, 1 MB cap, pick_diagnosable) so the
+        // (latest log + freshest same-run crash report, pick_diagnosable) so the
         // handled-fix suppression signature matches and the badge clears after a
         // fix. (One bounded per-server read; server_list is infrequent.)
-        let content =
-            crate::logs::read::read_with_cap(&rp.logs.join("server-latest.log"), 1024 * 1024)
-                .unwrap_or_default();
-        let crash = newest_crash_text(&rp.runtime.join("crash-reports"), 1024 * 1024);
+        let (content, crash) = read_diagnosable(&rp);
         let input = crate::logs::diagnose::server::pick_diagnosable(&content, crash.as_deref());
         crate::logs::diagnose::server::classify_server_status(
             input,
@@ -209,9 +206,17 @@ fn preflight_diagnosis(
             // orphan/port/EULA finding fired.
             preflight::low_disk(&p.runtime).then_some(preflight::PreflightFinding::LowDisk)
         })?;
-    Some(crate::logs::diagnose::server::diagnosis_from_preflight(
-        finding,
-    ))
+    // Capture the busy port before the finding is moved, so a PortInUse can carry
+    // a genuinely-free suggested port for the "Use port N" one-click fix.
+    let busy_port = match finding {
+        preflight::PreflightFinding::PortInUse(p) => Some(p),
+        _ => None,
+    };
+    let mut diag = crate::logs::diagnose::server::diagnosis_from_preflight(finding);
+    if let Some(busy) = busy_port {
+        diag.suggested_port = preflight::next_free_port(busy.saturating_add(1), busy);
+    }
+    Some(diag)
 }
 
 /// Accept the EULA for this server (writes runtime/eula.txt and flips the
@@ -226,6 +231,9 @@ pub fn server_accept_eula(app: AppHandle, id: String) -> Result<()> {
         f.eula_accepted = true;
         crate::servers_runtime::store::write_server_json(&p.json, &f)?;
     }
+    // Suppress the now-stale log diagnosis so re-diagnose doesn't re-fire the
+    // banner from the same log after the fix (parity with the class-B fixes).
+    mark_current_log_handled(&p);
     Ok(())
 }
 
@@ -239,7 +247,10 @@ pub fn server_stop_orphan(app: AppHandle, id: String, pid: u32) -> Result<()> {
         crate::platform::kill_process_tree(pid);
     }
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    crate::servers_runtime::pid::clear_pid(&crate::paths::server_paths(&base, &id).pid);
+    let p = crate::paths::server_paths(&base, &id);
+    crate::servers_runtime::pid::clear_pid(&p.pid);
+    // Suppress the now-stale session-lock log so re-diagnose doesn't re-fire it.
+    mark_current_log_handled(&p);
     Ok(())
 }
 
@@ -255,7 +266,12 @@ pub fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
     props.set_validated("server-port", &port.to_string())?;
     std::fs::create_dir_all(&p.runtime)
         .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
-    std::fs::write(&props_path, props.serialize()).map_err(|e| Error::io("<server.properties>", e))
+    std::fs::write(&props_path, props.serialize())
+        .map_err(|e| Error::io("<server.properties>", e))?;
+    // Suppress the now-stale port-conflict log so re-diagnose doesn't re-fire the
+    // banner from the same FAILED-TO-BIND log after the port has been changed.
+    mark_current_log_handled(&p);
+    Ok(())
 }
 
 /// Создать сервер: разрешить артефакт по лоадеру, скачать/установить,
@@ -549,14 +565,21 @@ pub async fn server_diagnose(
 
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
-    let content = crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), 1024 * 1024)
-        .unwrap_or_default();
-    // Phase 2: also consider the freshest crash report (crash-reports/*.txt), not
-    // only server-latest.log. The richer of the two is diagnosed.
-    let crash_text = newest_crash_text(&p.runtime.join("crash-reports"), 1024 * 1024);
+    // Latest run's diagnosable input: live log + freshest SAME-RUN crash report
+    // (a stale report from a prior run is gated out so it can't mis-diagnose the
+    // current crash). Phase 2: the richer of the two is diagnosed.
+    let (content, crash_text) = read_diagnosable(&p);
     if content.is_empty() && crash_text.is_none() {
         if let Some(d) = preflight_diagnosis(&p, &id) {
             return Ok(d);
+        }
+        // No log, no fresh crash report, no pre-spawn blocker — but the last run
+        // may still have crashed (e.g. a Windows process-init failure that wrote
+        // nothing). Surface the exit code instead of a silent "all clear".
+        if let Some(code) = crate::servers_runtime::exit_state::read(&p.runtime) {
+            if let Some(d) = crate::logs::diagnose::server::diagnosis_from_exit_code(code) {
+                return Ok(d);
+            }
         }
         return Ok(ServerDiagnosis {
             status: crate::logs::diagnose::DiagnosisStatus::None,
@@ -570,6 +593,8 @@ pub async fn server_diagnose(
             corrupt_jar: None,
             suggested_heap_mb: None,
             conflict_mods: Vec::new(),
+            suggested_port: None,
+            exit_code: None,
         });
     }
     let diag_input = pick_diagnosable(&content, crash_text.as_deref());
@@ -615,6 +640,14 @@ pub async fn server_diagnose(
         if let Some(d) = preflight_diagnosis(&p, &id) {
             return Ok(d);
         }
+        // The log/crash text didn't match any pattern and there's no pre-spawn
+        // blocker — but if the run still exited with a crash code, explain that
+        // rather than returning an unhelpful "no diagnosis".
+        if let Some(code) = crate::servers_runtime::exit_state::read(&p.runtime) {
+            if let Some(d) = crate::logs::diagnose::server::diagnosis_from_exit_code(code) {
+                return Ok(d);
+            }
+        }
     }
 
     // Phase 2: attach the one-click repair tag + its fix-params per kind.
@@ -625,6 +658,8 @@ pub async fn server_diagnose(
     let mut suggested_heap_mb = None;
     let mut conflict_mods = Vec::new();
     let mut orphan_pid = None;
+    let mut port_in_use = None;
+    let mut suggested_port = None;
     let mut server_client_mods = client_mods;
     if let Some(tag) = server_repair {
         let file = crate::servers_runtime::store::read_server_json(&p.json).ok();
@@ -667,6 +702,16 @@ pub async fn server_diagnose(
                     _ => None,
                 };
             }
+            ServerRepairTag::ChangePort => {
+                // Log-detected port conflict (FAILED TO BIND). The log doesn't name
+                // a free port, so report the configured port AND probe for the next
+                // genuinely-free one so "Use port N" can't suggest the current (a
+                // no-op) or another busy port.
+                let cur = crate::servers_runtime::runtime::read_port(&p.runtime).unwrap_or(25565);
+                port_in_use = Some(cur);
+                suggested_port =
+                    crate::servers_runtime::preflight::next_free_port(cur.saturating_add(1), cur);
+            }
             _ => {}
         }
     }
@@ -694,17 +739,47 @@ pub async fn server_diagnose(
         forge_skip_count: forge_client_skip_count(diag_input),
         log_signature: Some(signature),
         server_repair,
-        port_in_use: None,
+        port_in_use,
         orphan_pid,
         corrupt_jar,
         suggested_heap_mb,
         conflict_mods,
+        suggested_port,
+        exit_code: None,
     })
 }
 
-/// Read the newest `crash-*.txt` (by mtime) under `dir`, capped at `cap` bytes.
-/// Returns `None` when the directory is absent or holds no crash report.
-fn newest_crash_text(dir: &std::path::Path, cap: u64) -> Option<String> {
+/// Diagnosable cap for a server's log / crash report (1 MB each).
+const DIAG_READ_CAP: u64 = 1024 * 1024;
+
+/// Creation time of the current `server-latest.log` — the moment the latest run
+/// started. `start()` rotates the prior log to an archive and creates a fresh
+/// `server-latest.log`, so its creation time anchors "this run". For a crash
+/// that produced no output the file is created and never written again, so the
+/// anchor is exact. `None` when the log is absent or the OS reports no creation
+/// time (callers then fall back to considering any crash report).
+///
+/// Rotation uses `rename` (not delete + recreate), so the fresh log is always
+/// created after the old name is freed — no NTFS creation-time "tunneling" to
+/// stale the anchor. If the rotation strategy ever changes to delete+recreate,
+/// revisit this (a 15s tunnel window could reuse the prior creation time).
+fn latest_run_anchor(logs_dir: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(logs_dir.join(crate::servers_runtime::serverlog::LATEST))
+        .ok()
+        .and_then(|m| m.created().ok())
+}
+
+/// Read the newest `crash-*.txt` (by mtime) under `dir`, capped at `cap` bytes,
+/// **but only if it belongs to the current run** — i.e. its mtime is at/after
+/// `anchor` (the latest run's start). This stops a days-old crash report from a
+/// previous run being diagnosed as the latest crash (which would surface a
+/// misleading banner for an unrelated failure). When `anchor` is `None` the
+/// freshness gate is skipped (back-compat for servers without a readable log).
+fn newest_crash_text(
+    dir: &std::path::Path,
+    cap: u64,
+    anchor: Option<std::time::SystemTime>,
+) -> Option<String> {
     let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
@@ -714,12 +789,34 @@ fn newest_crash_text(dir: &std::path::Path, cap: u64) -> Option<String> {
         let Ok(m) = e.metadata().and_then(|md| md.modified()) else {
             continue;
         };
+        // Skip crash reports older than this run's start (stale from a prior run).
+        if let Some(a) = anchor {
+            if m < a {
+                continue;
+            }
+        }
         if newest.as_ref().map(|(t, _)| m > *t).unwrap_or(true) {
             newest = Some((m, e.path()));
         }
     }
     let (_, path) = newest?;
     crate::logs::read::read_with_cap(&path, cap).ok()
+}
+
+/// The diagnosable inputs for a server's latest run: the live `server-latest.log`
+/// contents and the freshest *same-run* crash report. Single source so the
+/// diagnosis command, the handled-signature marker, and the list badge all see
+/// the identical input (and therefore agree on the log signature).
+fn read_diagnosable(p: &crate::paths::ServerPaths) -> (String, Option<String>) {
+    let content =
+        crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), DIAG_READ_CAP)
+            .unwrap_or_default();
+    let crash = newest_crash_text(
+        &p.runtime.join("crash-reports"),
+        DIAG_READ_CAP,
+        latest_run_anchor(&p.logs),
+    );
+    (content, crash)
 }
 
 /// Удалить список модов из папки `mods/` сервера по именам файлов.
@@ -776,11 +873,18 @@ pub async fn server_remove_mods(
 /// their `log_signature` param, but derived from disk so the heap/redownload/dep
 /// fixes need no extra FE plumbing (no binding change). Best-effort.
 fn mark_current_log_handled(p: &crate::paths::ServerPaths) {
-    let content = crate::logs::read::read_with_cap(&p.logs.join("server-latest.log"), 1024 * 1024)
-        .unwrap_or_default();
-    let crash = newest_crash_text(&p.runtime.join("crash-reports"), 1024 * 1024);
+    let (content, crash) = read_diagnosable(p);
     let input = crate::logs::diagnose::server::pick_diagnosable(&content, crash.as_deref());
     if input.is_empty() {
+        return;
+    }
+    // Only record a handled signature when the log/crash text actually diagnoses
+    // a server problem. A class-A fix (change-port / stop-orphan / accept-EULA)
+    // reached from a PREFLIGHT finding can coexist with an unrelated,
+    // undiagnosable log; marking that log handled would wrongly suppress a later
+    // real diagnosis. A log-derived fix always has a diagnosis here, so it is
+    // still marked (parity with the class-B heap/jar/dep fixes).
+    if crate::logs::diagnose::server::diagnose_server_log(input).is_none() {
         return;
     }
     let sig = crate::logs::diagnose::log_signature(input);
@@ -1921,5 +2025,37 @@ mod tests {
         assert_eq!(valid_public_ip(""), None);
         assert_eq!(valid_public_ip("rate limited"), None);
         assert_eq!(valid_public_ip("999.999.999.999"), None);
+    }
+
+    #[test]
+    fn newest_crash_text_gates_out_stale_reports() {
+        use std::time::{Duration, SystemTime};
+        let dir = tempfile::tempdir().unwrap();
+        let crash = dir.path().join("crash-2026-06-19_18.16.56-server.txt");
+        std::fs::write(&crash, "Description: Exception in server tick loop\n").unwrap();
+
+        // Anchor in the FUTURE relative to the file → it reads as stale → ignored.
+        let future = SystemTime::now() + Duration::from_secs(3600);
+        assert_eq!(
+            newest_crash_text(dir.path(), 1024, Some(future)),
+            None,
+            "a crash report older than this run's start must be ignored"
+        );
+
+        // Anchor at the epoch → the file is newer than the anchor → considered.
+        assert!(
+            newest_crash_text(dir.path(), 1024, Some(SystemTime::UNIX_EPOCH)).is_some(),
+            "a same-run (newer-than-anchor) crash report must be read"
+        );
+
+        // No anchor → freshness gate skipped (back-compat) → considered.
+        assert!(newest_crash_text(dir.path(), 1024, None).is_some());
+    }
+
+    #[test]
+    fn newest_crash_text_none_for_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("no-such-crash-reports");
+        assert_eq!(newest_crash_text(&missing, 1024, None), None);
     }
 }
