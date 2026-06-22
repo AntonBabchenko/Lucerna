@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 use specta::Type;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 use tauri::AppHandle;
 use tauri_specta::Event;
 use tokio::io::AsyncReadExt;
@@ -92,23 +92,27 @@ pub struct ServerUploadProgress {
     pub bytes_total: f64,
 }
 
-/// Emit a progress tick at most this often by bytes: once per ~256 KiB.
-const PROGRESS_BYTES_INTERVAL: u64 = 256 * 1024;
-/// ...and at most this often by time: once per ~250 ms.
-const PROGRESS_MS_INTERVAL: u128 = 250;
+/// Default number of files transferred in parallel when the setting is unset or
+/// zero. Mirrors the schema default; the two are kept in sync deliberately.
+const DEFAULT_UPLOAD_CONCURRENCY: u32 = 4;
+/// Upper bound on parallel file transfers. More streams over one SFTP session
+/// yield diminishing returns and risk tripping per-connection limits on the
+/// host; 16 is a generous ceiling.
+const MAX_UPLOAD_CONCURRENCY: u32 = 16;
+/// Per-write chunk size for the streamed copy: constant memory per in-flight
+/// file regardless of file size (#28).
+const UPLOAD_CHUNK_BYTES: usize = 256 * 1024;
 
-/// Pure cadence gate for mid-file progress emission. Emit iff at least
-/// `PROGRESS_BYTES_INTERVAL` bytes OR `PROGRESS_MS_INTERVAL` ms have passed
-/// since the last emit. Args are the current cumulative byte/ms counters and
-/// the watermark values captured at the previous emit.
-fn should_emit_progress(
-    bytes_now: u64,
-    bytes_at_last_emit: u64,
-    ms_now: u128,
-    ms_at_last_emit: u128,
-) -> bool {
-    bytes_now.saturating_sub(bytes_at_last_emit) >= PROGRESS_BYTES_INTERVAL
-        || ms_now.saturating_sub(ms_at_last_emit) >= PROGRESS_MS_INTERVAL
+/// Normalise a user-configured concurrency into a safe stream count. `0`
+/// (unset / "auto") maps to the default; everything else is clamped to
+/// `1..=MAX_UPLOAD_CONCURRENCY` so a stray huge value can't open an unbounded
+/// number of in-flight transfers.
+fn clamp_concurrency(configured: u32) -> u32 {
+    if configured == 0 {
+        DEFAULT_UPLOAD_CONCURRENCY
+    } else {
+        configured.clamp(1, MAX_UPLOAD_CONCURRENCY)
+    }
 }
 
 /// Files never uploaded or zipped, regardless of directory: the one-shot
@@ -445,114 +449,177 @@ pub async fn upload_server(
         .map_err(|e| Error::SftpTransferFailed {
             details: e.to_string(),
         })?;
-    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
-        .await
-        .map_err(|e| Error::SftpTransferFailed {
-            details: e.to_string(),
-        })?;
+    // One shared SFTP session, wrapped in an `Arc` and cloned into each upload
+    // task. `SftpSession` is NOT `Clone`; concurrency works by sharing the `Arc`.
+    // Its methods take `&self` and the request layer multiplexes by id, so
+    // concurrent `create`/`write` on one session interleave correctly.
+    let sftp = Arc::new(
+        russh_sftp::client::SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|e| Error::SftpTransferFailed {
+                details: e.to_string(),
+            })?,
+    );
 
-    // --- stream each file, creating remote dirs as needed ---
-    let remote_root = cfg.remote_path.trim_end_matches('/');
+    // --- parallel, pipelined transfer over the one shared session ---
+    let remote_root = cfg.remote_path.trim_end_matches('/').to_string();
     let total = files.len() as u32;
     let bytes_total = upload_total_bytes(&files);
-    let mut bytes_done: u64 = 0;
-    let start = Instant::now();
-    for (i, (local, rel)) in files.iter().enumerate() {
-        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(Error::UploadCancelled);
+
+    // Pre-create every remote directory ONCE, sequentially, before any
+    // concurrent `create` runs. This avoids the race where two tasks `mkdir`
+    // the same parent at the same instant. Best-effort: an already-existing
+    // dir reports failure on most servers (ignored); a dir we truly cannot
+    // create surfaces later as a real error when a file `create` fails.
+    for dir in required_remote_dirs(&files) {
+        let _ = sftp.create_dir(format!("{remote_root}/{dir}")).await;
+    }
+
+    // Read the user's preferred stream count from app.json (default 4),
+    // clamped to a safe range. Read BEFORE `clamp_concurrency` consumes it.
+    let configured = crate::instances::store::read_app_json(
+        &crate::paths::app_file(app).map_err(|e| Error::io("<app_file>", e))?,
+    )
+    .map(|f| f.general.sftp_upload_concurrency)
+    .unwrap_or(DEFAULT_UPLOAD_CONCURRENCY);
+    let concurrency = clamp_concurrency(configured) as usize;
+
+    let files_done = Arc::new(AtomicU32::new(0));
+    let bytes_done = Arc::new(AtomicU64::new(0));
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+    let mut tasks = tokio::task::JoinSet::new();
+
+    for (local, rel) in files {
+        // Stop dispatching new work the moment a cancel or an error is seen.
+        if cancel.load(Ordering::SeqCst) {
+            break;
         }
-
-        ensure_remote_dirs(&sftp, remote_root, rel).await;
-
+        let permit =
+            semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| Error::SftpTransferFailed {
+                    details: format!("upload scheduler closed: {e}"),
+                })?;
+        let sftp = sftp.clone();
+        let cancel = cancel.clone();
+        let files_done = files_done.clone();
+        let bytes_done = bytes_done.clone();
+        let app = app.clone();
+        let server_id = server_id.to_string();
         let remote = format!("{remote_root}/{rel}");
-        let mut local_file = tokio::fs::File::open(local)
-            .await
-            .map_err(|e| Error::io(local.display().to_string(), e))?;
-        let mut remote_file =
-            sftp.create(remote.clone())
-                .await
-                .map_err(|e| Error::SftpTransferFailed {
-                    details: format!("{remote}: {e}"),
-                })?;
+        tasks.spawn(async move {
+            // Hold the permit for the lifetime of this transfer; dropped on return.
+            let _permit = permit;
+            copy_one_file(sftp, &local, remote, cancel, bytes_done.clone()).await?;
+            // This file is complete: bump the file counter and emit a tick from
+            // the atomics so the bar advances per completed file.
+            let done = files_done.fetch_add(1, Ordering::SeqCst) + 1;
+            let _ = ServerUploadProgress {
+                server_id,
+                current_file: rel,
+                files_done: done,
+                files_total: total,
+                bytes_done: bytes_done.load(Ordering::SeqCst) as f64,
+                bytes_total: bytes_total as f64,
+            }
+            .emit(&app);
+            Ok::<(), Error>(())
+        });
+    }
 
-        // Streamed copy in fixed-size chunks: constant memory regardless of file
-        // size (#28), with cancellation polled between chunks. Progress is emitted
-        // mid-file on a bytes-or-time cadence so the bar advances within large files.
-        let mut buf = vec![0u8; 256 * 1024];
-        let mut bytes_at_last_emit: u64 = bytes_done;
-        let mut ms_at_last_emit: u128 = start.elapsed().as_millis();
-        loop {
-            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-                return Err(Error::UploadCancelled);
-            }
-            let n = local_file
-                .read(&mut buf)
-                .await
-                .map_err(|e| Error::io(local.display().to_string(), e))?;
-            if n == 0 {
-                break;
-            }
-            remote_file
-                .write_all(&buf[..n])
-                .await
-                .map_err(|e| Error::SftpTransferFailed {
-                    details: format!("{remote}: {e}"),
-                })?;
-            bytes_done += n as u64;
-            let ms_now = start.elapsed().as_millis();
-            if should_emit_progress(bytes_done, bytes_at_last_emit, ms_now, ms_at_last_emit) {
-                let _ = ServerUploadProgress {
-                    server_id: server_id.to_string(),
-                    current_file: rel.clone(),
-                    files_done: i as u32,
-                    files_total: total,
-                    bytes_done: bytes_done as f64,
-                    bytes_total: bytes_total as f64,
+    // Drain: first error wins. On any failure, flip the cancel flag (so
+    // in-flight tasks bail at their next chunk boundary) and abort the rest.
+    let mut first_err: Option<Error> = None;
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                    cancel.store(true, Ordering::SeqCst);
+                    tasks.abort_all();
                 }
-                .emit(app);
-                bytes_at_last_emit = bytes_done;
-                ms_at_last_emit = ms_now;
+            }
+            Err(join_err) => {
+                // A task panicked or was aborted. An abort after we've recorded
+                // an error is expected; only surface an unexpected panic.
+                if first_err.is_none() && !join_err.is_cancelled() {
+                    first_err = Some(Error::SftpTransferFailed {
+                        details: format!("upload task failed: {join_err}"),
+                    });
+                    cancel.store(true, Ordering::SeqCst);
+                    tasks.abort_all();
+                }
             }
         }
-        remote_file
-            .shutdown()
+    }
+
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+    if cancel.load(Ordering::SeqCst) {
+        return Err(Error::UploadCancelled);
+    }
+    Ok(())
+}
+
+/// Stream one local file to `remote` over the shared SFTP session in fixed-size
+/// chunks: constant memory regardless of file size (#28). Cancellation is polled
+/// before the file opens and between chunks; a flipped flag returns
+/// [`Error::UploadCancelled`] (a partially-written file is left on the host).
+/// `bytes_done` accumulates across all parallel transfers.
+///
+/// `sftp` is the `Arc`-shared session; `create`/`write`/`shutdown` work through
+/// the `Arc` deref. The `SftpSession` itself is not cloned (it is not `Clone`).
+async fn copy_one_file(
+    sftp: std::sync::Arc<russh_sftp::client::SftpSession>,
+    local: &Path,
+    remote: String,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    bytes_done: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) -> Result<()> {
+    if cancel.load(Ordering::SeqCst) {
+        return Err(Error::UploadCancelled);
+    }
+    let mut local_file = tokio::fs::File::open(local)
+        .await
+        .map_err(|e| Error::io(local.display().to_string(), e))?;
+    let mut remote_file =
+        sftp.create(remote.clone())
             .await
             .map_err(|e| Error::SftpTransferFailed {
                 details: format!("{remote}: {e}"),
             })?;
 
-        // End-of-file emit: files_done advances to i+1 to signal this file is complete.
-        let _ = ServerUploadProgress {
-            server_id: server_id.to_string(),
-            current_file: rel.clone(),
-            files_done: i as u32 + 1,
-            files_total: total,
-            bytes_done: bytes_done as f64,
-            bytes_total: bytes_total as f64,
+    let mut buf = vec![0u8; UPLOAD_CHUNK_BYTES];
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(Error::UploadCancelled);
         }
-        .emit(app);
+        let n = local_file
+            .read(&mut buf)
+            .await
+            .map_err(|e| Error::io(local.display().to_string(), e))?;
+        if n == 0 {
+            break;
+        }
+        remote_file
+            .write_all(&buf[..n])
+            .await
+            .map_err(|e| Error::SftpTransferFailed {
+                details: format!("{remote}: {e}"),
+            })?;
+        bytes_done.fetch_add(n as u64, Ordering::SeqCst);
     }
-
+    remote_file
+        .shutdown()
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: format!("{remote}: {e}"),
+        })?;
     Ok(())
-}
-
-/// Best-effort `mkdir -p` of the parent directories for `rel` under
-/// `remote_root`. SFTP has no atomic recursive mkdir, so we create each segment
-/// in turn and ignore errors: an already-existing directory reports `Failure`
-/// on most servers, and a directory we truly cannot create surfaces later as a
-/// real error when the file `create` fails.
-async fn ensure_remote_dirs(sftp: &russh_sftp::client::SftpSession, remote_root: &str, rel: &str) {
-    let mut segments: Vec<&str> = rel.split('/').collect();
-    segments.pop(); // drop the file name; keep only directory components
-    let mut acc = remote_root.to_string();
-    for seg in segments {
-        if seg.is_empty() {
-            continue;
-        }
-        acc.push('/');
-        acc.push_str(seg);
-        let _ = sftp.create_dir(acc.clone()).await;
-    }
 }
 
 #[cfg(test)]
@@ -716,30 +783,22 @@ mod tests {
     }
 
     #[test]
-    fn should_emit_progress_respects_bytes_and_time_cadence() {
-        // Below both thresholds → no emit.
-        assert!(!should_emit_progress(100, 0, 100, 0));
-        // Exactly at bytes threshold → emit.
-        assert!(should_emit_progress(PROGRESS_BYTES_INTERVAL, 0, 0, 0));
-        // Above bytes threshold → emit.
-        assert!(should_emit_progress(PROGRESS_BYTES_INTERVAL + 1, 0, 0, 0));
-        // Exactly at time threshold → emit.
-        assert!(should_emit_progress(0, 0, PROGRESS_MS_INTERVAL, 0));
-        // Above time threshold → emit.
-        assert!(should_emit_progress(0, 0, PROGRESS_MS_INTERVAL + 1, 0));
-        // Below bytes but above time → emit (OR logic).
-        assert!(should_emit_progress(1, 0, PROGRESS_MS_INTERVAL, 0));
-        // Above bytes but below time → emit (OR logic).
-        assert!(should_emit_progress(PROGRESS_BYTES_INTERVAL, 0, 1, 0));
-        // Both watermarks advanced; delta below both thresholds → no emit.
-        let base_bytes = 1_000_000u64;
-        let base_ms = 5_000u128;
-        assert!(!should_emit_progress(
-            base_bytes + 100,
-            base_bytes,
-            base_ms + 10,
-            base_ms
-        ));
+    fn clamp_concurrency_maps_zero_to_default_and_clamps_range() {
+        // Zero (unset / "auto") → default.
+        assert_eq!(clamp_concurrency(0), DEFAULT_UPLOAD_CONCURRENCY);
+        // In-range values pass through.
+        assert_eq!(clamp_concurrency(1), 1);
+        assert_eq!(clamp_concurrency(4), 4);
+        assert_eq!(
+            clamp_concurrency(MAX_UPLOAD_CONCURRENCY),
+            MAX_UPLOAD_CONCURRENCY
+        );
+        // Above the ceiling → clamped down.
+        assert_eq!(
+            clamp_concurrency(MAX_UPLOAD_CONCURRENCY + 1),
+            MAX_UPLOAD_CONCURRENCY
+        );
+        assert_eq!(clamp_concurrency(1000), MAX_UPLOAD_CONCURRENCY);
     }
 
     #[test]
