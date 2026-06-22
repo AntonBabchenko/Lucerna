@@ -489,6 +489,37 @@ pub async fn upload_server(
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let mut tasks = tokio::task::JoinSet::new();
 
+    // Coalescing progress emitter: a single ticker reads the shared atomics every
+    // ~250ms and emits a ServerUploadProgress, so the bar advances smoothly even
+    // while a few large files are mid-flight (preserves the Section-G smoothness
+    // under parallelism — one tick reflects all in-flight streams at once). The
+    // per-file-completion emit in each task still fires an immediate, accurate
+    // frame with the finished file's name; this ticker only fills the gaps.
+    // Stopped via `emit_stop` once the drain completes.
+    const PROGRESS_TICK_MS: u64 = 250;
+    let emit_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let emitter = {
+        let app = app.clone();
+        let server_id = server_id.to_string();
+        let files_done = files_done.clone();
+        let bytes_done = bytes_done.clone();
+        let emit_stop = emit_stop.clone();
+        tokio::spawn(async move {
+            while !emit_stop.load(Ordering::SeqCst) {
+                tokio::time::sleep(std::time::Duration::from_millis(PROGRESS_TICK_MS)).await;
+                let _ = ServerUploadProgress {
+                    server_id: server_id.clone(),
+                    current_file: String::new(),
+                    files_done: files_done.load(Ordering::SeqCst),
+                    files_total: total,
+                    bytes_done: bytes_done.load(Ordering::SeqCst) as f64,
+                    bytes_total: bytes_total as f64,
+                }
+                .emit(&app);
+            }
+        })
+    };
+
     for (local, rel) in files {
         // Stop dispatching new work the moment a cancel or an error is seen.
         if cancel.load(Ordering::SeqCst) {
@@ -555,6 +586,10 @@ pub async fn upload_server(
             }
         }
     }
+
+    // Stop the coalescing emitter — the transfer phase is over.
+    emit_stop.store(true, Ordering::SeqCst);
+    emitter.abort();
 
     if let Some(e) = first_err {
         return Err(e);
