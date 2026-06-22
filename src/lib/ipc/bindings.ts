@@ -1006,11 +1006,16 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	/**
 	 *  Загрузить серверный `runtime/` на SFTP-хост. Сервер должен быть остановлен.
 	 * 
+	 *  `password` — транзитный секрет, введённый в этой сессии при выключенной
+	 *  опции «Сохранить пароль»; если передан, используется вместо связки ключей
+	 *  и **никогда не сохраняется**. При `None` секрет берётся из keyring как
+	 *  обычно.
+	 * 
 	 *  При первом подключении или изменении ключа хоста возвращает ошибку
 	 *  `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
 	 *  доверяет новому ключу и сохраняет его отпечаток в `server.json`.
 	 */
-	serverUpload: (id: string, acceptNewHostKey: boolean) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey })),
+	serverUpload: (id: string, acceptNewHostKey: boolean, password: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, password })),
 	/**
 	 *  Запросить отмену активной заливки на хостинг (no-op, если её нет).
 	 *  Частично залитые файлы остаются на хосте (докачка — отдельная фича).
