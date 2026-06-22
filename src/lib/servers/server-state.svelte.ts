@@ -256,6 +256,7 @@ async function upload(
   acceptNewHostKey: boolean,
   skipWorlds: boolean,
   password?: string | null,
+  resume = false,
 ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
   setUploadState(id, {
     phase: 'uploading',
@@ -269,7 +270,7 @@ async function upload(
   });
   let r: { status: 'ok'; data: null } | { status: 'error'; error: unknown };
   try {
-    r = await commands.serverUpload(id, acceptNewHostKey, skipWorlds, password ?? null);
+    r = await commands.serverUpload(id, acceptNewHostKey, skipWorlds, password ?? null, resume);
   } catch (e) {
     setUploadState(id, { phase: 'error', error: String(e) });
     return { status: 'error', error: e };
@@ -295,6 +296,27 @@ async function cancelUpload(
   id: string,
 ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
   return await commands.serverCancelUpload(id);
+}
+
+interface UploadResumeInfo {
+  resumable: boolean;
+  filesTotal: number;
+  filesDone: number;
+  bytesTotal: number;
+}
+
+/// Ask the backend whether a resumable upload exists for the server's current
+/// target. Returns null when none (or on IPC error) so callers can simply
+/// `if (info)` to decide whether to show the Continue affordance.
+async function uploadResumeState(id: string): Promise<UploadResumeInfo | null> {
+  const r = await commands.serverUploadResumeState(id);
+  if (r.status !== 'ok' || !r.data.resumable) return null;
+  return {
+    resumable: true,
+    filesTotal: r.data.files_total,
+    filesDone: r.data.files_done,
+    bytesTotal: r.data.bytes_total ?? 0,
+  };
 }
 
 /// Size/free-space preflight (#K): total bytes of the selected set (honouring
@@ -541,6 +563,7 @@ export const serverState = {
   quarantineClientMods,
   setUploadConfig,
   upload,
+  uploadResumeState,
   uploadPreflight,
   lastUploadFor,
   cancelUpload,

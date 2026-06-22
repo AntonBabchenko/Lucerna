@@ -1064,8 +1064,20 @@ pub fn server_set_upload_config(
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     let mut file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    file.upload = Some(config);
+    let prev_target = file
+        .upload
+        .as_ref()
+        .map(crate::servers_runtime::upload_manifest::target_of);
+    file.upload = Some(config.clone());
     crate::servers_runtime::store::write_server_json(&p.json, &file)?;
+    // A changed target invalidates any in-progress resume manifest (the planned
+    // remote no longer matches what was partially uploaded).
+    let new_target = crate::servers_runtime::upload_manifest::target_of(&config);
+    if prev_target.as_ref() != Some(&new_target) {
+        crate::servers_runtime::upload_manifest::delete_manifest(
+            &crate::servers_runtime::upload_manifest::manifest_path(&base, &id),
+        );
+    }
     if let Some(pw) = password {
         crate::accounts::keychain::store(&crate::accounts::keychain::sftp_password_key(&id), &pw)?;
     }
@@ -1111,6 +1123,7 @@ pub async fn server_upload(
     accept_new_host_key: bool,
     skip_worlds: bool,
     password: Option<String>,
+    resume: bool,
 ) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
@@ -1138,10 +1151,67 @@ pub async fn server_upload(
         accept_new_host_key,
         skip_worlds,
         &cancel,
+        resume,
     )
     .await;
     crate::servers_runtime::upload_control::upload_end(&id);
     result
+}
+
+/// Resumable-upload snapshot for the Hosting tab. `resumable` is true iff an
+/// unfinished manifest exists for the CURRENT configured target.
+///
+/// `bytes_total` is `f64` on the wire — specta-typescript has no `u64`, so
+/// byte counts cross the boundary as `f64` (same convention as `created_unix_ms`
+/// in `schema.rs`). Values stay within 2^53 for any realistic server.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct UploadResumeState {
+    pub resumable: bool,
+    pub files_total: u32,
+    pub files_done: u32,
+    pub bytes_total: f64,
+}
+
+/// Report whether a resumable upload exists for the server's current target.
+/// Pure read — no connection is made, no secret is touched. Used to show the
+/// "Продолжить заливку" affordance on the Hosting tab.
+#[tauri::command]
+#[specta::specta]
+pub fn server_upload_resume_state(app: AppHandle, id: String) -> Result<UploadResumeState> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let none = UploadResumeState {
+        resumable: false,
+        files_total: 0,
+        files_done: 0,
+        bytes_total: 0.0,
+    };
+    let p = crate::paths::server_paths(&base, &id);
+    let Ok(file) = crate::servers_runtime::store::read_server_json(&p.json) else {
+        return Ok(none);
+    };
+    let Some(cfg) = file.upload else {
+        return Ok(none);
+    };
+    let manifest_path = crate::servers_runtime::upload_manifest::manifest_path(&base, &id);
+    let Some(m) = crate::servers_runtime::upload_manifest::read_manifest(&manifest_path) else {
+        return Ok(none);
+    };
+    // Same target, and not already fully done (a complete manifest is deleted on
+    // success, but guard anyway).
+    if m.target != crate::servers_runtime::upload_manifest::target_of(&cfg) {
+        return Ok(none);
+    }
+    let files_total = m.files.len() as u32;
+    let files_done = m.files.iter().filter(|f| f.done).count() as u32;
+    if files_done >= files_total && files_total > 0 {
+        return Ok(none);
+    }
+    Ok(UploadResumeState {
+        resumable: true,
+        files_total,
+        files_done,
+        bytes_total: m.files.iter().map(|f| f.size).sum::<u64>() as f64,
+    })
 }
 
 /// Size/free-space preflight for an upload (#K): total bytes of the selected set

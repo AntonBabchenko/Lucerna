@@ -1015,7 +1015,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
 	 *  доверяет новому ключу и сохраняет его отпечаток в `server.json`.
 	 */
-	serverUpload: (id: string, acceptNewHostKey: boolean, skipWorlds: boolean, password: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, skipWorlds, password })),
+	serverUpload: (id: string, acceptNewHostKey: boolean, skipWorlds: boolean, password: string | null, resume: boolean) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, skipWorlds, password, resume })),
+	/**
+	 *  Report whether a resumable upload exists for the server's current target.
+	 *  Pure read — no connection is made, no secret is touched. Used to show the
+	 *  "Продолжить заливку" affordance on the Hosting tab.
+	 */
+	serverUploadResumeState: (id: string) => typedError<UploadResumeState, Error>(__TAURI_INVOKE("server_upload_resume_state", { id })),
 	/**
 	 *  Size/free-space preflight for an upload (#K): total bytes of the selected set
 	 *  (honouring `skip_worlds`) plus remote free space when the server advertises
@@ -3377,6 +3383,21 @@ export type UploadPreflight = {
 	free_bytes: number | null,
 	/**  Convenience: `free_bytes` is known AND `total_bytes` exceeds it. */
 	exceeds_free: boolean,
+};
+
+/**
+ *  Resumable-upload snapshot for the Hosting tab. `resumable` is true iff an
+ *  unfinished manifest exists for the CURRENT configured target.
+ * 
+ *  `bytes_total` is `f64` on the wire — specta-typescript has no `u64`, so
+ *  byte counts cross the boundary as `f64` (same convention as `created_unix_ms`
+ *  in `schema.rs`). Values stay within 2^53 for any realistic server.
+ */
+export type UploadResumeState = {
+	resumable: boolean,
+	files_total: number,
+	files_done: number,
+	bytes_total: number | null,
 };
 
 export type VerifyCategory = "client" | "libraries" | "assets" | "jre" | "profile_json";

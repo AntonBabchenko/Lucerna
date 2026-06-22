@@ -7,6 +7,7 @@ use crate::servers_runtime::schema::UploadConfig;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -102,6 +103,10 @@ const MAX_UPLOAD_CONCURRENCY: u32 = 16;
 /// Per-write chunk size for the streamed copy: constant memory per in-flight
 /// file regardless of file size (#28).
 const UPLOAD_CHUNK_BYTES: usize = 256 * 1024;
+
+/// Flush the resume manifest to disk every N completed files (batched to avoid
+/// an IO storm on many-small-file uploads).
+const MANIFEST_FLUSH_EVERY: usize = 16;
 
 /// Normalise a user-configured concurrency into a safe stream count. `0`
 /// (unset / "auto") maps to the default; everything else is clamped to
@@ -586,11 +591,33 @@ pub async fn upload_server(
     accept_new_host_key: bool,
     skip_worlds: bool,
     cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    resume: bool,
 ) -> Result<()> {
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let runtime = crate::paths::server_paths(&base, server_id).runtime;
     let policy = UploadPolicy { skip_worlds };
     let files = enumerate_upload_files_with_policy(&runtime, &policy)?;
+
+    // --- resume manifest: load-or-seed before the transfer starts ---
+    use crate::servers_runtime::upload_manifest as mani;
+    let manifest_path = mani::manifest_path(&base, server_id);
+    let target = mani::target_of(cfg);
+    // Load an existing manifest only when resuming AND it is for the same target;
+    // otherwise seed a fresh one (and drop any stale manifest for another target).
+    let existing = if resume {
+        mani::read_manifest(&manifest_path).filter(|m| m.target == target)
+    } else {
+        None
+    };
+    let manifest = existing
+        .clone()
+        .unwrap_or_else(|| mani::seed_manifest(target.clone(), &files));
+    ManifestTracker::write_initial(&manifest_path, &manifest)?;
+    let tracker = std::sync::Arc::new(tokio::sync::Mutex::new(ManifestTracker::new(
+        manifest_path.clone(),
+        manifest,
+        MANIFEST_FLUSH_EVERY,
+    )));
 
     // --- connect + capture host-key fingerprint ---
     let (mut session, seen_fp) = connect_capture(cfg).await?;
@@ -653,6 +680,26 @@ pub async fn upload_server(
     let total = files.len() as u32;
     let bytes_total = upload_total_bytes(&files);
 
+    // Decide which files to (re)upload. For a fresh run, that's all of them; for
+    // a resume, skip files the manifest marks done whose remote size still
+    // matches (re-stat), and always re-upload the previously in-flight file.
+    let to_upload: HashSet<String> = if let Some(prev) = existing.as_ref() {
+        let mut remote_sizes: HashMap<String, u64> = HashMap::new();
+        for f in prev.files.iter().filter(|f| f.done) {
+            let remote = format!("{remote_root}/{}", f.rel);
+            if let Ok(meta) = sftp.metadata(remote).await {
+                if let Some(len) = meta.size {
+                    remote_sizes.insert(f.rel.clone(), len);
+                }
+            }
+        }
+        mani::plan_resume(prev, &files, &remote_sizes)
+            .into_iter()
+            .collect()
+    } else {
+        files.iter().map(|(_, rel)| rel.clone()).collect()
+    };
+
     // Pre-create every remote directory ONCE, sequentially, before any
     // concurrent `create` runs. This avoids the race where two tasks `mkdir`
     // the same parent at the same instant. Best-effort: an already-existing
@@ -712,6 +759,24 @@ pub async fn upload_server(
         if cancel.load(Ordering::SeqCst) {
             break;
         }
+        // Resume skip: already uploaded and verified — count its bytes + file so
+        // the bar still reaches 100%, then move on without touching the remote.
+        // Both atomics advance; the coalescing ticker emits the next frame.
+        if !to_upload.contains(&rel) {
+            files_done.fetch_add(1, Ordering::SeqCst);
+            bytes_done.fetch_add(
+                std::fs::metadata(&local).map(|m| m.len()).unwrap_or(0),
+                Ordering::SeqCst,
+            );
+            continue;
+        }
+        // Record the file about to be written so a later interrupt knows to
+        // re-upload it from scratch. Under parallelism multiple files are in
+        // flight at once and `in_flight` is a single field (last-writer-wins);
+        // that is acceptable because `mark_done` runs ONLY after `shutdown()`
+        // succeeds, so any file unfinished at interrupt stays `done:false` and
+        // `plan_resume` re-uploads it regardless of `in_flight`.
+        tracker.lock().await.set_in_flight(Some(&rel));
         let permit =
             semaphore
                 .clone()
@@ -727,10 +792,17 @@ pub async fn upload_server(
         let app = app.clone();
         let server_id = server_id.to_string();
         let remote = format!("{remote_root}/{rel}");
+        let tracker = tracker.clone();
+        let rel_for_mark = rel.clone();
         tasks.spawn(async move {
             // Hold the permit for the lifetime of this transfer; dropped on return.
             let _permit = permit;
             copy_one_file(sftp, &local, remote, cancel, bytes_done.clone()).await?;
+            // Mark done only AFTER the remote `close` (shutdown) inside
+            // `copy_one_file` succeeded. The tokio Mutex guard is held only across
+            // this cheap mark — never across the copy `.await` — so transfers
+            // stay parallel.
+            tracker.lock().await.mark_done(&rel_for_mark);
             // This file is complete: bump the file counter and emit a tick from
             // the atomics so the bar advances per completed file.
             let done = files_done.fetch_add(1, Ordering::SeqCst) + 1;
@@ -779,11 +851,31 @@ pub async fn upload_server(
     emitter.abort();
 
     if let Some(e) = first_err {
-        return Err(e);
+        return Err(e); // PRESERVES the manifest — partial progress survives.
     }
     if cancel.load(Ordering::SeqCst) {
-        return Err(Error::UploadCancelled);
+        return Err(Error::UploadCancelled); // PRESERVES the manifest too.
     }
+
+    // Emit a terminal progress frame from the atomics so the bar reaches 100%
+    // even on a success path that spawned no upload task (e.g. a resume whose
+    // remaining set was entirely skips). The 250ms coalescing ticker is already
+    // stopped above, so without this the FE could miss the final
+    // files_done == files_total frame and leave the bar stalled short of 100%.
+    let _ = ServerUploadProgress {
+        server_id: server_id.to_string(),
+        current_file: String::new(),
+        files_done: files_done.load(Ordering::SeqCst),
+        files_total: total,
+        bytes_done: bytes_done.load(Ordering::SeqCst) as f64,
+        bytes_total: bytes_total as f64,
+    }
+    .emit(app);
+
+    // Full success: the whole set transferred. Flush the tail, then invalidate
+    // the manifest so the next upload starts fresh (no stale resume offer).
+    tracker.lock().await.finish()?;
+    mani::delete_manifest(&manifest_path);
 
     // Record this successful upload (timestamp + target) for the Hosting tab's
     // "Последняя заливка" line. Best-effort: a write failure must not fail an
@@ -875,10 +967,124 @@ async fn copy_one_file(
     Ok(())
 }
 
+/// Batched writer for the resume manifest. Marks files `done` after their
+/// remote `close` succeeds and flushes to disk every `flush_every` marks (and
+/// always on `finish`), to avoid an IO storm on many-small-file uploads.
+pub(crate) struct ManifestTracker {
+    path: PathBuf,
+    manifest: crate::servers_runtime::upload_manifest::UploadManifest,
+    flush_every: usize,
+    pending: usize,
+}
+
+impl ManifestTracker {
+    /// Persist the freshly-seeded manifest before the transfer starts.
+    pub(crate) fn write_initial(
+        path: &Path,
+        manifest: &crate::servers_runtime::upload_manifest::UploadManifest,
+    ) -> Result<()> {
+        crate::servers_runtime::upload_manifest::write_manifest(path, manifest)
+    }
+
+    pub(crate) fn new(
+        path: PathBuf,
+        manifest: crate::servers_runtime::upload_manifest::UploadManifest,
+        flush_every: usize,
+    ) -> Self {
+        Self {
+            path,
+            manifest,
+            flush_every: flush_every.max(1),
+            pending: 0,
+        }
+    }
+
+    /// Record the file currently being written (re-uploaded from scratch on a
+    /// later resume). Flushed lazily with the next batch.
+    pub(crate) fn set_in_flight(&mut self, rel: Option<&str>) {
+        self.manifest.in_flight = rel.map(|s| s.to_string());
+    }
+
+    /// Mark `rel` done; flush to disk once `flush_every` marks have accrued.
+    pub(crate) fn mark_done(&mut self, rel: &str) {
+        if let Some(f) = self.manifest.files.iter_mut().find(|f| f.rel == rel) {
+            f.done = true;
+        }
+        self.pending += 1;
+        if self.pending >= self.flush_every {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        let _ = crate::servers_runtime::upload_manifest::write_manifest(&self.path, &self.manifest);
+        self.pending = 0;
+    }
+
+    /// Flush the tail and clear `in_flight` (the upload completed this file set
+    /// cleanly up to here). Returns the IO result of the final write.
+    pub(crate) fn finish(&mut self) -> Result<()> {
+        self.manifest.in_flight = None;
+        let r = crate::servers_runtime::upload_manifest::write_manifest(&self.path, &self.manifest);
+        self.pending = 0;
+        r
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn manifest_tracker_marks_done_and_batches_flush() {
+        use crate::servers_runtime::schema::UploadConfig;
+        use crate::servers_runtime::upload_manifest::{read_manifest, seed_manifest, target_of};
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::write(rt.join("a.jar"), b"1234567890").unwrap();
+        std::fs::write(rt.join("b.txt"), b"abc").unwrap();
+        let files = vec![
+            (rt.join("a.jar"), "a.jar".to_string()),
+            (rt.join("b.txt"), "b.txt".to_string()),
+        ];
+        let cfg = UploadConfig {
+            host: "h".into(),
+            port: 22,
+            user: "u".into(),
+            remote_path: "/p".into(),
+            known_host_fp: None,
+            last_upload: None,
+        };
+        let path = crate::servers_runtime::upload_manifest::manifest_path(d.path(), "srv-1");
+        let m = seed_manifest(target_of(&cfg), &files);
+        super::ManifestTracker::write_initial(&path, &m).unwrap();
+
+        // flush_every = 2: first mark does NOT hit disk yet, second mark flushes.
+        let mut tr = super::ManifestTracker::new(path.clone(), m, 2);
+        tr.set_in_flight(Some("a.jar"));
+        tr.mark_done("a.jar"); // pending = 1, no flush
+        assert!(read_manifest(&path).unwrap().files.iter().all(|f| !f.done));
+        tr.mark_done("b.txt"); // pending = 2 → flush
+        let after = read_manifest(&path).unwrap();
+        assert!(after.files.iter().all(|f| f.done));
+
+        // finish() always flushes the tail + clears in_flight.
+        tr.set_in_flight(Some("b.txt"));
+        tr.mark_done("a.jar");
+        tr.finish().unwrap();
+        assert!(read_manifest(&path).unwrap().in_flight.is_none());
+    }
+
+    /// Compile-time guard: `ManifestTracker` must be `Send + Sync` so the Plan-4
+    /// parallel branch can share it as `Arc<tokio::sync::Mutex<ManifestTracker>>`
+    /// across `JoinSet` tasks. If a future field breaks this (e.g. an `Rc`), the
+    /// compiler fails HERE instead of deep in the parallel rewrite.
+    #[test]
+    fn manifest_tracker_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<super::ManifestTracker>();
+    }
 
     #[test]
     fn enumerate_excludes_logs_and_installer() {
