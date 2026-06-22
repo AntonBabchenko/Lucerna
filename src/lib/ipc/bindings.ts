@@ -1804,6 +1804,12 @@ export type GeneralSettings = {
 	 *  deserializes to the 7-day default.
 	 */
 	mod_metadata_ttl_days?: number,
+	/**
+	 *  How many files an SFTP server upload transfers in parallel over the one
+	 *  shared SFTP session. `#[serde(default)]` → app.json written before this
+	 *  field deserializes to the 4-stream default. Clamped to 1..=16 at use.
+	 */
+	sftp_upload_concurrency?: number,
 };
 
 /**  What the UI needs to decide whether/how to show the GPU control. */
