@@ -108,7 +108,10 @@ describe('decideModInstall', () => {
   it('returns kind=prompt with enriched required dep names when required deps are present', async () => {
     const primary = mv('main', 'v1', ['fabric']);
     const reqVersion = mv('dep-a', 'va', ['fabric']);
-    const plan: InstallPlan = { ...emptyPlan(), required: [reqVersion] };
+    const plan: InstallPlan = {
+      ...emptyPlan(),
+      required: [{ version: reqVersion, selection_reason: 'newest_no_pin' }],
+    };
 
     const fetchProjectName = vi.fn().mockImplementation(async (_source, id: string) => {
       if (id === 'main') return 'Main Mod';

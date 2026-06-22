@@ -397,7 +397,15 @@ describe('ModBrowseView install flow', () => {
     searchReturns([hit()]);
     modsVersions.mockResolvedValue(ok([version()]));
     modsResolveInstallPlan.mockResolvedValue(
-      ok({ ...emptyPlan, required: [version({ project_id: 'dep1', version_id: 'dv1' })] }),
+      ok({
+        ...emptyPlan,
+        required: [
+          {
+            version: version({ project_id: 'dep1', version_id: 'dv1' }),
+            selection_reason: 'newest_no_pin',
+          },
+        ],
+      }),
     );
     render(ModBrowseView, { props: { ...full } });
 

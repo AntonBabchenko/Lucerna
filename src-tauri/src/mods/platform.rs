@@ -238,6 +238,32 @@ pub struct ModDepLink {
     pub project_ref: DepProjectRef,
 }
 
+/// Why the resolver chose a specific build for a dependency. Surfaced so the UI
+/// can later distinguish an author-recommended pin from a "newest compatible"
+/// auto-pick. `Copy` because it is a tiny tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionReason {
+    /// Author pinned this exact `version_id` (Modrinth) / `file_id` (CF) and it
+    /// is compatible — installed verbatim.
+    PinHonored,
+    /// Author pinned a build, but it is not compatible with this MC/loader —
+    /// fell back to a compatible build.
+    FellBackFromPin,
+    /// A declared version range excluded newer builds and pushed the pick to an
+    /// older satisfying build.
+    RangeConstrained,
+    /// No pin and no range narrowed the choice — newest compatible build.
+    NewestNoPin,
+}
+
+/// A dependency the launcher plans to install, plus why that build was chosen.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PlannedDep {
+    pub version: ModVersion,
+    pub selection_reason: SelectionReason,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ResolvedDeps {
     pub required: Vec<ResolvedDep>,
@@ -250,6 +276,7 @@ pub struct ResolvedDeps {
 pub struct ResolvedDep {
     pub project_ref: DepProjectRef,
     pub version: ModVersion,
+    pub selection_reason: SelectionReason,
 }
 
 /// A direct optional dependency of the primary, plus ITS own transitive
@@ -259,7 +286,7 @@ pub struct ResolvedDep {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct OptionalDep {
     pub version: ModVersion,
-    pub requires: Vec<ModVersion>,
+    pub requires: Vec<PlannedDep>,
 }
 
 /// The full plan the dependency dialog renders. `required` is the primary's
@@ -268,7 +295,7 @@ pub struct OptionalDep {
 /// refs for display.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct InstallPlan {
-    pub required: Vec<ModVersion>,
+    pub required: Vec<PlannedDep>,
     pub optional: Vec<OptionalDep>,
     pub incompatible: Vec<DepProjectRef>,
     pub unresolvable: Vec<DepProjectRef>,

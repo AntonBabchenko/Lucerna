@@ -246,15 +246,20 @@ pub async fn mods_install_with_deps(
         let _ = payload.emit(&app_for_progress);
     });
 
-    // Compute the primary's transitive required closure.
-    let primary_required = resolve_closure(
+    // Compute the primary's transitive required closure. The executor only needs
+    // the versions to download — collapse PlannedDep to ModVersion here (the
+    // install-plan path keeps the reason; this one does not surface it).
+    let primary_required: Vec<ModVersion> = resolve_closure(
         std::slice::from_ref(&primary_v),
         &installed,
         &installed_filenames,
         make_fetch(),
     )
     .await?
-    .required;
+    .required
+    .into_iter()
+    .map(|p| p.version)
+    .collect();
 
     // Best-effort: read the primary jar's manifest and fold in required
     // libraries the platform metadata omitted (e.g. Waystones requires Balm,
@@ -278,7 +283,9 @@ pub async fn mods_install_with_deps(
         for v in &primary_required {
             excl.insert(ProjectKey::of_version(v));
         }
-        for (needed_id, cand) in extras {
+        // Executor path only needs the candidate to download — the
+        // `SelectionReason` is surfaced on the install-plan path, not here.
+        for (needed_id, cand, _reason) in extras {
             if excl.contains(&ProjectKey::of_version(&cand)) {
                 continue;
             }
@@ -313,10 +320,10 @@ pub async fn mods_install_with_deps(
                 make_fetch(),
             )
             .await?;
-            for v in &sub.required {
-                excl.insert(ProjectKey::of_version(v));
+            for p in &sub.required {
+                excl.insert(ProjectKey::of_version(&p.version));
             }
-            extra_install.extend(sub.required);
+            extra_install.extend(sub.required.into_iter().map(|p| p.version));
             extra_install.push(cand);
         }
     }
@@ -360,7 +367,7 @@ pub async fn mods_install_with_deps(
             make_fetch(),
         )
         .await?;
-        dep_versions.extend(sub.required);
+        dep_versions.extend(sub.required.into_iter().map(|p| p.version));
         chosen_optionals.push(ov);
     }
     let dep_versions = dedup_versions(dep_versions.into_iter());
@@ -564,15 +571,19 @@ pub(crate) async fn install_version_into_dir(
             }
         };
 
-        // 4. Primary's transitive required closure.
-        let primary_required = resolve_closure(
+        // 4. Primary's transitive required closure. Collapse PlannedDep to
+        //    ModVersion — the server path only needs versions to download.
+        let primary_required: Vec<ModVersion> = resolve_closure(
             std::slice::from_ref(&primary_v),
             &installed,
             &installed_filenames,
             make_fetch(),
         )
         .await?
-        .required;
+        .required
+        .into_iter()
+        .map(|p| p.version)
+        .collect();
 
         // 5. Manifest-discovered required libs the platform metadata omits, each
         //    provides-verified over its DOWNLOADED jar before being committed.
@@ -586,7 +597,9 @@ pub(crate) async fn install_version_into_dir(
             for v in &primary_required {
                 excl.insert(ProjectKey::of_version(v));
             }
-            for (needed_id, cand) in extras {
+            // Executor path only needs the candidate to download — the
+            // `SelectionReason` is surfaced on the install-plan path, not here.
+            for (needed_id, cand, _reason) in extras {
                 if excl.contains(&ProjectKey::of_version(&cand)) {
                     continue;
                 }
@@ -620,10 +633,10 @@ pub(crate) async fn install_version_into_dir(
                     make_fetch(),
                 )
                 .await?;
-                for v in &sub.required {
-                    excl.insert(ProjectKey::of_version(v));
+                for p in &sub.required {
+                    excl.insert(ProjectKey::of_version(&p.version));
                 }
-                extra_install.extend(sub.required);
+                extra_install.extend(sub.required.into_iter().map(|p| p.version));
                 extra_install.push(cand);
             }
         }
@@ -747,13 +760,22 @@ pub async fn mods_resolve_install_plan(
     //     yields no extras and preserves the prior behaviour.
     let extras_raw =
         manifest_extra_root_versions(&data_dir(&app)?, &primary, &mc_version, loader).await;
-    let extras = dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required);
+    // Only project `required` into owned versions and run the dedup pass when the
+    // manifest actually yielded extras — the common case (no manifest extras)
+    // skips the full clone + dedup entirely.
+    let extras = if extras_raw.is_empty() {
+        Vec::new()
+    } else {
+        let required_versions: Vec<ModVersion> =
+            required.iter().map(|p| p.version.clone()).collect();
+        dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required_versions)
+    };
     if !extras.is_empty() {
         let mut excl = installed.clone();
-        for v in &required {
-            excl.insert(ProjectKey::of_version(v));
+        for p in &required {
+            excl.insert(ProjectKey::of_version(&p.version));
         }
-        for (_needed_id, cand) in extras {
+        for (_needed_id, cand, reason) in extras {
             if excl.contains(&ProjectKey::of_version(&cand)) {
                 continue;
             }
@@ -765,19 +787,24 @@ pub async fn mods_resolve_install_plan(
                 make_fetch(),
             )
             .await?;
-            for v in sub.required {
-                excl.insert(ProjectKey::of_version(&v));
-                required.push(v);
+            for p in sub.required {
+                excl.insert(ProjectKey::of_version(&p.version));
+                required.push(p);
             }
-            required.push(cand);
+            // Carry the real range-aware reason threaded by
+            // `manifest_extra_root_versions` (Task 7) for the candidate itself.
+            required.push(PlannedDep {
+                version: cand,
+                selection_reason: reason,
+            });
         }
     }
 
     // 3. Each direct optional + its transitive required sub-closure,
     //    excluding primary's requireds + installed.
     let mut exclude = installed.clone();
-    for v in &required {
-        exclude.insert(ProjectKey::of_version(v));
+    for p in &required {
+        exclude.insert(ProjectKey::of_version(&p.version));
     }
     let mut optional = Vec::new();
     // Skip loaders AND optionals already installed in this instance — offering
@@ -798,7 +825,7 @@ pub async fn mods_resolve_install_plan(
         .await?;
         optional.push(OptionalDep {
             version: opt.version.clone(),
-            requires: dedup_versions(sub.required.into_iter()),
+            requires: dedup_planned(sub.required.into_iter()),
         });
     }
 
@@ -1261,16 +1288,16 @@ pub async fn mods_find_orphans(
 }
 
 /// Best-effort: read `primary`'s jar manifest and resolve required libraries
-/// the platform metadata omitted. Returns `(needed_id, candidate)` pairs. Any
-/// error (no sha1, download failure, unreadable jar) yields an empty vec so the
-/// install/plan proceeds exactly as before.
+/// the platform metadata omitted. Returns `(needed_id, candidate,
+/// selection_reason)` triples — the reason is the range-aware provenance the
+/// install plan surfaces. Any error (no sha1, download failure, unreadable jar)
+/// yields an empty vec so the install/plan proceeds exactly as before.
 async fn manifest_extra_root_versions(
     dd: &std::path::Path,
     primary: &ModVersion,
     mc: &str,
     loader: LoaderKind,
-) -> Vec<(String, ModVersion)> {
-    use std::sync::Arc;
+) -> Vec<(String, ModVersion, crate::mods::platform::SelectionReason)> {
     let Some(sha) = primary
         .primary_file
         .sha1
@@ -1297,102 +1324,96 @@ async fn manifest_extra_root_versions(
         return Vec::new();
     };
 
-    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
-    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
-        platform_for(ModSource::Curseforge).into();
-    let (extras, _unresolved) = crate::mods::dep_resolve::manifest_extra_roots(&bytes, |id| {
-        let mr = mr.clone();
-        let cf = cf.clone();
-        let mc = mc.to_string();
-        async move { resolve_dep_id(mr, cf, &id, &mc, loader).await }
+    // Concrete clients; `CurseForgeClient::new()` resolves the keyring/embedded
+    // key internally. Both route through `network::` — no raw HTTP added.
+    let mr = crate::mods::modrinth::ModrinthClient::new();
+    let cf = crate::mods::curseforge::CurseForgeClient::new();
+    let mc_owned = mc.to_string();
+    let (extras, unresolved) = crate::mods::dep_resolve::manifest_extra_roots(&bytes, |dep| {
+        let mr = &mr;
+        let cf = &cf;
+        let mc = mc_owned.clone();
+        async move {
+            // Thread the manifest dep's declared range + family into selection;
+            // an empty range string means "no constraint" → None.
+            let range_owned = dep.range.trim().to_string();
+            let range = if range_owned.is_empty() {
+                None
+            } else {
+                Some((range_owned.as_str(), dep.family))
+            };
+            // Separate owned MC clones per lookup closure — each is captured by
+            // its own `async move` future, so they cannot share one binding.
+            let mr_mc = mc.clone();
+            let cf_mc = mc;
+            crate::mods::dep_resolve::resolve_missing_dep(
+                &dep.dep_id,
+                range,
+                move |id| {
+                    let mc = mr_mc.clone();
+                    async move {
+                        Ok(crate::mods::dep_resolve::modrinth_lookup(mr, &id, &mc, loader).await)
+                    }
+                },
+                move |id| {
+                    let mc = cf_mc.clone();
+                    async move {
+                        Ok(crate::mods::dep_resolve::curseforge_lookup(cf, &id, &mc, loader).await)
+                    }
+                },
+            )
+            .await
+        }
     })
     .await;
+    // Transparency: these bare loader/dep ids can't populate `InstallPlan.unresolvable`
+    // (which holds `DepProjectRef`s) — the preflight panel is the user-facing backstop.
+    // Leave a trace so the launcher log records what the resolver could not auto-resolve.
+    if !unresolved.is_empty() {
+        crate::diag!(
+            "manifest_extra_roots: {} dep(s) could not be auto-resolved for '{}' ({}): {}",
+            unresolved.len(),
+            primary.name,
+            primary.version_id,
+            unresolved.join(", ")
+        );
+    }
     extras
         .into_iter()
-        .map(|e| (e.needed_id, e.candidate))
+        .map(|e| (e.needed_id, e.candidate, e.selection_reason))
         .collect()
 }
 
 /// Drop extra candidates already installed or already in the required set
 /// (by source-specific ProjectKey or by lowercased jar filename). Pure/testable.
+/// The `SelectionReason` rides through untouched — dedup keys off the candidate
+/// only.
 fn dedup_extra_candidates(
-    extras: Vec<(String, ModVersion)>,
+    extras: Vec<(String, ModVersion, crate::mods::platform::SelectionReason)>,
     installed: &std::collections::HashSet<ProjectKey>,
     installed_filenames: &std::collections::HashSet<String>,
     already_required: &[ModVersion],
-) -> Vec<(String, ModVersion)> {
+) -> Vec<(String, ModVersion, crate::mods::platform::SelectionReason)> {
     let mut excl = installed.clone();
     for v in already_required {
         excl.insert(ProjectKey::of_version(v));
     }
     extras
         .into_iter()
-        .filter(|(_id, c)| {
+        .filter(|(_id, c, _reason)| {
             let fresh = excl.insert(ProjectKey::of_version(c));
             fresh && !installed_filenames.contains(&c.primary_file.filename.to_ascii_lowercase())
         })
         .collect()
 }
 
-/// Resolve a loader mod-id to an installable candidate using both platforms,
-/// Modrinth-slug-first then CurseForge (search -> exact-slug -> newest version).
-async fn resolve_dep_id(
-    mr: std::sync::Arc<dyn crate::mods::platform::ModPlatform>,
-    cf: std::sync::Arc<dyn crate::mods::platform::ModPlatform>,
-    dep_id: &str,
-    mc: &str,
-    loader: LoaderKind,
-) -> crate::mods::dep_resolve::DepResolution {
-    use crate::mods::platform::{ContentKind, ModSearchQuery, ModSort, ModSource};
-
-    let mc_owned = mc.to_string();
-    crate::mods::dep_resolve::resolve_missing_dep(
-        dep_id,
-        |slug| {
-            let mr = mr.clone();
-            let mc = mc_owned.clone();
-            async move { mr.versions(&slug, Some(&mc), Some(loader)).await }
-        },
-        |id| {
-            let cf = cf.clone();
-            let mc = mc_owned.clone();
-            async move {
-                let page = cf
-                    .search(&ModSearchQuery {
-                        source: ModSource::Curseforge,
-                        kind: ContentKind::Mod,
-                        query: id.clone(),
-                        mc_version: Some(mc.clone()),
-                        loader: Some(loader),
-                        sort: ModSort::Relevance,
-                        page_size: 20,
-                        offset: 0,
-                    })
-                    .await?;
-                let Some(hit) = page.hits.into_iter().find(|h| {
-                    h.slug
-                        .as_deref()
-                        .map(|s| s.eq_ignore_ascii_case(&id))
-                        .unwrap_or(false)
-                }) else {
-                    return Ok(None);
-                };
-                let mut versions = cf
-                    .versions(&hit.project_id, Some(&mc), Some(loader))
-                    .await?;
-                versions.sort_by(|a, b| b.published_at.cmp(&a.published_at));
-                Ok(versions.into_iter().next())
-            }
-        },
-    )
-    .await
-}
-
 /// One-click install of a missing required dependency identified only by its
-/// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first -> CF), verifies
-/// the downloaded jar actually provides that id, then installs it. On any
-/// resolution/verification miss returns `OpenSearch` so the UI can offer a
-/// pre-filled search instead of guessing.
+/// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first + name-search
+/// fallback -> CF, the latter loader/MC-decoupled), verifies the downloaded jar
+/// actually provides that id, then installs it. No manifest range context on
+/// this bare-id path → `range = None`. On any resolution/verification miss
+/// returns `OpenSearch` so the UI can offer a pre-filled search instead of
+/// guessing.
 #[tauri::command]
 #[specta::specta]
 pub async fn mods_install_missing_required(
@@ -1402,24 +1423,43 @@ pub async fn mods_install_missing_required(
 ) -> crate::error::Result<crate::mods::platform::InstallMissingOutcome> {
     use crate::mods::dep_resolve::{jar_provides, DepResolution};
     use crate::mods::platform::InstallMissingOutcome;
-    use std::sync::Arc;
 
     let inst_root = instance_root(&app, &instance_id)?;
     let dd = data_dir(&app)?;
     let (mc_version, loader) = read_active_mc_and_loader(&app, &instance_id)?;
 
-    let mr: Arc<dyn crate::mods::platform::ModPlatform> = platform_for(ModSource::Modrinth).into();
-    let cf: Arc<dyn crate::mods::platform::ModPlatform> =
-        platform_for(ModSource::Curseforge).into();
-
-    let resolution = resolve_dep_id(mr, cf, &dep_id, &mc_version, loader).await;
+    // Concrete clients; `CurseForgeClient::new()` resolves the key internally.
+    let mr = crate::mods::modrinth::ModrinthClient::new();
+    let cf = crate::mods::curseforge::CurseForgeClient::new();
+    let resolution = crate::mods::dep_resolve::resolve_missing_dep(
+        &dep_id,
+        None,
+        |id| {
+            let mr = &mr;
+            let mc = mc_version.clone();
+            async move { Ok(crate::mods::dep_resolve::modrinth_lookup(mr, &id, &mc, loader).await) }
+        },
+        |id| {
+            let cf = &cf;
+            let mc = mc_version.clone();
+            async move {
+                Ok(crate::mods::dep_resolve::curseforge_lookup(cf, &id, &mc, loader).await)
+            }
+        },
+    )
+    .await;
     let DepResolution::Resolved {
         candidate,
         needed_id,
+        selection_reason,
     } = resolution
     else {
         return Ok(InstallMissingOutcome::OpenSearch { query: dep_id });
     };
+    crate::diag!(
+        "dep_resolve: {dep_id} -> {} ({selection_reason:?})",
+        candidate.version_id
+    );
 
     let nop: crate::mods::install::ProgressFn = Box::new(|_, _, _| {});
     let sha = match candidate.primary_file.sha1.as_deref() {
@@ -1793,10 +1833,11 @@ mod tests {
         let installed_filenames: HashSet<String> = HashSet::new();
         let already_required: Vec<ModVersion> = Vec::new();
 
+        let r = crate::mods::platform::SelectionReason::NewestNoPin;
         let extras = vec![
-            ("balm".to_string(), balm.clone()),
-            ("curios".to_string(), curios.clone()),
-            ("curios".to_string(), curios.clone()),
+            ("balm".to_string(), balm.clone(), r),
+            ("curios".to_string(), curios.clone(), r),
+            ("curios".to_string(), curios.clone(), r),
         ];
 
         let kept =
@@ -1818,7 +1859,11 @@ mod tests {
         let already_required = vec![balm.clone()];
 
         let kept = dedup_extra_candidates(
-            vec![("balm".to_string(), balm.clone())],
+            vec![(
+                "balm".to_string(),
+                balm.clone(),
+                crate::mods::platform::SelectionReason::NewestNoPin,
+            )],
             &installed,
             &installed_filenames,
             &already_required,
@@ -1837,7 +1882,11 @@ mod tests {
         let already_required: Vec<ModVersion> = Vec::new();
 
         let kept = dedup_extra_candidates(
-            vec![("balm".to_string(), balm)],
+            vec![(
+                "balm".to_string(),
+                balm,
+                crate::mods::platform::SelectionReason::NewestNoPin,
+            )],
             &installed,
             &installed_filenames,
             &already_required,

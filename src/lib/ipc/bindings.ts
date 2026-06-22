@@ -588,10 +588,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	instanceDependencyPreflight: (instanceId: string) => typedError<PreflightReport, Error>(__TAURI_INVOKE("instance_dependency_preflight", { instanceId })),
 	/**
 	 *  One-click install of a missing required dependency identified only by its
-	 *  loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first -> CF), verifies
-	 *  the downloaded jar actually provides that id, then installs it. On any
-	 *  resolution/verification miss returns `OpenSearch` so the UI can offer a
-	 *  pre-filled search instead of guessing.
+	 *  loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first + name-search
+	 *  fallback -> CF, the latter loader/MC-decoupled), verifies the downloaded jar
+	 *  actually provides that id, then installs it. No manifest range context on
+	 *  this bare-id path → `range = None`. On any resolution/verification miss
+	 *  returns `OpenSearch` so the UI can offer a pre-filled search instead of
+	 *  guessing.
 	 */
 	modsInstallMissingRequired: (instanceId: string, depId: string) => typedError<InstallMissingOutcome, Error>(__TAURI_INVOKE("mods_install_missing_required", { instanceId, depId })),
 	/**
@@ -1939,7 +1941,7 @@ export type InstallPhase = "manifest" | "forge_install" | "jre" | "libraries" | 
  *  refs for display.
  */
 export type InstallPlan = {
-	required: ModVersion[],
+	required: PlannedDep[],
 	optional: OptionalDep[],
 	incompatible: DepProjectRef[],
 	unresolvable: DepProjectRef[],
@@ -2711,7 +2713,7 @@ export type OpEntry = {
  */
 export type OptionalDep = {
 	version: ModVersion,
-	requires: ModVersion[],
+	requires: PlannedDep[],
 };
 
 /**  A mod that would no longer be required by anything after a removal. */
@@ -2786,6 +2788,12 @@ export type PackOriginFile = {
 export type PackOriginSummary = {
 	project_name: string,
 	mod_shas: string[],
+};
+
+/**  A dependency the launcher plans to install, plus why that build was chosen. */
+export type PlannedDep = {
+	version: ModVersion,
+	selection_reason: SelectionReason,
 };
 
 export type PlaytimeStats = {
@@ -2949,6 +2957,7 @@ export type ResolvedCandidate = {
 export type ResolvedDep = {
 	project_ref: DepProjectRef,
 	version: ModVersion,
+	selection_reason: SelectionReason,
 };
 
 export type ResolvedDeps = {
@@ -3001,6 +3010,30 @@ export type SavedServer = {
 	name: string,
 	address: string,
 };
+
+/**
+ *  Why the resolver chose a specific build for a dependency. Surfaced so the UI
+ *  can later distinguish an author-recommended pin from a "newest compatible"
+ *  auto-pick. `Copy` because it is a tiny tag.
+ */
+export type SelectionReason = 
+/**
+ *  Author pinned this exact `version_id` (Modrinth) / `file_id` (CF) and it
+ *  is compatible — installed verbatim.
+ */
+"pin_honored" | 
+/**
+ *  Author pinned a build, but it is not compatible with this MC/loader —
+ *  fell back to a compatible build.
+ */
+"fell_back_from_pin" | 
+/**
+ *  A declared version range excluded newer builds and pushed the pick to an
+ *  older satisfying build.
+ */
+"range_constrained" | 
+/**  No pin and no range narrowed the choice — newest compatible build. */
+"newest_no_pin";
 
 /**  Join info for a server: host LAN addresses + the server's port + online-mode. */
 export type ServerConnectivity = {

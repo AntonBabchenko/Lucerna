@@ -258,7 +258,7 @@ describe('ModBrowseView install busy state', () => {
     commands.modsResolveInstallPlan.mockResolvedValue({
       status: 'ok',
       data: {
-        required: [depVersion],
+        required: [{ version: depVersion, selection_reason: 'newest_no_pin' }],
         optional: [],
         incompatible: [],
         unresolvable: [],
