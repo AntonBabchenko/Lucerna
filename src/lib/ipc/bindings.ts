@@ -1015,7 +1015,17 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
 	 *  доверяет новому ключу и сохраняет его отпечаток в `server.json`.
 	 */
-	serverUpload: (id: string, acceptNewHostKey: boolean, password: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, password })),
+	serverUpload: (id: string, acceptNewHostKey: boolean, skipWorlds: boolean, password: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, skipWorlds, password })),
+	/**
+	 *  Size/free-space preflight for an upload (#K): total bytes of the selected set
+	 *  (honouring `skip_worlds`) plus remote free space when the server advertises
+	 *  the `statvfs` SFTP extension. Transfers nothing. A host-key mismatch is
+	 *  surfaced; other connection blips degrade to "free space unknown".
+	 * 
+	 *  Secret resolution mirrors `server_upload` (no transient password: a preflight
+	 *  reads the keyring; password auth with no stored secret is `UploadNotConfigured`).
+	 */
+	serverUploadPreflight: (id: string, acceptNewHostKey: boolean, skipWorlds: boolean) => typedError<UploadPreflight, Error>(__TAURI_INVOKE("server_upload_preflight", { id, acceptNewHostKey, skipWorlds })),
 	/**
 	 *  Запросить отмену активной заливки на хостинг (no-op, если её нет).
 	 *  Частично залитые файлы остаются на хосте (докачка — отдельная фича).
@@ -2035,6 +2045,23 @@ export type KnownMod = {
 	source: ModSource,
 	project_id: string,
 	version_id: string | null,
+};
+
+/**
+ *  Record of the most recent successful SFTP upload for a server, shown on the
+ *  Hosting tab ("Последняя заливка: <when> → host:/path"). `unix_ms` is an
+ *  `f64` for the same specta-typescript reason as `created_unix_ms`.
+ */
+export type LastUpload = {
+	/**
+	 *  Wall-clock time of the upload, ms since the Unix epoch. Sourced from
+	 *  `SystemTime::duration_since(UNIX_EPOCH)`, so it is always finite and
+	 *  non-negative — never `NaN`/`Inf` (the `f64` is purely the specta wire
+	 *  type; the value is an integer millisecond count well under 2^53).
+	 */
+	unix_ms: number | null,
+	/**  Human-targetable identifier: `host:port/remote_path` at upload time. */
+	target: string,
 };
 
 /**
@@ -3280,6 +3307,11 @@ export type UploadConfig_Deserialize = {
 	remote_path: string,
 	/**  SHA-256 host-key fingerprint accepted on first connect (TOFU). */
 	known_host_fp?: string | null,
+	/**
+	 *  Last successful upload (timestamp + target). Absent until the first
+	 *  successful upload; set inside `upload_server` after the transfer loop.
+	 */
+	last_upload?: LastUpload | null,
 };
 
 /**
@@ -3293,6 +3325,33 @@ export type UploadConfig_Serialize = {
 	remote_path: string,
 	/**  SHA-256 host-key fingerprint accepted on first connect (TOFU). */
 	known_host_fp?: string | null,
+	/**
+	 *  Last successful upload (timestamp + target). Absent until the first
+	 *  successful upload; set inside `upload_server` after the transfer loop.
+	 */
+	last_upload?: LastUpload | null,
+};
+
+/**
+ *  Size preflight surfaced to the user before an upload (#K): how many bytes the
+ *  selected set is, and — if the server advertises `statvfs@openssh.com` — how
+ *  many bytes are free at the remote path. `free_bytes == None` means the server
+ *  did not report free space; the UI then shows only the total.
+ * 
+ *  `total_bytes`/`free_bytes` are `f64` for the same specta-typescript reason
+ *  `created_unix_ms` is (`u64` has no TS representation). Byte counts as `f64`
+ *  are exact up to 2^53 bytes (≈9 PB), far beyond any realistic upload set or
+ *  remote disk, so no precision is lost on the wire. The `bool` is computed with
+ *  the `u64` helper (exact integer comparison), then the counts are cast to
+ *  `f64` only for the wire type — never branch on the `f64`.
+ */
+export type UploadPreflight = {
+	/**  Total bytes of the selected (post-policy) upload set. */
+	total_bytes: number | null,
+	/**  Free bytes at `remote_path`, or `None` when `statvfs` is unsupported. */
+	free_bytes: number | null,
+	/**  Convenience: `free_bytes` is known AND `total_bytes` exceeds it. */
+	exceeds_free: boolean,
 };
 
 export type VerifyCategory = "client" | "libraries" | "assets" | "jre" | "profile_json";

@@ -4,6 +4,7 @@ import {
   events,
   type FirewallState,
   type InstallMissingReport,
+  type LastUpload,
   type QuarantineReport,
   type ServerConnectivity,
   type ServerDiagnosis,
@@ -12,6 +13,7 @@ import {
   type ServerPublicAddress,
   type ServerWithStatus,
   type UploadConfig,
+  type UploadPreflight,
 } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import type { NavStatusKind } from '$lib/layout/nav-status';
@@ -252,6 +254,7 @@ async function setUploadConfig(
 async function upload(
   id: string,
   acceptNewHostKey: boolean,
+  skipWorlds: boolean,
   password?: string | null,
 ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
   setUploadState(id, {
@@ -266,7 +269,7 @@ async function upload(
   });
   let r: { status: 'ok'; data: null } | { status: 'error'; error: unknown };
   try {
-    r = await commands.serverUpload(id, acceptNewHostKey, password ?? null);
+    r = await commands.serverUpload(id, acceptNewHostKey, skipWorlds, password ?? null);
   } catch (e) {
     setUploadState(id, { phase: 'error', error: String(e) });
     return { status: 'error', error: e };
@@ -292,6 +295,25 @@ async function cancelUpload(
   id: string,
 ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
   return await commands.serverCancelUpload(id);
+}
+
+/// Size/free-space preflight (#K): total bytes of the selected set (honouring
+/// `skipWorlds`) plus remote free space when the host advertises `statvfs`.
+/// Returns null on IPC error so the tab degrades to a "couldn't check" line.
+async function uploadPreflight(
+  id: string,
+  acceptNewHostKey: boolean,
+  skipWorlds: boolean,
+): Promise<UploadPreflight | null> {
+  const r = await commands.serverUploadPreflight(id, acceptNewHostKey, skipWorlds);
+  return r.status === 'ok' ? r.data : null;
+}
+
+/// Last successful upload (timestamp + target) for a server, read from the
+/// already-loaded list (the tab refreshes after an upload, so the line updates
+/// without a new event). Null until the first successful upload.
+function lastUploadFor(id: string): LastUpload | null {
+  return list.find((s) => s.id === id)?.upload?.last_upload ?? null;
 }
 
 async function exportZip(
@@ -519,6 +541,8 @@ export const serverState = {
   quarantineClientMods,
   setUploadConfig,
   upload,
+  uploadPreflight,
+  lastUploadFor,
   cancelUpload,
   exportZip,
   uploadProgressFor,

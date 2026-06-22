@@ -30,7 +30,7 @@ describe('upload state lifecycle', () => {
       status: 'ok',
       data: null,
     });
-    const p = serverState.upload('srv-1', true);
+    const p = serverState.upload('srv-1', true, false);
     expect(serverState.isUploading('srv-1')).toBe(true);
     expect(serverState.anyUploading).toBe(true);
     await p;
@@ -43,7 +43,7 @@ describe('upload state lifecycle', () => {
       status: 'error',
       error: { kind: 'sftp_auth_failed', details: 'nope' },
     });
-    await serverState.upload('srv-2', true);
+    await serverState.upload('srv-2', true, false);
     const s = serverState.uploadStateFor('srv-2');
     expect(s?.phase).toBe('error');
     expect(s?.error).toBe('err:sftp_auth_failed');
@@ -55,7 +55,7 @@ describe('upload state lifecycle', () => {
       status: 'error',
       error: { kind: 'upload_cancelled' },
     });
-    await serverState.upload('srv-3', true);
+    await serverState.upload('srv-3', true, false);
     expect(commands.serverCancelUpload).not.toHaveBeenCalled();
     expect(serverState.uploadStateFor('srv-3')?.phase).toBe('cancelled');
     // error field is undefined for cancelled
@@ -72,7 +72,7 @@ describe('upload state lifecycle', () => {
       status: 'ok',
       data: null,
     });
-    await serverState.upload('srv-5', false);
+    await serverState.upload('srv-5', false, false);
     expect(serverState.anyUploading).toBe(false);
   });
 
@@ -81,8 +81,8 @@ describe('upload state lifecycle', () => {
       status: 'ok',
       data: null,
     });
-    await serverState.upload('srv-pw', true, 'hunter2');
-    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, 'hunter2');
+    await serverState.upload('srv-pw', true, false, 'hunter2');
+    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, 'hunter2');
   });
 
   it('passes null when no password is provided', async () => {
@@ -90,7 +90,7 @@ describe('upload state lifecycle', () => {
       status: 'ok',
       data: null,
     });
-    await serverState.upload('srv-pw', true);
-    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, null);
+    await serverState.upload('srv-pw', true, false);
+    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, null);
   });
 });

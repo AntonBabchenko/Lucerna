@@ -4,9 +4,23 @@ use crate::instances::schema::LoaderKind;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+/// Record of the most recent successful SFTP upload for a server, shown on the
+/// Hosting tab ("Последняя заливка: <when> → host:/path"). `unix_ms` is an
+/// `f64` for the same specta-typescript reason as `created_unix_ms`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct LastUpload {
+    /// Wall-clock time of the upload, ms since the Unix epoch. Sourced from
+    /// `SystemTime::duration_since(UNIX_EPOCH)`, so it is always finite and
+    /// non-negative — never `NaN`/`Inf` (the `f64` is purely the specta wire
+    /// type; the value is an integer millisecond count well under 2^53).
+    pub unix_ms: f64,
+    /// Human-targetable identifier: `host:port/remote_path` at upload time.
+    pub target: String,
+}
+
 /// SFTP upload target configuration. The password is stored in the OS keyring,
 /// never in this struct.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct UploadConfig {
     pub host: String,
     #[serde(default = "default_sftp_port")]
@@ -16,6 +30,10 @@ pub struct UploadConfig {
     /// SHA-256 host-key fingerprint accepted on first connect (TOFU).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub known_host_fp: Option<String>,
+    /// Last successful upload (timestamp + target). Absent until the first
+    /// successful upload; set inside `upload_server` after the transfer loop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_upload: Option<LastUpload>,
 }
 
 fn default_sftp_port() -> u16 {
@@ -234,6 +252,7 @@ mod tests {
             user: "u".into(),
             remote_path: "/srv".into(),
             known_host_fp: None,
+            last_upload: None,
         });
         let back: ServerFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.upload.as_ref().unwrap().host, "h");
@@ -245,6 +264,38 @@ mod tests {
         let s: ServerFile = serde_json::from_str(j).unwrap();
         assert!(s.upload.is_none());
     }
+
+    #[test]
+    fn upload_config_last_upload_roundtrips_and_skips_none() {
+        let mut s = sample();
+        s.upload = Some(UploadConfig {
+            host: "h".into(),
+            port: 22,
+            user: "u".into(),
+            remote_path: "/srv".into(),
+            known_host_fp: None,
+            last_upload: None,
+        });
+        // Absent → omitted from JSON.
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("last_upload"), "got: {json}");
+
+        s.upload.as_mut().unwrap().last_upload = Some(LastUpload {
+            unix_ms: 1_700_000_000_000.0,
+            target: "h:22/srv".into(),
+        });
+        let back: ServerFile = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        let lu = back.upload.unwrap().last_upload.unwrap();
+        assert_eq!(lu.target, "h:22/srv");
+        assert_eq!(lu.unix_ms, 1_700_000_000_000.0);
+    }
+
+    #[test]
+    fn old_upload_config_without_last_upload_deserializes() {
+        let j = r#"{"host":"h","port":22,"user":"u","remote_path":"/srv"}"#;
+        let c: UploadConfig = serde_json::from_str(j).unwrap();
+        assert!(c.last_upload.is_none());
+    }
     #[test]
     fn with_status_carries_upload_and_password_flag() {
         let mut s = sample();
@@ -254,6 +305,7 @@ mod tests {
             user: "u".into(),
             remote_path: "/s".into(),
             known_host_fp: None,
+            last_upload: None,
         });
         let w = ServerWithStatus::from_file(
             &s,

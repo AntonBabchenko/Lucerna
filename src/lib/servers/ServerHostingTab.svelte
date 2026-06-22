@@ -5,9 +5,11 @@
   import { t } from '$lib/i18n';
   import { serverState } from '$lib/servers/server-state.svelte';
   import { commands } from '$lib/ipc/bindings';
-  import type { UploadConfig, UploadAuthMethod } from '$lib/ipc/bindings';
+  import type { UploadConfig, UploadAuthMethod, UploadPreflight } from '$lib/ipc/bindings';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { formatSize } from '$lib/format/size';
+  import { formatLastUpload, preflightLevel } from '$lib/servers/upload-summary';
   import {
     estimateSpeedBytesPerSec,
     etaSeconds,
@@ -169,6 +171,18 @@
   );
   const uploadReady = $derived(!needsTransientPassword || password !== '');
 
+  // ── selective upload + size preflight + last-upload (J / K / L) ──────────────
+  let skipWorlds = $state(false);
+  let preflight = $state<UploadPreflight | null>(null);
+  let busyPreflight = $state(false);
+  // preflightError is ONLY for a hard query failure (the command errored / returned
+  // no preflight). It is mutually exclusive with `preflight`: a server that simply
+  // doesn't report free space is NOT an error — that is the summary's 'unknown' state.
+  let preflightError = $state<string | null>(null);
+
+  const lastUpload = $derived(serverState.lastUploadFor(serverId));
+  const lastUploadLine = $derived(formatLastUpload($t, lastUpload));
+
   // ── actions ─────────────────────────────────────────────────────────────────
   async function pickPrivateKey() {
     const picked = await open({ multiple: false, directory: false });
@@ -213,7 +227,12 @@
     // The store's upload() owns all phase transitions. We only handle the
     // sftp_host_key_mismatch branch here (re-trust dialog) because the store
     // treats that kind as 'cancelled' so no generic error is persisted.
-    const r = await serverState.upload(serverId, acceptNewHostKey, transientSecret || null);
+    const r = await serverState.upload(
+      serverId,
+      acceptNewHostKey,
+      skipWorlds,
+      transientSecret || null,
+    );
     if (r.status === 'ok') {
       showHostKeyConfirm = false;
       await serverState.refresh();
@@ -266,6 +285,27 @@
       await doUpload(true);
     } finally {
       busyHostKeyTrust = false;
+    }
+  }
+
+  /** Size/free-space preflight (#K). The result and a hard-failure line are
+   *  mutually exclusive: clear one whenever the other is set. A returned
+   *  preflight with `free_bytes == null` is a SUCCESS (the summary's 'unknown'
+   *  state), not a failure — only a null return uses `preflightFailed`. */
+  async function handleCheckSize() {
+    busyPreflight = true;
+    preflightError = null;
+    preflight = null;
+    try {
+      const acceptKey = !existingUpload?.known_host_fp;
+      const result = await serverState.uploadPreflight(serverId, acceptKey, skipWorlds);
+      if (result === null) {
+        preflightError = $t('servers.hosting.preflightFailed');
+      } else {
+        preflight = result;
+      }
+    } finally {
+      busyPreflight = false;
     }
   }
 
@@ -456,6 +496,16 @@
 
   <!-- ── Upload ───────────────────────────────────────────────────────────── -->
   <section class="flex flex-col gap-2 border-t border-border-subtle pt-4">
+    {#if lastUploadLine}
+      <p class="text-xs text-muted" data-testid="last-upload-line">{lastUploadLine}</p>
+    {/if}
+
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" bind:checked={skipWorlds} />
+      {$t('servers.hosting.skipWorlds')}
+    </label>
+    <p class="text-xs text-muted">{$t('servers.hosting.skipWorldsHint')}</p>
+
     <div class="flex items-center gap-3 flex-wrap">
       <BusyButton
         class="btn-primary btn-sm"
@@ -471,6 +521,14 @@
           {$t('servers.hosting.upload')}
         {/if}
       </BusyButton>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        disabled={running || !formValid || busyPreflight}
+        onclick={() => void handleCheckSize()}
+      >
+        {$t('servers.hosting.checkSize')}
+      </button>
       {#if uploading}
         <button
           type="button"
@@ -487,6 +545,37 @@
         <span class="text-sm text-success">{$t('servers.hosting.uploaded')}</span>
       {/if}
     </div>
+
+    {#if preflight}
+      {@const level = preflightLevel(preflight)}
+      <div class="flex flex-col gap-1 text-xs">
+        <span class="text-muted"
+          >{$t('servers.hosting.preflightTotal', {
+            size: formatSize($t, preflight.total_bytes),
+          })}</span
+        >
+        {#if preflight.free_bytes != null}
+          <span class="text-muted"
+            >{$t('servers.hosting.preflightFree', {
+              size: formatSize($t, preflight.free_bytes),
+            })}</span
+          >
+        {/if}
+        {#if level === 'over'}
+          <span class="text-danger" data-testid="preflight-over">
+            {$t('servers.hosting.preflightOver', {
+              total: formatSize($t, preflight.total_bytes),
+              free: formatSize($t, preflight.free_bytes ?? 0),
+            })}
+          </span>
+        {:else if level === 'unknown'}
+          <span class="text-muted">{$t('servers.hosting.preflightUnknown')}</span>
+        {/if}
+      </div>
+    {/if}
+    {#if preflightError && !preflight}
+      <p class="text-xs text-danger" data-testid="preflight-failed">{preflightError}</p>
+    {/if}
 
     {#if uploading}
       <div
