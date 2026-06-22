@@ -106,12 +106,15 @@ export async function decideModInstall(
     return name ?? id;
   };
 
-  const requiredEnriched = await Promise.all(p.required.map(enrichDep));
+  // `InstallPlan.required` / `OptionalDep.requires` are now `PlannedDep[]`
+  // ({ version, selection_reason }). We unwrap `.version` here — the
+  // selection_reason is data-ready but intentionally not rendered this round.
+  const requiredEnriched = await Promise.all(p.required.map((d) => enrichDep(d.version)));
 
   const optionalEnriched: OptionalItem[] = await Promise.all(
     p.optional.map(async (o): Promise<OptionalItem> => {
       const top = await enrichDep(o.version);
-      const subReqs = await Promise.all(o.requires.map(enrichDep));
+      const subReqs = await Promise.all(o.requires.map((d) => enrichDep(d.version)));
       return { ...top, requires: subReqs };
     }),
   );
