@@ -1329,7 +1329,7 @@ async fn manifest_extra_root_versions(
     let mr = crate::mods::modrinth::ModrinthClient::new();
     let cf = crate::mods::curseforge::CurseForgeClient::new();
     let mc_owned = mc.to_string();
-    let (extras, _unresolved) = crate::mods::dep_resolve::manifest_extra_roots(&bytes, |dep| {
+    let (extras, unresolved) = crate::mods::dep_resolve::manifest_extra_roots(&bytes, |dep| {
         let mr = &mr;
         let cf = &cf;
         let mc = mc_owned.clone();
@@ -1366,6 +1366,18 @@ async fn manifest_extra_root_versions(
         }
     })
     .await;
+    // Transparency: these bare loader/dep ids can't populate `InstallPlan.unresolvable`
+    // (which holds `DepProjectRef`s) — the preflight panel is the user-facing backstop.
+    // Leave a trace so the launcher log records what the resolver could not auto-resolve.
+    if !unresolved.is_empty() {
+        crate::diag!(
+            "manifest_extra_roots: {} dep(s) could not be auto-resolved for '{}' ({}): {}",
+            unresolved.len(),
+            primary.name,
+            primary.version_id,
+            unresolved.join(", ")
+        );
+    }
     extras
         .into_iter()
         .map(|e| (e.needed_id, e.candidate, e.selection_reason))
