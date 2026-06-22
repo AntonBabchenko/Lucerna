@@ -24,11 +24,7 @@ pub fn upload_begin(id: &str) -> Arc<AtomicBool> {
 
 /// Request cancellation of `id`'s in-flight upload (no-op if none).
 pub fn upload_cancel(id: &str) {
-    if let Some(flag) = registry()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(id)
-    {
+    if let Some(flag) = registry().lock().unwrap_or_else(|e| e.into_inner()).get(id) {
         flag.store(true, Ordering::SeqCst);
     }
 }

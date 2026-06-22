@@ -1089,7 +1089,9 @@ pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool
         return Err(crate::error::Error::ServerUploadInProgress { id });
     }
     let file = crate::servers_runtime::store::read_server_json(&p.json)?;
-    let cfg = file.upload.ok_or(crate::error::Error::UploadNotConfigured)?;
+    let cfg = file
+        .upload
+        .ok_or(crate::error::Error::UploadNotConfigured)?;
     let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
     let stored =
         crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
@@ -1101,7 +1103,13 @@ pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool
     };
     let cancel = crate::servers_runtime::upload_control::upload_begin(&id);
     let result = crate::servers_runtime::transfer::upload_server(
-        &app, &id, &cfg, &auth, &secret, accept_new_host_key, &cancel,
+        &app,
+        &id,
+        &cfg,
+        &auth,
+        &secret,
+        accept_new_host_key,
+        &cancel,
     )
     .await;
     crate::servers_runtime::upload_control::upload_end(&id);
