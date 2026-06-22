@@ -12,7 +12,11 @@
   import { formatSize } from '$lib/format/size';
   import LogDiagnosisBanner from '$lib/logs/LogDiagnosisBanner.svelte';
   import { latestDiagnosis, refreshDiagnosis } from '$lib/logs/log-diagnosis.svelte';
-  import { logBannerEligible, logDiagnosisSignature } from '$lib/logs/log-diagnosis-view';
+  import {
+    inlineDiagnosisRedundant,
+    logBannerEligible,
+    logDiagnosisSignature,
+  } from '$lib/logs/log-diagnosis-view';
   import { diagnosisDismiss } from '$lib/ui/diagnosis-dismiss.svelte';
   import DiagnosisRestoreButton from '$lib/ui/DiagnosisRestoreButton.svelte';
   import { clearOldPreview } from '$lib/logs/manage';
@@ -67,12 +71,12 @@
   // banner would otherwise be visible but the user hid it.
   const latestLogDiagnosis = $derived(latestDiagnosis());
   const logRestoreSignature = $derived(logDiagnosisSignature(latestLogDiagnosis));
-  const showLogRestore = $derived(
-    logBannerEligible(latestLogDiagnosis) &&
-      instanceId !== null &&
+  const bannerDismissed = $derived(
+    instanceId !== null &&
       logRestoreSignature !== null &&
       diagnosisDismiss.isDismissed(`log:${instanceId}`, logRestoreSignature),
   );
+  const showLogRestore = $derived(logBannerEligible(latestLogDiagnosis) && bannerDismissed);
 
   // ---------------------------------------------------------------------------
   // Read-cap
@@ -109,6 +113,12 @@
   let clearingOld = $state(false);
   const clearOldStats = $derived(clearOldPreview(files));
   let diagnosis = $state<Diagnosis | null>(null);
+  // When the open file IS the latest log, the top banner already shows this same
+  // diagnosis (title/explanation/fix) — collapse the inline card to its unique
+  // raw `matched_excerpt` instead of repeating the prose.
+  const inlineRedundant = $derived(
+    inlineDiagnosisRedundant(selectedPath, latestLogDiagnosis, bannerDismissed),
+  );
   let contentError = $state<string | null>(null);
   let loadingContent = $state(false);
   let capBytes = $state<number>(readCapFromStorage());
@@ -1013,30 +1023,45 @@
               </div>
             {/if}
 
-            <!-- Diagnosis card -->
+            <!-- Diagnosis card. When the open file IS the latest log, the top
+                 banner already shows this diagnosis (title/explanation/fix), so
+                 collapse to just the raw matched line to avoid printing it twice
+                 (inlineRedundant); otherwise show the full card. -->
             {#if diagnosis}
-              {@const copy = DIAGNOSIS_COPY[diagnosis.pattern_id]}
-              <details
-                open
-                class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
-              >
-                <summary class="cursor-pointer font-semibold text-warning-text select-none">
-                  <span class="flex items-center gap-1.5"
-                    ><Icon name="warning" /> {copy ? $t(copy.title) : diagnosis.title}</span
-                  >
-                </summary>
-                <p class="mt-2 text-sm text-warning-text selectable">
-                  {copy ? $t(copy.explanation) : diagnosis.explanation}
-                </p>
-                <p class="mt-2 text-sm text-warning-text selectable">
-                  <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
-                  {copy ? $t(copy.recommendation) : diagnosis.recommendation}
-                </p>
+              {#if inlineRedundant}
                 {#if diagnosis.matched_excerpt}
-                  <pre
-                    class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
+                  <div class="mx-3 mt-3 shrink-0" data-testid="log-diagnosis-inline-excerpt">
+                    <p class="text-xs font-semibold text-warning-text select-none">
+                      {$t('logs.diagnosis.matchedLine')}
+                    </p>
+                    <pre
+                      class="mt-1 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
+                  </div>
                 {/if}
-              </details>
+              {:else}
+                {@const copy = DIAGNOSIS_COPY[diagnosis.pattern_id]}
+                <details
+                  open
+                  class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
+                >
+                  <summary class="cursor-pointer font-semibold text-warning-text select-none">
+                    <span class="flex items-center gap-1.5"
+                      ><Icon name="warning" /> {copy ? $t(copy.title) : diagnosis.title}</span
+                    >
+                  </summary>
+                  <p class="mt-2 text-sm text-warning-text selectable">
+                    {copy ? $t(copy.explanation) : diagnosis.explanation}
+                  </p>
+                  <p class="mt-2 text-sm text-warning-text selectable">
+                    <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
+                    {copy ? $t(copy.recommendation) : diagnosis.recommendation}
+                  </p>
+                  {#if diagnosis.matched_excerpt}
+                    <pre
+                      class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
+                  {/if}
+                </details>
+              {/if}
             {/if}
 
             <!-- Log body: structured crash view or standard line view.

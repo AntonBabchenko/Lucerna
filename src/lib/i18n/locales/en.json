@@ -825,6 +825,7 @@
     },
     "diagnosis": {
       "whatToTry": "What to try:",
+      "matchedLine": "Matched line",
       "patterns": {
         "javaVersionTooOld": {
           "title": "Java version is too old for this modpack",
