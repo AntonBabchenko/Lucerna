@@ -370,4 +370,90 @@ describe('ServerHostingTab', () => {
     // Current file line is still rendered
     expect(screen.getByText('mods/create-1.0.jar')).toBeTruthy();
   });
+
+  // ── Task 5: password reveal toggle + Save-password opt-out ─────────────────
+
+  it('reveal toggle flips aria-pressed and input type', async () => {
+    mockList = [makeServer()];
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    const toggle = screen.getByRole('button', { name: 'Reveal password' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    const input = screen.getByLabelText('Password', {
+      selector: 'input[type="password"]',
+    }) as HTMLInputElement;
+    expect(input.type).toBe('password');
+
+    await fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(input.type).toBe('text');
+  });
+
+  it('save-off: setUploadConfig receives null password', async () => {
+    mockList = [makeServer()];
+    setUploadConfigMock.mockResolvedValue({ status: 'ok', data: null });
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    // Fill host + user so Save is enabled
+    await fireEvent.input(screen.getByLabelText('Host'), { target: { value: 'myhost.com' } });
+    await fireEvent.input(screen.getByLabelText('User'), { target: { value: 'alice' } });
+    // Type a password using the id directly to avoid radio collision
+    await fireEvent.input(
+      screen.getByLabelText('Password', { selector: 'input[type="password"]' }),
+      { target: { value: 'secret' } },
+    );
+    // Uncheck "Save password"
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Save password' }));
+
+    await fireEvent.click(screen.getByText('Save'));
+
+    // setUploadConfig should receive null for the password (don't persist)
+    expect(setUploadConfigMock).toHaveBeenCalledWith(
+      'srv-1',
+      expect.objectContaining({ host: 'myhost.com' }),
+      null,
+    );
+  });
+
+  it('save-off: upload forwards the typed password as transient', async () => {
+    mockList = [makeServer({ upload: savedUpload, upload_password_set: false })];
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    // Type a password and opt out of saving
+    await fireEvent.input(
+      screen.getByLabelText('Password', { selector: 'input[type="password"]' }),
+      { target: { value: 'transient123' } },
+    );
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Save password' }));
+
+    await fireEvent.click(screen.getByText('Upload to host'));
+
+    await waitFor(() => expect(uploadMock).toHaveBeenCalledWith('srv-1', false, 'transient123'));
+  });
+
+  it('save-off + nothing stored: Upload is disabled until password is typed', async () => {
+    // No existing upload_password_set, save is off → uploadReady = false until typed
+    mockList = [makeServer({ upload: savedUpload, upload_password_set: false })];
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    // Uncheck Save password
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Save password' }));
+
+    const uploadBtn = screen.getByText('Upload to host').closest('button') as HTMLButtonElement;
+    expect(uploadBtn.disabled).toBe(true);
+
+    // Type a password → upload should become enabled
+    await fireEvent.input(
+      screen.getByLabelText('Password', { selector: 'input[type="password"]' }),
+      { target: { value: 'mypass' } },
+    );
+    expect(uploadBtn.disabled).toBe(false);
+  });
 });

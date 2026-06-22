@@ -1693,7 +1693,12 @@
       "hostKeyTrust": "Trust & upload",
       "cancel": "Cancel",
       "cancelUpload": "Cancel upload",
-      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}"
+      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}",
+      "savePassword": "Save password",
+      "savePasswordHint": "The password will be stored in the system keyring.",
+      "revealPassword": "Reveal password",
+      "hidePassword": "Hide password",
+      "passwordNeededEachUpload": "Enter the password above to upload."
     },
     "diagnose": {
       "clientOnly": {
