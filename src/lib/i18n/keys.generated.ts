@@ -344,6 +344,7 @@ export type TranslationKey =
   | 'instances.import.vanillaWithModsWarning'
   | 'logs.close.popoverAriaLabel'
   | 'logs.close.scrimAriaLabel'
+  | 'logs.diagnosis.matchedLine'
   | 'logs.diagnosis.patterns.clientExtraMods.explanation'
   | 'logs.diagnosis.patterns.clientExtraMods.recommendation'
   | 'logs.diagnosis.patterns.clientExtraMods.title'

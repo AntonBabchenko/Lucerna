@@ -825,6 +825,7 @@
     },
     "diagnosis": {
       "whatToTry": "Что попробовать:",
+      "matchedLine": "Совпавшая строка",
       "patterns": {
         "javaVersionTooOld": {
           "title": "Версия Java слишком старая для этого модпака",

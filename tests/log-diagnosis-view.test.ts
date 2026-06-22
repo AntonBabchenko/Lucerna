@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { LatestDiagnosis } from '$lib/ipc/bindings';
-import { logBannerEligible, logDiagnosisSignature } from '$lib/logs/log-diagnosis-view';
+import {
+  inlineDiagnosisRedundant,
+  logBannerEligible,
+  logDiagnosisSignature,
+} from '$lib/logs/log-diagnosis-view';
 
 function latest(overrides: Partial<LatestDiagnosis> = {}): LatestDiagnosis {
   return {
@@ -45,5 +49,35 @@ describe('logDiagnosisSignature', () => {
   it('is null when there is no diagnosis', () => {
     expect(logDiagnosisSignature(latest({ diagnosis: null }))).toBeNull();
     expect(logDiagnosisSignature(null)).toBeNull();
+  });
+});
+
+describe('inlineDiagnosisRedundant', () => {
+  const SELECTED = '/logs/latest.log'; // matches latest().path
+
+  it('is true when the visible banner is for the selected file', () => {
+    expect(inlineDiagnosisRedundant(SELECTED, latest(), false)).toBe(true);
+  });
+
+  it('is false when a different (older) file is selected', () => {
+    expect(inlineDiagnosisRedundant('/logs/2026-06-20.log.gz', latest(), false)).toBe(false);
+  });
+
+  it('is false when the banner is dismissed (no banner above to dedupe against)', () => {
+    expect(inlineDiagnosisRedundant(SELECTED, latest(), true)).toBe(false);
+  });
+
+  it('is false when the banner is not eligible (status/no diagnosis)', () => {
+    expect(inlineDiagnosisRedundant(SELECTED, latest({ status: 'none' }), false)).toBe(false);
+    expect(inlineDiagnosisRedundant(SELECTED, latest({ diagnosis: null }), false)).toBe(false);
+  });
+
+  it('is false when nothing is selected or there is no latest diagnosis', () => {
+    expect(inlineDiagnosisRedundant(null, latest(), false)).toBe(false);
+    expect(inlineDiagnosisRedundant(SELECTED, null, false)).toBe(false);
+  });
+
+  it('is false when the latest diagnosis has a null path', () => {
+    expect(inlineDiagnosisRedundant(SELECTED, latest({ path: null }), false)).toBe(false);
   });
 });
