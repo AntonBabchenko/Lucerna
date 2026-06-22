@@ -8,6 +8,12 @@
   import type { UploadConfig, UploadAuthMethod } from '$lib/ipc/bindings';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import {
+    estimateSpeedBytesPerSec,
+    etaSeconds,
+    formatUploadProgress,
+    type SpeedSample,
+  } from '$lib/servers/upload-progress-format';
 
   let { serverId }: { serverId: string } = $props();
 
@@ -103,6 +109,45 @@
           file: uploadState.currentFile,
         }
       : undefined,
+  );
+
+  // ── Byte-level progress: EWMA speed + ETA ────────────────────────────────────
+  const MAX_SAMPLES = 30;
+  let speedSamples = $state<SpeedSample[]>([]);
+
+  $effect(() => {
+    const s = uploadState;
+    if (!s || s.phase !== 'uploading') {
+      if (speedSamples.length > 0) speedSamples = [];
+      return;
+    }
+    const last = speedSamples[speedSamples.length - 1];
+    if (!last || last.bytes !== s.bytesDone) {
+      const next = [...speedSamples, { bytes: s.bytesDone, atMs: Date.now() }];
+      speedSamples = next.length > MAX_SAMPLES ? next.slice(-MAX_SAMPLES) : next;
+    }
+  });
+
+  const speedBytesPerSec = $derived(estimateSpeedBytesPerSec(speedSamples));
+  const etaValue = $derived(
+    uploadState
+      ? etaSeconds(uploadState.bytesTotal, uploadState.bytesDone, speedBytesPerSec)
+      : null,
+  );
+  const bytePct = $derived(
+    uploadState && uploadState.bytesTotal > 0
+      ? Math.min(1, uploadState.bytesDone / uploadState.bytesTotal)
+      : 0,
+  );
+  const progressLine = $derived(
+    uploadState
+      ? formatUploadProgress($t, {
+          bytesDone: uploadState.bytesDone,
+          bytesTotal: uploadState.bytesTotal,
+          speedBytesPerSec,
+          etaSecondsValue: etaValue,
+        })
+      : '',
   );
 
   // ── validation (#25) ─────────────────────────────────────────────────────────
@@ -384,7 +429,9 @@
         disabled={running || !formValid || uploading}
         onclick={() => void handleUpload()}
       >
-        {#if uploading && progress}
+        {#if uploading && uploadState && uploadState.bytesTotal > 0}
+          {progressLine}
+        {:else if uploading && progress}
           {$t('servers.hosting.uploading', { done: progress.done, total: progress.total })}
         {:else}
           {$t('servers.hosting.upload')}
@@ -407,15 +454,24 @@
       {/if}
     </div>
 
-    {#if uploading && progress}
-      {@const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}
-      <div class="w-full bg-muted/20 rounded-full h-1.5 overflow-hidden">
+    {#if uploading}
+      <div
+        class="w-full bg-muted/20 rounded-full h-1.5 overflow-hidden"
+        role="progressbar"
+        aria-valuenow={Math.round(bytePct * 100)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        data-testid="upload-progress-bar"
+      >
         <div
           class="bg-accent h-full w-full origin-left transition-transform"
-          style="transform: scaleX({pct / 100})"
+          style="transform: scaleX({bytePct})"
         ></div>
       </div>
-      <p class="text-xs text-muted truncate">{progress.file}</p>
+      <p class="text-xs text-muted" data-testid="upload-progress-line">{progressLine}</p>
+      {#if progress}
+        <p class="text-xs text-muted truncate">{progress.file}</p>
+      {/if}
     {/if}
 
     {#if storeUploadError && !showHostKeyConfirm}

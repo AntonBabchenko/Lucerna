@@ -30,6 +30,10 @@ const EN_STRINGS: Record<string, string> = {
   'format.duration.minutes': '{m}m',
   'format.duration.hoursMinutes': '{h}h {m}m',
   'format.unit.megabyte': 'MB',
+  'format.rate.bytesPerSec': '{n} B/s',
+  'format.rate.kbPerSec': '{n} KB/s',
+  'format.rate.mbPerSec': '{n} MB/s',
+  'servers.hosting.uploadingBytes': '{doneSize} / {totalSize} · {rate} · ~{eta}',
 };
 
 function interpolate(template: string, values?: Record<string, unknown>): string {

@@ -1534,6 +1534,11 @@
     },
     "unit": {
       "megabyte": "МБ"
+    },
+    "rate": {
+      "bytesPerSec": "{n} Б/с",
+      "kbPerSec": "{n} КБ/с",
+      "mbPerSec": "{n} МБ/с"
     }
   },
   "servers": {
@@ -1687,7 +1692,8 @@
       "hostKeyBody": "Ключ этого хоста изменился с прошлого подключения. Так бывает при переустановке сервера — но это также может означать перехват соединения. Продолжайте, только если доверяете хосту.",
       "hostKeyTrust": "Доверять и залить",
       "cancel": "Отмена",
-      "cancelUpload": "Отменить заливку"
+      "cancelUpload": "Отменить заливку",
+      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}"
     },
     "diagnose": {
       "clientOnly": {
