@@ -1072,14 +1072,45 @@ pub fn server_set_upload_config(
     Ok(())
 }
 
+/// Resolve the secret an upload should authenticate with (#C, transient-secret
+/// path). A `transient` password (typed this session with "Save password" off)
+/// takes precedence over the keyring and is never persisted. With no transient
+/// secret we fall back to the keyring. Password auth with neither is an error;
+/// key auth with neither is fine (an unencrypted key → empty passphrase).
+fn resolve_upload_secret(
+    method: crate::servers_runtime::transfer::UploadAuthMethod,
+    transient: Option<String>,
+    stored: Option<String>,
+) -> Result<String> {
+    if let Some(pw) = transient {
+        return Ok(pw); // explicit Some("") is honoured (blank key passphrase)
+    }
+    match (method, stored) {
+        (crate::servers_runtime::transfer::UploadAuthMethod::Password, None) => {
+            Err(crate::error::Error::UploadNotConfigured)
+        }
+        (_, s) => Ok(s.unwrap_or_default()),
+    }
+}
+
 /// Загрузить серверный `runtime/` на SFTP-хост. Сервер должен быть остановлен.
+///
+/// `password` — транзитный секрет, введённый в этой сессии при выключенной
+/// опции «Сохранить пароль»; если передан, используется вместо связки ключей
+/// и **никогда не сохраняется**. При `None` секрет берётся из keyring как
+/// обычно.
 ///
 /// При первом подключении или изменении ключа хоста возвращает ошибку
 /// `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
 /// доверяет новому ключу и сохраняет его отпечаток в `server.json`.
 #[tauri::command]
 #[specta::specta]
-pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool) -> Result<()> {
+pub async fn server_upload(
+    app: AppHandle,
+    id: String,
+    accept_new_host_key: bool,
+    password: Option<String>,
+) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     if crate::servers_runtime::runtime::is_running(&id) {
@@ -1095,12 +1126,7 @@ pub async fn server_upload(app: AppHandle, id: String, accept_new_host_key: bool
     let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
     let stored =
         crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
-    let secret = match (auth.method, stored) {
-        (crate::servers_runtime::transfer::UploadAuthMethod::Password, None) => {
-            return Err(crate::error::Error::UploadNotConfigured)
-        }
-        (_, s) => s.unwrap_or_default(),
-    };
+    let secret = resolve_upload_secret(auth.method, password, stored)?;
     let cancel = crate::servers_runtime::upload_control::upload_begin(&id);
     let result = crate::servers_runtime::transfer::upload_server(
         &app,
@@ -2069,5 +2095,56 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("no-such-crash-reports");
         assert_eq!(newest_crash_text(&missing, 1024, None), None);
+    }
+}
+
+#[cfg(test)]
+mod password_ux_tests {
+    use super::resolve_upload_secret;
+    use crate::servers_runtime::transfer::UploadAuthMethod;
+
+    #[test]
+    fn transient_password_is_used_in_place_of_keyring() {
+        let got = resolve_upload_secret(
+            UploadAuthMethod::Password,
+            Some("typed-now".to_string()),
+            Some("from-keyring".to_string()),
+        )
+        .unwrap();
+        assert_eq!(got, "typed-now");
+    }
+
+    #[test]
+    fn falls_back_to_keyring_when_no_transient() {
+        let got = resolve_upload_secret(
+            UploadAuthMethod::Password,
+            None,
+            Some("from-keyring".to_string()),
+        )
+        .unwrap();
+        assert_eq!(got, "from-keyring");
+    }
+
+    #[test]
+    fn password_auth_with_no_secret_anywhere_is_not_configured() {
+        let r = resolve_upload_secret(UploadAuthMethod::Password, None, None);
+        assert!(matches!(r, Err(crate::error::Error::UploadNotConfigured)));
+    }
+
+    #[test]
+    fn key_auth_with_no_secret_yields_empty_passphrase() {
+        let got = resolve_upload_secret(UploadAuthMethod::Key, None, None).unwrap();
+        assert_eq!(got, "");
+    }
+
+    #[test]
+    fn empty_transient_string_still_counts_as_provided() {
+        let got = resolve_upload_secret(
+            UploadAuthMethod::Key,
+            Some(String::new()),
+            Some("kr".into()),
+        )
+        .unwrap();
+        assert_eq!(got, "");
     }
 }

@@ -28,6 +28,8 @@
   // svelte-ignore state_referenced_locally
   let user = $state(existingUpload?.user ?? '');
   let password = $state('');
+  let passwordRevealed = $state(false);
+  let savePassword = $state(true);
   // svelte-ignore state_referenced_locally
   let remotePath = $state(existingUpload?.remote_path ?? '');
 
@@ -156,9 +158,16 @@
   const keyValid = $derived(authMethod !== 'key' || privateKeyPath.trim().length > 0);
   const formValid = $derived(hostValid && userValid && keyValid);
 
-  // The password is only meaningful for password auth, or as an optional key
-  // passphrase. Treat it as a secret to persist when present.
-  const secretToStore = $derived(password === '' ? null : password);
+  // When savePassword is on, persist the typed password to the keyring on Save.
+  // When off, the password stays transient (sent only for this upload, never stored).
+  const secretToStore = $derived(savePassword && password !== '' ? password : null);
+  // Transient secret: sent with upload but never persisted.
+  const transientSecret = $derived(!savePassword && password !== '' ? password : null);
+  // Upload is gated when password auth is chosen, save is off, and nothing is stored.
+  const needsTransientPassword = $derived(
+    authMethod === 'password' && !savePassword && !existing?.upload_password_set,
+  );
+  const uploadReady = $derived(!needsTransientPassword || password !== '');
 
   // ── actions ─────────────────────────────────────────────────────────────────
   async function pickPrivateKey() {
@@ -204,7 +213,7 @@
     // The store's upload() owns all phase transitions. We only handle the
     // sftp_host_key_mismatch branch here (re-trust dialog) because the store
     // treats that kind as 'cancelled' so no generic error is persisted.
-    const r = await serverState.upload(serverId, acceptNewHostKey);
+    const r = await serverState.upload(serverId, acceptNewHostKey, transientSecret || null);
     if (r.status === 'ok') {
       showHostKeyConfirm = false;
       await serverState.refresh();
@@ -373,19 +382,44 @@
       <label class="text-xs text-muted" for="hosting-password">
         {authMethod === 'key' ? $t('servers.hosting.passphrase') : $t('servers.hosting.password')}
       </label>
-      <input
-        id="hosting-password"
-        class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
-        type="password"
-        bind:value={password}
-        autocomplete="current-password"
-      />
+      <div class="relative flex items-center">
+        <input
+          id="hosting-password"
+          class="h-8 flex-1 rounded border border-border-emphasis bg-surface px-3 pr-9 text-sm text-primary"
+          type={passwordRevealed ? 'text' : 'password'}
+          bind:value={password}
+          autocomplete="current-password"
+        />
+        <button
+          type="button"
+          class="btn-icon-sm absolute right-1"
+          aria-pressed={passwordRevealed}
+          aria-label={passwordRevealed
+            ? $t('servers.hosting.hidePassword')
+            : $t('servers.hosting.revealPassword')}
+          onclick={() => (passwordRevealed = !passwordRevealed)}
+        >
+          <Icon name={passwordRevealed ? 'eyeOff' : 'eye'} size={16} />
+        </button>
+      </div>
       {#if existing?.upload_password_set && !password}
         <p class="text-xs text-muted">
           {authMethod === 'key'
             ? $t('servers.hosting.passphraseStored')
             : $t('servers.hosting.passwordStored')}
         </p>
+      {/if}
+      {#if authMethod === 'password'}
+        <label class="mt-1 flex items-center gap-2 text-sm">
+          <input type="checkbox" bind:checked={savePassword} />
+          {$t('servers.hosting.savePassword')}
+        </label>
+        {#if savePassword}
+          <p class="text-xs text-muted">{$t('servers.hosting.savePasswordHint')}</p>
+        {/if}
+        {#if needsTransientPassword && password === ''}
+          <p class="text-xs text-warning-text">{$t('servers.hosting.passwordNeededEachUpload')}</p>
+        {/if}
       {/if}
     </div>
 
@@ -426,7 +460,7 @@
       <BusyButton
         class="btn-primary btn-sm"
         busy={uploading || busyHostKeyPreview}
-        disabled={running || !formValid || uploading}
+        disabled={running || !formValid || uploading || !uploadReady}
         onclick={() => void handleUpload()}
       >
         {#if uploading && uploadState && uploadState.bytesTotal > 0}

@@ -20,6 +20,8 @@ import {
   Eraser,
   Expand,
   ExternalLink,
+  Eye,
+  EyeOff,
   FolderOpen,
   Globe,
   Image,
@@ -112,6 +114,8 @@ export const ICONS = {
   archive: Archive, // create a backup ("Back up now")
   restore: RotateCcw, // restore a backup
   wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
+  eye: Eye, // reveal password / show secret
+  eyeOff: EyeOff, // hide password / conceal secret
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

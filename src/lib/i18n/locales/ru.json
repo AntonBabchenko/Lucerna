@@ -1693,7 +1693,12 @@
       "hostKeyTrust": "Доверять и залить",
       "cancel": "Отмена",
       "cancelUpload": "Отменить заливку",
-      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}"
+      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}",
+      "savePassword": "Сохранить пароль",
+      "savePasswordHint": "Пароль будет сохранён в системном хранилище ключей.",
+      "revealPassword": "Показать пароль",
+      "hidePassword": "Скрыть пароль",
+      "passwordNeededEachUpload": "Введите пароль выше, чтобы выполнить заливку."
     },
     "diagnose": {
       "clientOnly": {
