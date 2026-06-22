@@ -1109,6 +1109,7 @@ pub async fn server_upload(
     app: AppHandle,
     id: String,
     accept_new_host_key: bool,
+    skip_worlds: bool,
     password: Option<String>,
 ) -> Result<()> {
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
@@ -1135,11 +1136,49 @@ pub async fn server_upload(
         &auth,
         &secret,
         accept_new_host_key,
+        skip_worlds,
         &cancel,
     )
     .await;
     crate::servers_runtime::upload_control::upload_end(&id);
     result
+}
+
+/// Size/free-space preflight for an upload (#K): total bytes of the selected set
+/// (honouring `skip_worlds`) plus remote free space when the server advertises
+/// the `statvfs` SFTP extension. Transfers nothing. A host-key mismatch is
+/// surfaced; other connection blips degrade to "free space unknown".
+///
+/// Secret resolution mirrors `server_upload` (no transient password: a preflight
+/// reads the keyring; password auth with no stored secret is `UploadNotConfigured`).
+#[tauri::command]
+#[specta::specta]
+pub async fn server_upload_preflight(
+    app: AppHandle,
+    id: String,
+    accept_new_host_key: bool,
+    skip_worlds: bool,
+) -> Result<crate::servers_runtime::transfer::UploadPreflight> {
+    let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
+    let p = crate::paths::server_paths(&base, &id);
+    let file = crate::servers_runtime::store::read_server_json(&p.json)?;
+    let cfg = file
+        .upload
+        .ok_or(crate::error::Error::UploadNotConfigured)?;
+    let auth = crate::servers_runtime::transfer::read_upload_auth(&base, &id);
+    let stored =
+        crate::accounts::keychain::retrieve(&crate::accounts::keychain::sftp_password_key(&id))?;
+    let secret = resolve_upload_secret(auth.method, None, stored)?;
+    crate::servers_runtime::transfer::upload_preflight(
+        &app,
+        &id,
+        &cfg,
+        &auth,
+        &secret,
+        accept_new_host_key,
+        skip_worlds,
+    )
+    .await
 }
 
 /// Запросить отмену активной заливки на хостинг (no-op, если её нет).

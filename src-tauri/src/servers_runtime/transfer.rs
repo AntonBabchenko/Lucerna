@@ -136,6 +136,75 @@ fn is_excluded_dir(name: &str) -> bool {
     EXCLUDED_DIR_NAMES.contains(&name)
 }
 
+/// What to include in an upload. Defaults to "everything" (current behaviour).
+/// Future-extensible (mods/config groups) without breaking the no-arg path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct UploadPolicy {
+    /// Skip directories that contain a `level.dat` (a Minecraft world) and all
+    /// their contents (region files, `DIM*` dimension siblings, datapacks).
+    pub skip_worlds: bool,
+}
+
+/// Minecraft world roots under `runtime`: every directory (at any depth) that
+/// **directly contains** a `level.dat` file — robust to the world dir name
+/// (`world`, `world1`, `world_nether`, …). Detection keys on the directory
+/// directly holding `level.dat`, not any ancestor: if `level.dat` is nested at
+/// `world/data/level.dat`, the root is `world/data`, not `world`. `DIM*`
+/// dimension folders live INSIDE these roots, so excluding the root tree
+/// excludes them automatically; descent stops at the first matching dir.
+pub(crate) fn world_dirs(runtime: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    collect_world_dirs(runtime, &mut out);
+    out
+}
+
+fn collect_world_dirs(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut subdirs = Vec::new();
+    let mut has_level_dat = false;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_symlink() {
+            continue;
+        }
+        if ft.is_dir() {
+            subdirs.push(path);
+        } else if entry.file_name().eq_ignore_ascii_case("level.dat") {
+            has_level_dat = true;
+        }
+    }
+    if has_level_dat {
+        // This dir is a world root; do not descend further into it (its
+        // dimensions are part of the same world and excluded as a unit).
+        out.push(dir.to_path_buf());
+        return;
+    }
+    for sub in subdirs {
+        collect_world_dirs(&sub, out);
+    }
+}
+
+/// Files to upload under `runtime` per `policy`. Always excludes `logs/` and
+/// `installer.jar` (via `walk`); when `policy.skip_worlds`, also excludes every
+/// file under a world root (a dir containing `level.dat`).
+pub(crate) fn enumerate_upload_files_with_policy(
+    runtime: &Path,
+    policy: &UploadPolicy,
+) -> Result<Vec<(PathBuf, String)>> {
+    let all = enumerate_upload_files(runtime)?;
+    if !policy.skip_worlds {
+        return Ok(all);
+    }
+    let worlds = world_dirs(runtime);
+    Ok(all
+        .into_iter()
+        .filter(|(local, _rel)| !worlds.iter().any(|w| local.starts_with(w)))
+        .collect())
+}
+
 /// Files to upload: recursively under `runtime`, EXCLUDING the `logs/` dir and
 /// the one-shot `installer.jar`. Returns (local absolute path, remote relative
 /// path with forward slashes).
@@ -152,6 +221,34 @@ pub(crate) fn upload_total_bytes(files: &[(PathBuf, String)]) -> u64 {
         .iter()
         .map(|(local, _)| std::fs::metadata(local).map(|m| m.len()).unwrap_or(0))
         .sum()
+}
+
+/// True iff the upload cannot fit: `free` is known AND `total_bytes` exceeds it.
+/// Unknown free space (`None`, e.g. no `statvfs` extension) never reports a
+/// problem — we proceed and let the real write surface any true out-of-space.
+pub(crate) fn upload_exceeds_free(total_bytes: u64, free_bytes: Option<u64>) -> bool {
+    matches!(free_bytes, Some(free) if total_bytes > free)
+}
+
+/// Size preflight surfaced to the user before an upload (#K): how many bytes the
+/// selected set is, and — if the server advertises `statvfs@openssh.com` — how
+/// many bytes are free at the remote path. `free_bytes == None` means the server
+/// did not report free space; the UI then shows only the total.
+///
+/// `total_bytes`/`free_bytes` are `f64` for the same specta-typescript reason
+/// `created_unix_ms` is (`u64` has no TS representation). Byte counts as `f64`
+/// are exact up to 2^53 bytes (≈9 PB), far beyond any realistic upload set or
+/// remote disk, so no precision is lost on the wire. The `bool` is computed with
+/// the `u64` helper (exact integer comparison), then the counts are cast to
+/// `f64` only for the wire type — never branch on the `f64`.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct UploadPreflight {
+    /// Total bytes of the selected (post-policy) upload set.
+    pub total_bytes: f64,
+    /// Free bytes at `remote_path`, or `None` when `statvfs` is unsupported.
+    pub free_bytes: Option<f64>,
+    /// Convenience: `free_bytes` is known AND `total_bytes` exceeds it.
+    pub exceeds_free: bool,
 }
 
 /// The complete set of remote directories that must exist before any file in
@@ -375,6 +472,94 @@ async fn authenticate(
     Ok(())
 }
 
+/// Open an SFTP session to `cfg` (connect → TOFU → auth → subsystem) and query
+/// free space at `remote_path` via the `statvfs@openssh.com` extension. Returns
+/// `Ok(None)` when the server does not advertise the extension. The session is
+/// dropped on return. The TOFU ordering matches `upload_server`: the host key is
+/// captured before any credential is sent; on an untrusted/changed key with
+/// `accept_new_host_key == false` we bail with [`Error::SftpHostKeyMismatch`].
+async fn remote_free_bytes(
+    cfg: &UploadConfig,
+    auth: &UploadAuth,
+    secret: &str,
+    accept_new_host_key: bool,
+) -> Result<Option<u64>> {
+    // --- connect + capture host-key fingerprint (BEFORE any credential) ---
+    let (mut session, seen_fp) = connect_capture(cfg).await?;
+    if !host_key_decision(cfg.known_host_fp.as_deref(), &seen_fp) && !accept_new_host_key {
+        return Err(Error::SftpHostKeyMismatch {
+            expected: cfg.known_host_fp.clone().unwrap_or_default(),
+            got: seen_fp,
+        });
+    }
+    // --- authenticate, then open the SFTP subsystem ---
+    authenticate(&mut session, cfg, auth, secret).await?;
+    let channel = session
+        .channel_open_session()
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: e.to_string(),
+        })?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: e.to_string(),
+        })?;
+    let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| Error::SftpTransferFailed {
+            details: e.to_string(),
+        })?;
+    let remote_root = cfg.remote_path.trim_end_matches('/');
+    // `fs_info` returns `Ok(None)` when the server does not advertise
+    // `statvfs@openssh.com` v2 (russh-sftp 2.3.0 gates on `features.statvfs`).
+    // `None` maps straight through → "free space unknown" in the UI.
+    let info =
+        sftp.fs_info(remote_root.to_string())
+            .await
+            .map_err(|e| Error::SftpTransferFailed {
+                details: e.to_string(),
+            })?;
+    // free bytes = available blocks × fundamental block size (verified field
+    // names in russh-sftp 2.3.0: `blocks_avail` is in units of `fragment_size`).
+    Ok(info.map(|st| st.blocks_avail.saturating_mul(st.fragment_size)))
+}
+
+/// Compute the size preflight for a server's configured upload target with the
+/// given selection policy. Reads the local set (cheap `metadata().len()` sum)
+/// and best-effort queries remote free space; a free-space query failure is NOT
+/// fatal (it degrades to "free unknown") so the user can still see the total. A
+/// host-key mismatch IS surfaced (it is a security signal), not swallowed.
+pub async fn upload_preflight(
+    app: &AppHandle,
+    server_id: &str,
+    cfg: &UploadConfig,
+    auth: &UploadAuth,
+    secret: &str,
+    accept_new_host_key: bool,
+    skip_worlds: bool,
+) -> Result<UploadPreflight> {
+    let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
+    let runtime = crate::paths::server_paths(&base, server_id).runtime;
+    let policy = UploadPolicy { skip_worlds };
+    let files = enumerate_upload_files_with_policy(&runtime, &policy)?;
+    let total = upload_total_bytes(&files);
+    // Best-effort free space; a network/auth blip here must not block showing the
+    // total. A host-key mismatch IS surfaced (security signal), so only swallow
+    // non-mismatch errors.
+    let free = match remote_free_bytes(cfg, auth, secret, accept_new_host_key).await {
+        Ok(f) => f,
+        Err(e @ Error::SftpHostKeyMismatch { .. }) => return Err(e),
+        Err(_) => None,
+    };
+    Ok(UploadPreflight {
+        total_bytes: total as f64,
+        free_bytes: free.map(|b| b as f64),
+        exceeds_free: upload_exceeds_free(total, free),
+    })
+}
+
 /// Upload the server `runtime` directory to the configured SFTP target.
 ///
 /// Security ordering is load-bearing: connect → capture host-key fingerprint →
@@ -399,11 +584,13 @@ pub async fn upload_server(
     auth: &UploadAuth,
     secret: &str,
     accept_new_host_key: bool,
+    skip_worlds: bool,
     cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     let base = crate::paths::app_dir(app).map_err(|e| Error::io("<app_dir>", e))?;
     let runtime = crate::paths::server_paths(&base, server_id).runtime;
-    let files = enumerate_upload_files(&runtime)?;
+    let policy = UploadPolicy { skip_worlds };
+    let files = enumerate_upload_files_with_policy(&runtime, &policy)?;
 
     // --- connect + capture host-key fingerprint ---
     let (mut session, seen_fp) = connect_capture(cfg).await?;
@@ -597,6 +784,37 @@ pub async fn upload_server(
     if cancel.load(Ordering::SeqCst) {
         return Err(Error::UploadCancelled);
     }
+
+    // Record this successful upload (timestamp + target) for the Hosting tab's
+    // "Последняя заливка" line. Best-effort: a write failure must not fail an
+    // upload that already finished, so errors are swallowed (the next upload
+    // will set it again). Mirrors the early host-key persist block above; reuses
+    // the `base` already resolved at the top of this function.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0);
+    let target = format!(
+        "{}:{}{}",
+        cfg.host,
+        cfg.port,
+        if cfg.remote_path.is_empty() {
+            String::new()
+        } else {
+            format!("/{}", cfg.remote_path.trim_start_matches('/'))
+        }
+    );
+    let p = crate::paths::server_paths(&base, server_id);
+    if let Ok(mut f2) = crate::servers_runtime::store::read_server_json(&p.json) {
+        if let Some(u) = f2.upload.as_mut() {
+            u.last_upload = Some(crate::servers_runtime::schema::LastUpload {
+                unix_ms: now_ms,
+                target,
+            });
+            let _ = crate::servers_runtime::store::write_server_json(&p.json, &f2);
+        }
+    }
+
     Ok(())
 }
 
@@ -682,6 +900,17 @@ mod tests {
             got,
             vec!["mods/a.jar".to_string(), "server.jar".to_string()]
         );
+    }
+
+    #[test]
+    fn upload_fits_compares_total_against_free() {
+        // free unknown → never warns (None means "no statvfs", proceed).
+        assert!(!upload_exceeds_free(100, None));
+        // total <= free → fits.
+        assert!(!upload_exceeds_free(100, Some(100)));
+        assert!(!upload_exceeds_free(50, Some(100)));
+        // total > free → over capacity.
+        assert!(upload_exceeds_free(101, Some(100)));
     }
 
     #[test]
@@ -887,6 +1116,104 @@ mod tests {
             (PathBuf::from("b"), "eula.txt".to_string()),
         ];
         assert!(required_remote_dirs(&files).is_empty());
+    }
+
+    #[test]
+    fn world_dirs_finds_level_dat_roots_by_any_name() {
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        // A vanilla "world", a renamed "world1", and a non-world "config".
+        std::fs::create_dir_all(rt.join("world/DIM-1")).unwrap();
+        std::fs::write(rt.join("world/level.dat"), b"x").unwrap();
+        std::fs::create_dir_all(rt.join("world1")).unwrap();
+        std::fs::write(rt.join("world1/level.dat"), b"y").unwrap();
+        std::fs::create_dir_all(rt.join("config")).unwrap();
+        std::fs::write(rt.join("config/a.toml"), b"z").unwrap();
+
+        let mut roots: Vec<String> = world_dirs(rt)
+            .into_iter()
+            .map(|p| {
+                p.strip_prefix(rt)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        roots.sort();
+        assert_eq!(roots, vec!["world".to_string(), "world1".to_string()]);
+    }
+
+    #[test]
+    fn enumerate_skip_worlds_excludes_world_trees_keeps_the_rest() {
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::create_dir_all(rt.join("world/DIM1")).unwrap();
+        std::fs::write(rt.join("world/level.dat"), b"x").unwrap();
+        std::fs::write(rt.join("world/DIM1/r.0.0.mca"), b"r").unwrap();
+        std::fs::create_dir_all(rt.join("mods")).unwrap();
+        std::fs::write(rt.join("mods/a.jar"), b"a").unwrap();
+        std::fs::write(rt.join("server.jar"), b"j").unwrap();
+
+        // Default policy (keep worlds): world files present.
+        let kept: Vec<String> = enumerate_upload_files_with_policy(rt, &UploadPolicy::default())
+            .unwrap()
+            .into_iter()
+            .map(|(_l, rel)| rel)
+            .collect();
+        assert!(kept.iter().any(|r| r == "world/level.dat"));
+        assert!(kept.iter().any(|r| r == "world/DIM1/r.0.0.mca"));
+
+        // skip_worlds: every file under a world root is gone; the rest stays.
+        let mut skipped: Vec<String> =
+            enumerate_upload_files_with_policy(rt, &UploadPolicy { skip_worlds: true })
+                .unwrap()
+                .into_iter()
+                .map(|(_l, rel)| rel)
+                .collect();
+        skipped.sort();
+        assert_eq!(
+            skipped,
+            vec!["mods/a.jar".to_string(), "server.jar".to_string()]
+        );
+        assert!(!skipped.iter().any(|r| r.starts_with("world/")));
+    }
+
+    #[test]
+    fn enumerate_no_arg_wrapper_matches_keep_worlds_policy() {
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::create_dir_all(rt.join("world")).unwrap();
+        std::fs::write(rt.join("world/level.dat"), b"x").unwrap();
+        std::fs::write(rt.join("server.jar"), b"j").unwrap();
+        let a = enumerate_upload_files(rt).unwrap();
+        let b = enumerate_upload_files_with_policy(rt, &UploadPolicy::default()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn world_dirs_keys_on_dir_directly_containing_level_dat_not_an_ancestor() {
+        // A `level.dat` nested under `world/data/` (NOT directly in `world/`)
+        // marks `world/data` as the world root — detection keys on the directory
+        // that DIRECTLY contains `level.dat`, never a parent. The unrelated
+        // `config` tree (no level.dat anywhere) is not a world root.
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::create_dir_all(rt.join("world/data")).unwrap();
+        std::fs::write(rt.join("world/data/level.dat"), b"x").unwrap();
+        std::fs::create_dir_all(rt.join("config")).unwrap();
+        std::fs::write(rt.join("config/a.toml"), b"z").unwrap();
+
+        let roots: Vec<String> = world_dirs(rt)
+            .into_iter()
+            .map(|p| {
+                p.strip_prefix(rt)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        // Exactly the dir directly containing level.dat — `world/data`, NOT `world`.
+        assert_eq!(roots, vec!["world/data".to_string()]);
     }
 
     #[test]
