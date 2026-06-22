@@ -150,6 +150,37 @@ pub(crate) fn upload_total_bytes(files: &[(PathBuf, String)]) -> u64 {
         .sum()
 }
 
+/// The complete set of remote directories that must exist before any file in
+/// `files` is created, in parent-before-child order and deduplicated. Root-level
+/// files (no `/` in their relative path) contribute nothing. Returned paths are
+/// forward-slash relative to the remote root (e.g. `"world"`, `"world/region"`).
+///
+/// Computed once up front so the parallel upload can pre-create every directory
+/// sequentially before any concurrent `create` runs — avoiding the race where
+/// two tasks `mkdir` the same parent at once (#28 parallel transfer).
+pub(crate) fn required_remote_dirs(files: &[(PathBuf, String)]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (_local, rel) in files {
+        let mut segments: Vec<&str> = rel.split('/').collect();
+        segments.pop(); // drop the file name; keep only directory components
+        let mut acc = String::new();
+        for seg in segments {
+            if seg.is_empty() {
+                continue;
+            }
+            if !acc.is_empty() {
+                acc.push('/');
+            }
+            acc.push_str(seg);
+            if seen.insert(acc.clone()) {
+                out.push(acc.clone());
+            }
+        }
+    }
+    out
+}
+
 fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()> {
     let rd = std::fs::read_dir(dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     for entry in rd.flatten() {
@@ -739,6 +770,29 @@ mod tests {
         assert!(!is_excluded_file("server.jar"));
         assert!(!is_excluded_file("server.lock")); // only exact names are excluded
         assert!(!is_excluded_file("my.session.lock")); // only exact names
+    }
+
+    #[test]
+    fn required_remote_dirs_parent_before_child_deduped() {
+        // Mixed depths sharing parents; root-level files contribute nothing.
+        let files = vec![
+            (PathBuf::from("a"), "server.jar".to_string()), // root → no dir
+            (PathBuf::from("b"), "world/level.dat".to_string()),
+            (PathBuf::from("c"), "world/region/r.0.0.mca".to_string()),
+            (PathBuf::from("d"), "mods/a.jar".to_string()),
+        ];
+        let dirs = required_remote_dirs(&files);
+        // world before world/region (parent-before-child); each dir once.
+        assert_eq!(dirs, vec!["world", "world/region", "mods"]);
+    }
+
+    #[test]
+    fn required_remote_dirs_empty_when_all_root_level() {
+        let files = vec![
+            (PathBuf::from("a"), "server.jar".to_string()),
+            (PathBuf::from("b"), "eula.txt".to_string()),
+        ];
+        assert!(required_remote_dirs(&files).is_empty());
     }
 
     #[test]
