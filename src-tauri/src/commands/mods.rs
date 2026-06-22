@@ -246,15 +246,20 @@ pub async fn mods_install_with_deps(
         let _ = payload.emit(&app_for_progress);
     });
 
-    // Compute the primary's transitive required closure.
-    let primary_required = resolve_closure(
+    // Compute the primary's transitive required closure. The executor only needs
+    // the versions to download — collapse PlannedDep to ModVersion here (the
+    // install-plan path keeps the reason; this one does not surface it).
+    let primary_required: Vec<ModVersion> = resolve_closure(
         std::slice::from_ref(&primary_v),
         &installed,
         &installed_filenames,
         make_fetch(),
     )
     .await?
-    .required;
+    .required
+    .into_iter()
+    .map(|p| p.version)
+    .collect();
 
     // Best-effort: read the primary jar's manifest and fold in required
     // libraries the platform metadata omitted (e.g. Waystones requires Balm,
@@ -313,10 +318,10 @@ pub async fn mods_install_with_deps(
                 make_fetch(),
             )
             .await?;
-            for v in &sub.required {
-                excl.insert(ProjectKey::of_version(v));
+            for p in &sub.required {
+                excl.insert(ProjectKey::of_version(&p.version));
             }
-            extra_install.extend(sub.required);
+            extra_install.extend(sub.required.into_iter().map(|p| p.version));
             extra_install.push(cand);
         }
     }
@@ -360,7 +365,7 @@ pub async fn mods_install_with_deps(
             make_fetch(),
         )
         .await?;
-        dep_versions.extend(sub.required);
+        dep_versions.extend(sub.required.into_iter().map(|p| p.version));
         chosen_optionals.push(ov);
     }
     let dep_versions = dedup_versions(dep_versions.into_iter());
@@ -564,15 +569,19 @@ pub(crate) async fn install_version_into_dir(
             }
         };
 
-        // 4. Primary's transitive required closure.
-        let primary_required = resolve_closure(
+        // 4. Primary's transitive required closure. Collapse PlannedDep to
+        //    ModVersion — the server path only needs versions to download.
+        let primary_required: Vec<ModVersion> = resolve_closure(
             std::slice::from_ref(&primary_v),
             &installed,
             &installed_filenames,
             make_fetch(),
         )
         .await?
-        .required;
+        .required
+        .into_iter()
+        .map(|p| p.version)
+        .collect();
 
         // 5. Manifest-discovered required libs the platform metadata omits, each
         //    provides-verified over its DOWNLOADED jar before being committed.
@@ -620,10 +629,10 @@ pub(crate) async fn install_version_into_dir(
                     make_fetch(),
                 )
                 .await?;
-                for v in &sub.required {
-                    excl.insert(ProjectKey::of_version(v));
+                for p in &sub.required {
+                    excl.insert(ProjectKey::of_version(&p.version));
                 }
-                extra_install.extend(sub.required);
+                extra_install.extend(sub.required.into_iter().map(|p| p.version));
                 extra_install.push(cand);
             }
         }
@@ -747,11 +756,14 @@ pub async fn mods_resolve_install_plan(
     //     yields no extras and preserves the prior behaviour.
     let extras_raw =
         manifest_extra_root_versions(&data_dir(&app)?, &primary, &mc_version, loader).await;
-    let extras = dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required);
+    let required_versions: Vec<ModVersion> =
+        required.iter().map(|p| p.version.clone()).collect();
+    let extras =
+        dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required_versions);
     if !extras.is_empty() {
         let mut excl = installed.clone();
-        for v in &required {
-            excl.insert(ProjectKey::of_version(v));
+        for p in &required {
+            excl.insert(ProjectKey::of_version(&p.version));
         }
         for (_needed_id, cand) in extras {
             if excl.contains(&ProjectKey::of_version(&cand)) {
@@ -765,19 +777,25 @@ pub async fn mods_resolve_install_plan(
                 make_fetch(),
             )
             .await?;
-            for v in sub.required {
-                excl.insert(ProjectKey::of_version(&v));
-                required.push(v);
+            for p in sub.required {
+                excl.insert(ProjectKey::of_version(&p.version));
+                required.push(p);
             }
-            required.push(cand);
+            // The manifest-discovered candidate itself has no platform-declared
+            // reason on this path yet (Task 7 threads the real one); mark it the
+            // honest default — it was the newest compatible build with no pin.
+            required.push(PlannedDep {
+                version: cand,
+                selection_reason: crate::mods::platform::SelectionReason::NewestNoPin,
+            });
         }
     }
 
     // 3. Each direct optional + its transitive required sub-closure,
     //    excluding primary's requireds + installed.
     let mut exclude = installed.clone();
-    for v in &required {
-        exclude.insert(ProjectKey::of_version(v));
+    for p in &required {
+        exclude.insert(ProjectKey::of_version(&p.version));
     }
     let mut optional = Vec::new();
     // Skip loaders AND optionals already installed in this instance — offering
@@ -798,7 +816,7 @@ pub async fn mods_resolve_install_plan(
         .await?;
         optional.push(OptionalDep {
             version: opt.version.clone(),
-            requires: dedup_versions(sub.required.into_iter()),
+            requires: dedup_planned(sub.required.into_iter()),
         });
     }
 

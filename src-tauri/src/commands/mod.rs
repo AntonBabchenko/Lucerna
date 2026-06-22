@@ -272,6 +272,7 @@ async fn fetch_one_level(
         .map(|(r, is_loader)| ResolvedNode {
             version: r.version,
             is_loader,
+            selection_reason: r.selection_reason,
         })
         .collect();
     let optional = rd
@@ -281,6 +282,7 @@ async fn fetch_one_level(
         .map(|(o, is_loader)| ResolvedNode {
             version: o.version,
             is_loader,
+            selection_reason: o.selection_reason,
         })
         .collect();
     Ok(FetchedDeps {
@@ -428,6 +430,21 @@ fn dedup_versions(
     for v in it {
         if seen.insert(crate::mods::deps::ProjectKey::of_version(&v)) {
             out.push(v);
+        }
+    }
+    out
+}
+
+/// Dedup planned deps by source-specific ProjectKey, preserving first-seen order.
+fn dedup_planned(
+    items: impl Iterator<Item = crate::mods::platform::PlannedDep>,
+) -> Vec<crate::mods::platform::PlannedDep> {
+    use crate::mods::deps::ProjectKey;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for p in items {
+        if seen.insert(ProjectKey::of_version(&p.version)) {
+            out.push(p);
         }
     }
     out
