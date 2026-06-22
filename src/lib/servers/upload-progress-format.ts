@@ -88,3 +88,68 @@ export function formatUploadProgress(t: Translate, v: UploadProgressView): strin
     eta: formatEtaClock(v.etaSecondsValue),
   });
 }
+
+/** Cap on the cumulative-byte sample buffer feeding the EWMA speed estimate. */
+const MAX_SPEED_SAMPLES = 30;
+
+/**
+ * Throttled snapshot of the numbers actually shown on the progress line. The
+ * `samples`/`lastRefreshMs` fields are internal bookkeeping for `advanceProgressDisplay`.
+ */
+export interface ProgressDisplay {
+  bytesDone: number;
+  speedBytesPerSec: number;
+  etaSecondsValue: number | null;
+  /** Internal: cumulative-byte samples for the EWMA speed estimate. */
+  samples: SpeedSample[];
+  /** Internal: wall-clock (ms) of the last refresh; 0 means "never refreshed". */
+  lastRefreshMs: number;
+}
+
+/** A fresh, empty display — used before an upload starts and on reset. */
+export function emptyProgressDisplay(): ProgressDisplay {
+  return {
+    bytesDone: 0,
+    speedBytesPerSec: 0,
+    etaSecondsValue: null,
+    samples: [],
+    lastRefreshMs: 0,
+  };
+}
+
+/**
+ * Advance the throttled progress display. The shown speed/ETA/bytes refresh at
+ * most once per `refreshMs`: within that window this returns `prev` UNCHANGED
+ * (same reference), so the rendered line is frozen and does not flicker under
+ * the high-frequency progress events of a parallel upload (~100/s on
+ * many-small-file sets). On a refresh it appends a calm ~1-per-`refreshMs` byte
+ * sample, recomputes the EWMA speed over that smooth series, and derives the
+ * ETA. The progress BAR is driven by live bytes elsewhere — it is intentionally
+ * NOT throttled here, so it keeps filling smoothly.
+ *
+ * Pure and deterministic: `nowMs` is passed in, never read from the clock.
+ */
+export function advanceProgressDisplay(
+  prev: ProgressDisplay,
+  bytesDone: number,
+  bytesTotal: number,
+  nowMs: number,
+  refreshMs: number,
+): ProgressDisplay {
+  if (prev.lastRefreshMs !== 0 && nowMs - prev.lastRefreshMs < refreshMs) {
+    return prev; // inside the throttle window — freeze the display
+  }
+  const last = prev.samples[prev.samples.length - 1];
+  const samples =
+    last && last.bytes === bytesDone
+      ? prev.samples // no new bytes since the last refresh — don't add a duplicate
+      : [...prev.samples, { bytes: bytesDone, atMs: nowMs }].slice(-MAX_SPEED_SAMPLES);
+  const speed = estimateSpeedBytesPerSec(samples);
+  return {
+    bytesDone,
+    speedBytesPerSec: speed,
+    etaSecondsValue: etaSeconds(bytesTotal, bytesDone, speed),
+    samples,
+    lastRefreshMs: nowMs,
+  };
+}

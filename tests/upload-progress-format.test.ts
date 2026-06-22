@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  advanceProgressDisplay,
+  emptyProgressDisplay,
   estimateSpeedBytesPerSec,
   etaSeconds,
   formatEtaClock,
@@ -145,5 +147,62 @@ describe('formatUploadProgress', () => {
       etaSecondsValue: null,
     });
     expect(result).toContain('--:--');
+  });
+});
+
+describe('advanceProgressDisplay (1 Hz throttle)', () => {
+  const REFRESH = 1000;
+
+  it('emptyProgressDisplay starts at zero/unknown', () => {
+    const d = emptyProgressDisplay();
+    expect(d.bytesDone).toBe(0);
+    expect(d.speedBytesPerSec).toBe(0);
+    expect(d.etaSecondsValue).toBeNull();
+    expect(d.samples).toEqual([]);
+    expect(d.lastRefreshMs).toBe(0);
+  });
+
+  it('refreshes immediately on the first call (never-refreshed sentinel)', () => {
+    const d = advanceProgressDisplay(emptyProgressDisplay(), 1000, 100_000, 1000, REFRESH);
+    expect(d.bytesDone).toBe(1000);
+    expect(d.lastRefreshMs).toBe(1000);
+    expect(d.samples).toHaveLength(1);
+    // One sample → speed not yet estimable.
+    expect(d.speedBytesPerSec).toBe(0);
+  });
+
+  it('FREEZES the display within the refresh window (same reference, ignores new bytes)', () => {
+    const d0 = advanceProgressDisplay(emptyProgressDisplay(), 1000, 100_000, 1000, REFRESH);
+    const d1 = advanceProgressDisplay(d0, 5000, 100_000, 1500, REFRESH); // +500ms, within window
+    expect(d1).toBe(d0); // unchanged reference — the rendered line cannot flicker
+    expect(d1.bytesDone).toBe(1000); // still the frozen value, not 5000
+  });
+
+  it('refreshes once the window has elapsed and recomputes a windowed speed', () => {
+    const d0 = advanceProgressDisplay(emptyProgressDisplay(), 1000, 100_000, 1000, REFRESH);
+    const d2 = advanceProgressDisplay(d0, 5000, 100_000, 2000, REFRESH); // +1000ms → refresh
+    expect(d2).not.toBe(d0);
+    expect(d2.bytesDone).toBe(5000);
+    expect(d2.lastRefreshMs).toBe(2000);
+    // (5000-1000) bytes over 1000ms → 4000 B/s.
+    expect(d2.speedBytesPerSec).toBe(4000);
+    // ETA = remaining / speed = (100000-5000)/4000.
+    expect(d2.etaSecondsValue).toBeCloseTo((100_000 - 5000) / 4000, 5);
+  });
+
+  it('does not append a duplicate sample when bytes did not advance', () => {
+    const a = advanceProgressDisplay(emptyProgressDisplay(), 1000, 100_000, 1000, REFRESH);
+    const b = advanceProgressDisplay(a, 1000, 100_000, 2000, REFRESH); // same bytes, after window
+    expect(b.samples).toHaveLength(1);
+    expect(b.lastRefreshMs).toBe(2000);
+  });
+
+  it('caps the sample buffer at 30 across a long upload', () => {
+    let d = emptyProgressDisplay();
+    for (let i = 0; i < 40; i++) {
+      const t = (i + 1) * 1000; // avoid the t=0 "never refreshed" sentinel
+      d = advanceProgressDisplay(d, i * 10_000, 1_000_000_000, t, REFRESH);
+    }
+    expect(d.samples.length).toBe(30);
   });
 });
