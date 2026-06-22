@@ -316,8 +316,11 @@ impl ModPlatform for ModrinthClient {
                 DepKind::Embedded => continue,
                 _ => {}
             }
-            let pid = match &dep.project_ref {
-                DepProjectRef::Modrinth { project_id, .. } => project_id.clone(),
+            let (pid, pin) = match &dep.project_ref {
+                DepProjectRef::Modrinth {
+                    project_id,
+                    version_id,
+                } => (project_id.clone(), version_id.as_deref()),
                 DepProjectRef::Curseforge { .. } => {
                     // Cross-source dep we can't resolve on this platform — only
                     // worth flagging when it's required.
@@ -328,10 +331,20 @@ impl ModPlatform for ModrinthClient {
                 }
             };
             let versions = self.versions(&pid, Some(mc), Some(loader)).await?;
-            if let Some(v) = versions.into_iter().next() {
+            // Honor the author-pinned `version_id` when present and compatible;
+            // otherwise newest-compatible (marked). Modrinth dependency metadata
+            // carries no range — pin only.
+            if let Some((i, reason)) =
+                crate::mods::dep_select::select_dep_version(&versions, pin, None)
+            {
+                let version = versions
+                    .into_iter()
+                    .nth(i)
+                    .expect("index returned by select_dep_version is in range");
                 let resolved = ResolvedDep {
                     project_ref: dep.project_ref.clone(),
-                    version: v,
+                    version,
+                    selection_reason: reason,
                 };
                 match dep.kind {
                     DepKind::Required => required.push(resolved),
@@ -885,6 +898,67 @@ mod tests {
             DepProjectRef::Modrinth { project_id, .. } => assert_eq!(project_id, "reqdep"),
             other => panic!("expected modrinth reqdep ref, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn resolve_deps_honors_author_pinned_version_id() {
+        let s = server().await;
+        // Dependency project "lib" has two compatible builds; the author pinned
+        // the OLDER one. The version endpoint returns newest-first.
+        Mock::given(method("GET"))
+            .and(path("/v2/project/lib/version"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"[
+                  {"id":"lib-new","project_id":"lib","name":"Lib 2","version_number":"2.0.0",
+                   "game_versions":["1.20.1"],"loaders":["forge"],"date_published":"2026-05-01T00:00:00Z",
+                   "files":[{"url":"https://cdn/new.jar","filename":"lib-2.jar","hashes":{"sha1":"bb"},"size":1,"primary":true}],
+                   "dependencies":[]},
+                  {"id":"lib-old","project_id":"lib","name":"Lib 1","version_number":"1.0.0",
+                   "game_versions":["1.20.1"],"loaders":["forge"],"date_published":"2026-01-01T00:00:00Z",
+                   "files":[{"url":"https://cdn/old.jar","filename":"lib-1.jar","hashes":{"sha1":"cc"},"size":1,"primary":true}],
+                   "dependencies":[]}
+                ]"#,
+            ))
+            .mount(&s)
+            .await;
+        let c = ModrinthClient::with_base(s.uri());
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+
+        let primary = ModVersion {
+            source: ModSource::Modrinth,
+            project_id: "primary".into(),
+            version_id: "vp".into(),
+            name: "Primary".into(),
+            version_number: "1.0".into(),
+            mc_versions: vec!["1.20.1".into()],
+            loaders: vec![LoaderKind::Forge],
+            primary_file: ModFile {
+                filename: "p.jar".into(),
+                url: "https://cdn/p.jar".into(),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Modrinth {
+                    project_id: "lib".into(),
+                    version_id: Some("lib-old".into()),
+                },
+            }],
+            published_at: None,
+        };
+        let rd = c
+            .resolve_deps(&primary, "1.20.1", LoaderKind::Forge)
+            .await
+            .unwrap();
+        assert_eq!(rd.required.len(), 1);
+        assert_eq!(rd.required[0].version.version_id, "lib-old");
+        assert_eq!(
+            rd.required[0].selection_reason,
+            SelectionReason::PinHonored
+        );
     }
 
     #[tokio::test]
