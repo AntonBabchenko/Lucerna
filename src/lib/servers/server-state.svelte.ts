@@ -252,6 +252,7 @@ async function setUploadConfig(
 async function upload(
   id: string,
   acceptNewHostKey: boolean,
+  password?: string | null,
 ): Promise<{ status: 'ok'; data: null } | { status: 'error'; error: unknown }> {
   setUploadState(id, {
     phase: 'uploading',
@@ -265,7 +266,7 @@ async function upload(
   });
   let r: { status: 'ok'; data: null } | { status: 'error'; error: unknown };
   try {
-    r = await commands.serverUpload(id, acceptNewHostKey);
+    r = await commands.serverUpload(id, acceptNewHostKey, password ?? null);
   } catch (e) {
     setUploadState(id, { phase: 'error', error: String(e) });
     return { status: 'error', error: e };

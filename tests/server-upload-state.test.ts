@@ -75,4 +75,22 @@ describe('upload state lifecycle', () => {
     await serverState.upload('srv-5', false);
     expect(serverState.anyUploading).toBe(false);
   });
+
+  it('forwards a transient password to serverUpload', async () => {
+    (commands.serverUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: null,
+    });
+    await serverState.upload('srv-pw', true, 'hunter2');
+    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, 'hunter2');
+  });
+
+  it('passes null when no password is provided', async () => {
+    (commands.serverUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'ok',
+      data: null,
+    });
+    await serverState.upload('srv-pw', true);
+    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, null);
+  });
 });
