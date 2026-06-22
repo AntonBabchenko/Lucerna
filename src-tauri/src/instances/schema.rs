@@ -243,6 +243,13 @@ fn default_mod_metadata_ttl_days() -> u32 {
     7
 }
 
+/// Default number of concurrent file transfers for an SFTP server upload.
+/// Four streams balance throughput against connection/memory overhead on a
+/// single shared SFTP session; clamped to a sane range at point of use.
+fn default_sftp_upload_concurrency() -> u32 {
+    4
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Type)]
 pub struct GeneralSettings {
     /// When true, the launcher window hides to a system-tray icon on
@@ -291,6 +298,11 @@ pub struct GeneralSettings {
     /// deserializes to the 7-day default.
     #[serde(default = "default_mod_metadata_ttl_days")]
     pub mod_metadata_ttl_days: u32,
+    /// How many files an SFTP server upload transfers in parallel over the one
+    /// shared SFTP session. `#[serde(default)]` → app.json written before this
+    /// field deserializes to the 4-stream default. Clamped to 1..=16 at use.
+    #[serde(default = "default_sftp_upload_concurrency")]
+    pub sftp_upload_concurrency: u32,
 }
 
 impl Default for GeneralSettings {
@@ -305,6 +317,7 @@ impl Default for GeneralSettings {
             gpu_preference: GpuPreference::default(),
             log_retention: LogRetentionPolicy::default(),
             mod_metadata_ttl_days: default_mod_metadata_ttl_days(),
+            sftp_upload_concurrency: default_sftp_upload_concurrency(),
         }
     }
 }
@@ -387,6 +400,20 @@ mod retention_tests {
         let g: GeneralSettings = serde_json::from_str(json).unwrap();
         assert!(!g.log_retention.enabled);
         assert_eq!(g.log_retention.max_files, 10);
+    }
+
+    #[test]
+    fn general_settings_default_sftp_upload_concurrency_is_four() {
+        let g = GeneralSettings::default();
+        assert_eq!(g.sftp_upload_concurrency, 4);
+    }
+
+    #[test]
+    fn old_app_json_without_concurrency_deserializes_to_four() {
+        // Field added later → existing app.json `general` blocks lack it.
+        // #[serde(default)] must fill it with the 4-stream default.
+        let g: GeneralSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(g.sftp_upload_concurrency, 4);
     }
 }
 

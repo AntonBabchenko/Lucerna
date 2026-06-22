@@ -197,6 +197,22 @@ mod tests {
     }
 
     #[test]
+    fn read_app_json_general_without_concurrency_field_defaults_to_four() {
+        // A `general` block written before sftp_upload_concurrency existed must
+        // deserialize the field to the 4-stream default via #[serde(default)],
+        // not fail the whole AppFile parse.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app.json");
+        std::fs::write(
+            &path,
+            r#"{"active_instance":"x","general":{"theme":"dark"}}"#,
+        )
+        .unwrap();
+        let back = read_app_json(&path).unwrap();
+        assert_eq!(back.general.sftp_upload_concurrency, 4);
+    }
+
+    #[test]
     fn write_default_onboarding_omits_key_or_writes_none() {
         // Either skip_serializing_if=None or writing `null` is acceptable.
         // This test just ensures roundtrip is clean and the deserialised
