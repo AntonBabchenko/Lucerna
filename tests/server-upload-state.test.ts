@@ -82,7 +82,7 @@ describe('upload state lifecycle', () => {
       data: null,
     });
     await serverState.upload('srv-pw', true, false, 'hunter2');
-    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, 'hunter2');
+    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, 'hunter2', false);
   });
 
   it('passes null when no password is provided', async () => {
@@ -91,6 +91,6 @@ describe('upload state lifecycle', () => {
       data: null,
     });
     await serverState.upload('srv-pw', true, false);
-    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, null);
+    expect(commands.serverUpload).toHaveBeenCalledWith('srv-pw', true, false, null, false);
   });
 });
