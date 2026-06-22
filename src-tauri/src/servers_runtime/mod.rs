@@ -21,4 +21,5 @@ pub mod store;
 pub mod to_instance;
 pub mod transfer;
 pub mod upload_control;
+pub mod upload_manifest;
 pub mod whitelist;

@@ -46,6 +46,14 @@
   let backupPolicySaved = $state(false);
   let backupPolicyError = $state<string | null>(null);
 
+  // ── resume (Section B): a previously interrupted upload to the same target ──
+  let resumeInfo = $state<{
+    resumable: boolean;
+    filesTotal: number;
+    filesDone: number;
+    bytesTotal: number;
+  } | null>(null);
+
   onMount(async () => {
     const auth = await commands.serverGetUploadAuth(serverId);
     if (auth.status === 'ok') {
@@ -58,6 +66,7 @@
       const interval = policy.data.interval_minutes ?? 0;
       if (interval > 0) backupIntervalMinutes = interval;
     }
+    resumeInfo = await serverState.uploadResumeState(serverId);
   });
 
   async function handleSaveBackupPolicy() {
@@ -246,6 +255,20 @@
       }
       // All other errors are already persisted in the store as storeUploadError.
     }
+  }
+
+  /** Continue an interrupted upload: skips already-uploaded files, re-uploads
+   *  the rest (and the previously in-flight file). Reuses the trusted host key,
+   *  so no host-key dialog — pass acceptNewHostKey = false. Mirrors doUpload's
+   *  skipWorlds + transient-secret arguments, appending resume = true. */
+  async function handleResume() {
+    resumeInfo = null; // hide the affordance once we start
+    saveError = null;
+    previewError = null;
+    await serverState.upload(serverId, false, skipWorlds, transientSecret || null, true);
+    await serverState.refresh();
+    // Refresh the resume snapshot (cleared on full success; non-null if cancelled).
+    resumeInfo = await serverState.uploadResumeState(serverId);
   }
 
   // busyHostKeyPreview: tracks the host-key fetch before the first upload.
@@ -545,6 +568,23 @@
         <span class="text-sm text-success">{$t('servers.hosting.uploaded')}</span>
       {/if}
     </div>
+
+    {#if resumeInfo?.resumable && !uploading}
+      <div class="flex flex-col gap-1" data-testid="resume-available">
+        <p class="text-xs text-muted">
+          {$t('servers.hosting.resumeAvailable', {
+            done: resumeInfo.filesDone,
+            total: resumeInfo.filesTotal,
+          })}
+        </p>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-secondary btn-sm" onclick={() => void handleResume()}>
+            {$t('servers.hosting.resumeUpload')}
+          </button>
+          <span class="text-xs text-muted">{$t('servers.hosting.resumeHint')}</span>
+        </div>
+      </div>
+    {/if}
 
     {#if preflight}
       {@const level = preflightLevel(preflight)}

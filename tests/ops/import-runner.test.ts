@@ -30,11 +30,37 @@ describe('runImport', () => {
   it('returns ok with the instance id from r.data.id', async () => {
     modpackImport.mockImplementation(async (...args: unknown[]) => {
       const phaseCh = args[6] as { onmessage: (m: unknown) => void };
-      phaseCh.onmessage({ phase: 'done', skipped_overrides: [] });
+      phaseCh.onmessage({ phase: 'done', skipped_overrides: [], inert_loader_jars: [] });
       return { status: 'ok', data: { name: 'My Pack', id: 'i1' } };
     });
     const out = await runImport(req, () => {});
-    expect(out).toEqual({ status: 'ok', name: 'My Pack', instanceId: 'i1', skipped: [] });
+    expect(out).toEqual({
+      status: 'ok',
+      name: 'My Pack',
+      instanceId: 'i1',
+      skipped: [],
+      inertLoaderJars: [],
+    });
+  });
+
+  it('captures inert_loader_jars from the done payload into the outcome', async () => {
+    modpackImport.mockImplementation(async (...args: unknown[]) => {
+      const phaseCh = args[6] as { onmessage: (m: unknown) => void };
+      phaseCh.onmessage({
+        phase: 'done',
+        skipped_overrides: [],
+        inert_loader_jars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
+      });
+      return { status: 'ok', data: { name: 'My Pack', id: 'i1' } };
+    });
+    const out = await runImport(req, () => {});
+    expect(out).toEqual({
+      status: 'ok',
+      name: 'My Pack',
+      instanceId: 'i1',
+      skipped: [],
+      inertLoaderJars: [{ filename: 'x-Fabric.jar', detected_loader: 'Fabric' }],
+    });
   });
 
   it('maps modpack_partial_failure to a partial outcome with file basenames', async () => {

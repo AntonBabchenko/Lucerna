@@ -1017,7 +1017,13 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  `SftpHostKeyMismatch`, если `accept_new_host_key == false`. При `true`
 	 *  доверяет новому ключу и сохраняет его отпечаток в `server.json`.
 	 */
-	serverUpload: (id: string, acceptNewHostKey: boolean, skipWorlds: boolean, password: string | null) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, skipWorlds, password })),
+	serverUpload: (id: string, acceptNewHostKey: boolean, skipWorlds: boolean, password: string | null, resume: boolean) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey, skipWorlds, password, resume })),
+	/**
+	 *  Report whether a resumable upload exists for the server's current target.
+	 *  Pure read — no connection is made, no secret is touched. Used to show the
+	 *  "Продолжить заливку" affordance on the Hosting tab.
+	 */
+	serverUploadResumeState: (id: string) => typedError<UploadResumeState, Error>(__TAURI_INVOKE("server_upload_resume_state", { id })),
 	/**
 	 *  Size/free-space preflight for an upload (#K): total bytes of the selected set
 	 *  (honouring `skip_worlds`) plus remote free space when the server advertises
@@ -1891,6 +1897,18 @@ export type ImportProvenance = {
 	imported_unix_ms: number | null,
 };
 
+/**
+ *  A jar installed into an instance whose loader family the instance cannot
+ *  load — e.g. a Fabric-only jar in a Forge instance. Forge never reads
+ *  `fabric.mod.json`, so the jar is inert (loads nothing) and is safe to ignore
+ *  or remove. The import still succeeds; surfaced purely for transparency.
+ */
+export type InertLoaderJar = {
+	filename: string,
+	/**  Loader family detected in the jar's descriptor — "Fabric" / "Forge". */
+	detected_loader: string,
+};
+
 /**  Result of a one-click "install the missing required dependency" action. */
 export type InstallMissingOutcome = 
 /**  The dependency was resolved, verified, and installed. `name` is its display name. */
@@ -2465,7 +2483,14 @@ export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_insta
  *  Empty in the common case; non-empty drives a non-fatal "N file(s)
  *  skipped" note on the import-complete toast.
  */
-skipped_overrides: SkippedOverride[] };
+skipped_overrides: SkippedOverride[]; 
+/**
+ *  Installed jars built for a loader family this instance cannot load
+ *  (inert — e.g. a Fabric jar on a Forge instance — see
+ *  `InertLoaderJar`). Empty in the common case; non-empty drives a
+ *  non-fatal "N inert jar(s)" note on the import-complete toast.
+ */
+inert_loader_jars: InertLoaderJar[] };
 
 /**
  *  Full detail of a modpack project for the detail modal's Overview tab.
@@ -2731,6 +2756,12 @@ export type PackOrigin = {
 	 *  feature load with an empty list.
 	 */
 	resolved_missing?: ResolvedMissing[],
+	/**
+	 *  Installed jars built for a loader family this instance cannot load
+	 *  (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
+	 *  so pre-feature registry files load with an empty list.
+	 */
+	inert_loader_jars?: InertLoaderJar[],
 };
 
 export type PackOriginFile = {
@@ -3385,6 +3416,21 @@ export type UploadPreflight = {
 	free_bytes: number | null,
 	/**  Convenience: `free_bytes` is known AND `total_bytes` exceeds it. */
 	exceeds_free: boolean,
+};
+
+/**
+ *  Resumable-upload snapshot for the Hosting tab. `resumable` is true iff an
+ *  unfinished manifest exists for the CURRENT configured target.
+ * 
+ *  `bytes_total` is `f64` on the wire — specta-typescript has no `u64`, so
+ *  byte counts cross the boundary as `f64` (same convention as `created_unix_ms`
+ *  in `schema.rs`). Values stay within 2^53 for any realistic server.
+ */
+export type UploadResumeState = {
+	resumable: boolean,
+	files_total: number,
+	files_done: number,
+	bytes_total: number | null,
 };
 
 export type VerifyCategory = "client" | "libraries" | "assets" | "jre" | "profile_json";

@@ -58,6 +58,12 @@ let mockProgress: { done: number; total: number; file: string } | undefined;
 let mockUploadState: import('$lib/servers/server-state.svelte').UploadState | undefined;
 let mockUploading = false;
 let mockLastUpload: import('$lib/ipc/bindings').LastUpload | null = null;
+let mockResumeInfo: {
+  resumable: boolean;
+  filesTotal: number;
+  filesDone: number;
+  bytesTotal: number;
+} | null = null;
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
   serverState: {
@@ -72,6 +78,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     cancelUpload: (...args: unknown[]) => cancelUploadMock(...args),
     setUploadConfig: (...args: unknown[]) => setUploadConfigMock(...args),
     upload: (...args: unknown[]) => uploadMock(...args),
+    uploadResumeState: (_id: string) => Promise.resolve(mockResumeInfo),
     uploadPreflight: (...args: unknown[]) => uploadPreflightMock(...args),
     lastUploadFor: (_id: string) => mockLastUpload,
     exportZip: (...args: unknown[]) => exportZipMock(...args),
@@ -137,6 +144,8 @@ describe('ServerHostingTab', () => {
     mockUploadState = undefined;
     mockUploading = false;
     mockLastUpload = null;
+    mockResumeInfo = null;
+    uploadMock.mockClear();
     uploadMock.mockResolvedValue({ status: 'ok', data: null });
     uploadPreflightMock.mockResolvedValue(null);
     cancelUploadMock.mockResolvedValue({ status: 'ok', data: null });
@@ -508,5 +517,28 @@ describe('ServerHostingTab', () => {
 
     expect(await screen.findByText(/won't fit|не поместятся/)).toBeTruthy();
     expect(screen.getByTestId('preflight-over')).toBeTruthy();
+  });
+
+  // ── Section B: resume after restart ─────────────────────────────────────────
+
+  it('offers Continue when a resumable upload exists, and resumes on click', async () => {
+    mockList = [makeServer({ upload: savedUpload })];
+    mockResumeInfo = {
+      resumable: true,
+      filesTotal: 100,
+      filesDone: 42,
+      bytesTotal: 5_000_000,
+    };
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    // The Continue button appears (resolves the onMount async query).
+    const resume = await screen.findByRole('button', { name: /Продолжить|Continue/ });
+    expect(resume).toBeTruthy();
+
+    await fireEvent.click(resume);
+    // Resume calls the store upload with resume = true at position 4 (index 4),
+    // robust to whatever skipWorlds/password the tab passes.
+    await waitFor(() => expect(uploadMock).toHaveBeenCalled());
+    expect(uploadMock.mock.calls.at(-1)?.[4]).toBe(true);
   });
 });
