@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { open, save } from '@tauri-apps/plugin-dialog';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
@@ -11,10 +11,10 @@
   import { formatSize } from '$lib/format/size';
   import { formatLastUpload, preflightLevel } from '$lib/servers/upload-summary';
   import {
-    estimateSpeedBytesPerSec,
-    etaSeconds,
+    advanceProgressDisplay,
+    emptyProgressDisplay,
     formatUploadProgress,
-    type SpeedSample,
+    type ProgressDisplay,
   } from '$lib/servers/upload-progress-format';
 
   let { serverId }: { serverId: string } = $props();
@@ -124,29 +124,40 @@
       : undefined,
   );
 
-  // ── Byte-level progress: EWMA speed + ETA ────────────────────────────────────
-  const MAX_SAMPLES = 30;
-  let speedSamples = $state<SpeedSample[]>([]);
+  // ── Byte-level progress: speed + ETA, throttled to ~1 Hz ─────────────────────
+  // Plan-4's parallel upload emits a progress event per finished file (~100/s on
+  // many-small-file sets). Deriving the speed/ETA text straight off that stream
+  // makes the numbers flicker. So we hold a snapshot and refresh it at most once
+  // per second (advanceProgressDisplay returns the SAME reference within the
+  // window → no re-render). The progress BAR (bytePct) stays live and smooth.
+  const DISPLAY_REFRESH_MS = 1000;
+  let display = $state<ProgressDisplay>(emptyProgressDisplay());
 
   $effect(() => {
-    const s = uploadState;
+    const s = uploadState; // tracked: this effect re-runs on every progress event…
     if (!s || s.phase !== 'uploading') {
-      if (speedSamples.length > 0) speedSamples = [];
+      // …but every `display` read/write is untracked, so the effect's only
+      // dependency is `uploadState` and it never self-loops on the snapshot.
+      untrack(() => {
+        if (display.lastRefreshMs !== 0 || display.bytesDone !== 0) {
+          display = emptyProgressDisplay();
+        }
+      });
       return;
     }
-    const last = speedSamples[speedSamples.length - 1];
-    if (!last || last.bytes !== s.bytesDone) {
-      const next = [...speedSamples, { bytes: s.bytesDone, atMs: Date.now() }];
-      speedSamples = next.length > MAX_SAMPLES ? next.slice(-MAX_SAMPLES) : next;
-    }
+    const bytesDone = s.bytesDone;
+    const bytesTotal = s.bytesTotal;
+    untrack(() => {
+      display = advanceProgressDisplay(
+        display,
+        bytesDone,
+        bytesTotal,
+        Date.now(),
+        DISPLAY_REFRESH_MS,
+      );
+    });
   });
 
-  const speedBytesPerSec = $derived(estimateSpeedBytesPerSec(speedSamples));
-  const etaValue = $derived(
-    uploadState
-      ? etaSeconds(uploadState.bytesTotal, uploadState.bytesDone, speedBytesPerSec)
-      : null,
-  );
   const bytePct = $derived(
     uploadState && uploadState.bytesTotal > 0
       ? Math.min(1, uploadState.bytesDone / uploadState.bytesTotal)
@@ -155,10 +166,10 @@
   const progressLine = $derived(
     uploadState
       ? formatUploadProgress($t, {
-          bytesDone: uploadState.bytesDone,
+          bytesDone: display.bytesDone,
           bytesTotal: uploadState.bytesTotal,
-          speedBytesPerSec,
-          etaSecondsValue: etaValue,
+          speedBytesPerSec: display.speedBytesPerSec,
+          etaSecondsValue: display.etaSecondsValue,
         })
       : '',
   );
