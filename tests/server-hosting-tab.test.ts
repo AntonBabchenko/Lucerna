@@ -47,12 +47,15 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 // Mutable serverState — tests mutate these directly.
 const setUploadConfigMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 const uploadMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
+const cancelUploadMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 const exportZipMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 const refreshMock = vi.fn().mockResolvedValue(undefined);
 
 let mockList: ServerWithStatus[] = [];
 let mockRunning = false;
 let mockProgress: { done: number; total: number; file: string } | undefined;
+let mockUploadState: import('$lib/servers/server-state.svelte').UploadState | undefined;
+let mockUploading = false;
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
   serverState: {
@@ -62,6 +65,9 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     running: (_id: string) => mockRunning,
     uploadProgressFor: (_id: string) => mockProgress,
     clearUploadProgress: vi.fn(),
+    uploadStateFor: (_id: string) => mockUploadState,
+    isUploading: (_id: string) => mockUploading,
+    cancelUpload: (...args: unknown[]) => cancelUploadMock(...args),
     setUploadConfig: (...args: unknown[]) => setUploadConfigMock(...args),
     upload: (...args: unknown[]) => uploadMock(...args),
     exportZip: (...args: unknown[]) => exportZipMock(...args),
@@ -124,7 +130,10 @@ describe('ServerHostingTab', () => {
     mockList = [];
     mockRunning = false;
     mockProgress = undefined;
+    mockUploadState = undefined;
+    mockUploading = false;
     uploadMock.mockResolvedValue({ status: 'ok', data: null });
+    cancelUploadMock.mockResolvedValue({ status: 'ok', data: null });
   });
 
   it('renders host and user fields', () => {
@@ -277,5 +286,57 @@ describe('ServerHostingTab', () => {
       'srv-1',
       expect.objectContaining({ enabled: true }),
     );
+  });
+
+  // ── store-driven upload state (Task 6) ──────────────────────────────────────
+
+  it('reattaches in-progress upload: Upload button is disabled and progress is visible', () => {
+    mockList = [makeServer({ upload: savedUpload })];
+    mockUploading = true;
+    mockUploadState = {
+      phase: 'uploading',
+      filesDone: 12,
+      filesTotal: 100,
+      bytesDone: 0,
+      bytesTotal: 0,
+      currentFile: 'mods/create-1.0.jar',
+      startedAtMs: Date.now(),
+    };
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    const uploadBtn = screen.getByText(/Upload|Uploading/).closest('button') as HTMLButtonElement;
+    expect(uploadBtn.disabled).toBe(true);
+
+    // Progress bar row — file count text should be visible in the button label or
+    // the progress line below it (the label uses the uploading i18n key).
+    expect(uploadBtn.textContent).toBeTruthy();
+    // The progress text inside the button uses {done}/{total}.
+    expect(uploadBtn.textContent).toMatch(/12/);
+
+    // Current-file line is rendered below the progress bar.
+    expect(screen.getByText('mods/create-1.0.jar')).toBeTruthy();
+  });
+
+  it('shows Cancel button while uploading and calls cancelUpload on click', async () => {
+    mockList = [makeServer({ upload: savedUpload })];
+    mockUploading = true;
+    mockUploadState = {
+      phase: 'uploading',
+      filesDone: 5,
+      filesTotal: 50,
+      bytesDone: 0,
+      bytesTotal: 0,
+      currentFile: 'mods/botania.jar',
+      startedAtMs: Date.now(),
+    };
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    const cancelBtn = screen.getByText('Cancel upload') as HTMLButtonElement;
+    expect(cancelBtn).toBeTruthy();
+
+    await fireEvent.click(cancelBtn);
+    expect(cancelUploadMock).toHaveBeenCalledWith('srv-1');
   });
 });

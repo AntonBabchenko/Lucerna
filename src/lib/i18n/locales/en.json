@@ -97,6 +97,7 @@
     "serverRunning": "Server running",
     "serverCrashed": "Server crashed",
     "serversFixAvailable": "A server fix is available",
+    "serversUploading": "Uploading to hosting…",
     "importLauncher": "Import from launcher",
     "offlineNameUnsupported": "This nickname isn't supported by Minecraft — you can't enter worlds. Add an account with a Latin nickname."
   },
@@ -1227,6 +1228,8 @@
     "sftpAuthFailed": "Login failed — check the username and password",
     "sftpHostKeyMismatch": "The host's key changed — upload blocked for safety. Re-confirm only if you trust it.",
     "sftpTransferFailed": "Upload failed",
+    "serverUploadInProgress": "An upload is already running for this server — wait for it to finish or cancel it first",
+    "uploadCancelled": "Upload cancelled",
     "serverImportUnsupportedSource": "Pick a .zip file or a server folder to import.",
     "serverImportInvalidArchive": "The server archive couldn't be read",
     "serverImportTooLarge": "That server is too large to import.",
@@ -1663,6 +1666,7 @@
       "uploaded": "Upload complete",
       "exportZip": "Export .zip",
       "exported": "Exported",
+      "startBlockedByUpload": "Idle while uploading to hosting",
       "runningBlock": "Stop the server before uploading",
       "exportRunningBlock": "Stop the server first — exporting a running world can capture it mid-save. Use Backups for a safe snapshot of a live server.",
       "passwordStored": "Password saved",
@@ -1682,7 +1686,8 @@
       "hostKeyTitle": "Host key changed",
       "hostKeyBody": "This host's key has changed since you last connected. That can happen if the server was reinstalled — but it can also mean the connection is being intercepted. Only continue if you trust this host.",
       "hostKeyTrust": "Trust & upload",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "cancelUpload": "Cancel upload"
     },
     "diagnose": {
       "clientOnly": {

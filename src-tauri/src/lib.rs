@@ -216,6 +216,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             // Own server (Plan 5: SFTP upload + export):
             commands::server_set_upload_config,
             commands::server_upload,
+            commands::server_cancel_upload,
             commands::server_export_zip,
             // Own server (S4 #24/#28: host-key preview + SFTP auth method):
             commands::server_host_key_preview,

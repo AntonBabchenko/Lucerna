@@ -362,6 +362,14 @@ pub enum Error {
     #[error("server already running: {id}")]
     ServerAlreadyRunning { id: String },
 
+    /// Операция требует, чтобы заливка на хостинг не шла, но она идёт.
+    #[error("server upload in progress: {id}")]
+    ServerUploadInProgress { id: String },
+
+    /// Заливка на хостинг была отменена пользователем.
+    #[error("upload cancelled")]
+    UploadCancelled,
+
     /// Операция требует запущенного сервера, но он не запущен.
     #[error("server not running: {id}")]
     ServerNotRunning { id: String },

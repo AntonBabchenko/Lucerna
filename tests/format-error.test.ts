@@ -378,6 +378,8 @@ describe('formatError', () => {
       },
       server_spawn_failed: { kind: 'server_spawn_failed', details: 'ENOENT java' },
       server_already_running: { kind: 'server_already_running', id: 'srv-1' },
+      server_upload_in_progress: { kind: 'server_upload_in_progress', id: 'srv-1' },
+      upload_cancelled: { kind: 'upload_cancelled' },
       server_not_running: { kind: 'server_not_running', id: 'srv-1' },
       server_mod_required_by_other: {
         kind: 'server_mod_required_by_other',
@@ -419,13 +421,13 @@ describe('formatError', () => {
       // count is the runtime complement: a duplicate key in the literal would
       // collapse two entries into one and drop the length below the total,
       // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(103);
+      expect(Object.keys(samples)).toHaveLength(105);
     });
 
     it('classifies every Error variant (ERROR_CLASS completeness)', () => {
       // Record<IpcError['kind'], …> fails the build on a missing key; this exact
       // count is the runtime complement that also catches a duplicate key.
-      expect(Object.keys(ERROR_CLASS)).toHaveLength(103);
+      expect(Object.keys(ERROR_CLASS)).toHaveLength(105);
     });
 
     const opaqueKinds = (Object.keys(samples) as IpcError['kind'][]).filter(

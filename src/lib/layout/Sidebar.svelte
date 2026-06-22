@@ -20,6 +20,7 @@
   import { navVisual, type NavStatusKind } from '$lib/layout/nav-status';
   import NavStatusIcon from '$lib/layout/NavStatusIcon.svelte';
   import NavFixWrench from '$lib/layout/NavFixWrench.svelte';
+  import NavUploadBadge from '$lib/layout/NavUploadBadge.svelte';
 
   let {
     accounts,
@@ -119,6 +120,7 @@
   );
 
   const serversNav = $derived(serverState.serversNavStatus);
+  const anyUploading = $derived(serverState.anyUploading);
   const serversVisual = $derived(navVisual(serversNav));
   const serversStatusLabel = $derived(
     serversNav === 'running'
@@ -406,6 +408,12 @@
           <NavFixWrench
             label={$t('sidebar.serversFixAvailable')}
             testid="sidebar-servers-fix-badge"
+          />
+        {/if}
+        {#if anyUploading}
+          <NavUploadBadge
+            label={$t('sidebar.serversUploading')}
+            testid="sidebar-servers-upload-badge"
           />
         {/if}
       </button>

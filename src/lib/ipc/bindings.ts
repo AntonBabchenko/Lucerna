@@ -1012,6 +1012,11 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 */
 	serverUpload: (id: string, acceptNewHostKey: boolean) => typedError<null, Error>(__TAURI_INVOKE("server_upload", { id, acceptNewHostKey })),
 	/**
+	 *  Запросить отмену активной заливки на хостинг (no-op, если её нет).
+	 *  Частично залитые файлы остаются на хосте (докачка — отдельная фича).
+	 */
+	serverCancelUpload: (id: string) => typedError<null, Error>(__TAURI_INVOKE("server_cancel_upload", { id })),
+	/**
 	 *  Экспортировать серверный `runtime/` в ZIP-архив по пути `dest_path`.
 	 *  Исключает `logs/` и `installer.jar` (те же правила, что у SFTP-загрузки).
 	 */
@@ -1609,6 +1614,10 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 { kind: "server_spawn_failed"; details: string } | 
 /**  Сервер уже запущен. */
 { kind: "server_already_running"; id: string } | 
+/**  Операция требует, чтобы заливка на хостинг не шла, но она идёт. */
+{ kind: "server_upload_in_progress"; id: string } | 
+/**  Заливка на хостинг была отменена пользователем. */
+{ kind: "upload_cancelled" } | 
 /**  Операция требует запущенного сервера, но он не запущен. */
 { kind: "server_not_running"; id: string } | 
 /**  Имя сервера не прошло валидацию (пустое / дубликат / слишком длинное). */
@@ -3085,6 +3094,13 @@ export type ServerUploadProgress = {
 	current_file: string,
 	files_done: number,
 	files_total: number,
+	/**
+	 *  f64 not u64 — specta forbids BigInt-style exports. 2^53 bytes (8 PiB) is
+	 *  far beyond any plausible server-runtime upload size.
+	 */
+	bytes_done: number | null,
+	/**  f64 not u64 — specta forbids BigInt-style exports (see `bytes_done`). */
+	bytes_total: number | null,
 };
 
 /**  Что видит UI: `ServerFile` + рантайм-статус (заполняется в Плане 2). */

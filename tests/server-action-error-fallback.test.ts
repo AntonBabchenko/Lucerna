@@ -53,6 +53,7 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
       return [{ id: 'srv-1', name: 'My server', running: false, port: 25565 }];
     },
     running: (_id: string) => false,
+    isUploading: (_id: string) => false,
     diagnose: (...args: unknown[]) => diagnose(...args),
     diagnosisFor: (id: string) => mockDiagnoses[id],
     refresh: vi.fn().mockResolvedValue(undefined),

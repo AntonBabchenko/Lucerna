@@ -75,10 +75,6 @@
   let saveError = $state<string | null>(null);
   let busySave = $state(false);
 
-  let busyUpload = $state(false);
-  let uploadError = $state<string | null>(null);
-  let uploadedVisible = $state(false);
-
   let busyExport = $state(false);
   let exportError = $state<string | null>(null);
   let exportedVisible = $state(false);
@@ -90,9 +86,24 @@
   let hostKeyFingerprint = $state<string | null>(null);
   let hostKeyIsFirstConnect = $state(false);
 
-  // ── derived ─────────────────────────────────────────────────────────────────
+  // ── derived — upload state from store ────────────────────────────────────────
   const running = $derived(serverState.running(serverId));
-  const progress = $derived(serverState.uploadProgressFor(serverId));
+  const uploadState = $derived(serverState.uploadStateFor(serverId));
+  const uploading = $derived(serverState.isUploading(serverId));
+  const uploadedVisible = $derived(uploadState?.phase === 'done');
+  const storeUploadError = $derived(
+    uploadState?.phase === 'error' ? (uploadState.error ?? null) : null,
+  );
+  // Legacy progress shape (file count + current file) read from upload state.
+  const progress = $derived(
+    uploading && uploadState
+      ? {
+          done: uploadState.filesDone,
+          total: uploadState.filesTotal,
+          file: uploadState.currentFile,
+        }
+      : undefined,
+  );
 
   // ── validation (#25) ─────────────────────────────────────────────────────────
   const hostValid = $derived(host.trim().length > 0);
@@ -145,31 +156,32 @@
 
   /** Run the actual upload; `acceptNewHostKey` trusts a new/changed host key. */
   async function doUpload(acceptNewHostKey: boolean) {
-    uploadError = null;
-    uploadedVisible = false;
-    serverState.clearUploadProgress(serverId);
-    busyUpload = true;
-    try {
-      const r = await serverState.upload(serverId, acceptNewHostKey);
-      if (r.status === 'ok') {
-        uploadedVisible = true;
-        showHostKeyConfirm = false;
-        await serverState.refresh();
-      } else {
-        const err = r.error as { kind: string; got?: string };
-        if (err?.kind === 'sftp_host_key_mismatch') {
-          // Changed key: surface the new fingerprint for the user to weigh.
-          hostKeyFingerprint = err.got ?? null;
-          hostKeyIsFirstConnect = false;
-          showHostKeyConfirm = true;
-        } else {
-          uploadError = formatError(r.error as Parameters<typeof formatError>[0]);
-        }
+    // The store's upload() owns all phase transitions. We only handle the
+    // sftp_host_key_mismatch branch here (re-trust dialog) because the store
+    // treats that kind as 'cancelled' so no generic error is persisted.
+    const r = await serverState.upload(serverId, acceptNewHostKey);
+    if (r.status === 'ok') {
+      showHostKeyConfirm = false;
+      await serverState.refresh();
+    } else {
+      const err = r.error as { kind: string; got?: string };
+      if (err?.kind === 'sftp_host_key_mismatch') {
+        // Changed key: surface the new fingerprint for the user to weigh.
+        hostKeyFingerprint = err.got ?? null;
+        hostKeyIsFirstConnect = false;
+        showHostKeyConfirm = true;
       }
-    } finally {
-      busyUpload = false;
+      // All other errors are already persisted in the store as storeUploadError.
     }
   }
+
+  // busyHostKeyPreview: tracks the host-key fetch before the first upload.
+  // Separate from the in-flight upload indicator so the Upload button shows
+  // busy while we fetch the fingerprint, before the real upload starts.
+  let busyHostKeyPreview = $state(false);
+  // previewError: surfaced when serverHostKeyPreview fails. upload() was never
+  // called in this path so the store has no error to show — keep a local slot.
+  let previewError = $state<string | null>(null);
 
   /** First click: on first connect, fetch + show the fingerprint to verify
    *  BEFORE uploading (#24). Once a host key is trusted, upload directly. */
@@ -178,8 +190,8 @@
       await doUpload(false);
       return;
     }
-    uploadError = null;
-    busyUpload = true;
+    previewError = null;
+    busyHostKeyPreview = true;
     try {
       const r = await commands.serverHostKeyPreview(serverId);
       if (r.status === 'ok') {
@@ -187,10 +199,10 @@
         hostKeyIsFirstConnect = true;
         showHostKeyConfirm = true;
       } else {
-        uploadError = formatError(r.error as Parameters<typeof formatError>[0]);
+        previewError = formatError(r.error as Parameters<typeof formatError>[0]);
       }
     } finally {
-      busyUpload = false;
+      busyHostKeyPreview = false;
     }
   }
 
@@ -368,16 +380,25 @@
     <div class="flex items-center gap-3 flex-wrap">
       <BusyButton
         class="btn-primary btn-sm"
-        busy={busyUpload}
-        disabled={running || !formValid}
+        busy={uploading || busyHostKeyPreview}
+        disabled={running || !formValid || uploading}
         onclick={() => void handleUpload()}
       >
-        {#if busyUpload && progress}
+        {#if uploading && progress}
           {$t('servers.hosting.uploading', { done: progress.done, total: progress.total })}
         {:else}
           {$t('servers.hosting.upload')}
         {/if}
       </BusyButton>
+      {#if uploading}
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          onclick={() => void serverState.cancelUpload(serverId)}
+        >
+          {$t('servers.hosting.cancelUpload')}
+        </button>
+      {/if}
       {#if running}
         <span class="text-xs text-muted">{$t('servers.hosting.runningBlock')}</span>
       {/if}
@@ -386,7 +407,7 @@
       {/if}
     </div>
 
-    {#if busyUpload && progress}
+    {#if uploading && progress}
       {@const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0}
       <div class="w-full bg-muted/20 rounded-full h-1.5 overflow-hidden">
         <div
@@ -397,8 +418,11 @@
       <p class="text-xs text-muted truncate">{progress.file}</p>
     {/if}
 
-    {#if uploadError}
-      <p class="text-sm text-danger">{uploadError}</p>
+    {#if storeUploadError && !showHostKeyConfirm}
+      <p class="text-sm text-danger">{storeUploadError}</p>
+    {/if}
+    {#if previewError}
+      <p class="text-sm text-danger">{previewError}</p>
     {/if}
   </section>
 
