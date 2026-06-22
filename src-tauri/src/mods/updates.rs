@@ -223,6 +223,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         }
     }
 

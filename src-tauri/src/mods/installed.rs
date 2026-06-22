@@ -29,7 +29,9 @@ use sha1::{Digest, Sha1};
 use tokio::fs;
 
 use crate::error::Error;
-use crate::mods::modpack::schema::{EnvSupport, ModpackUnresolvable, SkippedOverride};
+use crate::mods::modpack::schema::{
+    EnvSupport, InertLoaderJar, ModpackUnresolvable, SkippedOverride,
+};
 use crate::mods::platform::{InstalledMod, ModSource};
 
 const FILE_VERSION: u32 = 4;
@@ -98,6 +100,11 @@ pub struct PackOrigin {
     /// feature load with an empty list.
     #[serde(default)]
     pub resolved_missing: Vec<ResolvedMissing>,
+    /// Installed jars built for a loader family this instance cannot load
+    /// (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
+    /// so pre-feature registry files load with an empty list.
+    #[serde(default)]
+    pub inert_loader_jars: Vec<InertLoaderJar>,
 }
 
 /// A user-chosen substitute that closes a `missing_mods` entry the pack
@@ -624,6 +631,7 @@ mod tests {
             missing_mods: vec![],
             skipped_overrides: vec![],
             resolved_missing: Vec::new(),
+            inert_loader_jars: vec![],
         }
     }
 
@@ -726,6 +734,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                inert_loader_jars: vec![],
             }),
         };
         write(td.path(), &v1).await.unwrap();
@@ -857,6 +866,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: Vec::new(),
+                inert_loader_jars: vec![],
             }),
         };
         write(td.path(), &v2).await.unwrap();
@@ -899,6 +909,25 @@ mod tests {
         // skipped_overrides is also #[serde(default)] — a registry written
         // before this feature must load with an empty list, not fail.
         assert!(origin.skipped_overrides.is_empty());
+        // inert_loader_jars is #[serde(default)] too — pre-feature JSON has no
+        // such key and must load as an empty list rather than "missing field".
+        assert!(origin.inert_loader_jars.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pack_origin_inert_loader_jars_round_trip() {
+        use crate::mods::modpack::schema::InertLoaderJar;
+        let td = TempDir::new().unwrap();
+        place_jar(&mods_dir(td.path()), "any.jar", b"any").await;
+        let _ = list(td.path()).await.unwrap();
+        let mut origin = sample_origin();
+        origin.inert_loader_jars = vec![InertLoaderJar {
+            filename: "sodium-fabric.jar".into(),
+            detected_loader: "Fabric".into(),
+        }];
+        set_pack_origin(td.path(), origin.clone()).await.unwrap();
+        let got = get_pack_origin(td.path()).await.unwrap();
+        assert_eq!(got, Some(origin));
     }
 
     #[tokio::test]

@@ -196,22 +196,31 @@ async function runImportOp(op: Extract<QueuedOp, { kind: 'import' }>): Promise<v
   });
   const tr = get(t);
   if (outcome.status === 'ok') {
-    const lines =
-      outcome.skipped.length > 0
-        ? outcome.skipped.map((s) =>
-            tr('page.modpackImport.skippedOverrideLine', {
-              name: s.path.split('/').pop() ?? s.path,
-              mb: Math.round((s.size ?? 0) / (1024 * 1024)),
-            }),
-          )
-        : [];
+    const skippedLines = outcome.skipped.map((s) =>
+      tr('page.modpackImport.skippedOverrideLine', {
+        name: s.path.split('/').pop() ?? s.path,
+        mb: Math.round((s.size ?? 0) / (1024 * 1024)),
+      }),
+    );
+    const inertLines = outcome.inertLoaderJars.map((j) =>
+      tr('page.modpackImport.inertLoaderLine', {
+        filename: j.filename,
+        loader: j.detected_loader,
+      }),
+    );
+    const lines = [...skippedLines, ...inertLines];
     const title =
       outcome.skipped.length > 0
         ? tr('page.modpackImport.importedSkipped', {
             name: outcome.name,
             count: outcome.skipped.length,
           })
-        : tr('page.modpackImport.imported', { name: outcome.name });
+        : outcome.inertLoaderJars.length > 0
+          ? tr('page.modpackImport.importedInertLoader', {
+              name: outcome.name,
+              count: outcome.inertLoaderJars.length,
+            })
+          : tr('page.modpackImport.imported', { name: outcome.name });
     const id = outcome.instanceId;
     pushActionToast(
       'success',
