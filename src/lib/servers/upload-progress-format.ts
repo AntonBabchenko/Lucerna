@@ -1,5 +1,5 @@
-import type { Translate } from '$lib/i18n';
 import { formatSize } from '$lib/format/size';
+import type { Translate } from '$lib/i18n';
 
 /**
  * Pure helpers for the Hosting-tab upload progress line (#G). No Svelte, no IPC:
