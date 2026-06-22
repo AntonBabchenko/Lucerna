@@ -601,6 +601,36 @@
       </details>
     {/if}
 
+    {#if status && (status.origin.inert_loader_jars?.length ?? 0) > 0}
+      {@const inert = status.origin.inert_loader_jars ?? []}
+      <details class="mt-2" open data-testid="imported-detail-inert-section">
+        {@render sectionSummary(
+          $t('modpacks.imported.detail.inertLoaderHeading', {
+            count: inert.length,
+          }),
+        )}
+        <p class="text-xs text-muted mb-2 pl-4">
+          {$t('modpacks.imported.detail.inertLoaderBody')}
+        </p>
+        <ul class="space-y-1 pl-4">
+          {#each inert as j (j.filename)}
+            {@const line = $t('page.modpackImport.inertLoaderLine', {
+              filename: j.filename,
+              loader: j.detected_loader,
+            })}
+            <li
+              class="flex items-center gap-2 text-sm py-1 px-2 rounded border bg-subtle border-border-subtle text-secondary"
+            >
+              <Icon name="info" class="flex-shrink-0" />
+              <span class="truncate flex-1" use:tooltip={{ text: line, whenOverflowing: true }}
+                >{line}</span
+              >
+            </li>
+          {/each}
+        </ul>
+      </details>
+    {/if}
+
     <details class="mt-2">
       {@render sectionSummary(
         $t('modpacks.imported.detail.modsHeading', { count: mods?.length ?? 0 }),

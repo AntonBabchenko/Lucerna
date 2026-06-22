@@ -629,6 +629,8 @@ pub async fn modpack_apply_update(
         instance_id: instance_id.clone(),
         // A version update never touches `overrides/`, so nothing is skipped.
         skipped_overrides: vec![],
+        // No fresh import scan on a version update — nothing to report.
+        inert_loader_jars: vec![],
     });
     Ok(updated_inst)
 }
@@ -683,6 +685,8 @@ pub async fn modpack_reimport_overrides(
     let _ = on_progress.send(ModpackProgress::Done {
         instance_id: instance_id.clone(),
         skipped_overrides: outcome.skipped,
+        // Re-extracting overrides does not re-classify the mods folder.
+        inert_loader_jars: vec![],
     });
     Ok(())
 }

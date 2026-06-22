@@ -1895,6 +1895,18 @@ export type ImportProvenance = {
 	imported_unix_ms: number | null,
 };
 
+/**
+ *  A jar installed into an instance whose loader family the instance cannot
+ *  load — e.g. a Fabric-only jar in a Forge instance. Forge never reads
+ *  `fabric.mod.json`, so the jar is inert (loads nothing) and is safe to ignore
+ *  or remove. The import still succeeds; surfaced purely for transparency.
+ */
+export type InertLoaderJar = {
+	filename: string,
+	/**  Loader family detected in the jar's descriptor — "Fabric" / "Forge". */
+	detected_loader: string,
+};
+
 /**  Result of a one-click "install the missing required dependency" action. */
 export type InstallMissingOutcome = 
 /**  The dependency was resolved, verified, and installed. `name` is its display name. */
@@ -2469,7 +2481,14 @@ export type ModpackProgress = { phase: "inspecting" } | { phase: "creating_insta
  *  Empty in the common case; non-empty drives a non-fatal "N file(s)
  *  skipped" note on the import-complete toast.
  */
-skipped_overrides: SkippedOverride[] };
+skipped_overrides: SkippedOverride[]; 
+/**
+ *  Installed jars built for a loader family this instance cannot load
+ *  (inert — e.g. a Fabric jar on a Forge instance — see
+ *  `InertLoaderJar`). Empty in the common case; non-empty drives a
+ *  non-fatal "N inert jar(s)" note on the import-complete toast.
+ */
+inert_loader_jars: InertLoaderJar[] };
 
 /**
  *  Full detail of a modpack project for the detail modal's Overview tab.
@@ -2735,6 +2754,12 @@ export type PackOrigin = {
 	 *  feature load with an empty list.
 	 */
 	resolved_missing?: ResolvedMissing[],
+	/**
+	 *  Installed jars built for a loader family this instance cannot load
+	 *  (inert — e.g. a Fabric jar on a Forge instance). `#[serde(default)]`
+	 *  so pre-feature registry files load with an empty list.
+	 */
+	inert_loader_jars?: InertLoaderJar[],
 };
 
 export type PackOriginFile = {

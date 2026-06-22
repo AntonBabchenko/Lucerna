@@ -288,6 +288,7 @@ mod tests {
                 missing_mods: vec![],
                 skipped_overrides: vec![],
                 resolved_missing: vec![],
+                inert_loader_jars: vec![],
             },
         )
         .await

@@ -641,6 +641,8 @@
         "missingBody": "The pack author disabled automatic downloads for these. Download each from its source and drop the jar onto the Mods tab.",
         "skippedHeading": "Bundled files skipped ({count})",
         "skippedBody": "The pack bundled these files inside it, but they exceed the size limit and aren't loadable mods (Minecraft only loads .jar files). They were left out; the pack's mods installed normally.",
+        "inertLoaderHeading": "Files that won't load ({count})",
+        "inertLoaderBody": "These bundled jars are built for a different mod loader than this instance, so Minecraft won't load them. They're inert — safe to ignore or remove. The pack's other mods installed normally.",
         "differentVersion": "— different version than the pack — may be incompatible",
         "findAlternative": "Find in other sources",
         "substituted": "(replaced with alternative)",
@@ -1396,6 +1398,8 @@
       "imported": "Imported {name}",
       "importedSkipped": "Imported {name} — {count} bundled file(s) skipped",
       "skippedOverrideLine": "{name} ({mb} MB) — too large to be a loadable mod; skipped",
+      "importedInertLoader": "Imported {name} — {count} bundled file(s) won't load",
+      "inertLoaderLine": "{filename} — built for {loader}, not loaded",
       "partialFailure": "Modpack imported — {count} mod(s) failed",
       "failed": "Modpack import failed"
     },
