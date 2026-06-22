@@ -47,6 +47,7 @@ vi.mock('$lib/toasts/toasts.svelte', () => ({
 // Mutable serverState — tests mutate these directly.
 const setUploadConfigMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 const uploadMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
+const uploadPreflightMock = vi.fn().mockResolvedValue(null);
 const cancelUploadMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 const exportZipMock = vi.fn().mockResolvedValue({ status: 'ok', data: null });
 const refreshMock = vi.fn().mockResolvedValue(undefined);
@@ -56,6 +57,7 @@ let mockRunning = false;
 let mockProgress: { done: number; total: number; file: string } | undefined;
 let mockUploadState: import('$lib/servers/server-state.svelte').UploadState | undefined;
 let mockUploading = false;
+let mockLastUpload: import('$lib/ipc/bindings').LastUpload | null = null;
 
 vi.mock('$lib/servers/server-state.svelte', () => ({
   serverState: {
@@ -70,6 +72,8 @@ vi.mock('$lib/servers/server-state.svelte', () => ({
     cancelUpload: (...args: unknown[]) => cancelUploadMock(...args),
     setUploadConfig: (...args: unknown[]) => setUploadConfigMock(...args),
     upload: (...args: unknown[]) => uploadMock(...args),
+    uploadPreflight: (...args: unknown[]) => uploadPreflightMock(...args),
+    lastUploadFor: (_id: string) => mockLastUpload,
     exportZip: (...args: unknown[]) => exportZipMock(...args),
     refresh: () => refreshMock(),
     init: vi.fn(),
@@ -132,7 +136,9 @@ describe('ServerHostingTab', () => {
     mockProgress = undefined;
     mockUploadState = undefined;
     mockUploading = false;
+    mockLastUpload = null;
     uploadMock.mockResolvedValue({ status: 'ok', data: null });
+    uploadPreflightMock.mockResolvedValue(null);
     cancelUploadMock.mockResolvedValue({ status: 'ok', data: null });
   });
 
@@ -433,7 +439,9 @@ describe('ServerHostingTab', () => {
 
     await fireEvent.click(screen.getByText('Upload to host'));
 
-    await waitFor(() => expect(uploadMock).toHaveBeenCalledWith('srv-1', false, 'transient123'));
+    await waitFor(() =>
+      expect(uploadMock).toHaveBeenCalledWith('srv-1', false, false, 'transient123'),
+    );
   });
 
   it('save-off + nothing stored: Upload is disabled until password is typed', async () => {
@@ -455,5 +463,50 @@ describe('ServerHostingTab', () => {
       { target: { value: 'mypass' } },
     );
     expect(uploadBtn.disabled).toBe(false);
+  });
+
+  // ── J / K / L: skip-worlds toggle, size preflight, last-upload line ─────────
+
+  it('passes skipWorlds=true to upload when the toggle is checked', async () => {
+    // A trusted key exists → Upload runs directly through doUpload(false).
+    mockList = [makeServer({ upload: savedUpload })];
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    const toggle = screen.getByLabelText(/Don't upload world|Не заливать мир/) as HTMLInputElement;
+    await fireEvent.click(toggle);
+    expect(toggle.checked).toBe(true);
+
+    await fireEvent.click(screen.getByRole('button', { name: /Upload to host|Залить/ }));
+
+    // upload(id, acceptNewHostKey, skipWorlds, password) — index 2 is skipWorlds.
+    await waitFor(() => expect(uploadMock).toHaveBeenCalled());
+    const args = uploadMock.mock.calls.at(-1);
+    expect(args?.[2]).toBe(true);
+  });
+
+  it('renders the last-upload line when the server has a last_upload', () => {
+    mockList = [makeServer({ upload: savedUpload })];
+    mockLastUpload = { unix_ms: 1_700_000_000_000, target: 'myhost.com:2222/srv/mc' };
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    expect(screen.getByTestId('last-upload-line')).toBeTruthy();
+    expect(screen.getByText(/Last upload|Последняя заливка/)).toBeTruthy();
+  });
+
+  it('shows the over-capacity warning when preflight exceeds free space', async () => {
+    mockList = [makeServer({ upload: savedUpload })];
+    uploadPreflightMock.mockResolvedValue({
+      total_bytes: 100,
+      free_bytes: 50,
+      exceeds_free: true,
+    });
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+    await settle();
+
+    await fireEvent.click(screen.getByRole('button', { name: /Check size|Проверить размер/ }));
+
+    expect(await screen.findByText(/won't fit|не поместятся/)).toBeTruthy();
+    expect(screen.getByTestId('preflight-over')).toBeTruthy();
   });
 });
