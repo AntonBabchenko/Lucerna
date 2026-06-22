@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::mods::platform::{DepProjectRef, ModSource, ModVersion};
+use crate::mods::platform::{DepProjectRef, ModSource, ModVersion, PlannedDep, SelectionReason};
 
 /// Stable identity for dedup/cycle/skip checks. Modrinth keys on the
 /// project_id string; CurseForge on the numeric mod_id.
@@ -54,12 +54,13 @@ pub struct FetchedDeps {
 pub struct ResolvedNode {
     pub version: ModVersion,
     pub is_loader: bool,
+    pub selection_reason: SelectionReason,
 }
 
 /// The transitive closure of REQUIRED dependencies of `roots`.
 #[derive(Debug, Clone, Default)]
 pub struct Closure {
-    pub required: Vec<ModVersion>,
+    pub required: Vec<PlannedDep>,
     pub loader_keys: Vec<ProjectKey>,
     pub incompatible: Vec<DepProjectRef>,
     pub unresolvable: Vec<DepProjectRef>,
@@ -93,7 +94,7 @@ where
     let mut loader_seen: HashSet<ProjectKey> = HashSet::new();
     let mut cache: HashMap<ProjectKey, FetchedDeps> = HashMap::new();
 
-    let mut frontier: Vec<ModVersion> = Vec::new();
+    let mut frontier: Vec<PlannedDep> = Vec::new();
     for r in roots {
         visited.insert(ProjectKey::of_version(r));
     }
@@ -110,17 +111,19 @@ where
         enqueue(&deps, &mut frontier, &mut closure);
     }
 
-    while let Some(v) = frontier.pop() {
-        let key = ProjectKey::of_version(&v);
+    while let Some(p) = frontier.pop() {
+        let key = ProjectKey::of_version(&p.version);
         if visited.contains(&key)
             || installed.contains(&key)
-            || installed_filenames.contains(&v.primary_file.filename.to_ascii_lowercase())
+            || installed_filenames.contains(&p.version.primary_file.filename.to_ascii_lowercase())
         {
             continue;
         }
         visited.insert(key.clone());
-        closure.required.push(v.clone());
-        let deps = fetch_memo(&mut cache, &mut fetch, v).await?;
+        // `fetch_memo` consumes the version, so clone it before moving `p` into
+        // the closure's required list (which keeps the reason alongside it).
+        let deps = fetch_memo(&mut cache, &mut fetch, p.version.clone()).await?;
+        closure.required.push(p);
         for n in deps.required.iter().chain(deps.optional.iter()) {
             if n.is_loader {
                 let lk = ProjectKey::of_version(&n.version);
@@ -136,12 +139,15 @@ where
 
 /// Push a node's required NON-loader deps onto the frontier; merge
 /// incompatible/unresolvable into the closure (deduped).
-fn enqueue(deps: &FetchedDeps, frontier: &mut Vec<ModVersion>, closure: &mut Closure) {
+fn enqueue(deps: &FetchedDeps, frontier: &mut Vec<PlannedDep>, closure: &mut Closure) {
     for n in &deps.required {
         if n.is_loader {
             continue; // loaders are recorded by the caller loop, never installed/recursed
         }
-        frontier.push(n.version.clone());
+        frontier.push(PlannedDep {
+            version: n.version.clone(),
+            selection_reason: n.selection_reason,
+        });
     }
     for r in &deps.incompatible {
         if !closure.incompatible.iter().any(|x| same_ref(x, r)) {
@@ -224,6 +230,7 @@ mod tests {
             let node = |id: &String, is_loader: bool| ResolvedNode {
                 version: mv(id, vec![]),
                 is_loader,
+                selection_reason: SelectionReason::NewestNoPin,
             };
             let mut required: Vec<ResolvedNode> =
                 req.iter().map(|r| node(r, loaders.contains(r))).collect();
@@ -261,7 +268,10 @@ mod tests {
     }
 
     fn keys(c: &Closure) -> Vec<String> {
-        c.required.iter().map(|v| v.project_id.clone()).collect()
+        c.required
+            .iter()
+            .map(|p| p.version.project_id.clone())
+            .collect()
     }
 
     #[tokio::test]
@@ -297,6 +307,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn closure_carries_selection_reason() {
+        let graph = g(&[("a", &["b"], &[], &[]), ("b", &[], &[], &[])]);
+        let roots = vec![mv("a", vec![("b", DepKind::Required)])];
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
+            .await
+            .unwrap();
+        assert_eq!(c.required.len(), 1);
+        assert_eq!(
+            c.required[0].selection_reason,
+            SelectionReason::NewestNoPin
+        );
+    }
+
+    #[tokio::test]
     async fn cycle_terminates() {
         let graph = g(&[("a", &["b"], &[], &[]), ("b", &["a"], &[], &[])]);
         let roots = vec![mv("a", vec![("b", DepKind::Required)])];
@@ -321,7 +345,13 @@ mod tests {
         let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
             .await
             .unwrap();
-        assert_eq!(c.required.iter().filter(|v| v.project_id == "d").count(), 1);
+        assert_eq!(
+            c.required
+                .iter()
+                .filter(|p| p.version.project_id == "d")
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -397,6 +427,7 @@ mod tests {
                     required: vec![ResolvedNode {
                         version: mv("b", vec![]),
                         is_loader: false,
+                        selection_reason: SelectionReason::NewestNoPin,
                     }],
                     ..Default::default()
                 },
