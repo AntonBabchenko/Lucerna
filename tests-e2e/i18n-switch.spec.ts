@@ -27,8 +27,6 @@ const baseInstance = {
   mrpack_version_id: null,
 };
 
-const SETTINGS_DIALOG = '[role="dialog"][aria-label="Settings"]';
-
 test('language picker switches labels live without a page reload', async ({ page }) => {
   await installMockIpc(page, {
     accounts: [offlineAccount],
@@ -38,30 +36,27 @@ test('language picker switches labels live without a page reload', async ({ page
   });
   await page.goto('/');
 
-  // Open Settings via the sidebar button.
-  await page.locator('button[aria-label="Settings"]').click();
-  await page.waitForSelector(SETTINGS_DIALOG);
+  // Open Settings via the sidebar button. The button exposes its accessible
+  // name through its visible text ($t('settings.title') === "Settings"), not an
+  // aria-label, so match by role+name rather than a brittle attribute selector.
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
 
-  // General tab is the default active tab — language-select should be visible
-  // immediately. If for any reason it isn't, click the General tab explicitly.
+  // Locate the dialog by ROLE, not by a CSS aria-label selector: the modal is
+  // labelled via aria-labelledby (the <h2 id="settings-title"> heading), and
+  // switching language re-localises that accessible name ("Settings" →
+  // "Настройки"). There is only one open dialog, so the role match is
+  // unambiguous and survives the language switch.
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  // The sidebar Settings button opens the Appearance section, where the language
+  // picker lives, so language-select is visible immediately. If for any reason
+  // it isn't, click the Appearance section tab explicitly.
   const languageSelect = page.getByTestId('language-select');
-  const isVisible = await languageSelect.isVisible().catch(() => false);
-  if (!isVisible) {
-    await page
-      .locator(`${SETTINGS_DIALOG} [role="tab"]`, { hasText: 'General' })
-      .click();
+  if (!(await languageSelect.isVisible().catch(() => false))) {
+    await dialog.getByRole('tab', { name: 'Appearance' }).click();
     await expect(languageSelect).toBeVisible();
   }
-
-  // Scope the appearance heading to the dialog to avoid ambiguity with any
-  // sidebar or other text that might also say "Appearance".
-  //
-  // Locate the dialog by ROLE, not by its English aria-label: switching the
-  // language re-localises the dialog's accessible name (aria-label={$t(
-  // 'settings.title')} → "Настройки"), so an aria-label="Settings" selector
-  // would go stale the moment the test switches to Russian. There is only one
-  // open dialog, so the role match is unambiguous.
-  const dialog = page.getByRole('dialog');
 
   // The language picker is the custom <Select> (button[role=combobox] opening a
   // listbox of role=option), not a native <select>. Drive it by opening the
@@ -82,8 +77,9 @@ test('language picker switches labels live without a page reload', async ({ page
   await languageSelect.click();
   await page.getByRole('option', { name: 'Русский', exact: true }).click();
 
-  // The heading must have switched in place without a reload.
-  await expect(dialog.getByText('Внешний вид', { exact: true })).toBeVisible();
+  // The section label must have switched in place without a reload
+  // (settings.sections.appearance: "Appearance" → "Оформление").
+  await expect(dialog.getByText('Оформление', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Appearance', { exact: true })).toHaveCount(0);
 
   // Sentinel must still be true — any reload would wipe it.
