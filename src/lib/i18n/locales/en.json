@@ -1546,7 +1546,7 @@
     }
   },
   "servers": {
-    "title": "Servers",
+    "title": "Servers (Beta)",
     "create": "Create server",
     "empty": "No servers yet",
     "loading": "Loading servers…",
