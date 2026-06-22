@@ -91,6 +91,27 @@ pub struct ServerUploadProgress {
     pub bytes_total: f64,
 }
 
+/// Files never uploaded or zipped, regardless of directory: the one-shot
+/// `installer.jar` and ephemeral lock files Minecraft/loaders leave behind
+/// (`session.lock` guards an open world; `.lock` is used by some loaders).
+/// Uploading these races a live world or imports a stale lock onto the host.
+/// Centralised so SFTP upload (`upload_server`) and ZIP export (`export_zip`)
+/// — both routed through `enumerate_upload_files`/`walk` — stay in sync.
+const EXCLUDED_FILE_NAMES: &[&str] = &["installer.jar", "session.lock", ".lock"];
+
+/// Directories never descended into, regardless of depth.
+const EXCLUDED_DIR_NAMES: &[&str] = &["logs"];
+
+/// True iff a file with this exact name must be excluded from the set.
+pub(crate) fn is_excluded_file(name: &str) -> bool {
+    EXCLUDED_FILE_NAMES.contains(&name)
+}
+
+/// True iff a directory with this exact name must be skipped (not descended).
+fn is_excluded_dir(name: &str) -> bool {
+    EXCLUDED_DIR_NAMES.contains(&name)
+}
+
 /// Files to upload: recursively under `runtime`, EXCLUDING the `logs/` dir and
 /// the one-shot `installer.jar`. Returns (local absolute path, remote relative
 /// path with forward slashes).
@@ -121,11 +142,11 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()>
             continue; // don't follow symlinks (cycle/escape safety)
         }
         if ft.is_dir() {
-            if name == "logs" {
+            if is_excluded_dir(&name) {
                 continue;
             }
             walk(root, &path, out)?;
-        } else if name != "installer.jar" {
+        } else if !is_excluded_file(&name) {
             let rel = path
                 .strip_prefix(root)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -620,5 +641,56 @@ mod tests {
         assert!(names.iter().any(|n| n.ends_with("server.jar")));
         assert!(!names.iter().any(|n| n.contains("logs/")));
         assert!(!names.iter().any(|n| n.ends_with("installer.jar")));
+    }
+
+    #[test]
+    fn enumerate_excludes_session_lock_and_ephemeral_locks() {
+        let d = tempdir().unwrap();
+        let rt = d.path();
+        std::fs::create_dir_all(rt.join("world")).unwrap();
+        std::fs::write(rt.join("server.jar"), b"j").unwrap();
+        std::fs::write(rt.join("session.lock"), b"s").unwrap();
+        std::fs::write(rt.join(".lock"), b"l").unwrap();
+        std::fs::write(rt.join("world/session.lock"), b"ws").unwrap();
+        let mut got: Vec<String> = enumerate_upload_files(rt)
+            .unwrap()
+            .into_iter()
+            .map(|(_local, rel)| rel)
+            .collect();
+        got.sort();
+        assert_eq!(got, vec!["server.jar".to_string()]);
+        assert!(!got.iter().any(|r| r.ends_with("session.lock")));
+        assert!(!got.iter().any(|r| r.ends_with(".lock")));
+    }
+
+    #[test]
+    fn is_excluded_file_matches_lock_files() {
+        assert!(is_excluded_file("installer.jar"));
+        assert!(is_excluded_file("session.lock"));
+        assert!(is_excluded_file(".lock"));
+        assert!(!is_excluded_file("server.jar"));
+        assert!(!is_excluded_file("server.lock")); // only exact names are excluded
+        assert!(!is_excluded_file("my.session.lock")); // only exact names
+    }
+
+    #[test]
+    fn export_zip_excludes_session_lock() {
+        let d = tempdir().unwrap();
+        let rt = d.path().join("runtime");
+        std::fs::create_dir_all(rt.join("world")).unwrap();
+        std::fs::write(rt.join("server.jar"), b"j").unwrap();
+        std::fs::write(rt.join("session.lock"), b"s").unwrap();
+        std::fs::write(rt.join(".lock"), b"l").unwrap();
+        std::fs::write(rt.join("world/session.lock"), b"ws").unwrap();
+        let dest = d.path().join("export.zip");
+        export_zip(&rt, &dest).unwrap();
+        let f = std::fs::File::open(&dest).unwrap();
+        let mut z = zip::ZipArchive::new(f).unwrap();
+        let names: Vec<String> = (0..z.len())
+            .map(|i| z.by_index(i).unwrap().name().to_string())
+            .collect();
+        assert!(names.iter().any(|n| n.ends_with("server.jar")));
+        assert!(!names.iter().any(|n| n.ends_with("session.lock")));
+        assert!(!names.iter().any(|n| n.ends_with(".lock")));
     }
 }
