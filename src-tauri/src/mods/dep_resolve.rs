@@ -64,6 +64,10 @@ pub fn slug_candidates(dep_id: &str) -> Vec<String> {
 }
 
 /// Outcome of resolving a bare loader mod-id to an installable project.
+// `Resolved` carries a ModVersion by value; DepResolution is a transient stack
+// value returned and immediately matched, never stored in a collection, so the
+// size asymmetry is irrelevant and boxing would only add indirection + ceremony.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum DepResolution {
     /// A concrete installable candidate. `needed_id` is the original loader id
@@ -94,9 +98,10 @@ pub enum DepResolution {
 /// `resolve_deps` path, not bare-id resolution — so `select_dep_version` is
 /// called with `pin = None`.
 ///
-/// Modrinth is tried before CurseForge by array order; `Err` is dropped
-/// (treated as a miss) and an empty `Ok(vec![])` is skipped, preserving the
-/// prior "error == miss" / "fall through on no hit" semantics.
+/// Modrinth is tried before CurseForge and short-circuits: CurseForge is only
+/// awaited if Modrinth does not yield a pick. `Err` is dropped (treated as a
+/// miss) and an empty `Ok(vec![])` is skipped, preserving the prior "error ==
+/// miss" / "fall through on no hit" semantics.
 pub async fn resolve_missing_dep<MF, MFut, CF, CFut>(
     dep_id: &str,
     range: Option<(&str, crate::mods::version_range::RangeFamily)>,
@@ -109,18 +114,27 @@ where
     CF: FnMut(String) -> CFut,
     CFut: Future<Output = Result<Vec<ModVersion>, crate::error::Error>>,
 {
-    for candidates in [
-        mr_lookup(dep_id.to_string()).await,
-        cf_lookup(dep_id.to_string()).await,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if let Some((i, reason)) =
-            crate::mods::dep_select::select_dep_version(&candidates, None, range)
-        {
+    // Modrinth first — return on a pick before CurseForge is ever awaited, so a
+    // Modrinth hit never triggers the CF network search.
+    let mr_cands = mr_lookup(dep_id.to_string()).await;
+    if let Ok(c) = mr_cands {
+        if let Some((i, reason)) = crate::mods::dep_select::select_dep_version(&c, None, range) {
             return DepResolution::Resolved {
-                candidate: candidates
+                candidate: c
+                    .into_iter()
+                    .nth(i)
+                    .expect("index returned by select_dep_version is in range"),
+                needed_id: dep_id.to_string(),
+                selection_reason: reason,
+            };
+        }
+    }
+    // CurseForge fallback — only reached when Modrinth missed.
+    let cf_cands = cf_lookup(dep_id.to_string()).await;
+    if let Ok(c) = cf_cands {
+        if let Some((i, reason)) = crate::mods::dep_select::select_dep_version(&c, None, range) {
+            return DepResolution::Resolved {
+                candidate: c
                     .into_iter()
                     .nth(i)
                     .expect("index returned by select_dep_version is in range"),
@@ -515,6 +529,27 @@ mod tests {
             r,
             DepResolution::Resolved { candidate, .. } if candidate.source == ModSource::Curseforge
         ));
+    }
+
+    #[tokio::test]
+    async fn resolve_does_not_call_cf_when_modrinth_resolves() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let cf_called = AtomicBool::new(false);
+        let r = resolve_missing_dep(
+            "balm",
+            None,
+            |_id| ready(Ok(vec![mv(ModSource::Modrinth, "balm")])),
+            |_id| {
+                cf_called.store(true, Ordering::SeqCst);
+                ready(Ok(vec![]))
+            },
+        )
+        .await;
+        assert!(matches!(r, DepResolution::Resolved { .. }));
+        assert!(
+            !cf_called.load(Ordering::SeqCst),
+            "CF must not be called when Modrinth resolves"
+        );
     }
 
     #[tokio::test]

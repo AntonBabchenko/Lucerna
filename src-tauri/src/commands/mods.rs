@@ -1395,8 +1395,6 @@ fn dedup_extra_candidates(
         .collect()
 }
 
-/// Resolve a loader mod-id to an installable candidate using both platforms,
-/// Modrinth-slug-first then CurseForge (search -> exact-slug -> newest version).
 /// One-click install of a missing required dependency identified only by its
 /// loader mod-id (e.g. `balm`). Resolves it (Modrinth-slug-first + name-search
 /// fallback -> CF, the latter loader/MC-decoupled), verifies the downloaded jar
