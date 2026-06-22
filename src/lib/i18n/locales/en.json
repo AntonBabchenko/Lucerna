@@ -1534,6 +1534,11 @@
     },
     "unit": {
       "megabyte": "MB"
+    },
+    "rate": {
+      "bytesPerSec": "{n} B/s",
+      "kbPerSec": "{n} KB/s",
+      "mbPerSec": "{n} MB/s"
     }
   },
   "servers": {
@@ -1687,7 +1692,8 @@
       "hostKeyBody": "This host's key has changed since you last connected. That can happen if the server was reinstalled — but it can also mean the connection is being intercepted. Only continue if you trust this host.",
       "hostKeyTrust": "Trust & upload",
       "cancel": "Cancel",
-      "cancelUpload": "Cancel upload"
+      "cancelUpload": "Cancel upload",
+      "uploadingBytes": "{doneSize} / {totalSize} · {rate} · ~{eta}"
     },
     "diagnose": {
       "clientOnly": {
