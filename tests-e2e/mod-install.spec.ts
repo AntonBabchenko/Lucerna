@@ -71,9 +71,10 @@ test('install a mod from the browser → card shows Installed', async ({ page })
   await installButton.click();
 
   // After the fast-path install (no deps, loader matches), the browse view
-  // refreshes its installed list and the card flips to the "Installed · vX"
-  // pill (the "·" disambiguates it from the "Installed" sub-tab and the name).
-  await expect(page.getByText(/Installed ·/)).toBeVisible();
+  // refreshes its installed list and the card flips to its installed state:
+  // the version shows as card meta and the Disable/Uninstall affordances appear
+  // (the old "Installed · vX" pill was replaced by the card redesign in #157).
+  await expect(page.getByRole('button', { name: 'Uninstall' })).toBeVisible();
   // The Install button is gone — the card no longer offers to install.
   await expect(page.getByRole('button', { name: 'Install', exact: true })).toHaveCount(0);
 });
