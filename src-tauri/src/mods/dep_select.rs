@@ -36,7 +36,10 @@ pub fn select_dep_version(
     }
     // 2/3. Range-aware newest-satisfying.
     if let Some((range, family)) = range {
-        let nums: Vec<&str> = candidates.iter().map(|c| c.version_number.as_str()).collect();
+        let nums: Vec<&str> = candidates
+            .iter()
+            .map(|c| c.version_number.as_str())
+            .collect();
         if let Some(&i) = satisfying_indices(&nums, range, family).first() {
             // Reason precedence is top-down: an overridden pin stays the headline.
             let reason = if pin_overridden {
@@ -148,17 +151,20 @@ mod tests {
     fn pin_absent_with_range_keeps_fell_back_reason() {
         // range would pick v2 (idx 1); reason stays FellBackFromPin (pin is the
         // salient overridden signal).
-        let r =
-            select_dep_version(&cands(), Some("nope"), Some(("[2.0.39,2.1)", RangeFamily::Maven)))
-                .unwrap();
+        let r = select_dep_version(
+            &cands(),
+            Some("nope"),
+            Some(("[2.0.39,2.1)", RangeFamily::Maven)),
+        )
+        .unwrap();
         assert_eq!(r, (1, SelectionReason::FellBackFromPin));
     }
 
     #[test]
     fn bounded_range_pushes_off_newest_is_range_constrained() {
         // [2.0.39,2.1) excludes 3.1.11; newest satisfying is 2.0.41 (idx 1).
-        let r = select_dep_version(&cands(), None, Some(("[2.0.39,2.1)", RangeFamily::Maven)))
-            .unwrap();
+        let r =
+            select_dep_version(&cands(), None, Some(("[2.0.39,2.1)", RangeFamily::Maven))).unwrap();
         assert_eq!(r, (1, SelectionReason::RangeConstrained));
     }
 
@@ -173,8 +179,8 @@ mod tests {
     #[test]
     fn unsatisfiable_range_falls_back_to_newest() {
         // No candidate satisfies [9.0,10.0) → newest (idx 0), NewestNoPin.
-        let r = select_dep_version(&cands(), None, Some(("[9.0,10.0)", RangeFamily::Maven)))
-            .unwrap();
+        let r =
+            select_dep_version(&cands(), None, Some(("[9.0,10.0)", RangeFamily::Maven))).unwrap();
         assert_eq!(r, (0, SelectionReason::NewestNoPin));
     }
 

@@ -955,10 +955,7 @@ mod tests {
             .unwrap();
         assert_eq!(rd.required.len(), 1);
         assert_eq!(rd.required[0].version.version_id, "lib-old");
-        assert_eq!(
-            rd.required[0].selection_reason,
-            SelectionReason::PinHonored
-        );
+        assert_eq!(rd.required[0].selection_reason, SelectionReason::PinHonored);
     }
 
     #[tokio::test]

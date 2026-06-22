@@ -314,10 +314,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(c.required.len(), 1);
-        assert_eq!(
-            c.required[0].selection_reason,
-            SelectionReason::NewestNoPin
-        );
+        assert_eq!(c.required[0].selection_reason, SelectionReason::NewestNoPin);
     }
 
     #[tokio::test]
