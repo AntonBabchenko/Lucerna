@@ -10,6 +10,7 @@ use specta::Type;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::AppHandle;
 use tauri_specta::Event;
 use tokio::io::AsyncReadExt;
@@ -89,6 +90,25 @@ pub struct ServerUploadProgress {
     pub bytes_done: f64,
     /// f64 not u64 — specta forbids BigInt-style exports (see `bytes_done`).
     pub bytes_total: f64,
+}
+
+/// Emit a progress tick at most this often by bytes: once per ~256 KiB.
+const PROGRESS_BYTES_INTERVAL: u64 = 256 * 1024;
+/// ...and at most this often by time: once per ~250 ms.
+const PROGRESS_MS_INTERVAL: u128 = 250;
+
+/// Pure cadence gate for mid-file progress emission. Emit iff at least
+/// `PROGRESS_BYTES_INTERVAL` bytes OR `PROGRESS_MS_INTERVAL` ms have passed
+/// since the last emit. Args are the current cumulative byte/ms counters and
+/// the watermark values captured at the previous emit.
+fn should_emit_progress(
+    bytes_now: u64,
+    bytes_at_last_emit: u64,
+    ms_now: u128,
+    ms_at_last_emit: u128,
+) -> bool {
+    bytes_now.saturating_sub(bytes_at_last_emit) >= PROGRESS_BYTES_INTERVAL
+        || ms_now.saturating_sub(ms_at_last_emit) >= PROGRESS_MS_INTERVAL
 }
 
 /// Files never uploaded or zipped, regardless of directory: the one-shot
@@ -405,7 +425,12 @@ pub async fn upload_server(
     let total = files.len() as u32;
     let bytes_total = upload_total_bytes(&files);
     let mut bytes_done: u64 = 0;
+    let start = Instant::now();
     for (i, (local, rel)) in files.iter().enumerate() {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(Error::UploadCancelled);
+        }
+
         ensure_remote_dirs(&sftp, remote_root, rel).await;
 
         let remote = format!("{remote_root}/{rel}");
@@ -418,12 +443,13 @@ pub async fn upload_server(
                 .map_err(|e| Error::SftpTransferFailed {
                     details: format!("{remote}: {e}"),
                 })?;
+
         // Streamed copy in fixed-size chunks: constant memory regardless of file
-        // size (#28), with cancellation polled before and between chunks.
-        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(Error::UploadCancelled);
-        }
+        // size (#28), with cancellation polled between chunks. Progress is emitted
+        // mid-file on a bytes-or-time cadence so the bar advances within large files.
         let mut buf = vec![0u8; 256 * 1024];
+        let mut bytes_at_last_emit: u64 = bytes_done;
+        let mut ms_at_last_emit: u128 = start.elapsed().as_millis();
         loop {
             if cancel.load(std::sync::atomic::Ordering::SeqCst) {
                 return Err(Error::UploadCancelled);
@@ -442,6 +468,20 @@ pub async fn upload_server(
                     details: format!("{remote}: {e}"),
                 })?;
             bytes_done += n as u64;
+            let ms_now = start.elapsed().as_millis();
+            if should_emit_progress(bytes_done, bytes_at_last_emit, ms_now, ms_at_last_emit) {
+                let _ = ServerUploadProgress {
+                    server_id: server_id.to_string(),
+                    current_file: rel.clone(),
+                    files_done: i as u32,
+                    files_total: total,
+                    bytes_done: bytes_done as f64,
+                    bytes_total: bytes_total as f64,
+                }
+                .emit(app);
+                bytes_at_last_emit = bytes_done;
+                ms_at_last_emit = ms_now;
+            }
         }
         remote_file
             .shutdown()
@@ -450,6 +490,7 @@ pub async fn upload_server(
                 details: format!("{remote}: {e}"),
             })?;
 
+        // End-of-file emit: files_done advances to i+1 to signal this file is complete.
         let _ = ServerUploadProgress {
             server_id: server_id.to_string(),
             current_file: rel.clone(),
@@ -641,6 +682,33 @@ mod tests {
         assert!(names.iter().any(|n| n.ends_with("server.jar")));
         assert!(!names.iter().any(|n| n.contains("logs/")));
         assert!(!names.iter().any(|n| n.ends_with("installer.jar")));
+    }
+
+    #[test]
+    fn should_emit_progress_respects_bytes_and_time_cadence() {
+        // Below both thresholds → no emit.
+        assert!(!should_emit_progress(100, 0, 100, 0));
+        // Exactly at bytes threshold → emit.
+        assert!(should_emit_progress(PROGRESS_BYTES_INTERVAL, 0, 0, 0));
+        // Above bytes threshold → emit.
+        assert!(should_emit_progress(PROGRESS_BYTES_INTERVAL + 1, 0, 0, 0));
+        // Exactly at time threshold → emit.
+        assert!(should_emit_progress(0, 0, PROGRESS_MS_INTERVAL, 0));
+        // Above time threshold → emit.
+        assert!(should_emit_progress(0, 0, PROGRESS_MS_INTERVAL + 1, 0));
+        // Below bytes but above time → emit (OR logic).
+        assert!(should_emit_progress(1, 0, PROGRESS_MS_INTERVAL, 0));
+        // Above bytes but below time → emit (OR logic).
+        assert!(should_emit_progress(PROGRESS_BYTES_INTERVAL, 0, 1, 0));
+        // Both watermarks advanced; delta below both thresholds → no emit.
+        let base_bytes = 1_000_000u64;
+        let base_ms = 5_000u128;
+        assert!(!should_emit_progress(
+            base_bytes + 100,
+            base_bytes,
+            base_ms + 10,
+            base_ms
+        ));
     }
 
     #[test]
