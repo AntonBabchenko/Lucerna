@@ -292,6 +292,17 @@ impl ModPlatform for CurseForgeClient {
                 let resolved = ResolvedDep {
                     project_ref: dep.project_ref.clone(),
                     version: v,
+                    selection_reason: if matches!(
+                        &dep.project_ref,
+                        DepProjectRef::Curseforge {
+                            file_id: Some(_),
+                            ..
+                        }
+                    ) {
+                        crate::mods::platform::SelectionReason::PinHonored
+                    } else {
+                        crate::mods::platform::SelectionReason::NewestNoPin
+                    },
                 };
                 match dep.kind {
                     DepKind::Required => required.push(resolved),
