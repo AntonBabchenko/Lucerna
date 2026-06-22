@@ -10,6 +10,71 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-06-22
+
+### Added
+- **Run your own Minecraft server (Beta).** Create, configure, and launch a
+  dedicated server from the launcher across Vanilla, Fabric, Forge, NeoForge,
+  and Quilt, with a live console, a one-click "allow offline players", and
+  console backfill. Servers can be renamed, edited (memory & JVM args), and
+  deleted, and a running server shows an indicator on the sidebar.
+- **Server launch-error & crash diagnosis.** Failed starts and silent crashes
+  are classified (EULA not accepted, port in use, out-of-memory, corrupt jar,
+  missing dependency, world/session lock, and more) with one-click fixes, plus
+  dismissible diagnosis banners.
+- **Windows Firewall help.** Detects when a server port is blocked and offers a
+  one-click allow-rule.
+- **Friends can join.** Surfaces the LAN address with copy-invite and clearer
+  online-mode messaging.
+- **Server backups.** Snapshot, restore, and keep-N backups of your server.
+- **Server logs.** Past sessions are rotated, retained, and browsable, with
+  one-click share to mclo.gs.
+- **Upload your server to a host.** Tracked, cancellable, parallel, and
+  resumable SFTP upload with honest byte-based progress and ETA, selective
+  upload, a free-space preflight, lock-file exclusions, and a password reveal
+  toggle with a save-password opt-out.
+- **Import & convert.** Import an existing server from a `.zip` or folder (a
+  wizard with drag-and-drop), create a client instance from a server, and have
+  client-only mods set aside automatically on create.
+- **Import worlds** into an instance from a local `.zip` or folder.
+- **Smarter mod dependencies.** Missing dependencies are resolved from the jar
+  manifest with one-click install, version incompatibilities are remediated
+  inline in the pre-flight panel, and the dependency resolver was reworked to be
+  range-aware and to honor author-pinned versions.
+- **Embedded CurseForge key.** Release builds ship with a CurseForge API key, so
+  browsing CurseForge works without entering your own; a curated community fix
+  mod can be suggested for known issues (e.g. the Create goggle-overlay spam).
+- **Play into a world.** A dropdown on the Play button launches straight into a
+  chosen world, with matching green buttons on the Worlds tab.
+- **Instance memory controls.** An advanced initial-heap (`-Xms`) setting and a
+  shared memory slider with numeric entry, endpoint labels, and a recommended
+  marker.
+- **Quality of life.** Explicit loading spinners wherever content loads, a
+  dismissable "Needs attention" panel with restore, a launcher-wide button
+  consistency pass, live progress on modpack updates (with apply from Overview),
+  colour-coded server/log status icons on the sidebar, an offline-name dialog,
+  and a redesigned app icon.
+
+### Changed
+- **One error-display policy** across every surface — no raw URLs or internal
+  detail leak into user-facing messages.
+- **Accessibility.** WCAG fixes across the manage modal, loader picker, and
+  memory slider, plus a live region that announces errors to assistive tech.
+- The manage-instances modal was overhauled: list usability, legible auto-save,
+  and consistent microcopy.
+
+### Fixed
+- Per-host request throttling stops mod-API 429 storms, and installed-mod
+  metadata is batched to de-storm the dependency graph.
+- Dependency pre-flight is scoped to the instance's loader (no more phantom
+  cross-loader requirements) and reads nested Fabric/Quilt jars correctly.
+- Non-ASCII offline nicknames that cannot enter Minecraft worlds are now blocked
+  at account creation.
+- Modals dismiss only on a true click-outside, not a drag-select released on the
+  backdrop, and the sidebar no longer scrolls its install footer out of view.
+- Various server fixes: CRLF `server.properties` handling, a low-disk advisory,
+  and a port-change fix that now takes effect.
+
 ## [0.14.0] — 2026-06-17
 
 ### Added
@@ -296,7 +361,9 @@ release is **0.9.0**.
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.13.0...main
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.0...main
+[0.15.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.10.0...v0.11.0
