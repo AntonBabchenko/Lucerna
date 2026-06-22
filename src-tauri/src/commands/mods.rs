@@ -1288,9 +1288,10 @@ pub async fn mods_find_orphans(
 }
 
 /// Best-effort: read `primary`'s jar manifest and resolve required libraries
-/// the platform metadata omitted. Returns `(needed_id, candidate)` pairs. Any
-/// error (no sha1, download failure, unreadable jar) yields an empty vec so the
-/// install/plan proceeds exactly as before.
+/// the platform metadata omitted. Returns `(needed_id, candidate,
+/// selection_reason)` triples — the reason is the range-aware provenance the
+/// install plan surfaces. Any error (no sha1, download failure, unreadable jar)
+/// yields an empty vec so the install/plan proceeds exactly as before.
 async fn manifest_extra_root_versions(
     dd: &std::path::Path,
     primary: &ModVersion,
