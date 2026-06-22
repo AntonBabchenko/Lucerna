@@ -756,10 +756,16 @@ pub async fn mods_resolve_install_plan(
     //     yields no extras and preserves the prior behaviour.
     let extras_raw =
         manifest_extra_root_versions(&data_dir(&app)?, &primary, &mc_version, loader).await;
-    let required_versions: Vec<ModVersion> =
-        required.iter().map(|p| p.version.clone()).collect();
-    let extras =
-        dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required_versions);
+    // Only project `required` into owned versions and run the dedup pass when the
+    // manifest actually yielded extras — the common case (no manifest extras)
+    // skips the full clone + dedup entirely.
+    let extras = if extras_raw.is_empty() {
+        Vec::new()
+    } else {
+        let required_versions: Vec<ModVersion> =
+            required.iter().map(|p| p.version.clone()).collect();
+        dedup_extra_candidates(extras_raw, &installed, &installed_filenames, &required_versions)
+    };
     if !extras.is_empty() {
         let mut excl = installed.clone();
         for p in &required {

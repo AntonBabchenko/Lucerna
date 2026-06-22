@@ -277,8 +277,14 @@ impl ModPlatform for CurseForgeClient {
                 DepKind::Embedded => continue,
                 _ => {}
             }
-            let pid = match &dep.project_ref {
-                DepProjectRef::Curseforge { mod_id, .. } => mod_id.to_string(),
+            // The CF dep pin handle is the numeric `file_id`. A `ModVersion`'s
+            // `version_id` is the stringified file id (see `convert_version`),
+            // so the pin is matched by passing `file_id.to_string()` as the
+            // pin handle to `select_dep_version`.
+            let (pid, pin) = match &dep.project_ref {
+                DepProjectRef::Curseforge { mod_id, file_id } => {
+                    (mod_id.to_string(), file_id.map(|f| f.to_string()))
+                }
                 DepProjectRef::Modrinth { .. } => {
                     // Cross-source dep we can't resolve here — only flag if required.
                     if dep.kind == DepKind::Required {
@@ -288,21 +294,22 @@ impl ModPlatform for CurseForgeClient {
                 }
             };
             let vs = self.versions(&pid, Some(mc), Some(loader)).await?;
-            if let Some(v) = vs.into_iter().next() {
+            // Actually seek the pinned file rather than labelling newest as a
+            // pin. CF dependency metadata carries no version range — pin only.
+            // `PinHonored` only when the pinned file is among the compatible
+            // builds; `FellBackFromPin` when a file_id was given but absent;
+            // `NewestNoPin` when no file_id.
+            if let Some((i, reason)) =
+                crate::mods::dep_select::select_dep_version(&vs, pin.as_deref(), None)
+            {
+                let v = vs
+                    .into_iter()
+                    .nth(i)
+                    .expect("index returned by select_dep_version is in range");
                 let resolved = ResolvedDep {
                     project_ref: dep.project_ref.clone(),
                     version: v,
-                    selection_reason: if matches!(
-                        &dep.project_ref,
-                        DepProjectRef::Curseforge {
-                            file_id: Some(_),
-                            ..
-                        }
-                    ) {
-                        crate::mods::platform::SelectionReason::PinHonored
-                    } else {
-                        crate::mods::platform::SelectionReason::NewestNoPin
-                    },
+                    selection_reason: reason,
                 };
                 match dep.kind {
                     DepKind::Required => required.push(resolved),
@@ -769,6 +776,127 @@ mod tests {
         // Loader tags and environment markers ("Client"/"Server") are stripped;
         // only real MC versions remain in mc_versions.
         assert_eq!(v.mc_versions, vec!["1.20.1".to_string()]);
+    }
+
+    /// A required CF dep whose ref pins a `file_id` that IS among the
+    /// compatible builds must select that exact file and report `PinHonored`.
+    #[tokio::test]
+    async fn resolve_deps_honors_pinned_file_id() {
+        let s = MockServer::start().await;
+        // Dep mod 42 has two compatible Fabric builds; the pin (file 555) is the
+        // OLDER one. CF returns newest-first; the pin must override the default.
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/42/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                "data":[
+                  {"id":777,"modId":42,"displayName":"new","fileName":"dep-new.jar",
+                   "fileLength":100,"hashes":[{"value":"a","algo":1}],
+                   "gameVersions":["1.20.1","Fabric"],"downloadUrl":"https://e/new.jar",
+                   "fileDate":"2026-05-01T00:00:00Z","isAvailable":true,"releaseType":1,"dependencies":[]},
+                  {"id":555,"modId":42,"displayName":"old","fileName":"dep-old.jar",
+                   "fileLength":100,"hashes":[{"value":"b","algo":1}],
+                   "gameVersions":["1.20.1","Fabric"],"downloadUrl":"https://e/old.jar",
+                   "fileDate":"2026-01-01T00:00:00Z","isAvailable":true,"releaseType":1,"dependencies":[]}
+                ],
+                "pagination":null}"#,
+            ))
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let primary = ModVersion {
+            source: ModSource::Curseforge,
+            project_id: "1".into(),
+            version_id: "100".into(),
+            name: "Primary".into(),
+            version_number: "primary.jar".into(),
+            mc_versions: vec!["1.20.1".into()],
+            loaders: vec![LoaderKind::Fabric],
+            primary_file: ModFile {
+                filename: "primary.jar".into(),
+                url: "https://e/p.jar".into(),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Curseforge {
+                    mod_id: 42,
+                    file_id: Some(555),
+                },
+            }],
+            published_at: None,
+        };
+        let rd = client(s.uri())
+            .resolve_deps(&primary, "1.20.1", LoaderKind::Fabric)
+            .await
+            .unwrap();
+        assert_eq!(rd.required.len(), 1);
+        assert_eq!(rd.required[0].version.version_id, "555");
+        assert_eq!(
+            rd.required[0].selection_reason,
+            crate::mods::platform::SelectionReason::PinHonored
+        );
+    }
+
+    /// A pinned `file_id` that is NOT among the compatible builds falls back to
+    /// the newest compatible build and reports `FellBackFromPin`.
+    #[tokio::test]
+    async fn resolve_deps_falls_back_when_pinned_file_absent() {
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/mods/42/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{
+                "data":[
+                  {"id":777,"modId":42,"displayName":"new","fileName":"dep-new.jar",
+                   "fileLength":100,"hashes":[{"value":"a","algo":1}],
+                   "gameVersions":["1.20.1","Fabric"],"downloadUrl":"https://e/new.jar",
+                   "fileDate":"2026-05-01T00:00:00Z","isAvailable":true,"releaseType":1,"dependencies":[]}
+                ],
+                "pagination":null}"#,
+            ))
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let primary = ModVersion {
+            source: ModSource::Curseforge,
+            project_id: "1".into(),
+            version_id: "100".into(),
+            name: "Primary".into(),
+            version_number: "primary.jar".into(),
+            mc_versions: vec!["1.20.1".into()],
+            loaders: vec![LoaderKind::Fabric],
+            primary_file: ModFile {
+                filename: "primary.jar".into(),
+                url: "https://e/p.jar".into(),
+                sha1: Some("aa".into()),
+                size: 1.0,
+                distribution_allowed: true,
+            },
+            deps: vec![ModDepLink {
+                kind: DepKind::Required,
+                project_ref: DepProjectRef::Curseforge {
+                    mod_id: 42,
+                    // 999 is not among the compatible builds (only 777 is).
+                    file_id: Some(999),
+                },
+            }],
+            published_at: None,
+        };
+        let rd = client(s.uri())
+            .resolve_deps(&primary, "1.20.1", LoaderKind::Fabric)
+            .await
+            .unwrap();
+        assert_eq!(rd.required.len(), 1);
+        assert_eq!(rd.required[0].version.version_id, "777");
+        assert_eq!(
+            rd.required[0].selection_reason,
+            crate::mods::platform::SelectionReason::FellBackFromPin
+        );
     }
 
     #[tokio::test]

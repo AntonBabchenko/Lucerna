@@ -308,13 +308,32 @@ mod tests {
 
     #[tokio::test]
     async fn closure_carries_selection_reason() {
-        let graph = g(&[("a", &["b"], &[], &[]), ("b", &[], &[], &[])]);
+        // The fetcher emits a NON-default reason (PinHonored) for dep "b"; the
+        // assertion is on that exact reason, so the test would fail if the walk
+        // reset the reason to the NewestNoPin default. (The shared `fetcher`
+        // helper hard-codes NewestNoPin, which would make this vacuous — use an
+        // inline fetcher instead, mirroring `unresolvable_dep_bubbles_up_from_depth`.)
+        use std::future::ready;
+        let fetch = move |v: ModVersion| {
+            let deps = match v.project_id.as_str() {
+                "a" => FetchedDeps {
+                    required: vec![ResolvedNode {
+                        version: mv("b", vec![]),
+                        is_loader: false,
+                        selection_reason: SelectionReason::PinHonored,
+                    }],
+                    ..Default::default()
+                },
+                _ => FetchedDeps::default(),
+            };
+            ready(Ok::<_, crate::error::Error>(deps))
+        };
         let roots = vec![mv("a", vec![("b", DepKind::Required)])];
-        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetcher(graph))
+        let c = resolve_closure(&roots, &HashSet::new(), &HashSet::new(), fetch)
             .await
             .unwrap();
         assert_eq!(c.required.len(), 1);
-        assert_eq!(c.required[0].selection_reason, SelectionReason::NewestNoPin);
+        assert_eq!(c.required[0].selection_reason, SelectionReason::PinHonored);
     }
 
     #[tokio::test]

@@ -16,6 +16,9 @@ use crate::mods::version_range::RangeFamily;
 ///    `NewestNoPin`.
 /// 4. Otherwise → newest (index 0), `NewestNoPin`.
 ///
+/// The returned `usize` is an index into the passed `candidates` slice — callers
+/// must index that same slice to retrieve the chosen build.
+///
 /// Returns `None` only when `candidates` is empty.
 pub fn select_dep_version(
     candidates: &[ModVersion],
@@ -65,6 +68,9 @@ pub fn select_dep_version(
 /// accept a relevance-search hit as a match for a bare loader id. The dep id
 /// matches when its normalized form is a substring of the normalized slug or
 /// display name. An all-separator `dep_id` (empty needle) never matches.
+///
+/// This is a deliberately loose substring match: its false positives are
+/// contained by the downstream `jar_provides` verification gate at install time.
 pub fn name_matches(dep_id: &str, slug: Option<&str>, name: &str) -> bool {
     // Normalize: non-alphanumerics collapse to a single `_`, lowercased, trimmed.
     fn norm(s: &str) -> String {
