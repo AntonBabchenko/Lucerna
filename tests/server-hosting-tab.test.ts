@@ -339,4 +339,35 @@ describe('ServerHostingTab', () => {
     await fireEvent.click(cancelBtn);
     expect(cancelUploadMock).toHaveBeenCalledWith('srv-1');
   });
+
+  // ── bytes-driven progress bar (Task 4) ─────────────────────────────────────
+
+  it('shows bytes-driven progress bar at 25% and progress line when bytesTotal is set', () => {
+    const MB = 1024 * 1024;
+    mockList = [makeServer({ upload: savedUpload })];
+    mockUploading = true;
+    mockUploadState = {
+      phase: 'uploading',
+      filesDone: 1,
+      filesTotal: 4,
+      bytesDone: MB,
+      bytesTotal: 4 * MB,
+      currentFile: 'mods/create-1.0.jar',
+      startedAtMs: Date.now(),
+    };
+
+    render(ServerHostingTab, { props: { serverId: 'srv-1' } });
+
+    // Progress bar: inner fill div should have scaleX(0.25)
+    const bar = screen.getByTestId('upload-progress-bar');
+    const fill = bar.querySelector('div') as HTMLElement;
+    expect(fill.style.transform).toContain('scaleX(0.25)');
+
+    // Progress line should contain MB (byte sizes are formatted in MB)
+    const line = screen.getByTestId('upload-progress-line');
+    expect(line.textContent).toContain('MB');
+
+    // Current file line is still rendered
+    expect(screen.getByText('mods/create-1.0.jar')).toBeTruthy();
+  });
 });
