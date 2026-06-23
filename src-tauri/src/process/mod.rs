@@ -192,11 +192,17 @@ pub fn spawn_installer(installer: &Path) -> Result<()> {
 /// A detached `sh` polls until our PID disappears, then `exec`s the new file.
 /// Waiting matters: the single-instance guard (tauri-plugin-single-instance)
 /// would otherwise make the freshly launched instance focus the still-running
-/// old one and exit, instead of starting the new build. The path is passed via
-/// an environment variable, never interpolated into the script, so a path with
-/// shell metacharacters cannot break out. The child is detached
-/// (`process_group(0)`, stdio nulled) so it survives our exit. Linux-only —
-/// in-app self-update on other Unix targets is not supported.
+/// old one and exit, instead of starting the new build.
+///
+/// Injection: the new-AppImage path is passed via the `LUCERNA_NEW_APPIMAGE`
+/// environment variable and expanded as a quoted `exec "$LUCERNA_NEW_APPIMAGE"`,
+/// so a path with spaces or shell metacharacters cannot break out. The only
+/// value interpolated into the script text is our own PID — a decimal `u32`
+/// with no metacharacters, and not attacker-influenced.
+///
+/// The child is detached (`process_group(0)`, stdio nulled) so it survives our
+/// imminent exit, which reparents it to init. Linux-only — in-app self-update
+/// on other Unix targets is not supported.
 #[cfg(target_os = "linux")]
 pub fn spawn_appimage_relaunch(appimage: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
@@ -214,6 +220,9 @@ pub fn spawn_appimage_relaunch(appimage: &Path) -> Result<()> {
         .stderr(Stdio::null())
         .process_group(0)
         .spawn()
+        // Drop the Child: it is detached (own process group), and our process
+        // exits right after — wait() would never run, and the shell reparents
+        // to init rather than becoming our zombie.
         .map(|_child| ())
         .map_err(|e| Error::UpdateInstallFailed {
             details: format!("relaunch spawn {}: {e}", appimage.display()),

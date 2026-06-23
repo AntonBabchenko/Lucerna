@@ -123,36 +123,51 @@ fn apply_appimage_update(current: &std::path::Path, new_file: &std::path::Path) 
 /// Copy `new_file` over the running AppImage at `current` and mark it
 /// executable. The bytes are staged in `current`'s OWN directory first so the
 /// final `rename` is atomic on a single filesystem — the download scratch dir
-/// may sit on a different mount, where a direct rename would fail (EXDEV). Pure
-/// filesystem work (no process spawn), so it is unit-testable.
+/// may sit on a different mount, where a direct rename would fail (EXDEV). The
+/// staging file is removed if any step fails, so a partial attempt never leaves
+/// a stray `.part` next to the user's AppImage. Pure filesystem work (no
+/// process spawn), so it is unit-testable.
 fn install_appimage_over(current: &std::path::Path, new_file: &std::path::Path) -> Result<()> {
     let dir = current.parent().ok_or_else(|| Error::UpdateInstallFailed {
         details: format!("AppImage path has no parent dir: {}", current.display()),
     })?;
     let staged = dir.join(".lucerna-update.AppImage.part");
-    std::fs::copy(new_file, &staged).map_err(|e| Error::io(staged.display().to_string(), e))?;
-    crate::platform::set_executable(&staged)
-        .map_err(|e| Error::io(staged.display().to_string(), e))?;
-    std::fs::rename(&staged, current).map_err(|e| Error::io(current.display().to_string(), e))?;
-    Ok(())
+    let result = (|| -> Result<()> {
+        std::fs::copy(new_file, &staged).map_err(|e| Error::io(staged.display().to_string(), e))?;
+        crate::platform::set_executable(&staged)
+            .map_err(|e| Error::io(staged.display().to_string(), e))?;
+        // rename consumes `staged` on success; on failure it stays for cleanup.
+        std::fs::rename(&staged, current).map_err(|e| Error::io(current.display().to_string(), e))
+    })();
+    if result.is_err() {
+        // Best-effort: a leftover staging file would otherwise sit in the
+        // user's application directory. Ignore the removal error.
+        let _ = std::fs::remove_file(&staged);
+    }
+    result
 }
 
-/// Read the installer at `installer_path`, verify it, and only then launch it.
+/// Read the artifact at `artifact_path`, verify it, and only then apply it.
 ///
-/// The security guarantee lives here: `launch` is reached **iff** `verify`
+/// The security guarantee lives here: `apply` is reached **iff** `verify`
 /// returns `Ok`. A read error or a verification failure short-circuits via `?`
-/// before `launch` is ever called, so an unverified binary is never run. Both
-/// steps are taken as closures so the ordering can be tested without real
-/// network I/O, a cosign bundle, or an actual installer process.
+/// before `apply` is ever called, so an unverified artifact is never used.
+///
+/// `apply` receives **the same `artifact_path`** whose bytes were just
+/// verified, so it MUST act on that exact file — run it (Windows installer) or
+/// copy it over the running binary (AppImage). It must not re-download or
+/// substitute a different path, or the integrity check would not cover the
+/// bytes that get applied. Both steps are closures so the ordering can be
+/// tested without real network I/O, a cosign bundle, or a real process.
 fn verify_and_launch(
-    installer_path: &std::path::Path,
+    artifact_path: &std::path::Path,
     verify: impl FnOnce(&[u8]) -> Result<()>,
-    launch: impl FnOnce(&std::path::Path) -> Result<()>,
+    apply: impl FnOnce(&std::path::Path) -> Result<()>,
 ) -> Result<()> {
-    let bytes = std::fs::read(installer_path)
-        .map_err(|e| Error::io(installer_path.display().to_string(), e))?;
+    let bytes = std::fs::read(artifact_path)
+        .map_err(|e| Error::io(artifact_path.display().to_string(), e))?;
     verify(&bytes)?;
-    launch(installer_path)
+    apply(artifact_path)
 }
 
 #[cfg(test)]
