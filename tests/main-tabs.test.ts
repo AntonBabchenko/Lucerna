@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { commands } from '$lib/ipc/bindings';
 import MainTabs from '$lib/layout/MainTabs.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // Mod browser mounts ModBrowseView on activation, which fires
 // modsGetCurseforgeKeyStatus + modsSearch on mount. Stub them so the
@@ -67,6 +68,8 @@ vi.mock('@tauri-apps/api/webview', () => ({
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: vi.fn(),
 }));
+
+beforeEach(() => markSeen('addons'));
 
 describe('MainTabs', () => {
   it('renders the three tab labels', () => {

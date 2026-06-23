@@ -3,7 +3,7 @@
 // migrated to btn-secondary during the button-system sweep.
 
 import { render, screen } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── SettingsModal needs real inner panels stubbed (they fire IPC on mount) ──
 vi.mock('$lib/ipc/bindings', () => ({
@@ -94,6 +94,7 @@ vi.mock('@tauri-apps/api/webview', () => ({
 import MainTabs from '$lib/layout/MainTabs.svelte';
 import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
 import ModBrowserTab from '$lib/mods/AddonsTab.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 import SettingsModal from '$lib/settings/SettingsModal.svelte';
 import { settingsOpen } from '$lib/settings/state.svelte';
 
@@ -112,6 +113,8 @@ function assertNotBtnVariant(tab: Element) {
 afterEach(() => {
   settingsOpen.value = null;
 });
+
+beforeEach(() => markSeen('addons'));
 
 describe('SettingsModal tabs are not .btn-*', () => {
   it('all 7 section tabs use list style, not .btn-*', () => {

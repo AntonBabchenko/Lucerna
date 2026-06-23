@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ModBrowserTab from '$lib/mods/AddonsTab.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // Task 14 wires the real ModBrowseView in (Browse branch makes IPC
 // calls on mount: mods_get_curseforge_key_status, mods_search). Task 17
@@ -60,6 +61,8 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 }));
 
 import { commands } from '$lib/ipc/bindings';
+
+beforeEach(() => markSeen('addons'));
 
 describe('ModBrowserTab', () => {
   afterEach(async () => {

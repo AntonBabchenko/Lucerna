@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { commands } from '$lib/ipc/bindings';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // AddonsTab mounts ModBrowseView (fires IPC on mount) + the lazy installed
 // views. Mirror tests/addons-tab.test.ts's full bindings mock so nothing trips
@@ -60,6 +61,8 @@ afterEach(async () => {
   s.addonsKind.value = 'mod';
   s.assetsChanged.value = 0;
 });
+
+beforeEach(() => markSeen('addons'));
 
 describe('AddonsTab manual asset install', () => {
   it('clicking the resource-pack dropzone installs picked zips and bumps assetsChanged', async () => {

@@ -10,7 +10,7 @@
 // mock the full bindings layer.
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // A deferred that modsInstallLocal returns — stays pending until we resolve it,
 // letting us assert the busy state while the install is in flight.
@@ -68,6 +68,9 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
+
+beforeEach(() => markSeen('addons'));
 
 const props = {
   instanceId: 'i',
