@@ -1526,6 +1526,8 @@ export type TranslationKey =
   | 'settings.general.updates.checking'
   | 'settings.general.updates.error'
   | 'settings.general.updates.installing'
+  | 'settings.general.updates.manualHint'
+  | 'settings.general.updates.openReleasePage'
   | 'settings.general.updates.startupDescription'
   | 'settings.general.updates.startupLabel'
   | 'settings.general.updates.title'

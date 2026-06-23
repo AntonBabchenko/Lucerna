@@ -188,6 +188,54 @@ pub fn spawn_installer(installer: &Path) -> Result<()> {
     })
 }
 
+/// Relaunch the just-replaced AppImage at `appimage` AFTER this process exits.
+/// A detached `sh` polls until our PID disappears, then `exec`s the new file.
+/// Waiting matters: the single-instance guard (tauri-plugin-single-instance)
+/// would otherwise make the freshly launched instance focus the still-running
+/// old one and exit, instead of starting the new build.
+///
+/// Injection: the new-AppImage path is passed via the `LUCERNA_NEW_APPIMAGE`
+/// environment variable and expanded as a quoted `exec "$LUCERNA_NEW_APPIMAGE"`,
+/// so a path with spaces or shell metacharacters cannot break out. The only
+/// value interpolated into the script text is our own PID — a decimal `u32`
+/// with no metacharacters, and not attacker-influenced.
+///
+/// The child is detached (`process_group(0)`, stdio nulled) so it survives our
+/// imminent exit, which reparents it to init. Linux-only — in-app self-update
+/// on other Unix targets is not supported.
+#[cfg(target_os = "linux")]
+pub fn spawn_appimage_relaunch(appimage: &Path) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    let pid = std::process::id();
+    let script = format!(
+        "while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; exec \"$LUCERNA_NEW_APPIMAGE\""
+    );
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&script)
+        .env("LUCERNA_NEW_APPIMAGE", appimage)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        // Drop the Child: it is detached (own process group), and our process
+        // exits right after — wait() would never run, and the shell reparents
+        // to init rather than becoming our zombie.
+        .map(|_child| ())
+        .map_err(|e| Error::UpdateInstallFailed {
+            details: format!("relaunch spawn {}: {e}", appimage.display()),
+        })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn spawn_appimage_relaunch(appimage: &Path) -> Result<()> {
+    Err(Error::UpdateInstallFailed {
+        details: format!("AppImage relaunch is Linux-only ({})", appimage.display()),
+    })
+}
+
 /// Terminate `pid` and its child processes via `taskkill`. Best-effort: a
 /// failure (e.g. the PID is already gone) is ignored. Windows-only — this is
 /// the subprocess used by `platform::kill_process_tree` on Windows; the Unix
@@ -399,6 +447,20 @@ mod tests {
         // On Windows the missing path fails to spawn; on non-Windows the
         // function is a typed "Windows-only" error. Either way: Err.
         let r = spawn_installer(Path::new("nonexistent-installer-xyz.exe"));
+        assert!(
+            matches!(r, Err(Error::UpdateInstallFailed { .. })),
+            "got {r:?}"
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn spawn_appimage_relaunch_is_linux_only_off_linux() {
+        // The relaunch helper exists on every target so callers compile, but
+        // only Linux spawns; elsewhere it is a typed error. (On Linux it spawns
+        // a real detached `sh`, so that path is left to manual verification
+        // rather than a side-effecting unit test.)
+        let r = spawn_appimage_relaunch(Path::new("/x/Lucerna.AppImage"));
         assert!(
             matches!(r, Err(Error::UpdateInstallFailed { .. })),
             "got {r:?}"

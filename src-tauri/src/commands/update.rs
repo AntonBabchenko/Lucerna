@@ -20,8 +20,9 @@ pub async fn update_check() -> crate::error::Result<crate::update::UpdateInfo> {
 #[tauri::command]
 #[specta::specta]
 pub async fn update_install(app: tauri::AppHandle) -> crate::error::Result<()> {
-    // In-app install is Windows-only; Linux is check-and-notify (the UI opens
-    // the release page instead). Refuse rather than attempt a no-asset install.
+    // In-app install runs on Windows and on Linux AppImage builds; a .deb/.rpm
+    // or macOS run is check-and-notify (the UI opens the release page instead).
+    // Refuse rather than attempt a no-asset install.
     if !crate::platform::supports_in_app_install() {
         return Err(crate::error::Error::UpdateInstallFailed {
             details: "in-app install is not supported on this platform".into(),
