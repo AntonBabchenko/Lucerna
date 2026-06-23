@@ -988,9 +988,9 @@
       },
       "signIn": {
         "title": "Choose an account",
-        "body": "You need an account to launch the game. Sign in with Microsoft, or add an offline account for single-player and LAN. Lucerna stores tokens in your OS keychain. Offline accounts can't join servers that require a Microsoft login.",
+        "body": "You need an account to launch the game. Sign in with Microsoft, or add an offline account for single-player and LAN. Lucerna stores tokens in your OS keychain. Offline accounts can't join servers that require a Microsoft login. Reopen this menu to switch accounts, and the trash icon on a row removes one.",
         "titleBasic": "Choose an account",
-        "bodyBasic": "You need an account to start the game. Sign in with Microsoft to use your real Minecraft account, or add an offline account to play on your own or with friends on the same network."
+        "bodyBasic": "You need an account to start the game. Sign in with Microsoft to use your real Minecraft account, or add an offline account to play on your own or with friends on the same network. Open this menu again to switch accounts; the trash icon removes one."
       },
       "pickInstance": {
         "title": "Pick an instance",
@@ -1006,9 +1006,9 @@
       },
       "installPlay": {
         "title": "Install, then Play",
-        "body": "The first click downloads Minecraft and your chosen loader, once per version, then verifies every asset and library against Mojang's hashes. After that the button reads Play, and Stop while the game runs.",
+        "body": "The first click downloads Minecraft and your chosen loader, once per version, then verifies every asset and library against Mojang's hashes. After that the button reads Play, and Stop while the game runs. Once an instance is ready and has saved worlds, hover Play to jump straight into one.",
         "titleBasic": "Install, then Play",
-        "bodyBasic": "The first click downloads Minecraft and the mod system you picked. You only wait for this once per version. After that the button turns into Play. While the game is open it turns into Stop."
+        "bodyBasic": "The first click downloads Minecraft and the mod system you picked. You only wait for this once per version. After that the button turns into Play. While the game is open it turns into Stop. When your instance is ready, hover Play to jump right into a saved world."
       },
       "browseMods": {
         "title": "Browse mods",
@@ -1120,6 +1120,12 @@
           "body": "Each row is one singleplayer save, and the badge shows its backup count. Click a row to open its actions: back up now, browse past backups (restore by Replace or As-copy), or delete the world.",
           "titleBasic": "Your worlds and backups",
           "bodyBasic": "Each row is one single-player world, and the badge shows how many backups it has. Click a row to see what you can do: make a backup now, open past backups (and restore them, replacing the world or as a copy), or delete the world."
+        },
+        "importWorlds": {
+          "title": "Import a world",
+          "body": "Bring in a world from a .zip or a folder: drop it here, or use the folder button. Lucerna copies it into this instance's saves, so the original stays where it is.",
+          "titleBasic": "Add a world",
+          "bodyBasic": "Add a world you have as a .zip or folder. Drop it here or use the button. It's copied into this instance, and your original file stays put."
         },
         "openSavesFolder": {
           "title": "Open saves folder",

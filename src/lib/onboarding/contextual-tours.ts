@@ -31,7 +31,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   manage: 'v2', // bumped 2026-06-23 — added the Verify/repair step (was an orphan anchor)
   logs: 'v4', // bumped 2026-06-23 — added diagnosis + read-cap steps
   modpacks: 'v1',
-  worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
+  worlds: 'v3', // bumped 2026-06-23 — added the import-a-world step
   servers: 'v1', // added 2026-06-23 — Servers list tour
   serverManage: 'v1', // added 2026-06-23 — server detail/manage tour
   addons: 'v1', // added 2026-06-23 — Add-ons tab layout tour
@@ -158,6 +158,12 @@ export const WORLDS_STEPS: ReadonlyArray<TourStep> = [
     titleKey: 'onboarding.contextual.worlds.worldsWithBackups.title',
     bodyKey: 'onboarding.contextual.worlds.worldsWithBackups.body',
     targetSelector: '[data-tour-ctx="worlds-list"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.worlds.importWorlds.title',
+    bodyKey: 'onboarding.contextual.worlds.importWorlds.body',
+    targetSelector: '[data-tour-ctx="worlds-import"]',
     anchor: 'below',
   },
   {
