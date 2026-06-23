@@ -17,7 +17,7 @@ describe('contextual-tours storage helpers', () => {
     // change materially (logs got v2 in 2026-05-26; v3 in 2026-06-15 — header redesign moved Share into the ⋯ menu;
     // manage got v2 in 2026-06-23 — added the Verify/repair step).
     expect(storageKey('manage')).toBe('ftl.tour.manage.v2.done');
-    expect(storageKey('logs')).toBe('ftl.tour.logs.v3.done');
+    expect(storageKey('logs')).toBe('ftl.tour.logs.v4.done');
     expect(storageKey('modpacks')).toBe('ftl.tour.modpacks.v1.done');
     expect(storageKey('worlds')).toBe('ftl.tour.worlds.v2.done');
     expect(storageKey('servers')).toBe('ftl.tour.servers.v1.done');
