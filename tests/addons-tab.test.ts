@@ -7,7 +7,7 @@
 // renders against empty results and no real Tauri calls happen.
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/ipc/bindings', () => ({
   commands: {
@@ -73,6 +73,9 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue
 
 import { commands } from '$lib/ipc/bindings';
 import AddonsTab from '$lib/mods/AddonsTab.svelte';
+import { markSeen } from '$lib/onboarding/contextual-tours';
+
+beforeEach(() => markSeen('addons'));
 
 const props = {
   instanceId: 'i',

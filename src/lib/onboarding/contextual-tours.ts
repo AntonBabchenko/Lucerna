@@ -17,7 +17,8 @@ export type ContextualTourId =
   | 'modpacks'
   | 'worlds'
   | 'servers'
-  | 'serverManage';
+  | 'serverManage'
+  | 'addons';
 
 const STORAGE_KEY_PREFIX = 'ftl.tour.';
 const STORAGE_KEY_SUFFIX = '.done';
@@ -33,6 +34,7 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
   servers: 'v1', // added 2026-06-23 — Servers list tour
   serverManage: 'v1', // added 2026-06-23 — server detail/manage tour
+  addons: 'v1', // added 2026-06-23 — Add-ons tab layout tour
 };
 
 export function storageKey(id: ContextualTourId): string {
@@ -219,6 +221,31 @@ export const SERVER_MANAGE_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
+// Add-ons tab (AddonsTab). Fires on first open. Defaults (kind='mod',
+// view='browse') keep all three anchors present, and each anchors a stable
+// layout element — the conditional preflight panel is taught by per-button
+// tooltips instead, since it only appears when there are dependency violations.
+export const ADDONS_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.addons.kindSwitch.title',
+    bodyKey: 'onboarding.contextual.addons.kindSwitch.body',
+    targetSelector: '[data-tour-ctx="addons-kind-switch"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.addons.subtabs.title',
+    bodyKey: 'onboarding.contextual.addons.subtabs.body',
+    targetSelector: '[data-tour-ctx="addons-subtabs"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.addons.dropzone.title',
+    bodyKey: 'onboarding.contextual.addons.dropzone.body',
+    targetSelector: '[data-tour-ctx="addons-dropzone"]',
+    anchor: 'below',
+  },
+];
+
 export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   manage: MANAGE_STEPS,
   logs: LOGS_STEPS,
@@ -226,6 +253,7 @@ export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   worlds: WORLDS_STEPS,
   servers: SERVERS_STEPS,
   serverManage: SERVER_MANAGE_STEPS,
+  addons: ADDONS_STEPS,
 };
 
 // Single source for iterating every contextual tour — derived from

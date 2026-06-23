@@ -43,7 +43,7 @@
 //                       restricted branch → text-muted (NOT btn-primary)
 
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledMod, ModProject, ModSummary, ModVersion } from '$lib/ipc/bindings';
 
 // vi.mock is hoisted before imports — all IPC commands resolved here.
@@ -156,6 +156,7 @@ import ModBrowseView from '$lib/mods/ModBrowseView.svelte';
 import ModCard from '$lib/mods/ModCard.svelte';
 import ModDetailModal from '$lib/mods/ModDetailModal.svelte';
 import { updateCheckCache } from '$lib/mods/update-check-cache';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // ── Fixture factories ──────────────────────────────────────────────────────────
 
@@ -223,6 +224,8 @@ function makeProject(over: Partial<ModProject> = {}): ModProject {
 }
 
 // ── ModBrowserTab — underline sub-tab positive assertions ─────────────────────
+
+beforeEach(() => markSeen('addons'));
 
 describe('ModBrowserTab — Browse tab is active by default (underline pattern)', () => {
   it('Browse tab has border-b-2 -mb-px border-accent text-primary font-semibold when active', () => {
