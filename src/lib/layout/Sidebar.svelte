@@ -395,6 +395,7 @@
         type="button"
         class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
         data-testid="sidebar-open-servers"
+        data-tour="open-servers"
         onclick={onOpenServers}
       >
         <NavStatusIcon

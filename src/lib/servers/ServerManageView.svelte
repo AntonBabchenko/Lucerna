@@ -20,6 +20,8 @@
   import ServerBackupsView from './ServerBackupsView.svelte';
   import { isCrashed } from './runtime-extra';
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { SERVER_MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
 
   let {
     serverId,
@@ -173,12 +175,13 @@
     </StatusBadge>
 
     <!-- Actions -->
-    <div class="flex items-center gap-1.5">
+    <div class="flex items-center gap-1.5" data-tour-ctx="server-header-actions">
       <button
         type="button"
         class="btn-ghost btn-sm flex items-center gap-1"
         onclick={() => (showToInstance = true)}
         data-testid="create-client-instance-btn"
+        data-tour-ctx="server-to-instance"
       >
         <Icon name="download" size={14} />
         {$t('servers.toInstance.button')}
@@ -237,6 +240,7 @@
         bind:this={tabEls[TAB_ORDER.indexOf(id)]}
         type="button"
         role="tab"
+        data-tour-ctx={`server-tab-${id}`}
         aria-selected={tab === id}
         tabindex={tab === id ? 0 : -1}
         class="px-3 py-2 text-sm border-b-2 -mb-px transition-colors"
@@ -271,6 +275,8 @@
     {/if}
   </div>
 </div>
+
+<ContextualTour id="serverManage" steps={SERVER_MANAGE_STEPS} />
 
 {#if showToInstance && server}
   <ServerToInstanceDialog
