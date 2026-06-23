@@ -20,6 +20,8 @@ describe('contextual-tours storage helpers', () => {
     expect(storageKey('logs')).toBe('ftl.tour.logs.v3.done');
     expect(storageKey('modpacks')).toBe('ftl.tour.modpacks.v1.done');
     expect(storageKey('worlds')).toBe('ftl.tour.worlds.v2.done');
+    expect(storageKey('servers')).toBe('ftl.tour.servers.v1.done');
+    expect(storageKey('serverManage')).toBe('ftl.tour.serverManage.v1.done');
   });
 
   it('hasSeen returns false on fresh storage', () => {
@@ -46,7 +48,7 @@ describe('contextual-tours storage helpers', () => {
 
   it('ALL_CONTEXTUAL_TOUR_IDS covers every tour', () => {
     expect([...ALL_CONTEXTUAL_TOUR_IDS].sort()).toEqual(
-      ['logs', 'manage', 'modpacks', 'worlds'].sort(),
+      ['logs', 'manage', 'modpacks', 'serverManage', 'servers', 'worlds'].sort(),
     );
   });
 
