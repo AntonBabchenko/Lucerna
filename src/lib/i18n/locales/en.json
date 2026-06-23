@@ -1080,6 +1080,18 @@
           "body": "When you open a crash-*.txt file, Lucerna splits it into collapsible sections (Head, Affected level, System Details, Mods). Toggle Raw view in the toolbar if you'd rather grep the plain text.",
           "titleBasic": "A clearer view of crashes",
           "bodyBasic": "When you open a crash report, Lucerna splits it into sections you can open and close (like Head, Affected level, System Details, and Mods). Turn on Raw view in the toolbar if you’d rather read the plain text."
+        },
+        "diagnosis": {
+          "title": "Automatic crash diagnosis",
+          "body": "When the latest log shows a known problem, this banner names the likely cause and, for many issues, offers a one-click fix: install a missing mod, disable a conflicting one, raise the heap, and more. It always reflects the latest run, even if you open an older file in the list.",
+          "titleBasic": "Crash help",
+          "bodyBasic": "When something goes wrong, this banner tells you the likely cause and often gives you a one-click fix. It always shows the most recent run."
+        },
+        "readCap": {
+          "title": "How much log to load",
+          "body": "Big logs can be slow to open, so Lucerna reads only the last slice of each file. This picks how much: bump it up to see more history, or keep it small for speed. A truncation notice tells you when a log was cut.",
+          "titleBasic": "Log size limit",
+          "bodyBasic": "Large logs can be slow, so Lucerna loads only the most recent part. Use this to load more or less of it."
         }
       },
       "modpacks": {

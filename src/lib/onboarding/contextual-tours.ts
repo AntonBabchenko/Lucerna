@@ -29,7 +29,7 @@ const STORAGE_KEY_SUFFIX = '.done';
 // localStorage as harmless cruft.
 const TOUR_VERSION: Record<ContextualTourId, string> = {
   manage: 'v2', // bumped 2026-06-23 — added the Verify/repair step (was an orphan anchor)
-  logs: 'v3', // bumped 2026-06-15 — header redesign moved Share into the ⋯ menu
+  logs: 'v4', // bumped 2026-06-23 — added diagnosis + read-cap steps
   modpacks: 'v1',
   worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
   servers: 'v1', // added 2026-06-23 — Servers list tour
@@ -92,9 +92,24 @@ export const LOGS_STEPS: ReadonlyArray<TourStep> = [
     anchor: 'right',
   },
   {
+    // Anchors the diagnosis banner's own root. The banner renders only when the
+    // latest log carries a known problem, so when it is absent the spotlight
+    // falls back to a centred popover and the copy still teaches the concept.
+    titleKey: 'onboarding.contextual.logs.diagnosis.title',
+    bodyKey: 'onboarding.contextual.logs.diagnosis.body',
+    targetSelector: '[data-tour-ctx="logs-diagnosis"]',
+    anchor: 'below',
+  },
+  {
     titleKey: 'onboarding.contextual.logs.displayOptions.title',
     bodyKey: 'onboarding.contextual.logs.displayOptions.body',
     targetSelector: '[data-tour-ctx="logs-toolbar"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.logs.readCap.title',
+    bodyKey: 'onboarding.contextual.logs.readCap.body',
+    targetSelector: '[data-tour-ctx="logs-cap"]',
     anchor: 'below',
   },
   {
