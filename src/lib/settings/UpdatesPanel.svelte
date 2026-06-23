@@ -53,6 +53,13 @@
   let checking = $state(false);
   let checkResult = $state<CheckResult>({ kind: 'idle' });
 
+  // On platforms without in-app install (Linux/macOS) the backend returns a
+  // null installer and runUpdate() opens the release page instead of
+  // installing. Surface that honestly — an "Open release page" label plus a
+  // manual-install hint — so "Update" never implies auto-update where there
+  // is none. Derived from the live UpdateInfo, not the build target.
+  const notifyOnly = $derived(updateState.value?.installer === null);
+
   async function checkForUpdates() {
     checking = true;
     checkResult = { kind: 'idle' };
@@ -125,10 +132,19 @@
           disabled={updateInstalling.value}
           data-testid="update-now-btn"
         >
-          {updateInstalling.value
-            ? $t('settings.general.updates.installing')
-            : $t('settings.general.updates.updateNow')}
+          {#if notifyOnly}
+            {$t('settings.general.updates.openReleasePage')}
+          {:else if updateInstalling.value}
+            {$t('settings.general.updates.installing')}
+          {:else}
+            {$t('settings.general.updates.updateNow')}
+          {/if}
         </button>
+        {#if notifyOnly}
+          <p class="basis-full text-xs text-muted" data-testid="update-manual-hint">
+            {$t('settings.general.updates.manualHint')}
+          </p>
+        {/if}
       {/if}
     </div>
   </div>
