@@ -135,11 +135,13 @@
 </script>
 
 <div class="p-3 flex flex-col gap-2" data-testid="worlds-tab">
-  <FileDropzone
-    label={$t('worlds.import.dropzoneLabel')}
-    disabled={!instanceId}
-    onClick={() => void onImport('zip')}
-  />
+  <div data-tour-ctx="worlds-import">
+    <FileDropzone
+      label={$t('worlds.import.dropzoneLabel')}
+      disabled={!instanceId}
+      onClick={() => void onImport('zip')}
+    />
+  </div>
   <div class="flex flex-wrap items-center gap-2">
     <button
       type="button"

@@ -19,7 +19,7 @@ describe('contextual-tours storage helpers', () => {
     expect(storageKey('manage')).toBe('ftl.tour.manage.v2.done');
     expect(storageKey('logs')).toBe('ftl.tour.logs.v4.done');
     expect(storageKey('modpacks')).toBe('ftl.tour.modpacks.v1.done');
-    expect(storageKey('worlds')).toBe('ftl.tour.worlds.v2.done');
+    expect(storageKey('worlds')).toBe('ftl.tour.worlds.v3.done');
     expect(storageKey('servers')).toBe('ftl.tour.servers.v1.done');
     expect(storageKey('serverManage')).toBe('ftl.tour.serverManage.v1.done');
     expect(storageKey('addons')).toBe('ftl.tour.addons.v1.done');
