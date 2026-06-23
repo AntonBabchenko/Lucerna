@@ -77,14 +77,16 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
     let available = is_newer(&latest, current);
     let release_url = rel.html_url.clone();
 
-    // Install assets are only needed where we do in-app install (Windows).
-    // On notify-only platforms (Linux) we never download, so we don't require
-    // a `-setup.exe`/bundle/SHA256SUMS to exist — the UI links to the release.
-    let (installer, sha256sums, cosign_bundle) = if crate::platform::supports_in_app_install() {
-        let (i, s, b) = select_install_assets(&rel)?;
-        (Some(i), Some(s), Some(b))
-    } else {
-        (None, None, None)
+    // Install assets are only needed where we do in-app install, and the
+    // primary artifact differs by mechanism (Windows `-setup.exe` vs Linux
+    // `.AppImage`). Notify-only platforms never download, so we don't require
+    // any of them to exist — the UI links to the release page instead.
+    let (installer, sha256sums, cosign_bundle) = match primary_asset_suffix() {
+        Some(suffix) => {
+            let (i, s, b) = select_install_assets(&rel, suffix)?;
+            (Some(i), Some(s), Some(b))
+        }
+        None => (None, None, None),
     };
 
     Ok(UpdateInfo {
@@ -98,16 +100,30 @@ fn build_update_info(rel: GhRelease, current: &str) -> Result<UpdateInfo> {
     })
 }
 
-/// Find and validate the Windows in-app-install assets: the NSIS installer,
-/// its cosign bundle, and SHA256SUMS. Returns `Err(UpdateCheckFailed)` if any
-/// is missing or the installer name is not a bare filename.
-fn select_install_assets(rel: &GhRelease) -> Result<(ReleaseAsset, ReleaseAsset, ReleaseAsset)> {
+/// Filename suffix of the primary install asset for this run's mechanism, or
+/// `None` when notify-only (no in-app install).
+fn primary_asset_suffix() -> Option<&'static str> {
+    match crate::platform::install_kind() {
+        crate::platform::InstallKind::WindowsInstaller => Some("-setup.exe"),
+        crate::platform::InstallKind::LinuxAppImage { .. } => Some(".AppImage"),
+        crate::platform::InstallKind::NotifyOnly => None,
+    }
+}
+
+/// Find and validate the in-app-install assets: the primary artifact (matched
+/// by `suffix` — the NSIS installer on Windows, the AppImage on Linux), its
+/// cosign bundle, and SHA256SUMS. Returns `Err(UpdateCheckFailed)` if any is
+/// missing or the primary asset name is not a bare filename.
+fn select_install_assets(
+    rel: &GhRelease,
+    suffix: &str,
+) -> Result<(ReleaseAsset, ReleaseAsset, ReleaseAsset)> {
     let installer = rel
         .assets
         .iter()
-        .find(|a| a.name.ends_with("-setup.exe") && !a.name.ends_with(".cosign.bundle"))
+        .find(|a| a.name.ends_with(suffix) && !a.name.ends_with(".cosign.bundle"))
         .ok_or_else(|| Error::UpdateCheckFailed {
-            details: "release has no *-setup.exe asset".into(),
+            details: format!("release has no *{suffix} asset"),
         })?;
     // The installer name steers the download path (and the bundle name is
     // derived from it); SHA256SUMS is a constant. Reject anything that is
@@ -271,5 +287,61 @@ mod tests {
             r,
             Err(crate::error::Error::UpdateCheckFailed { .. })
         ));
+    }
+
+    fn sample_release_appimage() -> GhRelease {
+        GhRelease {
+            tag_name: "v0.9.1".into(),
+            html_url: "https://github.com/AntonBabchenko/Lucerna/releases/tag/v0.9.1".into(),
+            assets: vec![
+                GhAsset {
+                    name: "Lucerna_0.9.1_amd64.AppImage".into(),
+                    browser_download_url: "https://github.com/dl/appimage".into(),
+                    size: 50,
+                },
+                GhAsset {
+                    name: "Lucerna_0.9.1_amd64.AppImage.cosign.bundle".into(),
+                    browser_download_url: "https://github.com/dl/appimage-bundle".into(),
+                    size: 3,
+                },
+                GhAsset {
+                    name: "SHA256SUMS".into(),
+                    browser_download_url: "https://github.com/dl/sums".into(),
+                    size: 1,
+                },
+            ],
+        }
+    }
+
+    // Asset selection is pure string matching, so it is exercised directly with
+    // an explicit suffix on every platform (the `build_update_info` paths above
+    // only reach it under the matching cfg).
+    #[test]
+    fn select_install_assets_picks_appimage_and_derives_bundle() {
+        let rel = sample_release_appimage();
+        let (installer, sums, bundle) = select_install_assets(&rel, ".AppImage").unwrap();
+        assert_eq!(installer.name, "Lucerna_0.9.1_amd64.AppImage");
+        assert_eq!(installer.url, "https://github.com/dl/appimage");
+        assert_eq!(bundle.name, "Lucerna_0.9.1_amd64.AppImage.cosign.bundle");
+        assert_eq!(sums.name, "SHA256SUMS");
+    }
+
+    #[test]
+    fn select_install_assets_appimage_missing_errors() {
+        let mut rel = sample_release_appimage();
+        rel.assets
+            .retain(|a| !a.name.ends_with(".AppImage") || a.name.ends_with(".cosign.bundle"));
+        assert!(matches!(
+            select_install_assets(&rel, ".AppImage"),
+            Err(Error::UpdateCheckFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn select_install_assets_setup_exe_excludes_its_bundle() {
+        let (installer, _, bundle) =
+            select_install_assets(&sample_release(), "-setup.exe").unwrap();
+        assert_eq!(installer.name, "Lucerna_0.9.1_x64-setup.exe");
+        assert_eq!(bundle.name, "Lucerna_0.9.1_x64-setup.exe.cosign.bundle");
     }
 }
