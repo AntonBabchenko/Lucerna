@@ -89,21 +89,25 @@ pub enum InstallKind {
 }
 
 /// Determine this run's install mechanism. Pure aside from reading `$APPIMAGE`
-/// + a single `stat` on Linux.
+/// + a single `stat` on Linux. Exactly one cfg arm compiles per target, each
+/// the function's tail expression — no unreachable tail, so no platform gets a
+/// spurious `unreachable_code`/`unused allow` warning.
 pub fn install_kind() -> InstallKind {
     #[cfg(target_os = "windows")]
     {
-        return InstallKind::WindowsInstaller;
+        InstallKind::WindowsInstaller
     }
     #[cfg(target_os = "linux")]
     {
-        if let Some(path) = running_appimage_path() {
-            return InstallKind::LinuxAppImage { path };
+        match running_appimage_path() {
+            Some(path) => InstallKind::LinuxAppImage { path },
+            None => InstallKind::NotifyOnly,
         }
-        return InstallKind::NotifyOnly;
     }
-    #[allow(unreachable_code)]
-    InstallKind::NotifyOnly
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        InstallKind::NotifyOnly
+    }
 }
 
 /// True iff this run can perform an in-app self-update (download + verify +
