@@ -1111,6 +1111,64 @@
           "titleBasic": "Open saves folder",
           "bodyBasic": "Opens the saves folder on your computer, so you can do things by hand: move a world to another instance, or copy it out to put on a server."
         }
+      },
+      "servers": {
+        "create": {
+          "title": "Run your own server",
+          "body": "Spin up a Minecraft server: pick a version and loader, start fresh, or build one from an existing instance. The feature is marked Beta while it settles.",
+          "titleBasic": "Make a server",
+          "bodyBasic": "Create your own Minecraft server here. Choose a version and a mod loader, or build one from an instance you already have."
+        },
+        "list": {
+          "title": "Your servers, at a glance",
+          "body": "Each server you create shows up here. The coloured dot tells you its state without opening it: green for running, red for crashed, amber when a fix is ready. Click a row to manage it.",
+          "titleBasic": "Your servers",
+          "bodyBasic": "Your servers appear in this list. A coloured dot shows whether each one is running, crashed, or stopped. Click a row to open and manage it."
+        },
+        "lanHint": {
+          "title": "Friends on your network",
+          "body": "A server you run is reachable on your local network right away, so anyone on the same Wi-Fi or LAN can join. To open it up over the internet, the Hosting and Connect tabs walk you through it.",
+          "titleBasic": "Play on your network",
+          "bodyBasic": "Anyone on the same home network can join a server you run, with no extra setup. To let friends join over the internet, see the Connect and Hosting tabs inside a server."
+        }
+      },
+      "serverManage": {
+        "headerActions": {
+          "title": "Start, stop, and crash help",
+          "body": "Start, restart, or stop the server from here. If it stops on a crash, a banner appears above the tabs with the likely cause and a one-click fix: accept the EULA, free the port, raise the heap, and more.",
+          "titleBasic": "Start and stop",
+          "bodyBasic": "Use these buttons to start, restart, or stop your server. If it crashes, a help banner appears with the likely cause and a button to fix it."
+        },
+        "console": {
+          "title": "The Console tab",
+          "body": "Console streams the server's live output. Type commands at the bottom, search the log, switch between past sessions, and share a log to mclo.gs when you need help.",
+          "titleBasic": "Console",
+          "bodyBasic": "The Console shows what your server is doing right now. You can type server commands, search the log, and share it to get help."
+        },
+        "mods": {
+          "title": "The Mods tab",
+          "body": "Install server mods from Modrinth or CurseForge, drop in a local .jar, or add datapacks. Client-only mods get quarantined automatically, so a graphics mod can't crash a headless server.",
+          "titleBasic": "Mods",
+          "bodyBasic": "Add mods to your server from Modrinth or CurseForge, or from a file. Mods that only work on the game client are set aside automatically so they don't crash the server."
+        },
+        "connect": {
+          "title": "The Connect tab",
+          "body": "Connect hands you the address friends use to join, for both LAN and the internet. It adds the Windows firewall rule for you and offers an allow-offline toggle that clears the common 'invalid session' block.",
+          "titleBasic": "Connect",
+          "bodyBasic": "Connect gives you the address your friends need to join. It can add the Windows firewall rule for you, and fix the common 'invalid session' error."
+        },
+        "hosting": {
+          "title": "The Hosting tab",
+          "body": "Hosting uploads your server to a rented host over SFTP. The first time you connect, check the host-key fingerprint to be sure you're reaching the right machine. Prefer to move it by hand? Export the whole server as a ZIP.",
+          "titleBasic": "Hosting",
+          "bodyBasic": "Hosting can upload your server to a paid host over a secure connection, or export it as a ZIP file you move yourself."
+        },
+        "toInstance": {
+          "title": "Make a matching client",
+          "body": "Build a client instance that matches this server, with the same version, loader and mods, so you can join your own modded server. Lucerna can add it to your multiplayer list at the same time.",
+          "titleBasic": "Build a client to join",
+          "bodyBasic": "This builds a matching game instance so you can join your own server, with the same version and mods set up for you. It can be added to your multiplayer list too."
+        }
       }
     },
     "instanceConcept": {

@@ -11,7 +11,13 @@
 
 import type { TourStep } from './steps';
 
-export type ContextualTourId = 'manage' | 'logs' | 'modpacks' | 'worlds';
+export type ContextualTourId =
+  | 'manage'
+  | 'logs'
+  | 'modpacks'
+  | 'worlds'
+  | 'servers'
+  | 'serverManage';
 
 const STORAGE_KEY_PREFIX = 'ftl.tour.';
 const STORAGE_KEY_SUFFIX = '.done';
@@ -25,6 +31,8 @@ const TOUR_VERSION: Record<ContextualTourId, string> = {
   logs: 'v3', // bumped 2026-06-15 — header redesign moved Share into the ⋯ menu
   modpacks: 'v1',
   worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
+  servers: 'v1', // added 2026-06-23 — Servers list tour
+  serverManage: 'v1', // added 2026-06-23 — server detail/manage tour
 };
 
 export function storageKey(id: ContextualTourId): string {
@@ -143,11 +151,81 @@ export const WORLDS_STEPS: ReadonlyArray<TourStep> = [
   },
 ];
 
+// Servers list view (ServersView). Fires on first open of the Servers modal,
+// when the list is typically EMPTY — so every step anchors a stable element
+// (Create button, the list wrapper, the always-present LAN hint), never a
+// server row, which may not exist yet.
+export const SERVERS_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.servers.create.title',
+    bodyKey: 'onboarding.contextual.servers.create.body',
+    targetSelector: '[data-tour-ctx="servers-create"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.servers.list.title',
+    bodyKey: 'onboarding.contextual.servers.list.body',
+    targetSelector: '[data-tour-ctx="servers-list"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.servers.lanHint.title',
+    bodyKey: 'onboarding.contextual.servers.lanHint.body',
+    targetSelector: '[data-tour-ctx="servers-lan"]',
+    anchor: 'below',
+  },
+];
+
+// Server detail view (ServerManageView). The 7 sub-tabs render content only
+// while active, so steps anchor the always-present tab BUTTONS (and the header
+// actions), not tab bodies. The crash-diagnosis banner is empty until a crash,
+// so it has no step of its own — it is described in the header-actions step.
+export const SERVER_MANAGE_STEPS: ReadonlyArray<TourStep> = [
+  {
+    titleKey: 'onboarding.contextual.serverManage.headerActions.title',
+    bodyKey: 'onboarding.contextual.serverManage.headerActions.body',
+    targetSelector: '[data-tour-ctx="server-header-actions"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.serverManage.console.title',
+    bodyKey: 'onboarding.contextual.serverManage.console.body',
+    targetSelector: '[data-tour-ctx="server-tab-console"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.serverManage.mods.title',
+    bodyKey: 'onboarding.contextual.serverManage.mods.body',
+    targetSelector: '[data-tour-ctx="server-tab-mods"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.serverManage.connect.title',
+    bodyKey: 'onboarding.contextual.serverManage.connect.body',
+    targetSelector: '[data-tour-ctx="server-tab-connect"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.serverManage.hosting.title',
+    bodyKey: 'onboarding.contextual.serverManage.hosting.body',
+    targetSelector: '[data-tour-ctx="server-tab-hosting"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.serverManage.toInstance.title',
+    bodyKey: 'onboarding.contextual.serverManage.toInstance.body',
+    targetSelector: '[data-tour-ctx="server-to-instance"]',
+    anchor: 'below',
+  },
+];
+
 export const STEPS_BY_ID: Record<ContextualTourId, ReadonlyArray<TourStep>> = {
   manage: MANAGE_STEPS,
   logs: LOGS_STEPS,
   modpacks: MODPACKS_STEPS,
   worlds: WORLDS_STEPS,
+  servers: SERVERS_STEPS,
+  serverManage: SERVER_MANAGE_STEPS,
 };
 
 // Single source for iterating every contextual tour — derived from
@@ -158,7 +236,8 @@ export const ALL_CONTEXTUAL_TOUR_IDS = Object.keys(STEPS_BY_ID) as ContextualTou
 // Clear the "seen" flag for every contextual tour so each re-fires on the
 // next visit to its surface. The Settings "Replay onboarding" action calls
 // this; without it, replay restarts only the main tour and leaves the
-// per-surface tours (Manage / Logs / Modpacks / Worlds) suppressed forever.
+// per-surface tours (Manage / Logs / Modpacks / Worlds / Servers / server
+// detail) suppressed forever.
 export function resetAllContextualTours(): void {
   for (const id of ALL_CONTEXTUAL_TOUR_IDS) {
     try {
