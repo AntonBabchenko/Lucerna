@@ -33,6 +33,8 @@
   import CompatWarningDialog from './CompatWarningDialog.svelte';
   import FileDropzone from './FileDropzone.svelte';
   import { onDestroy, onMount, untrack } from 'svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { ADDONS_STEPS } from '$lib/onboarding/contextual-tours';
 
   type View = 'browse' | 'installed';
 
@@ -414,7 +416,7 @@
   <!-- Content-kind switch: Mods · Resource packs · Shaders. Underline tabs (the
        app-wide TabBar style) so it reads as the primary scope above the
        Browse/Installed sub-tab row, not a clashing boxed segmented control. -->
-  <div class="px-3 pt-1">
+  <div class="px-3 pt-1" data-tour-ctx="addons-kind-switch">
     <TabBar
       tabs={kindOptions.map((o) => ({
         id: o.value,
@@ -433,7 +435,10 @@
 
   <!-- Sub-tab row. Underline style — matches the Modpacks tab's
        Browse/Imported sub-tabs and the top-level tab row. -->
-  <div class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface mt-3">
+  <div
+    class="flex items-center justify-between px-3 border-b border-border-subtle bg-surface mt-3"
+    data-tour-ctx="addons-subtabs"
+  >
     <TabBar
       tabs={[
         { id: 'browse', label: $t('mods.browse.tabBrowse') },
@@ -502,7 +507,7 @@
   {/if}
 
   {#if kind === 'mod'}
-    <div class="px-3 pt-3">
+    <div class="px-3 pt-3" data-tour-ctx="addons-dropzone">
       <FileDropzone
         label={$t('mods.browse.dropzoneLabel')}
         disabled={installDisabled}
@@ -513,7 +518,7 @@
   {/if}
 
   {#if kind === 'resource_pack' || kind === 'shader'}
-    <div class="px-3 pt-3">
+    <div class="px-3 pt-3" data-tour-ctx="addons-dropzone">
       <FileDropzone
         label={kind === 'resource_pack'
           ? $t('addons.dropzoneResourcePack')
@@ -553,6 +558,8 @@
     {/if}
   </div>
 </div>
+
+<ContextualTour id="addons" steps={ADDONS_STEPS} />
 
 {#if mismatchRows.length > 0}
   <CompatWarningDialog

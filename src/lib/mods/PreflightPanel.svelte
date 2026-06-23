@@ -2,6 +2,7 @@
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import type { DepViolation, PreflightReport } from '$lib/ipc/bindings';
 
   let {
@@ -88,6 +89,7 @@
               class="shrink-0 text-xs font-medium px-2 py-1 rounded
               border border-warning-text text-warning-text hover:bg-warning-text/10
               focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+              use:tooltip={{ text: $t('mods.preflight.installTip'), describe: false }}
               onclick={() => onInstallMissing(v)}
             >
               {$t('mods.preflight.install', { dep: v.dep_display_name ?? v.dep_id })}
@@ -112,6 +114,7 @@
                 type="button"
                 class="shrink-0 text-xs underline text-warning-text hover:opacity-80
                 focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                use:tooltip={{ text: $t('mods.preflight.findAlternativeTip'), describe: false }}
                 onclick={() => onFindAlternative(v)}
               >
                 {$t('mods.preflight.findAlternative')}
@@ -122,6 +125,7 @@
                 class="shrink-0 text-xs font-medium px-2 py-1 rounded
                 border border-warning-text text-warning-text hover:bg-warning-text/10
                 focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                use:tooltip={{ text: $t('mods.preflight.updateTip'), describe: false }}
                 onclick={() => onUpdate(v)}
               >
                 {$t('mods.preflight.update')}
@@ -130,6 +134,7 @@
                 type="button"
                 class="shrink-0 text-xs underline text-warning-text hover:opacity-80
                 focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning-text"
+                use:tooltip={{ text: $t('mods.preflight.chooseVersionTip'), describe: false }}
                 onclick={() => onChooseVersion(v)}
               >
                 {$t('mods.preflight.chooseVersion')}
