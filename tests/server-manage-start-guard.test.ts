@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // Heavy children are stubbed so the view mounts in jsdom without their deps.
 vi.mock('$lib/servers/ServerConsole.svelte', () => ({ default: stubComponent() }));
@@ -51,6 +52,9 @@ const noop = () => {};
 
 describe('ServerManageView Start/Restart guard during upload', () => {
   beforeAll(() => locale.set('en'));
+  // Suppress the serverManage contextual tour so its popover never renders over
+  // the view under test.
+  beforeEach(() => markSeen('serverManage'));
 
   it('Start button is disabled when upload is in progress', () => {
     mockUploading = true;

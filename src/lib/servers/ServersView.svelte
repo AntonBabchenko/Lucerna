@@ -16,6 +16,8 @@
   import ServerCreateWizard from './ServerCreateWizard.svelte';
   import ServerManageView from './ServerManageView.svelte';
   import DeleteServerDialog from './DeleteServerDialog.svelte';
+  import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
+  import { SERVERS_STEPS } from '$lib/onboarding/contextual-tours';
 
   let {
     instances,
@@ -108,6 +110,7 @@
     <div class="flex items-center justify-end">
       <button
         type="button"
+        data-tour-ctx="servers-create"
         class="btn-primary btn-sm flex items-center gap-1.5"
         onclick={() => (creating = true)}
       >
@@ -115,93 +118,100 @@
         {$t('servers.create')}
       </button>
     </div>
-    {#if serverState.listLoading && serverState.list.length === 0}
-      <!-- First load: a real spinner, not a misleading "no servers yet". -->
-      <div class="flex justify-center py-8 text-secondary" data-testid="servers-list-loading">
-        <Spinner labelPlacement="below" label={$t('servers.loading')} />
-      </div>
-    {:else if serverState.listError && serverState.list.length === 0}
-      <!-- Fetch failed: distinct error + retry, not the empty state. -->
-      <div
-        class="flex flex-col items-center gap-2 py-8 text-center"
-        data-testid="servers-list-error"
-        role="alert"
-      >
-        <p class="text-sm text-danger">{$t('servers.loadError')}</p>
-        <p class="text-xs text-muted break-all">
-          {formatError(serverState.listError as Parameters<typeof formatError>[0])}
-        </p>
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onclick={() => void serverState.refresh()}
+    <div data-tour-ctx="servers-list">
+      {#if serverState.listLoading && serverState.list.length === 0}
+        <!-- First load: a real spinner, not a misleading "no servers yet". -->
+        <div class="flex justify-center py-8 text-secondary" data-testid="servers-list-loading">
+          <Spinner labelPlacement="below" label={$t('servers.loading')} />
+        </div>
+      {:else if serverState.listError && serverState.list.length === 0}
+        <!-- Fetch failed: distinct error + retry, not the empty state. -->
+        <div
+          class="flex flex-col items-center gap-2 py-8 text-center"
+          data-testid="servers-list-error"
+          role="alert"
         >
-          {$t('servers.retry')}
-        </button>
-      </div>
-    {:else if serverState.list.length === 0}
-      <p class="text-muted text-sm">{$t('servers.empty')}</p>
-    {:else}
-      <!-- One bordered/rounded container holds the whole list; each CardShell
+          <p class="text-sm text-danger">{$t('servers.loadError')}</p>
+          <p class="text-xs text-muted break-all">
+            {formatError(serverState.listError as Parameters<typeof formatError>[0])}
+          </p>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onclick={() => void serverState.refresh()}
+          >
+            {$t('servers.retry')}
+          </button>
+        </div>
+      {:else if serverState.list.length === 0}
+        <p class="text-muted text-sm">{$t('servers.empty')}</p>
+      {:else}
+        <!-- One bordered/rounded container holds the whole list; each CardShell
            row carries its own border-b separator (the canonical row-variant
            container pattern, matching InstalledAssetsView). -->
-      <div class="overflow-hidden rounded-lg border border-border-subtle">
-        {#each serverState.list as s (s.id)}
-          {@const navKind = serverNavStatus(s)}
-          <CardShell variant="row" accent={STATUS_ACCENT[navKind]}>
-            <button
-              type="button"
-              class="flex flex-1 items-center gap-3 text-left"
-              onclick={() => (selected = s.id)}
-            >
-              <!-- Same colour + green saturation pulse / red / amber / neutral as the
+        <div class="overflow-hidden rounded-lg border border-border-subtle">
+          {#each serverState.list as s (s.id)}
+            {@const navKind = serverNavStatus(s)}
+            <CardShell variant="row" accent={STATUS_ACCENT[navKind]}>
+              <button
+                type="button"
+                class="flex flex-1 items-center gap-3 text-left"
+                onclick={() => (selected = s.id)}
+              >
+                <!-- Same colour + green saturation pulse / red / amber / neutral as the
                    sidebar "Servers" icon, with a text alternative so status is never
                    colour-only (DESIGN.md §13). -->
-              <NavStatusIcon
-                name="server"
-                size={20}
-                iconClass={navVisual(navKind).iconClass}
-                statusLabel={statusLabel(s)}
-              />
-              <span class="flex-1">
-                <span class="block font-medium">{s.name}</span>
-                <span class="block text-xs text-muted"
-                  >{s.mc_version} · {displayLoader(s.loader)}{s.created_from_instance
-                    ? ' · ' + s.created_from_instance
-                    : ''}</span
-                >
-              </span>
-              <StatusBadge variant={STATUS_BADGE[navKind]}>
-                {statusText(s)}{s.port ? ' · ' + s.port : ''}
-              </StatusBadge>
-              <Icon name="arrowRight" size={16} />
-            </button>
-            <!-- Wrapper span carries the tooltip so the "why disabled" hint still
+                <NavStatusIcon
+                  name="server"
+                  size={20}
+                  iconClass={navVisual(navKind).iconClass}
+                  statusLabel={statusLabel(s)}
+                />
+                <span class="flex-1">
+                  <span class="block font-medium">{s.name}</span>
+                  <span class="block text-xs text-muted"
+                    >{s.mc_version} · {displayLoader(s.loader)}{s.created_from_instance
+                      ? ' · ' + s.created_from_instance
+                      : ''}</span
+                  >
+                </span>
+                <StatusBadge variant={STATUS_BADGE[navKind]}>
+                  {statusText(s)}{s.port ? ' · ' + s.port : ''}
+                </StatusBadge>
+                <Icon name="arrowRight" size={16} />
+              </button>
+              <!-- Wrapper span carries the tooltip so the "why disabled" hint still
                  shows while the button is disabled (disabled elements swallow
                  pointer events). aria-label stays the accessible name; the tooltip
                  is describe:false so it isn't double-announced. -->
-            <span
-              class="inline-flex shrink-0"
-              use:tooltip={{
-                text: s.running ? $t('servers.delete.runningBlock') : $t('servers.delete.trigger'),
-                describe: false,
-              }}
-            >
-              <button
-                type="button"
-                class="btn-icon btn-icon-sm btn-icon-danger"
-                aria-label={$t('servers.delete.trigger')}
-                disabled={s.running}
-                onclick={() => (pendingDelete = { id: s.id, name: s.name })}
+              <span
+                class="inline-flex shrink-0"
+                use:tooltip={{
+                  text: s.running
+                    ? $t('servers.delete.runningBlock')
+                    : $t('servers.delete.trigger'),
+                  describe: false,
+                }}
               >
-                <Icon name="trash" size={16} />
-              </button>
-            </span>
-          </CardShell>
-        {/each}
-      </div>
-    {/if}
-    <p class="text-xs text-muted border border-dashed border-border-subtle rounded-lg p-3">
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-sm btn-icon-danger"
+                  aria-label={$t('servers.delete.trigger')}
+                  disabled={s.running}
+                  onclick={() => (pendingDelete = { id: s.id, name: s.name })}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              </span>
+            </CardShell>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <p
+      class="text-xs text-muted border border-dashed border-border-subtle rounded-lg p-3"
+      data-tour-ctx="servers-lan"
+    >
       {$t('servers.lanHint')}
     </p>
     {#if deleteError}
@@ -215,4 +225,5 @@
       onConfirm={() => void confirmDelete()}
     />
   {/if}
+  <ContextualTour id="servers" steps={SERVERS_STEPS} />
 {/if}

@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerWithStatus_Serialize } from '$lib/ipc/bindings';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 import ServersView from '$lib/servers/ServersView.svelte';
 
 // vi.mock factories are hoisted above imports — use vi.hoisted so the shared
@@ -69,6 +70,9 @@ function baseProps() {
 
 describe('ServersView delete affordance', () => {
   beforeAll(() => locale.set('en'));
+  // Suppress the servers contextual tour so its popover never renders over the
+  // list under test.
+  beforeEach(() => markSeen('servers'));
 
   it('(a) Delete button is disabled when the server is running', () => {
     mockList[0].running = true;

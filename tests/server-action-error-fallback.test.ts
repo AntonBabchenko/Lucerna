@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locale } from '$lib/i18n';
 import type { ServerDiagnosis } from '$lib/ipc/bindings';
+import { markSeen } from '$lib/onboarding/contextual-tours';
 
 // The inline `actionError` in ServerManageView is the UNCLASSIFIED fallback:
 // when a start failure also produced a rich diagnosis banner for the server,
@@ -67,6 +68,9 @@ const noop = () => {};
 describe('ServerManageView inline action error gate', () => {
   beforeAll(() => locale.set('en'));
   beforeEach(() => {
+    // Suppress the serverManage contextual tour so its popover never renders
+    // over the view under test.
+    markSeen('serverManage');
     for (const k of Object.keys(mockDiagnoses)) delete mockDiagnoses[k];
     serverStart.mockReset();
     diagnose.mockClear();
