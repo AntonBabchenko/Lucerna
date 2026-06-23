@@ -24,7 +24,7 @@ vi.mock('$lib/ipc/bindings', () => ({
 }));
 
 import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
-import { MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+import { MANAGE_STEPS, markSeen } from '$lib/onboarding/contextual-tours';
 import InstanceConceptTooltip from '$lib/onboarding/InstanceConceptTooltip.svelte';
 import { tourState } from '$lib/onboarding/state.svelte';
 import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
@@ -203,7 +203,9 @@ describe('ContextualTour — popover button variants', () => {
   });
 
   it('does not render when tour has already been seen', () => {
-    localStorage.setItem('ftl.tour.manage.v1.done', '1');
+    // Use markSeen (not a hardcoded version key) so the bump from manage v1→v2
+    // can't silently desync this from the real storage key again.
+    markSeen('manage');
     render(ContextualTour, { props: { id: 'manage', steps: MANAGE_STEPS } });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

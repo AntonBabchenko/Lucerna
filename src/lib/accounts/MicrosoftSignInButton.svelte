@@ -29,7 +29,6 @@
 
 <BusyButton
   type="button"
-  data-tour="ms-signin-btn"
   aria-label={$t('accounts.signInLabel')}
   class="ms-signin-btn"
   busy={signingIn}

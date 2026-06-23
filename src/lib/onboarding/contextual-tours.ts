@@ -21,7 +21,7 @@ const STORAGE_KEY_SUFFIX = '.done';
 // old key (without the version suffix or with a lower one) stays in
 // localStorage as harmless cruft.
 const TOUR_VERSION: Record<ContextualTourId, string> = {
-  manage: 'v1',
+  manage: 'v2', // bumped 2026-06-23 — added the Verify/repair step (was an orphan anchor)
   logs: 'v3', // bumped 2026-06-15 — header redesign moved Share into the ⋯ menu
   modpacks: 'v1',
   worlds: 'v2', // bumped 2026-05-26 — collapsed 4 steps into 2, dropped per-action stubs
@@ -64,6 +64,12 @@ export const MANAGE_STEPS: ReadonlyArray<TourStep> = [
     titleKey: 'onboarding.contextual.manage.openFolderDelete.title',
     bodyKey: 'onboarding.contextual.manage.openFolderDelete.body',
     targetSelector: '[data-tour-ctx="manage-actions"]',
+    anchor: 'below',
+  },
+  {
+    titleKey: 'onboarding.contextual.manage.verifyRepair.title',
+    bodyKey: 'onboarding.contextual.manage.verifyRepair.body',
+    targetSelector: '[data-tour-ctx="manage-integrity"]',
     anchor: 'below',
   },
 ];
