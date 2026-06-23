@@ -505,7 +505,11 @@
       "findAlternative": "Find alternative",
       "installedVersion": "Installed {dep} {version}",
       "pickerFits": "fits range",
-      "pickerUnfit": "out of range"
+      "pickerUnfit": "out of range",
+      "installTip": "Installs this missing required mod.",
+      "updateTip": "Updates to the newest version that satisfies this dependency and fits this instance's Minecraft and loader.",
+      "chooseVersionTip": "Pick a specific version by hand, including older ones.",
+      "findAlternativeTip": "Search for a replacement mod when no version fits."
     }
   },
   "addons": {
@@ -1168,6 +1172,26 @@
           "body": "Build a client instance that matches this server, with the same version, loader and mods, so you can join your own modded server. Lucerna can add it to your multiplayer list at the same time.",
           "titleBasic": "Build a client to join",
           "bodyBasic": "This builds a matching game instance so you can join your own server, with the same version and mods set up for you. It can be added to your multiplayer list too."
+        }
+      },
+      "addons": {
+        "kindSwitch": {
+          "title": "Mods, resource packs, shaders",
+          "body": "This row switches what you're adding: mods, resource packs, or shaders. Shaders need a shader loader to run; when you pick Shaders without one, Lucerna points you to the right loader.",
+          "titleBasic": "Pick what to add",
+          "bodyBasic": "Use this row to choose what you're adding: mods, resource packs, or shaders. Shaders also need a shader loader, and Lucerna will point you to one if it's missing."
+        },
+        "subtabs": {
+          "title": "Browse and Installed",
+          "body": "Browse searches Modrinth or CurseForge for new content; Installed lists what's already in this instance. The picker on the right switches the source, and CurseForge needs a free API key (Settings → CurseForge).",
+          "titleBasic": "Find vs manage",
+          "bodyBasic": "Browse finds new content on Modrinth or CurseForge. Installed shows what you already have. The menu on the right switches between the two sites; CurseForge needs a free key you set in Settings."
+        },
+        "dropzone": {
+          "title": "Install from a file",
+          "body": "Already have a .jar or .zip? Drop it here, or click to pick one. Lucerna checks it fits this instance's version and loader before installing.",
+          "titleBasic": "Drag a file in",
+          "bodyBasic": "Got a mod or pack file? Drag it here, or click to choose one. Lucerna checks it works with this instance first."
         }
       }
     },
