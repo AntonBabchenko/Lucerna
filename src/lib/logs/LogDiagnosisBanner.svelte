@@ -96,6 +96,7 @@
   <div
     class="mb-3 rounded-xl border border-warning-text bg-warning-bg p-3"
     data-testid="log-diagnosis-banner"
+    data-tour-ctx="logs-diagnosis"
     role="alert"
   >
     <div class="flex items-start gap-2">
