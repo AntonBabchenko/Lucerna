@@ -41,6 +41,15 @@ ignore = [
   # Unmaintained proc-macro ecosystem crates, transitive via build deps.
   "RUSTSEC-2024-0370", # proc-macro-error
   "RUSTSEC-2024-0436", # paste
+  # crypto-bigint 0.7.5 was YANKED upstream (RustCrypto pre-release churn; 0.7.4
+  # is also yanked, so there is no non-yanked compatible patch). Pulled in via
+  # russh 0.61.2 -> p256/p384/p521/elliptic-curve (0.14 release candidates) ->
+  # crypto-bigint. russh 0.61.2 is the latest release and pins this rc crypto
+  # stack, so we cannot upgrade away from it. Tolerate the yanked status until
+  # upstream ships a non-yanked crypto-bigint or russh updates; re-evaluate on
+  # every russh upgrade. This suppresses ONLY the yanked check for this exact
+  # crate+version — a real advisory against it would still fail CI.
+  { crate = "crypto-bigint@0.7.5", reason = "yanked upstream; no non-yanked compatible version exists; pinned transitively via russh 0.61.2 rc crypto stack" },
 ]
 
 [bans]
