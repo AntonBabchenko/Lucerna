@@ -1,6 +1,8 @@
-//! Download the official installer + cosign bundle + SHA256SUMS,
-//! verify (SHA-256 then cosign), launch the installer, and exit so it
-//! can replace the locked launcher binary. Always user-initiated.
+//! Download the official artifact + cosign bundle + SHA256SUMS, verify
+//! (SHA-256 then cosign), apply, and exit. The apply step is per-mechanism:
+//! Windows launches the NSIS installer so it can replace the locked binary; a
+//! Linux AppImage swaps the running file in place and relaunches. Always
+//! user-initiated.
 
 use crate::error::{Error, Result};
 use crate::update::{verify, UpdateInfo};
@@ -63,14 +65,34 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
 
     let sums = crate::network::get_text(&sha256sums.url, "update").await?;
 
-    // Verify off the async runtime thread: read the (tens-of-MB) installer
+    // Verify off the async runtime thread: read the (tens-of-MB) artifact
     // ONCE and run both layers over the same bytes — no double read, and no
     // TOCTOU between them. SHA-256 first (cheap reject on a corrupt
-    // download), then cosign. `spawn_installer` is reached only if BOTH pass.
+    // download), then cosign. The apply step is reached only if BOTH pass.
     let ip = installer_path.clone();
     let bp = bundle_path.clone();
     let name = installer.name.clone();
     let ver = info.latest.clone();
+
+    // Verification is identical for every mechanism; only the apply differs.
+    // Windows runs the NSIS installer; a Linux AppImage replaces itself in
+    // place and relaunches. `verify_and_launch` guarantees the apply runs only
+    // after BOTH checks pass.
+    let launch: Box<dyn FnOnce(&std::path::Path) -> Result<()> + Send> =
+        match crate::platform::install_kind() {
+            crate::platform::InstallKind::WindowsInstaller => {
+                Box::new(|p: &std::path::Path| crate::process::spawn_installer(p))
+            }
+            crate::platform::InstallKind::LinuxAppImage { path } => {
+                Box::new(move |verified: &std::path::Path| apply_appimage_update(&path, verified))
+            }
+            crate::platform::InstallKind::NotifyOnly => {
+                return Err(Error::UpdateInstallFailed {
+                    details: "in-app install is not supported on this platform".into(),
+                });
+            }
+        };
+
     tokio::task::spawn_blocking(move || -> Result<()> {
         verify_and_launch(
             &ip,
@@ -78,7 +100,7 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
                 verify::verify_sha256(bytes, &name, &sums)?;
                 verify::verify_cosign(bytes, &bp, &ver)
             },
-            crate::process::spawn_installer,
+            launch,
         )
     })
     .await
@@ -90,22 +112,62 @@ pub async fn download_and_install(app: &tauri::AppHandle, info: &UpdateInfo) -> 
     Ok(())
 }
 
-/// Read the installer at `installer_path`, verify it, and only then launch it.
+/// Apply a verified AppImage update: swap the running file at `current` for the
+/// downloaded `new_file`, then relaunch. Split into a pure file swap
+/// (`install_appimage_over`, unit-tested) and the relaunch spawn.
+fn apply_appimage_update(current: &std::path::Path, new_file: &std::path::Path) -> Result<()> {
+    install_appimage_over(current, new_file)?;
+    crate::process::spawn_appimage_relaunch(current)
+}
+
+/// Copy `new_file` over the running AppImage at `current` and mark it
+/// executable. The bytes are staged in `current`'s OWN directory first so the
+/// final `rename` is atomic on a single filesystem — the download scratch dir
+/// may sit on a different mount, where a direct rename would fail (EXDEV). The
+/// staging file is removed if any step fails, so a partial attempt never leaves
+/// a stray `.part` next to the user's AppImage. Pure filesystem work (no
+/// process spawn), so it is unit-testable.
+fn install_appimage_over(current: &std::path::Path, new_file: &std::path::Path) -> Result<()> {
+    let dir = current.parent().ok_or_else(|| Error::UpdateInstallFailed {
+        details: format!("AppImage path has no parent dir: {}", current.display()),
+    })?;
+    let staged = dir.join(".lucerna-update.AppImage.part");
+    let result = (|| -> Result<()> {
+        std::fs::copy(new_file, &staged).map_err(|e| Error::io(staged.display().to_string(), e))?;
+        crate::platform::set_executable(&staged)
+            .map_err(|e| Error::io(staged.display().to_string(), e))?;
+        // rename consumes `staged` on success; on failure it stays for cleanup.
+        std::fs::rename(&staged, current).map_err(|e| Error::io(current.display().to_string(), e))
+    })();
+    if result.is_err() {
+        // Best-effort: a leftover staging file would otherwise sit in the
+        // user's application directory. Ignore the removal error.
+        let _ = std::fs::remove_file(&staged);
+    }
+    result
+}
+
+/// Read the artifact at `artifact_path`, verify it, and only then apply it.
 ///
-/// The security guarantee lives here: `launch` is reached **iff** `verify`
+/// The security guarantee lives here: `apply` is reached **iff** `verify`
 /// returns `Ok`. A read error or a verification failure short-circuits via `?`
-/// before `launch` is ever called, so an unverified binary is never run. Both
-/// steps are taken as closures so the ordering can be tested without real
-/// network I/O, a cosign bundle, or an actual installer process.
+/// before `apply` is ever called, so an unverified artifact is never used.
+///
+/// `apply` receives **the same `artifact_path`** whose bytes were just
+/// verified, so it MUST act on that exact file — run it (Windows installer) or
+/// copy it over the running binary (AppImage). It must not re-download or
+/// substitute a different path, or the integrity check would not cover the
+/// bytes that get applied. Both steps are closures so the ordering can be
+/// tested without real network I/O, a cosign bundle, or a real process.
 fn verify_and_launch(
-    installer_path: &std::path::Path,
+    artifact_path: &std::path::Path,
     verify: impl FnOnce(&[u8]) -> Result<()>,
-    launch: impl FnOnce(&std::path::Path) -> Result<()>,
+    apply: impl FnOnce(&std::path::Path) -> Result<()>,
 ) -> Result<()> {
-    let bytes = std::fs::read(installer_path)
-        .map_err(|e| Error::io(installer_path.display().to_string(), e))?;
+    let bytes = std::fs::read(artifact_path)
+        .map_err(|e| Error::io(artifact_path.display().to_string(), e))?;
     verify(&bytes)?;
-    launch(installer_path)
+    apply(artifact_path)
 }
 
 #[cfg(test)]
@@ -210,4 +272,32 @@ mod tests {
             "launch must NOT run when the installer cannot be read",
         );
     }
+
+    #[test]
+    fn install_appimage_over_replaces_contents_from_another_dir() {
+        // Model the download scratch dir as a SEPARATE temp dir from the
+        // AppImage's own dir, exercising the stage-then-rename (cross-dir) path.
+        let live = tempfile::tempdir().unwrap();
+        let current = live.path().join("Lucerna.AppImage");
+        std::fs::write(&current, b"OLD VERSION").unwrap();
+
+        let scratch = tempfile::tempdir().unwrap();
+        let new_file = scratch.path().join("downloaded.AppImage");
+        std::fs::write(&new_file, b"NEW VERSION").unwrap();
+
+        install_appimage_over(&current, &new_file).expect("swap ok");
+
+        assert_eq!(std::fs::read(&current).unwrap(), b"NEW VERSION");
+        assert!(
+            !live.path().join(".lucerna-update.AppImage.part").exists(),
+            "staging file must be renamed away, not left behind",
+        );
+    }
+
+    // The executable-bit half of install_appimage_over is delegated to
+    // crate::platform::set_executable, which owns the unix exec-bit primitive
+    // and is tested there (set_executable_sets_owner_exec_bit_on_unix).
+    // Asserting the mode here would pull that unix permission trait outside
+    // platform:: and trip the structural_platform_chokepoint guard, so the
+    // exec-bit coverage deliberately lives in the platform module.
 }

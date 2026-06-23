@@ -1380,7 +1380,9 @@
         "error": "Couldn't check: {message}",
         "available": "Version {version} is available.",
         "updateNow": "Update now",
-        "installing": "Installing…"
+        "installing": "Installing…",
+        "openReleasePage": "Open release page",
+        "manualHint": "In-app install isn't available on this platform yet — download the latest version from the release page."
       },
       "onboarding": {
         "title": "Onboarding",

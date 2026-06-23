@@ -70,11 +70,68 @@ pub fn default_launcher_roots() -> Vec<PathBuf> {
     vec![]
 }
 
-/// True iff this platform supports in-app self-update (download + verify +
-/// launch an installer). Windows-only today; Linux is check-and-notify and
-/// macOS lands in a later spec.
+/// How this particular run can replace itself with a newer build. Decided at
+/// runtime, not just by compile target: a Linux build self-updates in-app only
+/// when launched as an AppImage (one user-owned file we can swap in place); a
+/// `.deb`/`.rpm` install lives in root-owned system paths managed by the
+/// package manager, so it stays notify-only. macOS is notify-only for now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallKind {
+    /// Windows: download the NSIS installer, run it, exit so it can replace
+    /// the locked launcher binary.
+    WindowsInstaller,
+    /// Linux AppImage: download the new `.AppImage`, replace this file in
+    /// place, relaunch. `path` is the running AppImage (`$APPIMAGE`).
+    LinuxAppImage { path: PathBuf },
+    /// No in-app install (`.deb`/`.rpm`, macOS, or a non-AppImage run). The
+    /// UI links to the release page instead.
+    NotifyOnly,
+}
+
+/// Determine this run's install mechanism. Pure aside from reading `$APPIMAGE`
+/// + a single `stat` on Linux. Exactly one cfg arm compiles per target, each
+/// the function's tail expression — no unreachable tail, so no platform gets a
+/// spurious `unreachable_code`/`unused allow` warning.
+pub fn install_kind() -> InstallKind {
+    #[cfg(target_os = "windows")]
+    {
+        InstallKind::WindowsInstaller
+    }
+    #[cfg(target_os = "linux")]
+    {
+        match running_appimage_path() {
+            Some(path) => InstallKind::LinuxAppImage { path },
+            None => InstallKind::NotifyOnly,
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        InstallKind::NotifyOnly
+    }
+}
+
+/// True iff this run can perform an in-app self-update (download + verify +
+/// apply). Windows always; Linux only as an AppImage; otherwise notify-only.
 pub fn supports_in_app_install() -> bool {
-    cfg!(target_os = "windows")
+    !matches!(install_kind(), InstallKind::NotifyOnly)
+}
+
+/// The absolute path of the running AppImage, taken from the `APPIMAGE`
+/// environment variable the AppImage runtime exports. `None` when not running
+/// as an AppImage (`.deb`/`.rpm` install, dev build) — the prerequisite for
+/// in-app self-update on Linux.
+#[cfg(target_os = "linux")]
+pub(crate) fn running_appimage_path() -> Option<PathBuf> {
+    appimage_path_from(std::env::var_os("APPIMAGE"))
+}
+
+/// Pure validation of the `APPIMAGE` value: `Some(path)` iff it is an absolute
+/// path to an existing file. Split out so it is testable without mutating the
+/// process environment.
+#[cfg(target_os = "linux")]
+fn appimage_path_from(var: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let p = PathBuf::from(var?);
+    (p.is_absolute() && p.is_file()).then_some(p)
 }
 
 /// Mark `path` executable. No-op on Windows (the `.exe`/`.dll` extensions
@@ -564,5 +621,31 @@ mod tests {
         // Off Windows there is no window-detect yet (deliberate fallback);
         // it must return promptly rather than block the hide-to-tray task.
         wait_for_window_ready(123_456).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn appimage_path_from_accepts_only_absolute_existing_file() {
+        use super::appimage_path_from;
+        // Unset → not running as an AppImage.
+        assert_eq!(appimage_path_from(None), None);
+        // Relative path → rejected (must be absolute).
+        assert_eq!(
+            appimage_path_from(Some("relative/Lucerna.AppImage".into())),
+            None
+        );
+        // Absolute but missing → rejected.
+        assert_eq!(
+            appimage_path_from(Some("/nonexistent/zzz/Lucerna.AppImage".into())),
+            None
+        );
+        // Absolute path to a real file → accepted.
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("Lucerna.AppImage");
+        std::fs::write(&f, b"x").unwrap();
+        assert_eq!(
+            appimage_path_from(Some(f.clone().into_os_string())),
+            Some(f)
+        );
     }
 }
