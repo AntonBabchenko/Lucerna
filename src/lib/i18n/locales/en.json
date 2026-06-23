@@ -978,52 +978,52 @@
     "tour": {
       "welcome": {
         "title": "Welcome to Lucerna",
-        "body": "Lucerna organises Minecraft into instances — self-contained worlds with their own version, loader, mods, configs and saves. Each instance has its own isolated .minecraft directory. Switching instance = switching Minecraft install, without touching the others.",
+        "body": "Lucerna organises Minecraft into instances: self-contained worlds, each with its own version, loader, mods, configs and saves, and its own isolated .minecraft directory. Switch instance and you switch your whole Minecraft install while the others stay put.",
         "titleBasic": "Welcome to Lucerna",
-        "bodyBasic": "Lucerna keeps your Minecraft setups in separate boxes called instances. Each box has its own game version, its own mods, and its own saved worlds. Switch to another box and everything switches with it — your other boxes stay exactly as they were."
+        "bodyBasic": "Lucerna keeps your Minecraft setups in separate boxes called instances. Each box has its own game version, mods, and saved worlds. Switch to another box and everything switches with it. Your other boxes stay just as you left them."
       },
       "signIn": {
         "title": "Choose an account",
-        "body": "You need an account to launch the game. Sign in with Microsoft for your real account, or add an offline account for single-player and LAN. Lucerna stores tokens in your OS keychain; offline accounts can't join servers that require a Microsoft login.",
+        "body": "You need an account to launch the game. Sign in with Microsoft, or add an offline account for single-player and LAN. Lucerna stores tokens in your OS keychain. Offline accounts can't join servers that require a Microsoft login.",
         "titleBasic": "Choose an account",
         "bodyBasic": "You need an account to start the game. Sign in with Microsoft to use your real Minecraft account, or add an offline account to play on your own or with friends on the same network."
       },
       "pickInstance": {
         "title": "Pick an instance",
-        "body": "An instance is a self-contained Minecraft install. Lucerna starts you with one called Default; this dropdown switches the active instance — Play, mods and logs all follow whichever one is selected.",
+        "body": "An instance is a self-contained Minecraft install. Lucerna starts you with one called Default. This dropdown switches the active instance, so Play, mods and logs all point at whichever one you select.",
         "titleBasic": "Pick an instance",
-        "bodyBasic": "An instance is one Minecraft setup of its own. Lucerna gives you one to start, called Default. This menu picks which instance is active — the Play button, your mods, and your logs all follow the one you choose."
+        "bodyBasic": "An instance is one Minecraft setup of its own. Lucerna gives you one to start, called Default. This menu picks which instance is active, so the Play button, your mods, and your logs all follow the one you choose."
       },
       "manageInstances": {
         "title": "Manage your instances",
-        "body": "Manage is where you set an instance's Minecraft version and loader, tweak memory and JVM arguments, and create, rename or delete instances. A new instance starts with no version — pick one here before you can play.",
+        "body": "Manage is where you set an instance's Minecraft version and loader, tweak memory and JVM arguments, and create, rename or delete instances. A new instance starts with no version. Pick one here before you can play.",
         "titleBasic": "Set up your instances",
-        "bodyBasic": "Manage is where you choose an instance's Minecraft version and its mod system, change how much memory it uses, and create, rename, or delete instances. A brand-new instance has no version yet — pick one here before you can play."
+        "bodyBasic": "Manage is where you choose an instance's Minecraft version and its mod system, change how much memory it uses, and create, rename, or delete instances. A brand-new instance has no version yet. Pick one here before you can play."
       },
       "installPlay": {
         "title": "Install, then Play",
-        "body": "First click downloads Minecraft and your chosen loader (one-time per version). Lucerna checks downloaded assets and libraries against Mojang's hashes. The button then switches to Play. While Minecraft is running it becomes Stop.",
+        "body": "The first click downloads Minecraft and your chosen loader, once per version, then verifies every asset and library against Mojang's hashes. After that the button reads Play, and Stop while the game runs.",
         "titleBasic": "Install, then Play",
         "bodyBasic": "The first click downloads Minecraft and the mod system you picked. You only wait for this once per version. After that the button turns into Play. While the game is open it turns into Stop."
       },
       "browseMods": {
         "title": "Browse mods",
-        "body": "Search Modrinth or CurseForge and install mods into the active instance's mods folder. It pulls in dependencies for you. Each file is SHA-verified and listed in the Installed sub-tab.",
+        "body": "Search Modrinth or CurseForge and install mods into the active instance's mods folder. Lucerna resolves their dependencies, SHA-verifies each file, and lists them in the Installed sub-tab.",
         "titleBasic": "Find mods",
-        "bodyBasic": "Search Modrinth or CurseForge — two big mod websites — and add mods straight into the instance you're using. Lucerna checks each file is safe, and you'll see them in the Installed list."
+        "bodyBasic": "Search Modrinth or CurseForge, two big mod websites, and add mods straight into the instance you're using. Lucerna checks each file is safe, and you'll see them in the Installed list."
       },
       "importModpacks": {
         "title": "Import modpacks",
-        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key (Settings → CurseForge). Each import becomes a new instance — your existing instances stay untouched.",
+        "body": "Drop a .mrpack or CurseForge .zip here, or browse modpacks from Modrinth, CurseForge, and FTB. CurseForge and FTB downloads need a free CurseForge API key (Settings → CurseForge). Each import lands in its own new instance and leaves your existing ones alone.",
         "titleBasic": "Add modpacks",
-        "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse modpacks from Modrinth, CurseForge, and FTB. Each pack you add becomes its own new instance — your other instances stay untouched."
+        "bodyBasic": "A modpack is a ready-made bundle of mods. Drop a pack file here, or browse modpacks from Modrinth, CurseForge, and FTB. Each pack you add becomes its own new instance and leaves your other instances alone."
       }
     },
     "contextual": {
       "manage": {
         "yourInstances": {
           "title": "Your instances",
-          "body": "Each row is one instance — click to edit it, or hit \"+ New instance\" below to add one.",
+          "body": "Each row is one instance. Click a row to edit it, or hit \"+ New instance\" below to add one.",
           "titleBasic": "Your instances",
           "bodyBasic": "Each row is one instance. Click a row to change it, or use \"+ New instance\" below to add one."
         },
@@ -1035,9 +1035,15 @@
         },
         "openFolderDelete": {
           "title": "Open folder, delete",
-          "body": "Open folder jumps to the instance's directory on disk. Delete wipes the instance and all its files — confirmation required.",
+          "body": "Open folder jumps to the instance's directory on disk. Delete wipes the instance and all its files, after a confirmation.",
           "titleBasic": "Open folder, delete",
-          "bodyBasic": "Open folder shows the instance's files on your computer. Delete removes the instance and everything in it — it asks you to confirm first."
+          "bodyBasic": "Open folder shows the instance's files on your computer. Delete removes the instance and everything in it, and asks you to confirm first."
+        },
+        "verifyRepair": {
+          "title": "Verify and repair",
+          "body": "Verify checks this instance's files (client jar, libraries, assets, Java runtime, profile) against Mojang's hashes. If anything is missing or corrupt, Repair re-downloads just the bad files.",
+          "titleBasic": "Check the files",
+          "bodyBasic": "Verify checks that this instance's files are all present and intact. If something is missing or broken, Repair downloads just the parts that need fixing."
         }
       },
       "logs": {
@@ -1049,9 +1055,9 @@
         },
         "displayOptions": {
           "title": "Display options",
-          "body": "Wrap lines breaks long classpath / stack traces. Collapse stack hides repetitive Java frames behind a clickable row. The Show checkboxes hide entire severity levels — handy when chasing a single WARN through thousands of INFO lines.",
+          "body": "Wrap lines breaks long classpath and stack-trace output. Collapse stack tucks repetitive Java frames behind a clickable row. The Show checkboxes hide whole severity levels, which helps when you're chasing a single WARN through thousands of INFO lines.",
           "titleBasic": "Display options",
-          "bodyBasic": "Wrap lines keeps long lines from running off the screen. Collapse stack hides repeated technical lines behind a row you can click to open. The Show checkboxes let you hide whole groups of messages — handy when you're hunting for one warning among thousands of lines."
+          "bodyBasic": "Wrap lines keeps long lines from running off the screen. Collapse stack hides repeated technical lines behind a row you can click to open. The Show checkboxes let you hide whole groups of messages, which helps when you're hunting for one warning among thousands of lines."
         },
         "searchNavigation": {
           "title": "Search with navigation",
@@ -1061,9 +1067,9 @@
         },
         "shareMcloGs": {
           "title": "Share to mclo.gs",
-          "body": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the visible log to mclo.gs — the Minecraft community's de-facto paste service — and gives you a sharable link. It strips user paths, session tokens, and LAN IPs before upload so you can drop the link in Discord without leaking personal info.",
+          "body": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the visible log to mclo.gs, the Minecraft community's de-facto paste service, and hands you a shareable link. It strips user paths, session tokens, and LAN IPs first, so you can drop the link in Discord without leaking personal info.",
           "titleBasic": "Share to mclo.gs",
-          "bodyBasic": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the log to mclo.gs, a website made for sharing Minecraft logs, and gives you a link. It removes your private info — like file paths and your network address — before uploading, so the link is safe to share (for example on Discord)."
+          "bodyBasic": "The ⋯ menu holds Share, Open folder, and Clear old. Share uploads the log to mclo.gs, a website made for sharing Minecraft logs, and gives you a link. It removes your private info, like file paths and your network address, before uploading, so the link is safe to share (for example on Discord)."
         },
         "crashStructuredView": {
           "title": "Crash reports get a structured view",
@@ -1075,19 +1081,19 @@
       "modpacks": {
         "browseVsImported": {
           "title": "Browse vs Imported",
-          "body": "Browse searches Modrinth, CurseForge, and FTB. Imported lists packs you've already installed — each is its own instance.",
+          "body": "Browse searches Modrinth, CurseForge, and FTB. Imported lists packs you've already installed, each its own instance.",
           "titleBasic": "Browse vs Imported",
-          "bodyBasic": "Browse searches Modrinth, CurseForge, and FTB for packs. Imported shows the packs you've already added — each one is its own instance."
+          "bodyBasic": "Browse searches Modrinth, CurseForge, and FTB for packs. Imported shows the packs you've already added, each its own instance."
         },
         "dragAndDrop": {
           "title": "Drag and drop",
-          "body": "Drop a .mrpack or CurseForge .zip anywhere on this view to import. Each import becomes a new instance — your existing ones stay untouched.",
+          "body": "Drop a .mrpack or CurseForge .zip anywhere on this view to import. Each import lands in its own new instance and leaves your existing ones alone.",
           "titleBasic": "Drag and drop",
-          "bodyBasic": "Drag a pack file onto this window to add it. Each pack you add becomes its own new instance — your other instances stay untouched."
+          "bodyBasic": "Drag a pack file onto this window to add it. Each pack you add becomes its own new instance and leaves your other ones alone."
         },
         "searchSortFilter": {
           "title": "Search, sort, and filter",
-          "body": "Search and sort are always here. Click \"Filters\" to pick a Minecraft version, mod loader, or source — your choices show as removable chips, and \"Clear all\" resets them.",
+          "body": "Search and sort are always here. Click \"Filters\" to pick a Minecraft version, mod loader, or source. Your choices show as removable chips, and \"Clear all\" resets them.",
           "titleBasic": "Search, sort, and filter",
           "bodyBasic": "Search and sort are always here. Click \"Filters\" to choose a Minecraft version, mod system, or website. Your choices appear as little tags you can remove, and \"Clear all\" resets them."
         }
@@ -1095,15 +1101,15 @@
       "worlds": {
         "worldsWithBackups": {
           "title": "Your worlds, with backups",
-          "body": "Each row is one singleplayer save. The backup-count badge shows how many backups you have for it. Click anywhere on a row to open actions — back up now, view past backups (with Replace or As-copy restore), or delete the world.",
+          "body": "Each row is one singleplayer save, and the badge shows its backup count. Click a row to open its actions: back up now, browse past backups (restore by Replace or As-copy), or delete the world.",
           "titleBasic": "Your worlds and backups",
-          "bodyBasic": "Each row is one single-player world. The backup-count badge shows how many backups it has. Click a row to see what you can do — make a backup now, open past backups (and restore them, either replacing the world or as a copy), or delete the world."
+          "bodyBasic": "Each row is one single-player world, and the badge shows how many backups it has. Click a row to see what you can do: make a backup now, open past backups (and restore them, replacing the world or as a copy), or delete the world."
         },
         "openSavesFolder": {
           "title": "Open saves folder",
-          "body": "Jumps to the saves/ folder in your file manager for manual operations — moving a world to another instance, copying out for a server upload, etc.",
+          "body": "Opens the saves/ folder in your file manager so you can work by hand: move a world to another instance, or copy one out for a server upload.",
           "titleBasic": "Open saves folder",
-          "bodyBasic": "Opens the saves folder on your computer, so you can do things by hand — like moving a world to another instance or copying it out to put on a server."
+          "bodyBasic": "Opens the saves folder on your computer, so you can do things by hand: move a world to another instance, or copy it out to put on a server."
         }
       }
     },
@@ -1111,19 +1117,19 @@
       "triggerAriaLabel": "What is an instance?",
       "triggerTitle": "What is an instance?",
       "closeAriaLabel": "Close tooltip",
-      "body": "Each instance is a self-contained world — its own Minecraft version, loader, mods, configs and saves. Switching instance = switching Minecraft install, without touching the others.",
-      "bodyBasic": "An instance is one Minecraft setup of its own — its own game version, mods, and saved worlds. Switch to another instance and everything switches with it, while the others stay exactly as they were."
+      "body": "Each instance is a self-contained world: its own Minecraft version, loader, mods, configs and saves. Switch instance and you switch your whole Minecraft install while the others stay put.",
+      "bodyBasic": "An instance is one Minecraft setup of its own: its own game version, mods, and saved worlds. Switch to another instance and everything switches with it, while the others stay as they were."
     },
     "modpackInstance": {
       "triggerAriaLabel": "Why does installing a modpack create a new instance?",
       "triggerTitle": "Why a new instance?",
       "closeAriaLabel": "Close tooltip",
-      "body": "Installing a modpack always creates its own new instance — a self-contained folder with that pack's exact mods, configs and saves. It can't be merged into an existing instance: the pack pins specific mod versions that would collide with whatever is already installed there. Keeping each pack isolated means it stays reproducible and you can remove it without breaking your other setups.",
-      "bodyBasic": "Adding a modpack always makes its own new instance — a separate setup with that pack's exact mods and worlds. It can't be mixed into an instance you already have, because the pack needs specific mod versions that would clash with what's already there. Keeping each pack on its own means it keeps working and you can remove it without breaking your other setups."
+      "body": "Installing a modpack always creates its own new instance: a self-contained folder with that pack's exact mods, configs and saves. Lucerna can't merge it into an existing instance, because the pack pins specific mod versions that would collide with what's already there. Isolating each pack keeps it reproducible and lets you remove it without breaking your other setups.",
+      "bodyBasic": "Adding a modpack always makes its own new instance: a separate setup with that pack's exact mods and worlds. It can't be mixed into an instance you already have, because the pack needs specific mod versions that would clash with what's already there. Keeping each pack on its own means it keeps working, and you can remove it without breaking your other setups."
     },
     "chooser": {
       "title": "How much detail would you like?",
-      "body": "Tips and the tour can speak in plain language, or include the technical details. You can change this anytime in Settings → General.",
+      "body": "Show tips and the tour in plain language, or with the technical details. Change this anytime in Settings → General.",
       "basicLabel": "Basic",
       "basicHint": "Simple and clear",
       "advancedLabel": "Advanced",
