@@ -10,6 +10,28 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-06-23
+
+### Added
+- **In-app self-update on Linux (AppImage).** AppImage builds can now update
+  themselves from within the launcher, reusing the same cosign signature
+  verification as the Windows updater.
+- **Expanded onboarding tours.** New contextual tours for the Servers and
+  Add-ons tabs and for log diagnosis, plus main-tour steps covering Quick Play,
+  account discovery, and importing a world.
+
+### Changed
+- **Honest Linux update fallback for `.deb` / `.rpm` installs.** When an
+  in-place update is not possible, the launcher now points to the correct
+  package download instead of implying a silent self-update.
+- Onboarding copy was reworded for clarity, and the Add-ons and pre-flight
+  tooltips were sharpened.
+
+### Fixed
+- Orphaned onboarding tour anchors now attach to the correct UI elements.
+- Corrected the package description shown in Linux software centers.
+- Bumped `crypto-bigint` off a yanked release (0.7.4 to 0.7.5).
+
 ## [0.15.0] — 2026-06-22
 
 ### Added
