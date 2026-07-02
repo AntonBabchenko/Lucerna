@@ -61,6 +61,12 @@
   const isTopmost = () => openStack[openStack.length - 1] === id;
 
   function onWindowKeydown(e: KeyboardEvent) {
+    // A contextual onboarding tour (ContextualTour.svelte) renders its popover
+    // above this modal but is NOT in openStack, so without this guard Escape
+    // would close the host modal out from under the tour. While the tour is up,
+    // its own window handler owns Escape (advance/dismiss the tour); the modal
+    // stays open.
+    if (document.body.hasAttribute('data-ctx-tour-active')) return;
     if (closeOnEscape && e.key === 'Escape' && isTopmost()) {
       onClose();
     }

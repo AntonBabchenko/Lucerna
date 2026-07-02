@@ -68,6 +68,19 @@ export function initTheme(initial: ThemePreference): () => void {
   return () => mq.removeEventListener('change', onChange);
 }
 
+// Serialize the general-settings read-modify-write so two rapid theme picks
+// can't interleave their get→set windows and have the earlier write clobber the
+// later one with a stale `general` snapshot. Each call chains after the prior
+// one, so the read always sees the previous write's result.
+let persistChain: Promise<void> = Promise.resolve();
+
+async function persistThemePref(pref: ThemePreference): Promise<void> {
+  const get = await commands.appSettingsGet();
+  if (get.status !== 'ok') return;
+  const next = { ...get.data.general, theme: pref };
+  await commands.appSettingsSetGeneral(next);
+}
+
 /**
  * Called from the Settings panel when the user picks a new theme.
  * Updates the rune, mirrors to localStorage, flips the html class,
@@ -81,8 +94,8 @@ export async function setThemePref(pref: ThemePreference): Promise<void> {
     /* ignore */
   }
   applyClass(resolve(pref, themeState.systemDark));
-  const get = await commands.appSettingsGet();
-  if (get.status !== 'ok') return;
-  const next = { ...get.data.general, theme: pref };
-  await commands.appSettingsSetGeneral(next);
+  // Run the persist RMW through the shared chain; swallow a prior failure so one
+  // failed write doesn't wedge every subsequent theme change.
+  persistChain = persistChain.catch(() => {}).then(() => persistThemePref(pref));
+  await persistChain;
 }

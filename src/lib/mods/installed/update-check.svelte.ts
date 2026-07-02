@@ -67,6 +67,14 @@ export function createUpdateCheck(
     checking = true;
     error = null;
     const r = await commands.modsCheckUpdates(id);
+    // A rapid instance switch mid-check must not commit this (now stale)
+    // instance's results over the newer live map. The cache write keyed by the
+    // captured id is still correct — it seeds this instance's next open.
+    if (getInstanceId() !== id) {
+      checking = false;
+      if (r.status === 'ok') updateCheckCache.set(id, r.data);
+      return;
+    }
     checking = false;
     if (r.status === 'error') {
       error = formatError(r.error);

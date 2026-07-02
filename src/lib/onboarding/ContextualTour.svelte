@@ -4,11 +4,12 @@
   // localStorage-persists dismissed so it never returns. Mirrors
   // TourOverlay's spotlight + popover chrome; intentionally
   // separate to keep main-tour state isolated.
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import type { TourStep } from './steps';
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
+  import { tourState } from './state.svelte';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
 
@@ -23,8 +24,25 @@
   const MARGIN = 16;
   const PADDING = 6;
 
+  // While a contextual tour is on screen, flag the body so a global CSS rule
+  // dims + blocks the background (keeping the tour's own root interactive via
+  // `data-ctx-tour-root`), and so the host Modal knows to route Escape to the
+  // tour instead of closing itself. Mirrors TourOverlay's `data-tour-active`.
+  $effect(() => {
+    if (active) {
+      document.body.setAttribute('data-ctx-tour-active', 'true');
+    } else {
+      document.body.removeAttribute('data-ctx-tour-active');
+    }
+  });
+
   onMount(() => {
     if (hasSeen(id)) return;
+    // Don't open on top of the main onboarding tour / account hint: two live
+    // spotlights fight over focus and the pointer-events overlay, freezing the
+    // contextual popover. Defer — the surface stays un-toured this visit and
+    // re-fires next time (the "seen" flag is only set on finish).
+    if (tourState.active) return;
     active = true;
     void tick().then(() => updateRect());
     const onResize = () => {
@@ -36,6 +54,10 @@
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onResize, true);
     };
+  });
+
+  onDestroy(() => {
+    document.body.removeAttribute('data-ctx-tour-active');
   });
 
   $effect(() => {
@@ -61,7 +83,16 @@
       return;
     }
     const el = document.querySelector(sel);
-    rect = el ? (el as HTMLElement).getBoundingClientRect() : null;
+    if (!el) {
+      rect = null;
+      return;
+    }
+    const r = (el as HTMLElement).getBoundingClientRect();
+    // A CSS-hidden / zero-size anchor (e.g. the modpacks "filters" step reached
+    // via an Imported deep-link, where the filter bar isn't rendered) yields a
+    // 0×0 rect at 0,0. Drawing a spotlight there paints a tiny corner box, so
+    // treat it as anchorless: centre the popover with no spotlight instead.
+    rect = r.width > 0 && r.height > 0 ? r : null;
   }
 
   function next() {
@@ -161,6 +192,7 @@
     class="fixed z-[101] bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
     style={popoverStyle(rect, step.anchor)}
     data-testid="contextual-tour-popover"
+    data-ctx-tour-root
   >
     <div class="text-xs text-muted mb-1">
       {$t('onboarding.controls.stepOf', { current: currentStep + 1, total: steps.length })}

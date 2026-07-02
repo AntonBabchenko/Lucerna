@@ -39,9 +39,13 @@
       worlds = [];
       return;
     }
+    // Capture the instance this load is for; a rapid instance switch mid-fetch
+    // must not commit the previous instance's worlds over the newer selection.
+    const reqId = instanceId;
     loading = true;
     listError = null;
-    const r = await commands.listWorlds(instanceId);
+    const r = await commands.listWorlds(reqId);
+    if (instanceId !== reqId) return;
     loading = false;
     if (r.status === 'ok') {
       worlds = r.data;

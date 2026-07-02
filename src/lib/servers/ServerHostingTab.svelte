@@ -8,6 +8,7 @@
   import type { UploadConfig, UploadAuthMethod, UploadPreflight } from '$lib/ipc/bindings';
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { Icon } from '$lib/ui/icons';
+  import { tooltip } from '$lib/ui/tooltip';
   import { formatSize } from '$lib/format/size';
   import { formatLastUpload, preflightLevel } from '$lib/servers/upload-summary';
   import {
@@ -174,11 +175,19 @@
       : '',
   );
 
+  // Shared label for the password reveal toggle (aria-label + tooltip).
+  const passwordToggleLabel = $derived(
+    passwordRevealed ? $t('servers.hosting.hidePassword') : $t('servers.hosting.revealPassword'),
+  );
+
   // ── validation (#25) ─────────────────────────────────────────────────────────
   const hostValid = $derived(host.trim().length > 0);
   const userValid = $derived(user.trim().length > 0);
   const keyValid = $derived(authMethod !== 'key' || privateKeyPath.trim().length > 0);
-  const formValid = $derived(hostValid && userValid && keyValid);
+  // Port must be a whole number in the TCP range. A cleared field parses to NaN
+  // (Number.isInteger is false → invalid), so Save is blocked until it's fixed.
+  const portValid = $derived(Number.isInteger(port) && port >= 1 && port <= 65535);
+  const formValid = $derived(hostValid && userValid && keyValid && portValid);
 
   // When savePassword is on, persist the typed password to the keyring on Save.
   // When off, the password stays transient (sent only for this upload, never stored).
@@ -391,9 +400,11 @@
         <input
           id="hosting-port"
           class="h-8 w-20 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"
+          class:border-danger={!portValid}
           type="number"
           min={1}
           max={65535}
+          aria-invalid={!portValid}
           bind:value={port}
         />
       </div>
@@ -466,11 +477,10 @@
         />
         <button
           type="button"
-          class="btn-icon-sm absolute right-1"
+          class="btn-icon btn-icon-sm absolute right-1"
           aria-pressed={passwordRevealed}
-          aria-label={passwordRevealed
-            ? $t('servers.hosting.hidePassword')
-            : $t('servers.hosting.revealPassword')}
+          aria-label={passwordToggleLabel}
+          use:tooltip={passwordToggleLabel}
           onclick={() => (passwordRevealed = !passwordRevealed)}
         >
           <Icon name={passwordRevealed ? 'eyeOff' : 'eye'} size={16} />

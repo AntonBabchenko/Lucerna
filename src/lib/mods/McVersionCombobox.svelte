@@ -37,6 +37,10 @@
   // + ModpackBrowseView's filters share the same view tree in some
   // layouts).
   const listboxId = `mc-combobox-list-${crypto.randomUUID()}`;
+  // Stable per-option ids so `aria-activedescendant` on the input can point at
+  // the arrow-key-highlighted option — without it, keyboard navigation is
+  // invisible to a screen reader (the input's value never changes on ArrowUp/Down).
+  const optionId = (i: number) => `${listboxId}-opt-${i}`;
 
   // Snapshots / pre-releases would bury the stable list. The Manage
   // modal already excludes them from the version picker — same call
@@ -126,6 +130,9 @@
     aria-autocomplete="list"
     aria-controls={listboxId}
     aria-expanded={open}
+    aria-activedescendant={open && activeIndex >= 0 && activeIndex < filtered.length
+      ? optionId(activeIndex)
+      : undefined}
   />
   {#if open}
     <div
@@ -144,6 +151,7 @@
       {#each filtered as id, i (id)}
         <button
           type="button"
+          id={optionId(i)}
           role="option"
           aria-selected={activeIndex === i}
           class="block w-full text-left px-3 py-1 text-sm hover:bg-subtle"

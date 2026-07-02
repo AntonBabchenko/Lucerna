@@ -119,17 +119,29 @@ async function processNext(): Promise<void> {
   queue = queue.slice(1);
   running = { op, progress: initialProgress(op) };
 
-  if (op.kind === 'import') {
-    await runImportOp(op);
-  } else if (op.kind === 'launcher-import') {
-    await runLauncherImportOp(op);
-  } else {
-    await runIntegrity(op);
+  // A thrown IPC error (bridge teardown, an op helper's own throw) must never
+  // leave `running` set — that would permanently stall the queue. The finally
+  // always clears `running` and kicks the next op; the op helpers surface their
+  // own domain errors, so a throw reaching here is unexpected and only logged.
+  try {
+    if (op.kind === 'import') {
+      await runImportOp(op);
+    } else if (op.kind === 'launcher-import') {
+      await runLauncherImportOp(op);
+    } else {
+      await runIntegrity(op);
+    }
+  } catch (e) {
+    // Last-resort diagnostic for an unexpected throw the op helpers didn't
+    // already surface; the finally below still drains the queue so one bad op
+    // can't wedge it.
+    // biome-ignore lint/suspicious/noConsole: unexpected-throw diagnostic
+    console.error('[op-queue] op threw unexpectedly:', op.kind, e);
+  } finally {
+    completionTick += 1;
+    running = null;
+    void processNext();
   }
-
-  completionTick += 1;
-  running = null;
-  void processNext();
 }
 
 async function runIntegrity(op: Extract<QueuedOp, { kind: IntegrityKind }>): Promise<void> {

@@ -11,6 +11,8 @@
   import McVersionCombobox from '$lib/mods/McVersionCombobox.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import Select from '$lib/ui/Select.svelte';
+  import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
   import { Icon, type IconName } from '$lib/ui/icons';
 
   // Two-step wizard:
@@ -234,10 +236,7 @@
 
     <div class="flex-1 overflow-y-auto px-5 py-4">
       {#if discovering}
-        <div class="flex flex-col items-center justify-center gap-3 py-12 text-muted">
-          <Icon name="refresh" size={26} class="animate-spin" />
-          <span class="text-sm">{$t('instances.import.discovering')}</span>
-        </div>
+        <LoadingPanel label={$t('instances.import.discovering')} />
       {:else if discoverError}
         <div
           class="flex items-start gap-2 rounded-md bg-danger-bg px-3 py-2 text-sm text-danger"
@@ -343,6 +342,7 @@
         type="button"
         class="btn-icon"
         aria-label={$t('instances.import.back')}
+        use:tooltip={$t('instances.import.back')}
         onclick={() => (step = 'discover')}
         data-testid="back-btn"
       >

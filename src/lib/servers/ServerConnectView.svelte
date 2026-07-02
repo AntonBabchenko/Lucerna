@@ -165,7 +165,7 @@
 
             <details class="text-xs">
               <summary
-                class="inline-flex items-center cursor-pointer text-muted hover:text-foreground"
+                class="inline-flex items-center cursor-pointer text-muted hover:text-primary"
               >
                 <span class="disclosure-caret mr-1"><Icon name="caret" size={14} /></span>
                 {$t('servers.connect.firewall.manual')}

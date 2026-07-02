@@ -29,16 +29,30 @@ function focusableDescendants(node: HTMLElement): HTMLElement[] {
   );
 }
 
+// A contextual onboarding tour (ContextualTour.svelte) renders its popover
+// above the trapped panel and runs its own Tab-trap. While it is up, this
+// modal trap must yield: it must neither pull initial focus back off the tour
+// popover nor wrap Tab within the panel, or keyboard users get locked out of
+// the tour. Gated on the body flag the tour sets while active.
+function ctxTourActive(): boolean {
+  return typeof document !== 'undefined' && document.body.hasAttribute('data-ctx-tour-active');
+}
+
 export function trapFocus(node: HTMLElement) {
   const restoreTo = document.activeElement as HTMLElement | null;
 
   function focusInitial() {
+    // If a contextual tour is already up when this panel mounts, leave focus
+    // where the tour placed it rather than yanking it into the panel.
+    if (ctxTourActive() && !node.contains(document.activeElement)) return;
     const preferred = node.querySelector<HTMLElement>('[data-autofocus]');
     (preferred ?? focusableDescendants(node)[0] ?? node).focus();
   }
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Tab') return;
+    // Let the active contextual tour own Tab while it is on screen.
+    if (ctxTourActive()) return;
     const items = focusableDescendants(node);
     const active = document.activeElement as HTMLElement | null;
 

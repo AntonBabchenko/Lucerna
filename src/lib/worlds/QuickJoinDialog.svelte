@@ -42,20 +42,22 @@
   let address = $state('');
   let touched = $state(false);
   let addOpen = $state(false);
-  // Index awaiting delete confirmation, or null.
-  let confirmingIndex = $state<number | null>(null);
-  // Index whose address was just copied (drives the transient ✓ feedback), or null.
-  let copiedIndex = $state<number | null>(null);
+  // Address awaiting delete confirmation, or null. Keyed by address (not list
+  // index): after a delete the list shifts, so an index-keyed confirm would land
+  // on whichever server slid into the freed slot and render *it* in confirm mode.
+  let confirmingAddress = $state<string | null>(null);
+  // Address just copied (drives the transient ✓ feedback), or null.
+  let copiedAddress = $state<string | null>(null);
 
   const COPIED_FEEDBACK_MS = 1200;
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function copyAddress(index: number, address: string) {
+  function copyAddress(address: string) {
     void navigator.clipboard.writeText(address);
-    copiedIndex = index;
+    copiedAddress = address;
     clearTimeout(copyTimer);
     copyTimer = setTimeout(() => {
-      copiedIndex = null;
+      copiedAddress = null;
     }, COPIED_FEEDBACK_MS);
   }
 
@@ -73,8 +75,8 @@
       name = '';
       address = '';
       touched = false;
-      confirmingIndex = null;
-      copiedIndex = null;
+      confirmingAddress = null;
+      copiedAddress = null;
       addOpen = untrack(() => savedServers.length === 0);
     }
   });
@@ -116,11 +118,11 @@
       <!-- Cap height + scroll so a long list stays inside the modal instead of
            overflowing the viewport. -->
       <ul class="flex flex-col gap-2 mb-3 max-h-72 overflow-y-auto pr-1">
-        {#each savedServers as server, i (i)}
+        {#each savedServers as server, i (server.address)}
           <li
-            class="flex items-center gap-2 bg-surface-subtle border border-border-subtle rounded px-3 py-2"
+            class="flex items-center gap-2 bg-subtle border border-border-subtle rounded px-3 py-2"
           >
-            {#if confirmingIndex === i}
+            {#if confirmingAddress === server.address}
               <span class="flex-1 text-xs text-danger min-w-0">
                 {$t('quickJoin.deleteConfirm', { name: server.name })}
               </span>
@@ -128,7 +130,7 @@
                 type="button"
                 class="btn-secondary btn-sm"
                 disabled={busy}
-                onclick={() => (confirmingIndex = null)}
+                onclick={() => (confirmingAddress = null)}
               >
                 {$t('quickJoin.deleteCancel')}
               </button>
@@ -136,7 +138,12 @@
                 type="button"
                 class="btn-danger btn-sm"
                 disabled={busy}
-                onclick={() => onDelete(i, server.address)}
+                onclick={() => {
+                  // Reset the confirm flag before the list mutates, so the freed
+                  // slot's new occupant never inherits the confirming state.
+                  confirmingAddress = null;
+                  onDelete(i, server.address);
+                }}
               >
                 {$t('quickJoin.deleteConfirmAction')}
               </button>
@@ -147,13 +154,15 @@
                 type="button"
                 class="flex-1 min-w-0 text-left cursor-pointer rounded transition-opacity hover:opacity-80"
                 aria-label={$t('quickJoin.copyAddress')}
-                use:tooltip={$t(copiedIndex === i ? 'quickJoin.copied' : 'quickJoin.copyAddress')}
-                onclick={() => copyAddress(i, server.address)}
+                use:tooltip={$t(
+                  copiedAddress === server.address ? 'quickJoin.copied' : 'quickJoin.copyAddress',
+                )}
+                onclick={() => copyAddress(server.address)}
               >
                 <p class="text-sm font-medium text-primary truncate">{server.name}</p>
                 <p class="text-xs text-secondary truncate flex items-center gap-1">
                   <span class="truncate">{server.address}</span>
-                  {#if copiedIndex === i}<Icon name="success" size={12} />{/if}
+                  {#if copiedAddress === server.address}<Icon name="success" size={12} />{/if}
                 </p>
               </button>
               <button
@@ -172,7 +181,7 @@
                 aria-label={$t('quickJoin.delete')}
                 use:tooltip={$t('quickJoin.delete')}
                 disabled={busy}
-                onclick={() => (confirmingIndex = i)}
+                onclick={() => (confirmingAddress = server.address)}
               >
                 <Icon name="trash" size={15} />
               </button>

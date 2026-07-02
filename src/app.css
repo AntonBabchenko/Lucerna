@@ -12,7 +12,11 @@
   --text-primary: 23 23 23; /* neutral-900 */
   --text-secondary: 64 64 64; /* neutral-700 */
   --text-muted: 115 115 115; /* neutral-500 */
-  --text-placeholder: 163 163 163; /* neutral-400 */
+  /* Was neutral-400 (163) — that is ~2.5:1 on white and fails WCAG AA for the
+     informative hints / axis labels that also reach for this token. Bumped to
+     neutral-500 (115 = ~4.6:1) so those meet AA. Real input placeholders are
+     styled from the same token; a *stronger* contrast placeholder is fine. */
+  --text-placeholder: 115 115 115; /* neutral-500 */
   /* Borders */
   --border-subtle: 229 229 229; /* neutral-200 */
   --border-emphasis: 212 212 212; /* neutral-300 */
@@ -51,7 +55,10 @@
   --text-primary: 245 245 245;
   --text-secondary: 212 212 212;
   --text-muted: 163 163 163;
-  --text-placeholder: 115 115 115;
+  /* Was neutral-700 (115) — too dark against the neutral-800/900 surfaces for
+     the informative hints that share this token (fails AA). Bumped to
+     neutral-400 (163 = comfortably >4.5:1 on our dark surfaces). */
+  --text-placeholder: 163 163 163; /* neutral-400 */
   /* Borders — bumped a tier to stay visible against lighter surfaces */
   --border-subtle: 64 64 64; /* neutral-700 — was 38 38 38 */
   --border-emphasis: 115 115 115; /* neutral-500 — was 64 64 64 */
@@ -284,6 +291,18 @@ body[data-tour-active] {
   pointer-events: none;
 }
 body[data-tour-active] .tour-overlay {
+  pointer-events: auto;
+}
+
+/* Same pattern for the onboarding *contextual* tour (ContextualTour.svelte sets
+   `data-ctx-tour-active` on <body> and marks its popover `data-ctx-tour-root`).
+   Disable interaction with the underlying UI while it is open, re-enabling it on
+   the tour's own root so its buttons stay clickable. Same inheritance caveat as
+   above applies — disable on <body>, opt the root back in. */
+body[data-ctx-tour-active] {
+  pointer-events: none;
+}
+body[data-ctx-tour-active] [data-ctx-tour-root] {
   pointer-events: auto;
 }
 
