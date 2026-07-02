@@ -151,7 +151,7 @@ Beta builds for other platforms are published to the same Release:
 Prerequisites:
 
 - Rust toolchain (stable). `rustup install stable`.
-- Node 20+ and pnpm 11+. `corepack enable && corepack prepare pnpm@latest --activate`.
+- Node 24 (CI builds and tests on Node 24) and pnpm 11+. `corepack enable && corepack prepare pnpm@latest --activate`.
 - Windows + the Microsoft C++ Build Tools (`Desktop development with C++`).
 - A WebView2 runtime (preinstalled on Windows 11).
 

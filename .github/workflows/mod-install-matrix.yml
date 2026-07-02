@@ -20,6 +20,12 @@ on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
 
+# Least-privilege default: this workflow only checks out and runs a test, then
+# uploads a workflow artifact (upload-artifact needs no repo write scope). A
+# read-only token is sufficient — it never writes to the repo or publishes.
+permissions:
+  contents: read
+
 jobs:
   matrix:
     runs-on: windows-latest

@@ -14,9 +14,12 @@ on:
   push:
     tags: ["v*"]
 
+# Least-privilege default: the matrix `build` job only checks out the repo and
+# uploads workflow artifacts (no repo write needed), so the workflow default is
+# read-only. The write scopes are granted per-job on `publish` — the only job
+# that creates the Release and cosign-signs via sigstore OIDC.
 permissions:
-  contents: write   # create the Release and upload assets
-  id-token: write   # cosign keyless signing via sigstore OIDC
+  contents: read
 
 jobs:
   build:
@@ -170,6 +173,9 @@ jobs:
     name: sign + publish
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the Release and upload assets
+      id-token: write   # cosign keyless signing via sigstore OIDC
     env:
       TAG: ${{ github.ref_name }}
     steps:
