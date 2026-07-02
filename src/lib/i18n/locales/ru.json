@@ -15,7 +15,19 @@
     "installCount": "Установить выбранное: {count}",
     "switchToVersion": "Переключиться на эту версию",
     "installed": "Установлено",
-    "restricted": "Ограничено — откройте страницу для загрузки"
+    "restricted": "Ограничено — откройте страницу для загрузки",
+    "fileFilter": {
+      "modrinthModpack": "Сборка Modrinth",
+      "curseforgeModpack": "Сборка CurseForge",
+      "modpack": "Сборка",
+      "modJar": "Файл мода (jar)",
+      "addonZip": "Дополнение (zip)",
+      "datapack": "Набор данных",
+      "zip": "Zip",
+      "serverZip": "Zip сервера",
+      "mod": "Мод",
+      "worldZip": "Zip мира"
+    }
   },
   "pagination": {
     "first": "Первая",

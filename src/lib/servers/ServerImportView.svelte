@@ -123,7 +123,7 @@
   async function pickZip(): Promise<void> {
     const picked = await openFile({
       multiple: false,
-      filters: [{ name: 'Server zip', extensions: ['zip'] }],
+      filters: [{ name: $t('common.fileFilter.serverZip'), extensions: ['zip'] }],
     });
     if (typeof picked === 'string') await doInspect(picked);
   }
@@ -235,7 +235,6 @@
       <label for="import-name" class="text-sm font-medium">{$t('servers.wizard.name')}</label>
       <input
         id="import-name"
-        aria-label="Name"
         type="text"
         maxlength="32"
         class="h-8 rounded border border-border-emphasis bg-surface px-3 text-sm text-primary"

@@ -239,7 +239,7 @@ describe('ModBrowseView — content kind', () => {
     await showInstalledOn();
 
     // The installed card shows Uninstall and must NOT show Install.
-    expect(await screen.findByRole('button', { name: /^uninstall$/i })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^remove$/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^install$/i })).toBeNull();
   });
 
@@ -265,7 +265,7 @@ describe('ModBrowseView — content kind', () => {
     await showInstalledOn();
 
     // Wait for the installed card to render, then assert no enable/disable toggle.
-    await screen.findByRole('button', { name: /^uninstall$/i });
+    await screen.findByRole('button', { name: /^remove$/i });
     expect(screen.queryByRole('button', { name: /^disable$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^enable$/i })).toBeNull();
   });
@@ -293,7 +293,7 @@ describe('ModBrowseView — content kind', () => {
     });
     await showInstalledOn();
 
-    const uninstallBtn = await screen.findByRole('button', { name: /^uninstall$/i });
+    const uninstallBtn = await screen.findByRole('button', { name: /^remove$/i });
     await fireEvent.click(uninstallBtn);
     for (let i = 0; i < 4; i++) await tick();
 
@@ -326,7 +326,7 @@ describe('ModBrowseView — content kind', () => {
     });
 
     expect(await screen.findByRole('button', { name: /^install$/i })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /^uninstall$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^remove$/i })).toBeNull();
   });
 
   // ── Detail modal loader-propagation ──────────────────────────────────────

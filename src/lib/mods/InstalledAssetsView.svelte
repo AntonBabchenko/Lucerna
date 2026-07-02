@@ -252,13 +252,13 @@
   {/if}
 
   {#if instanceId === null}
-    <div class="text-placeholder text-sm py-8 text-center">
+    <div class="text-muted text-sm py-6 text-center">
       {$t('addons.installed.pickInstance')}
     </div>
   {:else if loading && assets.length === 0}
     <LoadingPanel label={$t('addons.installed.loading')} size="md" />
   {:else if assets.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">{$t('addons.installed.empty')}</div>
+    <div class="text-muted text-sm py-6 text-center">{$t('addons.installed.empty')}</div>
   {:else}
     <div class="border border-border-subtle rounded-lg overflow-hidden">
       {#each assets as asset (asset.filename)}

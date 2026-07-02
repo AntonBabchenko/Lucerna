@@ -78,8 +78,8 @@
       defaultPath: defaultExportFilename(name, version, format),
       filters: [
         format === 'modrinth'
-          ? { name: 'Modrinth modpack', extensions: ['mrpack'] }
-          : { name: 'CurseForge modpack', extensions: ['zip'] },
+          ? { name: $t('common.fileFilter.modrinthModpack'), extensions: ['mrpack'] }
+          : { name: $t('common.fileFilter.curseforgeModpack'), extensions: ['zip'] },
       ],
     });
     if (!dest) return;

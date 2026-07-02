@@ -359,7 +359,7 @@
     const serverName = existing?.name ?? 'server';
     const dest = await save({
       defaultPath: `${serverName}.zip`,
-      filters: [{ name: 'Zip', extensions: ['zip'] }],
+      filters: [{ name: $t('common.fileFilter.zip'), extensions: ['zip'] }],
     });
     if (!dest) return;
 

@@ -122,7 +122,10 @@
     if (!instanceId) return;
     const picked =
       source === 'zip'
-        ? await openFile({ multiple: false, filters: [{ name: 'World zip', extensions: ['zip'] }] })
+        ? await openFile({
+            multiple: false,
+            filters: [{ name: $t('common.fileFilter.worldZip'), extensions: ['zip'] }],
+          })
         : await openFile({ directory: true });
     if (typeof picked === 'string') await importPaths([picked]);
   }

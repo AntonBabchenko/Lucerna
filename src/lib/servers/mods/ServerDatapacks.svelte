@@ -43,7 +43,7 @@
     actionError = null;
     const picked = await openFile({
       multiple: false,
-      filters: [{ name: 'Datapack', extensions: ['zip'] }],
+      filters: [{ name: $t('common.fileFilter.datapack'), extensions: ['zip'] }],
     });
     if (typeof picked !== 'string') return;
     busyAdd = true;

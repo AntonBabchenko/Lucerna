@@ -142,7 +142,7 @@ describe('InstalledModsView', () => {
       props: { instanceId: 'i', mcVersion: '1.20.1', loader: 'fabric' },
     });
     await new Promise((r) => setTimeout(r, 0));
-    const buttons = screen.getAllByRole('button', { name: 'Uninstall' });
+    const buttons = screen.getAllByRole('button', { name: 'Remove' });
     const firstButton = buttons[0];
     if (!firstButton) throw new Error('expected at least one Uninstall button');
     await fireEvent.click(firstButton);

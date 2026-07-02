@@ -109,7 +109,7 @@
   async function importFromFile() {
     const r = await openFile({
       multiple: false,
-      filters: [{ name: 'Modpack', extensions: ['mrpack', 'zip'] }],
+      filters: [{ name: $t('common.fileFilter.modpack'), extensions: ['mrpack', 'zip'] }],
     });
     if (typeof r === 'string') {
       resetHints();

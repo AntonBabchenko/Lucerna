@@ -287,7 +287,7 @@
     if (installDisabled) return;
     const r = await openFile({
       multiple: true,
-      filters: [{ name: 'Mod jar', extensions: ['jar'] }],
+      filters: [{ name: get(t)('common.fileFilter.modJar'), extensions: ['jar'] }],
     });
     if (Array.isArray(r) && r.length > 0) await onJarsPicked(r);
   }
@@ -296,7 +296,7 @@
     if (assetInstallDisabled) return;
     const r = await openFile({
       multiple: true,
-      filters: [{ name: 'Add-on zip', extensions: ['zip'] }],
+      filters: [{ name: get(t)('common.fileFilter.addonZip'), extensions: ['zip'] }],
     });
     if (Array.isArray(r) && r.length > 0) await installAssetsFromFiles(r);
   }
