@@ -127,8 +127,15 @@
   let installError = $state<string | null>(null);
   let running = $state<{ pid: number; version_id: string } | null>(null);
   let exited = $state<{ code: number; user_requested: boolean; log_path: string } | null>(null);
+  // Tauri event unlisteners, captured so the listeners are torn down on unmount
+  // rather than leaking across the page's lifetime. (This is a long-lived
+  // single-page shell, but the listeners still need explicit cleanup — an
+  // unmounted-then-remounted page would otherwise double-subscribe.)
   let spawnUnlisten: (() => void) | null = null;
   let exitUnlisten: (() => void) | null = null;
+  let modInstalledUnlisten: (() => void) | null = null;
+  let modUninstalledUnlisten: (() => void) | null = null;
+  let modToggleUnlisten: (() => void) | null = null;
 
   let quickPlaySupported = $state(false);
   let quickJoinOpen = $state(false);
@@ -345,20 +352,32 @@
     // Mod-install events refresh the Overview stats so the user can
     // see the Total / Enabled / Disabled numbers tick up after install
     // from the Mod browser without bouncing back through this view.
-    events.modInstalled.listen(() => {
-      void stats.refreshInstalledStats(activeInstance?.id ?? null);
-      void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
-      void stats.refreshPackStatus(activeInstance?.id ?? null);
-    });
-    events.modUninstalled.listen(() => {
-      void stats.refreshInstalledStats(activeInstance?.id ?? null);
-      void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
-      void stats.refreshPackStatus(activeInstance?.id ?? null);
-    });
-    events.modToggle.listen(() => {
-      void stats.refreshInstalledStats(activeInstance?.id ?? null);
-      void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
-    });
+    events.modInstalled
+      .listen(() => {
+        void stats.refreshInstalledStats(activeInstance?.id ?? null);
+        void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+        void stats.refreshPackStatus(activeInstance?.id ?? null);
+      })
+      .then((u) => {
+        modInstalledUnlisten = u;
+      });
+    events.modUninstalled
+      .listen(() => {
+        void stats.refreshInstalledStats(activeInstance?.id ?? null);
+        void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+        void stats.refreshPackStatus(activeInstance?.id ?? null);
+      })
+      .then((u) => {
+        modUninstalledUnlisten = u;
+      });
+    events.modToggle
+      .listen(() => {
+        void stats.refreshInstalledStats(activeInstance?.id ?? null);
+        void stats.refreshIncompatible(activeInstance?.id ?? null, instances);
+      })
+      .then((u) => {
+        modToggleUnlisten = u;
+      });
 
     events.processExited
       .listen(async (event) => {
@@ -442,6 +461,17 @@
   });
 
   onDestroy(() => mcv.dispose());
+
+  // Tear down every Tauri event listener registered in onMount. Without this the
+  // stored unlisteners were never called and the mod-event listeners were never
+  // even captured, so they leaked on unmount.
+  onDestroy(() => {
+    spawnUnlisten?.();
+    exitUnlisten?.();
+    modInstalledUnlisten?.();
+    modUninstalledUnlisten?.();
+    modToggleUnlisten?.();
+  });
 
   async function onSelectAccount(id: string) {
     const result = await commands.setActiveAccount(id);

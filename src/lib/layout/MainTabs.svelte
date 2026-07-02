@@ -141,6 +141,8 @@
       bind:this={tabEls[0]}
       type="button"
       role="tab"
+      id="maintab-overview"
+      aria-controls="maintabpanel"
       aria-selected={active === 'overview'}
       tabindex={active === 'overview' ? 0 : -1}
       class="px-3 py-2 text-base border-b-2 -mb-px"
@@ -157,6 +159,8 @@
       bind:this={tabEls[1]}
       type="button"
       role="tab"
+      id="maintab-mod_browser"
+      aria-controls="maintabpanel"
       data-tour="tab-mods"
       aria-selected={active === 'mod_browser'}
       tabindex={active === 'mod_browser' ? 0 : -1}
@@ -174,6 +178,8 @@
       bind:this={tabEls[2]}
       type="button"
       role="tab"
+      id="maintab-worlds"
+      aria-controls="maintabpanel"
       aria-selected={active === 'worlds'}
       tabindex={active === 'worlds' ? 0 : -1}
       class="px-3 py-2 text-base border-b-2 -mb-px"
@@ -188,7 +194,13 @@
     </button>
   </div>
 
-  <div class="flex-1 overflow-y-auto relative">
+  <div
+    class="flex-1 overflow-y-auto relative"
+    role="tabpanel"
+    id="maintabpanel"
+    aria-labelledby="maintab-{active}"
+    tabindex="0"
+  >
     {#if active === 'overview'}
       {#if overview}
         {@render overview()}

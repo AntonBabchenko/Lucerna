@@ -286,7 +286,7 @@
         <span></span>
       {/if}
       <div class="flex gap-2">
-        <button type="button" class="btn-ghost btn-sm" onclick={onCancel}>
+        <button type="button" class="btn-secondary btn-sm" onclick={onCancel}>
           {$t('servers.wizard.cancel')}
         </button>
         <BusyButton class="btn-primary btn-sm" {busy} disabled={!canCreate} onclick={handleCreate}>

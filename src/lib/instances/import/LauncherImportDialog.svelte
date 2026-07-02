@@ -30,10 +30,15 @@
   let discovered = $state<ForeignInstance[]>([]);
   let emptyLaunchers = $state<ForeignInstance['source'][]>([]);
   let discoverError = $state<string | null>(null);
+  // Error from a browse-to-folder inspection. Kept separate from discoverError
+  // so a single bad folder is reported in the browse area WITHOUT wiping the
+  // already-discovered instances list.
+  let inspectError = $state<string | null>(null);
 
   async function discover() {
     discovering = true;
     discoverError = null;
+    inspectError = null;
     try {
       const res = await commands.launcherImportDiscover();
       if (res.status === 'ok') {
@@ -56,11 +61,14 @@
   async function browseFolder() {
     const path = await openFile({ directory: true });
     if (!path || typeof path !== 'string') return;
+    inspectError = null;
     const res = await commands.launcherImportInspectFolder(path);
     if (res.status === 'ok') {
       selectInstance(res.data);
     } else {
-      discoverError = formatError(res.error);
+      // Scope the failure to the browse area — do NOT clobber the discovered
+      // list with one bad folder.
+      inspectError = formatError(res.error);
     }
   }
 
@@ -308,6 +316,17 @@
         </ul>
       {/if}
     </div>
+
+    {#if inspectError}
+      <div
+        class="mx-5 mb-1 flex items-start gap-2 rounded-md bg-danger-bg px-3 py-2 text-sm text-danger"
+        role="alert"
+        data-testid="inspect-error"
+      >
+        <Icon name="warning" size={14} class="mt-0.5 shrink-0" />
+        <span>{inspectError}</span>
+      </div>
+    {/if}
 
     <footer class="flex items-center justify-between gap-2 border-t border-border-subtle px-5 py-3">
       <button

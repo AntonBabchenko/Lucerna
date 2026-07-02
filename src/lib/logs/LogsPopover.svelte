@@ -429,10 +429,6 @@
       .replaceAll("'", '&#39;');
   }
 
-  function escapeRegExp(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
   // ---------------------------------------------------------------------------
   // Derived state
   // ---------------------------------------------------------------------------
@@ -733,7 +729,7 @@
   // Crash section helpers
   // ---------------------------------------------------------------------------
 
-  function isSectionDefaultOpen(section: CrashSection, index: number): boolean {
+  function isSectionDefaultOpen(section: CrashSection): boolean {
     if (section.title === 'Head') return true;
     if (section.body.includes('Exception') || section.body.includes('Error')) return true;
     return false;
@@ -1030,6 +1026,7 @@
           <input
             class="flex-1 border rounded px-2 py-1 text-xs"
             placeholder={$t('logs.search.placeholder')}
+            aria-label={$t('logs.search.placeholder')}
             bind:value={search}
             disabled={!selectedPath}
             onkeydown={onSearchKeydown}
@@ -1128,7 +1125,7 @@
               <!-- Path A: structured crash report sections -->
               <div class="px-3 py-2 space-y-2">
                 {#each crashSections as section, si}
-                  {@const defaultOpen = isSectionDefaultOpen(section, si)}
+                  {@const defaultOpen = isSectionDefaultOpen(section)}
                   {@const expanded = sectionExpanded.get(si) ?? defaultOpen}
                   {@const units = sectionRenderUnits(section.body)}
                   <div class="border rounded overflow-hidden">

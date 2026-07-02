@@ -163,7 +163,7 @@
     {:else if candidates}
       <ul class="space-y-2" data-testid="find-alt-results">
         {#each candidates as c (c.project_id)}
-          <li class="flex items-center gap-3 p-2 rounded border border-subtle">
+          <li class="flex items-center gap-3 p-2 rounded border border-border-subtle">
             {#if c.icon_url}
               <img src={c.icon_url} alt="" class="w-10 h-10 rounded flex-shrink-0" />
             {/if}
