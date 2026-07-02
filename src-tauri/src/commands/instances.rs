@@ -45,6 +45,11 @@ pub async fn launch_instance(
     let instance = crate::instances::store::read_instance_json(&json_path)?;
     let account =
         crate::accounts::get_active_account(&app)?.ok_or(crate::error::Error::AccountNotSet)?;
+    // If the active Microsoft account's MC token is at/near expiry, renew it
+    // now so the JVM launches with a live token instead of one that expires
+    // mid-session. Never blocks launch: if the refresh fails (offline, MS
+    // down), we fall back to the stored token/account.
+    let account = refresh_microsoft_if_expiring(&app, account).await;
     // Gate accounts Minecraft can't actually play with (e.g. an offline name it
     // rejects, like Cyrillic) — see ensure_account_launchable for the rationale.
     crate::accounts::ops::ensure_account_launchable(&account)?;
@@ -56,6 +61,44 @@ pub async fn launch_instance(
         quick_play.as_ref(),
     )
     .await
+}
+
+/// Seconds of headroom before token expiry at which we proactively refresh a
+/// Microsoft account's tokens on launch. A token that expires within this
+/// window is treated as "expiring" so we renew before the JVM starts rather
+/// than letting it lapse mid-session.
+const MS_TOKEN_REFRESH_BUFFER_SECS: f64 = 120.0;
+
+/// If `account` is a Microsoft account whose token is at/near expiry, refresh
+/// it and return the refreshed account. On any refresh failure (offline, MS
+/// unreachable, account since removed) this degrades to the passed-in account
+/// so launch is never blocked — a possibly-stale token is better than refusing
+/// to launch. Non-Microsoft accounts (offline) are returned unchanged.
+async fn refresh_microsoft_if_expiring(
+    app: &tauri::AppHandle,
+    account: crate::accounts::Account,
+) -> crate::accounts::Account {
+    if account.kind != crate::accounts::AccountKind::Microsoft {
+        return account;
+    }
+    // `expires_at == None` on a Microsoft account is unexpected (sign-in always
+    // sets it); treat it as "not expiring" and leave the account untouched.
+    let Some(expires_at) = account.expires_at else {
+        return account;
+    };
+    if expires_at > crate::accounts::now_secs() + MS_TOKEN_REFRESH_BUFFER_SECS {
+        return account;
+    }
+    match crate::accounts::microsoft::refresh(app, &account.id).await {
+        Ok(refreshed) => refreshed,
+        Err(e) => {
+            crate::diag!(
+                "launch: MS token refresh failed for {}, launching with stored token: {e}",
+                account.id
+            );
+            account
+        }
+    }
 }
 
 /// Whether this instance's installed version supports MC 1.20+ Quick Play.

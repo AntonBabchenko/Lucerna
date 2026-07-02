@@ -64,11 +64,19 @@ pub fn remove_account(app: &tauri::AppHandle, id: &str) -> Result<()> {
     write_account_file(&path, &file)?;
 
     // Best-effort keychain cleanup for Microsoft accounts. Don't surface
-    // errors — the account is already gone from disk; orphan keychain
-    // entries are harmless (overwritten by the next sign-in with the
-    // same uuid → same id derivation).
-    let _ = keychain::delete(&keychain::refresh_token_key(id));
-    let _ = keychain::delete(&keychain::mc_access_key(id));
+    // errors — the account is already gone from disk, so failing the whole
+    // removal over a keyring hiccup helps no one. But DO log: account ids are
+    // random `ms-<uuid_v4>` (see `upsert_microsoft_account`), NOT derived from
+    // the MC uuid, so a re-sign-in gets a fresh id and does NOT overwrite an
+    // orphaned entry — a silent delete failure leaves the old secret behind
+    // in the OS keyring indefinitely. Surfacing it in the launcher log gives
+    // the maintainer a trail if that ever happens.
+    if let Err(e) = keychain::delete(&keychain::refresh_token_key(id)) {
+        crate::diag!("remove_account: failed to delete refresh token for {id}: {e}");
+    }
+    if let Err(e) = keychain::delete(&keychain::mc_access_key(id)) {
+        crate::diag!("remove_account: failed to delete mc access token for {id}: {e}");
+    }
     Ok(())
 }
 
