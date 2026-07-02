@@ -67,17 +67,21 @@ fn extract_one(jar_path: &Path, dest: &Path) -> Result<()> {
         if entry.is_dir() {
             continue;
         }
-        let raw_name = entry.name().to_string();
-        if raw_name.starts_with("META-INF/") {
+        if entry.name().starts_with("META-INF/") {
             continue;
         }
-        // Refuse zip slip (`..` in names) — Mojang's jars don't contain
-        // them, but parsing zips from external sources without this
-        // check is a known CVE pattern.
-        if raw_name.contains("..") {
+        // Refuse zip slip. `enclosed_name()` returns `None` for any entry
+        // whose path would escape the extraction root — `..` traversal AND
+        // absolute/rooted names (`/etc/x`, `C:\x`, a `\\?\` prefix on
+        // Windows). The earlier `contains("..")` check missed rooted names:
+        // `dest.join("/abs/path")` discards `dest` entirely on Unix, so a
+        // malicious jar could write outside the natives dir. Mojang's jars
+        // are clean, but we parse zips from external sources and this is a
+        // known CVE pattern.
+        let Some(safe_rel) = entry.enclosed_name() else {
             continue;
-        }
-        let out_path = dest.join(&raw_name);
+        };
+        let out_path = dest.join(&safe_rel);
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| Error::io(parent.display().to_string(), e))?;
@@ -158,6 +162,46 @@ mod tests {
         assert!(
             !dest.join("META-INF/MANIFEST.MF").exists(),
             "META-INF must be skipped"
+        );
+    }
+
+    #[tokio::test]
+    async fn skips_zip_slip_and_rooted_entry_names() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let libs_dir = tmp.path().join("libraries");
+        let dest = tmp.path().join("natives");
+        std::fs::create_dir_all(&libs_dir).unwrap();
+
+        // A jar with a legit dll plus a `..` traversal and an absolute-path
+        // entry. Only the legit dll should land; the two escaping entries
+        // must be skipped by the `enclosed_name()` guard.
+        let jar_path = libs_dir.join("evil-natives.jar");
+        {
+            let f = std::fs::File::create(&jar_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            w.start_file("ok.dll", opts).unwrap();
+            w.write_all(b"good").unwrap();
+            w.start_file("../escape.dll", opts).unwrap();
+            w.write_all(b"traversal").unwrap();
+            // Absolute/rooted name: `dest.join("/abs.dll")` would discard
+            // `dest` on Unix without the guard.
+            w.start_file("/abs.dll", opts).unwrap();
+            w.write_all(b"rooted").unwrap();
+            w.finish().unwrap();
+        }
+
+        let lib = make_lib_with_natives("evil-natives.jar", "natives-windows");
+        extract_natives(&[lib], &libs_dir, &dest, "windows", "x64")
+            .await
+            .expect("extract");
+
+        assert!(dest.join("ok.dll").exists(), "legit dll extracted");
+        // The traversal target would sit next to `natives/` (its parent).
+        assert!(
+            !tmp.path().join("escape.dll").exists(),
+            "`..` traversal entry must be skipped"
         );
     }
 

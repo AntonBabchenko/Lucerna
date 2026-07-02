@@ -47,9 +47,29 @@ pub struct ProcessExited {
     pub log_path: String,
 }
 
-struct RunningState {
-    pid: u32,
-    log_path: PathBuf,
+/// The single-slot launch state. `Launching` is the reservation held
+/// between the moment `start()` claims the slot and the moment the child
+/// process is actually spawned — it closes the TOCTOU window where two
+/// rapid launches could both pass the "is anything running?" check and
+/// spawn two Minecrafts. `Running` carries the live pid + log path.
+enum RunningState {
+    /// Slot reserved, process not yet spawned. Holds the intended log path
+    /// so the exit-watcher can still report something if a later step fails.
+    Launching {
+        log_path: PathBuf,
+    },
+    Running {
+        pid: u32,
+        log_path: PathBuf,
+    },
+}
+
+impl RunningState {
+    fn log_path(&self) -> &PathBuf {
+        match self {
+            RunningState::Launching { log_path } | RunningState::Running { log_path } => log_path,
+        }
+    }
 }
 
 fn state() -> &'static Mutex<Option<RunningState>> {
@@ -201,12 +221,21 @@ pub async fn start(
     app: &AppHandle,
     quick_play: Option<&QuickPlay>,
 ) -> Result<u32> {
+    // Atomically claim the single launch slot INSIDE the lock. Reserving a
+    // `Launching` placeholder here — before any `.await` — closes the TOCTOU
+    // window where two rapid `start()` calls could both observe an empty slot
+    // and spawn two Minecraft processes. `ReservationGuard` rolls the slot
+    // back to `None` if any step before spawn fails (via `?` early-return).
     {
-        let guard = state().lock().expect("launch state mutex poisoned");
+        let mut guard = state().lock().expect("launch state mutex poisoned");
         if guard.is_some() {
             return Err(Error::AlreadyRunning);
         }
+        *guard = Some(RunningState::Launching {
+            log_path: PathBuf::new(),
+        });
     }
+    let mut reservation = ReservationGuard { armed: true };
 
     // Fresh run: clear any stale stop request from a previous session.
     clear_stop_requested();
@@ -221,12 +250,19 @@ pub async fn start(
         instance_logs_dir(app, &instance.id).map_err(|e| Error::io("<instance_logs_dir>", e))?;
     // Vanilla MC client.jar lives at `versions/<mc>/<mc>.jar` only — see
     // `versions::install` comment. For synth installs, resolve to the parent
-    // MC id so we don't reference the orphaned synth-path jar.
-    let synth = crate::versions::loaders::parse_synth_id(effective_version_id);
-    let client_jar_id = synth
-        .as_ref()
-        .map(|(_loader, _lv, mc)| mc.clone())
-        .unwrap_or_else(|| effective_version_id.to_string());
+    // MC id so we don't reference the orphaned synth-path jar. We know the MC
+    // version from the instance, so use the unambiguous mc-aware parse (a
+    // loader version may itself contain `-`, e.g. `0.24.0-beta.1`).
+    let synth_loader = crate::versions::loaders::parse_synth_id_with_mc(
+        effective_version_id,
+        &instance.mc_version,
+    )
+    .map(|(loader, _lv)| loader);
+    let client_jar_id = if synth_loader.is_some() {
+        instance.mc_version.clone()
+    } else {
+        effective_version_id.to_string()
+    };
 
     // The version JSON is parsed here — before the `client_jar` decision
     // below — because that decision keys off `details.main_class`.
@@ -251,10 +287,8 @@ pub async fn start(
     // with a JPMS ResolutionException. Legacy-era Forge (≤1.12.2,
     // launchwrapper) ships no patched MC and runtime-patches the vanilla
     // jar — `needs_vanilla_client_jar` keys this off `details.main_class`.
-    let client_jar: Option<PathBuf> = if needs_vanilla_client_jar(
-        synth.as_ref().map(|(loader, _, _)| *loader),
-        &details.main_class,
-    ) {
+    let client_jar: Option<PathBuf> = if needs_vanilla_client_jar(synth_loader, &details.main_class)
+    {
         Some(
             versions
                 .join(&client_jar_id)
@@ -331,7 +365,7 @@ pub async fn start(
     // Linux: env vars on the child (empty elsewhere).
     let gpu_env = crate::platform::gpu::launch_env(gpu_pref);
 
-    let log_path = logs_dir.join(format!("{}-launch.log", local_iso_stamp()));
+    let log_path = logs_dir.join(unique_launch_log_name());
     let log_file = std::fs::File::create(&log_path)
         .map_err(|e| Error::io(log_path.display().to_string(), e))?;
     let log_file_err = log_file
@@ -355,11 +389,13 @@ pub async fn start(
 
     {
         let mut guard = state().lock().expect("launch state mutex poisoned");
-        *guard = Some(RunningState {
+        *guard = Some(RunningState::Running {
             pid,
             log_path: log_path_owned.clone(),
         });
     }
+    // Slot now holds the live process; the exit-watcher owns teardown.
+    reservation.armed = false;
 
     let _ = ProcessSpawned {
         version_id: version_id_owned.clone(),
@@ -386,7 +422,7 @@ pub async fn start(
         let log_path_to_emit = {
             let mut guard = state().lock().expect("launch state mutex poisoned");
             let prev = guard.take();
-            prev.map(|s| s.log_path).unwrap_or(log_path_owned)
+            prev.map(|s| s.log_path().clone()).unwrap_or(log_path_owned)
         };
         // Consume the stop flag: did this exit come from the user pressing Stop?
         let user_requested = take_stop_requested();
@@ -440,7 +476,14 @@ pub async fn start(
 pub fn stop() -> Result<()> {
     let pid_opt = {
         let guard = state().lock().expect("launch state mutex poisoned");
-        guard.as_ref().map(|s| s.pid)
+        match guard.as_ref() {
+            // A process is live — kill it by pid.
+            Some(RunningState::Running { pid, .. }) => Some(*pid),
+            // Slot reserved but not yet spawned, or nothing running: no pid
+            // to kill. `start()`'s ReservationGuard will tear the slot down
+            // on its own; nothing for stop() to do.
+            Some(RunningState::Launching { .. }) | None => None,
+        }
     };
     let Some(pid) = pid_opt else {
         return Ok(());
@@ -500,16 +543,44 @@ fn current_arch() -> &'static str {
     }
 }
 
-/// Filename-safe stamp. v0.1.0 emits `launch-<unix-seconds>` rather
-/// than a wall-clock ISO; pulling `chrono` for cosmetics felt overkill.
-/// Slice 7's logs viewer sorts by mtime anyway.
-fn local_iso_stamp() -> String {
+/// Collision-safe launch-log filename. The stamp is `launch-<unix-seconds>`
+/// (Slice 7's logs viewer sorts by mtime, so seconds granularity is fine for
+/// ordering), but a crash-loop relaunch within the same wall-clock second
+/// would otherwise reuse the exact filename and truncate the previous run's
+/// log — destroying the crash evidence we need to diagnose the loop. A
+/// per-process monotonic counter disambiguates same-second relaunches.
+fn unique_launch_log_name() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    format!("launch-{secs}")
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("launch-{secs}-{n}.log")
+}
+
+/// Drop-guard that rolls the launch slot back to `None` if `start()` returns
+/// early (via `?`) before the child process is spawned. Disarmed once the
+/// slot transitions to `Running`, after which the exit-watcher owns teardown.
+struct ReservationGuard {
+    armed: bool,
+}
+
+impl Drop for ReservationGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // Only clear a still-`Launching` reservation. If the slot somehow
+        // advanced to `Running` without disarming (it can't in the current
+        // flow), leave the live process untouched.
+        let mut guard = state().lock().expect("launch state mutex poisoned");
+        if matches!(guard.as_ref(), Some(RunningState::Launching { .. })) {
+            *guard = None;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -527,10 +598,14 @@ mod tests {
     }
 
     #[test]
-    fn local_iso_stamp_is_nonempty_and_filename_safe() {
-        let s = local_iso_stamp();
-        assert!(!s.is_empty());
-        for ch in s.chars() {
+    fn unique_launch_log_name_is_filename_safe_and_distinct() {
+        let a = unique_launch_log_name();
+        let b = unique_launch_log_name();
+        assert!(!a.is_empty());
+        assert!(a.ends_with(".log"));
+        // Two calls in the same second must not collide (counter suffix).
+        assert_ne!(a, b, "same-second relaunches must get distinct names");
+        for ch in a.chars() {
             assert!(
                 ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'),
                 "stamp char {ch:?} not filename-safe",

@@ -11,10 +11,15 @@
 //! ## Synthetic id convention
 //!
 //! `fabric-loader-<loader_ver>-<mc_ver>` (e.g.
-//! `fabric-loader-0.15.7-1.20.4`). The MC version may itself contain `-`
-//! (`1.20.4-pre1`, `24w08a`); the parser splits on the first `-` after
-//! the `<loader>-loader-` prefix because loader versions are SemVer-like
-//! and contain no `-`.
+//! `fabric-loader-0.15.7-1.20.4`). BOTH the loader version
+//! (`0.24.0-beta.1`) and the MC version (`1.20.4-pre1`, `24w08a`) may
+//! themselves contain `-`, so neither a first-`-` nor a last-`-` split is
+//! reliable. When the caller already knows the MC version (every producer
+//! composes the id from a known `(loader_ver, mc_ver)` pair) it should use
+//! [`parse_synth_id_with_mc`], which strips the known trailing `-<mc>`
+//! unambiguously. [`parse_synth_id`] (no MC hint) falls back to a
+//! plausibility heuristic that picks the split whose right side looks like a
+//! complete MC version.
 
 pub mod fabric;
 pub mod forge;
@@ -106,7 +111,73 @@ pub fn parse_synth_id(id: &str) -> Option<(Loader, String, String)> {
     None
 }
 
+/// Parse a synthetic id when the MC version is already known. This is the
+/// unambiguous path: it strips the known trailing `-<mc>` and treats the
+/// remaining middle as the loader version, so loader versions that contain
+/// `-` (`0.24.0-beta.1`) round-trip correctly. Returns `(loader, loader_ver)`
+/// on match, or `None` for vanilla ids, a mismatched MC tail, or a missing
+/// loader version. Callers that hold the MC version (every producer does)
+/// should prefer this over [`parse_synth_id`].
+pub fn parse_synth_id_with_mc(id: &str, mc_ver: &str) -> Option<(Loader, String)> {
+    for loader in [
+        Loader::Fabric,
+        Loader::Quilt,
+        Loader::Forge,
+        Loader::NeoForge,
+    ] {
+        let Some(rest) = id.strip_prefix(loader.as_synth_prefix()) else {
+            continue;
+        };
+        // rest == "<loader_ver>-<mc_ver>". Strip the trailing "-<mc_ver>".
+        let suffix = format!("-{mc_ver}");
+        let loader_ver = rest.strip_suffix(&suffix)?;
+        if loader_ver.is_empty() {
+            return None;
+        }
+        return Some((loader, loader_ver.to_string()));
+    }
+    None
+}
+
+/// True when `s` plausibly begins a Minecraft version token: releases
+/// and their pre/rc suffixes start `1.` (`1.20.4`, `1.20.4-pre1`,
+/// `1.20-rc1`); snapshots start with a 2-digit year followed by `w`
+/// (`24w08a`); the classic betas start `b1.`/`a1.`; April-fools and a
+/// handful of named builds are digit-led too. We only need to distinguish
+/// an MC token from a *loader* version, and loader versions never carry a
+/// `1.`/`NNw` shape at their head, so this is a safe discriminator.
+fn looks_like_mc_start(s: &str) -> bool {
+    if let Some(tail) = s.strip_prefix("1.") {
+        return tail.bytes().next().is_some_and(|b| b.is_ascii_digit());
+    }
+    let b = s.as_bytes();
+    // Snapshot `NNwNN...` (e.g. `24w08a`): two digits then `w`.
+    if b.len() >= 3 && b[0].is_ascii_digit() && b[1].is_ascii_digit() && b[2] == b'w' {
+        return true;
+    }
+    // Classic `a1.`/`b1.` alpha/beta ids. Byte-compare to stay panic-free on
+    // any non-ASCII input (MC ids are ASCII, but a hostile id might not be).
+    b.starts_with(b"a1.") || b.starts_with(b"b1.")
+}
+
 fn parse_fabric_quilt_rest(loader: Loader, rest: &str) -> Option<(Loader, String, String)> {
+    // Both parts may contain `-`. Prefer the split whose right side looks
+    // like a complete MC version; scan `-` positions left-to-right so the
+    // FIRST plausible MC boundary wins (loader versions are short and never
+    // start with an MC-shaped token, so an early `-beta.1` inside the loader
+    // version is skipped, while the real `-1.20.4` boundary is taken).
+    let bytes = rest.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b != b'-' {
+            continue;
+        }
+        let (loader_ver, mc_ver) = (&rest[..i], &rest[i + 1..]);
+        if !loader_ver.is_empty() && looks_like_mc_start(mc_ver) {
+            return Some((loader, loader_ver.to_string(), mc_ver.to_string()));
+        }
+    }
+    // No MC-shaped right side found (unrecognised/exotic MC id): fall back to
+    // the historical first-`-` split so previously-parseable ids still parse.
     let dash = rest.find('-')?;
     let loader_ver = &rest[..dash];
     let mc_ver = &rest[dash + 1..];
@@ -253,6 +324,41 @@ mod tests {
         assert_eq!(l, Loader::Quilt);
         assert_eq!(lv, "0.23.1");
         assert_eq!(mv, "24w08a");
+    }
+
+    #[test]
+    fn synth_id_round_trips_loader_version_with_dash() {
+        // Regression: a Fabric loader pre-release version contains `-`
+        // (`0.24.0-beta.1`). The old first-`-` split truncated it to
+        // "0.24.0" and mis-parsed the MC as "beta.1-1.20.4".
+        let id = synth_id(Loader::Fabric, "0.24.0-beta.1", "1.20.4");
+        assert_eq!(id, "fabric-loader-0.24.0-beta.1-1.20.4");
+        let (l, lv, mv) = parse_synth_id(&id).unwrap();
+        assert_eq!(l, Loader::Fabric);
+        assert_eq!(lv, "0.24.0-beta.1");
+        assert_eq!(mv, "1.20.4");
+    }
+
+    #[test]
+    fn parse_synth_id_with_mc_strips_known_trailing_mc() {
+        // Unambiguous path: MC known → loader version with `-` is exact.
+        let id = synth_id(Loader::Fabric, "0.24.0-beta.1", "1.20.4-pre1");
+        let (l, lv) = parse_synth_id_with_mc(&id, "1.20.4-pre1").unwrap();
+        assert_eq!(l, Loader::Fabric);
+        assert_eq!(lv, "0.24.0-beta.1");
+    }
+
+    #[test]
+    fn parse_synth_id_with_mc_forge_and_vanilla() {
+        let id = synth_id(Loader::Forge, "49.0.49", "1.20.4");
+        assert_eq!(
+            parse_synth_id_with_mc(&id, "1.20.4"),
+            Some((Loader::Forge, "49.0.49".to_string()))
+        );
+        // Vanilla id → None.
+        assert!(parse_synth_id_with_mc("1.20.4", "1.20.4").is_none());
+        // Mismatched MC tail → None (guards against a wrong instance mc).
+        assert!(parse_synth_id_with_mc(&id, "1.19.2").is_none());
     }
 
     #[test]
