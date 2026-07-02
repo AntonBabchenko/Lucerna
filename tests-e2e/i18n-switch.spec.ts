@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installMockIpc } from './helpers/mock-ipc';
+import { installMockIpc, makeInstance } from './helpers/mock-ipc';
 
 // Mirror the shapes from settings.spec.ts (and mock-ipc.ts).
 const offlineAccount = {
@@ -9,23 +9,7 @@ const offlineAccount = {
   expires_at: null,
 };
 
-const baseInstance = {
-  id: 'inst-1',
-  name: 'Default',
-  mc_version: '1.20.4',
-  loader: 'vanilla' as const,
-  loader_version: null,
-  max_heap_mb: 2048,
-  extra_jvm_args: '',
-  created_unix_ms: null,
-  ready: true,
-  mrpack_name: null,
-  mrpack_version: null,
-  mrpack_project_id: null,
-  mrpack_source: null,
-  mrpack_summary: null,
-  mrpack_version_id: null,
-};
+const baseInstance = makeInstance({ id: 'inst-1', name: 'Default' });
 
 test('language picker switches labels live without a page reload', async ({ page }) => {
   await installMockIpc(page, {

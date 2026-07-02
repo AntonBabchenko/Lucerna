@@ -12,13 +12,13 @@ For vulnerability disclosure, see the short [`SECURITY.md`](../SECURITY.md) at t
 
 3. **Software Bill of Materials.** The release workflow runs `cargo-cyclonedx` to generate a CycloneDX SBOM and attaches it as a release asset. **Status: implemented in `release.yml`; first produced for the v0.9.0 release.**
 
-4. **`cargo-audit` in CI** *(planned)*. Builds should fail on known vulnerabilities; PRs that introduce a vulnerable dependency are blocked. **Status: not yet implemented** — not currently a CI job.
+4. **Advisory scanning in CI (the `cargo-audit` equivalent).** **Status: implemented** — the `cargo-deny` job in `.github/workflows/ci.yml` runs `cargo deny check`, which includes the `advisories` check against the RustSec advisory database (the same DB `cargo-audit` uses). It runs on every push and PR and is ungated, so a newly-published advisory can trip it even when `Cargo.lock` has not changed. A PR that introduces a vulnerable dependency is blocked.
 
-5. **`cargo-deny` in CI** *(planned, not yet implemented)*. Will enforce:
+5. **`cargo-deny` in CI.** **Status: implemented** in the `cargo-deny` CI job (`cargo deny check`, SHA-pinned toolchain, version-pinned `cargo-deny`). It enforces, per `deny.toml`:
    - License allowlist (FOSS only — no proprietary, no unknown).
-   - Banned crate list (none yet; added when needed).
-   - No duplicate versions of the same crate.
-   - Only approved source registries.
+   - Banned / duplicate crate policy.
+   - Approved source registries only.
+   - RustSec advisories (see item 4).
 
 6. **`Cargo.lock` is committed.** This is a binary crate, so locked dependencies are part of the release contract.
 

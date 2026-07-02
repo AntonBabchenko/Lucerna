@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installMockIpc } from './helpers/mock-ipc';
+import { installMockIpc, makeInstance } from './helpers/mock-ipc';
 
 // Full-app e2e of the core "browse → install a mod → card shows Installed"
 // flow, driven against the mock IPC layer (no Rust backend). Pairs with the
@@ -19,23 +19,12 @@ const offlineAccount = {
   expires_at: null,
 };
 
-const fabricInstance = {
+const fabricInstance = makeInstance({
   id: 'inst-1',
   name: 'Fabric 1.20.4',
-  mc_version: '1.20.4',
-  loader: 'fabric' as const,
+  loader: 'fabric',
   loader_version: '0.15.0',
-  max_heap_mb: 2048,
-  extra_jvm_args: '',
-  created_unix_ms: null,
-  ready: true,
-  mrpack_name: null,
-  mrpack_version: null,
-  mrpack_project_id: null,
-  mrpack_source: null,
-  mrpack_summary: null,
-  mrpack_version_id: null,
-};
+});
 
 const sodium = {
   source: 'modrinth' as const,

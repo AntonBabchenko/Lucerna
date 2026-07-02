@@ -1,6 +1,14 @@
 //! Patcher subsystem integration smoke. Exercises run_processor for
-//! each of the 4 transitional-era processors. Golden-fixture tests
-//! skip gracefully if fixtures aren't present.
+//! each of the 4 transitional-era processors.
+//!
+//! The two golden-bytecode tests (`specialsource_golden` and
+//! `binarypatcher_golden`) need large binary fixtures that are NOT committed
+//! to the repo. They are marked `#[ignore]` so `cargo test` reports them as
+//! ignored (visible in the summary) instead of silently returning early and
+//! masquerading as a passing test. To run them, drop the fixtures into
+//! `tests/fixtures/{specialsource,binarypatcher}/` and invoke
+//! `cargo test -- --ignored`. If a fixture is still missing when explicitly
+//! run, the test fails loudly pointing at the expected path.
 
 use lucerna_lib::forge::patcher::{run_processor, ProcessorContext};
 use std::io::Write;
@@ -95,13 +103,17 @@ async fn jarsplitter_routes_classes() {
     assert!(slim.exists() && extra.exists());
 }
 
+// Golden-bytecode test — requires committed fixtures. `#[ignore]` so it shows
+// up as ignored (not silently green) when the fixtures are absent. Run with
+// `cargo test -- --ignored` once the fixtures exist.
 #[tokio::test]
-async fn specialsource_golden_or_skip() {
+#[ignore = "requires uncommitted golden fixtures under tests/fixtures/specialsource/golden/; run with --ignored"]
+async fn specialsource_golden() {
     let input = "tests/fixtures/specialsource/golden/input.jar";
-    if !std::path::Path::new(input).exists() {
-        eprintln!("SKIP: specialsource golden absent");
-        return;
-    }
+    assert!(
+        std::path::Path::new(input).exists(),
+        "missing golden fixture: {input} — seed tests/fixtures/specialsource/golden/ before running this test with --ignored",
+    );
     let dir = tempdir().unwrap();
     let out = dir.path().join("out.jar");
     let ctx = ProcessorContext {
@@ -123,13 +135,17 @@ async fn specialsource_golden_or_skip() {
     assert!(out.exists());
 }
 
+// Golden-bytecode test — requires committed fixtures. `#[ignore]` so it shows
+// up as ignored (not silently green) when the fixtures are absent. Run with
+// `cargo test -- --ignored` once the fixtures exist.
 #[tokio::test]
-async fn binarypatcher_golden_or_skip() {
+#[ignore = "requires uncommitted golden fixtures under tests/fixtures/binarypatcher/; run with --ignored"]
+async fn binarypatcher_golden() {
     let clean = "tests/fixtures/binarypatcher/clean.jar";
-    if !std::path::Path::new(clean).exists() {
-        eprintln!("SKIP: binarypatcher golden absent");
-        return;
-    }
+    assert!(
+        std::path::Path::new(clean).exists(),
+        "missing golden fixture: {clean} — seed tests/fixtures/binarypatcher/ before running this test with --ignored",
+    );
     let dir = tempdir().unwrap();
     let out = dir.path().join("out.jar");
     let ctx = ProcessorContext {

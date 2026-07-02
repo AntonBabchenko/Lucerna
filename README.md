@@ -59,13 +59,26 @@ line-wrap and stack-trace folding toggles, structured crash-report view
 with collapsible sections, and one-click "Share to mclo.gs" with
 client-side anonymisation of user paths, session tokens, and LAN IPs.
 
+**Servers** — run your own Minecraft server from the launcher: create a
+server (Vanilla / Fabric / Quilt / Forge / NeoForge), start and stop it
+with a live console, save and join servers from a servers.dat-backed
+list, and diagnose start-up failures. Build a server from an existing
+instance (or an instance from a server), then export the assembled server
+as a `.zip` or upload it over SFTP to a host you provide.
+
 **Playtime** — per-instance session-time tracking shown on the Overview
 tab (total / sessions / last session).
 
+**Updates** — an in-app update check against GitHub Releases with a
+one-click self-update: the installer is downloaded, verified against its
+`SHA256SUMS` and cosign signature, and launched (Windows NSIS installer;
+Linux AppImage in-app, with an honest deb/rpm fallback). No auto-updates
+run without you asking.
+
 **System integration** — opt-in "hide launcher to tray when Minecraft
 starts" with auto-restore on game exit, light/dark/system theme picker,
-and a guided tour the first time you visit Manage / Logs / Modpacks /
-Worlds.
+an English / Russian interface language switch, and a guided tour the
+first time you visit Manage / Logs / Modpacks / Worlds.
 
 **Transparency** — every outbound HTTP request goes through a single
 chokepoint with a static host allowlist; every process the launcher
