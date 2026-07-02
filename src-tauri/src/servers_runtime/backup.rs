@@ -112,13 +112,27 @@ fn is_safe_file_name(name: &str) -> bool {
 /// export writer), then prune to the newest `KEEP_BACKUPS`. Returns the new
 /// snapshot's info.
 pub fn create_backup(base: &Path, id: &str, stamp: &str) -> Result<BackupInfo> {
+    create_backup_protecting(base, id, stamp, None)
+}
+
+/// Like [`create_backup`] but never prunes `protect` (a snapshot file name the
+/// caller is about to depend on). Used by the restore safety-net: the pre-restore
+/// snapshot must not, while pruning to `KEEP_BACKUPS`, delete the very zip being
+/// restored (the case where the backup set is already at the cap and the restore
+/// target is the oldest — prune would otherwise remove the restore's own source).
+pub fn create_backup_protecting(
+    base: &Path,
+    id: &str,
+    stamp: &str,
+    protect: Option<&str>,
+) -> Result<BackupInfo> {
     let p = crate::paths::server_paths(base, id);
     let dir = backups_dir(base, id);
     std::fs::create_dir_all(&dir).map_err(|e| Error::io(dir.display().to_string(), e))?;
     let file_name = format!("backup-{stamp}.zip");
     let dest = dir.join(&file_name);
     crate::servers_runtime::transfer::export_zip(&p.runtime, &dest)?;
-    prune(&dir);
+    prune(&dir, protect);
     let meta = std::fs::metadata(&dest).map_err(|e| Error::io(dest.display().to_string(), e))?;
     Ok(BackupInfo {
         file_name,
@@ -189,7 +203,11 @@ pub fn delete_backup(base: &Path, id: &str, file_name: &str) -> Result<()> {
     }
 }
 
-fn prune(dir: &Path) {
+/// Prune the snapshot dir to the newest `KEEP_BACKUPS`. `protect` (a file name)
+/// is never removed even if it falls outside the keep window — the restore
+/// safety-net passes the restore target so a full backup set can't delete the
+/// zip the restore is about to read.
+fn prune(dir: &Path, protect: Option<&str>) {
     let mut zips: Vec<(PathBuf, f64)> = match std::fs::read_dir(dir) {
         Ok(rd) => rd
             .flatten()
@@ -205,6 +223,11 @@ fn prune(dir: &Path) {
     };
     zips.sort_by(|a, b| b.1.total_cmp(&a.1)); // newest first
     for (path, _) in zips.into_iter().skip(KEEP_BACKUPS) {
+        if let Some(keep) = protect {
+            if path.file_name().and_then(|n| n.to_str()) == Some(keep) {
+                continue; // never delete the restore's own source
+            }
+        }
         let _ = std::fs::remove_file(path);
     }
 }
@@ -295,6 +318,30 @@ mod tests {
         delete_backup(base.path(), "srv-1", &info.file_name).unwrap();
         delete_backup(base.path(), "srv-1", &info.file_name).unwrap(); // gone → still Ok
         assert!(list_backups(base.path(), "srv-1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn create_backup_protecting_never_prunes_the_restore_target() {
+        let base = tempdir().unwrap();
+        seed_runtime(base.path(), "srv-1");
+        // Fill the backup set to the cap; the FIRST created is the oldest.
+        let mut names = Vec::new();
+        for i in 0..KEEP_BACKUPS {
+            names.push(
+                create_backup(base.path(), "srv-1", &format!("ts-{i:03}"))
+                    .unwrap()
+                    .file_name,
+            );
+        }
+        let oldest = names.first().unwrap().clone();
+        // A new pre-restore snapshot that protects the oldest must NOT delete it,
+        // even though the set is now over the cap.
+        create_backup_protecting(base.path(), "srv-1", "prerestore-x", Some(&oldest)).unwrap();
+        let list = list_backups(base.path(), "srv-1").unwrap();
+        assert!(
+            list.iter().any(|b| b.file_name == oldest),
+            "protected restore target must survive the pre-restore prune"
+        );
     }
 
     #[test]

@@ -200,30 +200,41 @@ pub(crate) fn java_component_or_legacy(component: Option<&str>) -> String {
 /// Build the JVM argv to launch an assembled server, per loader. Paths are
 /// relative to `runtime/` (the spawn cwd). Forge/NeoForge use the installer-
 /// generated `@argfile` mechanism; the args file lives under libraries/.
+///
+/// The user's `extra_jvm_args` blob is tokenized with the SAME sanitizer the
+/// client launch uses (`crate::launch::args::sanitize_jvm_args`: drops
+/// control-char tokens, caps total length) and spliced AFTER `-Xmx` and BEFORE
+/// `-jar` / `@user_jvm_args.txt`, so a flag like `-XX:+UseG1GC` reaches the JVM
+/// exactly as it does for a client instance. An empty/whitespace blob adds
+/// nothing.
 pub(crate) fn build_launch_argv(
     loader: LoaderKind,
     runtime: &Path,
     heap_mb: u32,
+    extra_jvm_args: &str,
 ) -> Result<Vec<String>> {
     let xmx = format!("-Xmx{heap_mb}m");
+    let extra = crate::launch::args::sanitize_jvm_args(extra_jvm_args);
     match loader {
-        LoaderKind::Vanilla | LoaderKind::Fabric | LoaderKind::Quilt => Ok(vec![
-            xmx,
-            "-jar".into(),
-            "server.jar".into(),
-            "nogui".into(),
-        ]),
+        LoaderKind::Vanilla | LoaderKind::Fabric | LoaderKind::Quilt => {
+            let mut argv = vec![xmx];
+            argv.extend(extra);
+            argv.extend(["-jar".into(), "server.jar".into(), "nogui".into()]);
+            Ok(argv)
+        }
         LoaderKind::Forge | LoaderKind::NeoForge => {
             let args_rel =
                 find_loader_args_file(runtime).ok_or_else(|| Error::ServerSpawnFailed {
                     details: "installer args file not found under libraries/".into(),
                 })?;
-            Ok(vec![
-                xmx,
+            let mut argv = vec![xmx];
+            argv.extend(extra);
+            argv.extend([
                 "@user_jvm_args.txt".into(),
                 format!("@{args_rel}"),
                 "nogui".into(),
-            ])
+            ]);
+            Ok(argv)
         }
     }
 }
@@ -286,7 +297,12 @@ pub async fn start(app: &AppHandle, server_id: &str) -> Result<u32> {
     let javaw = crate::jre::java_executable_path(&component, app)?;
     let java = console_java_path(&javaw);
 
-    let argv = build_launch_argv(file.loader, &p.runtime, file.max_heap_mb)?;
+    let argv = build_launch_argv(
+        file.loader,
+        &p.runtime,
+        file.max_heap_mb,
+        &file.extra_jvm_args,
+    )?;
 
     std::fs::create_dir_all(&p.logs).map_err(|e| Error::io(p.logs.display().to_string(), e))?;
     // Preserve the previous session's log before truncating: rotate it to a
@@ -597,9 +613,54 @@ mod tests {
             crate::instances::schema::LoaderKind::Vanilla,
             dir.path(),
             2048,
+            "",
         )
         .unwrap();
         assert_eq!(argv, vec!["-Xmx2048m", "-jar", "server.jar", "nogui"]);
+    }
+
+    #[test]
+    fn launch_argv_vanilla_splices_extra_jvm_args_after_xmx_before_jar() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("server.jar"), b"x").unwrap();
+        let argv = build_launch_argv(
+            crate::instances::schema::LoaderKind::Vanilla,
+            dir.path(),
+            2048,
+            "-XX:+UseG1GC -Xss512k",
+        )
+        .unwrap();
+        assert_eq!(
+            argv,
+            vec![
+                "-Xmx2048m",
+                "-XX:+UseG1GC",
+                "-Xss512k",
+                "-jar",
+                "server.jar",
+                "nogui"
+            ]
+        );
+    }
+
+    #[test]
+    fn launch_argv_forge_splices_extra_jvm_args_after_xmx_before_argfile() {
+        let dir = tempfile::tempdir().unwrap();
+        let af = dir.path().join("libraries/net/neoforged/neoforge/20.4.237");
+        std::fs::create_dir_all(&af).unwrap();
+        std::fs::write(af.join("win_args.txt"), b"@stuff\n").unwrap();
+        std::fs::write(af.join("unix_args.txt"), b"@stuff\n").unwrap();
+        let argv = build_launch_argv(
+            crate::instances::schema::LoaderKind::NeoForge,
+            dir.path(),
+            3072,
+            "-XX:+UseG1GC",
+        )
+        .unwrap();
+        assert_eq!(argv.first().map(String::as_str), Some("-Xmx3072m"));
+        // The extra flag comes right after -Xmx and before the argfile refs.
+        assert_eq!(argv.get(1).map(String::as_str), Some("-XX:+UseG1GC"));
+        assert_eq!(argv.get(2).map(String::as_str), Some("@user_jvm_args.txt"));
     }
     #[test]
     fn launch_argv_forge_uses_args_files() {
@@ -613,6 +674,7 @@ mod tests {
             crate::instances::schema::LoaderKind::NeoForge,
             dir.path(),
             3072,
+            "",
         )
         .unwrap();
         assert_eq!(argv.first().map(String::as_str), Some("-Xmx3072m"));
@@ -634,6 +696,7 @@ mod tests {
             crate::instances::schema::LoaderKind::Forge,
             dir.path(),
             1024,
+            "",
         );
         assert!(matches!(
             r,
