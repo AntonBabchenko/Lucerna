@@ -155,7 +155,16 @@
       if (leftCoord + POPOVER_WIDTH + MARGIN > vw) {
         leftCoord = Math.max(MARGIN, vw - POPOVER_WIDTH - MARGIN);
       }
-      return `top:${r.bottom + 12}px; left:${leftCoord}px;`;
+      // Flip above the anchor when there isn't room below it. A `below`-anchored
+      // step near the viewport bottom (e.g. the manage-instances actions row)
+      // would otherwise position the popover off the bottom edge — invisible,
+      // leaving only a dimmed screen with no reachable controls.
+      const POPOVER_HEIGHT_BUDGET = 220;
+      const fitsBelow = r.bottom + 12 + POPOVER_HEIGHT_BUDGET <= vh;
+      if (fitsBelow) {
+        return `top:${r.bottom + 12}px; left:${leftCoord}px;`;
+      }
+      return `bottom:${Math.max(MARGIN, vh - r.top + 12)}px; left:${leftCoord}px;`;
     }
     return 'top:50%; left:50%; transform:translate(-50%,-50%);';
   }
@@ -169,6 +178,19 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if active}
+  <!-- Click-catching backdrop. Dismissing the tour by clicking outside the
+       popover (a universal gesture) marks it seen, so the user can never be
+       trapped behind the dim even if a step's spotlight/popover mispositions,
+       and a dismissed tour doesn't silently re-fire on the next open. Kept
+       interactive under the `data-ctx-tour-active` pointer-events block via
+       `data-ctx-tour-root`. -->
+  <button
+    type="button"
+    class="fixed inset-0 z-[100] cursor-default"
+    data-ctx-tour-root
+    aria-label={$t('onboarding.controls.dismissTour')}
+    onclick={finish}
+  ></button>
   {#if rect && step.targetSelector}
     <div
       class="fixed pointer-events-none transition-all duration-200 rounded-md z-[100]"

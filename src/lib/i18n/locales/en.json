@@ -1000,6 +1000,7 @@
       "finish": "Finish",
       "gotIt": "Got it",
       "skipContextual": "Skip",
+      "dismissTour": "Dismiss the tour",
       "stepOf": "Step {current} of {total}"
     },
     "tour": {

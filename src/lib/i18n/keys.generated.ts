@@ -988,6 +988,7 @@ export type TranslationKey =
   | 'onboarding.contextual.worlds.worldsWithBackups.title'
   | 'onboarding.contextual.worlds.worldsWithBackups.titleBasic'
   | 'onboarding.controls.back'
+  | 'onboarding.controls.dismissTour'
   | 'onboarding.controls.finish'
   | 'onboarding.controls.gotIt'
   | 'onboarding.controls.next'

@@ -1000,6 +1000,7 @@
       "finish": "Готово",
       "gotIt": "Понятно",
       "skipContextual": "Пропустить",
+      "dismissTour": "Закрыть подсказку",
       "stepOf": "Шаг {current} из {total}"
     },
     "tour": {
