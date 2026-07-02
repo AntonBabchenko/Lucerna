@@ -144,7 +144,7 @@
       }
       await refresh();
       assetsChanged.value++;
-      pushSuccess(v.name);
+      pushSuccess(get(t)('addons.installed.installedToast', { name: v.name }));
     } finally {
       busy = false;
     }
@@ -166,7 +166,7 @@
       updateStates = next;
       // Notify the Browse view so its "Installed" badge clears.
       assetsChanged.value++;
-      pushSuccess(asset.name);
+      pushSuccess(get(t)('addons.installed.removedToast', { name: asset.name }));
     } finally {
       busy = false;
     }
@@ -212,7 +212,7 @@
       await refresh();
       // Notify the Browse view so its badge reflects the new version.
       assetsChanged.value++;
-      pushSuccess(asset.name);
+      pushSuccess(get(t)('addons.installed.updatedToast', { name: asset.name }));
     } finally {
       busy = false;
     }

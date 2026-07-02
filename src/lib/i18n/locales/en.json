@@ -543,7 +543,10 @@
       "loading": "Loading…",
       "pickInstance": "Pick an instance first.",
       "upToDateToast": "Everything is up to date.",
-      "checkFailed": "Update check failed"
+      "checkFailed": "Update check failed",
+      "installedToast": "Installed {name}",
+      "updatedToast": "Updated {name}",
+      "removedToast": "Removed {name}"
     }
   },
   "modpacks": {
@@ -686,7 +689,15 @@
       "versionPlaceholder": "Version",
       "authorPlaceholder": "Author (optional)",
       "summaryPlaceholder": "Summary (optional)",
-      "exportBtn": "Export"
+      "exportBtn": "Export",
+      "exported": "Exported {name} to {dest}",
+      "failed": "Export failed",
+      "phase": {
+        "resolving": "Resolving mods…",
+        "bundling": "Bundling files…",
+        "writing": "Writing archive…",
+        "done": "Done"
+      }
     },
     "browse": {
       "searchAriaLabel": "Search modpacks",
@@ -1494,7 +1505,9 @@
     "update": {
       "available": "Lucerna {version} is available",
       "actionLabel": "Update",
-      "currentVersion": "You're on {version}."
+      "currentVersion": "You're on {version}.",
+      "downloading": "Downloading update…",
+      "verifyFailed": "Couldn't verify the update"
     },
     "crash": {
       "banner": "Minecraft crashed.",
@@ -1741,7 +1754,19 @@
       "maxPlayers": "Max players",
       "onlineMode": "Online mode",
       "pvp": "PvP",
-      "whitelist": "Whitelist"
+      "whitelist": "Whitelist",
+      "gamemodeOptions": {
+        "survival": "Survival",
+        "creative": "Creative",
+        "adventure": "Adventure",
+        "spectator": "Spectator"
+      },
+      "difficultyOptions": {
+        "peaceful": "Peaceful",
+        "easy": "Easy",
+        "normal": "Normal",
+        "hard": "Hard"
+      }
     },
     "mods": {
       "empty": "No mods",

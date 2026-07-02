@@ -28,18 +28,20 @@
   let whitelist = $state(false);
 
   // ── option lists ─────────────────────────────────────────────────────────────
-  const gamemodeOptions: SelectOption[] = [
-    { value: 'survival', label: 'Survival' },
-    { value: 'creative', label: 'Creative' },
-    { value: 'adventure', label: 'Adventure' },
-    { value: 'spectator', label: 'Spectator' },
-  ];
-  const difficultyOptions: SelectOption[] = [
-    { value: 'peaceful', label: 'Peaceful' },
-    { value: 'easy', label: 'Easy' },
-    { value: 'normal', label: 'Normal' },
-    { value: 'hard', label: 'Hard' },
-  ];
+  // Derived off `$t` so the option labels re-render on a live locale switch;
+  // the `value`s stay the raw server.properties tokens the file expects.
+  const gamemodeOptions = $derived<SelectOption[]>([
+    { value: 'survival', label: $t('servers.settings.gamemodeOptions.survival') },
+    { value: 'creative', label: $t('servers.settings.gamemodeOptions.creative') },
+    { value: 'adventure', label: $t('servers.settings.gamemodeOptions.adventure') },
+    { value: 'spectator', label: $t('servers.settings.gamemodeOptions.spectator') },
+  ]);
+  const difficultyOptions = $derived<SelectOption[]>([
+    { value: 'peaceful', label: $t('servers.settings.difficultyOptions.peaceful') },
+    { value: 'easy', label: $t('servers.settings.difficultyOptions.easy') },
+    { value: 'normal', label: $t('servers.settings.difficultyOptions.normal') },
+    { value: 'hard', label: $t('servers.settings.difficultyOptions.hard') },
+  ]);
 
   function syncFromRaw(text: string) {
     port = getProperty(text, 'server-port') ?? '25565';
