@@ -33,7 +33,14 @@ fn import_from_zip(saves: &Path, zip_path: &Path) -> Result<World> {
     std::fs::create_dir_all(&staging).map_err(|e| Error::io(staging.display().to_string(), e))?;
 
     let result = (|| -> Result<World> {
-        wzip::extract_zip(zip_path, &staging).map_err(map_archive_err)?;
+        // `check_zip_size` above is only a cheap early reject on the archive's
+        // DECLARED sizes (attacker-controlled). `extract_zip_capped` is the
+        // real defense: it counts the ACTUAL bytes written and aborts the
+        // moment a per-file or aggregate cap is exceeded, so a zip bomb whose
+        // central directory lies about its sizes still cannot land oversized
+        // data on disk.
+        wzip::extract_zip_capped(zip_path, &staging, PER_FILE_CAP, AGGREGATE_CAP)
+            .map_err(map_archive_err)?;
         let fallback = zip_path
             .file_stem()
             .and_then(|s| s.to_str())

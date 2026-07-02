@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installMockIpc } from '../helpers/mock-ipc';
+import { installMockIpc, makeInstance } from '../helpers/mock-ipc';
 import { setTheme } from '../helpers/theme';
 
 test.skip(process.platform !== 'linux', 'Visual tests pinned to Linux for cross-OS determinism');
@@ -14,23 +14,7 @@ const offlineAccount = {
   expires_at: null,
 };
 
-const baseInstance = {
-  id: 'inst-1',
-  name: 'Default',
-  mc_version: '1.20.4',
-  loader: 'vanilla' as const,
-  loader_version: null,
-  max_heap_mb: 2048,
-  extra_jvm_args: '',
-  created_unix_ms: null,
-  ready: true,
-  mrpack_name: null,
-  mrpack_version: null,
-  mrpack_project_id: null,
-  mrpack_source: null,
-  mrpack_summary: null,
-  mrpack_version_id: null,
-};
+const baseInstance = makeInstance({ id: 'inst-1', name: 'Default' });
 
 test.describe('Toast visual', () => {
   for (const theme of ['light', 'dark'] as const) {

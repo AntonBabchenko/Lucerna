@@ -24,7 +24,7 @@
 //   CurseForgeKeyBanner: bg-warning-bg border-warning-text/30 text-warning-text
 //                        Open Settings → CurseForge → btn-warning btn-sm
 
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // vi.mock is hoisted before imports.
@@ -338,30 +338,31 @@ describe('StoragePanel — Clear cache button is btn-secondary btn-sm', () => {
 // ── StoragePanel — error block ────────────────────────────────────────────────
 
 describe('StoragePanel — error block has bg-danger-bg border-danger text-danger', () => {
-  it('error block uses semantic danger token classes', async () => {
+  it('renders the error block with semantic danger token classes when the cache-size IPC fails', async () => {
     const { commands } = await import('$lib/ipc/bindings');
     vi.mocked(commands.modsCacheSizeBytes).mockResolvedValueOnce({
       status: 'error',
       error: { kind: 'unknown_version', id: 'test' },
     });
     const { container } = render(StoragePanel);
-    // Wait for the error to render (IPC resolves)
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const errorBlock = container.querySelector('.bg-danger-bg');
-    if (errorBlock) {
-      const cls = errorBlock.className;
-      expect(cls).toContain('bg-danger-bg');
-      expect(cls).toContain('border-danger');
-      expect(cls).toContain('text-danger');
-      // Must NOT use the deprecated opacity shorthand.
-      expect(cls).not.toMatch(/bg-danger\/\d+/);
-    }
-    // If no error block yet visible, at minimum verify the semantic pattern
-    // is what the component applies (class-string integrity guard).
-    const patternDiv = document.createElement('div');
-    patternDiv.className = 'bg-danger-bg border border-danger text-danger text-sm rounded p-2';
-    expect(patternDiv.className).toContain('bg-danger-bg');
-    expect(patternDiv.className).not.toMatch(/bg-danger\/\d+/);
+
+    // The error block only exists once refresh()'s IPC rejects and sets
+    // `error`. Asserting it RENDERS first is the whole point — the previous
+    // version guarded the class checks behind `if (errorBlock)`, so it could
+    // never fail even if the block never appeared. waitFor throws (failing the
+    // test) if the block does not show up.
+    const errorBlock = await waitFor(() => {
+      const el = container.querySelector('.bg-danger-bg');
+      if (!el) throw new Error('StoragePanel error block did not render');
+      return el;
+    });
+
+    const cls = errorBlock.className;
+    expect(cls).toContain('bg-danger-bg');
+    expect(cls).toContain('border-danger');
+    expect(cls).toContain('text-danger');
+    // Must NOT use the deprecated opacity shorthand.
+    expect(cls).not.toMatch(/bg-danger\/\d+/);
   });
 });
 

@@ -4,11 +4,12 @@
   // localStorage-persists dismissed so it never returns. Mirrors
   // TourOverlay's spotlight + popover chrome; intentionally
   // separate to keep main-tour state isolated.
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import type { TourStep } from './steps';
   import { hasSeen, markSeen, type ContextualTourId } from './contextual-tours';
   import { explanationState } from './explanation-level.svelte';
   import { explainKey } from './explanation-keys';
+  import { tourState } from './state.svelte';
   import { t } from '$lib/i18n';
   import { Icon } from '$lib/ui/icons';
 
@@ -23,8 +24,26 @@
   const MARGIN = 16;
   const PADDING = 6;
 
+  // While a contextual tour is on screen, flag the body so the host Modal knows
+  // to route Escape to the tour instead of closing itself. The tour is
+  // deliberately NON-blocking (the dim is pointer-events:none) — an earlier
+  // blocking variant could trap the user behind a mispositioned popover and
+  // intercepted legitimate clicks, so we only coordinate Escape here.
+  $effect(() => {
+    if (active) {
+      document.body.setAttribute('data-ctx-tour-active', 'true');
+    } else {
+      document.body.removeAttribute('data-ctx-tour-active');
+    }
+  });
+
   onMount(() => {
     if (hasSeen(id)) return;
+    // Don't open on top of the main onboarding tour / account hint: two live
+    // spotlights fight over focus and the pointer-events overlay, freezing the
+    // contextual popover. Defer — the surface stays un-toured this visit and
+    // re-fires next time (the "seen" flag is only set on finish).
+    if (tourState.active) return;
     active = true;
     void tick().then(() => updateRect());
     const onResize = () => {
@@ -36,6 +55,14 @@
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onResize, true);
     };
+  });
+
+  onDestroy(() => {
+    document.body.removeAttribute('data-ctx-tour-active');
+    // If the host (modal/tab) unmounts mid-tour, treat it as a soft-skip so the
+    // tour doesn't silently re-fire on every subsequent open. finish() already
+    // clears `active`, so this only fires on an un-finished dismissal.
+    if (active) markSeen(id);
   });
 
   $effect(() => {
@@ -61,7 +88,16 @@
       return;
     }
     const el = document.querySelector(sel);
-    rect = el ? (el as HTMLElement).getBoundingClientRect() : null;
+    if (!el) {
+      rect = null;
+      return;
+    }
+    const r = (el as HTMLElement).getBoundingClientRect();
+    // A CSS-hidden / zero-size anchor (e.g. the modpacks "filters" step reached
+    // via an Imported deep-link, where the filter bar isn't rendered) yields a
+    // 0×0 rect at 0,0. Drawing a spotlight there paints a tiny corner box, so
+    // treat it as anchorless: centre the popover with no spotlight instead.
+    rect = r.width > 0 && r.height > 0 ? r : null;
   }
 
   function next() {
@@ -124,7 +160,16 @@
       if (leftCoord + POPOVER_WIDTH + MARGIN > vw) {
         leftCoord = Math.max(MARGIN, vw - POPOVER_WIDTH - MARGIN);
       }
-      return `top:${r.bottom + 12}px; left:${leftCoord}px;`;
+      // Flip above the anchor when there isn't room below it. A `below`-anchored
+      // step near the viewport bottom (e.g. the manage-instances actions row)
+      // would otherwise position the popover off the bottom edge — invisible,
+      // leaving only a dimmed screen with no reachable controls.
+      const POPOVER_HEIGHT_BUDGET = 220;
+      const fitsBelow = r.bottom + 12 + POPOVER_HEIGHT_BUDGET <= vh;
+      if (fitsBelow) {
+        return `top:${r.bottom + 12}px; left:${leftCoord}px;`;
+      }
+      return `bottom:${Math.max(MARGIN, vh - r.top + 12)}px; left:${leftCoord}px;`;
     }
     return 'top:50%; left:50%; transform:translate(-50%,-50%);';
   }
@@ -161,6 +206,7 @@
     class="fixed z-[101] bg-surface rounded shadow-xl p-4 w-[320px] max-w-[80vw]"
     style={popoverStyle(rect, step.anchor)}
     data-testid="contextual-tour-popover"
+    data-ctx-tour-root
   >
     <div class="text-xs text-muted mb-1">
       {$t('onboarding.controls.stepOf', { current: currentStep + 1, total: steps.length })}
@@ -169,26 +215,31 @@
       {$t(explainKey(step.titleKey, level))}
     </h3>
     <p class="text-sm text-secondary mb-4">{$t(explainKey(step.bodyKey, level))}</p>
-    <div class="flex justify-between gap-2">
-      <button
-        type="button"
-        class="btn-secondary btn-sm inline-flex items-center gap-1"
-        disabled={isFirst}
-        onclick={back}
-      >
-        <Icon name="arrowLeft" size={14} />
-        {$t('onboarding.controls.back')}
-      </button>
-      <div class="flex gap-2">
-        {#if !isLast}
-          <button
-            type="button"
-            class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
-            onclick={finish}
-          >
-            {$t('onboarding.controls.skipContextual')}
-          </button>
-        {/if}
+    <!-- Skip (dismiss the whole tour) sits alone on the far left, kept quiet so
+         it can't be misclicked when reaching for the primary Next in the corner.
+         Back + Next are paired on the right (Next isolated in the corner).
+         Identical layout to TourOverlay so every tour surface matches. On the
+         last step there is no Skip, so the pair pins right. -->
+    <div class="flex items-center gap-2 {isLast ? 'justify-end' : 'justify-between'}">
+      {#if !isLast}
+        <button
+          type="button"
+          class="btn-ghost btn-sm inline-flex items-center whitespace-nowrap"
+          onclick={finish}
+        >
+          {$t('onboarding.controls.skipContextual')}
+        </button>
+      {/if}
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="btn-secondary btn-sm inline-flex items-center gap-1"
+          disabled={isFirst}
+          onclick={back}
+        >
+          <Icon name="arrowLeft" size={14} />
+          {$t('onboarding.controls.back')}
+        </button>
         <button
           type="button"
           data-tour-primary

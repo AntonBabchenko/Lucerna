@@ -1548,6 +1548,16 @@ pub async fn mods_dependency_graph(
         return Ok(DependencyGraph { roots: Vec::new() });
     }
 
+    // Lowercased installed jar filenames — the cross-source recognition signal
+    // (a dep installed from the other platform has a different ProjectKey but the
+    // same jar). Declared dep links in this batch path carry no filename, so the
+    // signal only fires once a child's expected filename can be threaded in; the
+    // set is still passed so the mechanism is wired end-to-end.
+    let installed_filenames: HashSet<String> = installed_mods
+        .iter()
+        .map(|m| m.filename.to_ascii_lowercase())
+        .collect();
+
     // 1. Batch-fetch each installed mod's *installed* version by id, per source.
     //    The version object carries its declared deps. A mod with no stored
     //    version_id contributes no entry → it becomes a root with no children.
@@ -1640,7 +1650,7 @@ pub async fn mods_dependency_graph(
         }
     };
 
-    build_graph(&roots, fetch).await
+    build_graph(&roots, &installed_filenames, fetch).await
 }
 
 /// Map a dependency reference to the `(source, project_id)` key used by the
@@ -1700,6 +1710,9 @@ fn node_deps_scoped(
             source: child_src,
             project_id: child_pid,
             name,
+            // Declared dep links carry no resolved jar filename in this batch
+            // path; only the ProjectKey signal applies here.
+            filename: None,
         };
         match link.kind {
             DepKind::Required => required.push(child),

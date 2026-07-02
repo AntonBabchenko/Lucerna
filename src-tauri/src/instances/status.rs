@@ -8,7 +8,7 @@
 //! dropdown.
 
 use crate::instances::schema::{InstanceFile, LoaderKind};
-use crate::versions::loaders::{parse_synth_id, synth_id, Loader};
+use crate::versions::loaders::{parse_synth_id_with_mc, synth_id, Loader};
 use std::path::Path;
 
 /// What version id this instance launches as.
@@ -72,9 +72,14 @@ pub fn ready_status(versions_dir: &Path, instance: &InstanceFile) -> bool {
     if !profile_json.is_file() {
         return false;
     }
-    let client_jar_id = parse_synth_id(&effective_id)
-        .map(|(_loader, _lv, mc)| mc)
-        .unwrap_or_else(|| effective_id.clone());
+    // MC version is known from the instance, so use the unambiguous
+    // mc-aware parse: a synth id resolves the client jar to the parent MC,
+    // and a loader version containing `-` (e.g. `0.24.0-beta.1`) is handled.
+    let client_jar_id = if parse_synth_id_with_mc(&effective_id, &instance.mc_version).is_some() {
+        instance.mc_version.clone()
+    } else {
+        effective_id.clone()
+    };
     versions_dir
         .join(&client_jar_id)
         .join(format!("{client_jar_id}.jar"))

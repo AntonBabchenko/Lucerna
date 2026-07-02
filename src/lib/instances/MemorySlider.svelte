@@ -114,6 +114,13 @@
   );
 
   const numberId = $derived(id ? `${id}-num` : undefined);
+
+  // Accessible name for the range slider. When the caller passes an `id` it also
+  // wires an external `<label for={id}>`, so we must NOT add an aria-label too (it
+  // would override the visible label). When there's no `id` (the server surfaces
+  // use a deliberately-unassociated label), fall back to an aria-label so the
+  // slider is never left nameless. Reuses the numeric field's memory label.
+  const rangeAriaLabel = $derived(id ? undefined : $t('instance.manage.memoryInputLabel'));
 </script>
 
 <div class="flex items-center gap-2">
@@ -126,6 +133,7 @@
       max={bounds.max_mb}
       step={bounds.step_mb}
       value={valueMb}
+      aria-label={rangeAriaLabel}
       aria-valuetext={formatHeapLabel(valueMb)}
       oninput={handleInput}
       onchange={handleChange}

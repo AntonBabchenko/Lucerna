@@ -9,7 +9,6 @@
   import { Icon } from '$lib/ui/icons';
   import { tooltip } from '$lib/ui/tooltip';
   import BusyButton from '$lib/ui/BusyButton.svelte';
-  import { get } from 'svelte/store';
 
   let {
     instanceId,
@@ -28,6 +27,9 @@
   let loading = $state(false);
   let backingUp = $state(false);
   let restoreFor = $state<Backup | null>(null);
+  // Backup awaiting delete confirmation, or null. Drives the Modal-based confirm
+  // (replaces window.confirm, which is unstyled and blocks the event loop).
+  let deleteFor = $state<Backup | null>(null);
 
   async function reload() {
     loading = true;
@@ -40,9 +42,10 @@
 
   $effect(() => void reload());
 
-  async function onDelete(b: Backup) {
-    if (!confirm(get(t)('worlds.backups.confirmDelete', { timestamp: formatBackupTimestamp(b) })))
-      return;
+  async function confirmDelete() {
+    const b = deleteFor;
+    if (!b) return;
+    deleteFor = null;
     const r = await commands.deleteBackup(instanceId, world.folder_name, b.filename);
     if (r.status === 'ok') {
       onChanged();
@@ -136,7 +139,7 @@
               data-testid="backup-delete-btn"
               aria-label={$t('worlds.backups.deleteBackup')}
               use:tooltip={$t('worlds.backups.deleteBackup')}
-              onclick={() => void onDelete(b)}
+              onclick={() => (deleteFor = b)}
             >
               <Icon name="trash" size={15} />
             </button>
@@ -176,4 +179,30 @@
       onClose();
     }}
   />
+{/if}
+
+{#if deleteFor}
+  <!-- Modal-based delete confirm (replaces the unstyled, event-loop-blocking
+       window.confirm). Same shape as DeleteServerDialog: secondary Cancel +
+       danger Delete. Reuses the existing confirmDelete copy for the question. -->
+  <Modal
+    ariaLabelledby="backup-delete-confirm-title"
+    onClose={() => (deleteFor = null)}
+    panelClass="w-[420px] p-5 flex flex-col gap-3"
+  >
+    <h3 id="backup-delete-confirm-title" class="font-semibold text-primary text-base">
+      {$t('worlds.backups.deleteBackup')}
+    </h3>
+    <p class="text-sm text-secondary">
+      {$t('worlds.backups.confirmDelete', { timestamp: formatBackupTimestamp(deleteFor) })}
+    </p>
+    <div class="flex justify-end gap-2 mt-2">
+      <button type="button" class="btn-secondary btn-sm" onclick={() => (deleteFor = null)}>
+        {$t('common.cancel')}
+      </button>
+      <button type="button" class="btn-danger btn-sm" onclick={() => void confirmDelete()}>
+        {$t('worlds.backups.deleteBackup')}
+      </button>
+    </div>
+  </Modal>
 {/if}

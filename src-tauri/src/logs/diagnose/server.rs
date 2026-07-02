@@ -69,25 +69,14 @@ fn server_started(log: &str) -> bool {
 
 /// First matching server-log diagnosis, if any. Order = specificity.
 pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
-    // A client-only class load is logged as a NON-FATAL `RuntimeDistCleaner ...
-    // invalid dist DEDICATED_SERVER` warning on many working modpack servers —
-    // Forge refuses the class and the mod copes. It is only a crash when the
-    // server failed to finish loading; if it reached "Done … For help", the
-    // warning was harmless, so don't report a crash. (A real client-mod crash
-    // aborts loading and never reaches that line; the crash-report path, which
-    // has no success line, is unaffected.)
-    if !server_started(log)
-        && (log.contains("invalid dist DEDICATED_SERVER") || log.contains("RuntimeDistCleaner"))
-    {
-        return Some(Diagnosis {
-            pattern_id: "server-client-only-mod-crash".into(),
-            title: "A client-only mod crashed the server".into(),
-            explanation: "A mod meant for the game client was loaded on the dedicated server and tried to load client-only code.".into(),
-            recommendation: "Remove the client-only mods from this server, then start it again.".into(),
-            matched_excerpt: excerpt(log, "invalid dist DEDICATED_SERVER"),
-            repair: Some(RepairKind::RemoveClientServerMods),
-        });
-    }
+    // NOTE: the client-only-mod check is deliberately NOT first. The bare
+    // `RuntimeDistCleaner` logger name (and even `invalid dist DEDICATED_SERVER`)
+    // appears as a NON-FATAL warning on many working modpack servers, so putting
+    // it at the top shadowed the accurate high-specificity diagnoses (port, EULA,
+    // heap, OOM, session lock, …) whenever such a log ALSO failed to bind / ran
+    // out of memory. It now sits below those deterministic blockers and matches
+    // only the real crash line (`for invalid dist DEDICATED_SERVER`). See the
+    // gated block further down.
     if log.contains("FAILED TO BIND TO PORT") || log.contains("Address already in use") {
         return Some(Diagnosis {
             pattern_id: "server-port-in-use".into(),
@@ -183,6 +172,29 @@ pub fn diagnose_server_log(log: &str) -> Option<Diagnosis> {
                     .into(),
             matched_excerpt: excerpt(log, "world"),
             repair: None,
+        });
+    }
+    // Client-only mod loaded on a dedicated server. A client-only class load is
+    // logged as a NON-FATAL `RuntimeDistCleaner ... invalid dist DEDICATED_SERVER`
+    // warning on many WORKING modpack servers — Forge refuses the class and the
+    // mod copes — so this is only a crash when the server never finished loading.
+    // If it reached "Done … For help", the warning was harmless. (A real
+    // client-mod crash aborts loading and never reaches that line; the
+    // crash-report path, which has no success line, is unaffected.)
+    //
+    // Matched on the exact error line (`for invalid dist DEDICATED_SERVER`), NOT
+    // the bare `RuntimeDistCleaner` logger name, so a benign log that merely
+    // mentions the logger no longer shadows the deterministic blockers above.
+    // Declared here (below port/EULA/heap/OOM/session-lock/world) so those
+    // higher-specificity failures win the first-match scan.
+    if !server_started(log) && log.contains("for invalid dist DEDICATED_SERVER") {
+        return Some(Diagnosis {
+            pattern_id: "server-client-only-mod-crash".into(),
+            title: "A client-only mod crashed the server".into(),
+            explanation: "A mod meant for the game client was loaded on the dedicated server and tried to load client-only code.".into(),
+            recommendation: "Remove the client-only mods from this server, then start it again.".into(),
+            matched_excerpt: excerpt(log, "for invalid dist DEDICATED_SERVER"),
+            repair: Some(RepairKind::RemoveClientServerMods),
         });
     }
     // B9: Forge mod-loading screen "Missing or unsupported mandatory dependencies".
@@ -777,6 +789,32 @@ mod tests {
             "a server that reached Done must not be flagged as a client-mod crash"
         );
     }
+    #[test]
+    fn bare_runtime_dist_cleaner_no_longer_shadows_port_diagnosis() {
+        // A working modpack server logs the benign RuntimeDistCleaner warning AND
+        // then fails to bind the port. The accurate diagnosis is the port conflict,
+        // not the (harmless) client-mod warning. Previously the bare logger-name
+        // substring at the top shadowed this.
+        let log =
+            "[Server thread/WARN] [ne.mi.fm.lo.RuntimeDistCleaner/DISTXFORM]: something benign\n\
+                   [Server thread/WARN]: **** FAILED TO BIND TO PORT!\n\
+                   java.net.BindException: Address already in use: bind\n";
+        assert_eq!(
+            diagnose_server_log(log).map(|d| d.pattern_id),
+            Some("server-port-in-use".into()),
+            "the real port failure must win over a benign RuntimeDistCleaner line"
+        );
+    }
+
+    #[test]
+    fn bare_runtime_dist_cleaner_alone_is_not_a_crash() {
+        // The bare logger name without the real error line is not a client-mod
+        // crash (it's a benign warning), so it must NOT be diagnosed.
+        let log =
+            "[Server thread/WARN] [ne.mi.fm.lo.RuntimeDistCleaner/DISTXFORM]: refused a class\n";
+        assert!(diagnose_server_log(log).is_none());
+    }
+
     #[test]
     fn client_only_crash_still_fires_without_success_line() {
         // The real crash (no "Done … For help") must still be diagnosed.

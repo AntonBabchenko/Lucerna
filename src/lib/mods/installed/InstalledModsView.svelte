@@ -349,9 +349,15 @@
   // (and the Installed view would disagree with the Overview indicator, which
   // already reacts to these events). The re-scan is cheap (offline) and the
   // auto-confirm step skips shas already decided this session.
-  let unlisteners: Array<() => void> = [];
-  onMount(async () => {
-    const handlers = [
+  // Keep the raw listen() promises, not just the resolved unlisteners: if the
+  // view unmounts before a promise resolves, awaiting it in onMount would never
+  // run (the component is gone), leaking the listener. onDestroy instead cleans
+  // up via each promise's .then, and `destroyed` guards the case where the
+  // promise resolves AFTER unmount — we unlisten immediately in that path.
+  let destroyed = false;
+  let listenerPromises: Array<Promise<() => void>> = [];
+  onMount(() => {
+    listenerPromises = [
       events.modInstalled.listen(() => {
         void data.refresh();
         deps.reloadGraph();
@@ -370,11 +376,18 @@
         void compat.runOfflineScan();
       }),
     ];
-    for (const p of handlers) unlisteners.push(await p);
+    // If the view is already gone by the time a listener registers, tear it down
+    // on arrival rather than waiting for an onDestroy that has already fired.
+    for (const p of listenerPromises) {
+      void p.then((un) => {
+        if (destroyed) un();
+      });
+    }
   });
   onDestroy(() => {
-    for (const u of unlisteners) u();
-    unlisteners = [];
+    destroyed = true;
+    for (const p of listenerPromises) void p.then((un) => un());
+    listenerPromises = [];
     data.dispose();
     filters.dispose();
     updates.dispose();

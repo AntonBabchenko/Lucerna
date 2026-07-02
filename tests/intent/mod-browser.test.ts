@@ -710,7 +710,7 @@ describe('InstalledModsView — manual-mod row buttons', () => {
     render(InstalledModsView, {
       props: { instanceId: 'inst-1', mcVersion: '1.20.1', loader: 'fabric' },
     });
-    const uninstallBtn = await screen.findByRole('button', { name: /uninstall/i });
+    const uninstallBtn = await screen.findByRole('button', { name: /remove/i });
     expect(uninstallBtn).toHaveBtnVariant('icon');
   });
 });
@@ -778,7 +778,7 @@ describe('ModCard — installed+enabled shows version + green power toggle', () 
         onUninstall: () => {},
       },
     });
-    const btn = screen.getByRole('button', { name: /uninstall/i });
+    const btn = screen.getByRole('button', { name: /remove/i });
     expect(btn).toHaveBtnVariant('icon');
     expect(btn.className).toContain('btn-icon-danger');
   });

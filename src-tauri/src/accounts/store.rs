@@ -169,25 +169,28 @@ pub fn read_account_file(file: &Path) -> Result<AccountFile> {
     ))
 }
 
-/// Upsert a Microsoft account by MC UUID. If an entry with this UUID
-/// already exists, update its `name` + `expires_at` (keeping the
-/// existing `id` so the keyring entries stay associated). Otherwise
-/// append a new `Microsoft` entry with a fresh `ms-<uuid_v4>` id and
-/// set it as active.
-pub fn upsert_microsoft_account(
+/// Compute the upserted account file WITHOUT persisting it. If an entry with
+/// this MC UUID already exists, update its `name` + `expires_at` (keeping the
+/// existing `id` so the keyring entries stay associated). Otherwise append a
+/// new `Microsoft` entry with a fresh `ms-<uuid_v4>` id and set it as active.
+///
+/// Returns the mutated `AccountFile` (caller persists it) plus the affected
+/// `Account`. Splitting compute-from-persist lets the caller write the OS
+/// keyring secrets FIRST, so a keyring failure never leaves a signed-in-looking
+/// account.json entry with missing/stale tokens.
+pub fn prepare_upsert_microsoft_account(
     file: &Path,
     mc_uuid: &str,
     name: &str,
     expires_at: Option<f64>,
-) -> Result<Account> {
+) -> Result<(AccountFile, Account)> {
     let mut store = read_account_file(file)?;
     if let Some(existing) = store.accounts.iter_mut().find(|a| a.uuid == mc_uuid) {
         existing.name = name.to_string();
         existing.expires_at = expires_at;
         existing.kind = AccountKind::Microsoft;
         let updated = existing.clone();
-        write_account_file(file, &store)?;
-        return Ok(updated);
+        return Ok((store, updated));
     }
     let new_account = Account {
         id: format!("ms-{}", uuid::Uuid::new_v4()),
@@ -198,18 +201,69 @@ pub fn upsert_microsoft_account(
     };
     store.accounts.push(new_account.clone());
     store.active_id = Some(new_account.id.clone());
-    write_account_file(file, &store)?;
-    Ok(new_account)
+    Ok((store, new_account))
 }
 
+/// Upsert a Microsoft account by MC UUID and persist. Thin wrapper over
+/// `prepare_upsert_microsoft_account` for callers that don't need the
+/// keyring-before-persist ordering.
+pub fn upsert_microsoft_account(
+    file: &Path,
+    mc_uuid: &str,
+    name: &str,
+    expires_at: Option<f64>,
+) -> Result<Account> {
+    let (store, account) = prepare_upsert_microsoft_account(file, mc_uuid, name, expires_at)?;
+    write_account_file(file, &store)?;
+    Ok(account)
+}
+
+/// Compute an update of an EXISTING Microsoft account, located by its local
+/// `id` (not by uuid), WITHOUT persisting. Used by the silent-refresh path:
+/// unlike an upsert, a refresh must never resurrect an account the user has
+/// since removed — if the id is gone, return an auth error so the caller can
+/// treat the refresh as failed (and fall back to the stored token / prompt a
+/// re-sign-in) rather than recreating a ghost entry.
+pub fn prepare_refresh_microsoft_account_by_id(
+    file: &Path,
+    account_id: &str,
+    mc_uuid: &str,
+    name: &str,
+    expires_at: Option<f64>,
+) -> Result<(AccountFile, Account)> {
+    let mut store = read_account_file(file)?;
+    let Some(existing) = store.accounts.iter_mut().find(|a| a.id == account_id) else {
+        return Err(Error::AuthFailed {
+            stage: "refresh".into(),
+            details: format!("account {account_id} no longer exists"),
+        });
+    };
+    existing.name = name.to_string();
+    existing.uuid = mc_uuid.to_string();
+    existing.expires_at = expires_at;
+    existing.kind = AccountKind::Microsoft;
+    let updated = existing.clone();
+    Ok((store, updated))
+}
+
+/// Atomic write: serialise to a sibling temp file, then rename over the
+/// target. A crash or keyring failure mid-write can no longer leave a
+/// truncated/half-written account.json on disk (matches the temp+rename
+/// pattern in `servers::write_atomic`).
 pub fn write_account_file(file: &Path, account_file: &AccountFile) -> Result<()> {
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent.display().to_string(), e))?;
     }
     let json = serde_json::to_vec_pretty(account_file)
         .map_err(|e| Error::io(file.display().to_string(), format!("serialise: {e}")))?;
-    std::fs::write(file, json).map_err(|e| Error::io(file.display().to_string(), e))?;
-    Ok(())
+    let tmp = file.with_extension("json.tmp");
+    std::fs::write(&tmp, json).map_err(|e| Error::io(tmp.display().to_string(), e))?;
+    let renamed = std::fs::rename(&tmp, file).map_err(|e| Error::io(file.display().to_string(), e));
+    if renamed.is_err() {
+        // Don't leave a stale account.json.tmp behind on a failed rename.
+        let _ = std::fs::remove_file(&tmp);
+    }
+    renamed
 }
 
 #[cfg(test)]
@@ -439,5 +493,70 @@ mod tests {
 
         let on_disk = read_account_file(&path).unwrap();
         assert_eq!(on_disk.accounts.len(), 1, "no duplicate entry");
+    }
+
+    #[test]
+    fn prepare_refresh_by_id_updates_existing_and_does_not_persist() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("account.json");
+        let existing = Account {
+            id: "ms-keep".into(),
+            kind: AccountKind::Microsoft,
+            name: "OldName".into(),
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            expires_at: Some(100.0),
+        };
+        write_account_file(
+            &path,
+            &AccountFile {
+                version: 3,
+                accounts: vec![existing.clone()],
+                active_id: Some("ms-keep".into()),
+            },
+        )
+        .unwrap();
+
+        let (file, updated) = prepare_refresh_microsoft_account_by_id(
+            &path,
+            "ms-keep",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "NewName",
+            Some(200.0),
+        )
+        .unwrap();
+        assert_eq!(updated.id, "ms-keep");
+        assert_eq!(updated.name, "NewName");
+        assert_eq!(updated.expires_at, Some(200.0));
+
+        // Not persisted yet — on-disk still shows the old name.
+        let on_disk = read_account_file(&path).unwrap();
+        assert_eq!(on_disk.accounts[0].name, "OldName");
+
+        // Persisting the returned file applies the update.
+        write_account_file(&path, &file).unwrap();
+        let after = read_account_file(&path).unwrap();
+        assert_eq!(after.accounts[0].name, "NewName");
+    }
+
+    #[test]
+    fn prepare_refresh_by_id_errors_when_account_removed() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("account.json");
+        write_account_file(&path, &AccountFile::default()).unwrap();
+
+        let result = prepare_refresh_microsoft_account_by_id(
+            &path,
+            "ms-gone",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "Ghost",
+            Some(200.0),
+        );
+        assert!(
+            matches!(result, Err(Error::AuthFailed { ref stage, .. }) if stage == "refresh"),
+            "expected AuthFailed(refresh), got {result:?}"
+        );
+        // The store must not have gained a resurrected entry.
+        let on_disk = read_account_file(&path).unwrap();
+        assert!(on_disk.accounts.is_empty());
     }
 }

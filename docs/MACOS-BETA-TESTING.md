@@ -25,7 +25,7 @@ below clears it.
 - [ ] Clear the quarantine flag, then launch:
       `xattr -dr com.apple.quarantine /Applications/Lucerna.app`
       — or right-click the app → **Open** → **Open** on the first run.
-- [ ] The launcher window opens (820×680) without a "damaged / can't be
+- [ ] The launcher window opens (820×520) without a "damaged / can't be
       opened" error.
 
 ## 2. Accounts
@@ -53,11 +53,12 @@ below clears it.
 
 ## 5. System integration
 
-- [ ] Enable Settings → General → "hide launcher to tray when Minecraft
+- [ ] Enable Settings → Game → "hide launcher to tray when Minecraft
       starts". On the next launch the launcher hides (it hides **immediately**
       on macOS — window-ready detection is a deferred follow-up).
 - [ ] On game exit the launcher restores.
-- [ ] Theme picker (light / dark / system) follows macOS appearance.
+- [ ] Theme picker (light / dark / system), under Settings → Appearance,
+      follows macOS appearance.
 
 ## 6. Loaders & mods (optional, time permitting)
 

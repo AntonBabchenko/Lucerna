@@ -23,6 +23,9 @@
   let firewall = $state<FirewallState | null>(null);
   let addingRule = $state(false);
   let addRuleOutcome = $state<string | null>(null);
+  // True when addRuleOutcome holds a FAILURE message (rule couldn't be added).
+  // Drives danger styling so the failure isn't mistaken for the success note.
+  let addRuleFailed = $state(false);
   let switchingOffline = $state(false);
   let offlineError = $state<string | null>(null);
 
@@ -79,6 +82,7 @@
       } else {
         firewall = null;
         addRuleOutcome = null;
+        addRuleFailed = false;
         pub = null;
       }
     }
@@ -111,10 +115,12 @@
   async function handleAddRule(): Promise<void> {
     addingRule = true;
     addRuleOutcome = null;
+    addRuleFailed = false;
     try {
       const result = await serverState.firewallAddRule(serverId);
       if (result.ok) {
         addRuleOutcome = $t('servers.connect.firewall.added');
+        addRuleFailed = false;
         // Re-fetch firewall status after a short delay to pick up the new rule.
         setTimeout(() => {
           void serverState.firewallStatus(serverId).then((s) => {
@@ -123,6 +129,7 @@
         }, 1200);
       } else {
         addRuleOutcome = formatError(result.error as Parameters<typeof formatError>[0]);
+        addRuleFailed = true;
       }
     } finally {
       addingRule = false;
@@ -159,13 +166,16 @@
                 {$t('servers.connect.firewall.addRule')}
               </BusyButton>
               {#if addRuleOutcome}
-                <span class="text-xs text-muted">{addRuleOutcome}</span>
+                <span
+                  class={addRuleFailed ? 'text-xs text-danger' : 'text-xs text-muted'}
+                  role={addRuleFailed ? 'alert' : undefined}>{addRuleOutcome}</span
+                >
               {/if}
             </div>
 
             <details class="text-xs">
               <summary
-                class="inline-flex items-center cursor-pointer text-muted hover:text-foreground"
+                class="inline-flex items-center cursor-pointer text-muted hover:text-primary"
               >
                 <span class="disclosure-caret mr-1"><Icon name="caret" size={14} /></span>
                 {$t('servers.connect.firewall.manual')}

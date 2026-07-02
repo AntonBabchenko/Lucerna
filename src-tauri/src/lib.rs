@@ -402,40 +402,60 @@ pub fn run() {
             }
             builder.mount_events(app);
 
-            // Idle refresh task: every 60s, scan accounts and refresh any
-            // Microsoft account whose access token is within 5 minutes of expiry.
-            // Mirrors Mojang reference launcher's silent-renew behaviour. Failures
-            // are logged to stderr but don't surface to the UI — the next interactive
-            // sign-in will prompt the user if the refresh chain is unrecoverable.
+            // Re-arm per-server auto-backup schedulers. The interval task only
+            // lives for the launcher session it was set in, so without this an
+            // enabled backup policy silently stops producing snapshots after a
+            // restart until the user re-saves settings. Best-effort; spawns its
+            // own tasks internally.
+            crate::commands::rearm_backup_schedulers(app.handle());
+
+            // Idle refresh task: scan accounts and refresh any Microsoft account
+            // whose access token is within 5 minutes of expiry. Mirrors Mojang
+            // reference launcher's silent-renew behaviour. Failures are logged to
+            // stderr but don't surface to the UI — the next interactive sign-in
+            // will prompt the user if the refresh chain is unrecoverable.
+            //
+            // The scan runs immediately on startup and then every 60s (sleep is at
+            // the END of the loop). A launcher that was closed overnight would
+            // otherwise spend the first 60s serving an expired token to `Play`,
+            // making multiplayer joins fail with "Invalid session" until the first
+            // pass eventually fired. `launch_instance` also refreshes just-in-time
+            // before building argv, but a proactive startup pass keeps every other
+            // token-consuming path (skins, profile) fresh too.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs_f64())
                         .unwrap_or(0.0);
-                    let accounts = match crate::accounts::list_accounts(&app_handle) {
-                        Ok(xs) => xs,
-                        Err(e) => {
-                            crate::diag!("microsoft refresh: list_accounts failed: {e}");
-                            continue;
-                        }
-                    };
-                    for a in accounts {
-                        if a.kind != crate::accounts::store::AccountKind::Microsoft {
-                            continue;
-                        }
-                        let Some(exp) = a.expires_at else {
-                            continue;
-                        };
-                        if exp <= now + 300.0 {
-                            let res = crate::accounts::microsoft::refresh(&app_handle, &a.id).await;
-                            if let Err(e) = res {
-                                crate::diag!("microsoft refresh: failed for account {}: {e}", a.id);
+                    match crate::accounts::list_accounts(&app_handle) {
+                        Ok(accounts) => {
+                            for a in accounts {
+                                if a.kind != crate::accounts::store::AccountKind::Microsoft {
+                                    continue;
+                                }
+                                let Some(exp) = a.expires_at else {
+                                    continue;
+                                };
+                                if exp <= now + 300.0 {
+                                    if let Err(e) =
+                                        crate::accounts::microsoft::refresh(&app_handle, &a.id)
+                                            .await
+                                    {
+                                        crate::diag!(
+                                            "microsoft refresh: failed for account {}: {e}",
+                                            a.id
+                                        );
+                                    }
+                                }
                             }
                         }
+                        Err(e) => {
+                            crate::diag!("microsoft refresh: list_accounts failed: {e}");
+                        }
                     }
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });
 

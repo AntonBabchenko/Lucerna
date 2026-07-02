@@ -182,7 +182,10 @@
   </label>
 
   {#if error}
-    <div class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mt-2">
+    <div
+      role="alert"
+      class="bg-danger-bg border border-danger text-danger text-sm rounded p-2 mt-2"
+    >
       {error}
     </div>
   {/if}

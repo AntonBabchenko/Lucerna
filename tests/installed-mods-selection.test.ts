@@ -116,7 +116,7 @@ describe('InstalledModsView selection', () => {
     await screen.findByText('Alpha');
     await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]); // select Alpha (sha 'a')
     const bulkBar = screen.getByTestId('bulk-bar');
-    await fireEvent.click(within(bulkBar).getByRole('button', { name: /uninstall/i }));
+    await fireEvent.click(within(bulkBar).getByRole('button', { name: /remove/i }));
     // Dialog appears and offers the orphan (opt-in, default unchecked).
     expect(await screen.findByText(/also remove/i)).toBeTruthy();
     const dialog = screen.getByRole('dialog');
@@ -143,7 +143,7 @@ describe('InstalledModsView selection', () => {
     await screen.findByText('Alpha');
     await fireEvent.click(screen.getAllByRole('checkbox', { name: /select mod/i })[0]);
     await fireEvent.click(
-      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /uninstall/i }),
+      within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /remove/i }),
     );
     const dialog = await screen.findByRole('dialog');
     // Confirm without ticking the orphan → only the selected mod is removed.

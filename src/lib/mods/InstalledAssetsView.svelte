@@ -144,7 +144,7 @@
       }
       await refresh();
       assetsChanged.value++;
-      pushSuccess(v.name);
+      pushSuccess(get(t)('addons.installed.installedToast', { name: v.name }));
     } finally {
       busy = false;
     }
@@ -166,7 +166,7 @@
       updateStates = next;
       // Notify the Browse view so its "Installed" badge clears.
       assetsChanged.value++;
-      pushSuccess(asset.name);
+      pushSuccess(get(t)('addons.installed.removedToast', { name: asset.name }));
     } finally {
       busy = false;
     }
@@ -212,7 +212,7 @@
       await refresh();
       // Notify the Browse view so its badge reflects the new version.
       assetsChanged.value++;
-      pushSuccess(asset.name);
+      pushSuccess(get(t)('addons.installed.updatedToast', { name: asset.name }));
     } finally {
       busy = false;
     }
@@ -252,13 +252,13 @@
   {/if}
 
   {#if instanceId === null}
-    <div class="text-placeholder text-sm py-8 text-center">
+    <div class="text-muted text-sm py-6 text-center">
       {$t('addons.installed.pickInstance')}
     </div>
   {:else if loading && assets.length === 0}
     <LoadingPanel label={$t('addons.installed.loading')} size="md" />
   {:else if assets.length === 0}
-    <div class="text-placeholder text-sm py-8 text-center">{$t('addons.installed.empty')}</div>
+    <div class="text-muted text-sm py-6 text-center">{$t('addons.installed.empty')}</div>
   {:else}
     <div class="border border-border-subtle rounded-lg overflow-hidden">
       {#each assets as asset (asset.filename)}

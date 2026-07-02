@@ -11,6 +11,7 @@
   } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import { formatSize } from '$lib/format/size';
   import Modal from '$lib/ui/Modal.svelte';
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import Spinner from '$lib/ui/Spinner.svelte';
@@ -67,18 +68,18 @@
     bundleSet = next;
   }
 
-  function fmtSize(bytes: number): string {
-    if (bytes > 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
-    return `${Math.max(1, Math.round(bytes / 1024 / 1024))} MB`;
-  }
+  // Translated label for the current export phase. The backend emits a raw
+  // enum (resolving/bundling/writing/done); map it to a localized string so
+  // the progress line re-renders on a live locale switch.
+  const phaseLabel = $derived(phase ? $t(`modpacks.export.phase.${phase.phase}`) : '');
 
   async function runExport() {
     const dest = await save({
       defaultPath: defaultExportFilename(name, version, format),
       filters: [
         format === 'modrinth'
-          ? { name: 'Modrinth modpack', extensions: ['mrpack'] }
-          : { name: 'CurseForge modpack', extensions: ['zip'] },
+          ? { name: $t('common.fileFilter.modrinthModpack'), extensions: ['mrpack'] }
+          : { name: $t('common.fileFilter.curseforgeModpack'), extensions: ['zip'] },
       ],
     });
     if (!dest) return;
@@ -105,10 +106,10 @@
     const r = await commands.exportModpack(instanceId, options, dest, ch);
     busy = false;
     if (r.status === 'ok') {
-      pushSuccess(`Exported ${name} to ${dest}`);
+      pushSuccess($t('modpacks.export.exported', { name, dest }));
       onClose();
     } else {
-      pushWarning('Export failed', [formatError(r.error)]);
+      pushWarning($t('modpacks.export.failed'), [formatError(r.error)]);
     }
   }
 </script>
@@ -192,8 +193,8 @@
         {#if preview.has_saves}
           <label>
             <input type="checkbox" bind:checked={includeWorlds} />
-            {$t('modpacks.export.worlds')}{preview.saves_size_bytes != null
-              ? ` (${fmtSize(preview.saves_size_bytes)})`
+            {$t('modpacks.export.worlds')}{formatSize($t, preview.saves_size_bytes)
+              ? ` (${formatSize($t, preview.saves_size_bytes)})`
               : ''}
           </label>
           {#if includeWorlds}
@@ -253,7 +254,7 @@
 
       {#if phase}
         <p class="text-sm text-secondary flex items-center gap-2" data-testid="export-phase">
-          <Spinner size="sm" labelPlacement="right" label={phase.phase} />
+          <Spinner size="sm" labelPlacement="right" label={phaseLabel} />
         </p>
       {/if}
     {/if}

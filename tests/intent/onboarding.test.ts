@@ -32,6 +32,13 @@ import TourOverlay from '$lib/onboarding/TourOverlay.svelte';
 beforeEach(() => {
   localStorage.clear();
   appSettingsMarkTourCompleted.mockResolvedValue({ status: 'ok', data: null });
+  // Reset shared tour state so tests are order-independent: ContextualTour now
+  // has a mount guard (`if (tourState.active) return`) that mutually excludes it
+  // from the main tour, so a leaked `active = true` from the TourOverlay suite
+  // would otherwise suppress the contextual-tour renders.
+  tourState.active = false;
+  tourState.contextual = false;
+  tourState.currentStep = 0;
 });
 
 // ── InstanceConceptTooltip ─────────────────────────────────────────────────

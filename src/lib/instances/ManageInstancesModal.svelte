@@ -78,6 +78,12 @@
 
   let modalError = $state<string | null>(null);
   let deleteConfirmOpen = $state(false);
+  // Deleting an instance destroys ALL of its worlds (plus mods/configs), so the
+  // gate is at least as strong as the single-world delete: the user must type
+  // the literal word "Delete" to confirm. Mirrors DeleteWorldDialog.
+  const DELETE_CONFIRM_WORD = 'Delete';
+  let deleteConfirmTyped = $state('');
+  const canConfirmDelete = $derived(deleteConfirmTyped === DELETE_CONFIRM_WORD);
 
   // Transient per-field "Saved" confirmation. The detail editor auto-saves each
   // field independently (no Save button), so the user otherwise gets no signal a
@@ -943,7 +949,10 @@
                 type="button"
                 class="btn-ghost-danger inline-flex items-center gap-1.5"
                 disabled={instances.length <= 1 || isRunning}
-                onclick={() => (deleteConfirmOpen = true)}
+                onclick={() => {
+                  deleteConfirmTyped = '';
+                  deleteConfirmOpen = true;
+                }}
               >
                 <Icon name="trash" size={14} />
                 {$t('instance.manage.deleteBtn')}
@@ -990,6 +999,17 @@
       <p class="text-sm text-secondary">
         {$t('instance.delete.description')}
       </p>
+      <label class="block text-xs text-secondary" for="instance-delete-confirm">
+        {$t('worlds.delete.typeToConfirm', { word: DELETE_CONFIRM_WORD })}
+      </label>
+      <input
+        id="instance-delete-confirm"
+        class="border rounded px-2 py-1 w-full"
+        bind:value={deleteConfirmTyped}
+        placeholder={DELETE_CONFIRM_WORD}
+        autocomplete="off"
+        data-testid="instance-delete-confirm-input"
+      />
       <div class="flex justify-end gap-2 mt-2">
         <button
           type="button"
@@ -1001,6 +1021,7 @@
         <button
           type="button"
           class="btn-danger btn-sm"
+          disabled={!canConfirmDelete}
           onclick={async () => {
             deleteConfirmOpen = false;
             await deleteSelected();

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installMockIpc } from '../helpers/mock-ipc';
+import { installMockIpc, makeInstance } from '../helpers/mock-ipc';
 import { setTheme } from '../helpers/theme';
 
 test.skip(process.platform !== 'linux', 'Visual tests pinned to Linux for cross-OS determinism');
@@ -12,24 +12,8 @@ const offlineAccount = {
   expires_at: null,
 };
 
-// Mirror the full MockInstance shape (all required fields) from mock-ipc.ts.
-const baseInstance = {
-  id: 'inst-1',
-  name: 'Default',
-  mc_version: '1.20.4',
-  loader: 'vanilla' as const,
-  loader_version: null,
-  max_heap_mb: 2048,
-  extra_jvm_args: '',
-  created_unix_ms: null,
-  ready: false,
-  mrpack_name: null,
-  mrpack_version: null,
-  mrpack_project_id: null,
-  mrpack_source: null,
-  mrpack_summary: null,
-  mrpack_version_id: null,
-};
+// ready: false so the sidebar shows the install (not Play) state.
+const baseInstance = makeInstance({ id: 'inst-1', name: 'Default', ready: false });
 
 // Sidebar renders as <aside> — confirmed in src/lib/layout/Sidebar.svelte.
 const SIDEBAR = 'aside';

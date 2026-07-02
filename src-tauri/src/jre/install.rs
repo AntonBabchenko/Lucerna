@@ -12,7 +12,7 @@ use crate::jre::manifest::{
 use crate::network::download_with_sha;
 use crate::paths::jres_dir;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -160,6 +160,59 @@ pub async fn ensure_jre(
     Ok(())
 }
 
+/// Reject a manifest-declared entry key (the relative dest path) that would
+/// escape `comp_root` when joined — absolute, drive-letter, backslash, or any
+/// `..`/`.`/root component. Same rooted/zip-slip guard used for modpack
+/// overrides; a Mojang manifest key is always a plain relative path like
+/// `bin/java`, so a rejection means the manifest is malformed or tampered.
+fn is_safe_manifest_rel(rel: &str) -> bool {
+    crate::mods::modpack::path_safety::is_safe_relative_path(rel)
+}
+
+/// `true` iff the symlink at `link_rel` pointing at `target` resolves (lexically,
+/// resolving `..`) to a path that stays inside `comp_root`. Mojang link targets
+/// are legitimately relative and may contain `..` (e.g. `../legal`), so `..` is
+/// allowed — but only as far as it does not climb above the component root.
+fn link_target_within_root(comp_root: &Path, link_rel: &str, target: &str) -> bool {
+    // Absolute targets always escape a rooted install.
+    if target.starts_with('/') || target.starts_with('\\') {
+        return false;
+    }
+    if target.len() > 1 && target.as_bytes()[1] == b':' {
+        return false; // Windows drive letter
+    }
+    // Resolve the link target relative to the link's parent directory, then
+    // lexically normalize the whole path into a component stack (folding `.`
+    // and popping on `..`). The result must remain a (non-strict) descendant
+    // of the normalized comp_root.
+    fn normalize(p: &Path) -> Option<Vec<std::ffi::OsString>> {
+        let mut stack: Vec<std::ffi::OsString> = Vec::new();
+        for c in p.components() {
+            match c {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    // Popping past the top means the path climbed above root.
+                    stack.pop()?;
+                }
+                Component::Normal(seg) => stack.push(seg.to_os_string()),
+                Component::Prefix(pref) => stack.push(pref.as_os_str().to_os_string()),
+                Component::RootDir => stack.push(std::ffi::OsString::from("/")),
+            }
+        }
+        Some(stack)
+    }
+    let link_path = comp_root.join(link_rel);
+    let base = link_path.parent().unwrap_or(comp_root);
+    let Some(resolved) = normalize(&base.join(target)) else {
+        return false; // `..` climbed above the filesystem root
+    };
+    let Some(root) = normalize(comp_root) else {
+        return false;
+    };
+    // resolved must start with every component of root (i.e. stay inside it).
+    resolved.len() >= root.len() && resolved[..root.len()] == root[..]
+}
+
 async fn download_files(
     manifest: &ComponentManifest,
     comp_root: &std::path::Path,
@@ -173,10 +226,29 @@ async fn download_files(
     let mut dir_paths: Vec<std::path::PathBuf> = Vec::new();
     let mut link_entries: Vec<(String, String)> = Vec::new();
     for (rel, entry) in &manifest.files {
+        // Reject a manifest key that would escape comp_root when joined (the
+        // same rooted/zip-slip guard used for modpack overrides). A well-formed
+        // Mojang manifest never trips this; a tampered one is refused.
+        if !is_safe_manifest_rel(rel) {
+            return Err(Error::io(
+                comp_root.join(rel).display().to_string(),
+                "unsafe JRE manifest path (escapes component root)",
+            ));
+        }
         let dest = comp_root.join(rel);
         match entry {
             FileEntry::Directory {} => dir_paths.push(dest),
-            FileEntry::Link { target } => link_entries.push((rel.clone(), target.clone())),
+            FileEntry::Link { target } => {
+                // A symlink target may be relative with `..` (Mojang uses
+                // `../legal`), but must not resolve outside comp_root.
+                if !link_target_within_root(comp_root, rel, target) {
+                    return Err(Error::io(
+                        dest.display().to_string(),
+                        format!("unsafe JRE symlink target '{target}' (escapes component root)"),
+                    ));
+                }
+                link_entries.push((rel.clone(), target.clone()));
+            }
             FileEntry::File {
                 executable,
                 downloads,
@@ -339,5 +411,50 @@ mod tests {
     fn current_arch_returns_known_value() {
         let arch = current_arch();
         assert!(["x64", "aarch64", "x86"].contains(&arch));
+    }
+
+    #[test]
+    fn manifest_rel_rejects_escaping_paths() {
+        assert!(is_safe_manifest_rel("bin/java"));
+        assert!(is_safe_manifest_rel("lib/server/libjvm.so"));
+        assert!(!is_safe_manifest_rel("../escape"));
+        assert!(!is_safe_manifest_rel("bin/../../etc/passwd"));
+        assert!(!is_safe_manifest_rel("/abs/path"));
+        assert!(!is_safe_manifest_rel("C:/win"));
+        assert!(!is_safe_manifest_rel("bin\\java.exe"));
+        assert!(!is_safe_manifest_rel(""));
+    }
+
+    #[test]
+    fn link_target_allows_relative_within_root() {
+        let root = Path::new("/jres/java-runtime-gamma");
+        // Mojang's real shape: legal/link -> ../legal (stays inside root).
+        assert!(link_target_within_root(root, "legal/link", "../legal"));
+        // A sibling file under the same root.
+        assert!(link_target_within_root(root, "bin/java", "javaw"));
+        assert!(link_target_within_root(
+            root,
+            "jre.bundle/Contents/Home/bin/java",
+            "../lib/jli/libjli.dylib"
+        ));
+    }
+
+    #[test]
+    fn link_target_rejects_escaping_root() {
+        let root = Path::new("/jres/java-runtime-gamma");
+        // Climbs above the component root.
+        assert!(!link_target_within_root(
+            root,
+            "bin/java",
+            "../../etc/passwd"
+        ));
+        assert!(!link_target_within_root(
+            root,
+            "legal/link",
+            "../../../secret"
+        ));
+        // Absolute targets are always rejected.
+        assert!(!link_target_within_root(root, "bin/java", "/etc/passwd"));
+        assert!(!link_target_within_root(root, "bin/java", "C:/windows"));
     }
 }

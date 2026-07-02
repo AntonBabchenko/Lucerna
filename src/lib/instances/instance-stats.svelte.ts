@@ -37,6 +37,15 @@ export function createInstanceStats() {
   let playtime = $state<PlaytimeStats>({ ...EMPTY_PLAYTIME });
   let packMissingMods = $state<MissingModStatus[]>([]);
 
+  // Per-refresher monotonic request ids. Each `refresh*` awaits an IPC call; a
+  // rapid instance switch can land mid-flight, so a stale run must not commit
+  // the previous instance's data over the newer one. Each refresher bumps its
+  // own counter and drops the commit if a newer call has started.
+  let statsSeq = 0;
+  let incompatSeq = 0;
+  let playtimeSeq = 0;
+  let packSeq = 0;
+
   // Lightweight installed-mods stats for the Overview pane. Re-fetched on
   // instance change and whenever the launcher emits an install / uninstall /
   // toggle event from the mod browser.
@@ -45,7 +54,9 @@ export function createInstanceStats() {
       installedStats = { ...EMPTY_INSTALLED };
       return;
     }
+    const seq = ++statsSeq;
     const r = await commands.modsListInstalled(id);
+    if (seq !== statsSeq) return;
     if (r.status !== 'ok') return;
     const total = r.data.length;
     const enabled = r.data.filter((m) => m.enabled).length;
@@ -64,7 +75,9 @@ export function createInstanceStats() {
       incompatibleCount = 0;
       return;
     }
+    const seq = ++incompatSeq;
     const r = await commands.scanInstanceModCompat(inst.id, inst.mc_version, inst.loader);
+    if (seq !== incompatSeq) return;
     incompatibleCount =
       r.status === 'ok' ? r.data.filter((x) => x.loader_mismatch && !x.live_checkable).length : 0;
   }
@@ -76,8 +89,12 @@ export function createInstanceStats() {
       playtime = { ...EMPTY_PLAYTIME };
       return;
     }
+    const seq = ++playtimeSeq;
     const r = await commands.getPlaytime(id);
-    if (r.status === 'ok') playtime = r.data;
+    if (seq !== playtimeSeq) return;
+    // Reset to EMPTY on error rather than retaining the previous instance's
+    // playtime — a stale value here would mislabel a fresh instance's Overview.
+    playtime = r.status === 'ok' ? r.data : { ...EMPTY_PLAYTIME };
   }
 
   // Missing mods for the active pack-origin instance — drives the Overview
@@ -88,7 +105,9 @@ export function createInstanceStats() {
       packMissingMods = [];
       return;
     }
+    const seq = ++packSeq;
     const r = await commands.modpackStatus(id);
+    if (seq !== packSeq) return;
     packMissingMods = r.status === 'ok' && r.data ? r.data.missing_mods : [];
   }
 

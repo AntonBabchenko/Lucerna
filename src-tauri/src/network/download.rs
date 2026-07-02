@@ -42,10 +42,18 @@ pub enum Checksum {
 /// Shared streaming-download core used by the `download_with_sha` /
 /// `download_no_emit` wrappers AND directly by callers that need a
 /// progress callback without a Tauri `AppHandle` (e.g. `mods::install`).
-/// Streams the body of `url` to `dest`, hashing as it goes;
-/// verifies against `checksum` after the last byte;
-/// always computes and returns sha1 (the universal identity anchor).
-/// `Err(HashMismatch)` deletes the partial file.
+///
+/// Downloads are **atomic**: the body streams to a sibling `<dest>.part`
+/// file, is hashed as it goes and verified against `checksum` after the
+/// last byte, and only then is renamed onto `dest`. Any stream/IO error,
+/// or a hash mismatch, removes the partial and leaves `dest` untouched.
+/// This closes a TOFU-truncation hole: an interrupted download of an
+/// empty-sha artifact used to leave a truncated file at `dest` that later
+/// presence/empty-sha checks would trust forever. Because `dest` only ever
+/// appears fully-written, treating an empty expected sha as "exists = ok"
+/// downstream is safe.
+///
+/// Always computes and returns sha1 (the universal identity anchor).
 ///
 /// `download_with_sha` / `download_no_emit` are thin wrappers that
 /// supply the `emit` closure (Tauri-event emission, or a no-op).
@@ -80,9 +88,66 @@ pub(crate) async fn download_inner(
             .await
             .map_err(|e| Error::io(parent.display().to_string(), e))?;
     }
-    let mut file = File::create(dest)
+
+    // Stream to a sibling temp file, then rename onto `dest`. Keeping the
+    // temp in the same directory guarantees the rename is a cheap same-volume
+    // move. A `.part` suffix makes leftover partials (e.g. after a hard crash
+    // that skips the cleanup) recognisable and disjoint from finished files.
+    let part = part_path(dest);
+
+    let result = stream_to_part(
+        resp,
+        &part,
+        dest,
+        &checksum,
+        url,
+        initiator,
+        bytes_total,
+        &mut emit,
+    )
+    .await;
+
+    match result {
+        Ok(got_sha1) => {
+            // Promote the verified temp file to its final name.
+            tokio::fs::rename(&part, dest).await.map_err(|e| {
+                let _ = std::fs::remove_file(&part);
+                Error::io(dest.display().to_string(), e)
+            })?;
+            Ok(got_sha1)
+        }
+        Err(e) => {
+            // Never leave a partial/unverified file behind.
+            let _ = tokio::fs::remove_file(&part).await;
+            Err(e)
+        }
+    }
+}
+
+/// Compute the sibling temp path used while a download is in flight.
+fn part_path(dest: &Path) -> std::path::PathBuf {
+    let mut name = dest.file_name().unwrap_or_default().to_os_string();
+    name.push(".part");
+    dest.with_file_name(name)
+}
+
+/// Stream the response body into `part`, hashing and emitting progress,
+/// and verify the digest. On success returns the computed sha1; the caller
+/// renames `part` onto `dest`. `dest` is used only for error messages here.
+#[allow(clippy::too_many_arguments)]
+async fn stream_to_part(
+    resp: reqwest::Response,
+    part: &Path,
+    dest: &Path,
+    checksum: &Checksum,
+    url: &str,
+    initiator: &str,
+    bytes_total: Option<f64>,
+    emit: &mut impl FnMut(DownloadProgress),
+) -> Result<String> {
+    let mut file = File::create(part)
         .await
-        .map_err(|e| Error::io(dest.display().to_string(), e))?;
+        .map_err(|e| Error::io(part.display().to_string(), e))?;
 
     let mut sha1_hasher = Sha1::new();
     let mut md5_hasher = Md5::new();
@@ -99,7 +164,7 @@ pub(crate) async fn download_inner(
         }
         file.write_all(&chunk)
             .await
-            .map_err(|e| Error::io(dest.display().to_string(), e))?;
+            .map_err(|e| Error::io(part.display().to_string(), e))?;
         bytes_done += chunk.len() as f64;
 
         emit(DownloadProgress {
@@ -110,17 +175,15 @@ pub(crate) async fn download_inner(
     }
     file.flush()
         .await
-        .map_err(|e| Error::io(dest.display().to_string(), e))?;
+        .map_err(|e| Error::io(part.display().to_string(), e))?;
 
     let got_sha1 = hex::encode(sha1_hasher.finalize());
 
-    let (expected, got_for_compare) = match &checksum {
+    let (expected, got_for_compare) = match checksum {
         Checksum::Sha1(h) => (h.as_str(), got_sha1.clone()),
         Checksum::Md5(h) => (h.as_str(), hex::encode(md5_hasher.finalize())),
     };
     if !expected.is_empty() && got_for_compare != expected.to_ascii_lowercase() {
-        // Drop the bad file so a retry starts fresh.
-        let _ = tokio::fs::remove_file(dest).await;
         return Err(Error::HashMismatch {
             path: dest.display().to_string(),
             expected: expected.to_string(),
@@ -295,6 +358,44 @@ mod tests {
         assert!(
             !dest.exists(),
             "bad file should be removed after sha mismatch"
+        );
+    }
+
+    #[tokio::test]
+    async fn mismatch_leaves_no_part_file_and_preserves_existing_dest() {
+        // Atomicity: a hash mismatch must not clobber a pre-existing good
+        // file at `dest`, and must not leave a `<dest>.part` behind.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"new-bad-bytes"))
+            .mount(&server)
+            .await;
+
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("x.jar");
+        std::fs::write(&dest, b"existing-good-bytes").unwrap();
+        let url = format!("{}/x.jar", server.uri());
+
+        let result = download_no_emit(
+            &url,
+            &dest,
+            "0000000000000000000000000000000000000000",
+            "test",
+        )
+        .await;
+
+        assert!(matches!(result, Err(Error::HashMismatch { .. })));
+        assert!(
+            !part_path(&dest).exists(),
+            "temp .part file must be cleaned up on mismatch"
+        );
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            b"existing-good-bytes",
+            "pre-existing dest must be untouched by a failed download"
         );
     }
 

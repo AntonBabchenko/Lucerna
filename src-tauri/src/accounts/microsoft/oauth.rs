@@ -268,52 +268,81 @@ pub async fn bind_listener() -> Result<(TcpListener, String)> {
     Ok((listener, redirect_uri))
 }
 
-/// Accept one connection, read until \r\n\r\n (or 4 KiB max), parse the
-/// first request line, write a minimal HTML response. Returns the
-/// `CallbackOutcome`. Times out after `timeout`.
+/// Accept connections until a real OAuth callback arrives, then parse the
+/// first request line and write a minimal HTML response. Returns the
+/// `CallbackOutcome`. Times out (overall) after `timeout`.
+///
+/// Browsers routinely open speculative "preconnect" sockets to the redirect
+/// host and either send nothing or request an unrelated path (favicon, etc.)
+/// before the real `/oauth/callback` request. Handling only the first accepted
+/// socket would abort sign-in on one of those noise connections. Instead we
+/// loop: an empty read or an `UnrelatedPath` gets a 404 and we go back to
+/// accept the next connection, subtracting elapsed time from the budget. Only
+/// a real `Code` / `OAuthError`, or the overall deadline, ends the loop.
 pub async fn run_loopback_listener(
     listener: TcpListener,
     timeout: Duration,
 ) -> Result<CallbackOutcome> {
-    let accept_fut = listener.accept();
-    let (mut stream, _peer) = tokio::time::timeout(timeout, accept_fut)
-        .await
-        .map_err(|_| Error::AuthCancelled)?
-        .map_err(|e| Error::io("<loopback>", format!("accept: {e}")))?;
-
-    // Read until we see the end of headers, capped at 4 KiB.
-    let mut buf = Vec::with_capacity(1024);
-    let mut chunk = [0u8; 512];
+    let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if buf.len() > 4096 {
-            break;
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(Error::AuthCancelled);
         }
-        let n = stream
-            .read(&mut chunk)
+        let (mut stream, _peer) = tokio::time::timeout(remaining, listener.accept())
             .await
-            .map_err(|e| Error::io("<loopback>", format!("read: {e}")))?;
-        if n == 0 {
-            break;
+            .map_err(|_| Error::AuthCancelled)?
+            .map_err(|e| Error::io("<loopback>", format!("accept: {e}")))?;
+
+        // Read until we see the end of headers, capped at 4 KiB.
+        let mut buf = Vec::with_capacity(1024);
+        let mut chunk = [0u8; 512];
+        loop {
+            if buf.len() > 4096 {
+                break;
+            }
+            let n = stream
+                .read(&mut chunk)
+                .await
+                .map_err(|e| Error::io("<loopback>", format!("read: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
         }
-        buf.extend_from_slice(&chunk[..n]);
-        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-            break;
+
+        let head = String::from_utf8_lossy(&buf);
+        let first_line = head.lines().next().unwrap_or("");
+        let outcome = parse_callback_request_line(first_line);
+
+        // Noise connection (browser preconnect / favicon / empty read): answer
+        // 404 so the socket closes cleanly, then loop back to accept the real
+        // callback within the remaining budget.
+        if matches!(outcome, CallbackOutcome::UnrelatedPath) {
+            let _ = stream.write_all(not_found_response().as_bytes()).await;
+            let _ = stream.shutdown().await;
+            continue;
         }
+
+        let body = loopback_response_body(&outcome);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body,
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
+        let _ = stream.shutdown().await;
+        return Ok(outcome);
     }
+}
 
-    let head = String::from_utf8_lossy(&buf);
-    let first_line = head.lines().next().unwrap_or("");
-    let outcome = parse_callback_request_line(first_line);
-
-    let body = loopback_response_body(&outcome);
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body,
-    );
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.shutdown().await;
-    Ok(outcome)
+/// Minimal 404 response for noise connections (browser preconnect sockets,
+/// favicon probes) that hit the loopback before the real OAuth callback.
+fn not_found_response() -> &'static str {
+    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 }
 
 #[cfg(test)]
@@ -487,6 +516,48 @@ mod tests {
         }
         // The two pages say different things.
         assert_ne!(loopback_body_success(), loopback_body_error());
+    }
+
+    #[tokio::test]
+    async fn loopback_listener_skips_noise_then_captures_code() {
+        let (listener, redirect_uri) = bind_listener().await.unwrap();
+        let port = redirect_uri
+            .rsplit_once(':')
+            .and_then(|(_, p)| p.split('/').next())
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap();
+
+        let listener_fut =
+            tokio::spawn(
+                async move { run_loopback_listener(listener, Duration::from_secs(5)).await },
+            );
+
+        // First: a noise request to an unrelated path (browser favicon probe).
+        // The listener must 404 it and keep waiting.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _noise = crate::network::http()
+            .get(format!("http://127.0.0.1:{port}/favicon.ico"))
+            .send()
+            .await
+            .unwrap();
+
+        // Then: the real OAuth callback.
+        let _resp = crate::network::http()
+            .get(format!(
+                "http://127.0.0.1:{port}/oauth/callback?code=REAL&state=ST"
+            ))
+            .send()
+            .await
+            .unwrap();
+
+        let outcome = listener_fut.await.unwrap().unwrap();
+        match outcome {
+            CallbackOutcome::Code { code, state } => {
+                assert_eq!(code, "REAL");
+                assert_eq!(state, "ST");
+            }
+            other => panic!("expected Code after noise, got {other:?}"),
+        }
     }
 
     #[tokio::test]

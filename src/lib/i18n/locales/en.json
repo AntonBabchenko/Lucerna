@@ -15,7 +15,19 @@
     "installCount": "Install {count} selected",
     "switchToVersion": "Switch to this version",
     "installed": "Installed",
-    "restricted": "Restricted — open the page to download"
+    "restricted": "Restricted — open the page to download",
+    "fileFilter": {
+      "modrinthModpack": "Modrinth modpack",
+      "curseforgeModpack": "CurseForge modpack",
+      "modpack": "Modpack",
+      "modJar": "Mod jar",
+      "addonZip": "Add-on zip",
+      "datapack": "Datapack",
+      "zip": "Zip",
+      "serverZip": "Server zip",
+      "mod": "Mod",
+      "worldZip": "World zip"
+    }
   },
   "pagination": {
     "first": "First",
@@ -211,7 +223,7 @@
       "toastVerifyOk": "{name}: integrity OK",
       "toastVerifyProblems": "{name}: {count, plural, one {# integrity problem} other {# integrity problems}}",
       "toastRepaired": "{name}: repaired",
-      "toastRepairPartial": "{name}: {count} files could not be repaired",
+      "toastRepairPartial": "{name}: {count, plural, one {# file could not be repaired} other {# files could not be repaired}}",
       "toastError": "{name}: {error}",
       "statusQueued": "Queued for check…"
     },
@@ -290,8 +302,8 @@
       "vanillaBody": "Vanilla Minecraft has no mod loader, so mod jars from Modrinth / CurseForge cannot be loaded at runtime. To install mods, create or switch to a Fabric, Quilt, Forge, or NeoForge instance via the Manage panel in the sidebar.",
       "errorNoInstance": "No active instance",
       "errorNoCompatibleVersion": "No compatible version found",
-      "errorNoVersionForMc": "{mod} has no version for Minecraft {mcVersion} (profile “{profile}”). Latest supported: {list}",
-      "errorWrongLoader": "Your profile “{profile}” uses {loader}, but {mod} has no {loader} version. Available: {list}",
+      "errorNoVersionForMc": "{mod} has no version for Minecraft {mcVersion} (instance “{profile}”). Latest supported: {list}",
+      "errorWrongLoader": "Your instance “{profile}” uses {loader}, but {mod} has no {loader} version. Available: {list}",
       "errorFilenameConflictNamed": "Can’t install {newMod}: its jar “{filename}” has the same name as {existingMod}, which is already installed with different contents. Uninstall {existingMod} first.",
       "distributionDisabledTitle": "{mod} can’t be downloaded automatically",
       "distributionDisabledBody": "Its author disabled third-party launcher downloads on {platform}. Open the project page to download it manually.",
@@ -318,7 +330,7 @@
       "empty": "No matching mod found on Modrinth. Refine the search, or open the original on CurseForge below — it may be a CurseForge-only mod.",
       "likelyMatch": "likely match",
       "installed": "Installed {name}",
-      "noVersion": "{mod} has no Modrinth version for this profile's Minecraft + loader.",
+      "noVersion": "{mod} has no Modrinth version for this instance's Minecraft + loader.",
       "openCurseForge": "Open on CurseForge",
       "close": "Close",
       "toastAction": "Find on Modrinth"
@@ -331,7 +343,7 @@
       "disabled": "Disabled",
       "disable": "Disable",
       "enable": "Enable",
-      "uninstall": "Uninstall",
+      "uninstall": "Remove",
       "update": "Update",
       "selectAriaLabel": "Select mod {name}",
       "fromModpackTitle": "From modpack: {name}",
@@ -543,7 +555,10 @@
       "loading": "Loading…",
       "pickInstance": "Pick an instance first.",
       "upToDateToast": "Everything is up to date.",
-      "checkFailed": "Update check failed"
+      "checkFailed": "Update check failed",
+      "installedToast": "Installed {name}",
+      "updatedToast": "Updated {name}",
+      "removedToast": "Removed {name}"
     }
   },
   "modpacks": {
@@ -686,7 +701,15 @@
       "versionPlaceholder": "Version",
       "authorPlaceholder": "Author (optional)",
       "summaryPlaceholder": "Summary (optional)",
-      "exportBtn": "Export"
+      "exportBtn": "Export",
+      "exported": "Exported {name} to {dest}",
+      "failed": "Export failed",
+      "phase": {
+        "resolving": "Resolving mods…",
+        "bundling": "Bundling files…",
+        "writing": "Writing archive…",
+        "done": "Done"
+      }
     },
     "browse": {
       "searchAriaLabel": "Search modpacks",
@@ -965,8 +988,8 @@
       "confirmNo": "Cancel",
       "clearOld": "Clear old",
       "clearOldTitle": "Clear old logs",
-      "clearOldBody": "Delete {count} file(s) (frees ~{size})? latest.log and debug.log are kept.",
-      "cleared": "Cleared {count} log file(s) · {size} freed"
+      "clearOldBody": "Delete {count, plural, one {# file} other {# files}} (frees ~{size})? latest.log and debug.log are kept.",
+      "cleared": "{count, plural, one {Cleared # log file} other {Cleared # log files}} · {size} freed"
     }
   },
   "onboarding": {
@@ -1293,7 +1316,7 @@
     "modpackOverridesTooLarge": "Modpack overrides entry {entry} exceeds the safety cap ({size} bytes; cap is {cap}).",
     "modpackNoFilesSelected": "Select at least one mod before importing.",
     "modpackInstanceCreationFailed": "Could not create instance for modpack",
-    "modpackPartialFailure": "Modpack imported with {count} mod(s) skipped — see the warning notification for details.",
+    "modpackPartialFailure": "{count, plural, one {Modpack imported with # mod skipped} other {Modpack imported with # mods skipped}} — see the warning notification for details.",
     "modpackBundledNoUrl": "'{modName}' was bundled inside the .mrpack and cannot be restored automatically. Re-import the pack to recover it.",
     "modpackCfDistributionDisabled": "\"{packName}\" cannot be downloaded by third-party launchers — its author disabled distribution. Open it on CurseForge to download the pack manually.",
     "modpackExportFailed": "Couldn't export the modpack",
@@ -1494,7 +1517,9 @@
     "update": {
       "available": "Lucerna {version} is available",
       "actionLabel": "Update",
-      "currentVersion": "You're on {version}."
+      "currentVersion": "You're on {version}.",
+      "downloading": "Downloading update…",
+      "verifyFailed": "Couldn't verify the update"
     },
     "crash": {
       "banner": "Minecraft crashed.",
@@ -1505,11 +1530,11 @@
       "alreadyInProgress": "A modpack import is already in progress",
       "alreadyInProgressDetail": "Wait for it to finish before starting another.",
       "imported": "Imported {name}",
-      "importedSkipped": "Imported {name} — {count} bundled file(s) skipped",
+      "importedSkipped": "Imported {name} — {count, plural, one {# bundled file} other {# bundled files}} skipped",
       "skippedOverrideLine": "{name} ({mb} MB) — too large to be a loadable mod; skipped",
-      "importedInertLoader": "Imported {name} — {count} bundled file(s) won't load",
+      "importedInertLoader": "Imported {name} — {count, plural, one {# bundled file} other {# bundled files}} won't load",
       "inertLoaderLine": "{filename} — built for {loader}, not loaded",
-      "partialFailure": "Modpack imported — {count} mod(s) failed",
+      "partialFailure": "{count, plural, one {Modpack imported — # mod failed} other {Modpack imported — # mods failed}}",
       "failed": "Modpack import failed"
     },
     "accounts": {
@@ -1741,13 +1766,25 @@
       "maxPlayers": "Max players",
       "onlineMode": "Online mode",
       "pvp": "PvP",
-      "whitelist": "Whitelist"
+      "whitelist": "Whitelist",
+      "gamemodeOptions": {
+        "survival": "Survival",
+        "creative": "Creative",
+        "adventure": "Adventure",
+        "spectator": "Spectator"
+      },
+      "difficultyOptions": {
+        "peaceful": "Peaceful",
+        "easy": "Easy",
+        "normal": "Normal",
+        "hard": "Hard"
+      }
     },
     "mods": {
       "empty": "No mods",
-      "delete": "Delete",
+      "delete": "Remove",
       "openFolder": "Open folder",
-      "deleteConfirm": "Delete {name}?",
+      "deleteConfirm": "Remove {name}?",
       "note": "Add or remove mods in the server's mods folder.",
       "setAside": "set aside",
       "setAsideClientOnly": "set aside: client-only",
@@ -1761,7 +1798,7 @@
       "noResults": "No results.",
       "noCompatibleVersion": "{name} has no version for this server's Minecraft + loader.",
       "installedOne": "Installed {name}",
-      "installedWithDeps": "Installed {name} and {count} dependencies",
+      "installedWithDeps": "Installed {name} and {count, plural, one {# dependency} other {# dependencies}}",
       "someDepsUnresolved": "Some dependencies couldn't be resolved: {deps}. Install them manually if the server needs them.",
       "datapacksTitle": "Datapacks",
       "addDatapack": "Add datapack",
@@ -1935,13 +1972,13 @@
       "forgeSkipNote": "Forge already skipped {count} client-only mods.",
       "diagnoseBtn": "Diagnose",
       "diagnoseDone": "Re-checked the server logs.",
-      "removed": "Removed {count} mods",
+      "removed": "{count, plural, one {Removed # mod} other {Removed # mods}}",
       "restartHint": "Restart the server to apply the changes.",
       "quarantineClientMods": "Set aside client-only mods",
-      "quarantined": "Set aside {count} client-only mods so the server can start.",
+      "quarantined": "{count, plural, one {Set aside # client-only mod so the server can start.} other {Set aside # client-only mods so the server can start.}}",
       "quarantineNone": "No client-only mods to set aside.",
-      "quarantineKeptRequired": "Kept {count} mods that others depend on.",
-      "installReportOk": "Installed {count} missing mod(s).",
+      "quarantineKeptRequired": "{count, plural, one {Kept # mod that others depend on.} other {Kept # mods that others depend on.}}",
+      "installReportOk": "{count, plural, one {Installed # missing mod.} other {Installed # missing mods.}}",
       "installReportUnresolved": "Couldn't find automatically: {names}. Open the mod browser to add them by hand."
     },
     "toInstance": {
@@ -2044,7 +2081,7 @@
       "willPreserve": "Ready to run as-is (offline)",
       "willReprovision": "The loader will be reinstalled",
       "loaderUnknownWarn": "Couldn't detect the mod loader — defaulted to Vanilla. If this server uses mods, choose the correct loader below, or they won't load.",
-      "modCount": "{count} mods",
+      "modCount": "{count, plural, one {# mod} other {# mods}}",
       "worldPresent": "Includes a world",
       "import": "Import",
       "importing": "Importing…",

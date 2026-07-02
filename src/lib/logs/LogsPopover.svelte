@@ -25,6 +25,7 @@
   import { LOGS_STEPS } from '$lib/onboarding/contextual-tours';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
   import CloseButton from '$lib/ui/CloseButton.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import { Icon } from '$lib/ui/icons';
   import ToggleChip from '$lib/ui/ToggleChip.svelte';
   import OverflowMenu from '$lib/ui/OverflowMenu.svelte';
@@ -428,10 +429,6 @@
       .replaceAll("'", '&#39;');
   }
 
-  function escapeRegExp(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
   // ---------------------------------------------------------------------------
   // Derived state
   // ---------------------------------------------------------------------------
@@ -547,10 +544,26 @@
   // Search navigation
   // ---------------------------------------------------------------------------
 
+  // `unitKey` is an opaque, view-scoped identifier for the rendered unit a match
+  // belongs to — NOT an index into `renderModel`. The structured crash view and
+  // the standard line view render different unit sets, and duplicate lines
+  // (blanks, repeated `\tat` frames) are common, so a match cannot be located by
+  // text equality. Each view therefore assigns its own stable key space
+  // (`unitKeyFor`) and the match list is (re)built from whichever view is
+  // actually on screen, so highlight + active-match targeting land on the exact
+  // rendered occurrence.
   interface MatchLocation {
-    unitIndex: number;
+    unitKey: number;
     charStart: number;
     charEnd: number;
+  }
+
+  // Stable per-view unit key. Standard view keys on the render-model index;
+  // structured view keys on (section, unit) — the same scheme `foldKey` uses so
+  // duplicate lines across sections never collide.
+  const STRUCTURED_SECTION_STRIDE = 100000;
+  function unitKeyFor(sectionIndex: number, unitIndex: number): number {
+    return sectionIndex < 0 ? unitIndex : sectionIndex * STRUCTURED_SECTION_STRIDE + unitIndex;
   }
 
   // Mirror `search` into `debouncedSearch` after a short pause. Re-running on
@@ -564,21 +577,42 @@
     return () => clearTimeout(id);
   });
 
-  // Collect all match locations from the renderModel
+  function collectUnitMatches(text: string, unitKey: number, needle: string): MatchLocation[] {
+    const locs: MatchLocation[] = [];
+    let pos = 0;
+    const lower = text.toLowerCase();
+    while (pos < lower.length) {
+      const idx = lower.indexOf(needle, pos);
+      if (idx === -1) break;
+      locs.push({ unitKey, charStart: idx, charEnd: idx + needle.length });
+      pos = idx + needle.length;
+    }
+    return locs;
+  }
+
+  // Collect all match locations from the units that are ACTUALLY rendered. In
+  // the structured crash view that is the per-section unit list (keyed
+  // section-scoped); otherwise it is the flat `renderModel`. Keeping the match
+  // model aligned with the rendered view is what makes duplicate lines highlight
+  // and navigate independently instead of collapsing onto the first occurrence.
   const allMatches = $derived.by((): MatchLocation[] => {
     if (!debouncedSearch) return [];
     const needle = debouncedSearch.toLowerCase();
     const locs: MatchLocation[] = [];
-    for (let ui = 0; ui < renderModel.length; ui++) {
-      const unit = renderModel[ui];
-      const text = unit.kind === 'line' ? unit.text : unit.firstFrame;
-      let pos = 0;
-      const lower = text.toLowerCase();
-      while (pos < lower.length) {
-        const idx = lower.indexOf(needle, pos);
-        if (idx === -1) break;
-        locs.push({ unitIndex: ui, charStart: idx, charEnd: idx + needle.length });
-        pos = idx + needle.length;
+    if (isStructured && crashSections) {
+      for (let si = 0; si < crashSections.length; si++) {
+        const units = sectionRenderUnits(crashSections[si].body);
+        for (let ui = 0; ui < units.length; ui++) {
+          const unit = units[ui];
+          const text = unit.kind === 'line' ? unit.text : unit.firstFrame;
+          locs.push(...collectUnitMatches(text, unitKeyFor(si, ui), needle));
+        }
+      }
+    } else {
+      for (let ui = 0; ui < renderModel.length; ui++) {
+        const unit = renderModel[ui];
+        const text = unit.kind === 'line' ? unit.text : unit.firstFrame;
+        locs.push(...collectUnitMatches(text, unitKeyFor(-1, ui), needle));
       }
     }
     return locs;
@@ -644,7 +678,7 @@
    * Active match: bg-accent text-white; others: <mark> (yellow).
    * Returns HTML string.
    */
-  function highlightLine(text: string, unitIndex: number, matchesForUnit: MatchLocation[]): string {
+  function highlightLine(text: string, unitKey: number, matchesForUnit: MatchLocation[]): string {
     if (!debouncedSearch || matchesForUnit.length === 0) return escapeHtml(text);
     let result = '';
     let pos = 0;
@@ -652,7 +686,7 @@
       result += escapeHtml(text.slice(pos, loc.charStart));
       const matchText = escapeHtml(text.slice(loc.charStart, loc.charEnd));
       const globalIdx = allMatches.findIndex(
-        (m) => m.unitIndex === unitIndex && m.charStart === loc.charStart,
+        (m) => m.unitKey === unitKey && m.charStart === loc.charStart,
       );
       const isActive = globalIdx === currentMatchIndex;
       if (isActive) {
@@ -666,8 +700,8 @@
     return result;
   }
 
-  function matchesForUnit(unitIndex: number): MatchLocation[] {
-    return allMatches.filter((m) => m.unitIndex === unitIndex);
+  function matchesForUnit(unitKey: number): MatchLocation[] {
+    return allMatches.filter((m) => m.unitKey === unitKey);
   }
 
   // ---------------------------------------------------------------------------
@@ -695,7 +729,7 @@
   // Crash section helpers
   // ---------------------------------------------------------------------------
 
-  function isSectionDefaultOpen(section: CrashSection, index: number): boolean {
+  function isSectionDefaultOpen(section: CrashSection): boolean {
     if (section.title === 'Head') return true;
     if (section.body.includes('Exception') || section.body.includes('Error')) return true;
     return false;
@@ -716,501 +750,513 @@
 </script>
 
 {#if open}
-  <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-    <button
-      type="button"
-      class="absolute inset-0"
-      aria-label={$t('logs.close.scrimAriaLabel')}
-      onclick={() => (open = false)}
-      onkeydown={(e) => {
-        if (e.key === 'Escape') open = false;
-      }}
-    ></button>
-    <aside
-      class="relative bg-surface rounded shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col m-4"
-    >
-      <!-- Header row 1: action bar -->
-      <header class="flex flex-col border-b">
-        <div class="flex items-center justify-between px-4 py-2">
-          <h2 class="text-sm font-semibold text-primary">{$t('logs.toolbar.title')}</h2>
-          <div class="flex items-center gap-1.5">
-            {#if showLogRestore && instanceId}
-              <DiagnosisRestoreButton
-                testid="log-diagnosis-restore"
-                onRestore={() => diagnosisDismiss.restore(`log:${instanceId}`)}
-              />
-            {/if}
-            <button
-              type="button"
-              class="btn-icon"
-              aria-label={$t('logs.toolbar.reload')}
-              use:tooltip={$t('logs.toolbar.reload')}
-              onclick={() => void reload()}
-            >
-              <Icon name="refresh" class="icon-spin-hover" />
-            </button>
-
-            <span data-tour-ctx="logs-overflow">
-              <OverflowMenu items={overflowItems} ariaLabel={$t('logs.toolbar.moreActions')} />
-            </span>
-
-            <CloseButton
-              onClick={() => (open = false)}
-              ariaLabel={$t('logs.close.popoverAriaLabel')}
+  <Modal
+    ariaLabelledby="logs-popover-title"
+    onClose={() => (open = false)}
+    panelClass="relative bg-surface rounded shadow-xl max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col m-4"
+  >
+    <!-- Header row 1: action bar -->
+    <header class="flex flex-col border-b">
+      <div class="flex items-center justify-between px-4 py-2">
+        <h2 id="logs-popover-title" class="text-sm font-semibold text-primary">
+          {$t('logs.toolbar.title')}
+        </h2>
+        <div class="flex items-center gap-1.5">
+          {#if showLogRestore && instanceId}
+            <DiagnosisRestoreButton
+              testid="log-diagnosis-restore"
+              onRestore={() => diagnosisDismiss.restore(`log:${instanceId}`)}
             />
-          </div>
-        </div>
-
-        <!-- Header row 2: view settings (left) + level filters (right) -->
-        <div
-          class="flex items-center gap-4 px-4 py-1.5 border-t text-xs flex-wrap"
-          data-tour-ctx="logs-toolbar"
-        >
-          <span class="text-muted">{$t('logs.toolbar.readCap')}</span>
-          <div data-tour-ctx="logs-cap">
-            <Select
-              class="text-xs"
-              ariaLabel={$t('logs.toolbar.readCap')}
-              value={capBytes}
-              options={CAP_OPTIONS}
-              onChange={(v) => onCapChange(Number(v))}
-            />
-          </div>
-          <label class="flex items-center gap-1 cursor-pointer select-none">
-            <input type="checkbox" bind:checked={wrap} class="accent-primary" />
-            {$t('logs.toolbar.wrapLines')}
-          </label>
-          <label class="flex items-center gap-1 cursor-pointer select-none">
-            <input type="checkbox" bind:checked={fold} class="accent-primary" />
-            {$t('logs.toolbar.collapseStacks')}
-          </label>
-          {#if crashSections !== null}
-            <label class="flex items-center gap-1 cursor-pointer select-none">
-              <input type="checkbox" bind:checked={rawView} class="accent-primary" />
-              {$t('logs.toolbar.rawView')}
-            </label>
           {/if}
-        </div>
-
-        <!-- Header row 3: severity-level filters (own line — there can be many) -->
-        {#if activeLevels.length > 0}
-          <div
-            class="flex items-center gap-1.5 px-4 py-1.5 border-t text-xs flex-wrap"
-            role="group"
-            aria-label={$t('logs.toolbar.showLevels')}
+          <button
+            type="button"
+            class="btn-icon"
+            aria-label={$t('logs.toolbar.reload')}
+            use:tooltip={$t('logs.toolbar.reload')}
+            onclick={() => void reload()}
           >
-            <span class="text-muted mr-1">{$t('logs.toolbar.showLevels')}</span>
-            {#each activeLevels as lv (lv)}
-              <ToggleChip
-                active={!hiddenLevels.has(lv)}
-                tone={levelChipTone(lv)}
-                label={levelLabel(lv)}
-                count={severityCounts.get(lv) ?? 0}
-                onToggle={() => toggleLevel(lv)}
-              />
-            {/each}
-          </div>
-        {/if}
-      </header>
-
-      <!-- Share confirm dialog -->
-      {#if shareConfirm}
-        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4">
-            <h3 class="font-semibold text-sm mb-2">{$t('logs.share.dialogTitle')}</h3>
-            <p class="text-xs text-muted mb-4">
-              {$t('logs.share.dialogBody')}
-            </p>
-            <div class="flex gap-2 justify-end">
-              <button class="btn-secondary btn-xs" onclick={() => (shareConfirm = false)}>
-                {$t('common.cancel')}
-              </button>
-              <BusyButton
-                busy={shareUploading}
-                class="btn-warning btn-xs"
-                onclick={() => void doShare()}
-              >
-                {$t('logs.share.uploadBtn')}
-              </BusyButton>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Clear old logs confirm dialog -->
-      {#if clearOldOpen}
-        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
-            data-testid="clear-old-confirm"
-          >
-            <h3 class="font-semibold text-sm mb-2">{$t('logs.manage.clearOldTitle')}</h3>
-            <p class="text-xs text-muted mb-4">
-              {$t('logs.manage.clearOldBody', {
-                count: clearOldStats.count,
-                size: formatSize($t, clearOldStats.bytes),
-              })}
-            </p>
-            <div class="flex gap-2 justify-end">
-              <button class="btn-secondary btn-xs" onclick={() => (clearOldOpen = false)}>
-                {$t('logs.manage.confirmNo')}
-              </button>
-              <BusyButton
-                busy={clearingOld}
-                class="btn-warning btn-xs"
-                onclick={() => void confirmClearOld()}
-              >
-                {$t('logs.manage.clearOld')}
-              </BusyButton>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Delete single log confirm dialog -->
-      {#if confirmingDeletePath}
-        {@const path = confirmingDeletePath}
-        {@const name = files.find((f) => f.path === path)?.name ?? ''}
-        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            class="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
-            data-testid="delete-log-confirm"
-          >
-            <h3 class="font-semibold text-sm mb-2">{$t('logs.manage.deleteConfirm')}</h3>
-            <p class="font-mono text-xs text-muted mb-4 break-all">{name}</p>
-            <div class="flex gap-2 justify-end">
-              <button class="btn-secondary btn-xs" onclick={() => (confirmingDeletePath = null)}>
-                {$t('logs.manage.confirmNo')}
-              </button>
-              <button
-                class="btn-warning btn-xs"
-                disabled={deletingPaths.has(path)}
-                onclick={() => void deleteFile(path)}
-              >
-                {$t('logs.manage.confirmYes')}
-              </button>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Share URL pill -->
-      {#if shareUrl}
-        <div
-          class="flex items-center gap-2 px-4 py-1.5 bg-warning-bg border-b text-xs text-warning-text"
-        >
-          <span class="font-semibold">{$t('logs.share.sharedLabel')}</span>
-          <a href={shareUrl} target="_blank" rel="noopener noreferrer" class="underline truncate"
-            >{shareUrl}</a
-          >
-          <button class="btn-secondary btn-xs" onclick={() => copyToClipboard(shareUrl!)}>
-            {$t('logs.share.copyBtn')}
+            <Icon name="refresh" class="icon-spin-hover" />
           </button>
+
+          <span data-tour-ctx="logs-overflow">
+            <OverflowMenu items={overflowItems} ariaLabel={$t('logs.toolbar.moreActions')} />
+          </span>
+
           <CloseButton
-            onClick={() => (shareUrl = null)}
-            ariaLabel={$t('logs.share.dismissAriaLabel')}
-            class="ml-auto"
+            onClick={() => (open = false)}
+            ariaLabel={$t('logs.close.popoverAriaLabel')}
           />
         </div>
-      {/if}
+      </div>
 
-      <div class="flex-1 flex overflow-hidden">
-        <!-- Sidebar: grouped file list -->
-        <nav class="w-72 border-r overflow-y-auto text-sm" data-tour-ctx="logs-sidebar">
-          {#if listError}
-            <p class="p-3 text-danger text-xs">
-              {$t('logs.empty.listError', { error: listError })}
-            </p>
-          {:else if files.length === 0}
-            <p class="p-3 text-muted text-xs">{$t('logs.empty.noLogs')}</p>
-          {:else}
-            {#each groupedFiles as group}
-              {#if group.items.length > 0}
-                <h3 class="px-3 pt-2 pb-0.5 text-xs font-semibold uppercase text-muted">
-                  {group.label}
-                </h3>
-                {#if group.hint}
-                  <p class="px-3 pb-1 text-[11px] leading-snug text-muted/80">{group.hint}</p>
-                {/if}
-                <ul>
-                  {#each group.items as f}
-                    <li
-                      class="group flex items-center hover:bg-subtle {selectedPath === f.path
-                        ? 'bg-accent-soft'
-                        : ''}"
-                    >
-                      <button
-                        class="flex-1 min-w-0 text-left px-3 py-1"
-                        onclick={() => void selectFile(f.path)}
-                      >
-                        <div class="font-mono text-xs truncate">{f.name}</div>
-                        <div class="text-[10px] text-muted">
-                          {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
-                        </div>
-                      </button>
-                      <button
-                        class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
-                        aria-label={$t('logs.manage.delete')}
-                        use:tooltip={$t('logs.manage.delete')}
-                        onclick={() => (confirmingDeletePath = f.path)}
-                      >
-                        <Icon name="trash" size={14} />
-                      </button>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            {/each}
-          {/if}
-        </nav>
+      <!-- Header row 2: view settings (left) + level filters (right) -->
+      <div
+        class="flex items-center gap-4 px-4 py-1.5 border-t text-xs flex-wrap"
+        data-tour-ctx="logs-toolbar"
+      >
+        <span class="text-muted">{$t('logs.toolbar.readCap')}</span>
+        <div data-tour-ctx="logs-cap">
+          <Select
+            class="text-xs"
+            ariaLabel={$t('logs.toolbar.readCap')}
+            value={capBytes}
+            options={CAP_OPTIONS}
+            onChange={(v) => onCapChange(Number(v))}
+          />
+        </div>
+        <label class="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" bind:checked={wrap} class="accent-primary" />
+          {$t('logs.toolbar.wrapLines')}
+        </label>
+        <label class="flex items-center gap-1 cursor-pointer select-none">
+          <input type="checkbox" bind:checked={fold} class="accent-primary" />
+          {$t('logs.toolbar.collapseStacks')}
+        </label>
+        {#if crashSections !== null}
+          <label class="flex items-center gap-1 cursor-pointer select-none">
+            <input type="checkbox" bind:checked={rawView} class="accent-primary" />
+            {$t('logs.toolbar.rawView')}
+          </label>
+        {/if}
+      </div>
 
-        <!-- Main content area -->
-        <section class="flex-1 flex flex-col overflow-hidden">
-          <!-- Latest-log diagnosis banner: always bound to latest, independent of selected file -->
-          <LogDiagnosisBanner {instanceId} {instanceName} {mcVersion} {loader} {gameRunning} />
-          <!-- Search bar -->
-          <div class="px-3 py-2 border-b flex items-center gap-2" data-tour-ctx="logs-search">
-            <input
-              class="flex-1 border rounded px-2 py-1 text-xs"
-              placeholder={$t('logs.search.placeholder')}
-              bind:value={search}
-              disabled={!selectedPath}
-              onkeydown={onSearchKeydown}
+      <!-- Header row 3: severity-level filters (own line — there can be many) -->
+      {#if activeLevels.length > 0}
+        <div
+          class="flex items-center gap-1.5 px-4 py-1.5 border-t text-xs flex-wrap"
+          role="group"
+          aria-label={$t('logs.toolbar.showLevels')}
+        >
+          <span class="text-muted mr-1">{$t('logs.toolbar.showLevels')}</span>
+          {#each activeLevels as lv (lv)}
+            <ToggleChip
+              active={!hiddenLevels.has(lv)}
+              tone={levelChipTone(lv)}
+              label={levelLabel(lv)}
+              count={severityCounts.get(lv) ?? 0}
+              onToggle={() => toggleLevel(lv)}
             />
-            {#if debouncedSearch && totalMatches > 0}
-              <span class="text-xs text-muted whitespace-nowrap">
-                {$t('logs.search.matchCounter', {
-                  current: currentMatchIndex + 1,
-                  total: totalMatches,
-                })}
-              </span>
-            {:else if debouncedSearch && totalMatches === 0}
-              <span class="text-xs text-muted whitespace-nowrap">{$t('logs.search.noMatches')}</span
-              >
+          {/each}
+        </div>
+      {/if}
+    </header>
+
+    <!-- Share confirm dialog. Non-destructive (uploads a copy) — keeps the
+           amber .btn-warning CTA. -->
+    {#if shareConfirm}
+      <Modal
+        ariaLabelledby="logs-share-title"
+        onClose={() => (shareConfirm = false)}
+        panelClass="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
+        closeOnBackdrop={!shareUploading}
+        closeOnEscape={!shareUploading}
+      >
+        <h3 id="logs-share-title" class="font-semibold text-sm mb-2">
+          {$t('logs.share.dialogTitle')}
+        </h3>
+        <p class="text-xs text-muted mb-4">
+          {$t('logs.share.dialogBody')}
+        </p>
+        <div class="flex gap-2 justify-end">
+          <button
+            class="btn-secondary btn-xs"
+            disabled={shareUploading}
+            onclick={() => (shareConfirm = false)}
+          >
+            {$t('common.cancel')}
+          </button>
+          <BusyButton
+            busy={shareUploading}
+            class="btn-warning btn-xs"
+            onclick={() => void doShare()}
+          >
+            {$t('logs.share.uploadBtn')}
+          </BusyButton>
+        </div>
+      </Modal>
+    {/if}
+
+    <!-- Clear old logs confirm dialog. Destructive (deletes files) →
+           .btn-danger per DESIGN.md. -->
+    {#if clearOldOpen}
+      <Modal
+        ariaLabelledby="logs-clear-old-title"
+        onClose={() => (clearOldOpen = false)}
+        panelClass="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
+        dataTestid="clear-old-confirm"
+        closeOnBackdrop={!clearingOld}
+        closeOnEscape={!clearingOld}
+      >
+        <h3 id="logs-clear-old-title" class="font-semibold text-sm mb-2">
+          {$t('logs.manage.clearOldTitle')}
+        </h3>
+        <p class="text-xs text-muted mb-4">
+          {$t('logs.manage.clearOldBody', {
+            count: clearOldStats.count,
+            size: formatSize($t, clearOldStats.bytes),
+          })}
+        </p>
+        <div class="flex gap-2 justify-end">
+          <button
+            class="btn-secondary btn-xs"
+            disabled={clearingOld}
+            onclick={() => (clearOldOpen = false)}
+          >
+            {$t('logs.manage.confirmNo')}
+          </button>
+          <BusyButton
+            busy={clearingOld}
+            class="btn-danger btn-xs"
+            onclick={() => void confirmClearOld()}
+          >
+            {$t('logs.manage.clearOld')}
+          </BusyButton>
+        </div>
+      </Modal>
+    {/if}
+
+    <!-- Delete single log confirm dialog. Destructive (deletes a file) →
+           .btn-danger per DESIGN.md. -->
+    {#if confirmingDeletePath}
+      {@const path = confirmingDeletePath}
+      {@const name = files.find((f) => f.path === path)?.name ?? ''}
+      <Modal
+        ariaLabelledby="logs-delete-title"
+        onClose={() => (confirmingDeletePath = null)}
+        panelClass="bg-surface rounded shadow-xl p-6 max-w-sm w-full mx-4"
+        dataTestid="delete-log-confirm"
+        closeOnBackdrop={!deletingPaths.has(path)}
+        closeOnEscape={!deletingPaths.has(path)}
+      >
+        <h3 id="logs-delete-title" class="font-semibold text-sm mb-2">
+          {$t('logs.manage.deleteConfirm')}
+        </h3>
+        <p class="font-mono text-xs text-muted mb-4 break-all">{name}</p>
+        <div class="flex gap-2 justify-end">
+          <button class="btn-secondary btn-xs" onclick={() => (confirmingDeletePath = null)}>
+            {$t('logs.manage.confirmNo')}
+          </button>
+          <button
+            class="btn-danger btn-xs"
+            disabled={deletingPaths.has(path)}
+            onclick={() => void deleteFile(path)}
+          >
+            {$t('logs.manage.confirmYes')}
+          </button>
+        </div>
+      </Modal>
+    {/if}
+
+    <!-- Share URL pill -->
+    {#if shareUrl}
+      <div
+        class="flex items-center gap-2 px-4 py-1.5 bg-warning-bg border-b text-xs text-warning-text"
+      >
+        <span class="font-semibold">{$t('logs.share.sharedLabel')}</span>
+        <a href={shareUrl} target="_blank" rel="noopener noreferrer" class="underline truncate"
+          >{shareUrl}</a
+        >
+        <button class="btn-secondary btn-xs" onclick={() => copyToClipboard(shareUrl!)}>
+          {$t('logs.share.copyBtn')}
+        </button>
+        <CloseButton
+          onClick={() => (shareUrl = null)}
+          ariaLabel={$t('logs.share.dismissAriaLabel')}
+          class="ml-auto"
+        />
+      </div>
+    {/if}
+
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Sidebar: grouped file list -->
+      <nav class="w-72 border-r overflow-y-auto text-sm" data-tour-ctx="logs-sidebar">
+        {#if listError}
+          <p class="p-3 text-danger text-xs">
+            {$t('logs.empty.listError', { error: listError })}
+          </p>
+        {:else if files.length === 0}
+          <p class="p-3 text-muted text-xs">{$t('logs.empty.noLogs')}</p>
+        {:else}
+          {#each groupedFiles as group}
+            {#if group.items.length > 0}
+              <h3 class="px-3 pt-2 pb-0.5 text-xs font-semibold uppercase text-muted">
+                {group.label}
+              </h3>
+              {#if group.hint}
+                <p class="px-3 pb-1 text-[11px] leading-snug text-muted/80">{group.hint}</p>
+              {/if}
+              <ul>
+                {#each group.items as f}
+                  <li
+                    class="group flex items-center hover:bg-subtle {selectedPath === f.path
+                      ? 'bg-accent-soft'
+                      : ''}"
+                  >
+                    <button
+                      class="flex-1 min-w-0 text-left px-3 py-1"
+                      onclick={() => void selectFile(f.path)}
+                    >
+                      <div class="font-mono text-xs truncate">{f.name}</div>
+                      <div class="text-[10px] text-muted">
+                        {formatSize($t, f.size_bytes)} · {formatMtime(f.modified_unix_ms)}
+                      </div>
+                    </button>
+                    <button
+                      class="btn-icon btn-icon-sm btn-icon-danger mr-1 shrink-0"
+                      aria-label={$t('logs.manage.delete')}
+                      use:tooltip={$t('logs.manage.delete')}
+                      onclick={() => (confirmingDeletePath = f.path)}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </li>
+                {/each}
+              </ul>
             {/if}
-            <button
-              class="btn-icon"
-              disabled={totalMatches === 0}
-              aria-label={$t('logs.search.prevAriaLabel')}
-              use:tooltip={$t('logs.search.prevTitle')}
-              onclick={prevMatch}
-            >
-              <Icon name="chevronUp" />
-            </button>
-            <button
-              class="btn-icon"
-              disabled={totalMatches === 0}
-              aria-label={$t('logs.search.nextAriaLabel')}
-              use:tooltip={$t('logs.search.nextTitle')}
-              onclick={nextMatch}
-            >
-              <Icon name="chevronDown" />
-            </button>
+          {/each}
+        {/if}
+      </nav>
+
+      <!-- Main content area -->
+      <section class="flex-1 flex flex-col overflow-hidden">
+        <!-- Latest-log diagnosis banner: always bound to latest, independent of selected file -->
+        <LogDiagnosisBanner {instanceId} {instanceName} {mcVersion} {loader} {gameRunning} />
+        <!-- Search bar -->
+        <div class="px-3 py-2 border-b flex items-center gap-2" data-tour-ctx="logs-search">
+          <input
+            class="flex-1 border rounded px-2 py-1 text-xs"
+            placeholder={$t('logs.search.placeholder')}
+            aria-label={$t('logs.search.placeholder')}
+            bind:value={search}
+            disabled={!selectedPath}
+            onkeydown={onSearchKeydown}
+          />
+          {#if debouncedSearch && totalMatches > 0}
+            <span class="text-xs text-muted whitespace-nowrap">
+              {$t('logs.search.matchCounter', {
+                current: currentMatchIndex + 1,
+                total: totalMatches,
+              })}
+            </span>
+          {:else if debouncedSearch && totalMatches === 0}
+            <span class="text-xs text-muted whitespace-nowrap">{$t('logs.search.noMatches')}</span>
+          {/if}
+          <button
+            class="btn-icon"
+            disabled={totalMatches === 0}
+            aria-label={$t('logs.search.prevAriaLabel')}
+            use:tooltip={$t('logs.search.prevTitle')}
+            onclick={prevMatch}
+          >
+            <Icon name="chevronUp" />
+          </button>
+          <button
+            class="btn-icon"
+            disabled={totalMatches === 0}
+            aria-label={$t('logs.search.nextAriaLabel')}
+            use:tooltip={$t('logs.search.nextTitle')}
+            onclick={nextMatch}
+          >
+            <Icon name="chevronDown" />
+          </button>
+        </div>
+
+        {#if loadingContent}
+          <div class="flex justify-center p-4 text-secondary">
+            <Spinner delayMs={150} label={$t('logs.empty.reading')} />
           </div>
-
-          {#if loadingContent}
-            <div class="flex justify-center p-4 text-secondary">
-              <Spinner delayMs={150} label={$t('logs.empty.reading')} />
+        {:else if contentError}
+          <p class="p-4 text-sm text-danger">{contentError}</p>
+        {:else if !selectedPath}
+          <p class="p-4 text-sm text-muted">{$t('logs.empty.noFile')}</p>
+        {:else}
+          {#if isTruncated}
+            <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
+              {$t('logs.empty.truncated', { cap: formatSize($t, capBytes) })}
             </div>
-          {:else if contentError}
-            <p class="p-4 text-sm text-danger">{contentError}</p>
-          {:else if !selectedPath}
-            <p class="p-4 text-sm text-muted">{$t('logs.empty.noFile')}</p>
-          {:else}
-            {#if isTruncated}
-              <div class="px-3 py-1 bg-warning-bg text-warning-text text-xs border-b">
-                {$t('logs.empty.truncated', { cap: formatSize($t, capBytes) })}
-              </div>
-            {/if}
+          {/if}
 
-            <!-- Diagnosis card. When the open file IS the latest log, the top
+          <!-- Diagnosis card. When the open file IS the latest log, the top
                  banner already shows this diagnosis (title/explanation/fix), so
                  collapse to just the raw matched line to avoid printing it twice
                  (inlineRedundant); otherwise show the full card. -->
-            {#if diagnosis}
-              {#if inlineRedundant}
-                {#if diagnosis.matched_excerpt}
-                  <div class="mx-3 mt-3 shrink-0" data-testid="log-diagnosis-inline-excerpt">
-                    <p class="text-xs font-semibold text-warning-text select-none">
-                      {$t('logs.diagnosis.matchedLine')}
-                    </p>
-                    <pre
-                      class="mt-1 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
-                  </div>
-                {/if}
-              {:else}
-                {@const copy = DIAGNOSIS_COPY[diagnosis.pattern_id]}
-                <details
-                  open
-                  class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
-                >
-                  <summary class="cursor-pointer font-semibold text-warning-text select-none">
-                    <span class="flex items-center gap-1.5"
-                      ><Icon name="warning" /> {copy ? $t(copy.title) : diagnosis.title}</span
-                    >
-                  </summary>
-                  <p class="mt-2 text-sm text-warning-text selectable">
-                    {copy ? $t(copy.explanation) : diagnosis.explanation}
+          {#if diagnosis}
+            {#if inlineRedundant}
+              {#if diagnosis.matched_excerpt}
+                <div class="mx-3 mt-3 shrink-0" data-testid="log-diagnosis-inline-excerpt">
+                  <p class="text-xs font-semibold text-warning-text select-none">
+                    {$t('logs.diagnosis.matchedLine')}
                   </p>
-                  <p class="mt-2 text-sm text-warning-text selectable">
-                    <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
-                    {copy ? $t(copy.recommendation) : diagnosis.recommendation}
-                  </p>
-                  {#if diagnosis.matched_excerpt}
-                    <pre
-                      class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
-                  {/if}
-                </details>
+                  <pre
+                    class="mt-1 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
+                </div>
               {/if}
+            {:else}
+              {@const copy = DIAGNOSIS_COPY[diagnosis.pattern_id]}
+              <details
+                open
+                class="mx-3 mt-3 border border-warning-text/30 bg-warning-bg rounded p-3 shrink-0"
+              >
+                <summary class="cursor-pointer font-semibold text-warning-text select-none">
+                  <span class="flex items-center gap-1.5"
+                    ><Icon name="warning" /> {copy ? $t(copy.title) : diagnosis.title}</span
+                  >
+                </summary>
+                <p class="mt-2 text-sm text-warning-text selectable">
+                  {copy ? $t(copy.explanation) : diagnosis.explanation}
+                </p>
+                <p class="mt-2 text-sm text-warning-text selectable">
+                  <span class="font-semibold">{$t('logs.diagnosis.whatToTry')}</span>
+                  {copy ? $t(copy.recommendation) : diagnosis.recommendation}
+                </p>
+                {#if diagnosis.matched_excerpt}
+                  <pre
+                    class="mt-2 text-xs font-mono bg-surface p-2 rounded border border-warning-text/30 overflow-x-auto whitespace-pre-wrap selectable">{diagnosis.matched_excerpt}</pre>
+                {/if}
+              </details>
             {/if}
+          {/if}
 
-            <!-- Log body: structured crash view or standard line view.
+          <!-- Log body: structured crash view or standard line view.
                  selectable so the user can drag-copy log lines / crash
                  stacks into a bug report or to mclo.gs. -->
-            <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base selectable">
-              {#if isStructured && crashSections}
-                <!-- Path A: structured crash report sections -->
-                <div class="px-3 py-2 space-y-2">
-                  {#each crashSections as section, si}
-                    {@const defaultOpen = isSectionDefaultOpen(section, si)}
-                    {@const expanded = sectionExpanded.get(si) ?? defaultOpen}
-                    {@const units = sectionRenderUnits(section.body)}
-                    <div class="border rounded overflow-hidden">
-                      <button
-                        type="button"
-                        class="w-full text-left px-3 py-1.5 bg-subtle hover:bg-accent-soft font-semibold flex items-center gap-1"
-                        onclick={() => toggleSection(si)}
+          <div class="flex-1 overflow-auto font-mono text-xs leading-tight bg-base selectable">
+            {#if isStructured && crashSections}
+              <!-- Path A: structured crash report sections -->
+              <div class="px-3 py-2 space-y-2">
+                {#each crashSections as section, si}
+                  {@const defaultOpen = isSectionDefaultOpen(section)}
+                  {@const expanded = sectionExpanded.get(si) ?? defaultOpen}
+                  {@const units = sectionRenderUnits(section.body)}
+                  <div class="border rounded overflow-hidden">
+                    <button
+                      type="button"
+                      class="w-full text-left px-3 py-1.5 bg-subtle hover:bg-accent-soft font-semibold flex items-center gap-1"
+                      onclick={() => toggleSection(si)}
+                    >
+                      <span class="text-muted"
+                        ><Icon name={expanded ? 'chevronDown' : 'caret'} /></span
                       >
-                        <span class="text-muted"
-                          ><Icon name={expanded ? 'chevronDown' : 'caret'} /></span
-                        >
-                        {section.title}
-                      </button>
-                      {#if expanded}
-                        <div class="px-0 py-1">
-                          {#each units as unit, ui}
-                            {@const globalUnitIndex = renderModel.findIndex(
-                              (u) =>
-                                u.kind === unit.kind &&
-                                (u.kind === 'line' ? u.text : u.firstFrame) ===
-                                  (unit.kind === 'line' ? unit.text : unit.firstFrame),
-                            )}
-                            {#if unit.kind === 'line'}
-                              <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                      {section.title}
+                    </button>
+                    {#if expanded}
+                      <div class="px-0 py-1">
+                        {#each units as unit, ui}
+                          {@const unitKey = unitKeyFor(si, ui)}
+                          {#if unit.kind === 'line'}
+                            <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                              <span
+                                class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                                ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
+                                  unit.text,
+                                  unitKey,
+                                  matchesForUnit(unitKey),
+                                )}</span
+                              >
+                            </div>
+                          {:else}
+                            {@const foldKey = unitKey}
+                            {@const isExpanded = foldExpanded.get(foldKey) ?? false}
+                            <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
+                              <button
+                                type="button"
+                                class="btn-tertiary text-left w-full inline-flex items-center gap-1.5"
+                                onclick={() => toggleFold(foldKey)}
+                              >
+                                <Icon name={isExpanded ? 'chevronDown' : 'caret'} />
                                 <span
                                   class={wrap
                                     ? 'whitespace-pre-wrap break-words'
-                                    : 'whitespace-pre'}
-                                  ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
-                                    unit.text,
-                                    globalUnitIndex >= 0 ? globalUnitIndex : ui,
-                                    matchesForUnit(globalUnitIndex >= 0 ? globalUnitIndex : ui),
-                                  )}</span
+                                    : 'whitespace-pre'}>{unit.firstFrame}</span
                                 >
-                              </div>
-                            {:else}
-                              {@const foldKey = si * 100000 + ui}
-                              {@const isExpanded = foldExpanded.get(foldKey) ?? false}
-                              <div class={severityLineClass(unit.level)} class:min-w-max={!wrap}>
-                                <button
-                                  type="button"
-                                  class="btn-tertiary text-left w-full inline-flex items-center gap-1.5"
-                                  onclick={() => toggleFold(foldKey)}
-                                >
-                                  <Icon name={isExpanded ? 'chevronDown' : 'caret'} />
-                                  <span
-                                    class={wrap
-                                      ? 'whitespace-pre-wrap break-words'
-                                      : 'whitespace-pre'}>{unit.firstFrame}</span
+                                {#if !isExpanded}
+                                  <span class="text-muted italic"
+                                    >({$t('logs.empty.foldMore', {
+                                      count: unit.hiddenFrames.length,
+                                    })})</span
                                   >
-                                  {#if !isExpanded}
-                                    <span class="text-muted italic"
-                                      >({$t('logs.empty.foldMore', {
-                                        count: unit.hiddenFrames.length,
-                                      })})</span
-                                    >
-                                  {/if}
-                                </button>
-                                {#if isExpanded}
-                                  {#each unit.hiddenFrames as frame}
-                                    <div class="pl-4">
-                                      <span
-                                        class={wrap
-                                          ? 'whitespace-pre-wrap break-words'
-                                          : 'whitespace-pre'}>{frame}</span
-                                      >
-                                    </div>
-                                  {/each}
                                 {/if}
-                              </div>
-                            {/if}
-                          {/each}
-                        </div>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {:else}
-                <!-- Path B: standard line-by-line view -->
-                <div class="px-3 py-2">
-                  {#each renderModel as unit, ui}
-                    {#if unit.kind === 'line'}
-                      <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
-                        <span class="text-placeholder select-none"
-                          >{(ui + 1).toString().padStart(6, ' ')}:
-                        </span><span
-                          class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                          ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
-                            unit.text,
-                            ui,
-                            matchesForUnit(ui),
-                          )}</span
-                        >
-                      </div>
-                    {:else}
-                      {@const isExpanded = foldExpanded.get(ui) ?? false}
-                      <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
-                        <button
-                          type="button"
-                          class="btn-tertiary text-left w-full"
-                          onclick={() => toggleFold(ui)}
-                        >
-                          <span class="text-placeholder select-none"
-                            >{(ui + 1).toString().padStart(6, ' ')}:
-                          </span><Icon name={isExpanded ? 'chevronDown' : 'caret'} />
-                          <span class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                            >{unit.firstFrame}</span
-                          >
-                          {#if !isExpanded}
-                            <span class="text-muted italic"
-                              >({$t('logs.empty.foldMore', {
-                                count: unit.hiddenFrames.length,
-                              })})</span
-                            >
-                          {/if}
-                        </button>
-                        {#if isExpanded}
-                          {#each unit.hiddenFrames as frame}
-                            <div class="pl-8">
-                              <span
-                                class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
-                                >{frame}</span
-                              >
+                              </button>
+                              {#if isExpanded}
+                                {#each unit.hiddenFrames as frame}
+                                  <div class="pl-4">
+                                    <span
+                                      class={wrap
+                                        ? 'whitespace-pre-wrap break-words'
+                                        : 'whitespace-pre'}>{frame}</span
+                                    >
+                                  </div>
+                                {/each}
+                              {/if}
                             </div>
-                          {/each}
-                        {/if}
+                          {/if}
+                        {/each}
                       </div>
                     {/if}
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </section>
-      </div>
-      <ContextualTour id="logs" steps={LOGS_STEPS} />
-    </aside>
-  </div>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <!-- Path B: standard line-by-line view -->
+              <div class="px-3 py-2">
+                {#each renderModel as unit, ui}
+                  {@const unitKey = unitKeyFor(-1, ui)}
+                  {#if unit.kind === 'line'}
+                    <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
+                      <span class="text-placeholder select-none"
+                        >{(ui + 1).toString().padStart(6, ' ')}:
+                      </span><span
+                        class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                        ><!-- eslint-disable-next-line svelte/no-at-html-tags -->{@html highlightLine(
+                          unit.text,
+                          unitKey,
+                          matchesForUnit(unitKey),
+                        )}</span
+                      >
+                    </div>
+                  {:else}
+                    {@const isExpanded = foldExpanded.get(ui) ?? false}
+                    <div class="log-row {severityLineClass(unit.level)}" class:min-w-max={!wrap}>
+                      <button
+                        type="button"
+                        class="btn-tertiary text-left w-full"
+                        onclick={() => toggleFold(ui)}
+                      >
+                        <span class="text-placeholder select-none"
+                          >{(ui + 1).toString().padStart(6, ' ')}:
+                        </span><Icon name={isExpanded ? 'chevronDown' : 'caret'} />
+                        <span class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                          >{unit.firstFrame}</span
+                        >
+                        {#if !isExpanded}
+                          <span class="text-muted italic"
+                            >({$t('logs.empty.foldMore', {
+                              count: unit.hiddenFrames.length,
+                            })})</span
+                          >
+                        {/if}
+                      </button>
+                      {#if isExpanded}
+                        {#each unit.hiddenFrames as frame}
+                          <div class="pl-8">
+                            <span
+                              class={wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}
+                              >{frame}</span
+                            >
+                          </div>
+                        {/each}
+                      {/if}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </section>
+    </div>
+    <ContextualTour id="logs" steps={LOGS_STEPS} />
+  </Modal>
 {/if}
 
 <style>

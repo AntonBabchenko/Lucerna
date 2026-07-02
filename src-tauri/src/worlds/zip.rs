@@ -71,25 +71,40 @@ fn add_dir_contents<W: Write + std::io::Seek>(
 /// entries surface as `Error::BackupCorrupt` with a message naming
 /// the bad entry; partial extracts are NOT cleaned up here (caller
 /// responsibility — see restore.rs's tmp-dir flow).
+///
+/// No size caps are enforced here — callers that extract untrusted archives
+/// (e.g. a user-supplied world `.zip`) must use [`extract_zip_capped`] instead.
 pub fn extract_zip(src_zip: &Path, dest_dir: &Path) -> Result<()> {
-    let file = File::open(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
-    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(|e| Error::BackupCorrupt {
+    extract_zip_capped(src_zip, dest_dir, u64::MAX, u64::MAX)
+}
+
+/// Like [`extract_zip`] but enforces a per-file and an aggregate byte cap on
+/// the ACTUAL bytes written (not the archive's attacker-declared entry sizes),
+/// aborting with `Error::BackupCorrupt` the moment a cap is exceeded — the
+/// zip-bomb defense. Bytes are counted in the copy loop, so a lying central
+/// directory cannot get past the caps.
+pub fn extract_zip_capped(
+    src_zip: &Path,
+    dest_dir: &Path,
+    per_file_cap: u64,
+    aggregate_cap: u64,
+) -> Result<()> {
+    let corrupt = |details: String| Error::BackupCorrupt {
         filename: src_zip
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("?")
             .into(),
-        details: format!("open: {e}"),
-    })?;
+        details,
+    };
+    let file = File::open(src_zip).map_err(|e| Error::io(src_zip.display().to_string(), e))?;
+    let mut archive =
+        ZipArchive::new(BufReader::new(file)).map_err(|e| corrupt(format!("open: {e}")))?;
+    let mut aggregate: u64 = 0;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| Error::BackupCorrupt {
-            filename: src_zip
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("?")
-                .into(),
-            details: format!("entry {i}: {e}"),
-        })?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| corrupt(format!("entry {i}: {e}")))?;
         let raw_name = entry.name().to_string();
         // Zip-slip defense: reject absolute paths, drive letters, and
         // any `..` segment. We do this BEFORE join so a `dest_dir
@@ -99,14 +114,7 @@ pub fn extract_zip(src_zip: &Path, dest_dir: &Path) -> Result<()> {
             || raw_name.contains(':')
             || raw_name.split(['/', '\\']).any(|seg| seg == "..")
         {
-            return Err(Error::BackupCorrupt {
-                filename: src_zip
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?")
-                    .into(),
-                details: format!("unsafe path: {raw_name}"),
-            });
+            return Err(corrupt(format!("unsafe path: {raw_name}")));
         }
         let dest_path = dest_dir.join(&raw_name);
         if entry.is_dir() {
@@ -122,17 +130,27 @@ pub fn extract_zip(src_zip: &Path, dest_dir: &Path) -> Result<()> {
             File::create(&dest_path).map_err(|e| Error::io(dest_path.display().to_string(), e))?,
         );
         let mut buf = [0u8; 64 * 1024];
+        let mut this_file: u64 = 0;
         loop {
-            let n = entry.read(&mut buf).map_err(|e| Error::BackupCorrupt {
-                filename: src_zip
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?")
-                    .into(),
-                details: format!("read {raw_name}: {e}"),
-            })?;
+            let n = entry
+                .read(&mut buf)
+                .map_err(|e| corrupt(format!("read {raw_name}: {e}")))?;
             if n == 0 {
                 break;
+            }
+            // Enforce caps on real bytes BEFORE writing them, so a zip bomb
+            // never lands more than the cap on disk.
+            this_file = this_file.saturating_add(n as u64);
+            if this_file > per_file_cap {
+                return Err(corrupt(format!(
+                    "entry {raw_name} exceeds per-file cap ({per_file_cap} bytes)"
+                )));
+            }
+            aggregate = aggregate.saturating_add(n as u64);
+            if aggregate > aggregate_cap {
+                return Err(corrupt(format!(
+                    "archive exceeds aggregate cap ({aggregate_cap} bytes)"
+                )));
             }
             out.write_all(&buf[..n])
                 .map_err(|e| Error::io(dest_path.display().to_string(), e))?;
@@ -265,6 +283,67 @@ mod tests {
         let out = tempdir().unwrap();
         extract_zip(&zip_path, out.path()).unwrap();
         assert!(out.path().join("E").join("empty").is_dir());
+    }
+
+    #[test]
+    fn extract_zip_capped_aborts_on_per_file_cap_by_actual_bytes() {
+        // An entry whose real body exceeds the per-file cap must abort, even
+        // though the zip is written normally (declared size is irrelevant — the
+        // copy loop counts real bytes).
+        let zip_td = tempdir().unwrap();
+        let zip_path = zip_td.path().join("big.zip");
+        {
+            let file = File::create(&zip_path).unwrap();
+            let mut zw = ZipWriter::new(BufWriter::new(file));
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            zw.start_file("W/level.dat", options).unwrap();
+            zw.write_all(&vec![0u8; 4096]).unwrap();
+            zw.finish().unwrap();
+        }
+        let out = tempdir().unwrap();
+        let r = extract_zip_capped(&zip_path, out.path(), 1024, u64::MAX);
+        assert!(
+            matches!(r, Err(Error::BackupCorrupt { .. })),
+            "per-file cap must abort, got: {r:?}"
+        );
+    }
+
+    #[test]
+    fn extract_zip_capped_aborts_on_aggregate_cap() {
+        let zip_td = tempdir().unwrap();
+        let zip_path = zip_td.path().join("agg.zip");
+        {
+            let file = File::create(&zip_path).unwrap();
+            let mut zw = ZipWriter::new(BufWriter::new(file));
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            zw.start_file("W/a.bin", options).unwrap();
+            zw.write_all(&vec![0u8; 600]).unwrap();
+            zw.start_file("W/b.bin", options).unwrap();
+            zw.write_all(&vec![0u8; 600]).unwrap();
+            zw.finish().unwrap();
+        }
+        let out = tempdir().unwrap();
+        let r = extract_zip_capped(&zip_path, out.path(), u64::MAX, 1000);
+        assert!(
+            matches!(r, Err(Error::BackupCorrupt { .. })),
+            "aggregate cap must abort, got: {r:?}"
+        );
+    }
+
+    #[test]
+    fn extract_zip_capped_allows_under_caps() {
+        let src = tempdir().unwrap();
+        let world = src.path().join("W");
+        fs::create_dir_all(&world).unwrap();
+        fs::write(world.join("level.dat"), b"tiny").unwrap();
+        let zip_td = tempdir().unwrap();
+        let zip_path = zip_td.path().join("ok.zip");
+        zip_dir(&world, &zip_path, "W").unwrap();
+        let out = tempdir().unwrap();
+        extract_zip_capped(&zip_path, out.path(), 1024, 1024).unwrap();
+        assert_eq!(read_file(&out.path().join("W").join("level.dat")), b"tiny");
     }
 
     #[test]

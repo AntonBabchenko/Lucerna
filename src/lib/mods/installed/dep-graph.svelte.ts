@@ -122,6 +122,7 @@ export function createDepGraph(
     const id = getInstanceId();
     if (!id) return;
     graphLoading = true;
+    error = null;
     const r = await commands.modsDependencyGraph(id);
     if (getInstanceId() !== id) {
       graphLoading = false; // reset even when discarding the stale result
@@ -131,6 +132,12 @@ export function createDepGraph(
     if (r.status === 'ok') {
       graph = r.data;
       depGraphCache.set(id, r.data);
+    } else {
+      // Surface the failure so "Re-check deps" doesn't silently do nothing —
+      // the graph load failed (offline / rate-limited). InstalledModsView folds
+      // `deps.error` into its aggregate error banner, so setting it here is
+      // enough to tell the user the recheck failed instead of no-oping.
+      error = formatError(r.error);
     }
   }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   // Settings → Help. Tip detail level + replay the onboarding tour.
+  import { tick } from 'svelte';
   import { type ExplanationLevel } from '$lib/ipc/bindings';
   import { t } from '$lib/i18n';
   import Select from '$lib/ui/Select.svelte';
@@ -12,9 +13,13 @@
     { value: 'advanced', label: $t('settings.general.tips.advanced') },
   ]);
 
-  function onReplay() {
-    replayTour();
+  async function onReplay() {
+    // Close the settings modal FIRST, then start the tour once it has unmounted
+    // — otherwise the main tour spotlights anchors that are still hidden behind
+    // the open modal, so the tour appears to do nothing.
     settingsOpen.value = null;
+    await tick();
+    replayTour();
   }
 </script>
 

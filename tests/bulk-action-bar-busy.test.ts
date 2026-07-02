@@ -35,7 +35,7 @@ describe('BulkActionBar busy state', () => {
     const spinning = buttons.filter((b) => b.querySelector('[role="status"]'));
     expect(spinning).toEqual([update]);
     // All action buttons are disabled while any op runs (aggregate `busy`).
-    for (const name of [/enable/i, /disable/i, /update/i, /uninstall/i]) {
+    for (const name of [/enable/i, /disable/i, /update/i, /remove/i]) {
       expect(buttonByName(buttons, name).hasAttribute('disabled')).toBe(true);
     }
   });
@@ -53,7 +53,7 @@ describe('BulkActionBar busy state', () => {
     for (const [action, re] of [
       ['enable', /enable/i],
       ['disable', /disable/i],
-      ['uninstall', /uninstall/i],
+      ['uninstall', /remove/i],
     ] as const) {
       const { getAllByRole, unmount } = render(BulkActionBar, {
         props: { ...baseProps, busy: true, busyAction: action } as never,

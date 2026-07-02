@@ -10,8 +10,8 @@
 //   - (no logs buttons in cluster D tests)
 //
 // Inventory rows covered (LogsPopover.svelte lines 489–861):
-//   popover aside — bg-surface rounded shadow-xl
-//   backdrop button — aria-label="Close logs" (absolute inset-0)
+//   dialog panel (shared Modal) — role="dialog" aria-modal, bg-surface rounded shadow-xl
+//   header CloseButton — aria-label="Close logs popover" (Escape/backdrop also close)
 //   Reload button — btn-secondary btn-xs
 //   Share button — btn-secondary btn-xs (disabled when no content)
 //   CloseButton (header) — btn-icon
@@ -105,14 +105,14 @@ function makeDiagnosis(over: Partial<Diagnosis> = {}): Diagnosis {
 
 // ── Popover container ─────────────────────────────────────────────────────────
 
-describe('LogsPopover — container has bg-surface rounded shadow-xl', () => {
-  it('popover aside has bg-surface, rounded, shadow-xl when open=true', () => {
+describe('LogsPopover — dialog panel has bg-surface rounded shadow-xl', () => {
+  it('dialog panel has bg-surface, rounded, shadow-xl when open=true', () => {
     const { container } = render(LogsPopover, {
       props: { open: true, instanceId: 'inst-1' },
     });
-    const aside = container.querySelector('aside');
-    expect(aside).not.toBeNull();
-    const cls = aside?.className ?? '';
+    const panel = container.querySelector('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    const cls = panel?.className ?? '';
     expect(cls).toContain('bg-surface');
     expect(cls).toContain('rounded');
     expect(cls).toContain('shadow-xl');
@@ -122,20 +122,23 @@ describe('LogsPopover — container has bg-surface rounded shadow-xl', () => {
     const { container } = render(LogsPopover, {
       props: { open: false, instanceId: 'inst-1' },
     });
-    const aside = container.querySelector('aside');
-    expect(aside).toBeNull();
+    const panel = container.querySelector('[role="dialog"]');
+    expect(panel).toBeNull();
   });
 });
 
-// ── Backdrop button ───────────────────────────────────────────────────────────
+// ── Dialog semantics + close affordance ───────────────────────────────────────
 
-describe('LogsPopover — backdrop button aria-label="Close logs"', () => {
-  it('backdrop button has aria-label="Close logs" and absolute inset-0 classes', () => {
+describe('LogsPopover — dialog is a role=dialog with a header close button', () => {
+  it('panel is role=dialog aria-modal and exposes a named close button', () => {
     const { container } = render(LogsPopover, { props: { open: true, instanceId: 'inst-1' } });
-    const btn = container.querySelector('button[aria-label="Close logs"]');
-    expect(btn).not.toBeNull();
-    expect(btn?.className).toContain('absolute');
-    expect(btn?.className).toContain('inset-0');
+    const panel = container.querySelector('[role="dialog"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.getAttribute('aria-modal')).toBe('true');
+    // Closing is now via the header CloseButton (or Escape / backdrop), not a
+    // hand-rolled full-screen scrim button.
+    const close = container.querySelector('button[aria-label="Close logs popover"]');
+    expect(close).not.toBeNull();
   });
 });
 
@@ -811,7 +814,9 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     await fireEvent.click(screen.getByTestId('clear-old-logs'));
     // Click the primary "Clear old" action inside the confirm dialog.
     const confirmDialog = screen.getByTestId('clear-old-confirm');
-    const clearBtn = confirmDialog.querySelector('button.btn-warning') as HTMLButtonElement;
+    // Clear-old permanently deletes files → btn-danger (was btn-warning before
+    // the confirm dialogs moved onto the shared Modal, per DESIGN.md).
+    const clearBtn = confirmDialog.querySelector('button.btn-danger') as HTMLButtonElement;
     expect(clearBtn).not.toBeNull();
     await fireEvent.click(clearBtn);
     await waitFor(() => {
@@ -856,7 +861,9 @@ describe('LogsPopover — clear-old-logs button and confirm flow', () => {
     // Trigger clear-old and confirm.
     await fireEvent.click(screen.getByTestId('clear-old-logs'));
     const confirmDialog = screen.getByTestId('clear-old-confirm');
-    const clearBtn = confirmDialog.querySelector('button.btn-warning') as HTMLButtonElement;
+    // Clear-old permanently deletes files → btn-danger (was btn-warning before
+    // the confirm dialogs moved onto the shared Modal, per DESIGN.md).
+    const clearBtn = confirmDialog.querySelector('button.btn-danger') as HTMLButtonElement;
     await fireEvent.click(clearBtn);
 
     // After the clear, the viewer should show the empty-state text because the

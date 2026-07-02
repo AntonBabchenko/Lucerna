@@ -262,12 +262,22 @@ pub fn server_change_port(app: AppHandle, id: String, port: u16) -> Result<()> {
     let p = crate::paths::server_paths(&base, &id);
     let props_path = p.runtime.join("server.properties");
     let raw = std::fs::read_to_string(&props_path).unwrap_or_default();
+    // The port we're leaving — its firewall allow-rule (if any) is now stale.
+    let old_port = crate::servers_runtime::runtime::read_port(&p.runtime);
     let mut props = crate::servers_runtime::properties::ServerProperties::parse(&raw);
     props.set_validated("server-port", &port.to_string())?;
     std::fs::create_dir_all(&p.runtime)
         .map_err(|e| Error::io(p.runtime.display().to_string(), e))?;
     std::fs::write(&props_path, props.serialize())
         .map_err(|e| Error::io("<server.properties>", e))?;
+    // Migrate the firewall rule: remove the old port's allow-rule (if present) so
+    // changing the port doesn't leave a stale open-port rule behind. The new
+    // port's rule is added on demand via `server_firewall_add_rule`.
+    if let Some(old) = old_port {
+        if old != port {
+            remove_firewall_rule_for_port(&p.root, old);
+        }
+    }
     // Suppress the now-stale port-conflict log so re-diagnose doesn't re-fire the
     // banner from the same FAILED-TO-BIND log after the port has been changed.
     mark_current_log_handled(&p);
@@ -397,16 +407,31 @@ pub async fn server_send_command(id: String, line: String) -> Result<()> {
     crate::servers_runtime::runtime::send_command(&id, &line).await
 }
 
-/// Best-effort removal of the Windows firewall allow-rule for this server's port
-/// (only when one is present), so deleting a server doesn't leave a stale
-/// open-port rule. No-op on non-Windows / when no port or rule exists; gating on
-/// presence means UAC is only prompted when there is actually a rule to remove.
-fn remove_firewall_rule_if_present(runtime: &std::path::Path) {
-    if let Some(port) = crate::servers_runtime::runtime::read_port(runtime) {
-        let name = crate::servers_runtime::firewall::rule_name(port);
-        if crate::process::firewall_rule_present(&name) {
-            let _ = crate::process::firewall_remove_rule_elevated(&name);
+/// Remove the firewall allow-rule for a single `port` when it is present, then
+/// forget it from the tracking sidecar. Best-effort; gating on presence means UAC
+/// is only prompted when there is actually a rule to remove.
+fn remove_firewall_rule_for_port(root: &std::path::Path, port: u16) {
+    let name = crate::servers_runtime::firewall::rule_name(port);
+    if crate::process::firewall_rule_present(&name) {
+        let _ = crate::process::firewall_remove_rule_elevated(&name);
+    }
+    crate::servers_runtime::firewall::forget_port(root, port);
+}
+
+/// Best-effort removal of EVERY Windows firewall allow-rule this server left
+/// behind, so deleting it never leaves a stale open-port rule. Removes each rule
+/// recorded in the tracking sidecar PLUS the current `server.properties` port (in
+/// case the sidecar predates tracking / was never written). No-op on non-Windows
+/// or when no rule is present.
+fn remove_firewall_rules_on_delete(root: &std::path::Path, runtime: &std::path::Path) {
+    let mut ports = crate::servers_runtime::firewall::recorded_ports(root);
+    if let Some(cur) = crate::servers_runtime::runtime::read_port(runtime) {
+        if !ports.contains(&cur) {
+            ports.push(cur);
         }
+    }
+    for port in ports {
+        remove_firewall_rule_for_port(root, port);
     }
 }
 
@@ -425,9 +450,9 @@ pub fn server_delete(app: AppHandle, id: String) -> Result<()> {
     // server's world before removing the directory, or the delete would fail
     // (or re-orphan the process).
     crate::servers_runtime::runtime::kill_owned_pid(&p.pid);
-    // Remove the firewall allow-rule we may have added for this server's port so
-    // it doesn't linger after the server is gone.
-    remove_firewall_rule_if_present(&p.runtime);
+    // Remove every firewall allow-rule we may have added for this server (all
+    // tracked ports + the current one) so none linger after the server is gone.
+    remove_firewall_rules_on_delete(&p.root, &p.runtime);
     store::delete_server(&base, &id)?;
     let _ = crate::accounts::keychain::delete(&crate::accounts::keychain::sftp_password_key(&id));
     Ok(())
@@ -1265,6 +1290,12 @@ pub fn server_cancel_upload(id: String) -> Result<()> {
 #[tauri::command]
 #[specta::specta]
 pub fn server_export_zip(app: AppHandle, id: String, dest_path: String) -> Result<()> {
+    // A live server holds world region files open and mutates them mid-write, so
+    // zipping runtime/ while it runs can produce a torn archive. Refuse until the
+    // server is stopped (parity with restore/upload, which also require stopped).
+    if crate::servers_runtime::runtime::is_running(&id) {
+        return Err(crate::error::Error::ServerAlreadyRunning { id });
+    }
     let base = crate::paths::app_dir(&app).map_err(|e| crate::error::Error::io("<app_dir>", e))?;
     let p = crate::paths::server_paths(&base, &id);
     crate::servers_runtime::transfer::export_zip(&p.runtime, std::path::Path::new(&dest_path))
@@ -1548,6 +1579,9 @@ pub async fn server_import_commit(
 ) -> Result<ServerWithStatus> {
     crate::servers_runtime::eula::require_accepted(eula_accepted)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    // Enforce name validation at the IPC boundary (parity with server_create):
+    // reject empty / control-char / duplicate names before committing the import.
+    let name = store::validate_name(&name, &store::list_all(&base)?, None)?;
     // Decide preserve vs reprovision against the staged root.
     let root = import::staged_root(&base, &token)?;
     let preserve = import::detect::can_launch_as_is(&root, loader);
@@ -1700,8 +1734,11 @@ pub async fn server_backup_restore(app: AppHandle, id: String, file_name: String
     // Safety net: snapshot current state before overwriting it. If the snapshot
     // FAILS (e.g. disk full), ABORT — restoring would `remove_dir_all` the live
     // runtime with no recoverable copy of the state we're about to destroy (#26).
+    // Protect the restore target from the pre-restore snapshot's keep-N prune: if
+    // the backup set is already at the cap and `file_name` is the oldest, an
+    // unprotected prune would delete the very zip we're about to restore from.
     let stamp = format!("prerestore-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
-    backup::create_backup(&base, &id, &stamp)?;
+    backup::create_backup_protecting(&base, &id, &stamp, Some(&file_name))?;
     backup::restore_backup(&base, &id, &file_name)
 }
 
@@ -1800,6 +1837,47 @@ fn spawn_backup_scheduler(app: AppHandle, id: String, generation: u64, interval_
     });
 }
 
+/// Re-arm the session interval backup scheduler for every server whose persisted
+/// `backup-policy.json` is enabled with a positive interval. The scheduler is
+/// session-scoped: it is only spawned by `server_backup_policy_set`, so after a
+/// launcher restart an enabled policy stops producing snapshots until the user
+/// re-saves it. Called once from `lib.rs` setup so enabled policies survive a
+/// restart.
+///
+/// Reuses the same per-server generation map a later `server_backup_policy_set`
+/// bumps, so a policy edit made after this rearm still supersedes the task
+/// spawned here (the older generation exits on its next tick). Best-effort: a
+/// missing servers root or an unreadable policy is skipped.
+pub fn rearm_backup_schedulers(app: &AppHandle) {
+    let Ok(base) = crate::paths::app_dir(app) else {
+        return;
+    };
+    let servers = match store::list_all(&base) {
+        Ok(s) => s,
+        Err(e) => {
+            crate::diag!("rearm_backup_schedulers: list servers failed: {e}");
+            return;
+        }
+    };
+    for file in servers {
+        let policy = backup::read_policy(&base, &file.id);
+        if !policy.enabled || policy.interval_minutes == 0 {
+            continue;
+        }
+        // Bump this server's generation (same mechanism as policy_set) so a later
+        // policy_set supersedes the task we spawn here.
+        let generation = {
+            let mut gens = backup_scheduler_generations()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let g = gens.entry(file.id.clone()).or_insert(0);
+            *g += 1;
+            *g
+        };
+        spawn_backup_scheduler(app.clone(), file.id, generation, policy.interval_minutes);
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn server_backup_delete(app: AppHandle, id: String, file_name: String) -> Result<()> {
@@ -1843,7 +1921,12 @@ pub fn server_firewall_add_rule(app: AppHandle, id: String) -> Result<()> {
             "server.properties not found — start the server first",
         )
     })?;
-    crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)
+    crate::process::firewall_add_rule_elevated(&firewall::rule_name(port), port)?;
+    // Record the port so `server_delete` (and a later `server_change_port`) can
+    // remove every rule we created, not just the current-port one.
+    let root = crate::paths::server_paths(&base, &id).root;
+    firewall::record_added_port(&root, port);
+    Ok(())
 }
 
 // Own server (#9, C4: whitelist / ops editor):

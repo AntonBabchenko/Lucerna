@@ -1,5 +1,7 @@
 // Cross-component state for the auto-update flow. Mirrors the
 // rune-in-a-.svelte.ts idiom used by $lib/settings/state.svelte.
+import { get } from 'svelte/store';
+import { t } from '$lib/i18n';
 import { commands, type UpdateInfo } from '$lib/ipc/bindings';
 import { formatError } from '$lib/ipc/format-error';
 import { dismiss, pushActionToast, pushInfo } from '$lib/toasts/toasts.svelte';
@@ -34,7 +36,8 @@ export async function runUpdate(): Promise<void> {
   }
 
   updateInstalling.value = true;
-  const progress = pushInfo('Downloading update…');
+  const tr = get(t);
+  const progress = pushInfo(tr('page.update.downloading'));
   const r = await commands.updateInstall();
   dismiss(progress);
   if (r.status !== 'ok') {
@@ -43,9 +46,9 @@ export async function runUpdate(): Promise<void> {
     const url = updateState.value?.release_url;
     pushActionToast(
       'warning',
-      "Couldn't verify the update",
+      tr('page.update.verifyFailed'),
       {
-        label: 'Open release page',
+        label: tr('settings.general.updates.openReleasePage'),
         run: () => {
           if (url) void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(url));
         },

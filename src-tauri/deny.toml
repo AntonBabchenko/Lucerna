@@ -12,11 +12,13 @@
 # the advisory is assessed as not applicable to how Lucerna uses the crate.
 version = 2
 yanked = "deny"
-# Every entry below is an `unmaintained` advisory (NOT a vulnerability —
-# cargo-deny checks vulnerabilities independently and they are never ignored)
-# on a DEEP TRANSITIVE dependency we do not control and cannot upgrade. They
-# are grouped by the upstream that pulls them in. A genuinely new advisory —
-# any vulnerability, or an unmaintained flag on a crate not listed here — still
+# Most entries below are `unmaintained` advisories on a DEEP TRANSITIVE
+# dependency we do not control and cannot upgrade, grouped by the upstream that
+# pulls them in. The ONE exception to "never ignore a vulnerability" is the
+# quick-xml build-dependency block at the end: our runtime quick-xml is patched
+# (>= 0.41.0); those two IDs flag only a build-time-only copy with no upstream
+# fix (see the block comment). A genuinely new advisory — any other
+# vulnerability, or an unmaintained flag on a crate not listed here — still
 # fails CI and gets reviewed. Re-evaluate this list on Tauri upgrades.
 ignore = [
   # rust-unic family (open-i18n/rust-unic, all unmaintained, "no safe upgrade").
@@ -41,6 +43,16 @@ ignore = [
   # Unmaintained proc-macro ecosystem crates, transitive via build deps.
   "RUSTSEC-2024-0370", # proc-macro-error
   "RUSTSEC-2024-0436", # paste
+  # ── Build-dependency-only quick-xml DoS (the "never ignore a vuln" exception) ──
+  # Our RUNTIME quick-xml is pinned to >= 0.41.0 (patched — see Cargo.toml). These
+  # two flag ONLY the copy pulled at BUILD time by `plist`
+  # (tauri-build -> tauri-utils -> plist), which parses our own generated macOS
+  # Info.plist during bundling — never attacker-controlled input, never shipped in
+  # the binary. plist 1.9.0 (latest) still requires quick-xml ^0.39 and cannot take
+  # 0.41, so there is no upstream fix yet. REMOVE both when plist ships a
+  # quick-xml >= 0.41 build (or the runtime dep gains a second, untrusted XML path).
+  "RUSTSEC-2026-0194", # quick-xml quadratic start-tag attrs — build-dep (plist) only
+  "RUSTSEC-2026-0195", # quick-xml unbounded NsReader namespaces — build-dep (plist) only
 ]
 
 [bans]

@@ -40,21 +40,21 @@ describe('ModCard', () => {
   it('shows Install button when the mod is not installed', () => {
     render(ModCard, { props: { summary, installed: null, ...noopProps } });
     expect(screen.getByRole('button', { name: /^install$/i })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /uninstall/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /remove/i })).toBeNull();
   });
 
   it('shows Disable + Uninstall icon actions + version when installed and enabled', () => {
     render(ModCard, { props: { summary, installed: inst(true), ...noopProps } });
     expect(screen.getByText('v1.0')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^disable$/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^install$/i })).toBeNull();
   });
 
   it('shows Enable + Uninstall icon actions when the mod is installed but disabled', () => {
     render(ModCard, { props: { summary, installed: inst(false), ...noopProps } });
     expect(screen.getByRole('button', { name: /^enable$/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeTruthy();
   });
 
   it('shows the version number when known', () => {
@@ -109,7 +109,7 @@ describe('ModCard', () => {
     });
     // Enabled → power toggle labelled "Disable", plus an "Uninstall" icon button.
     expect(screen.getByRole('button', { name: /disable/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeTruthy();
   });
 
   it('omits the toggle for resource packs/shaders (canToggle=false)', () => {
@@ -123,7 +123,7 @@ describe('ModCard', () => {
       },
     });
     expect(screen.queryByRole('button', { name: /disable/i })).toBeNull();
-    expect(screen.getByRole('button', { name: /uninstall/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /remove/i })).toBeTruthy();
   });
 
   it('an enabled mod keeps a quiet (transparent) accent strip — no wall of green', () => {

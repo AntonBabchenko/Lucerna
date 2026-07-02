@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { commands } from '$lib/ipc/bindings';
   import type {
@@ -111,6 +112,10 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let debounce: ReturnType<typeof setTimeout> | null = null;
+  // Monotonic request id so an out-of-order modpack_search response can't clobber
+  // a newer page. A fast Next→Next (or edits landing back-to-back) can resolve
+  // B-then-A; without this guard A would overwrite B. Mirrors ModBrowseView.
+  let reqSeq = 0;
 
   // Push hits whose title contains the search query to the top — see
   // prioritizeByTitle for the rationale. Empty page falls back to [].
@@ -127,6 +132,7 @@
         page = null;
         return;
       }
+      const seq = ++reqSeq;
       loading = true;
       error = null;
       try {
@@ -141,6 +147,9 @@
           modpackBrowseState.sortChoice,
           browserPrefs.pageSize,
         );
+        // A newer search superseded this one while it awaited — drop the stale
+        // result (and leave `loading` for the in-flight request to clear).
+        if (seq !== reqSeq) return;
         if (result.status === 'ok') {
           page = result.data;
         } else if (result.error.kind === 'mods_platform_auth') {
@@ -150,12 +159,20 @@
           error = formatError(result.error);
         }
       } catch (e) {
+        if (seq !== reqSeq) return;
         error = String(e);
       } finally {
-        loading = false;
+        if (seq === reqSeq) loading = false;
       }
     }, 300);
   }
+
+  // Clear a pending debounce so a search can't fire (and touch reactive state)
+  // after the component has unmounted.
+  onDestroy(() => {
+    if (debounce) clearTimeout(debounce);
+    debounce = null;
+  });
 
   // Modpack browser has no "show installed" facet, so it never enters
   // the chip model. source is a context switch, not a chip (see

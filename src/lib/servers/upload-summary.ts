@@ -1,4 +1,5 @@
-import type { Translate } from '$lib/i18n';
+import { get } from 'svelte/store';
+import { locale, type Translate } from '$lib/i18n';
 import type { LastUpload, UploadPreflight } from '$lib/ipc/bindings';
 
 /** The fields of `UploadPreflight` the UI reasons about (mirrors the binding). */
@@ -16,7 +17,10 @@ export function formatLastUpload(t: Translate, last: LastUpload | null | undefin
   if (!last) return null;
   // `unix_ms` is typed nullable on the wire (specta `f64`); the Rust side always
   // writes a finite ms count, but coerce null → epoch 0 to satisfy `Date`.
-  const when = new Date(last.unix_ms ?? 0).toLocaleString();
+  // Format against the APP locale (svelte-i18n's `locale` store), not the OS
+  // locale, so the date matches the rest of the UI's language — the Backups
+  // dialogs use the same `$locale` pattern.
+  const when = new Date(last.unix_ms ?? 0).toLocaleString(get(locale) ?? undefined);
   return t('servers.hosting.lastUpload', { when, target: last.target });
 }
 

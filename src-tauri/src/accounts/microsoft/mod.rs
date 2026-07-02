@@ -6,7 +6,7 @@ pub mod oauth;
 pub mod xbox;
 
 use crate::accounts::keychain;
-use crate::accounts::store::{upsert_microsoft_account, Account};
+use crate::accounts::store::{self, Account};
 use crate::error::{Error, Result};
 use crate::paths::account_file;
 use rand::RngCore;
@@ -77,7 +77,11 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
     // other functions in accounts/mod.rs), then delegate to the testable
     // store-level helper which takes &Path directly.
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
-    let account = upsert_microsoft_account(&path, &mc_uuid, &profile.name, Some(expires_at))?;
+    // Compute the account entry (and its id) WITHOUT persisting yet, so the
+    // keyring secrets are written first. If keyring writes fail, account.json
+    // is left untouched — no signed-in-looking entry with missing tokens.
+    let (updated_file, account) =
+        store::prepare_upsert_microsoft_account(&path, &mc_uuid, &profile.name, Some(expires_at))?;
 
     keychain::store(
         &keychain::refresh_token_key(&account.id),
@@ -87,6 +91,9 @@ pub async fn sign_in(app: &tauri::AppHandle) -> Result<Account> {
         &keychain::mc_access_key(&account.id),
         &mc_login.access_token,
     )?;
+
+    // Both keyring writes succeeded — now persist the account file.
+    store::write_account_file(&path, &updated_file)?;
 
     // Best-effort skin prefetch: warm the on-disk cache so the avatar is
     // ready on first paint. Spawned so it never delays or fails sign-in;
@@ -122,7 +129,17 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
     let expires_at = super::now_secs() + mc_login.expires_in as f64;
 
     let path = account_file(app).map_err(|e| Error::io("<app data dir>/account.json", e))?;
-    let account = upsert_microsoft_account(&path, &mc_uuid, &profile.name, Some(expires_at))?;
+    // Update-only, located by the id this refresh was invoked with. If the
+    // account was removed since the refresh started, this returns an auth
+    // error instead of resurrecting a ghost entry. Compute WITHOUT persisting
+    // so the keyring secrets are written first (same ordering as sign_in).
+    let (updated_file, account) = store::prepare_refresh_microsoft_account_by_id(
+        &path,
+        account_id,
+        &mc_uuid,
+        &profile.name,
+        Some(expires_at),
+    )?;
 
     keychain::store(
         &keychain::refresh_token_key(&account.id),
@@ -132,6 +149,9 @@ pub async fn refresh(app: &tauri::AppHandle, account_id: &str) -> Result<Account
         &keychain::mc_access_key(&account.id),
         &mc_login.access_token,
     )?;
+
+    // Both keyring writes succeeded — now persist the account file.
+    store::write_account_file(&path, &updated_file)?;
 
     // Best-effort skin prefetch: warm the on-disk cache so the avatar is
     // ready on first paint. Spawned so it never delays or fails the refresh;
@@ -170,9 +190,12 @@ async fn exchange_refresh_token(
     token_url: &str,
 ) -> Result<oauth::MsTokenResponse> {
     let body = format!(
-        "client_id={}&grant_type=refresh_token&refresh_token={}&scope=XboxLive.signin offline_access",
+        "client_id={}&grant_type=refresh_token&refresh_token={}&scope={}",
         oauth::CLIENT_ID,
         urlencoding::encode(refresh_token),
+        // The scope value contains a space between the two scopes; it must be
+        // percent-encoded in the form body (a raw space is invalid).
+        urlencoding::encode("XboxLive.signin offline_access"),
     );
     crate::network::allowlist::check_url_allowed(token_url, "microsoft_auth")?;
     let resp = crate::network::http()

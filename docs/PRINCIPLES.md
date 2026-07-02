@@ -35,6 +35,7 @@ Lucerna exists to give players a transparent open-source Minecraft launcher: tel
    | `cdn.modrinth.com` | Modrinth mod jar downloads | enabled when user installs from Modrinth |
    | `edge.forgecdn.net` | CurseForge mod jar downloads (primary CDN) | enabled when user installs from CurseForge |
    | `mediafilez.forgecdn.net` | CurseForge mod jar downloads (alternate CDN) | enabled when user installs from CurseForge |
+   | `api.mclo.gs`, `mclo.gs` | Log-share upload to the mclo.gs paste service (log is anonymised client-side before upload and shown to the user first) | only when the user clicks Share in the Logs viewer |
    | `api.modpacks.ch` | FTB modpack browser (metadata) | requested on first open of modpack browser |
    | `dist.modpacks.ch` | FTB modpack file downloads | enabled when user installs an FTB pack |
    | `api.atlauncher.com` | ATLauncher modpack catalogue (metadata) | requested on first open of ATLauncher modpack browser |

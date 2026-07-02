@@ -270,7 +270,11 @@ fn enrich(
             installed,
             family,
         } => {
-            let key = dep_id.to_ascii_lowercase();
+            // Normalize '-'/'_' + lowercase on BOTH sides so a `fabric-api`
+            // dep routes to a `fabric_api` provider (the two are used
+            // interchangeably by the ecosystem). Matches `canon_id`, which the
+            // provider index already uses.
+            let key = canon_id(&dep_id);
             let provider_project = provider_owner.get(&key).cloned();
             let provider_sha1 = provider_sha1_map.get(&key).cloned();
             DepViolation {
@@ -345,7 +349,10 @@ pub async fn dependency_preflight_for_root(
         // provider_sha1 is populated regardless of source so that even FTB/ATL
         // mods (which yield no DepProjectRef) can still route updates correctly.
         for p in &manifest.provided {
-            let key = p.mod_id.to_ascii_lowercase();
+            // Canonicalize ('-'/'_' equivalent, lowercase) so the enrichment
+            // lookup in `enrich` — which uses the same `canon_id` — matches a
+            // `fabric-api` dep against a `fabric_api` provider.
+            let key = canon_id(&p.mod_id);
             provider_sha1.entry(key).or_insert_with(|| m.sha1.clone());
         }
         // Only insert a DepProjectRef when dep_project_ref returns Some;
@@ -355,7 +362,7 @@ pub async fn dependency_preflight_for_root(
             if let Some(ref_) = dep_project_ref(source, project_id) {
                 for p in &manifest.provided {
                     provider_owner
-                        .entry(p.mod_id.to_ascii_lowercase())
+                        .entry(canon_id(&p.mod_id))
                         .or_insert_with(|| ref_.clone());
                 }
             }
@@ -728,6 +735,38 @@ mod tests {
         assert_eq!(
             dv.family,
             Some(crate::mods::version_range::RangeFamily::Maven)
+        );
+    }
+
+    #[test]
+    fn enrich_matches_provider_across_hyphen_underscore() {
+        use std::collections::HashMap;
+        // Provider maps are keyed via canon_id (fabric_api); the violation's
+        // dep_id uses the hyphen form (fabric-api). Enrichment must still route
+        // the provider link + sha1 by normalizing both sides.
+        let v = Violation::VersionOutOfRange {
+            dependent_sha1: "dep".into(),
+            dependent_name: "Continuity".into(),
+            dep_id: "fabric-api".into(),
+            needed: "[0.100,)".into(),
+            installed: "0.90".into(),
+            family: crate::mods::version_range::RangeFamily::FabricPredicate,
+        };
+        let mut owner: HashMap<String, crate::mods::platform::DepProjectRef> = HashMap::new();
+        owner.insert(
+            "fabric_api".to_string(),
+            crate::mods::platform::DepProjectRef::Modrinth {
+                project_id: "P7dR8mSH".into(),
+                version_id: None,
+            },
+        );
+        let mut sha = HashMap::new();
+        sha.insert("fabric_api".to_string(), "FABRICSHA".to_string());
+        let dv = enrich(v, &owner, &sha);
+        assert_eq!(dv.provider_sha1.as_deref(), Some("FABRICSHA"));
+        assert!(
+            dv.provider_project.is_some(),
+            "fabric-api dep must resolve to the fabric_api provider ref"
         );
     }
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { installMockIpc } from '../helpers/mock-ipc';
+import { installMockIpc, makeInstance } from '../helpers/mock-ipc';
 import { setTheme } from '../helpers/theme';
 
 test.skip(process.platform !== 'linux', 'Visual tests pinned to Linux for cross-OS determinism');
@@ -12,24 +12,7 @@ const offlineAccount = {
   expires_at: null,
 };
 
-// Base instance shape (all required fields from MockInstance in mock-ipc.ts).
-const baseInstance = {
-  id: 'inst-1',
-  name: 'Default',
-  mc_version: '1.20.4',
-  loader: 'vanilla' as const,
-  loader_version: null,
-  max_heap_mb: 2048,
-  extra_jvm_args: '',
-  created_unix_ms: null,
-  ready: true,
-  mrpack_name: null,
-  mrpack_version: null,
-  mrpack_project_id: null,
-  mrpack_source: null,
-  mrpack_summary: null,
-  mrpack_version_id: null,
-};
+const baseInstance = makeInstance({ id: 'inst-1', name: 'Default' });
 
 // ManageInstancesModal: inner div identified by the h2 "Manage Instances" heading.
 // DOM tree: fixed-backdrop > div.bg-surface > header > h2
@@ -77,17 +60,16 @@ test.describe('Imported modpack drawer footer', () => {
   test('destructive footer: Delete pack LEFT + Open instance RIGHT — light', async ({ page }) => {
     // Pack instance: mrpack_name must be non-null so ImportedView shows a card.
     // mrpack_version and mrpack_source are shown in the drawer header.
-    const packInstance = {
-      ...baseInstance,
+    const packInstance = makeInstance({
       id: 'inst-mp-1',
       name: 'Test Pack Instance',
       mrpack_name: 'Test Modpack',
       mrpack_version: '1.0.0',
-      mrpack_source: 'modrinth' as const,
+      mrpack_source: 'modrinth',
       mrpack_project_id: 'abc123',
       mrpack_summary: 'A test modpack for visual snapshots.',
       mrpack_version_id: 'ver-v1',
-    };
+    });
 
     await installMockIpc(page, {
       accounts: [offlineAccount],

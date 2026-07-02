@@ -26,17 +26,29 @@ async function sweep(instanceIds: string[], opts?: { force?: boolean }) {
   const now = Date.now();
   if (!opts?.force && lastSweepAt !== null && now - lastSweepAt < TTL_MS) return;
 
+  // Snapshot each requested instance's status BEFORE overwriting with
+  // 'checking' so an error can restore the exact prior entry (e.g. a standing
+  // 'update_available' must survive a failed re-check, not be destroyed).
+  const prior = new Map<string, Status | undefined>();
+  for (const id of instanceIds) prior.set(id, statuses.get(id));
+
   const next = new Map(statuses);
   for (const id of instanceIds) next.set(id, { kind: 'checking' });
   statuses = next;
 
   const r = await commands.modpacksCheckUpdates(instanceIds);
-  // Errors are non-fatal: a failed sweep leaves prior statuses intact and is
-  // simply retried on the next trigger. Badges never block the UI.
+  // Errors are non-fatal: a failed sweep restores each requested instance's
+  // prior status and is simply retried on the next trigger. Badges never block
+  // the UI. Only ids that had no prior entry are dropped.
   if (r.status === 'error') {
     const reverted = new Map(statuses);
     for (const id of instanceIds) {
-      if (reverted.get(id)?.kind === 'checking') reverted.delete(id);
+      // Only touch entries we set to 'checking' — a concurrent write may have
+      // already replaced ours with a fresh verdict, which we must not clobber.
+      if (reverted.get(id)?.kind !== 'checking') continue;
+      const before = prior.get(id);
+      if (before === undefined) reverted.delete(id);
+      else reverted.set(id, before);
     }
     statuses = reverted;
     return;

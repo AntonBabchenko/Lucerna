@@ -128,7 +128,7 @@ describe('formatError', () => {
         instance_id: 'a',
         failed: [['m', 'r']],
       } as never),
-    ).toContain('1 mod(s) skipped');
+    ).toContain('1 mod skipped');
     expect(formatError({ kind: 'modpack_no_files_selected' } as never)).toBe(
       'Select at least one mod before importing.',
     );
@@ -417,17 +417,26 @@ describe('formatError', () => {
     });
 
     it('has a distinct sample for every Error variant (Record completeness)', () => {
-      // The Record type fails the build if a `kind` is missing. This exact
-      // count is the runtime complement: a duplicate key in the literal would
-      // collapse two entries into one and drop the length below the total,
-      // which the type system does NOT catch. Bump this when variants change.
-      expect(Object.keys(samples)).toHaveLength(105);
+      // Both `samples` and `ERROR_CLASS` are `Record<IpcError['kind'], …>`, so
+      // the build fails if either omits a `kind`. The runtime complement the
+      // type system does NOT catch is a *duplicate* key in a literal, which
+      // collapses two entries into one and shrinks that object's key set. We
+      // catch it without a magic number by cross-checking the two independent
+      // literals against each other: a duplicate in one makes its key set a
+      // strict subset of the other's. Adding a new variant needs no edit here.
+      const sampleKeys = Object.keys(samples).sort();
+      const classKeys = Object.keys(ERROR_CLASS).sort();
+      expect(sampleKeys).toEqual(classKeys);
     });
 
     it('classifies every Error variant (ERROR_CLASS completeness)', () => {
-      // Record<IpcError['kind'], …> fails the build on a missing key; this exact
-      // count is the runtime complement that also catches a duplicate key.
-      expect(Object.keys(ERROR_CLASS)).toHaveLength(105);
+      // Every sampled variant resolves to a class (no `undefined`), proving
+      // ERROR_CLASS covers the full variant set the samples exercise — the
+      // runtime complement to the compile-time Record check, with no count to
+      // bump when variants change.
+      for (const kind of Object.keys(samples) as IpcError['kind'][]) {
+        expect(ERROR_CLASS[kind]).toBeDefined();
+      }
     });
 
     const opaqueKinds = (Object.keys(samples) as IpcError['kind'][]).filter(

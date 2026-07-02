@@ -71,3 +71,8 @@ brand/logo-candidates/
 /coverage-fe/
 /src-tauri/llvm-cov.json
 **/*.profraw
+
+# Build / debug junk (crash dumps, debug symbols, scratch clone)
+*.pdb
+*.stackdump
+/.clone/

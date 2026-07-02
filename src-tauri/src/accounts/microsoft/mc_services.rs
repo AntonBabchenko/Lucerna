@@ -104,11 +104,15 @@ pub async fn fetch_profile(mc_access_token: &str) -> Result<ProfileResponse> {
 }
 
 /// Convert MC UUID (32 hex chars, no dashes) to canonical hyphenated form.
+/// Errors (never panics) if the id is not exactly 32 ASCII hex characters —
+/// a non-32-hex profile.id would otherwise slice on a non-char-boundary and
+/// panic. `.len()` counts bytes, so a 32-byte string could still contain
+/// multi-byte chars; the `is_ascii_hexdigit` check rules that out.
 pub fn hyphenate_uuid(no_dashes: &str) -> Result<String> {
-    if no_dashes.len() != 32 {
+    if no_dashes.len() != 32 || !no_dashes.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(Error::AuthFailed {
             stage: "mc_services".into(),
-            details: format!("profile.id wrong length: {no_dashes}"),
+            details: format!("profile.id not 32 hex chars: {no_dashes}"),
         });
     }
     Ok(format!(
@@ -138,6 +142,17 @@ mod tests {
     #[test]
     fn hyphenate_uuid_rejects_wrong_length() {
         assert!(hyphenate_uuid("tooshort").is_err());
+    }
+
+    #[test]
+    fn hyphenate_uuid_rejects_non_hex_and_multibyte() {
+        // Non-hex ASCII of length 32 must be rejected (not sliced blindly).
+        assert!(hyphenate_uuid("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz").is_err());
+        // 32-byte string containing a multi-byte char: byte-offset slicing
+        // would panic on a non-char-boundary; must error instead.
+        let multibyte = format!("{}é", "a".repeat(30)); // 30 + 2 bytes = 32 bytes
+        assert_eq!(multibyte.len(), 32);
+        assert!(hyphenate_uuid(&multibyte).is_err());
     }
 
     #[tokio::test]

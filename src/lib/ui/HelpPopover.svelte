@@ -56,14 +56,24 @@
   // A fixed popover does not follow the trigger when the layout shifts, so close
   // it on scroll/resize while open. `scroll` is captured (third arg `true`) so
   // it also catches a scrollable host's own scroll (scroll does not bubble).
+  // Escape also dismisses it, matching every other popover/menu in the app.
   $effect(() => {
     if (!open) return;
     const close = () => (open = false);
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        open = false;
+        trigger?.focus();
+      }
+    };
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKeydown);
     return () => {
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKeydown);
     };
   });
 </script>

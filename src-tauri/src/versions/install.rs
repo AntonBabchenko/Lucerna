@@ -141,7 +141,11 @@ pub async fn install_version(version_id: &str, app: &tauri::AppHandle) -> Result
     let asset_index = require_asset_index(&details)?;
     let app_clone = app.clone();
     let version_id_owned = version_id.to_string();
-    super::assets::ensure_assets(asset_index, app, move |done, total, bytes| {
+    // No instance context here (we install a version, not an instance), so
+    // `game_dir` is None. Legacy `virtual` indexes still materialise into the
+    // version-scoped `<assets>/virtual/<id>/`; `map_to_resources` needs a
+    // per-instance dir and is handled at launch time (see deferral note).
+    super::assets::ensure_assets(asset_index, None, app, move |done, total, bytes| {
         InstallProgress {
             version_id: version_id_owned.clone(),
             phase: InstallPhase::Assets,
@@ -210,10 +214,23 @@ async fn ensure_version_json_inner(
     let dir = versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let path = dir.join(version_id).join(format!("{version_id}.json"));
 
-    // Disk fast-path — both vanilla and synth ids share this.
+    // Disk fast-path — both vanilla and synth ids share this. A parse
+    // failure means the cached file is corrupt (truncated write, disk
+    // fault, hand-edit): self-heal by deleting it and falling through to
+    // the network/synth path rather than surfacing a permanent error that
+    // no amount of retrying could clear.
     if let Ok(raw) = tokio::fs::read_to_string(&path).await {
-        return parse(&raw)
-            .map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")));
+        match parse(&raw) {
+            Ok(details) => return Ok(details),
+            Err(e) => {
+                crate::diag!(
+                    "versions: cached {} is corrupt ({e}) — deleting and re-fetching",
+                    path.display()
+                );
+                let _ = tokio::fs::remove_file(&path).await;
+                // fall through to re-fetch
+            }
+        }
     }
 
     // Synthetic id dispatch
@@ -258,14 +275,7 @@ async fn ensure_version_json_inner(
         let merged = crate::versions::resolve::merge_inherits(child, parent);
         let text = serde_json::to_string(&merged)
             .map_err(|e| Error::io(path.display().to_string(), format!("serialise: {e}")))?;
-        if let Some(parent_dir) = path.parent() {
-            tokio::fs::create_dir_all(parent_dir)
-                .await
-                .map_err(|e| Error::io(parent_dir.display().to_string(), e))?;
-        }
-        tokio::fs::write(&path, &text)
-            .await
-            .map_err(|e| Error::io(path.display().to_string(), e))?;
+        write_cache_atomic(&path, &text).await?;
         return Ok(merged);
     }
 
@@ -283,16 +293,32 @@ async fn ensure_version_json_inner(
     let text = serde_json::to_string(&json)
         .map_err(|e| Error::io(path.display().to_string(), format!("serialise: {e}")))?;
 
+    write_cache_atomic(&path, &text).await?;
+
+    parse(&text).map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))
+}
+
+/// Write the cached version JSON atomically: create the parent dir, stream
+/// to a sibling `<path>.tmp`, then rename onto `path`. This prevents a
+/// crash/power-loss mid-write from leaving a truncated JSON that the disk
+/// fast-path would later reject (self-healed above, but avoided entirely
+/// here). Same-directory temp keeps the rename a cheap same-volume move.
+async fn write_cache_atomic(path: &std::path::Path, text: &str) -> Result<()> {
     if let Some(parent_dir) = path.parent() {
         tokio::fs::create_dir_all(parent_dir)
             .await
             .map_err(|e| Error::io(parent_dir.display().to_string(), e))?;
     }
-    tokio::fs::write(&path, &text)
+    let mut tmp = path.as_os_str().to_os_string();
+    tmp.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp);
+    tokio::fs::write(&tmp, text)
         .await
-        .map_err(|e| Error::io(path.display().to_string(), e))?;
-
-    parse(&text).map_err(|e| Error::io(path.display().to_string(), format!("parse: {e}")))
+        .map_err(|e| Error::io(tmp.display().to_string(), e))?;
+    tokio::fs::rename(&tmp, path).await.map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        Error::io(path.display().to_string(), e)
+    })
 }
 
 pub(crate) fn current_os() -> &'static str {

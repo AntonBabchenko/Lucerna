@@ -24,6 +24,10 @@ const CLASS_MODPACKS: &str = "4471";
 /// Mirrors the constant in `mods/curseforge` — an external-API limit, kept
 /// local rather than coupling the two CF clients for one value. See `search()`.
 const CF_MAX_PAGE_SIZE: u32 = 50;
+/// CurseForge's `POST /v1/mods/files` accepts at most 100 fileIds per request
+/// (HTTP 400 above it). `resolve_files` chunks larger id lists into batches of
+/// this size, mirroring the sibling CF client in `mods/curseforge`.
+const CF_MAX_BULK_FILE_IDS: usize = 100;
 
 // ---- response shapes -------------------------------------------------
 
@@ -448,18 +452,6 @@ pub(crate) async fn resolve_files(
     }
     let key = require_key(key)?;
     let url = format!("{base}/v1/mods/files");
-    let body = serde_json::json!({ "fileIds": file_ids });
-    let body_bytes = serde_json::to_vec(&body)
-        .expect("infallible: a serde_json::Value constructed via json!() always serializes");
-    let resp = crate::network::request::post(
-        &url,
-        &[("x-api-key", key), ("content-type", "application/json")],
-        &body_bytes,
-        "modpacks",
-    )
-    .await
-    .map_err(|e| Error::mods_network(url.clone(), e))?;
-    check_status(&resp, &url)?;
 
     #[derive(Deserialize)]
     struct BulkResp {
@@ -479,29 +471,43 @@ pub(crate) async fn resolve_files(
         algo: u32, // 1 = SHA-1, 2 = MD5
     }
 
-    let bulk: BulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
-        platform: "curseforge".into(),
-        details: e.to_string(),
-    })?;
+    // CurseForge caps the bulk endpoint at CF_MAX_BULK_FILE_IDS ids per POST;
+    // fan a larger list into back-to-back batches and stitch the results.
+    let mut map: std::collections::HashMap<u64, CfResolvedFile> = Default::default();
+    for chunk in file_ids.chunks(CF_MAX_BULK_FILE_IDS) {
+        let body = serde_json::json!({ "fileIds": chunk });
+        let body_bytes = serde_json::to_vec(&body)
+            .expect("infallible: a serde_json::Value constructed via json!() always serializes");
+        let resp = crate::network::request::post(
+            &url,
+            &[("x-api-key", key), ("content-type", "application/json")],
+            &body_bytes,
+            "modpacks",
+        )
+        .await
+        .map_err(|e| Error::mods_network(url.clone(), e))?;
+        check_status(&resp, &url)?;
 
-    let map = bulk
-        .data
-        .into_iter()
-        .map(|f| {
+        let bulk: BulkResp = serde_json::from_slice(&resp.body).map_err(|e| Error::ModsDecode {
+            platform: "curseforge".into(),
+            details: e.to_string(),
+        })?;
+
+        for f in bulk.data {
             let sha1 = f
                 .hashes
                 .iter()
                 .find(|h| h.algo == 1)
                 .map(|h| h.value.to_ascii_lowercase());
-            (
+            map.insert(
                 f.id,
                 CfResolvedFile {
                     download_url: f.download_url,
                     sha1,
                 },
-            )
-        })
-        .collect();
+            );
+        }
+    }
     Ok(map)
 }
 
@@ -963,6 +969,60 @@ mod tests {
             "null downloadUrl must map to None"
         );
         assert_eq!(f222.sha1.as_deref(), Some("deadbeef"));
+    }
+
+    #[tokio::test]
+    async fn resolve_files_chunks_ids_above_bulk_cap() {
+        // 150 ids must fan into two POSTs (100 + 50) and stitch. Each mock
+        // matches its EXACT fileIds body and is `.expect(1)`, so a single
+        // unbatched pageSize=150 request (or a wrong split) fails the test.
+        let s = MockServer::start().await;
+        // First batch: ids 0..100.
+        let first: Vec<u64> = (0..100).collect();
+        let first_data: Vec<serde_json::Value> = first
+            .iter()
+            .map(|id| serde_json::json!({ "id": id, "downloadUrl": format!("https://edge.forgecdn.net/{id}.jar"), "hashes": [] }))
+            .collect();
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "fileIds": first }),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": first_data })),
+            )
+            .expect(1)
+            .mount(&s)
+            .await;
+        // Second batch: ids 100..150.
+        let second: Vec<u64> = (100..150).collect();
+        let second_data: Vec<serde_json::Value> = second
+            .iter()
+            .map(|id| serde_json::json!({ "id": id, "downloadUrl": format!("https://edge.forgecdn.net/{id}.jar"), "hashes": [] }))
+            .collect();
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .and(wiremock::matchers::body_json(
+                serde_json::json!({ "fileIds": second }),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "data": second_data })),
+            )
+            .expect(1)
+            .mount(&s)
+            .await;
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        let ids: Vec<u64> = (0..150).collect();
+        let map = resolve_files(&s.uri(), Some("k"), &ids).await.unwrap();
+        assert_eq!(
+            map.len(),
+            150,
+            "all ids across both batches must be present"
+        );
+        assert!(map.contains_key(&0));
+        assert!(map.contains_key(&149));
     }
 
     #[tokio::test]

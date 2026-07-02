@@ -456,7 +456,7 @@ describe('ModBrowseView card actions', () => {
     render(ModBrowseView, { props: { ...full } });
     await enableShowInstalled();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /uninstall/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /remove/i }));
 
     await waitFor(() => expect(modsUninstall).toHaveBeenCalledWith('i', 'sha-1'));
   });
