@@ -67,7 +67,9 @@ enum RunningState {
 impl RunningState {
     fn log_path(&self) -> &PathBuf {
         match self {
-            RunningState::Launching { log_path } | RunningState::Running { log_path } => log_path,
+            RunningState::Launching { log_path } | RunningState::Running { log_path, .. } => {
+                log_path
+            }
         }
     }
 }
