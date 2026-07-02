@@ -11,7 +11,11 @@ import { commands } from '$lib/ipc/bindings';
 import { resetAllContextualTours } from './contextual-tours';
 import { STEPS } from './steps';
 
-export const TOUR_VERSION = '0.5.0';
+// Bumped 0.5.0 -> 0.6.0: PR #227 materially rewrote the main tour (Quick-Play,
+// account discovery, worlds-import steps) without a version bump, so users who
+// completed the old tour would never see the new onboarding. Bumping re-shows
+// the improved tour once to existing users.
+export const TOUR_VERSION = '0.6.0';
 // Derived from STEPS so adding/removing a step can never desync the
 // clamp logic in next()/back() from the actual step count.
 export const TOTAL_STEPS = STEPS.length;
