@@ -10,9 +10,53 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-07-02
+
+A broad quality, accessibility, and security hardening pass across the launcher.
+
+### Changed
+
+- The improved onboarding tour is shown again to everyone once, and its
+  Skip / Back / Next controls now sit consistently on every tour screen.
+- Remaining hardcoded English strings (self-update, modpack export, server
+  settings, file-dialog filters) are now translated, and several Russian terms
+  and plural forms were corrected.
+
+### Fixed
+
+- Microsoft accounts no longer launch the game with an expired token right after
+  opening the launcher, which had caused sporadic "Invalid session" errors when
+  joining multiplayer servers.
+- Beta Fabric/Quilt loader versions (for example `0.24.0-beta.1`) now install
+  and launch instead of failing with a misleading "unsupported Minecraft
+  version" error.
+- An interrupted download no longer leaves a corrupt file that permanently
+  breaks an instance — downloads are now atomic, and a corrupt version cache
+  self-heals on the next launch.
+- Importing a CurseForge modpack no longer aborts the entire pack when a single
+  file has been delisted; that file is reported and the rest still installs.
+- Server fixes: restoring a backup at the retention cap no longer deletes the
+  snapshot being restored; the "extra JVM args" setting is now actually applied
+  to the launched server; and automatic backups resume after a launcher restart.
+- Switching instances quickly no longer shows stale data from the previous
+  instance (update checks, overview statistics, modpack browsing).
+- The onboarding tour can no longer trap the interface behind a dimmed screen.
+- Numerous accessibility fixes to the Logs viewer, dialogs, tab panels, memory
+  sliders, and tour controls.
+- Legacy pre-1.7.3 asset indexes are now materialized, so very old versions
+  launch with their sounds and language files.
+
+### Security
+
+- Modpack and world imports now enforce real decompressed-size limits, so a
+  malicious archive can no longer exhaust memory or disk (zip-bomb hardening).
+- Updated `ammonia` (the HTML sanitizer applied to mod descriptions) and
+  `quick-xml` to patched releases that address recently published advisories.
+
 ## [0.15.1] — 2026-06-23
 
 ### Added
+
 - **In-app self-update on Linux (AppImage).** AppImage builds can now update
   themselves from within the launcher, reusing the same cosign signature
   verification as the Windows updater.
@@ -21,6 +65,7 @@ release is **0.9.0**.
   account discovery, and importing a world.
 
 ### Changed
+
 - **Honest Linux update fallback for `.deb` / `.rpm` installs.** When an
   in-place update is not possible, the launcher now points to the correct
   package download instead of implying a silent self-update.
@@ -28,6 +73,7 @@ release is **0.9.0**.
   tooltips were sharpened.
 
 ### Fixed
+
 - Orphaned onboarding tour anchors now attach to the correct UI elements.
 - Corrected the package description shown in Linux software centers.
 - Bumped `crypto-bigint` off a yanked release (0.7.4 to 0.7.5).
@@ -35,6 +81,7 @@ release is **0.9.0**.
 ## [0.15.0] — 2026-06-22
 
 ### Added
+
 - **Run your own Minecraft server (Beta).** Create, configure, and launch a
   dedicated server from the launcher across Vanilla, Fabric, Forge, NeoForge,
   and Quilt, with a live console, a one-click "allow offline players", and
@@ -78,6 +125,7 @@ release is **0.9.0**.
   and a redesigned app icon.
 
 ### Changed
+
 - **One error-display policy** across every surface — no raw URLs or internal
   detail leak into user-facing messages.
 - **Accessibility.** WCAG fixes across the manage modal, loader picker, and
@@ -86,6 +134,7 @@ release is **0.9.0**.
   and consistent microcopy.
 
 ### Fixed
+
 - Per-host request throttling stops mod-API 429 storms, and installed-mod
   metadata is batched to de-storm the dependency graph.
 - Dependency pre-flight is scoped to the instance's loader (no more phantom
@@ -100,6 +149,7 @@ release is **0.9.0**.
 ## [0.14.0] — 2026-06-17
 
 ### Added
+
 - **Real launcher log.** The "Launcher logs" group now captures a genuine
   app-wide launcher log (`lucerna.log`); the game's captured stdout/stderr is
   relabeled "Game console" so the two are no longer confused. Network errors
@@ -117,11 +167,13 @@ release is **0.9.0**.
   focuses the existing window instead of opening a second copy.
 
 ### Changed
+
 - **Honest CurseForge key errors.** A failing CurseForge key check now
   distinguishes an unreachable host and a region block (Cloudflare) from an
   actually invalid key, instead of always reporting "invalid key".
 
 ### Fixed
+
 - Dependency pre-flight now reads Fabric/Quilt nested jars and their `provides`,
   fixing a false "not installed" for bundled dependencies.
 - The compatibility-check list scrolls instead of overflowing the window.
@@ -136,6 +188,7 @@ release is **0.9.0**.
 ## [0.13.0] — 2026-06-16
 
 ### Added
+
 - **Quick Play.** Launch straight into a single-player world or connect to a
   multiplayer server by address, skipping the in-game menus.
 - **Saved servers.** Read, add, delete, and copy entries from your server list
@@ -167,6 +220,7 @@ release is **0.9.0**.
   with a per-row delete affordance in the account list.
 
 ### Changed
+
 - **Settings reorganized.** Settings is now a 7-section vertical-sidebar shell
   (Appearance, Game, Integrations, Storage, Updates, Help, About).
 - **Modpack browsing.** Browse cards show the pack author and offer one-click
@@ -185,6 +239,7 @@ release is **0.9.0**.
   Installed.
 
 ### Fixed
+
 - A maximized window stays maximized across an F5 reload, and browse error bars
   gained a Reload retry.
 - The Overview's version-manifest fetch now self-heals — no more stale error
@@ -197,6 +252,7 @@ release is **0.9.0**.
 ## [0.12.0] — 2026-06-11
 
 ### Added
+
 - **Auto-Repair.** The crash-log diagnoser now goes one step further: detected
   problems (out-of-memory, missing loader, corrupt jar, file conflicts) come
   with a one-click preview → confirm → apply fix.
@@ -215,6 +271,7 @@ release is **0.9.0**.
 - **What's new in-app.** Settings → About now shows a collapsible changelog.
 
 ### Changed
+
 - **Overview tab redesign.** The Overview is now a structured instance dashboard
   with a status pill, an attention panel, and an update check.
 - **Imported-pack detail drawer.** Reworked into collapsible, attention-first
@@ -230,11 +287,13 @@ release is **0.9.0**.
 - **Units.** Byte and memory sizes are now formatted consistently and localised.
 
 ### Fixed
+
 - A user-requested Stop is no longer reported as a crash on the Overview.
 - Oversized modpack overrides are skipped instead of aborting the whole import.
 - The Settings modal now layers correctly above the modpacks modal.
 
 ### Security
+
 - Reject path-traversal in API-supplied mod filenames.
 - SHA-1-verify the Forge installer JAR before caching it, and hard-error on a
   missing Mojmaps SHA-1.
@@ -244,6 +303,7 @@ release is **0.9.0**.
 ## [0.11.0] — 2026-06-05
 
 ### Added
+
 - **Add-ons browser.** A new Add-ons tab with a Mods · Resource packs · Shaders
   switcher lets you search and install resource packs and shader packs from
   Modrinth and CurseForge — with installed-awareness and Browse ↔ Installed
@@ -260,12 +320,14 @@ release is **0.9.0**.
   guidance while experienced users can skip to the specifics.
 
 ### Changed
+
 - **Browse & Installed UX overhaul.** A single mutually-exclusive view filter on
   the Installed tab (All / Enabled / Disabled / Updates / Issues), shared
   pagination across the mod, modpack, and add-on browsers, and accurate Feed The
   Beast pagination totals.
 
 ### Fixed
+
 - The Add-ons → Shaders hint is now actionable: it opens an Iris install modal
   or links to OptiFine downloads (naming the active instance's Minecraft
   version), instead of being a dead-end note.
@@ -281,6 +343,7 @@ release is **0.9.0**.
 ## [0.10.0] — 2026-06-03
 
 ### Added
+
 - **Localisation.** The entire UI is available in English and Russian with a
   live in-app language switch (Settings → General) — no restart required.
 - **Modpack export.** Round-trip a customised instance back to a `.mrpack` or a
@@ -294,6 +357,7 @@ release is **0.9.0**.
   End-to-end Minecraft-launch verification on each desktop is still pending.
 
 ### Changed
+
 - **Microsoft / Xbox Live sign-in is now live.** Microsoft approved Lucerna's
   Azure app registration, so the Microsoft sign-in flow completes end-to-end and
   signs you into your Minecraft account. No launcher code change was required —
@@ -316,6 +380,7 @@ release is **0.9.0**.
   dropdown on Linux / WebKitGTK.
 
 ### Fixed
+
 - Transitive mod dependency resolution now installs dependencies-of-dependencies,
   with a per-mod install toast.
 - Installing a mod built for the wrong loader is now prevented, and replaying
@@ -329,13 +394,14 @@ release is **0.9.0**.
 - Long toast messages now wrap instead of being truncated to a single line.
 - Lowered the minimum window height so the sidebar's Logs / Settings controls
   sit flush at the bottom instead of leaving empty space below them.
-- Orphaned tray icons no longer pile up. With *hide launcher to tray during
-  game* enabled, each game launch used to leave a tray icon that never went
+- Orphaned tray icons no longer pile up. With _hide launcher to tray during
+  game_ enabled, each game launch used to leave a tray icon that never went
   away; the icon is now properly removed when the game closes.
 
 ## [0.9.1] — 2026-06-01
 
 ### Added
+
 - **Self-update.** On startup the launcher checks GitHub Releases and, when a newer
   version is available, shows a sticky notification with a one-click **Update** button.
   Clicking it downloads the official installer, verifies it (SHA-256 against
@@ -349,12 +415,14 @@ release is **0.9.0**.
 ## [0.9.0] — 2026-05-31
 
 ### Changed
+
 - **Renamed the project `FTlauncher` → `Lucerna`.** Binary/crate, identifiers
   (`com.lucerna.app`), keyring slots, per-instance directories, user-facing
   strings, and docs were updated. A one-shot, idempotent startup migration moves
   existing launcher data and per-instance directories to the new names.
 
 ### Added (feature milestones since 0.1.0)
+
 - **Mod loaders:** Fabric (and Quilt as a Fabric superset), Forge (every era,
   1.7.10 through current), and NeoForge — installer logic runs in-process.
 - **Mod browser:** search Modrinth + CurseForge in-app, filter by MC version and
@@ -379,11 +447,13 @@ release is **0.9.0**.
 ## [0.1.0] — 2026-05-13
 
 ### Added
+
 - First release. Vanilla Minecraft launch, offline accounts, and per-instance
   isolated `.minecraft` directories, with the launcher downloading the correct
   Java runtime per Minecraft version.
 
-[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/AntonBabchenko/Lucerna/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.1...v0.16.0
 [0.15.1]: https://github.com/AntonBabchenko/Lucerna/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/AntonBabchenko/Lucerna/compare/v0.13.0...v0.14.0
