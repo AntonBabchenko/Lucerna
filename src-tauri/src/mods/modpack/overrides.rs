@@ -152,29 +152,48 @@ pub async fn extract<F: FnMut(u32, u32)>(
             if entry.is_dir() {
                 EntryKind::Dir
             } else {
-                let size = entry.size();
-                if size > PER_FILE_CAP {
-                    // Skip — don't read it (so a zip-bomb's declared size
-                    // never triggers an allocation) and don't abort the
-                    // import. An oversized override is an inert non-mod blob
-                    // (MC loads `mods/*.jar` only); the rest of the pack
-                    // installs and the user is told what was left out.
-                    EntryKind::Oversized(size)
+                // The declared `entry.size()` is attacker-controlled (central
+                // directory field), so it is only a cheap early reject — never
+                // the source of truth for the caps. Read the body through a
+                // `take(PER_FILE_CAP + 1)` limiter and enforce the caps on the
+                // ACTUAL bytes read.
+                let declared = entry.size();
+                if declared > PER_FILE_CAP {
+                    // Declared oversize: skip without reading (so a zip-bomb's
+                    // declared size never forces an allocation). An oversized
+                    // override is an inert non-mod blob (MC loads `mods/*.jar`
+                    // only); the rest of the pack installs and the user is told
+                    // what was left out.
+                    EntryKind::Oversized(declared)
                 } else {
-                    aggregate = aggregate.saturating_add(size);
-                    if aggregate > AGGREGATE_CAP {
-                        return Err(Error::ModpackOverridesTooLarge {
-                            entry: "<aggregate>".into(),
-                            size: aggregate as f64,
-                            cap: AGGREGATE_CAP as f64,
-                        });
+                    // Cap-bounded read: at most PER_FILE_CAP + 1 bytes. If the
+                    // limiter yields more than PER_FILE_CAP the declared size
+                    // lied — treat it as oversized (skip), matching the
+                    // declared-oversize branch.
+                    let mut buf = Vec::new();
+                    let read = entry
+                        .by_ref()
+                        .take(PER_FILE_CAP + 1)
+                        .read_to_end(&mut buf)
+                        .map_err(|e| Error::Io {
+                            path: rel.clone(),
+                            details: e.to_string(),
+                        })? as u64;
+                    if read > PER_FILE_CAP {
+                        EntryKind::Oversized(read)
+                    } else {
+                        // Debit the aggregate by the ACTUAL bytes, not the
+                        // declared size, then enforce the aggregate cap.
+                        aggregate = aggregate.saturating_add(read);
+                        if aggregate > AGGREGATE_CAP {
+                            return Err(Error::ModpackOverridesTooLarge {
+                                entry: "<aggregate>".into(),
+                                size: aggregate as f64,
+                                cap: AGGREGATE_CAP as f64,
+                            });
+                        }
+                        EntryKind::File(buf)
                     }
-                    let mut buf = Vec::with_capacity(size as usize);
-                    entry.read_to_end(&mut buf).map_err(|e| Error::Io {
-                        path: rel.clone(),
-                        details: e.to_string(),
-                    })?;
-                    EntryKind::File(buf)
                 }
             }
             // `entry` (ZipFile<'_>) goes out of scope here — no `.await`

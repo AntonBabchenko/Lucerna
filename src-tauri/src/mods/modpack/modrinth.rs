@@ -54,6 +54,12 @@ fn default_required() -> String {
 
 const ALLOWED_HOST: &str = "cdn.modrinth.com";
 
+/// Upper bound on the `modrinth.index.json` manifest read. This runs during
+/// `modpack_inspect` BEFORE the user confirms, so an unbounded read of an
+/// attacker-declared entry would let a zip bomb allocate arbitrarily. A real
+/// manifest is a few KB even for a large pack; 16 MiB is a generous ceiling.
+const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+
 pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
     let mut zip =
         zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| Error::ModpackInvalidArchive {
@@ -64,11 +70,23 @@ pub fn parse(bytes: &[u8]) -> Result<ModpackSummary, Error> {
         let mut f = zip
             .by_name("modrinth.index.json")
             .map_err(|_| Error::ModpackFormatUnknown)?;
+        // Bound the read: the manifest entry's declared size is attacker
+        // controlled and this runs pre-confirm. Read at most
+        // MAX_MANIFEST_BYTES + 1 and reject a manifest that exceeds the cap.
         let mut buf = Vec::new();
-        f.read_to_end(&mut buf)
+        let read = f
+            .by_ref()
+            .take(MAX_MANIFEST_BYTES + 1)
+            .read_to_end(&mut buf)
             .map_err(|e| Error::ModpackInvalidArchive {
                 details: e.to_string(),
-            })?;
+            })? as u64;
+        if read > MAX_MANIFEST_BYTES {
+            return Err(Error::ModpackManifestInvalid {
+                format: "modrinth".into(),
+                details: format!("modrinth.index.json exceeds {MAX_MANIFEST_BYTES} bytes"),
+            });
+        }
         buf
     };
     let index: MrpackIndex =

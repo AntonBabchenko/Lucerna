@@ -10,6 +10,12 @@ use crate::mods::curseforge::keyring;
 use crate::mods::modpack::schema::*;
 use crate::mods::platform::{LoaderKind, ModSource};
 
+/// Upper bound on the `manifest.json` read. This runs during `modpack_inspect`
+/// BEFORE the user confirms, so an unbounded read of an attacker-declared entry
+/// would let a zip bomb allocate arbitrarily. A real CF manifest is a few KB
+/// even for a large pack; 16 MiB is a generous ceiling.
+const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+
 #[derive(Debug, Deserialize)]
 struct CfManifest {
     minecraft: CfMinecraft,
@@ -79,11 +85,23 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
         let mut f = zip
             .by_name("manifest.json")
             .map_err(|_| Error::ModpackFormatUnknown)?;
+        // Bound the read: the manifest entry's declared size is attacker
+        // controlled and this runs pre-confirm. Read at most
+        // MAX_MANIFEST_BYTES + 1 and reject a manifest that exceeds the cap.
         let mut buf = Vec::new();
-        f.read_to_end(&mut buf)
+        let read = f
+            .by_ref()
+            .take(MAX_MANIFEST_BYTES + 1)
+            .read_to_end(&mut buf)
             .map_err(|e| Error::ModpackInvalidArchive {
                 details: e.to_string(),
-            })?;
+            })? as u64;
+        if read > MAX_MANIFEST_BYTES {
+            return Err(Error::ModpackManifestInvalid {
+                format: "curseforge".into(),
+                details: format!("manifest.json exceeds {MAX_MANIFEST_BYTES} bytes"),
+            });
+        }
         buf
     };
     let m: CfManifest =
@@ -157,12 +175,24 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
     let mut unresolvable = vec![];
 
     for entry in &m.files {
-        let detail = bulk.data.iter().find(|f| f.id == entry.file_id).ok_or(
-            Error::ModpackManifestInvalid {
-                format: "curseforge".into(),
-                details: format!("file id {} not resolved by Eternal API", entry.file_id),
-            },
-        )?;
+        // A fileID omitted from the bulk response (deleted / hidden project,
+        // or a stale manifest) must NOT abort the whole import. Degrade it to
+        // the unresolvable path — the rest of the pack still installs and the
+        // user gets a manual CurseForge route, matching the
+        // DistributionDisabled handling below.
+        let Some(detail) = bulk.data.iter().find(|f| f.id == entry.file_id) else {
+            unresolvable.push(ModpackUnresolvable {
+                reason: UnresolvableReason::DistributionDisabled,
+                // No project metadata came back — the fileID is all we have.
+                mod_name: format!("CurseForge file {}", entry.file_id),
+                manual_action_url: "https://www.curseforge.com/minecraft".into(),
+                filename: format!("file-{}.jar", entry.file_id),
+                size: 0.0,
+                sha1: None,
+                project_id: None,
+            });
+            continue;
+        };
         let env_client = if entry.required {
             EnvSupport::Required
         } else {
@@ -190,14 +220,26 @@ pub async fn parse(bytes: &[u8], base_url: &str) -> Result<ModpackSummary, Error
                 continue;
             }
         };
-        let sha1 = detail
+        // A file with no SHA-1 cannot be integrity-verified; installing it
+        // would be trust-on-first-use. Degrade to the unresolvable path with a
+        // manual CurseForge route rather than aborting the whole import.
+        let Some(sha1) = detail
             .hashes
             .iter()
             .find(|h| h.algo == 1)
             .map(|h| h.value.to_ascii_lowercase())
-            .ok_or(Error::ModpackSha1Unavailable {
+        else {
+            unresolvable.push(ModpackUnresolvable {
+                reason: UnresolvableReason::MissingChecksum,
                 mod_name: detail.display_name.clone(),
-            })?;
+                manual_action_url: format!("https://www.curseforge.com/projects/{}", detail.mod_id),
+                filename: detail.file_name.clone(),
+                size: detail.file_length as f64,
+                sha1: None,
+                project_id: Some(detail.mod_id.to_string()),
+            });
+            continue;
+        };
         files.push(ModpackFile {
             project_id: detail.mod_id.to_string(),
             version_id: detail.id.to_string(),
@@ -572,7 +614,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_sha1_fails() {
+    async fn missing_sha1_degrades_to_unresolvable() {
+        // A file whose only hash is MD5 (no SHA-1) must NOT abort the whole
+        // import — it degrades into the unresolvable path (MissingChecksum)
+        // while the SHA-1-carrying file installs normally.
+        //
         // Acquire the seam scope FIRST: it holds the shared test
         // serialization lock for the whole body, so the in-memory CF key set by
         // install_test_key() can't be cleared by a concurrent keyring test.
@@ -600,8 +646,51 @@ mod tests {
             .await;
 
         let zip = make_cf_zip(&sample_manifest());
-        let r = parse(&zip, &s.uri()).await;
+        let r = parse(&zip, &s.uri()).await.unwrap();
         clear_test_key();
-        assert!(matches!(r, Err(Error::ModpackSha1Unavailable { .. })));
+        // The SHA-1-carrying file installs; the MD5-only file is unresolvable.
+        assert_eq!(r.files.len(), 1);
+        assert_eq!(r.files[0].filename, "y.jar");
+        assert_eq!(r.unresolvable.len(), 1);
+        let u = &r.unresolvable[0];
+        assert!(matches!(u.reason, UnresolvableReason::MissingChecksum));
+        assert_eq!(u.filename, "x.jar");
+        assert_eq!(u.project_id.as_deref(), Some("238222"));
+        assert!(u.manual_action_url.contains("238222"));
+    }
+
+    #[tokio::test]
+    async fn omitted_file_id_degrades_to_unresolvable() {
+        // A fileID absent from the bulk response (deleted / hidden project)
+        // must degrade to the unresolvable path, not abort the whole import.
+        let _seam =
+            crate::test_seam::scope(&[("LUCERNA_EXTRA_ALLOWED_HOSTS", "127.0.0.1, localhost")]);
+        install_test_key();
+        let s = MockServer::start().await;
+        // Only the second manifest file (4567890) is returned; 4499899 is
+        // omitted entirely.
+        let resp = serde_json::json!({
+            "data": [{
+                "id": 4567890, "modId": 222880, "fileName": "mod-b.jar",
+                "displayName": "Mod B", "fileLength": 500,
+                "downloadUrl": "https://edge.forgecdn.net/files/4/5/mod-b.jar",
+                "hashes": [{ "value": "def", "algo": 1 }]
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/mods/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(resp))
+            .mount(&s)
+            .await;
+
+        let zip = make_cf_zip(&sample_manifest());
+        let r = parse(&zip, &s.uri()).await.unwrap();
+        clear_test_key();
+        // The resolved file installs; the omitted one is unresolvable.
+        assert_eq!(r.files.len(), 1);
+        assert_eq!(r.files[0].filename, "mod-b.jar");
+        assert_eq!(r.unresolvable.len(), 1);
+        let u = &r.unresolvable[0];
+        assert!(u.mod_name.contains("4499899"));
     }
 }

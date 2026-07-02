@@ -90,19 +90,25 @@ async fn restore_replace(
     std::fs::rename(&world_path, &tmp_path)
         .map_err(|e| Error::io(world_path.display().to_string(), e))?;
 
-    // 3. Extract the chosen backup into the (now-empty) world path.
-    //    If extract fails, rename tmp back to undo step 2 and bubble.
+    // 3. Extract the backup into a SEPARATE staging dir, verify it contains
+    //    exactly the expected `<world_folder>/` root, then rename that inner
+    //    folder over world_path. Mirrors restore_as_copy: a backup whose root
+    //    doesn't match must ERROR (and roll back) — never silently leave an
+    //    empty world. The old flow extracted straight into saves/ and guarded
+    //    with `!world_path.is_dir()`, which was dead because create_dir_all
+    //    had just created it, so a mismatched-root backup produced an EMPTY
+    //    world instead of an error.
+    let stage_path = saves.join(format!(".tmp-restore-stage-{tmp_suffix}"));
     let result = (|| -> Result<()> {
-        std::fs::create_dir_all(&world_path)
-            .map_err(|e| Error::io(world_path.display().to_string(), e))?;
-        // The zip's root is named after the world (we put it there in
-        // backup_world / zip_dir). So the zip content goes to a temp
-        // staging dir, then we move the inner root into world_path to
-        // unwrap one level. Simpler alternative: just extract to
-        // saves/, since the zip's root == world_folder name, the
-        // extract recreates saves/<world_folder>/. Do that.
-        wzip::extract_zip(backup_path, saves)?;
-        if !world_path.is_dir() {
+        let _ = std::fs::remove_dir_all(&stage_path); // stale from earlier failure
+        std::fs::create_dir_all(&stage_path)
+            .map_err(|e| Error::io(stage_path.display().to_string(), e))?;
+        // The zip's root is named after the world (put there by
+        // backup_world / zip_dir). Extract into staging, then verify the
+        // expected root is present and is the ONLY top-level entry.
+        wzip::extract_zip(backup_path, &stage_path)?;
+        let inner = stage_path.join(world_folder);
+        if !inner.is_dir() {
             return Err(Error::BackupCorrupt {
                 filename: backup_path
                     .file_name()
@@ -112,8 +118,34 @@ async fn restore_replace(
                 details: format!("extract did not produce expected folder '{world_folder}/'"),
             });
         }
+        // Reject a backup whose staging dir carries extra top-level roots — a
+        // sign of a malformed/foreign archive; we would otherwise drop them.
+        let want = std::ffi::OsStr::new(world_folder);
+        let extra = std::fs::read_dir(&stage_path)
+            .map_err(|e| Error::io(stage_path.display().to_string(), e))?
+            .flatten()
+            .find(|e| e.file_name() != want);
+        if let Some(extra) = extra {
+            return Err(Error::BackupCorrupt {
+                filename: backup_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("?")
+                    .into(),
+                details: format!(
+                    "backup has unexpected root '{}' (expected only '{world_folder}/')",
+                    extra.file_name().to_string_lossy()
+                ),
+            });
+        }
+        // Move the verified inner folder into place at saves/<world_folder>.
+        std::fs::rename(&inner, &world_path)
+            .map_err(|e| Error::io(world_path.display().to_string(), e))?;
         Ok(())
     })();
+
+    // The staging dir is scratch: drop it either way.
+    let _ = std::fs::remove_dir_all(&stage_path);
 
     match result {
         Ok(()) => {
@@ -126,8 +158,8 @@ async fn restore_replace(
             })
         }
         Err(e) => {
-            // Roll back: nuke whatever extract left half-written, put
-            // the original back, bubble the original error.
+            // Roll back: nuke whatever the move left at world_path, put the
+            // original back, bubble the original error.
             let _ = std::fs::remove_dir_all(&world_path);
             let _ = std::fs::rename(&tmp_path, &world_path);
             Err(e)
@@ -290,6 +322,39 @@ mod tests {
             })
             .collect();
         assert_eq!(pre_restore.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn restore_replace_errors_on_mismatched_root_and_preserves_world() {
+        // A backup whose zip root is NOT the world folder must ERROR and leave
+        // the original world intact — never silently empty it.
+        let (_td, saves, backups_dir) = make_world_with_files("W", &[("marker.txt", b"original")]);
+        // Build a backup whose single root folder is "WRONG", not "W".
+        let bad_backup = backups_dir.join("2026-05-24T10-00-00.zip");
+        let wrong_world = _td.path().join("WRONG");
+        fs::create_dir_all(&wrong_world).unwrap();
+        fs::write(wrong_world.join("level.dat"), b"x").unwrap();
+        wzip::zip_dir(&wrong_world, &bad_backup, "WRONG").unwrap();
+
+        let r = restore_replace(&saves, &backups_dir, &bad_backup, "W").await;
+        assert!(
+            matches!(r, Err(Error::BackupCorrupt { .. })),
+            "mismatched root must error, got: {r:?}"
+        );
+        // Original world preserved by rollback.
+        let marker = saves.join("W").join("marker.txt");
+        assert!(marker.is_file(), "world must be rolled back intact");
+        assert_eq!(fs::read(&marker).unwrap(), b"original");
+        // No leftover staging dirs in saves/.
+        let leftovers: Vec<_> = fs::read_dir(&saves)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name().to_string_lossy().to_string();
+                n.starts_with(".tmp-restore-stage-") || n.starts_with(".tmp-restoring-")
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "staging dirs must be cleaned up");
     }
 
     #[tokio::test]

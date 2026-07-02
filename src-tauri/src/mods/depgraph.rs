@@ -52,6 +52,14 @@ pub struct DepChild {
     pub source: ModSource,
     pub project_id: String,
     pub name: String,
+    /// Expected jar filename of this dependency, lowercased, when the caller
+    /// can derive it. Lets classification recognise a dependency satisfied by
+    /// the SAME logical mod installed from the OTHER platform: the CF and
+    /// Modrinth project ids differ (so `ProjectKey` never matches), but the
+    /// installed jar carries the same filename. Mirrors
+    /// `deps::resolve_closure`'s cross-source recognition. `None` when the
+    /// filename is unknown (then only the `ProjectKey` signal applies).
+    pub filename: Option<String>,
 }
 
 /// What `fetch` returns for one project.
@@ -99,8 +107,16 @@ pub struct DependencyGraph {
 
 /// Build the nested graph. `fetch(source, project_id)` returns that project's
 /// direct children; memoized here so each project is fetched at most once.
+///
+/// `installed_filenames` (lowercased jar filenames of the installed mods) lets
+/// a dependency be recognised as satisfied across sources: the same logical mod
+/// installed from Modrinth but referenced as a CurseForge dependency has a
+/// different `ProjectKey` yet the same jar filename. Mirrors
+/// `deps::resolve_closure`'s cross-source pruning so a cross-source dependency
+/// is not wrongly flagged `MissingRequired`.
 pub async fn build_graph<F, Fut>(
     installed: &[InstalledNode],
+    installed_filenames: &HashSet<String>,
     mut fetch: F,
 ) -> Result<DependencyGraph, crate::error::Error>
 where
@@ -123,6 +139,7 @@ where
             &deps.required,
             true,
             &installed_keys,
+            installed_filenames,
             &mut cache,
             &mut fetch,
             &mut path,
@@ -134,6 +151,7 @@ where
             &deps.optional,
             false,
             &installed_keys,
+            installed_filenames,
             &mut cache,
             &mut fetch,
             &mut path,
@@ -159,6 +177,7 @@ fn build_children<'a, F, Fut>(
     children: &'a [DepChild],
     required: bool,
     installed_keys: &'a HashSet<String>,
+    installed_filenames: &'a HashSet<String>,
     cache: &'a mut HashMap<String, NodeDeps>,
     fetch: &'a mut F,
     path: &'a mut HashSet<String>,
@@ -177,7 +196,14 @@ where
                 break;
             }
             let k = key(c.source, &c.project_id);
-            let installed = installed_keys.contains(&k);
+            // Installed if the source:project_id matches OR — for a dependency
+            // satisfied cross-source — the child's known jar filename is among
+            // the installed jars (its ProjectKey won't match the other-source
+            // install, but the filename does). Mirrors `deps::resolve_closure`.
+            let installed = installed_keys.contains(&k)
+                || c.filename
+                    .as_deref()
+                    .is_some_and(|f| installed_filenames.contains(f));
             let status = match (required, installed) {
                 (true, true) => DepNodeStatus::Satisfied,
                 (true, false) => DepNodeStatus::MissingRequired,
@@ -214,6 +240,7 @@ where
                 &deps.required,
                 true,
                 installed_keys,
+                installed_filenames,
                 &mut *cache,
                 &mut *fetch,
                 &mut *path,
@@ -225,6 +252,7 @@ where
                 &deps.optional,
                 false,
                 installed_keys,
+                installed_filenames,
                 &mut *cache,
                 &mut *fetch,
                 &mut *path,
@@ -281,6 +309,7 @@ mod tests {
             source: ModSource::Modrinth,
             project_id: pid.into(),
             name: name.into(),
+            filename: None,
         }
     }
     fn node(sha1: &str, pid: &str) -> InstalledNode {
@@ -309,7 +338,9 @@ mod tests {
             },
         )]);
         let installed = vec![node("r", "rei"), node("n", "night")];
-        let g = build_graph(&installed, fetcher(map)).await.unwrap();
+        let g = build_graph(&installed, &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
         let rei = g.roots.iter().find(|r| r.project_id == "rei").unwrap();
         let arch = rei
             .required
@@ -323,6 +354,51 @@ mod tests {
             .unwrap();
         assert_eq!(arch.status, DepNodeStatus::MissingRequired);
         assert_eq!(night.status, DepNodeStatus::Satisfied);
+    }
+
+    #[tokio::test]
+    async fn cross_source_dep_recognised_by_filename_not_missing() {
+        // Root "waystones" (CF) requires "balm" via a CurseForge ref, but the
+        // user installed Balm from Modrinth — a different ProjectKey. The jar
+        // filename ("balm.jar") is what proves it is present, so the dep must
+        // classify Satisfied, not MissingRequired.
+        let cf_balm = DepChild {
+            source: ModSource::Curseforge,
+            project_id: "531761".into(),
+            name: "Balm".into(),
+            filename: Some("balm.jar".into()),
+        };
+        let map = std::collections::HashMap::from([(
+            "waystones",
+            NodeDeps {
+                required: vec![cf_balm],
+                optional: vec![],
+            },
+        )]);
+        // Installed set holds only the Modrinth-source Waystones root; Balm is
+        // NOT in installed_keys (installed from the other source), only its
+        // filename is known.
+        let installed = vec![node("w", "waystones")];
+        let mut filenames = HashSet::new();
+        filenames.insert("balm.jar".to_string());
+        let g = build_graph(&installed, &filenames, fetcher(map))
+            .await
+            .unwrap();
+        let ws = g
+            .roots
+            .iter()
+            .find(|r| r.project_id == "waystones")
+            .unwrap();
+        let balm = ws
+            .required
+            .iter()
+            .find(|n| n.project_id == "531761")
+            .unwrap();
+        assert_eq!(
+            balm.status,
+            DepNodeStatus::Satisfied,
+            "cross-source dep present by filename must be Satisfied, not MissingRequired"
+        );
     }
 
     #[tokio::test]
@@ -343,7 +419,7 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("r", "rei")], fetcher(map))
+        let g = build_graph(&[node("r", "rei")], &HashSet::new(), fetcher(map))
             .await
             .unwrap();
         let rei = &g.roots[0];
@@ -376,7 +452,9 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], fetcher(map)).await.unwrap();
+        let g = build_graph(&[node("ax", "a")], &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
         let a = &g.roots[0];
         let b = &a.required[0];
         assert_eq!(b.project_id, "b");
@@ -424,7 +502,9 @@ mod tests {
                 },
             ),
         ]);
-        let g = build_graph(&[node("ax", "a")], fetcher(map)).await.unwrap();
+        let g = build_graph(&[node("ax", "a")], &HashSet::new(), fetcher(map))
+            .await
+            .unwrap();
         let a = &g.roots[0];
         let b = a.required.iter().find(|n| n.project_id == "b").unwrap();
         let c = a.required.iter().find(|n| n.project_id == "c").unwrap();
@@ -459,7 +539,9 @@ mod tests {
                 .unwrap_or_default();
             std::future::ready(Ok(deps))
         };
-        let g = build_graph(&[node("r", "a0")], fetch).await.unwrap();
+        let g = build_graph(&[node("r", "a0")], &HashSet::new(), fetch)
+            .await
+            .unwrap();
 
         fn depth(nodes: &[DepTreeNode]) -> usize {
             nodes
