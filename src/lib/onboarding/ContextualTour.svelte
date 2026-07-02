@@ -215,20 +215,12 @@
       {$t(explainKey(step.titleKey, level))}
     </h3>
     <p class="text-sm text-secondary mb-4">{$t(explainKey(step.bodyKey, level))}</p>
-    <!-- Back / Skip / Next are three direct children so justify-between gives
-         Skip an equal gap from each neighbour (Skip sits centred, not jammed
-         against the primary Next). Mirrors TourOverlay's main-tour row so the
-         control layout is identical across every tour surface. -->
-    <div class="flex items-center justify-between gap-2">
-      <button
-        type="button"
-        class="btn-secondary btn-sm inline-flex items-center gap-1"
-        disabled={isFirst}
-        onclick={back}
-      >
-        <Icon name="arrowLeft" size={14} />
-        {$t('onboarding.controls.back')}
-      </button>
+    <!-- Skip (dismiss the whole tour) sits alone on the far left, kept quiet so
+         it can't be misclicked when reaching for the primary Next in the corner.
+         Back + Next are paired on the right (Next isolated in the corner).
+         Identical layout to TourOverlay so every tour surface matches. On the
+         last step there is no Skip, so the pair pins right. -->
+    <div class="flex items-center gap-2 {isLast ? 'justify-end' : 'justify-between'}">
       {#if !isLast}
         <button
           type="button"
@@ -238,20 +230,31 @@
           {$t('onboarding.controls.skipContextual')}
         </button>
       {/if}
-      <button
-        type="button"
-        data-tour-primary
-        class="btn-primary btn-sm inline-flex items-center gap-1"
-        onclick={next}
-      >
-        {#if isLast}
-          {$t('onboarding.controls.gotIt')}
-          <Icon name="success" size={14} />
-        {:else}
-          {$t('onboarding.controls.next')}
-          <Icon name="arrowRight" size={14} />
-        {/if}
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="btn-secondary btn-sm inline-flex items-center gap-1"
+          disabled={isFirst}
+          onclick={back}
+        >
+          <Icon name="arrowLeft" size={14} />
+          {$t('onboarding.controls.back')}
+        </button>
+        <button
+          type="button"
+          data-tour-primary
+          class="btn-primary btn-sm inline-flex items-center gap-1"
+          onclick={next}
+        >
+          {#if isLast}
+            {$t('onboarding.controls.gotIt')}
+            <Icon name="success" size={14} />
+          {:else}
+            {$t('onboarding.controls.next')}
+            <Icon name="arrowRight" size={14} />
+          {/if}
+        </button>
+      </div>
     </div>
   </div>
 {/if}
