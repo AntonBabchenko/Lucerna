@@ -24,10 +24,11 @@
   const MARGIN = 16;
   const PADDING = 6;
 
-  // While a contextual tour is on screen, flag the body so a global CSS rule
-  // dims + blocks the background (keeping the tour's own root interactive via
-  // `data-ctx-tour-root`), and so the host Modal knows to route Escape to the
-  // tour instead of closing itself. Mirrors TourOverlay's `data-tour-active`.
+  // While a contextual tour is on screen, flag the body so the host Modal knows
+  // to route Escape to the tour instead of closing itself. The tour is
+  // deliberately NON-blocking (the dim is pointer-events:none) — an earlier
+  // blocking variant could trap the user behind a mispositioned popover and
+  // intercepted legitimate clicks, so we only coordinate Escape here.
   $effect(() => {
     if (active) {
       document.body.setAttribute('data-ctx-tour-active', 'true');
@@ -58,6 +59,10 @@
 
   onDestroy(() => {
     document.body.removeAttribute('data-ctx-tour-active');
+    // If the host (modal/tab) unmounts mid-tour, treat it as a soft-skip so the
+    // tour doesn't silently re-fire on every subsequent open. finish() already
+    // clears `active`, so this only fires on an un-finished dismissal.
+    if (active) markSeen(id);
   });
 
   $effect(() => {
@@ -178,19 +183,6 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if active}
-  <!-- Click-catching backdrop. Dismissing the tour by clicking outside the
-       popover (a universal gesture) marks it seen, so the user can never be
-       trapped behind the dim even if a step's spotlight/popover mispositions,
-       and a dismissed tour doesn't silently re-fire on the next open. Kept
-       interactive under the `data-ctx-tour-active` pointer-events block via
-       `data-ctx-tour-root`. -->
-  <button
-    type="button"
-    class="fixed inset-0 z-[100] cursor-default"
-    data-ctx-tour-root
-    aria-label={$t('onboarding.controls.dismissTour')}
-    onclick={finish}
-  ></button>
   {#if rect && step.targetSelector}
     <div
       class="fixed pointer-events-none transition-all duration-200 rounded-md z-[100]"

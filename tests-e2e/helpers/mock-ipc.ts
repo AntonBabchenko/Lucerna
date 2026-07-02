@@ -47,7 +47,38 @@ function resolveTourVersion(): string {
   return match[1];
 }
 
+// The per-surface *contextual* tours (ContextualTour.svelte) are gated by
+// versioned localStorage keys (`ftl.tour.<id>.<version>.done`), independent of
+// the main tour above. In a fresh browser those keys are absent, so opening any
+// toured surface (Manage, Add-ons, …) auto-fires its tour and its popover can
+// sit over the control a click-driven spec is trying to reach. Seed every key
+// as "done" so contextual tours never fire in e2e. Derived from the app's
+// `TOUR_VERSION` map (same don't-hard-code rationale as resolveTourVersion) so a
+// version bump can't silently desync and re-break the specs.
+function resolveContextualTourKeys(): string[] {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const p = join(here, '../../src/lib/onboarding/contextual-tours.ts');
+  const src = readFileSync(p, 'utf8');
+  const block = src.match(/const TOUR_VERSION\s*:[^{]*\{([\s\S]*?)\}/);
+  if (!block) {
+    throw new Error(
+      `mock-ipc: could not find the contextual TOUR_VERSION map in ${p}. ` +
+        'The contextual-tour version source moved or was renamed — update ' +
+        'resolveContextualTourKeys() so e2e keeps suppressing contextual tours.',
+    );
+  }
+  const keys: string[] = [];
+  for (const m of block[1].matchAll(/(\w+)\s*:\s*['"]([^'"]+)['"]/g)) {
+    keys.push(`ftl.tour.${m[1]}.${m[2]}.done`);
+  }
+  if (keys.length === 0) {
+    throw new Error(`mock-ipc: contextual TOUR_VERSION map parsed empty in ${p}.`);
+  }
+  return keys;
+}
+
 const TOUR_VERSION = resolveTourVersion();
+const CONTEXTUAL_TOUR_KEYS = resolveContextualTourKeys();
 
 // Minimal inline shapes mirroring src/lib/ipc/bindings.ts.
 // We re-declare them here because tests-e2e/ is outside the SvelteKit
@@ -196,9 +227,16 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
   // The init script runs in the browser, where the Node-side TOUR_VERSION const
   // is out of scope — so pass it through as serialized data alongside the state.
   await page.addInitScript(
-    (arg: { state: MockState; tourVersion: string }) => {
+    (arg: { state: MockState; tourVersion: string; contextualTourKeys: string[] }) => {
       const s = arg.state;
       const tourVersion = arg.tourVersion;
+      // Suppress every per-surface contextual tour so its popover never sits
+      // over a control a spec is clicking. Runs before the app mounts.
+      try {
+        for (const k of arg.contextualTourKeys) localStorage.setItem(k, '1');
+      } catch {
+        /* localStorage unavailable (private mode) — acceptable, tours are non-blocking */
+      }
       // Defaults — callers only need to supply the fields relevant to
       // the surface under test.
       const defaults: Required<MockState> = {
@@ -385,6 +423,6 @@ export async function installMockIpc(page: Page, state: MockState = {}): Promise
         })(),
       };
     },
-    { state, tourVersion: TOUR_VERSION },
+    { state, tourVersion: TOUR_VERSION, contextualTourKeys: CONTEXTUAL_TOUR_KEYS },
   );
 }

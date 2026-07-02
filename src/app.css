@@ -294,17 +294,10 @@ body[data-tour-active] .tour-overlay {
   pointer-events: auto;
 }
 
-/* Same pattern for the onboarding *contextual* tour (ContextualTour.svelte sets
-   `data-ctx-tour-active` on <body> and marks its popover `data-ctx-tour-root`).
-   Disable interaction with the underlying UI while it is open, re-enabling it on
-   the tour's own root so its buttons stay clickable. Same inheritance caveat as
-   above applies — disable on <body>, opt the root back in. */
-body[data-ctx-tour-active] {
-  pointer-events: none;
-}
-body[data-ctx-tour-active] [data-ctx-tour-root] {
-  pointer-events: auto;
-}
+/* NOTE: the *contextual* tour (ContextualTour.svelte) is intentionally NOT
+   pointer-events-blocked. It sets `data-ctx-tour-active` on <body> only so the
+   host Modal can route Escape to the tour; its dim is a non-interactive overlay
+   (pointer-events:none) so it never traps the user or intercepts app clicks. */
 
 /*
   Button system. Every button across the launcher should reach for one
