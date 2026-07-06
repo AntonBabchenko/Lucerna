@@ -1366,7 +1366,10 @@
     "serverImportInvalidArchive": "The server archive couldn't be read",
     "serverImportTooLarge": "That server is too large to import.",
     "serverImportNotAServer": "That folder doesn't look like a Minecraft server (no server jar, loader files, or server.properties).",
-    "serverImportStagingExpired": "This import session expired — start the import again."
+    "serverImportStagingExpired": "This import session expired — start the import again.",
+    "dataLocationBusy": "Stop running games and servers before moving the data folder.",
+    "dataLocationInvalid": "That folder can't be used: {reason}",
+    "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact."
   },
   "settings": {
     "title": "Settings",

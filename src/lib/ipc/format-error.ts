@@ -152,6 +152,9 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_import_too_large: 'clean',
   server_import_not_a_server: 'clean',
   server_import_staging_expired: 'clean',
+  data_location_busy: 'clean',
+  data_location_invalid: 'clean',
+  data_location_migration_failed: 'opaque',
 };
 
 /**
@@ -434,6 +437,12 @@ export function formatError(e: IpcError): string {
       return translate('errors.sftpHostKeyMismatch');
     case 'sftp_transfer_failed':
       return withDetailTail(translate('errors.sftpTransferFailed'), e.details);
+    case 'data_location_busy':
+      return translate('errors.dataLocationBusy');
+    case 'data_location_invalid':
+      return translate('errors.dataLocationInvalid', { reason: e.reason });
+    case 'data_location_migration_failed':
+      return withDetailTail(translate('errors.dataLocationMigrationFailed'), e.reason);
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

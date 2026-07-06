@@ -1366,7 +1366,10 @@
     "serverImportInvalidArchive": "Не удалось прочитать архив сервера",
     "serverImportTooLarge": "Этот сервер слишком большой для импорта.",
     "serverImportNotAServer": "Эта папка не похожа на сервер Minecraft (нет server jar, файлов загрузчика или server.properties).",
-    "serverImportStagingExpired": "Сессия импорта истекла — начните импорт заново."
+    "serverImportStagingExpired": "Сессия импорта истекла — начните импорт заново.",
+    "dataLocationBusy": "Прежде чем переносить папку данных, остановите запущенные игры и серверы.",
+    "dataLocationInvalid": "Эта папка не подходит: {reason}",
+    "dataLocationMigrationFailed": "Не удалось перенести папку данных. Исходные данные не пострадали."
   },
   "settings": {
     "title": "Настройки",
