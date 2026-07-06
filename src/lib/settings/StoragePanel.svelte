@@ -158,7 +158,12 @@
 
   async function pickLocation() {
     migrationError = null;
-    const picked = await openDirectory({ directory: true });
+    // Open the picker at the current data root's PARENT rather than wherever the
+    // last OS dialog left off (which could be an unrelated folder such as
+    // .minecraft/saves from an earlier world import).
+    const current = dataLocation.status?.effective;
+    const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
+    const picked = await openDirectory({ directory: true, defaultPath });
     if (!picked || typeof picked !== 'string') return;
     pendingTarget = picked;
   }
