@@ -263,6 +263,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_datapacks,
             commands::server_install_datapack,
             commands::server_remove_datapack,
+            // Data-root location:
+            commands::get_data_location,
+            commands::set_data_location,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -280,6 +283,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             servers_runtime::runtime::ServerSpawned,
             servers_runtime::runtime::ServerExited,
             servers_runtime::transfer::ServerUploadProgress,
+            commands::DataMigrationProgress,
         ])
 }
 
