@@ -236,11 +236,6 @@ fn run_migration(
     let redirect_name = std::ffi::OsString::from(REDIRECT_FILE_NAME);
     let skip = move |p: &Path| p.as_os_str() == redirect_name;
 
-    // Capture the target's pre-copy size so verification is a delta: for a
-    // fresh empty target `baseline == 0`; for a reset the target (the default
-    // dir) already holds the redirect + logs/updates, so `baseline > 0`.
-    let baseline = crate::data_root::migrate::dir_size(target);
-
     let total = crate::data_root::migrate::dir_size(current) as f64;
     let mut copied = 0u64;
     {
@@ -271,20 +266,12 @@ fn run_migration(
     }
     .emit(app);
 
-    // Verify by size DELTA: the target must have grown by exactly the bytes we
-    // copied. `copied` already excludes the skipped redirect, and the copy
-    // never writes the redirect into the target, so `after == baseline + copied`
-    // holds for a fresh empty target (baseline 0) AND for a reset (baseline =
-    // redirect + logs/updates already present).
-    let after = crate::data_root::migrate::dir_size(target);
-    if after != baseline.saturating_add(copied) {
-        return Err(Error::DataLocationMigrationFailed {
-            reason: format!(
-                "verification failed: expected {} bytes, found {after}",
-                baseline.saturating_add(copied)
-            ),
-        });
-    }
+    // Verify completeness by walking the SOURCE: every copied file must exist
+    // in the target with an identical byte length. This is robust to a reset
+    // that overwrites pre-existing safe-overlap files (logs/updates) already in
+    // the default dir — a whole-directory size delta would false-fail on such
+    // an overwrite even though the copy succeeded.
+    crate::data_root::migrate::verify_copy(current, target, &skip)?;
 
     let _ = DataMigrationProgress {
         copied_bytes: copied as f64,

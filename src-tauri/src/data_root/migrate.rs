@@ -220,6 +220,53 @@ fn copy_tree_depth(
     Ok(())
 }
 
+/// Verify a completed copy: every file under `src` (applying the same depth-0
+/// `skip` as [`copy_tree`]) must exist under `dst` with an identical byte
+/// length. Unlike a whole-directory size delta, this is independent of any
+/// content already present in `dst`, so it stays correct for a reset that
+/// copies into a non-empty default dir and OVERWRITES pre-existing
+/// safe-overlap files (e.g. `logs/lucerna.log`) — an overwrite changes no byte
+/// total the way a delta expects, but leaves each file matching its source.
+pub fn verify_copy(src: &Path, dst: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<()> {
+    verify_copy_depth(src, dst, skip, 0)
+}
+
+fn verify_copy_depth(
+    src: &Path,
+    dst: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+    depth: u32,
+) -> Result<()> {
+    let entries = std::fs::read_dir(src).map_err(|e| Error::io(src.display().to_string(), e))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if depth == 0 && skip(Path::new(&name)) {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        if from.is_dir() {
+            verify_copy_depth(&from, &to, skip, depth + 1)?;
+        } else {
+            let src_len = std::fs::metadata(&from)
+                .map_err(|e| Error::io(from.display().to_string(), e))?
+                .len();
+            let dst_len = std::fs::metadata(&to)
+                .map_err(|e| Error::io(to.display().to_string(), e))?
+                .len();
+            if src_len != dst_len {
+                return Err(Error::DataLocationMigrationFailed {
+                    reason: format!(
+                        "verification failed for {}: source is {src_len} bytes but the copy is {dst_len} bytes",
+                        from.display()
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +333,43 @@ mod tests {
         );
         assert_eq!(copied, 9); // 5 + 2 + 2, root json skipped
         assert_eq!(ticks.last(), Some(&9));
+    }
+
+    #[test]
+    fn verify_copy_passes_despite_overwritten_and_extra_target_files() {
+        // Models a reset: the target (default dir) already holds a stale
+        // logs/lucerna.log of a DIFFERENT size, plus an unrelated pre-existing
+        // file. copy_tree overwrites logs/lucerna.log with the source's copy;
+        // verify_copy must still pass (each source file matches its copy),
+        // where a whole-dir size delta would have false-failed.
+        let d = tempdir().unwrap();
+        let src = d.path().join("src");
+        std::fs::create_dir_all(src.join("logs")).unwrap();
+        std::fs::write(src.join("logs/lucerna.log"), b"NEW-LOG-CONTENT").unwrap();
+        std::fs::write(src.join("a.txt"), b"hello").unwrap();
+
+        let dst = d.path().join("dst");
+        std::fs::create_dir_all(dst.join("logs")).unwrap();
+        std::fs::write(dst.join("logs/lucerna.log"), b"old").unwrap(); // different size
+        std::fs::write(dst.join("stale-unrelated.tmp"), b"leftover").unwrap();
+
+        let skip = |_: &Path| false;
+        let mut copied = 0;
+        copy_tree(&src, &dst, &skip, &mut |_| {}, &mut copied).unwrap();
+        // Overwrite happened; a size delta of the whole dir would not equal `copied`.
+        verify_copy(&src, &dst, &skip).expect("verify tolerates overwrite + extra target files");
+    }
+
+    #[test]
+    fn verify_copy_fails_when_a_source_file_is_missing_in_target() {
+        let d = tempdir().unwrap();
+        let src = d.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), b"hello").unwrap();
+        let dst = d.path().join("dst");
+        std::fs::create_dir_all(&dst).unwrap(); // empty target — copy never ran
+        let skip = |_: &Path| false;
+        assert!(verify_copy(&src, &dst, &skip).is_err());
     }
 
     #[test]
