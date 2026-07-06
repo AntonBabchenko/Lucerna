@@ -375,6 +375,20 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .manage(window::WindowSizeState::default())
         .setup(move |app| {
+            // Resolve the effective data root before anything else touches app_dir.
+            let default_root = crate::paths::default_app_data_dir(app.handle())
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let redirect = crate::paths::redirect_file(app.handle())
+                .ok()
+                .and_then(|f| crate::data_root::redirect::read(&f).ok().flatten());
+            let resolved = crate::data_root::resolve_root(default_root, redirect, |p| {
+                crate::data_root::migrate::is_available(p)
+            });
+            {
+                use tauri::Manager;
+                app.manage(crate::data_root::DataRoot(resolved));
+            }
+
             // Open the launcher's own diagnostic log (lucerna.log) first, so
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
