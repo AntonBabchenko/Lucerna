@@ -1193,11 +1193,14 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  repoints the bootstrap redirect, deletes the old data, then restarts the
 	 *  app so every chokepoint re-resolves `paths::app_dir` against the new root.
 	 * 
-	 *  Rejected while any game/server is running (`Error::DataLocationBusy`) or
-	 *  when the target fails validation (`Error::DataLocationInvalid`). A copy or
-	 *  verify failure surfaces as `Error::DataLocationMigrationFailed` — the
-	 *  original data is left untouched because the redirect is written and the
-	 *  old data deleted only after a complete, verified copy.
+	 *  Rejected while any game/server is running (`Error::DataLocationBusy`), while
+	 *  the launcher is already running from a fallback root (`DataLocationBusy` —
+	 *  the temporary root is unsafe to move), when a second relocation is already
+	 *  in progress (`DataLocationBusy`), or when the target fails validation
+	 *  (`Error::DataLocationInvalid`). A copy or verify failure surfaces as
+	 *  `Error::DataLocationMigrationFailed` — the original data is left untouched
+	 *  because the redirect is written and the old data deleted only after a
+	 *  complete, verified copy.
 	 */
 	setDataLocation: (newPath: string | null) => typedError<null, Error>(__TAURI_INVOKE("set_data_location", { newPath })),
 };
@@ -1700,7 +1703,13 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  The chosen target folder is invalid (relative / nested / non-empty / same). */
 { kind: "data_location_invalid"; reason: string } | 
 /**  The move failed partway; the original data is intact. */
-{ kind: "data_location_migration_failed"; reason: string };
+{ kind: "data_location_migration_failed"; reason: string } | 
+/**
+ *  A data-creating or launching command was invoked while the configured
+ *  data root is unavailable and the launcher is running from the temporary
+ *  default fallback. Writing now would land in the wrong root.
+ */
+{ kind: "data_location_unavailable" };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,

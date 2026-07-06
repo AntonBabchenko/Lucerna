@@ -56,6 +56,7 @@ pub async fn modpack_import(
     on_progress: Channel<ModpackProgress>,
     on_install_progress: Channel<crate::mods::install::ProgressTick>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     let install_progress: crate::mods::install::ProgressFn =
         Box::new(move |phase, current, total| {
             let _ = on_install_progress.send(crate::mods::install::ProgressTick {

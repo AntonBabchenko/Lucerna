@@ -432,6 +432,14 @@ pub enum Error {
     /// The move failed partway; the original data is intact.
     #[error("data location migration failed: {reason}")]
     DataLocationMigrationFailed { reason: String },
+
+    /// A data-creating or launching command was invoked while the configured
+    /// data root is unavailable and the launcher is running from the temporary
+    /// default fallback. Writing now would land in the wrong root.
+    #[error(
+        "your data folder is unavailable; reconnect it and restart before creating or launching"
+    )]
+    DataLocationUnavailable,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -931,5 +939,12 @@ mod tests {
             json.contains(r#""reason":"copy interrupted""#),
             "got: {json}"
         );
+    }
+
+    #[test]
+    fn data_location_unavailable_serializes_as_unit() {
+        let e = Error::DataLocationUnavailable;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"data_location_unavailable"}"#);
     }
 }

@@ -1369,7 +1369,15 @@
     "serverImportStagingExpired": "This import session expired — start the import again.",
     "dataLocationBusy": "Stop running games and servers before moving the data folder.",
     "dataLocationInvalid": "That folder can't be used: {reason}",
-    "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact."
+    "dataLocationInvalidReason": {
+      "notAbsolute": "the path must be an absolute folder",
+      "nested": "it is inside the current data folder",
+      "same": "it is already the current data folder",
+      "notEmpty": "the folder must be empty",
+      "unknown": "it is not a valid location"
+    },
+    "dataLocationMigrationFailed": "Moving the data folder failed. The original data is intact.",
+    "dataLocationUnavailable": "Your data folder is unavailable. Reconnect it and restart before creating or launching."
   },
   "settings": {
     "title": "Settings",

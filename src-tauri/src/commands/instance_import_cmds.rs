@@ -47,6 +47,7 @@ pub async fn launcher_import_run(
     loader_version_override: Option<String>,
     on_progress: Channel<ImportProgress>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     let mut foreign = foreign;
     if let Some(v) = mc_version_override {
         foreign.mc_version = v;

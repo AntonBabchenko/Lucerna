@@ -145,6 +145,7 @@ pub async fn world_import(
     instance_id: String,
     source_path: String,
 ) -> Result<crate::worlds::World, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     let saves = crate::worlds::saves_dir(&app, &instance_id)?;
     let source = std::path::PathBuf::from(source_path);
     tokio::task::spawn_blocking(move || crate::worlds::import::import_into_saves(&saves, &source))

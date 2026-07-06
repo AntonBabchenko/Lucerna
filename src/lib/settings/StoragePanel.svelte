@@ -376,11 +376,21 @@
     {/if}
 
     <div class="flex gap-2">
-      <button type="button" class="btn-secondary btn-sm" onclick={() => void pickLocation()}>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        disabled={dataLocation.status?.fell_back}
+        onclick={() => void pickLocation()}
+      >
         {$t('settings.storage.dataLocation.changeBtn')}
       </button>
       {#if dataLocation.status?.configured}
-        <button type="button" class="btn-secondary btn-sm" onclick={requestReset}>
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          disabled={dataLocation.status?.fell_back}
+          onclick={requestReset}
+        >
           {$t('settings.storage.dataLocation.resetBtn')}
         </button>
       {/if}
