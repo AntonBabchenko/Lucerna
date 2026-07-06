@@ -1,4 +1,5 @@
 //! Data-root location: bootstrap redirect file + resolution + migration.
+pub mod migrate;
 pub mod redirect;
 pub mod validate;
 
