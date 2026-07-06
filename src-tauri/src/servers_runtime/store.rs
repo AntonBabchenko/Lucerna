@@ -24,10 +24,13 @@ pub fn write_server_json(path: &Path, value: &ServerFile) -> Result<()> {
     std::fs::rename(&tmp, path).map_err(|e| Error::io(path.display().to_string(), e))
 }
 
-/// Все валидные серверы под `<base>/servers/*/server.json`, отсортированы по id.
+/// Все валидные серверы под `<base>/servers/*/server.json`, отсортированы по
+/// времени создания (старые первыми — паритет с `instances::scan::list_all`).
+/// Сортировка по id устарела: id теперь читаемый slug, а не непрозрачный токен,
+/// и лексикографический порядок перемешивал бы список.
 /// Малформ/нечитаемые пропускаются с предупреждением в stderr.
 pub fn list_all(base: &Path) -> Result<Vec<ServerFile>> {
-    let servers = base.join("servers");
+    let servers = crate::paths::servers_root(base);
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(&servers) {
         Ok(e) => e,
@@ -41,7 +44,11 @@ pub fn list_all(base: &Path) -> Result<Vec<ServerFile>> {
             Err(e) => eprintln!("servers: skipping {}: {e}", json.display()),
         }
     }
-    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out.sort_by(|a, b| {
+        a.created_unix_ms
+            .partial_cmp(&b.created_unix_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(out)
 }
 
@@ -195,19 +202,23 @@ mod tests {
     }
 
     #[test]
-    fn list_all_skips_malformed_and_returns_sorted() {
+    fn list_all_skips_malformed_and_returns_creation_order() {
         let dir = tempdir().unwrap();
-        for id in ["srv-b", "srv-a"] {
+        // Written newest-first on disk; list_all must return oldest-first by
+        // created_unix_ms (id is now a readable slug, no longer the sort key).
+        for (id, created) in [("Bravo", 2000.0), ("Alpha", 1000.0)] {
+            let mut s = sample(id);
+            s.created_unix_ms = created;
             let p = crate::paths::server_paths(dir.path(), id);
-            write_server_json(&p.json, &sample(id)).unwrap();
+            write_server_json(&p.json, &s).unwrap();
         }
-        let bad = dir.path().join("servers/srv-bad/server.json");
+        let bad = dir.path().join("servers/broken/server.json");
         std::fs::create_dir_all(bad.parent().unwrap()).unwrap();
         std::fs::write(&bad, "not json").unwrap();
 
         let all = list_all(dir.path()).unwrap();
         let ids: Vec<_> = all.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["srv-a", "srv-b"]);
+        assert_eq!(ids, ["Alpha", "Bravo"]);
     }
 
     #[test]

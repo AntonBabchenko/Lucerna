@@ -30,7 +30,7 @@ pub fn list_instances_with_status(app: &tauri::AppHandle) -> Result<Vec<Instance
 }
 
 /// Resolve `app.json.active_instance` to a fully-hydrated
-/// `InstanceWithStatus`. Auto-repairs stale pointer (UUID not on disk):
+/// `InstanceWithStatus`. Auto-repairs stale pointer (id not on disk):
 /// picks the oldest remaining instance and rewrites `app.json`.
 ///
 /// `None` only when there are zero instances on disk (which should not
@@ -104,9 +104,10 @@ pub(crate) fn unix_ms_f64() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Generate a UUID v4, mkdir `<instance>/.minecraft/`, write
-/// `instance.json`. Returns the new instance with its (always-false-
-/// initially) ready status.
+/// Reserve a readable, unique slug directory from `name` (see
+/// [`crate::naming`]), mkdir `<instance>/.minecraft/`, write `instance.json`.
+/// The reserved directory name is the instance id. Returns the new instance
+/// with its (always-false-initially) ready status.
 ///
 /// `mrpack` carries the origin pack's display name and version when the
 /// instance is created via modpack import. Pass `None` for manually-
@@ -132,8 +133,17 @@ pub fn create_instance(
     imported_from: Option<crate::instances::schema::ImportProvenance>,
     created_from_server: Option<String>,
 ) -> Result<InstanceWithStatus> {
-    let id = ids::new_id();
-    let dir = paths::instance_dir(app, &id).map_err(|e| Error::io("<instance_dir>", e))?;
+    // Reserve a readable, unique directory derived from the display name. The
+    // returned name IS the id (the "dir name == id" invariant is preserved, so
+    // all path resolution downstream is unchanged).
+    let instances_parent =
+        paths::instances_dir(app).map_err(|e| Error::io("<instances_dir>", e))?;
+    let (id, dir) = crate::naming::reserve_unique_dir(&instances_parent, &name, "instance")?;
+    // Remove the reserved directory if any step below fails (`?`), so a partial
+    // create never leaks the slug (which would force every future same-name
+    // create to climb -2, -3, …). Disarmed on success via `keep()`.
+    let cleanup = crate::naming::DirCleanup::new(&dir);
+
     std::fs::create_dir_all(dir.join(".minecraft"))
         .map_err(|e| Error::io(dir.display().to_string(), e))?;
     let (mrpack_name, mrpack_version) = match mrpack {
@@ -165,6 +175,7 @@ pub fn create_instance(
     store::write_instance_json(&json_path, &inst)?;
     let versions_dir = paths::versions_dir(app).map_err(|e| Error::io("<versions_dir>", e))?;
     let ready = status::ready_status(&versions_dir, &inst);
+    cleanup.keep();
     Ok(InstanceWithStatus::from_file(&inst, ready))
 }
 

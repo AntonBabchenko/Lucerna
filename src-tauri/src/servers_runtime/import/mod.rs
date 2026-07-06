@@ -134,11 +134,18 @@ pub fn commit_preserve(
     eula_accepted: bool,
 ) -> Result<String> {
     let root = staged_root(base, token)?;
-    let id = format!("srv-{}", new_id());
+    // Reserve a readable, unique directory; the reserved name is the id. Any
+    // failure below removes it so a partial import never leaks the slug.
+    let (id, reserved_dir) =
+        crate::naming::reserve_unique_dir(&crate::paths::servers_root(base), name, "server")?;
+    // Remove the reserved directory if any step below fails (`?`), so a partial
+    // import never leaks the slug. Disarmed on success via `keep()`.
+    let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
     let p = crate::paths::server_paths(base, &id);
-    // Copy all runnable state (server.jar, libraries/, user_jvm_args.txt, worlds,
-    // mods, configs, etc.). SKIP_PRESERVE omits only Lucerna-managed files
-    // (logs, server.json, backups) that will be re-created or are irrelevant.
+    // Copy all runnable state (server.jar, libraries/, user_jvm_args.txt,
+    // worlds, mods, configs, etc.). SKIP_PRESERVE omits only Lucerna-managed
+    // files (logs, server.json, backups) that will be re-created or are
+    // irrelevant.
     copy::copy_into_runtime_preserving(&root, &p.runtime)?;
     let file = build_file(
         &id,
@@ -152,6 +159,7 @@ pub fn commit_preserve(
     crate::servers_runtime::store::write_server_json(&p.json, &file)?;
     crate::servers_runtime::eula::write_eula(&p.runtime.join("eula.txt"), eula_accepted)?;
     let _ = std::fs::remove_dir_all(staging_dir(base, token));
+    cleanup.keep();
     Ok(id)
 }
 

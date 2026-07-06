@@ -302,7 +302,18 @@ pub async fn server_create(
     // Trim + reject empty/duplicate names at the boundary (the wizard also gates
     // this, but two concurrent creates could still collide on the same name).
     let name = store::validate_name(&name, &store::list_all(&base)?, None)?;
-    let id = format!("srv-{}", crate::instances::ids::new_id());
+    // Reserve a readable, unique directory SYNCHRONOUSLY before the async
+    // provisioning below. validate_name is not a reservation: two distinct
+    // names can slugify to the same directory, and the async gap would let two
+    // concurrent creates race into one directory. The reserved name is the id.
+    let servers_parent =
+        crate::paths::servers_dir(&app).map_err(|e| Error::io("<servers_dir>", e))?;
+    let (id, reserved_dir) = crate::naming::reserve_unique_dir(&servers_parent, &name, "server")?;
+    // Remove the reserved directory if any step below fails (`?`), so a partial
+    // create never leaks the slug (forcing every future same-name create to -2).
+    // Disarmed on success via `keep()`.
+    let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
+
     let mut file = ServerFile {
         id,
         name,
@@ -347,6 +358,7 @@ pub async fn server_create(
             Err(e) => eprintln!("servers: client-mod quarantine skipped: {e}"),
         }
     }
+    cleanup.keep();
     Ok(ServerCreated {
         server: ServerWithStatus::from_file(
             &file,
@@ -1603,9 +1615,19 @@ pub async fn server_import_commit(
         // materializes its data differently — Modrinth downloads its server
         // files; a bundled CurseForge pack copies + applies overrides; a CF
         // client manifest (mods are download refs) is out of scope here.
-        let id = format!("srv-{}", crate::instances::ids::new_id());
+        //
+        // Reserve the readable directory synchronously up front (the reserved
+        // name is the id); any failure below removes it so a partial import
+        // never leaks the slug.
+        let servers_parent =
+            crate::paths::servers_dir(&app).map_err(|e| Error::io("<servers_dir>", e))?;
+        let (new_id, reserved_dir) =
+            crate::naming::reserve_unique_dir(&servers_parent, &name, "server")?;
+        // Remove the reserved directory if any step below fails (`?` / early
+        // return), so a partial import never leaks the slug.
+        let cleanup = crate::naming::DirCleanup::new(&reserved_dir);
         let file = import::build_file(
-            &id,
+            &new_id,
             &name,
             &mc_version,
             loader,
@@ -1614,7 +1636,7 @@ pub async fn server_import_commit(
             eula_accepted,
         );
         provision_loader(&app, &base, &file).await?;
-        let p = crate::paths::server_paths(&base, &id);
+        let p = crate::paths::server_paths(&base, &new_id);
         match import::pack::detect_pack(&root) {
             Some(import::pack::PackKind::Modrinth) => {
                 let pack = import::pack::parse_modrinth(&root)?;
@@ -1638,7 +1660,8 @@ pub async fn server_import_commit(
             }
         }
         let _ = std::fs::remove_dir_all(import::staging_dir(&base, &token));
-        id
+        cleanup.keep();
+        new_id
     };
 
     let file = crate::servers_runtime::store::read_server_json(

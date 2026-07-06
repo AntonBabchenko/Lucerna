@@ -5,17 +5,17 @@
 //! Five scenarios:
 //! 1. `app.json` present → noop.
 //! 2. No legacy `instances/default/` → seed an empty "Default"
-//!    instance with `mc_version=""` (fresh install).
-//! 3. Legacy `default/` + `versions/` has vanilla releases → rename
-//!    legacy dir to UUID, write `instance.json` with the newest-mtime
-//!    release as `mc_version`.
+//!    instance with `mc_version=""` (fresh install), in a readable
+//!    `instances/Default/` directory.
+//! 3. Legacy `default/` + `versions/` has vanilla releases → keep the
+//!    legacy `default/` directory (its readable name becomes the id),
+//!    write `instance.json` with the newest-mtime release as `mc_version`.
 //! 4. Legacy `default/` + `versions/` empty → migrate with `mc_version=""`.
 //! 5. Legacy `default/` + `versions/` has only synthetic IDs (Fabric
 //!    profiles etc.) → migrate with `mc_version=""` (synth IDs are
 //!    not what the UI wants in this field; the user can re-pick).
 
 use crate::error::{Error, Result};
-use crate::instances::ids::new_id;
 use crate::instances::schema::{
     AppFile, GeneralSettings, InstanceFile, LoaderKind, OnboardingState,
 };
@@ -55,21 +55,26 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
     std::fs::create_dir_all(&instances_dir)
         .map_err(|e| Error::io(instances_dir.display().to_string(), e))?;
 
-    let id = new_id();
     let now_ms = unix_ms_f64();
     let mc_version = best_guess_mc_version(&app_root.join("versions")).unwrap_or_default();
 
-    if legacy_default.is_dir() {
-        // Scenario 3/4/5.
-        let target = instances_dir.join(&id);
-        std::fs::rename(&legacy_default, &target)
-            .map_err(|e| Error::io(target.display().to_string(), e))?;
+    // The fresh-seed branch reserves a new directory that must be rolled back if
+    // any write below fails (else the next launch reserves `Default-2` and leaks
+    // an empty `Default/`). The legacy branch reuses an existing directory and
+    // must NOT be cleaned up on failure — hence the guard is optional.
+    let (id, cleanup) = if legacy_default.is_dir() {
+        // Scenario 3/4/5 — keep the legacy `default/` directory as-is; its
+        // readable name becomes the id (no UUID rename anymore).
+        ("default".to_string(), None)
     } else {
-        // Scenario 2 — fresh install.
-        let target = instances_dir.join(&id);
-        std::fs::create_dir_all(target.join(".minecraft"))
-            .map_err(|e| Error::io(target.display().to_string(), e))?;
-    }
+        // Scenario 2 — fresh install. Reserve a readable "Default" directory
+        // (atomic, so it never writes into a pre-existing user directory).
+        let (id, dir) = crate::naming::reserve_unique_dir(&instances_dir, "Default", "instance")?;
+        let cleanup = crate::naming::DirCleanup::new(&dir);
+        std::fs::create_dir_all(dir.join(".minecraft"))
+            .map_err(|e| Error::io(dir.display().to_string(), e))?;
+        (id, Some(cleanup))
+    };
 
     let inst = InstanceFile {
         id: id.clone(),
@@ -105,6 +110,11 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
             update_dismissed_version: None,
         },
     )?;
+    // Seed committed — disarm the rollback guard (if any) so the reserved
+    // `Default/` directory is kept.
+    if let Some(cleanup) = cleanup {
+        cleanup.keep();
+    }
     Ok(())
 }
 
