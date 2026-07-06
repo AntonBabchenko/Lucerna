@@ -779,6 +779,12 @@
       createBlockedReason={dataLocation.fellBack
         ? get(t)('page.dataRootFallback.createDisabledReason')
         : null}
+      launcherImportBlockedReason={dataLocation.fellBack
+        ? get(t)('page.dataRootFallback.createDisabledReason')
+        : null}
+      dataRootFallbackReason={compactState.value && dataLocation.fellBack && dataLocation.status
+        ? get(t)('page.dataRootFallback.banner', { path: dataLocation.status.configured ?? '' })
+        : null}
       bind:msSigningIn
       onMicrosoftSignedIn={async () => {
         await refreshAccounts();

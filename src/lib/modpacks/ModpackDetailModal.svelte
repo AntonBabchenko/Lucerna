@@ -17,6 +17,8 @@
   import BusyButton from '$lib/ui/BusyButton.svelte';
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   // Centered detail modal for a modpack. Two tabs: Overview (gallery +
   // description + install-recommended) and Versions (full list + the
@@ -101,7 +103,18 @@
     })();
   });
 
+  // §7 fallback gating: installing a pack creates a new instance, which would
+  // write it into the wrong (temporary default) root while the configured
+  // data root is unavailable. See data-root-gating.ts.
+  const installDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
+
   async function install(versionId: string) {
+    // Belt-and-braces: install buttons are also disabled via
+    // installDisabledReason, but guard the actual action too.
+    if (dataLocation.fellBack) return;
     downloading = true;
     try {
       const result = await commands.modpackFetchToTemp(hit.source, hit.project_id, versionId);
@@ -214,10 +227,17 @@
                     MC {v.game_versions.join(', ')} · {v.loaders.join(', ')}
                   </div>
                 </div>
-                <span class="inline-flex ml-2" use:tooltip={$t('common.install')}>
+                <span
+                  class="inline-flex ml-2"
+                  use:tooltip={{
+                    text: installDisabledReason ?? $t('common.install'),
+                    describe: false,
+                  }}
+                >
                   <BusyButton
                     class="btn-icon btn-icon-sm !text-accent"
                     busy={downloading}
+                    disabled={installDisabledReason !== null}
                     aria-label={$t('common.install')}
                     onclick={() => install(v.id)}
                   >
@@ -237,14 +257,20 @@
     {#if tab === 'overview' && !loading}
       <div class="shrink-0 border-t border-border-subtle p-4 py-3">
         {#if recommended}
-          <BusyButton
-            class="btn-primary w-full"
-            busy={downloading}
-            onclick={() => install(recommended.id)}
+          <span
+            class="inline-flex w-full"
+            use:tooltip={{ text: installDisabledReason ?? '', describe: false }}
           >
-            <Icon name="download" size={14} />
-            {$t('common.installVersion', { version: recommended.version_number })}
-          </BusyButton>
+            <BusyButton
+              class="btn-primary w-full"
+              busy={downloading}
+              disabled={installDisabledReason !== null}
+              onclick={() => install(recommended.id)}
+            >
+              <Icon name="download" size={14} />
+              {$t('common.installVersion', { version: recommended.version_number })}
+            </BusyButton>
+          </span>
         {:else}
           <div class="text-xs text-placeholder text-center">
             {#if mcFilter}

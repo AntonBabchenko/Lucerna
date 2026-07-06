@@ -53,6 +53,8 @@
     onOpenServers = () => {},
     playBlockedReason = null,
     createBlockedReason = null,
+    launcherImportBlockedReason = null,
+    dataRootFallbackReason = null,
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -99,6 +101,17 @@
     // empty-state "Create instance" shortcut. See data-root-gating.ts.
     playBlockedReason?: string | null;
     createBlockedReason?: string | null;
+    // Non-null while the data root is unavailable: disables the "Import from
+    // launcher" entry point (importing creates a new instance) — see
+    // data-root-gating.ts.
+    launcherImportBlockedReason?: string | null;
+    // Non-null while the data root is unavailable: renders the same
+    // non-dismissible fallback notice DataRootFallbackBanner shows in the
+    // content column, but inline in the sidebar. In expanded mode the page
+    // already renders the full banner in the content column, so this is
+    // effectively compact-mode-only (see +page.svelte), but it's driven purely
+    // by this prop so Sidebar itself doesn't need to know about compact mode.
+    dataRootFallbackReason?: string | null;
   } = $props();
 
   const accountOptions = $derived(
@@ -149,6 +162,24 @@
 </script>
 
 <aside data-sidebar class="h-full bg-base border-r border-border-subtle p-3 overflow-y-auto">
+  <!--
+    Non-dismissible fallback notice (§7): only passed by the page in compact
+    mode, since expanded mode already renders DataRootFallbackBanner in the
+    content column. Placed INSIDE <aside> (ahead of data-sidebar-content) so
+    compact.svelte.ts's height measurement — anchored to <aside>'s own top and
+    data-sidebar-content's bottom — picks it up automatically; a sibling
+    outside <aside> would be invisible to that measurement and get clipped.
+  -->
+  {#if dataRootFallbackReason}
+    <div
+      class="mb-3 flex items-start gap-2 rounded-md bg-warning-bg border border-warning-text px-3 py-2 text-xs text-warning-text"
+      data-testid="data-root-fallback-banner-compact"
+      role="alert"
+    >
+      <Icon name="warning" size={14} class="mt-0.5 shrink-0" />
+      <span>{dataRootFallbackReason}</span>
+    </div>
+  {/if}
   <!--
     Content wrapper: its box height equals the sidebar's CONTENT height (the
     <aside> is `h-full`, so its own box tracks the window, not the content).
@@ -415,15 +446,32 @@
           {/if}
         </span>
       </button>
-      <button
-        type="button"
-        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
-        data-testid="sidebar-open-launcher-import"
-        onclick={onOpenLauncherImport}
-      >
-        <Icon name="download" size={16} />
-        {$t('sidebar.importLauncher')}
-      </button>
+      {#if launcherImportBlockedReason}
+        <span
+          class="inline-flex w-full"
+          use:tooltip={{ text: launcherImportBlockedReason, describe: false }}
+        >
+          <button
+            type="button"
+            class="btn-secondary btn-sm flex items-center justify-center gap-1.5 w-full"
+            data-testid="sidebar-open-launcher-import"
+            disabled
+          >
+            <Icon name="download" size={16} />
+            {$t('sidebar.importLauncher')}
+          </button>
+        </span>
+      {:else}
+        <button
+          type="button"
+          class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+          data-testid="sidebar-open-launcher-import"
+          onclick={onOpenLauncherImport}
+        >
+          <Icon name="download" size={16} />
+          {$t('sidebar.importLauncher')}
+        </button>
+      {/if}
       <button
         type="button"
         class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
