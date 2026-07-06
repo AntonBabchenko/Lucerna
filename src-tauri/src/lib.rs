@@ -1,5 +1,6 @@
 pub mod accounts;
 mod commands;
+pub mod data_root;
 pub mod diag;
 pub mod error;
 pub mod forge;
