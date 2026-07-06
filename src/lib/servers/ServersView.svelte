@@ -18,6 +18,8 @@
   import DeleteServerDialog from './DeleteServerDialog.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { SERVERS_STEPS } from '$lib/onboarding/contextual-tours';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   let {
     instances,
@@ -87,6 +89,14 @@
     if (kind === 'fixable') return $t('sidebar.serversFixAvailable');
     return $t('servers.status.stopped');
   }
+
+  // §7 fallback gating: creating a server while the data root is unavailable
+  // would write it into the wrong (temporary default) root. See
+  // data-root-gating.ts / the data-root design doc.
+  const createDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
 </script>
 
 {#if creating}
@@ -108,15 +118,29 @@
     <!-- No list heading here — ServersModal already renders the "Servers" title
          (h2#servers-modal-title); a second one inside the list was redundant. -->
     <div class="flex items-center justify-end">
-      <button
-        type="button"
-        data-tour-ctx="servers-create"
-        class="btn-primary btn-sm flex items-center gap-1.5"
-        onclick={() => (creating = true)}
-      >
-        <Icon name="plus" size={16} />
-        {$t('servers.create')}
-      </button>
+      {#if createDisabledReason}
+        <span class="inline-flex" use:tooltip={{ text: createDisabledReason, describe: false }}>
+          <button
+            type="button"
+            data-tour-ctx="servers-create"
+            class="btn-primary btn-sm flex items-center gap-1.5"
+            disabled
+          >
+            <Icon name="plus" size={16} />
+            {$t('servers.create')}
+          </button>
+        </span>
+      {:else}
+        <button
+          type="button"
+          data-tour-ctx="servers-create"
+          class="btn-primary btn-sm flex items-center gap-1.5"
+          onclick={() => (creating = true)}
+        >
+          <Icon name="plus" size={16} />
+          {$t('servers.create')}
+        </button>
+      {/if}
     </div>
     <div data-tour-ctx="servers-list">
       {#if serverState.listLoading && serverState.list.length === 0}

@@ -38,12 +38,17 @@
     onPickHit,
     onQuickInstall,
     installingIds,
+    quickInstallDisabledReason = null,
   }: {
     onPickHit: (hit: ModpackHit, mc: string | null) => void;
     // Optional one-click install of a pack's latest version (the parent
     // ModpacksTab supplies it). Omitted in tests/standalone use → no button.
     onQuickInstall?: (hit: ModpackHit, mc: string | null) => void;
     installingIds?: SvelteSet<string>;
+    // §7 fallback gating: non-null while the data root is unavailable.
+    // Forwarded to every ModpackCard's quick-install button. See
+    // data-root-gating.ts.
+    quickInstallDisabledReason?: string | null;
   } = $props();
 
   // query resets to '' on each open (intentional — search box starts blank).
@@ -269,6 +274,7 @@
               ? () => onQuickInstall(hit, modpackBrowseState.mcFilter.trim() || null)
               : null}
             installing={installingIds?.has(hit.project_id) ?? false}
+            {quickInstallDisabledReason}
           />
         {/each}
       </div>
@@ -283,6 +289,7 @@
               ? () => onQuickInstall(hit, modpackBrowseState.mcFilter.trim() || null)
               : null}
             installing={installingIds?.has(hit.project_id) ?? false}
+            {quickInstallDisabledReason}
           />
         {/each}
       </div>

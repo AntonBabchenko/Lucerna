@@ -28,6 +28,8 @@
   import { t } from '$lib/i18n';
   import { tooltip } from '$lib/ui/tooltip';
   import { serverState } from '$lib/servers/server-state.svelte';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   let {
     open = $bindable(),
@@ -240,6 +242,15 @@
     modalError = null;
   });
 
+  // §7 fallback gating: the data root is unavailable, so creating a new
+  // instance would write it into the wrong (temporary default) root. Gates
+  // the "New instance" entry point itself — separate from createDisabledReason
+  // above, which validates the in-progress create FORM once it's open.
+  const dataRootBlockedReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : get(t)(key);
+  });
+
   function ipcErrorMessage(e: IpcError): string {
     // Modal-local shorter wording for the two name-validation cases (the
     // modal context makes "Instance" redundant). Everything else
@@ -265,6 +276,10 @@
     // Re-entry guard for a rapid double-click (validation runs first so a
     // validation early-return never strands the busy flag).
     if (createPending) return;
+    // Belt-and-braces: the entry point is already disabled via
+    // dataRootBlockedReason, but createMode can be entered before a late
+    // fell_back flip lands, so guard the actual mutation too.
+    if (dataLocation.fellBack) return;
     if (!draftName.trim()) {
       modalError = get(t)('instance.error.nameRequired');
       return;
@@ -579,9 +594,20 @@
         data-tour-ctx="manage-list"
         aria-label={$t('instance.manage.listRegionLabel')}
       >
-        <button type="button" class="shrink-0 btn-primary btn-sm w-full" onclick={openCreate}>
-          {$t('instance.manage.newInstanceBtn')}
-        </button>
+        {#if dataRootBlockedReason}
+          <span
+            class="inline-flex shrink-0 w-full"
+            use:tooltip={{ text: dataRootBlockedReason, describe: false }}
+          >
+            <button type="button" class="btn-primary btn-sm w-full" disabled>
+              {$t('instance.manage.newInstanceBtn')}
+            </button>
+          </span>
+        {:else}
+          <button type="button" class="shrink-0 btn-primary btn-sm w-full" onclick={openCreate}>
+            {$t('instance.manage.newInstanceBtn')}
+          </button>
+        {/if}
         {#if instances.length > FILTER_THRESHOLD}
           <input
             type="text"

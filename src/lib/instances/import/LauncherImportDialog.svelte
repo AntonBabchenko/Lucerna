@@ -14,6 +14,8 @@
   import LoadingPanel from '$lib/ui/LoadingPanel.svelte';
   import { tooltip } from '$lib/ui/tooltip';
   import { Icon, type IconName } from '$lib/ui/icons';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   // Two-step wizard:
   //   Step 1 — discovery list (auto-scan + browse-to-folder)
@@ -196,16 +198,27 @@
 
   let importing = $state(false);
 
+  // §7 fallback gating: the import creates a new instance, which would write
+  // it into the wrong (temporary default) root while the configured data
+  // root is unavailable. See data-root-gating.ts.
+  const importDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
+
   const canImport = $derived(
     !!chosen &&
       selected.size > 0 &&
       targetName.trim() !== '' &&
       !importing &&
-      mcVersionInput.trim() !== '',
+      mcVersionInput.trim() !== '' &&
+      !dataLocation.fellBack,
   );
 
   function doImport() {
     if (!chosen || !canImport) return;
+    // Belt-and-braces: the button is also disabled via importDisabledReason.
+    if (dataLocation.fellBack) return;
     importing = true;
     // Preserve the reader-detected loader build when the user keeps the
     // detected loader; the backend applies loaderVersionOverride verbatim, so
@@ -491,15 +504,17 @@
       <button type="button" class="btn-secondary btn-sm" onclick={onClose}>
         {$t('common.cancel')}
       </button>
-      <button
-        type="button"
-        class="btn-primary btn-sm"
-        disabled={!canImport}
-        onclick={doImport}
-        data-testid="import-btn"
-      >
-        {$t('instances.import.importBtn')}
-      </button>
+      <span class="inline-flex" use:tooltip={{ text: importDisabledReason ?? '', describe: false }}>
+        <button
+          type="button"
+          class="btn-primary btn-sm"
+          disabled={!canImport}
+          onclick={doImport}
+          data-testid="import-btn"
+        >
+          {$t('instances.import.importBtn')}
+        </button>
+      </span>
     </footer>
   {/if}
 </Modal>

@@ -1182,10 +1182,32 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  Server must be stopped.
 	 */
 	serverRemoveDatapack: (id: string, filename: string) => typedError<null, Error>(__TAURI_INVOKE("server_remove_datapack", { id, filename })),
+	/**
+	 *  Current effective data-root location, its configured (possibly
+	 *  unavailable) target, and the size on disk.
+	 */
+	getDataLocation: () => typedError<DataLocationStatus, Error>(__TAURI_INVOKE("get_data_location")),
+	/**
+	 *  Relocate the data root to `new_path`, or reset to the OS default when
+	 *  `None`. Copies the current root to the target, verifies the copy,
+	 *  repoints the bootstrap redirect, deletes the old data, then restarts the
+	 *  app so every chokepoint re-resolves `paths::app_dir` against the new root.
+	 * 
+	 *  Rejected while any game/server is running (`Error::DataLocationBusy`), while
+	 *  the launcher is already running from a fallback root (`DataLocationBusy` —
+	 *  the temporary root is unsafe to move), when a second relocation is already
+	 *  in progress (`DataLocationBusy`), or when the target fails validation
+	 *  (`Error::DataLocationInvalid`). A copy or verify failure surfaces as
+	 *  `Error::DataLocationMigrationFailed` — the original data is left untouched
+	 *  because the redirect is written and the old data deleted only after a
+	 *  complete, verified copy.
+	 */
+	setDataLocation: (newPath: string | null) => typedError<null, Error>(__TAURI_INVOKE("set_data_location", { newPath })),
 };
 
 /** Events */
 export const events = {
+	dataMigrationProgress: makeEvent<DataMigrationProgress>("data-migration-progress"),
 	downloadProgress: makeEvent<DownloadProgress>("download-progress"),
 	gpuPrefApplied: makeEvent<GpuPrefApplied>("gpu-pref-applied"),
 	installProgress: makeEvent<InstallProgress>("install-progress"),
@@ -1485,6 +1507,22 @@ export type CrashReport = {
 	preview: string,
 };
 
+export type DataLocationStatus = {
+	effective: string,
+	configured: string | null,
+	fell_back: boolean,
+	/**  f64 (specta forbids u64); within JS safe-int range. */
+	data_size_bytes: number | null,
+};
+
+/**  Streamed progress for a data-root relocation. */
+export type DataMigrationProgress = {
+	copied_bytes: number | null,
+	total_bytes: number | null,
+	/**  "copying" | "verifying" | "deleting" */
+	phase: string,
+};
+
 export type DepKind = "required" | "optional" | "incompatible" | "embedded";
 
 export type DepNodeStatus = "satisfied" | "missing_required" | "optional_present" | "optional_absent";
@@ -1659,7 +1697,19 @@ export type Error = { kind: "network"; url: string; details: string } | { kind: 
 /**  Отпечаток host-ключа изменился относительно ранее доверенного (TOFU). */
 { kind: "sftp_host_key_mismatch"; expected: string; got: string } | 
 /**  Ошибка во время передачи файлов по SFTP (создание каталога/запись). */
-{ kind: "sftp_transfer_failed"; details: string };
+{ kind: "sftp_transfer_failed"; details: string } | 
+/**  A data-root relocation was requested while a game or server is running. */
+{ kind: "data_location_busy" } | 
+/**  The chosen target folder is invalid (relative / nested / non-empty / same). */
+{ kind: "data_location_invalid"; reason: string } | 
+/**  The move failed partway; the original data is intact. */
+{ kind: "data_location_migration_failed"; reason: string } | 
+/**
+ *  A data-creating or launching command was invoked while the configured
+ *  data root is unavailable and the launcher is running from the temporary
+ *  default fallback. Writing now would land in the wrong root.
+ */
+{ kind: "data_location_unavailable" };
 
 /**
  *  How verbose onboarding/help copy is. `Basic` = plain language (default,

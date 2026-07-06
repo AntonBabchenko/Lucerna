@@ -22,6 +22,9 @@
   import StatusBadge from '$lib/ui/cards/StatusBadge.svelte';
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { SERVER_MANAGE_STEPS } from '$lib/onboarding/contextual-tours';
+  import { tooltip } from '$lib/ui/tooltip';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   let {
     serverId,
@@ -58,6 +61,14 @@
 
   let tab = $state<ServerTab>('console');
   let showToInstance = $state(false);
+
+  // §7 fallback gating: creating a client instance from this server would
+  // write it into the wrong (temporary default) root while the configured
+  // data root is unavailable. See data-root-gating.ts.
+  const toInstanceDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
 
   // WAI-ARIA tabs pattern: roving tabindex with arrow-key navigation.
   const TAB_ORDER: ServerTab[] = [
@@ -176,16 +187,22 @@
 
     <!-- Actions -->
     <div class="flex items-center gap-1.5" data-tour-ctx="server-header-actions">
-      <button
-        type="button"
-        class="btn-ghost btn-sm flex items-center gap-1"
-        onclick={() => (showToInstance = true)}
-        data-testid="create-client-instance-btn"
-        data-tour-ctx="server-to-instance"
+      <span
+        class="inline-flex"
+        use:tooltip={{ text: toInstanceDisabledReason ?? '', describe: false }}
       >
-        <Icon name="download" size={14} />
-        {$t('servers.toInstance.button')}
-      </button>
+        <button
+          type="button"
+          class="btn-ghost btn-sm flex items-center gap-1"
+          onclick={() => (showToInstance = true)}
+          disabled={toInstanceDisabledReason !== null}
+          data-testid="create-client-instance-btn"
+          data-tour-ctx="server-to-instance"
+        >
+          <Icon name="download" size={14} />
+          {$t('servers.toInstance.button')}
+        </button>
+      </span>
       {#if !running}
         <BusyButton
           class="btn-success btn-sm"

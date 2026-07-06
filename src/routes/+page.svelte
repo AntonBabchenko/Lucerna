@@ -68,6 +68,9 @@
   } from '$lib/toasts/toasts.svelte';
   import { updateState, runUpdate, dismissUpdate } from '$lib/update/state.svelte';
   import { modpackUpdates } from '$lib/modpacks/modpack-updates.svelte';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootPlayDisabledKey } from '$lib/settings/data-root-gating';
+  import DataRootFallbackBanner from '$lib/settings/DataRootFallbackBanner.svelte';
 
   // How long the startup "new version available" toast stays before it
   // auto-hides. It only hides (reappears next launch); the durable path
@@ -297,6 +300,14 @@
     return key === null ? null : get(t)(key);
   });
 
+  // Blocks Play/Install (and Quick Play/Quick Join, via the same reason
+  // string) while the configured data root is unavailable — see §7 of the
+  // data-root design doc and data-root-gating.ts. `null` = not blocked.
+  const dataRootPlayBlockedReason = $derived.by(() => {
+    const key = dataRootPlayDisabledKey(dataLocation.fellBack);
+    return key === null ? null : get(t)(key);
+  });
+
   const quickWorlds = createQuickWorlds();
   onDestroy(() => quickWorlds.dispose());
 
@@ -338,6 +349,7 @@
   onMount(() => observeCompactContent());
 
   onMount(async () => {
+    void dataLocation.init();
     void refreshInstances();
 
     events.processSpawned
@@ -530,6 +542,7 @@
   async function onInstall() {
     if (!activeInstance) return;
     if (activeInstance.mc_version === '') return;
+    if (dataLocation.fellBack) return;
     installing = true;
     installError = null;
     const result = await commands.installInstance(activeInstance.id);
@@ -568,6 +581,7 @@
     }
     if (activeInstance.mc_version === '') return;
     if (!activeInstance.ready) return;
+    if (dataLocation.fellBack) return;
 
     // Dependency pre-flight: check for blocking violations before launch.
     // Fail-open: if the command errors, proceed normally (decideLaunch returns 'launch').
@@ -615,6 +629,7 @@
       return;
     }
     if (quickPlayDisabledReason !== null) return;
+    if (dataLocation.fellBack) return;
     installError = null;
     const result = await commands.launchInstance(activeInstance.id, {
       kind: 'singleplayer',
@@ -632,6 +647,7 @@
       return;
     }
     if (quickPlayDisabledReason !== null) return;
+    if (dataLocation.fellBack) return;
     quickJoinBusy = true;
     installError = null;
     const result = await commands.launchInstance(activeInstance.id, {
@@ -759,6 +775,16 @@
       worlds={quickWorlds.worlds}
       {onQuickPlayWorld}
       {quickPlayMenuEnabled}
+      playBlockedReason={dataRootPlayBlockedReason}
+      createBlockedReason={dataLocation.fellBack
+        ? get(t)('page.dataRootFallback.createDisabledReason')
+        : null}
+      launcherImportBlockedReason={dataLocation.fellBack
+        ? get(t)('page.dataRootFallback.createDisabledReason')
+        : null}
+      dataRootFallbackReason={compactState.value && dataLocation.fellBack && dataLocation.status
+        ? get(t)('page.dataRootFallback.banner', { path: dataLocation.status.configured ?? '' })
+        : null}
       bind:msSigningIn
       onMicrosoftSignedIn={async () => {
         await refreshAccounts();
@@ -794,6 +820,9 @@
        toggle-while-browsing-tabs affordance. -->
   {#if !compactState.value}
     <div class="col-start-2 row-start-1 overflow-hidden flex flex-col">
+      {#if dataLocation.fellBack && dataLocation.status}
+        <DataRootFallbackBanner configuredPath={dataLocation.status.configured ?? ''} />
+      {/if}
       {#if crashReport}
         <div
           class="bg-danger-bg border-b border-danger text-danger px-4 py-2 flex items-center justify-between gap-3"

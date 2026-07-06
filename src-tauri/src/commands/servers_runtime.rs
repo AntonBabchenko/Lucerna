@@ -298,6 +298,7 @@ pub async fn server_create(
     eula_accepted: bool,
     created_from_instance: Option<String>,
 ) -> Result<ServerCreated> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     let base = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
     // Trim + reject empty/duplicate names at the boundary (the wizard also gates
     // this, but two concurrent creates could still collide on the same name).
@@ -1370,6 +1371,7 @@ pub async fn server_create_client_instance(
     name: String,
     add_to_multiplayer: bool,
 ) -> Result<crate::servers_runtime::to_instance::ClientInstanceResult> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     let cf_key = crate::mods::curseforge::keyring::resolve();
     crate::servers_runtime::to_instance::create_client_instance(
         &app,

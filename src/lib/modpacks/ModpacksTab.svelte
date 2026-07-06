@@ -24,6 +24,8 @@
   import ContextualTour from '$lib/onboarding/ContextualTour.svelte';
   import { MODPACKS_STEPS } from '$lib/onboarding/contextual-tours';
   import { t } from '$lib/i18n';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   // Top-level pane rendered inside the Modpacks modal. Owns the Browse |
   // Imported sub-tab shell (lazy-mount + CSS-hide so search / pagination /
@@ -76,6 +78,7 @@
     const v = droppedModpack.value;
     if (v !== null) {
       droppedModpack.value = null;
+      if (dataLocation.fellBack) return;
       resetHints();
       void inspect(v);
     }
@@ -106,7 +109,18 @@
     };
   });
 
+  // §7 fallback gating: importing a modpack creates a new instance, which
+  // would write it into the wrong (temporary default) root while the
+  // configured data root is unavailable. See data-root-gating.ts.
+  const importDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
+
   async function importFromFile() {
+    // Belt-and-braces: the entry points are also disabled via
+    // importDisabledReason, but guard the actual action too.
+    if (dataLocation.fellBack) return;
     const r = await openFile({
       multiple: false,
       filters: [{ name: $t('common.fileFilter.modpack'), extensions: ['mrpack', 'zip'] }],
@@ -180,6 +194,7 @@
       drawerHit = hit;
       drawerMcFilter = mc;
     };
+    if (dataLocation.fellBack) return;
     if (hit.distribution_allowed === false) {
       openModal();
       return;
@@ -221,6 +236,7 @@
   // so closing the modal here is harmless.
   function confirmImport(selectedShas: string[]) {
     if (!summary) return;
+    if (dataLocation.fellBack) return;
     const path = (summary as ModpackSummary & { _path: string })._path;
     summary = null;
     onImport?.({
@@ -260,7 +276,12 @@
   </div>
 
   <div class="px-4 pt-3" data-tour-ctx="modpacks-dropzone">
-    <FileDropzone label={$t('modpacks.tab.dropzoneLabel')} onClick={importFromFile} />
+    <FileDropzone
+      label={$t('modpacks.tab.dropzoneLabel')}
+      disabled={importDisabledReason !== null}
+      disabledLabel={importDisabledReason ?? undefined}
+      onClick={importFromFile}
+    />
   </div>
 
   <ContextualTour id="modpacks" steps={MODPACKS_STEPS} />
@@ -281,6 +302,7 @@
           }}
           onQuickInstall={quickInstall}
           installingIds={quickInstalling}
+          quickInstallDisabledReason={importDisabledReason}
         />
       </div>
     {/if}

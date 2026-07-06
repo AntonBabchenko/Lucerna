@@ -420,6 +420,26 @@ pub enum Error {
     /// Ошибка во время передачи файлов по SFTP (создание каталога/запись).
     #[error("SFTP transfer failed: {details}")]
     SftpTransferFailed { details: String },
+
+    /// A data-root relocation was requested while a game or server is running.
+    #[error("stop running games and servers before moving the data folder")]
+    DataLocationBusy,
+
+    /// The chosen target folder is invalid (relative / nested / non-empty / same).
+    #[error("invalid data location: {reason}")]
+    DataLocationInvalid { reason: String },
+
+    /// The move failed partway; the original data is intact.
+    #[error("data location migration failed: {reason}")]
+    DataLocationMigrationFailed { reason: String },
+
+    /// A data-creating or launching command was invoked while the configured
+    /// data root is unavailable and the launcher is running from the temporary
+    /// default fallback. Writing now would land in the wrong root.
+    #[error(
+        "your data folder is unavailable; reconnect it and restart before creating or launching"
+    )]
+    DataLocationUnavailable,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -883,5 +903,48 @@ mod tests {
         );
         assert!(json.contains(r#""size":3"#), "got: {json}");
         assert!(json.contains(r#""cap":2"#), "got: {json}");
+    }
+
+    #[test]
+    fn data_location_busy_serializes_as_unit() {
+        let e = Error::DataLocationBusy;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"data_location_busy"}"#);
+    }
+
+    #[test]
+    fn data_location_invalid_carries_reason() {
+        let e = Error::DataLocationInvalid {
+            reason: "NotEmpty".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"data_location_invalid""#),
+            "got: {json}"
+        );
+        assert!(json.contains(r#""reason":"NotEmpty""#), "got: {json}");
+    }
+
+    #[test]
+    fn data_location_migration_failed_carries_reason() {
+        let e = Error::DataLocationMigrationFailed {
+            reason: "copy interrupted".into(),
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(
+            json.contains(r#""kind":"data_location_migration_failed""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""reason":"copy interrupted""#),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn data_location_unavailable_serializes_as_unit() {
+        let e = Error::DataLocationUnavailable;
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"kind":"data_location_unavailable"}"#);
     }
 }

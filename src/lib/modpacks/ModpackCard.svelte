@@ -18,12 +18,17 @@
     layout = 'grid',
     onQuickInstall = null,
     installing = false,
+    quickInstallDisabledReason = null,
   }: {
     hit: ModpackHit;
     onClick: () => void;
     layout?: 'grid' | 'list';
     onQuickInstall?: (() => void) | null;
     installing?: boolean;
+    // §7 fallback gating: non-null while the data root is unavailable, which
+    // blocks the quick-install action (it creates a new instance) and
+    // explains why via the tooltip. See data-root-gating.ts.
+    quickInstallDisabledReason?: string | null;
   } = $props();
 </script>
 
@@ -31,9 +36,12 @@
   <button
     type="button"
     class="btn-icon btn-icon-sm !text-accent"
-    disabled={installing}
+    disabled={installing || quickInstallDisabledReason !== null}
     aria-label={$t('modpacks.card.quickInstall')}
-    use:tooltip={$t('modpacks.card.quickInstall')}
+    use:tooltip={{
+      text: quickInstallDisabledReason ?? $t('modpacks.card.quickInstall'),
+      describe: false,
+    }}
     onclick={(e) => {
       e.stopPropagation();
       onQuickInstall?.();

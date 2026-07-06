@@ -23,6 +23,12 @@ vi.mock('$lib/ipc/bindings', () => ({
       },
     }),
     appSettingsSetGeneral: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
+    // StoragePanel calls dataLocation.init() -> getDataLocation() on mount.
+    getDataLocation: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { effective: '/data', configured: null, fell_back: false, data_size_bytes: 0 },
+    }),
+    setDataLocation: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
   },
 }));
 

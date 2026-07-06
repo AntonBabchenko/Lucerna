@@ -10,6 +10,7 @@ pub async fn install_instance(
     app: tauri::AppHandle,
     instance_id: String,
 ) -> Result<(), crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     let effective_id = resolve_instance_effective_id(&app, &instance_id)?;
     crate::versions::install_version(&effective_id, &app).await
 }
@@ -29,6 +30,7 @@ pub async fn launch_instance(
     instance_id: String,
     quick_play: Option<crate::launch::QuickPlay>,
 ) -> Result<u32, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     // Don't launch on top of a repair that's rewriting this instance's shared
     // library/client jars — the JVM could read a half-written file and crash.
     if crate::verify::repair_in_progress() {
@@ -221,6 +223,7 @@ pub fn create_instance(
     loader: crate::instances::schema::LoaderKind,
     loader_version: Option<String>,
 ) -> Result<crate::instances::schema::InstanceWithStatus, crate::error::Error> {
+    crate::data_root::reject_if_fallen_back(&app)?;
     validate_instance_name(&name)?;
     crate::instances::create_instance(
         &app,

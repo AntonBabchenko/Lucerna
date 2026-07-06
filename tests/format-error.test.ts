@@ -397,6 +397,13 @@ describe('formatError', () => {
       server_import_too_large: { kind: 'server_import_too_large', size: 3, cap: 2 },
       server_import_not_a_server: { kind: 'server_import_not_a_server' },
       server_import_staging_expired: { kind: 'server_import_staging_expired', token: 'tok-1' },
+      data_location_busy: { kind: 'data_location_busy' },
+      data_location_invalid: { kind: 'data_location_invalid', reason: 'not_empty' },
+      data_location_migration_failed: {
+        kind: 'data_location_migration_failed',
+        reason: 'disk full',
+      },
+      data_location_unavailable: { kind: 'data_location_unavailable' },
     };
 
     it.each(Object.entries(samples))('renders real copy for %s', (_kind, sample) => {

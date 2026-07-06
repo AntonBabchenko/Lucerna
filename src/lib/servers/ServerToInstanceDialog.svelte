@@ -5,6 +5,9 @@
   import { commands, type ServerWithStatus_Serialize } from '$lib/ipc/bindings';
   import { formatError } from '$lib/ipc/format-error';
   import { pushSuccess, pushWarning } from '$lib/toasts/toasts.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   let {
     server,
@@ -24,7 +27,17 @@
 
   const address = $derived(`localhost:${server.port ?? 25565}`);
 
+  // §7 fallback gating: this creates a new client instance, which would write
+  // it into the wrong (temporary default) root while the configured data
+  // root is unavailable. See data-root-gating.ts.
+  const createDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
+
   async function create() {
+    // Belt-and-braces: the button is also disabled via createDisabledReason.
+    if (dataLocation.fellBack) return;
     const trimmed = name.trim();
     if (trimmed === '') {
       error = $t('servers.toInstance.nameRequired');
@@ -106,8 +119,15 @@
     <button type="button" class="btn-secondary btn-sm" onclick={onCancel} disabled={busy}>
       {$t('common.cancel')}
     </button>
-    <BusyButton class="btn-primary btn-sm" {busy} onclick={() => void create()}>
-      {$t('servers.toInstance.create')}
-    </BusyButton>
+    <span class="inline-flex" use:tooltip={{ text: createDisabledReason ?? '', describe: false }}>
+      <BusyButton
+        class="btn-primary btn-sm"
+        {busy}
+        disabled={createDisabledReason !== null}
+        onclick={() => void create()}
+      >
+        {$t('servers.toInstance.create')}
+      </BusyButton>
+    </span>
   </div>
 </Modal>

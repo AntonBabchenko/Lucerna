@@ -15,6 +15,8 @@
   import { open as openFile } from '@tauri-apps/plugin-dialog';
   import FileDropzone from '$lib/mods/FileDropzone.svelte';
   import { droppedWorld } from '$lib/settings/state.svelte';
+  import { dataLocation } from '$lib/settings/data-location.svelte';
+  import { dataRootCreateDisabledKey } from '$lib/settings/data-root-gating';
 
   let {
     instanceId,
@@ -97,11 +99,21 @@
     if (r.status !== 'ok') pushWarning(formatError(r.error));
   }
 
+  // §7 fallback gating: world import writes into the instance's saves dir,
+  // which would land in the wrong (temporary default) root while the
+  // configured data root is unavailable. See data-root-gating.ts.
+  const importDisabledReason = $derived.by(() => {
+    const key = dataRootCreateDisabledKey(dataLocation.fellBack);
+    return key === null ? null : $t(key);
+  });
+
   // One core for all entry points (dropzone click, folder button, and the
   // drag-drop consume effect). Imports each path; the backend decides zip vs
   // folder and returns a typed error per path.
   async function importPaths(paths: string[]) {
     if (!instanceId || paths.length === 0) return;
+    // Belt-and-braces: entry points are also disabled via importDisabledReason.
+    if (dataLocation.fellBack) return;
     let added = 0;
     for (const p of paths) {
       const r = await commands.worldImport(instanceId, p);
@@ -120,6 +132,7 @@
 
   async function onImport(source: 'zip' | 'folder') {
     if (!instanceId) return;
+    if (dataLocation.fellBack) return;
     const picked =
       source === 'zip'
         ? await openFile({
@@ -136,6 +149,7 @@
     const v = droppedWorld.value;
     if (v !== null) {
       droppedWorld.value = null;
+      if (dataLocation.fellBack) return;
       void importPaths(v);
     }
   });
@@ -145,19 +159,23 @@
   <div data-tour-ctx="worlds-import">
     <FileDropzone
       label={$t('worlds.import.dropzoneLabel')}
-      disabled={!instanceId}
+      disabled={!instanceId || importDisabledReason !== null}
+      disabledLabel={importDisabledReason ?? undefined}
       onClick={() => void onImport('zip')}
     />
   </div>
   <div class="flex flex-wrap items-center gap-2">
-    <button
-      type="button"
-      class="btn-tertiary inline-flex items-center gap-1"
-      onclick={() => void onImport('folder')}
-    >
-      <Icon name="folderOpen" size={14} />
-      {$t('worlds.import.fromFolder')}
-    </button>
+    <span class="inline-flex" use:tooltip={{ text: importDisabledReason ?? '', describe: false }}>
+      <button
+        type="button"
+        class="btn-tertiary inline-flex items-center gap-1"
+        disabled={!instanceId || importDisabledReason !== null}
+        onclick={() => void onImport('folder')}
+      >
+        <Icon name="folderOpen" size={14} />
+        {$t('worlds.import.fromFolder')}
+      </button>
+    </span>
     <button
       type="button"
       class="btn-tertiary inline-flex items-center gap-1"

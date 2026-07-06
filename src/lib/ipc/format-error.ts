@@ -152,7 +152,33 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   server_import_too_large: 'clean',
   server_import_not_a_server: 'clean',
   server_import_staging_expired: 'clean',
+  data_location_busy: 'clean',
+  data_location_invalid: 'clean',
+  data_location_migration_failed: 'opaque',
+  data_location_unavailable: 'clean',
 };
+
+/**
+ * Map a backend `DataLocationInvalid` reason token (a stable snake_case key —
+ * `not_absolute` | `nested` | `same` | `not_empty`) to a translated,
+ * human-readable clause. Never echoes the raw token to the user; an
+ * unrecognized token falls back to a generic "not a valid location" clause.
+ */
+function dataLocationInvalidReason(reason: string): string {
+  const translate = get(t);
+  switch (reason) {
+    case 'not_absolute':
+      return translate('errors.dataLocationInvalidReason.notAbsolute');
+    case 'nested':
+      return translate('errors.dataLocationInvalidReason.nested');
+    case 'same':
+      return translate('errors.dataLocationInvalidReason.same');
+    case 'not_empty':
+      return translate('errors.dataLocationInvalidReason.notEmpty');
+    default:
+      return translate('errors.dataLocationInvalidReason.unknown');
+  }
+}
 
 /**
  * Render a typed IPC Error as a human-readable single-line string.
@@ -434,6 +460,16 @@ export function formatError(e: IpcError): string {
       return translate('errors.sftpHostKeyMismatch');
     case 'sftp_transfer_failed':
       return withDetailTail(translate('errors.sftpTransferFailed'), e.details);
+    case 'data_location_busy':
+      return translate('errors.dataLocationBusy');
+    case 'data_location_invalid':
+      return translate('errors.dataLocationInvalid', {
+        reason: dataLocationInvalidReason(e.reason),
+      });
+    case 'data_location_migration_failed':
+      return withDetailTail(translate('errors.dataLocationMigrationFailed'), e.reason);
+    case 'data_location_unavailable':
+      return translate('errors.dataLocationUnavailable');
     default: {
       // Exhaustiveness guard. If a new Error variant lands in bindings.ts
       // without a case above, TypeScript will complain about the type of

@@ -1,5 +1,6 @@
 pub mod accounts;
 mod commands;
+pub mod data_root;
 pub mod diag;
 pub mod error;
 pub mod forge;
@@ -263,6 +264,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::server_list_datapacks,
             commands::server_install_datapack,
             commands::server_remove_datapack,
+            // Data-root location:
+            commands::get_data_location,
+            commands::set_data_location,
         ])
         .events(collect_events![
             network::DownloadProgress,
@@ -280,6 +284,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             servers_runtime::runtime::ServerSpawned,
             servers_runtime::runtime::ServerExited,
             servers_runtime::transfer::ServerUploadProgress,
+            commands::DataMigrationProgress,
         ])
 }
 
@@ -375,6 +380,20 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .manage(window::WindowSizeState::default())
         .setup(move |app| {
+            // Resolve the effective data root before anything else touches app_dir.
+            let default_root = crate::paths::default_app_data_dir(app.handle())
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let redirect = crate::paths::redirect_file(app.handle())
+                .ok()
+                .and_then(|f| crate::data_root::redirect::read(&f).ok().flatten());
+            let resolved = crate::data_root::resolve_root(default_root, redirect, |p| {
+                crate::data_root::migrate::is_available(p)
+            });
+            {
+                use tauri::Manager;
+                app.manage(crate::data_root::DataRoot(resolved));
+            }
+
             // Open the launcher's own diagnostic log (lucerna.log) first, so
             // subsequent `diag!` lines in setup are captured. Best-effort.
             diag::init(app.handle());
