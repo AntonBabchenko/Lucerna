@@ -37,8 +37,13 @@ pub fn assets_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     Ok(app_dir(app)?.join("assets"))
 }
 
+/// `<app_data>/instances` — the parent of every instance directory.
+pub fn instances_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app_dir(app)?.join("instances"))
+}
+
 pub fn instance_dir(app: &tauri::AppHandle, name: &str) -> tauri::Result<PathBuf> {
-    Ok(app_dir(app)?.join("instances").join(name))
+    Ok(instances_dir(app)?.join(name))
 }
 
 pub fn mods_dir(app: &tauri::AppHandle, instance: &str) -> tauri::Result<PathBuf> {
@@ -101,8 +106,15 @@ pub struct ServerPaths {
     pub pid: PathBuf,
 }
 
+/// `<base>/servers` — the parent of every server directory. Pure (takes the
+/// app-data root directly) so non-`AppHandle` call sites (e.g. import commit)
+/// can reserve a server directory here.
+pub fn servers_root(base: &Path) -> PathBuf {
+    base.join("servers")
+}
+
 pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
-    let root = base.join("servers").join(id);
+    let root = servers_root(base).join(id);
     let runtime = root.join("runtime");
     ServerPaths {
         json: root.join("server.json"),
@@ -116,7 +128,7 @@ pub fn server_paths(base: &Path, id: &str) -> ServerPaths {
 
 /// `<app_data>/servers`.
 pub fn servers_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
-    Ok(app_dir(app)?.join("servers"))
+    Ok(servers_root(&app_dir(app)?))
 }
 
 /// Пути конкретного сервера, привязанные к реальной app-data директории.

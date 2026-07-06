@@ -8,6 +8,7 @@ pub mod jre;
 pub mod launch;
 pub mod logs;
 pub mod mods;
+pub mod naming;
 pub mod network;
 pub mod paths;
 pub mod platform;
