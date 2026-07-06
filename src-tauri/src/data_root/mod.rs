@@ -1,5 +1,6 @@
 //! Data-root location: bootstrap redirect file + resolution + migration.
 pub mod redirect;
+pub mod validate;
 
 use redirect::Redirect;
 use std::path::{Path, PathBuf};
