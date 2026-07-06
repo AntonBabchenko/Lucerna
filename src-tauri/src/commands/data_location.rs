@@ -2,6 +2,8 @@
 //! blocks relocation while a game or server is live.
 
 use crate::error::{Error, Result};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
@@ -19,6 +21,34 @@ pub fn any_game_running(app: &AppHandle) -> bool {
     crate::commands::server_list(app.clone())
         .map(|servers| servers.iter().any(|s| s.running))
         .unwrap_or(false)
+}
+
+/// Process-wide guard so two overlapping relocation calls (a double-fired
+/// click, or a reset racing a set) can never run the copy/verify/delete
+/// pipeline concurrently against the same source. The second caller returns
+/// `DataLocationBusy`. The success path ends in `app.restart()`, which tears
+/// the process down, so it need not clear the flag; every early-return / error
+/// path MUST clear it (handled via `MigrationGuard`'s Drop).
+static MIGRATION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// RAII holder for `MIGRATION_IN_PROGRESS`. Acquired via `try_acquire`; on drop
+/// it releases the flag so no error path can leak the guard. On the success
+/// path `std::mem::forget` keeps it held (the process is about to restart).
+struct MigrationGuard;
+
+impl MigrationGuard {
+    fn try_acquire() -> Option<Self> {
+        MIGRATION_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| MigrationGuard)
+    }
+}
+
+impl Drop for MigrationGuard {
+    fn drop(&mut self) {
+        MIGRATION_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -58,51 +88,166 @@ pub struct DataMigrationProgress {
 /// app-data dir and must never be copied/deleted as part of a relocation.
 const REDIRECT_FILE_NAME: &str = "data-location.json";
 
+/// Top-level entries the OS-default dir may legitimately hold that are NOT user
+/// data: the bootstrap redirect and launcher-transient scratch. A reset target
+/// (the default dir) is accepted when it is empty OR contains only these.
+const SAFE_OVERLAP: [&str; 3] = ["data-location.json", "logs", "updates"];
+
 /// Relocate the data root to `new_path`, or reset to the OS default when
 /// `None`. Copies the current root to the target, verifies the copy,
 /// repoints the bootstrap redirect, deletes the old data, then restarts the
 /// app so every chokepoint re-resolves `paths::app_dir` against the new root.
 ///
-/// Rejected while any game/server is running (`Error::DataLocationBusy`) or
-/// when the target fails validation (`Error::DataLocationInvalid`). A copy or
-/// verify failure surfaces as `Error::DataLocationMigrationFailed` — the
-/// original data is left untouched because the redirect is written and the
-/// old data deleted only after a complete, verified copy.
+/// Rejected while any game/server is running (`Error::DataLocationBusy`), while
+/// the launcher is already running from a fallback root (`DataLocationBusy` —
+/// the temporary root is unsafe to move), when a second relocation is already
+/// in progress (`DataLocationBusy`), or when the target fails validation
+/// (`Error::DataLocationInvalid`). A copy or verify failure surfaces as
+/// `Error::DataLocationMigrationFailed` — the original data is left untouched
+/// because the redirect is written and the old data deleted only after a
+/// complete, verified copy.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Result<()> {
-    let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
-    let default =
-        crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
-    let target = match &new_path {
-        Some(p) => std::path::PathBuf::from(p),
-        None => default.clone(),
-    };
+    // Concurrency guard first: a second concurrent call bails out immediately
+    // without touching the filesystem.
+    let guard = MigrationGuard::try_acquire().ok_or(Error::DataLocationBusy)?;
+
+    // Never move the temporary fallback root — the configured root is
+    // unavailable, so a move would copy the wrong (partial) tree and rewrite
+    // the redirect against a root the user did not intend.
+    if app.state::<crate::data_root::DataRoot>().0.fell_back {
+        return Err(Error::DataLocationBusy);
+    }
 
     if any_game_running(&app) {
         return Err(Error::DataLocationBusy);
     }
 
-    let empty = crate::data_root::migrate::target_is_empty(&target);
+    let current = crate::paths::app_dir(&app).map_err(|e| Error::io("<app_dir>", e))?;
+    let default =
+        crate::paths::default_app_data_dir(&app).map_err(|e| Error::io("<default>", e))?;
+    let is_reset = new_path.is_none();
+    let target = match &new_path {
+        Some(p) => PathBuf::from(p),
+        None => default.clone(),
+    };
+
+    // Empty-check differs for reset vs. a fresh custom target: the OS-default
+    // dir legitimately holds the redirect + launcher scratch even with no user
+    // data, so a reset accepts "empty or only-safe entries"; a custom target
+    // must be strictly empty.
+    let empty = if is_reset {
+        crate::data_root::migrate::empty_or_only_safe(&target, &SAFE_OVERLAP)
+    } else {
+        crate::data_root::migrate::target_is_empty(&target)
+    };
     crate::data_root::validate::validate_target(&current, &target, empty).map_err(|v| {
         Error::DataLocationInvalid {
-            reason: format!("{v:?}"),
+            reason: v.reason_key().to_string(),
         }
     })?;
 
+    // BLOCKER guard: `validate_target`'s nested check is lexical + case-
+    // sensitive and misses case-differing / `\\?\` verbatim / 8.3 spellings of
+    // the same or a nested path. Reject robustly on canonical forms BEFORE any
+    // copy, so the later delete loop can never wipe both source and target.
+    // (Skip for reset — the default dir is by construction not nested in a
+    // relocated `current`, and its safe-overlap contents are handled above.)
+    if !is_reset && crate::data_root::migrate::is_same_or_nested(&current, &target) {
+        return Err(Error::DataLocationInvalid {
+            reason: crate::data_root::validate::Invalid::NestedInCurrent
+                .reason_key()
+                .to_string(),
+        });
+    }
+
+    // Symlink/junction safety: refuse to move a tree containing reparse points
+    // — a junction could point outside the tree (data loss) or form a cycle.
+    if crate::data_root::migrate::contains_reparse_point(&current).map_err(|e| {
+        Error::DataLocationMigrationFailed {
+            reason: e.to_string(),
+        }
+    })? {
+        return Err(Error::DataLocationMigrationFailed {
+            reason:
+                "the data folder contains a symbolic link or junction, which cannot be safely moved"
+                    .into(),
+        });
+    }
+
+    // Canonical target for the delete-loop defense-in-depth check below.
+    let canonical_target = std::fs::canonicalize(&target).unwrap_or_else(|_| target.clone());
+
+    // Everything from here — the size scan, the copy, the verify, and the
+    // delete — is blocking filesystem work. Run it off the async runtime so a
+    // multi-GB move never stalls other Tauri commands. The AppHandle is cloned
+    // for progress emission inside the blocking task.
+    let app_blocking = app.clone();
+    let current_for_task = current.clone();
+    let target_for_task = target.clone();
+    let copied = tokio::task::spawn_blocking(move || -> Result<u64> {
+        run_migration(
+            &app_blocking,
+            &current_for_task,
+            &target_for_task,
+            &canonical_target,
+        )
+    })
+    .await
+    .map_err(|e| Error::DataLocationMigrationFailed {
+        reason: format!("migration task panicked: {e}"),
+    })??;
+
+    let _ = copied; // consumed inside run_migration for the verify step.
+
+    // Point the redirect at the new root ONLY after a complete, verified copy.
+    let redirect_file =
+        crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
+    match &new_path {
+        Some(p) => crate::data_root::redirect::write(
+            &redirect_file,
+            &crate::data_root::redirect::Redirect {
+                path: PathBuf::from(p),
+            },
+        )?,
+        None => crate::data_root::redirect::remove(&redirect_file)?,
+    }
+
+    // The migration pipeline (copy + verify + delete of the old data) already
+    // completed inside `run_migration`. Keep the guard held across the restart
+    // so nothing can re-enter; the process is about to be torn down.
+    std::mem::forget(guard);
+    app.restart();
+}
+
+/// The blocking copy → verify → delete pipeline. Returns the number of bytes
+/// copied (excluding the skipped redirect). Emits `DataMigrationProgress`
+/// throughout. Runs entirely on a blocking thread.
+fn run_migration(
+    app: &AppHandle,
+    current: &Path,
+    target: &Path,
+    canonical_target: &Path,
+) -> Result<u64> {
     // The redirect file itself lives at the default app-data dir and must
     // never be moved as part of the tree copy/delete — it is the bootstrap
     // pointer read *before* `DataRoot` is resolved.
     let redirect_name = std::ffi::OsString::from(REDIRECT_FILE_NAME);
-    let skip = move |p: &std::path::Path| p.as_os_str() == redirect_name;
+    let skip = move |p: &Path| p.as_os_str() == redirect_name;
 
-    let total = crate::data_root::migrate::dir_size(&current) as f64;
+    // Capture the target's pre-copy size so verification is a delta: for a
+    // fresh empty target `baseline == 0`; for a reset the target (the default
+    // dir) already holds the redirect + logs/updates, so `baseline > 0`.
+    let baseline = crate::data_root::migrate::dir_size(target);
+
+    let total = crate::data_root::migrate::dir_size(current) as f64;
     let mut copied = 0u64;
     {
         let app_for_progress = app.clone();
         crate::data_root::migrate::copy_tree(
-            &current,
-            &target,
+            current,
+            target,
             &skip,
             &mut |c| {
                 let _ = DataMigrationProgress {
@@ -124,30 +269,21 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
         total_bytes: total,
         phase: "verifying".into(),
     }
-    .emit(&app);
+    .emit(app);
 
-    // Verify: the target's byte total must match what we copied. `copied`
-    // already excludes the skipped redirect file, and `dir_size(&target)`
-    // never contains it either (it was never copied there), so the two
-    // must agree exactly regardless of whether `current == default`.
-    let target_size = crate::data_root::migrate::dir_size(&target);
-    if target_size != copied {
+    // Verify by size DELTA: the target must have grown by exactly the bytes we
+    // copied. `copied` already excludes the skipped redirect, and the copy
+    // never writes the redirect into the target, so `after == baseline + copied`
+    // holds for a fresh empty target (baseline 0) AND for a reset (baseline =
+    // redirect + logs/updates already present).
+    let after = crate::data_root::migrate::dir_size(target);
+    if after != baseline.saturating_add(copied) {
         return Err(Error::DataLocationMigrationFailed {
-            reason: format!("verification failed: expected {copied} bytes, found {target_size}"),
+            reason: format!(
+                "verification failed: expected {} bytes, found {after}",
+                baseline.saturating_add(copied)
+            ),
         });
-    }
-
-    // Point the redirect at the new root ONLY after a complete, verified copy.
-    let redirect_file =
-        crate::paths::redirect_file(&app).map_err(|e| Error::io("<redirect>", e))?;
-    match &new_path {
-        Some(p) => crate::data_root::redirect::write(
-            &redirect_file,
-            &crate::data_root::redirect::Redirect {
-                path: std::path::PathBuf::from(p),
-            },
-        )?,
-        None => crate::data_root::redirect::remove(&redirect_file)?,
     }
 
     let _ = DataMigrationProgress {
@@ -155,17 +291,29 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
         total_bytes: total,
         phase: "deleting".into(),
     }
-    .emit(&app);
+    .emit(app);
 
     // Delete the old data: every top-level entry of `current` except the
     // redirect file (which only ever lives there when current == default).
-    if let Ok(entries) = std::fs::read_dir(&current) {
+    if let Ok(entries) = std::fs::read_dir(current) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             if name == REDIRECT_FILE_NAME {
                 continue;
             }
             let path = entry.path();
+
+            // Defense in depth: never delete a top-level entry whose canonical
+            // path equals or is an ancestor of the canonical target. Even
+            // though `is_same_or_nested` already rejected same/nested targets,
+            // this guarantees the freshly-copied target can never be caught in
+            // this loop under any path-spelling edge case.
+            let canonical_entry = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if canonical_target == canonical_entry || canonical_target.starts_with(&canonical_entry)
+            {
+                continue;
+            }
+
             let result = if path.is_dir() {
                 std::fs::remove_dir_all(&path)
             } else {
@@ -181,5 +329,5 @@ pub async fn set_data_location(app: AppHandle, new_path: Option<String>) -> Resu
         }
     }
 
-    app.restart();
+    Ok(copied)
 }
