@@ -240,11 +240,21 @@ fn run_migration(
     let mut copied = 0u64;
     {
         let app_for_progress = app.clone();
+        // Throttle progress events: a real data root has tens of thousands of
+        // small files (assets/objects, libraries, mods), and emitting one Tauri
+        // event PER FILE floods the IPC channel and the UI, drowning the copy
+        // itself. Emit at most once per `EMIT_EVERY` bytes of progress instead.
+        const EMIT_EVERY: u64 = 16 * 1024 * 1024; // 16 MiB
+        let mut last_emit = 0u64;
         crate::data_root::migrate::copy_tree(
             current,
             target,
             &skip,
             &mut |c| {
+                if c.saturating_sub(last_emit) < EMIT_EVERY {
+                    return;
+                }
+                last_emit = c;
                 let _ = DataMigrationProgress {
                     copied_bytes: c as f64,
                     total_bytes: total,
