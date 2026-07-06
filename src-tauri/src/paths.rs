@@ -7,11 +7,25 @@
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-/// Root of the launcher's persistent data, resolved from the platform's
-/// app-data dir (`%APPDATA%\com.lucerna.app\` on Windows). All other
-/// paths derive from this.
+/// The effective data root. Reads the resolved `DataRoot` state; before that
+/// state is managed (very early startup) OR if resolution ever fails, falls
+/// back to the OS-default app-data dir so no caller ever panics.
 pub fn app_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    if let Some(state) = app.try_state::<crate::data_root::DataRoot>() {
+        return Ok(state.0.root.clone());
+    }
+    default_app_data_dir(app)
+}
+
+/// The OS-default app-data dir (`%APPDATA%\com.lucerna.app\`). The redirect
+/// file always lives here, never under a relocated root.
+pub fn default_app_data_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
     app.path().app_data_dir()
+}
+
+/// `<default app-data>/data-location.json` — bootstrap redirect, fixed location.
+pub fn redirect_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(default_app_data_dir(app)?.join("data-location.json"))
 }
 
 pub fn versions_dir(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
