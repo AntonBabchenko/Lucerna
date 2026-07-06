@@ -157,10 +157,10 @@
   let progressUnlisten: (() => void) | null = null;
 
   // Name of the dedicated subfolder created inside the user-picked container.
-  // Matches the default data dir name (`%APPDATA%/com.lucerna.app`) so the data
-  // folder is identical wherever it lives, and never collides with the launcher's
-  // install folder (which is named `Lucerna`).
-  const DATA_SUBFOLDER = 'com.lucerna.app';
+  // A human-readable name (not the `com.lucerna.app` identifier, which means
+  // nothing to a user) that still does not collide with the launcher's install
+  // folder (named `Lucerna`).
+  const DATA_SUBFOLDER = 'LucernaData';
 
   async function pickLocation() {
     migrationError = null;
