@@ -58,17 +58,22 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
     let now_ms = unix_ms_f64();
     let mc_version = best_guess_mc_version(&app_root.join("versions")).unwrap_or_default();
 
-    let id = if legacy_default.is_dir() {
+    // The fresh-seed branch reserves a new directory that must be rolled back if
+    // any write below fails (else the next launch reserves `Default-2` and leaks
+    // an empty `Default/`). The legacy branch reuses an existing directory and
+    // must NOT be cleaned up on failure — hence the guard is optional.
+    let (id, cleanup) = if legacy_default.is_dir() {
         // Scenario 3/4/5 — keep the legacy `default/` directory as-is; its
         // readable name becomes the id (no UUID rename anymore).
-        "default".to_string()
+        ("default".to_string(), None)
     } else {
         // Scenario 2 — fresh install. Reserve a readable "Default" directory
         // (atomic, so it never writes into a pre-existing user directory).
         let (id, dir) = crate::naming::reserve_unique_dir(&instances_dir, "Default", "instance")?;
+        let cleanup = crate::naming::DirCleanup::new(&dir);
         std::fs::create_dir_all(dir.join(".minecraft"))
             .map_err(|e| Error::io(dir.display().to_string(), e))?;
-        id
+        (id, Some(cleanup))
     };
 
     let inst = InstanceFile {
@@ -105,6 +110,11 @@ pub fn migrate_or_seed(app: &tauri::AppHandle) -> Result<()> {
             update_dismissed_version: None,
         },
     )?;
+    // Seed committed — disarm the rollback guard (if any) so the reserved
+    // `Default/` directory is kept.
+    if let Some(cleanup) = cleanup {
+        cleanup.keep();
+    }
     Ok(())
 }
 
