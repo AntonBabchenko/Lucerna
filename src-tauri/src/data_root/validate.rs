@@ -8,6 +8,20 @@ pub enum Invalid {
     NotEmpty,
 }
 
+impl Invalid {
+    /// Stable snake_case key for the UI. NEVER expose the raw `Debug` enum
+    /// name over IPC — `format-error.ts` maps this key to a human sentence, so
+    /// the token must stay stable and translatable.
+    pub fn reason_key(&self) -> &'static str {
+        match self {
+            Invalid::NotAbsolute => "not_absolute",
+            Invalid::NestedInCurrent => "nested",
+            Invalid::SameAsCurrent => "same",
+            Invalid::NotEmpty => "not_empty",
+        }
+    }
+}
+
 /// Validate a proposed new root against the current root. `target_is_empty` is
 /// injected (true when the dir does not exist or exists and is empty).
 pub fn validate_target(
@@ -70,5 +84,13 @@ mod tests {
             validate_target(&cur(), &PathBuf::from("/data/new"), false),
             Err(Invalid::NotEmpty)
         );
+    }
+
+    #[test]
+    fn reason_keys_are_stable_snake_case() {
+        assert_eq!(Invalid::NotAbsolute.reason_key(), "not_absolute");
+        assert_eq!(Invalid::NestedInCurrent.reason_key(), "nested");
+        assert_eq!(Invalid::SameAsCurrent.reason_key(), "same");
+        assert_eq!(Invalid::NotEmpty.reason_key(), "not_empty");
     }
 }
