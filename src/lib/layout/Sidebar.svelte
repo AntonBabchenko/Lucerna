@@ -51,6 +51,8 @@
     onToggleCompact = () => {},
     onOpenQuickJoin = () => {},
     onOpenServers = () => {},
+    playBlockedReason = null,
+    createBlockedReason = null,
   }: {
     accounts: Account[];
     activeAccount: Account | null;
@@ -92,6 +94,11 @@
     onToggleCompact?: () => void;
     onOpenQuickJoin?: () => void;
     onOpenServers?: () => void;
+    // Non-null while the configured data root is unavailable (§7 fallback
+    // gating): disables Play/Install (with an explanatory tooltip) and the
+    // empty-state "Create instance" shortcut. See data-root-gating.ts.
+    playBlockedReason?: string | null;
+    createBlockedReason?: string | null;
   } = $props();
 
   const accountOptions = $derived(
@@ -244,9 +251,17 @@
       </div>
       {#if instances.length === 0}
         <p class="text-xs text-muted">{$t('sidebar.noInstances')}</p>
-        <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}>
-          {$t('sidebar.createInstance')}
-        </button>
+        {#if createBlockedReason}
+          <span class="inline-flex" use:tooltip={{ text: createBlockedReason, describe: false }}>
+            <button type="button" class="btn-primary btn-xs" disabled>
+              {$t('sidebar.createInstance')}
+            </button>
+          </span>
+        {:else}
+          <button type="button" class="btn-primary btn-xs" onclick={onOpenManage}>
+            {$t('sidebar.createInstance')}
+          </button>
+        {/if}
       {:else}
         <div data-tour="instance-picker">
           <Select
@@ -310,6 +325,24 @@
                 {$t('sidebar.working')}
               </span>
             </button>
+          {:else if playBlockedReason}
+            <!-- Data root unavailable (§7 fallback gating): block both
+                 Install and Play with the same explanatory tooltip, whichever
+                 would otherwise show. -->
+            <span
+              class="inline-flex w-full"
+              use:tooltip={{ text: playBlockedReason, describe: false }}
+            >
+              <button
+                type="button"
+                data-tour="play-btn"
+                class="btn-primary btn-lg w-full flex items-center justify-center gap-1.5"
+                disabled
+              >
+                <Icon name={activeInstance.ready ? 'play' : 'download'} size={16} />
+                {activeInstance.ready ? $t('sidebar.play') : $t('sidebar.install')}
+              </button>
+            </span>
           {:else if !activeInstance.ready}
             <!--
             Install is the only available action when an instance is not
