@@ -15,9 +15,15 @@ const SAFE_OVERLAP: [&str; 3] = ["data-location.json", "logs", "updates"];
 /// Lay down a realistic launcher data root.
 fn seed_root(root: &Path) {
     for (rel, bytes) in [
-        ("instances/Default/instance.json", b"{\"id\":\"Default\"}".as_slice()),
+        (
+            "instances/Default/instance.json",
+            b"{\"id\":\"Default\"}".as_slice(),
+        ),
         ("instances/Default/.minecraft/options.txt", b"lang:en_us"),
-        ("instances/Default/.minecraft/saves/World/level.dat", b"WORLDDATA"),
+        (
+            "instances/Default/.minecraft/saves/World/level.dat",
+            b"WORLDDATA",
+        ),
         ("versions/1.20.1/1.20.1.jar", b"CLIENTJARBYTES"),
         ("libraries/net/example/lib/1.0/lib-1.0.jar", b"LIB"),
         ("servers/my-server/server.json", b"{\"id\":\"my-server\"}"),
@@ -78,10 +84,22 @@ fn move_to_empty_target_copies_everything_and_clears_source() {
     run_migration(&current, &target).expect("clean move");
 
     // Every file present in the target with identical content.
-    assert_eq!(read(&target.join("instances/Default/instance.json")), b"{\"id\":\"Default\"}");
-    assert_eq!(read(&target.join("instances/Default/.minecraft/saves/World/level.dat")), b"WORLDDATA");
-    assert_eq!(read(&target.join("versions/1.20.1/1.20.1.jar")), b"CLIENTJARBYTES");
-    assert_eq!(read(&target.join("servers/my-server/server.json")), b"{\"id\":\"my-server\"}");
+    assert_eq!(
+        read(&target.join("instances/Default/instance.json")),
+        b"{\"id\":\"Default\"}"
+    );
+    assert_eq!(
+        read(&target.join("instances/Default/.minecraft/saves/World/level.dat")),
+        b"WORLDDATA"
+    );
+    assert_eq!(
+        read(&target.join("versions/1.20.1/1.20.1.jar")),
+        b"CLIENTJARBYTES"
+    );
+    assert_eq!(
+        read(&target.join("servers/my-server/server.json")),
+        b"{\"id\":\"my-server\"}"
+    );
     assert_eq!(read(&target.join("account.json")), b"{\"accounts\":[]}");
 
     // Source is cleared (no redirect existed in it, so nothing remains).
@@ -117,7 +135,10 @@ fn reset_into_default_with_stale_colliding_log_verifies_ok() {
     // The overwritten log now matches the source; the redirect file is untouched.
     assert_eq!(read(&target.join("logs/lucerna.log")), b"launcher-log-line");
     assert_eq!(read(&target.join(REDIRECT)), b"{\"path\":\"...\"}");
-    assert_eq!(read(&target.join("instances/Default/instance.json")), b"{\"id\":\"Default\"}");
+    assert_eq!(
+        read(&target.join("instances/Default/instance.json")),
+        b"{\"id\":\"Default\"}"
+    );
 }
 
 #[test]
