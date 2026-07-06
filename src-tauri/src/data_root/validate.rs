@@ -49,13 +49,27 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    // Absolute on BOTH platforms: `/data/...` is NOT absolute on Windows (it
+    // needs a drive letter), which would make every check short-circuit on
+    // NotAbsolute and fail these tests on the Windows CI runner.
+    fn abs(rel: &str) -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(format!("C:\\{}", rel.replace('/', "\\")))
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from(format!("/{rel}"))
+        }
+    }
+
     fn cur() -> PathBuf {
-        PathBuf::from("/data/current")
+        abs("data/current")
     }
 
     #[test]
     fn accepts_empty_absolute_sibling() {
-        assert!(validate_target(&cur(), &PathBuf::from("/data/new"), true).is_ok());
+        assert!(validate_target(&cur(), &abs("data/new"), true).is_ok());
     }
     #[test]
     fn rejects_relative() {
@@ -81,7 +95,7 @@ mod tests {
     #[test]
     fn rejects_non_empty() {
         assert_eq!(
-            validate_target(&cur(), &PathBuf::from("/data/new"), false),
+            validate_target(&cur(), &abs("data/new"), false),
             Err(Invalid::NotEmpty)
         );
     }
