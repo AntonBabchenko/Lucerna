@@ -156,6 +156,9 @@
   let migrationProgress = $state<DataMigrationProgress | null>(null);
   let progressUnlisten: (() => void) | null = null;
 
+  // Name of the dedicated subfolder created inside the user-picked container.
+  const DATA_SUBFOLDER = 'Lucerna';
+
   async function pickLocation() {
     migrationError = null;
     // Open the picker at the current data root's PARENT rather than wherever the
@@ -165,7 +168,12 @@
     const defaultPath = current?.replace(/[\\/][^\\/]+[\\/]?$/, '') || undefined;
     const picked = await openDirectory({ directory: true, defaultPath });
     if (!picked || typeof picked !== 'string') return;
-    pendingTarget = picked;
+    // The user picks a CONTAINER folder; we relocate into a dedicated `Lucerna`
+    // subfolder inside it. This means they never have to find or create an empty
+    // folder, and we never scatter our files among their existing content.
+    const sep = picked.includes('\\') ? '\\' : '/';
+    const base = picked.replace(/[\\/]+$/, '');
+    pendingTarget = `${base}${sep}${DATA_SUBFOLDER}`;
   }
 
   function requestReset() {
