@@ -1455,7 +1455,31 @@
       "cacheLabel": "Mod download cache:",
       "cacheDescription": "Clearing only removes cached jars. Installed mods in instances are not affected. Re-installs will re-download.",
       "clearBtn": "Clear cache",
-      "cleared": "Cache cleared ({freed} freed)"
+      "cleared": "Cache cleared ({freed} freed)",
+      "dataLocation": {
+        "heading": "Data location",
+        "description": "Everything Lucerna stores (instances, servers, downloads, accounts) lives under this folder. Moving it copies your existing data to the new location.",
+        "currentLabel": "Current folder:",
+        "sizeLabel": "Size on disk:",
+        "changeBtn": "Change location…",
+        "resetBtn": "Reset to default",
+        "fallbackNotice": "The configured folder \"{path}\" is unavailable. Running from a temporary default location until it's reconnected.",
+        "confirm": {
+          "moveTitle": "Move data folder?",
+          "moveBody": "Lucerna will copy {size} of data to \"{path}\", then remove it from the current location.",
+          "resetTitle": "Reset to the default location?",
+          "resetBody": "Lucerna will copy {size} of data back to the default folder, then remove it from the current location.",
+          "restartNote": "The app will restart once the move finishes.",
+          "confirmBtn": "Move and restart"
+        },
+        "progress": {
+          "title": "Moving data folder…",
+          "preparing": "Preparing…",
+          "copying": "Copying files…",
+          "verifying": "Verifying copy…",
+          "deleting": "Removing old data…"
+        }
+      }
     },
     "about": {
       "title": "About",
@@ -1528,6 +1552,11 @@
       "banner": "Minecraft crashed.",
       "viewReport": "View crash report",
       "dismissAriaLabel": "Dismiss crash report banner"
+    },
+    "dataRootFallback": {
+      "banner": "Your data folder \"{path}\" is unavailable. Reconnect it and restart Lucerna. Running in a temporary, empty workspace until then.",
+      "createDisabledReason": "Creating instances and servers is disabled while the data folder is unavailable.",
+      "playDisabledReason": "Playing is disabled while the data folder is unavailable. Reconnect it and restart Lucerna."
     },
     "modpackImport": {
       "alreadyInProgress": "A modpack import is already in progress",
