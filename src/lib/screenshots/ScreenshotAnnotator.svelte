@@ -322,11 +322,11 @@
           bind:this={paletteEl}
           class="absolute left-1/2 top-full z-20 mt-2 flex -translate-x-1/2 flex-col gap-2 rounded-xl border border-border-subtle bg-surface p-2 shadow-xl"
         >
-          <div class="grid grid-cols-6 gap-1.5">
+          <div class="flex gap-1.5">
             {#each COLORS as c (c.css)}
               <button
                 type="button"
-                class="h-6 w-6 rounded-full border border-border-subtle transition-transform hover:scale-110"
+                class="h-6 w-6 shrink-0 rounded-full border border-border-subtle transition-transform hover:scale-110"
                 class:ring-2={color === c.css}
                 class:ring-accent={color === c.css}
                 style="background-color: {c.css};"
