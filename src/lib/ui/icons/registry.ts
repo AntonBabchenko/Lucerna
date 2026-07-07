@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronUp,
   CircleX,
+  Copy,
   Download,
   EllipsisVertical,
   Eraser,
@@ -25,6 +26,7 @@ import {
   FolderOpen,
   Globe,
   Image,
+  Images,
   Info,
   LayoutGrid,
   List,
@@ -116,6 +118,8 @@ export const ICONS = {
   wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
+  copy: Copy, // copy image to clipboard (screenshots lightbox)
+  gallery: Images, // screenshots gallery (sidebar entry + gallery header)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

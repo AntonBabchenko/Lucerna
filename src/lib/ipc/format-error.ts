@@ -124,6 +124,8 @@ export const ERROR_CLASS: Record<IpcError['kind'], ErrorClass> = {
   world_in_use: 'clean',
   world_path_invalid: 'clean',
   world_name_unresolvable: 'clean',
+  screenshot_not_found: 'clean',
+  screenshot_path_invalid: 'clean',
   backup_not_found: 'clean',
   world_import_not_a_world: 'clean',
   world_import_unsupported_source: 'clean',
@@ -358,6 +360,10 @@ export function formatError(e: IpcError): string {
       return translate('errors.worldPathInvalid', { name: e.name, reason: e.reason });
     case 'world_name_unresolvable':
       return translate('errors.worldNameUnresolvable', { folderName: e.folder_name });
+    case 'screenshot_not_found':
+      return translate('errors.screenshotNotFound', { filename: e.filename });
+    case 'screenshot_path_invalid':
+      return translate('errors.screenshotPathInvalid', { name: e.name, reason: e.reason });
     case 'backup_not_found':
       return translate('errors.backupNotFound', { filename: e.filename });
     case 'backup_corrupt':
