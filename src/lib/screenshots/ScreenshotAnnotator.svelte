@@ -51,12 +51,29 @@
   let cropStart: Point | null = null;
   let natW = $state(0);
   let natH = $state(0);
+  let cropApplied = $state(false);
+
+  // The image region currently shown: the applied crop, else the whole image.
+  // In crop mode we always show the full image so a new selection can be drawn.
+  const full = $derived<Rect>({ x: 0, y: 0, w: natW || 1, h: natH || 1 });
+  const src = $derived<Rect>(tool === 'crop' ? full : crop && cropApplied ? crop : full);
+  const layout = $derived(
+    natW && natH
+      ? {
+          w: (natW / src.w) * 100,
+          h: (natH / src.h) * 100,
+          left: (-src.x / src.w) * 100,
+          top: (-src.y / src.h) * 100,
+        }
+      : { w: 100, h: 100, left: 0, top: 0 },
+  );
 
   // New image → blank slate at 1×.
   $effect(() => {
     void url;
     strokes = [];
     crop = null;
+    cropApplied = false;
     zoom = 1;
     panX = 0;
     panY = 0;
@@ -176,7 +193,19 @@
   function clearAll() {
     strokes = [];
     crop = null;
+    cropApplied = false;
     redraw();
+  }
+  function applyCrop() {
+    if (!crop) return;
+    cropApplied = true;
+    tool = 'pan';
+    resetZoom();
+  }
+  function cancelCrop() {
+    crop = null;
+    cropApplied = false;
+    tool = 'pan';
   }
 
   function clampZoom(z: number) {
@@ -228,7 +257,7 @@
     return strokes.length ? (canvasEl?.toDataURL('image/png') ?? null) : null;
   }
   export function cropRect(): Rect | null {
-    return crop;
+    return crop && cropApplied ? crop : null;
   }
 
   const cursor = $derived(
@@ -276,7 +305,11 @@
       aria-pressed={tool === 'crop'}
       aria-label={$t('screenshots.toolCrop')}
       use:tooltip={$t('screenshots.toolCrop')}
-      onclick={() => (tool = 'crop')}><Icon name="crop" size={16} /></button
+      onclick={() => {
+        tool = 'crop';
+        cropApplied = false;
+        resetZoom();
+      }}><Icon name="crop" size={16} /></button
     >
 
     <span class="mx-0.5 h-4 w-px bg-border-subtle"></span>
@@ -328,7 +361,7 @@
       class="btn-icon btn-icon-sm btn-icon-danger"
       aria-label={$t('screenshots.clearAll')}
       use:tooltip={$t('screenshots.clearAll')}
-      disabled={strokes.length === 0 && !crop}
+      disabled={strokes.length === 0 && !crop && !cropApplied}
       onclick={clearAll}><Icon name="trash" size={16} /></button
     >
 
@@ -362,11 +395,12 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={wrapEl}
-    class="relative max-h-[64vh] max-w-[88vw] overflow-hidden"
+    class="relative max-h-[64vh] max-w-[88vw] overflow-hidden rounded"
+    style="aspect-ratio: {src.w} / {src.h};"
     onwheel={onWheel}
   >
     <div
-      class="relative"
+      class="absolute inset-0"
       style="transform: translate({panX}px, {panY}px) scale({zoom}); transform-origin: center center;"
     >
       <img
@@ -375,39 +409,41 @@
         alt=""
         draggable="false"
         onload={onImgLoad}
-        class="block max-h-[64vh] max-w-[88vw] select-none rounded object-contain"
+        class="pointer-events-none absolute max-w-none select-none"
+        style="width: {layout.w}%; height: {layout.h}%; left: {layout.left}%; top: {layout.top}%;"
       />
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <canvas
         bind:this={canvasEl}
-        class="absolute inset-0 h-full w-full"
-        style="touch-action: none; cursor: {cursor};"
+        class="absolute max-w-none"
+        style="width: {layout.w}%; height: {layout.h}%; left: {layout.left}%; top: {layout.top}%; touch-action: none; cursor: {cursor};"
         onpointerdown={onPointerDown}
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
         onpointercancel={onPointerUp}
       ></canvas>
-      {#if crop && natW && natH}
+
+      {#if tool === 'crop' && crop && natW && natH}
         <svg
           class="pointer-events-none absolute inset-0 h-full w-full"
           viewBox="0 0 {natW} {natH}"
           preserveAspectRatio="none"
         >
-          <rect x="0" y="0" width={natW} height={crop.y} fill="rgba(0,0,0,0.45)" />
+          <rect x="0" y="0" width={natW} height={crop.y} fill="rgba(0,0,0,0.5)" />
           <rect
             x="0"
             y={crop.y + crop.h}
             width={natW}
             height={natH - crop.y - crop.h}
-            fill="rgba(0,0,0,0.45)"
+            fill="rgba(0,0,0,0.5)"
           />
-          <rect x="0" y={crop.y} width={crop.x} height={crop.h} fill="rgba(0,0,0,0.45)" />
+          <rect x="0" y={crop.y} width={crop.x} height={crop.h} fill="rgba(0,0,0,0.5)" />
           <rect
             x={crop.x + crop.w}
             y={crop.y}
             width={natW - crop.x - crop.w}
             height={crop.h}
-            fill="rgba(0,0,0,0.45)"
+            fill="rgba(0,0,0,0.5)"
           />
           <rect
             x={crop.x}
@@ -420,6 +456,28 @@
             vector-effect="non-scaling-stroke"
           />
         </svg>
+
+        <!-- Apply / cancel, anchored under the selection's bottom edge. -->
+        <div
+          class="absolute flex gap-1 rounded-full border border-border-subtle bg-surface p-1"
+          style="left: {((crop.x + crop.w / 2) / natW) * 100}%; top: {((crop.y + crop.h) / natH) *
+            100}%; transform: translate(-50%, 6px) scale({1 / zoom}); transform-origin: top center;"
+        >
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm btn-icon-success"
+            aria-label={$t('screenshots.applyCrop')}
+            use:tooltip={$t('screenshots.applyCrop')}
+            onclick={applyCrop}><Icon name="success" size={16} /></button
+          >
+          <button
+            type="button"
+            class="btn-icon btn-icon-sm btn-icon-danger"
+            aria-label={$t('screenshots.cancelCrop')}
+            use:tooltip={$t('screenshots.cancelCrop')}
+            onclick={cancelCrop}><Icon name="close" size={16} /></button
+          >
+        </div>
       {/if}
     </div>
   </div>

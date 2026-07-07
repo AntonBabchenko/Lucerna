@@ -784,6 +784,8 @@
     "toolMarker": "Маркер",
     "toolEraser": "Ластик",
     "toolCrop": "Кадрировать",
+    "applyCrop": "Применить кадр",
+    "cancelCrop": "Отмена",
     "clearAll": "Очистить всё",
     "undo": "Отменить",
     "zoomIn": "Приблизить",

@@ -784,6 +784,8 @@
     "toolMarker": "Marker",
     "toolEraser": "Eraser",
     "toolCrop": "Crop",
+    "applyCrop": "Apply crop",
+    "cancelCrop": "Cancel",
     "clearAll": "Clear all",
     "undo": "Undo",
     "zoomIn": "Zoom in",

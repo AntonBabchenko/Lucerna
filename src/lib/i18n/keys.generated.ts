@@ -1177,6 +1177,8 @@ export type TranslationKey =
   | 'quickJoin.saveAndConnect'
   | 'quickJoin.savedHeading'
   | 'quickJoin.title'
+  | 'screenshots.applyCrop'
+  | 'screenshots.cancelCrop'
   | 'screenshots.clearAll'
   | 'screenshots.color'
   | 'screenshots.colorBlue'
