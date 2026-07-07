@@ -12,6 +12,7 @@ pub mod mods;
 pub mod naming;
 pub mod network;
 pub mod paths;
+pub mod pathsafe;
 pub mod platform;
 pub mod playtime;
 pub mod process;

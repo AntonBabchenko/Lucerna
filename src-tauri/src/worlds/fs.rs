@@ -8,59 +8,13 @@
 use crate::error::Error;
 use std::path::Path;
 
-const RESERVED_WIN: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
-
-/// Reject any input that isn't a safe single path segment.
-///
-/// Rejections:
-/// - empty
-/// - contains `/`, `\`, or `:`
-/// - exactly `..` or contains `..`
-/// - starts with `.` (hidden / current-dir)
-/// - length > 255 chars (filesystem cap)
-/// - case-insensitive match against Windows reserved names
+/// Reject any input that isn't a safe single path segment. Delegates the
+/// checks to `crate::pathsafe`; maps the reason into `WorldPathInvalid`.
 pub fn validate_segment(name: &str) -> Result<(), Error> {
-    if name.is_empty() {
-        return Err(Error::WorldPathInvalid {
-            name: name.into(),
-            reason: "empty name".into(),
-        });
-    }
-    if name.contains('/') || name.contains('\\') || name.contains(':') {
-        return Err(Error::WorldPathInvalid {
-            name: name.into(),
-            reason: "contains path separator or colon".into(),
-        });
-    }
-    if name.contains("..") {
-        return Err(Error::WorldPathInvalid {
-            name: name.into(),
-            reason: "contains '..'".into(),
-        });
-    }
-    if name.starts_with('.') {
-        return Err(Error::WorldPathInvalid {
-            name: name.into(),
-            reason: "starts with '.'".into(),
-        });
-    }
-    if name.len() > 255 {
-        return Err(Error::WorldPathInvalid {
-            name: name.into(),
-            reason: "longer than 255 bytes".into(),
-        });
-    }
-    let upper = name.to_ascii_uppercase();
-    if RESERVED_WIN.contains(&upper.as_str()) {
-        return Err(Error::WorldPathInvalid {
-            name: name.into(),
-            reason: "Windows reserved name".into(),
-        });
-    }
-    Ok(())
+    crate::pathsafe::validate_segment(name).map_err(|reason| Error::WorldPathInvalid {
+        name: name.into(),
+        reason: reason.into(),
+    })
 }
 
 /// Recursively sum file sizes under `path`. Missing path is treated
