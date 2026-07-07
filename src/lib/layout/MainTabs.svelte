@@ -5,6 +5,7 @@
   import AddonsTab from '$lib/mods/AddonsTab.svelte';
   import { canInstallMods } from '$lib/mods/install-eligibility';
   import WorldsTab from '$lib/worlds/WorldsTab.svelte';
+  import ScreenshotsTab from '$lib/screenshots/ScreenshotsTab.svelte';
   import {
     modBrowserNav,
     droppedMods,
@@ -16,7 +17,7 @@
   } from '$lib/settings/state.svelte';
   import { t } from '$lib/i18n';
 
-  type Tab = 'overview' | 'mod_browser' | 'worlds';
+  type Tab = 'overview' | 'mod_browser' | 'worlds' | 'screenshots';
 
   let {
     overview,
@@ -42,7 +43,7 @@
 
   // Tab order for roving-tabindex arrow-key navigation (WAI-ARIA tabs
   // pattern). Kept in render order so ArrowLeft/Right map to visual order.
-  const TAB_ORDER: Tab[] = ['overview', 'mod_browser', 'worlds'];
+  const TAB_ORDER: Tab[] = ['overview', 'mod_browser', 'worlds', 'screenshots'];
   let tabEls = $state<(HTMLButtonElement | null)[]>([]);
 
   function onTablistKeydown(e: KeyboardEvent) {
@@ -192,6 +193,24 @@
     >
       {$t('nav.worlds')}
     </button>
+    <button
+      bind:this={tabEls[3]}
+      type="button"
+      role="tab"
+      id="maintab-screenshots"
+      aria-controls="maintabpanel"
+      aria-selected={active === 'screenshots'}
+      tabindex={active === 'screenshots' ? 0 : -1}
+      class="px-3 py-2 text-base border-b-2 -mb-px"
+      class:border-accent={active === 'screenshots'}
+      class:text-primary={active === 'screenshots'}
+      class:font-semibold={active === 'screenshots'}
+      class:border-transparent={active !== 'screenshots'}
+      class:text-muted={active !== 'screenshots'}
+      onclick={() => (active = 'screenshots')}
+    >
+      {$t('nav.screenshots')}
+    </button>
   </div>
 
   <div
@@ -209,6 +228,8 @@
       <AddonsTab {instanceId} {instanceName} {mcVersion} {loader} />
     {:else if active === 'worlds'}
       <WorldsTab {instanceId} {onListChanged} {onQuickPlayWorld} {quickPlayDisabledReason} />
+    {:else if active === 'screenshots'}
+      <ScreenshotsTab {instanceId} />
     {/if}
   </div>
 </div>
