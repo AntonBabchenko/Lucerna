@@ -120,6 +120,24 @@ pub fn screenshot_path(
     Ok(path)
 }
 
+/// Move a screenshot to the OS recycle bin (reversible).
+pub fn delete_screenshot(app: &tauri::AppHandle, instance_id: &str, file_name: &str) -> Result<()> {
+    let path = screenshot_path(app, instance_id, file_name)?;
+    trash::delete(&path).map_err(|e| Error::io(path.display().to_string(), e))
+}
+
+/// Copy the ORIGINAL screenshot to a user-chosen destination path.
+pub fn save_screenshot_copy(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    file_name: &str,
+    dest: &str,
+) -> Result<()> {
+    let src = screenshot_path(app, instance_id, file_name)?;
+    std::fs::copy(&src, dest).map_err(|e| Error::io(dest.to_string(), e))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
