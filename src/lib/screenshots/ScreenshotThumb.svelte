@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands, type Screenshot } from '$lib/ipc/bindings';
   import Spinner from '$lib/ui/Spinner.svelte';
+  import { tooltip } from '$lib/ui/tooltip';
 
   let { shot, onOpen }: { shot: Screenshot; onOpen: (s: Screenshot) => void } = $props();
 
@@ -33,7 +34,7 @@
   type="button"
   class="relative block aspect-video w-full overflow-hidden rounded border border-border-subtle bg-base"
   onclick={() => onOpen(shot)}
-  title={shot.file_name}
+  use:tooltip={shot.file_name}
 >
   {#if url}
     <img src={url} alt={shot.file_name} class="h-full w-full object-cover" />
