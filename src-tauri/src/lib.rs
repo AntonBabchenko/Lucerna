@@ -87,6 +87,15 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::open_saves_folder,
             commands::open_backups_folder,
             commands::world_import,
+            commands::list_screenshots,
+            commands::list_all_screenshots,
+            commands::screenshot_thumbnail,
+            commands::screenshot_preview,
+            commands::delete_screenshot,
+            commands::save_screenshot_copy,
+            commands::reveal_screenshot,
+            commands::open_screenshots_folder,
+            commands::copy_screenshot_to_clipboard,
             commands::list_saved_servers,
             commands::add_saved_server,
             commands::remove_saved_server,
@@ -379,6 +388,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(builder.invoke_handler())
         .manage(window::WindowSizeState::default())
         .setup(move |app| {

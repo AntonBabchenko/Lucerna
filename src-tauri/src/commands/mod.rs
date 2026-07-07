@@ -52,6 +52,8 @@ mod servers_runtime;
 pub use servers_runtime::*;
 mod data_location;
 pub use data_location::*;
+mod screenshots;
+pub use screenshots::*;
 
 // =========================================================================
 // Types kept here (referenced by lib.rs via `commands::` paths)
