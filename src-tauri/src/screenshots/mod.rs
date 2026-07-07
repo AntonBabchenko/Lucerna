@@ -70,6 +70,56 @@ pub fn screenshots_dir(app: &tauri::AppHandle, instance_id: &str) -> Result<Path
         .map_err(|e| Error::io("<screenshots_dir>", e))
 }
 
+/// Look up an instance's display name by id. Empty string if not found.
+fn instance_name(app: &tauri::AppHandle, instance_id: &str) -> String {
+    crate::instances::list_instances_with_status(app)
+        .ok()
+        .and_then(|list| list.into_iter().find(|i| i.id == instance_id))
+        .map(|i| i.name)
+        .unwrap_or_default()
+}
+
+/// Screenshots of a single instance, newest-first.
+pub fn list_screenshots(app: &tauri::AppHandle, instance_id: &str) -> Result<Vec<Screenshot>> {
+    let dir = screenshots_dir(app, instance_id)?;
+    let name = instance_name(app, instance_id);
+    list_in_dir(&dir, instance_id, &name)
+}
+
+/// Screenshots across every instance, flattened, newest-first.
+pub fn list_all_screenshots(app: &tauri::AppHandle) -> Result<Vec<Screenshot>> {
+    let instances = crate::instances::list_instances_with_status(app)?;
+    let mut out = Vec::new();
+    for inst in instances {
+        let dir = screenshots_dir(app, &inst.id)?;
+        out.extend(list_in_dir(&dir, &inst.id, &inst.name)?);
+    }
+    out.sort_by(|a, b| {
+        b.modified_unix_ms
+            .partial_cmp(&a.modified_unix_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(out)
+}
+
+/// Absolute path to a single screenshot, with path-safety enforced. Errors
+/// `ScreenshotNotFound` if the file is absent (e.g. deleted concurrently).
+pub fn screenshot_path(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    file_name: &str,
+) -> Result<PathBuf> {
+    fs::validate_segment(file_name)?;
+    let path = screenshots_dir(app, instance_id)?.join(file_name);
+    if !path.is_file() {
+        return Err(Error::ScreenshotNotFound {
+            instance_id: instance_id.into(),
+            filename: file_name.into(),
+        });
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
