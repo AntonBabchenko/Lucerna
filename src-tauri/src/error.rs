@@ -277,6 +277,15 @@ pub enum Error {
     #[error("Could not resolve a free name for '{folder_name}' after trying 99 suffixes")]
     WorldNameUnresolvable { folder_name: String },
 
+    #[error("Screenshot '{filename}' not found in instance {instance_id}")]
+    ScreenshotNotFound {
+        instance_id: String,
+        filename: String,
+    },
+
+    #[error("Invalid screenshot filename '{name}': {reason}")]
+    ScreenshotPathInvalid { name: String, reason: String },
+
     #[error("Backup '{filename}' not found for world '{world_folder}' in instance {instance_id}")]
     BackupNotFound {
         instance_id: String,
