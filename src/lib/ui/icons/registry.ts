@@ -25,6 +25,8 @@ import {
   EyeOff,
   FolderOpen,
   Globe,
+  Hand,
+  Highlighter,
   Image,
   Images,
   Info,
@@ -47,11 +49,14 @@ import {
   Square,
   Trash2,
   TriangleAlert,
+  Undo2,
   Upload,
   User,
   UserPlus,
   Wrench,
   X,
+  ZoomIn,
+  ZoomOut,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -120,6 +125,11 @@ export const ICONS = {
   eyeOff: EyeOff, // hide password / conceal secret
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)
+  hand: Hand, // pan tool (screenshot annotator)
+  marker: Highlighter, // freehand draw tool (screenshot annotator)
+  undo: Undo2, // undo last stroke (screenshot annotator)
+  zoomIn: ZoomIn, // zoom in (screenshot annotator)
+  zoomOut: ZoomOut, // zoom out (screenshot annotator)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;

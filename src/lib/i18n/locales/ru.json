@@ -779,7 +779,24 @@
     "filterInstance": "Профиль",
     "filterAll": "Все профили",
     "groupToday": "Сегодня",
-    "groupYesterday": "Вчера"
+    "groupYesterday": "Вчера",
+    "toolPan": "Перемещение",
+    "toolMarker": "Маркер",
+    "toolEraser": "Ластик",
+    "clearAll": "Очистить всё",
+    "undo": "Отменить",
+    "zoomIn": "Приблизить",
+    "zoomOut": "Отдалить",
+    "resetZoom": "Сбросить масштаб",
+    "thin": "Тонко",
+    "thick": "Толсто",
+    "color": "Цвет",
+    "colorRed": "Красный",
+    "colorOrange": "Оранжевый",
+    "colorYellow": "Жёлтый",
+    "colorGreen": "Зелёный",
+    "colorBlue": "Синий",
+    "colorWhite": "Белый"
   },
   "worlds": {
     "quickPlay": {

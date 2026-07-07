@@ -5,6 +5,7 @@
   import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
   import { copyToClipboard, saveCopy, reveal, deleteScreenshot } from './actions';
+  import ScreenshotAnnotator from './ScreenshotAnnotator.svelte';
 
   let {
     shots,
@@ -73,17 +74,15 @@
     onclick={onClose}><Icon name="close" size={20} /></button
   >
 
-  <div class="relative z-10 flex items-center justify-center">
-    {#if url}
-      <img
-        src={url}
-        alt={current?.file_name ?? ''}
-        class="max-h-[75vh] max-w-[88vw] rounded object-contain"
-      />
-    {:else}
+  {#if url}
+    {#key current?.file_name}
+      <ScreenshotAnnotator {url} />
+    {/key}
+  {:else}
+    <div class="relative z-10 flex items-center justify-center">
       <Spinner size="md" delayMs={150} />
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   <div
     class="relative z-10 flex items-center gap-3 rounded-full border border-border-subtle bg-surface px-4 py-2 text-secondary"
