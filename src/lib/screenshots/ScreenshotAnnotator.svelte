@@ -11,7 +11,7 @@
   // transparent PNG for the (backend) "save annotated copy" flow.
   let { url }: { url: string } = $props();
 
-  type Tool = 'pan' | 'marker' | 'eraser';
+  type Tool = 'pan' | 'marker' | 'eraser' | 'crop';
   let tool = $state<Tool>('pan');
 
   const COLORS = [
@@ -42,10 +42,21 @@
   let panning = $state(false);
   let lastPan: Point | null = null;
 
+  // Crop selection in image-pixel coords. Feeds the "save annotated copy" flow;
+  // outside the rect is dimmed as a preview. `natW/natH` are the image's natural
+  // (preview) pixel dimensions, used for the crop overlay's SVG viewBox.
+  type Rect = { x: number; y: number; w: number; h: number };
+  let crop = $state<Rect | null>(null);
+  let cropping = false;
+  let cropStart: Point | null = null;
+  let natW = $state(0);
+  let natH = $state(0);
+
   // New image → blank slate at 1×.
   $effect(() => {
     void url;
     strokes = [];
+    crop = null;
     zoom = 1;
     panX = 0;
     panY = 0;
@@ -53,8 +64,10 @@
 
   function onImgLoad() {
     if (!imgEl || !canvasEl) return;
-    canvasEl.width = imgEl.naturalWidth;
-    canvasEl.height = imgEl.naturalHeight;
+    natW = imgEl.naturalWidth;
+    natH = imgEl.naturalHeight;
+    canvasEl.width = natW;
+    canvasEl.height = natH;
     redraw();
   }
 
@@ -94,6 +107,13 @@
   }
 
   function onPointerDown(e: PointerEvent) {
+    if (tool === 'crop') {
+      cropping = true;
+      cropStart = toCanvas(e);
+      crop = { x: cropStart.x, y: cropStart.y, w: 0, h: 0 };
+      canvasEl?.setPointerCapture(e.pointerId);
+      return;
+    }
     if (tool === 'pan') {
       if (zoom <= 1) return;
       panning = true;
@@ -111,6 +131,10 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (cropping && cropStart) {
+      crop = normRect(cropStart, toCanvas(e));
+      return;
+    }
     if (panning && lastPan) {
       panX += e.clientX - lastPan.x;
       panY += e.clientY - lastPan.y;
@@ -123,9 +147,26 @@
   }
 
   function onPointerUp() {
+    if (cropping) {
+      cropping = false;
+      cropStart = null;
+      // Discard an accidental tiny selection (treat as no crop).
+      if (crop && (crop.w < 8 || crop.h < 8)) crop = null;
+    }
     drawing = false;
     panning = false;
     lastPan = null;
+  }
+
+  function clamp(v: number, max: number): number {
+    return Math.max(0, Math.min(max, v));
+  }
+  function normRect(a: Point, b: Point): Rect {
+    const x1 = clamp(Math.min(a.x, b.x), natW);
+    const y1 = clamp(Math.min(a.y, b.y), natH);
+    const x2 = clamp(Math.max(a.x, b.x), natW);
+    const y2 = clamp(Math.max(a.y, b.y), natH);
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
   }
 
   function undo() {
@@ -134,6 +175,7 @@
   }
   function clearAll() {
     strokes = [];
+    crop = null;
     redraw();
   }
 
@@ -185,6 +227,9 @@
   export function overlayDataUrl(): string | null {
     return strokes.length ? (canvasEl?.toDataURL('image/png') ?? null) : null;
   }
+  export function cropRect(): Rect | null {
+    return crop;
+  }
 
   const cursor = $derived(
     tool === 'pan' ? (panning ? 'grabbing' : zoom > 1 ? 'grab' : 'default') : 'crosshair',
@@ -223,6 +268,15 @@
       aria-label={$t('screenshots.toolEraser')}
       use:tooltip={$t('screenshots.toolEraser')}
       onclick={() => (tool = 'eraser')}><Icon name="eraser" size={16} /></button
+    >
+    <button
+      type="button"
+      class="btn-icon btn-icon-sm"
+      class:text-accent={tool === 'crop'}
+      aria-pressed={tool === 'crop'}
+      aria-label={$t('screenshots.toolCrop')}
+      use:tooltip={$t('screenshots.toolCrop')}
+      onclick={() => (tool = 'crop')}><Icon name="crop" size={16} /></button
     >
 
     <span class="mx-0.5 h-4 w-px bg-border-subtle"></span>
@@ -274,7 +328,7 @@
       class="btn-icon btn-icon-sm btn-icon-danger"
       aria-label={$t('screenshots.clearAll')}
       use:tooltip={$t('screenshots.clearAll')}
-      disabled={strokes.length === 0}
+      disabled={strokes.length === 0 && !crop}
       onclick={clearAll}><Icon name="trash" size={16} /></button
     >
 
@@ -333,6 +387,40 @@
         onpointerup={onPointerUp}
         onpointercancel={onPointerUp}
       ></canvas>
+      {#if crop && natW && natH}
+        <svg
+          class="pointer-events-none absolute inset-0 h-full w-full"
+          viewBox="0 0 {natW} {natH}"
+          preserveAspectRatio="none"
+        >
+          <rect x="0" y="0" width={natW} height={crop.y} fill="rgba(0,0,0,0.45)" />
+          <rect
+            x="0"
+            y={crop.y + crop.h}
+            width={natW}
+            height={natH - crop.y - crop.h}
+            fill="rgba(0,0,0,0.45)"
+          />
+          <rect x="0" y={crop.y} width={crop.x} height={crop.h} fill="rgba(0,0,0,0.45)" />
+          <rect
+            x={crop.x + crop.w}
+            y={crop.y}
+            width={natW - crop.x - crop.w}
+            height={crop.h}
+            fill="rgba(0,0,0,0.45)"
+          />
+          <rect
+            x={crop.x}
+            y={crop.y}
+            width={crop.w}
+            height={crop.h}
+            fill="none"
+            stroke="white"
+            stroke-width="2"
+            vector-effect="non-scaling-stroke"
+          />
+        </svg>
+      {/if}
     </div>
   </div>
 </div>

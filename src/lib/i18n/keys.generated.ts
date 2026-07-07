@@ -1207,6 +1207,7 @@ export type TranslationKey =
   | 'screenshots.toastCopied'
   | 'screenshots.toastDeleted'
   | 'screenshots.toastSaved'
+  | 'screenshots.toolCrop'
   | 'screenshots.toolEraser'
   | 'screenshots.toolMarker'
   | 'screenshots.toolPan'

@@ -16,6 +16,7 @@ import {
   ChevronUp,
   CircleX,
   Copy,
+  Crop,
   Download,
   EllipsisVertical,
   Eraser,
@@ -125,6 +126,7 @@ export const ICONS = {
   eyeOff: EyeOff, // hide password / conceal secret
   copy: Copy, // copy image to clipboard (screenshots lightbox)
   gallery: Images, // screenshots gallery (sidebar entry + gallery header)
+  crop: Crop, // crop tool (screenshot annotator)
   hand: Hand, // pan tool (screenshot annotator)
   marker: Highlighter, // freehand draw tool (screenshot annotator)
   undo: Undo2, // undo last stroke (screenshot annotator)

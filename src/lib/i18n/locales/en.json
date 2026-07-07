@@ -783,6 +783,7 @@
     "toolPan": "Pan",
     "toolMarker": "Marker",
     "toolEraser": "Eraser",
+    "toolCrop": "Crop",
     "clearAll": "Clear all",
     "undo": "Undo",
     "zoomIn": "Zoom in",
