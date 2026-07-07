@@ -32,6 +32,30 @@ export async function saveCopy(s: Screenshot): Promise<boolean> {
   return false;
 }
 
+// Prompt for a destination and save a copy with the annotations (and crop)
+// baked in — composited onto the original at full resolution by the backend.
+// `overlayDataUrl` is the strokes' transparent PNG (or null), `crop` is the
+// applied crop as 0..1 fractions (or null).
+export async function saveAnnotated(
+  s: Screenshot,
+  overlayDataUrl: string | null,
+  crop: { x: number; y: number; w: number; h: number } | null,
+): Promise<boolean> {
+  const dest = await save({
+    title: get(t)('screenshots.saveDialogTitle'),
+    defaultPath: s.file_name,
+  });
+  if (!dest) return false;
+  const overlay = overlayDataUrl ? overlayDataUrl.replace(/^data:image\/png;base64,/, '') : '';
+  const r = await commands.saveAnnotatedScreenshot(s.instance_id, s.file_name, overlay, crop, dest);
+  if (r.status === 'ok') {
+    pushSuccess(get(t)('screenshots.toastSaved'));
+    return true;
+  }
+  pushWarning(formatError(r.error));
+  return false;
+}
+
 // Reveal the file in the OS file manager.
 export async function reveal(s: Screenshot): Promise<void> {
   const r = await commands.revealScreenshot(s.instance_id, s.file_name);

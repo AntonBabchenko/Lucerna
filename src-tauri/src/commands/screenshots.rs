@@ -109,3 +109,23 @@ pub fn copy_screenshot_to_clipboard(
         .write_image(&image)
         .map_err(|e| crate::error::Error::io("<clipboard>", e.to_string()))
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn save_annotated_screenshot(
+    app: tauri::AppHandle,
+    instance_id: String,
+    file_name: String,
+    overlay_png_base64: String,
+    crop: Option<crate::screenshots::CropFrac>,
+    dest: String,
+) -> Result<(), crate::error::Error> {
+    crate::screenshots::save_annotated(
+        &app,
+        &instance_id,
+        &file_name,
+        &overlay_png_base64,
+        crop,
+        &dest,
+    )
+}

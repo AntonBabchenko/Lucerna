@@ -164,6 +164,71 @@ pub fn save_screenshot_copy(
     Ok(())
 }
 
+/// A crop rectangle as fractions (0..1) of the image — resolution-independent,
+/// so it maps onto the original regardless of the preview's size.
+#[derive(Debug, Clone, Copy, serde::Deserialize, specta::Type)]
+pub struct CropFrac {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// Composite the annotation overlay onto the ORIGINAL screenshot at full
+/// resolution, crop to `crop` if present, and write a PNG to `dest`.
+/// `overlay_png_base64` is a transparent PNG of the strokes at the preview
+/// resolution (may be empty); it is scaled to the original before compositing.
+pub fn save_annotated(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    file_name: &str,
+    overlay_png_base64: &str,
+    crop: Option<CropFrac>,
+    dest: &str,
+) -> Result<()> {
+    use base64::Engine;
+    let src = screenshot_path(app, instance_id, file_name)?;
+    let mut base = image::ImageReader::open(&src)
+        .map_err(|e| Error::io(src.display().to_string(), e))?
+        .decode()
+        .map_err(|e| Error::io(src.display().to_string(), e))?
+        .to_rgba8();
+    let (w, h) = base.dimensions();
+
+    if !overlay_png_base64.is_empty() {
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(overlay_png_base64)
+            .map_err(|e| Error::io("<overlay>", e))?;
+        let overlay = image::load_from_memory(&raw)
+            .map_err(|e| Error::io("<overlay>", e))?
+            .to_rgba8();
+        let scaled = if overlay.dimensions() == (w, h) {
+            overlay
+        } else {
+            image::imageops::resize(&overlay, w, h, image::imageops::FilterType::Triangle)
+        };
+        image::imageops::overlay(&mut base, &scaled, 0, 0);
+    }
+
+    let out = match crop {
+        Some(c) if w > 0 && h > 0 => {
+            let cx = (c.x * w as f64)
+                .round()
+                .clamp(0.0, w.saturating_sub(1) as f64) as u32;
+            let cy = (c.y * h as f64)
+                .round()
+                .clamp(0.0, h.saturating_sub(1) as f64) as u32;
+            let cw = ((c.w * w as f64).round() as u32).clamp(1, w - cx);
+            let ch = ((c.h * h as f64).round() as u32).clamp(1, h - cy);
+            image::imageops::crop_imm(&base, cx, cy, cw, ch).to_image()
+        }
+        _ => base,
+    };
+
+    out.save_with_format(dest, image::ImageFormat::Png)
+        .map_err(|e| Error::io(dest.to_string(), e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

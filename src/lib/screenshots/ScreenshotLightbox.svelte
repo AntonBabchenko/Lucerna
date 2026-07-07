@@ -4,7 +4,7 @@
   import { tooltip } from '$lib/ui/tooltip';
   import Spinner from '$lib/ui/Spinner.svelte';
   import { t } from '$lib/i18n';
-  import { copyToClipboard, saveCopy, reveal, deleteScreenshot } from './actions';
+  import { copyToClipboard, saveAnnotated, reveal, deleteScreenshot } from './actions';
   import ScreenshotAnnotator from './ScreenshotAnnotator.svelte';
 
   let {
@@ -21,6 +21,20 @@
 
   let url = $state<string | null>(null);
   const current = $derived(shots[index]);
+
+  // Annotator instance (remounted per image) — exposes the strokes overlay and
+  // applied crop for the "save annotated copy" flow.
+  let annotator = $state<
+    | {
+        overlayDataUrl(): string | null;
+        cropRect(): { x: number; y: number; w: number; h: number } | null;
+      }
+    | undefined
+  >();
+
+  function saveCurrent() {
+    if (annotator) void saveAnnotated(current, annotator.overlayDataUrl(), annotator.cropRect());
+  }
 
   $effect(() => {
     url = null;
@@ -76,7 +90,7 @@
 
   {#if url}
     {#key current?.file_name}
-      <ScreenshotAnnotator {url} />
+      <ScreenshotAnnotator {url} bind:this={annotator} />
     {/key}
   {:else}
     <div class="relative z-10 flex items-center justify-center">
@@ -119,7 +133,7 @@
       class="btn-icon btn-icon-sm"
       aria-label={$t('screenshots.saveCopy')}
       use:tooltip={$t('screenshots.saveCopy')}
-      onclick={() => saveCopy(current)}><Icon name="download" size={16} /></button
+      onclick={saveCurrent}><Icon name="download" size={16} /></button
     >
     <button
       type="button"

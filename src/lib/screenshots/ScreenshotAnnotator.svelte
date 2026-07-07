@@ -256,8 +256,10 @@
   export function overlayDataUrl(): string | null {
     return strokes.length ? (canvasEl?.toDataURL('image/png') ?? null) : null;
   }
+  // The applied crop as fractions (0..1) of the image, for the save flow.
   export function cropRect(): Rect | null {
-    return crop && cropApplied ? crop : null;
+    if (!(crop && cropApplied) || !natW || !natH) return null;
+    return { x: crop.x / natW, y: crop.y / natH, w: crop.w / natW, h: crop.h / natH };
   }
 
   const cursor = $derived(

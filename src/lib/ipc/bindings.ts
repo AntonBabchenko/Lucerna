@@ -249,6 +249,12 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	revealScreenshot: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("reveal_screenshot", { instanceId, fileName })),
 	openScreenshotsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_screenshots_folder", { instanceId })),
 	copyScreenshotToClipboard: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("copy_screenshot_to_clipboard", { instanceId, fileName })),
+	saveAnnotatedScreenshot: (instanceId: string, fileName: string, overlayPngBase64: string, crop: {
+	x: number | null,
+	y: number | null,
+	w: number | null,
+	h: number | null,
+} | null, dest: string) => typedError<null, Error>(__TAURI_INVOKE("save_annotated_screenshot", { instanceId, fileName, overlayPngBase64, crop, dest })),
 	/**
 	 *  List the instance's saved multiplayer servers (from `servers.dat`).
 	 *  Empty Vec when the file does not exist yet.
@@ -1514,6 +1520,17 @@ export type CrashReport = {
 	 *  stack-trace head in a banner without loading the full file.
 	 */
 	preview: string,
+};
+
+/**
+ *  A crop rectangle as fractions (0..1) of the image — resolution-independent,
+ *  so it maps onto the original regardless of the preview's size.
+ */
+export type CropFrac = {
+	x: number | null,
+	y: number | null,
+	w: number | null,
+	h: number | null,
 };
 
 export type DataLocationStatus = {
