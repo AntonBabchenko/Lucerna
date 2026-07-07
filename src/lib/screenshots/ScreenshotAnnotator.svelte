@@ -67,6 +67,10 @@
         }
       : { w: 100, h: 100, left: 0, top: 0 },
   );
+  // Explicit fitted width so the frame (whose contents are absolute) doesn't
+  // collapse: min(88vw, 64vh × aspect) keeps it within both viewport bounds,
+  // and aspect-ratio then derives the height.
+  const aspect = $derived(src.h ? src.w / src.h : 1);
 
   // New image → blank slate at 1×.
   $effect(() => {
@@ -439,8 +443,8 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={wrapEl}
-    class="relative max-h-[64vh] max-w-[88vw] overflow-hidden rounded"
-    style="aspect-ratio: {src.w} / {src.h};"
+    class="relative overflow-hidden rounded"
+    style="width: min(88vw, {64 * aspect}vh); aspect-ratio: {src.w} / {src.h};"
     onwheel={onWheel}
   >
     <div
