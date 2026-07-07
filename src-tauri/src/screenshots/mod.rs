@@ -49,16 +49,16 @@ pub fn list_in_dir(dir: &Path, instance_id: &str, instance_name: &str) -> Result
         if !fs::is_image_file(&name) || fs::validate_segment(&name).is_err() {
             continue;
         }
-        let size_bytes = entry
+        let byte_len = entry
             .metadata()
             .map(|m| m.len())
-            .map_err(|e| Error::io(entry.path().display().to_string(), e))? as f64;
+            .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
         let modified_unix_ms = fs::file_mtime_ms(&entry.path()) as f64;
         out.push(Screenshot {
             instance_id: instance_id.to_string(),
             instance_name: instance_name.to_string(),
             file_name: name,
-            size_bytes,
+            size_bytes: byte_len as f64,
             modified_unix_ms,
         });
     }
