@@ -1,0 +1,106 @@
+//! Per-instance Minecraft screenshot viewer backend.
+//!
+//! Screenshots live at `<instance>/.minecraft/screenshots/*.png`. All FS
+//! access stays here (mirrors `worlds`); the frontend only ever sees typed
+//! `Screenshot` rows and `data:` URLs produced by `thumb`.
+
+pub mod fs;
+pub mod thumb;
+
+use crate::error::{Error, Result};
+use serde::Serialize;
+use specta::Type;
+use std::path::{Path, PathBuf};
+
+/// One screenshot file, surfaced to the UI. `instance_name` is filled for both
+/// the per-instance tab and the global gallery so the gallery can group/filter.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct Screenshot {
+    pub instance_id: String,
+    pub instance_name: String,
+    pub file_name: String,
+    pub size_bytes: f64,
+    pub modified_unix_ms: f64,
+}
+
+/// Pure core: enumerate image files directly under a concrete `screenshots/`
+/// dir, newest-first. Testable without a Tauri `AppHandle`. Missing dir →
+/// empty Vec (not an error). Non-image / non-UTF-8 / unsafe entries skipped.
+pub fn list_in_dir(dir: &Path, instance_id: &str, instance_name: &str) -> Result<Vec<Screenshot>> {
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|e| Error::io(dir.display().to_string(), e))? {
+        let entry = entry.map_err(|e| Error::io(dir.display().to_string(), e))?;
+        let meta = entry
+            .metadata()
+            .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
+        if !meta.is_file() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        if !fs::is_image_file(&name) || fs::validate_segment(&name).is_err() {
+            continue;
+        }
+        let modified_unix_ms = fs::file_mtime_ms(&entry.path()) as f64;
+        out.push(Screenshot {
+            instance_id: instance_id.to_string(),
+            instance_name: instance_name.to_string(),
+            file_name: name,
+            size_bytes: meta.len() as f64,
+            modified_unix_ms,
+        });
+    }
+    // Newest first.
+    out.sort_by(|a, b| {
+        b.modified_unix_ms
+            .partial_cmp(&a.modified_unix_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(out)
+}
+
+/// `<instance>/.minecraft/screenshots/`. Created by Minecraft on first F2.
+pub fn screenshots_dir(app: &tauri::AppHandle, instance_id: &str) -> Result<PathBuf> {
+    crate::paths::minecraft_dir(app, instance_id)
+        .map(|p| p.join("screenshots"))
+        .map_err(|e| Error::io("<screenshots_dir>", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs as stdfs;
+    use std::time::Duration;
+    use tempfile::tempdir;
+
+    fn write_png(dir: &Path, name: &str) {
+        stdfs::write(dir.join(name), b"\x89PNG\r\n\x1a\n").unwrap();
+    }
+
+    #[test]
+    fn missing_dir_is_empty() {
+        let td = tempdir().unwrap();
+        let dir = td.path().join("screenshots");
+        assert!(list_in_dir(&dir, "id", "Name").unwrap().is_empty());
+    }
+
+    #[test]
+    fn lists_images_newest_first_and_skips_non_images() {
+        let td = tempdir().unwrap();
+        let dir = td.path();
+        write_png(dir, "older.png");
+        std::thread::sleep(Duration::from_millis(50));
+        write_png(dir, "newer.png");
+        stdfs::write(dir.join("notes.txt"), b"x").unwrap();
+        stdfs::create_dir_all(dir.join("subdir")).unwrap();
+        let got = list_in_dir(dir, "id", "Name").unwrap();
+        let names: Vec<&str> = got.iter().map(|s| s.file_name.as_str()).collect();
+        assert_eq!(names, vec!["newer.png", "older.png"]);
+        assert_eq!(got[0].instance_id, "id");
+        assert_eq!(got[0].instance_name, "Name");
+    }
+}

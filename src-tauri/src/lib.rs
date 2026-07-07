@@ -16,6 +16,7 @@ pub mod pathsafe;
 pub mod platform;
 pub mod playtime;
 pub mod process;
+pub mod screenshots;
 pub mod servers;
 pub mod servers_runtime;
 /// In-process test seams replacing the `LUCERNA_*` env-var test overrides
