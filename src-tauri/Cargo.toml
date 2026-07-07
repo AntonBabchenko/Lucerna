@@ -34,6 +34,10 @@ tauri-plugin-dialog = "2"
 # no allowlist change. On Windows it uses a named pipe via the already-present
 # windows-sys; no new license class and effectively no new compiled bytes.
 tauri-plugin-single-instance = "2"
+# Copy a screenshot image to the OS clipboard (screenshots viewer, local-only
+# sharing). Official Tauri plugin, same version train as the others,
+# MIT/Apache-2.0 from crates.io — passes cargo-deny with no allowlist change.
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 specta-typescript = "0.0.12"
@@ -98,6 +102,15 @@ sigstore-verify = "0.8.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 russh = { version = "0.61.2", default-features = false, features = ["aws-lc-rs", "flate2"] }
 russh-sftp = "2.3.0"
+# Screenshot viewer: decode PNG + downscale to cached JPEG thumbnails/previews
+# (thumb::render_data_url). default-features=false keeps only PNG decode + JPEG
+# encode — the only formats we touch — to minimise the transitive dep surface.
+# cargo-deny justification: MIT/Apache-2.0; pure-Rust codecs, no system libs.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Screenshot viewer: move deleted screenshots to the OS recycle bin (reversible)
+# instead of unlink. cargo-deny justification: `trash` is MIT/Apache-2.0; on
+# Windows it uses the already-present windows-sys shell APIs — no new license class.
+trash = "5"
 
 # Windows-only: WaitForInputIdle to detect when the spawned MC process has
 # created its window before we hide the launcher to the tray. Used from
