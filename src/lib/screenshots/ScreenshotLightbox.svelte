@@ -75,7 +75,7 @@
        while clicks on the image / arrows / toolbar hit those instead. -->
   <button
     type="button"
-    class="absolute inset-0 cursor-zoom-out"
+    class="absolute inset-0 cursor-default"
     aria-label={$t('screenshots.galleryClose')}
     onclick={onClose}
   ></button>
