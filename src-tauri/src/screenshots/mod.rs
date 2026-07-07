@@ -33,10 +33,14 @@ pub fn list_in_dir(dir: &Path, instance_id: &str, instance_name: &str) -> Result
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(|e| Error::io(dir.display().to_string(), e))? {
         let entry = entry.map_err(|e| Error::io(dir.display().to_string(), e))?;
-        let meta = entry
-            .metadata()
+        // `file_type()` does NOT follow symlinks (unlike `metadata()`): skip
+        // symlinks / reparse points so a crafted link inside the screenshots
+        // dir can't redirect listing or decoding at an arbitrary file. Mirrors
+        // the worlds module (worlds/import.rs).
+        let ft = entry
+            .file_type()
             .map_err(|e| Error::io(entry.path().display().to_string(), e))?;
-        if !meta.is_file() {
+        if ft.is_symlink() || !ft.is_file() {
             continue;
         }
         let Some(name) = entry.file_name().to_str().map(String::from) else {
@@ -45,12 +49,16 @@ pub fn list_in_dir(dir: &Path, instance_id: &str, instance_name: &str) -> Result
         if !fs::is_image_file(&name) || fs::validate_segment(&name).is_err() {
             continue;
         }
+        let size_bytes = entry
+            .metadata()
+            .map(|m| m.len())
+            .map_err(|e| Error::io(entry.path().display().to_string(), e))? as f64;
         let modified_unix_ms = fs::file_mtime_ms(&entry.path()) as f64;
         out.push(Screenshot {
             instance_id: instance_id.to_string(),
             instance_name: instance_name.to_string(),
             file_name: name,
-            size_bytes: meta.len() as f64,
+            size_bytes,
             modified_unix_ms,
         });
     }
@@ -71,6 +79,11 @@ pub fn screenshots_dir(app: &tauri::AppHandle, instance_id: &str) -> Result<Path
 }
 
 /// Look up an instance's display name by id. Empty string if not found.
+///
+/// Accepted trade-off: this rescans all instances on each per-instance tab
+/// reload. `list_all_screenshots` avoids the rescan by reusing names from its
+/// single enumeration, but `list_screenshots` only receives an id. At launcher
+/// scale (tens of local instances) the extra scan is negligible.
 fn instance_name(app: &tauri::AppHandle, instance_id: &str) -> String {
     crate::instances::list_instances_with_status(app)
         .ok()
@@ -111,7 +124,14 @@ pub fn screenshot_path(
 ) -> Result<PathBuf> {
     fs::validate_segment(file_name)?;
     let path = screenshots_dir(app, instance_id)?.join(file_name);
-    if !path.is_file() {
+    // `symlink_metadata` (lstat) does NOT follow links: reject a symlink /
+    // reparse point masquerading as a screenshot so thumbnail / preview / copy /
+    // delete / reveal can't be redirected at an arbitrary file. A genuinely
+    // missing file (concurrent delete) falls through to the same not-found.
+    let is_regular_file = std::fs::symlink_metadata(&path)
+        .map(|m| m.is_file())
+        .unwrap_or(false);
+    if !is_regular_file {
         return Err(Error::ScreenshotNotFound {
             instance_id: instance_id.into(),
             filename: file_name.into(),
@@ -123,7 +143,13 @@ pub fn screenshot_path(
 /// Move a screenshot to the OS recycle bin (reversible).
 pub fn delete_screenshot(app: &tauri::AppHandle, instance_id: &str, file_name: &str) -> Result<()> {
     let path = screenshot_path(app, instance_id, file_name)?;
-    trash::delete(&path).map_err(|e| Error::io(path.display().to_string(), e))
+    // Capture mtime before deletion so the matching cache entries can be evicted.
+    let mtime = fs::file_mtime_ms(&path);
+    trash::delete(&path).map_err(|e| Error::io(path.display().to_string(), e))?;
+    // Best-effort: drop this file's cached thumbnail/preview so the disposable
+    // cache doesn't retain entries for files the user has removed.
+    thumb::evict(app, &path, mtime);
+    Ok(())
 }
 
 /// Copy the ORIGINAL screenshot to a user-chosen destination path.
@@ -170,5 +196,25 @@ mod tests {
         assert_eq!(names, vec!["newer.png", "older.png"]);
         assert_eq!(got[0].instance_id, "id");
         assert_eq!(got[0].instance_name, "Name");
+    }
+
+    // A symlink/reparse point inside the screenshots dir must never be surfaced
+    // (it could point at an arbitrary file). Unix-only: creating a symlink on
+    // Windows needs a privilege CI runners lack; the guard itself is portable.
+    #[cfg(unix)]
+    #[test]
+    fn skips_symlinks() {
+        use std::os::unix::fs::symlink;
+        let td = tempdir().unwrap();
+        let dir = td.path();
+        write_png(dir, "real.png");
+        // A .png-named symlink pointing at a file OUTSIDE the screenshots dir.
+        let outside = tempdir().unwrap();
+        let target = outside.path().join("secret.png");
+        stdfs::write(&target, b"\x89PNG\r\n\x1a\n").unwrap();
+        symlink(&target, dir.join("link.png")).unwrap();
+        let got = list_in_dir(dir, "id", "Name").unwrap();
+        let names: Vec<&str> = got.iter().map(|s| s.file_name.as_str()).collect();
+        assert_eq!(names, vec!["real.png"]);
     }
 }

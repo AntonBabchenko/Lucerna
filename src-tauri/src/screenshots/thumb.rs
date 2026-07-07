@@ -14,6 +14,10 @@ const THUMB_EDGE: u32 = 320;
 const THUMB_QUALITY: u8 = 80;
 const PREVIEW_EDGE: u32 = 2560;
 const PREVIEW_QUALITY: u8 = 88;
+/// Clipboard copies are downscaled past this longest edge to bound the raw
+/// RGBA buffer handed to the OS clipboard (an 8K screenshot is ~130 MB raw).
+/// 4096 lets any 4K-native screenshot through untouched.
+const CLIPBOARD_EDGE: u32 = 4096;
 
 #[derive(Clone, Copy)]
 pub enum Tier {
@@ -90,15 +94,33 @@ pub fn render_data_url(app: &tauri::AppHandle, path: &Path, tier: Tier) -> Resul
     Ok(format!("data:image/jpeg;base64,{b64}"))
 }
 
-/// Load the ORIGINAL image as a clipboard-ready `tauri::image::Image` (RGBA).
+/// Load the original image as a clipboard-ready `tauri::image::Image` (RGBA),
+/// downscaled past `CLIPBOARD_EDGE` so very large screenshots don't spike memory.
 pub fn clipboard_image(path: &Path) -> Result<tauri::image::Image<'static>> {
-    let rgba = image::ImageReader::open(path)
+    let img = image::ImageReader::open(path)
         .map_err(|e| Error::io(path.display().to_string(), e))?
         .decode()
-        .map_err(|e| Error::io(path.display().to_string(), e))?
-        .to_rgba8();
+        .map_err(|e| Error::io(path.display().to_string(), e))?;
+    let img = if img.width().max(img.height()) > CLIPBOARD_EDGE {
+        img.thumbnail(CLIPBOARD_EDGE, CLIPBOARD_EDGE)
+    } else {
+        img
+    };
+    let rgba = img.to_rgba8();
     let (w, h) = (rgba.width(), rgba.height());
     Ok(tauri::image::Image::new_owned(rgba.into_raw(), w, h))
+}
+
+/// Best-effort removal of both cache tiers for a source file (e.g. after the
+/// user deletes the screenshot). The cache is disposable — it lives in the OS
+/// app-cache dir and is safe to lose — so failures here are ignored.
+pub fn evict(app: &tauri::AppHandle, source: &Path, mtime_ms: u64) {
+    let Ok(dir) = cache_dir(app) else {
+        return;
+    };
+    for tier in [Tier::Thumb, Tier::Preview] {
+        let _ = std::fs::remove_file(dir.join(cache_key(source, mtime_ms, tier)));
+    }
 }
 
 #[cfg(test)]
