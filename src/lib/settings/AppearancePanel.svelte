@@ -10,6 +10,8 @@
   import { themeState, setThemePref } from '$lib/theme/state.svelte';
   import { rainbowFx } from '$lib/fx/rainbow-fx.svelte';
   import { iconZoomFx } from '$lib/fx/icon-zoom-fx.svelte';
+  import { SIDEBAR_BUTTONS } from '$lib/layout/sidebar-buttons';
+  import { isVisible, setHidden } from '$lib/layout/sidebar-buttons.svelte';
 
   const LOCALE_LABELS: Record<string, string> = { en: 'English', ru: 'Русский' };
 
@@ -79,4 +81,26 @@
       </span>
     </span>
   </label>
+
+  <div class="border-t border-border-subtle pt-4 mt-2 flex flex-col gap-2">
+    <div>
+      <span class="text-sm text-primary">
+        {$t('settings.general.appearance.sidebarButtons.title')}
+      </span>
+      <span class="block text-xs text-muted">
+        {$t('settings.general.appearance.sidebarButtons.description')}
+      </span>
+    </div>
+    {#each SIDEBAR_BUTTONS as b (b.id)}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={isVisible(b.id)}
+          onchange={(e) => void setHidden(b.id, !e.currentTarget.checked)}
+          data-testid="sidebar-button-toggle-{b.id}"
+        />
+        <span class="text-sm text-primary">{$t(b.labelKey)}</span>
+      </label>
+    {/each}
+  </div>
 </section>
