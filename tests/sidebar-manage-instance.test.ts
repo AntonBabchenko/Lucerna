@@ -57,6 +57,7 @@ const baseProps = {
   onAddOffline: () => {},
   onSelectInstance: () => {},
   onOpenManage: () => {},
+  onManageInstance: () => {},
   onOpenMods: () => {},
   onOpenLogs: () => {},
   onOpenModpacks: () => {},
@@ -78,14 +79,27 @@ const baseProps = {
 describe('Sidebar per-instance manage icon', () => {
   beforeEach(() => initSidebarButtons([]));
 
-  it('opens instance management when the per-row manage icon is pressed', async () => {
-    const onOpenManage = vi.fn();
-    render(Sidebar, { props: { ...baseProps, onOpenManage } });
-    // Open the profile dropdown, then press the row's manage icon. The Select
-    // commits option rows on mousedown, so the manage control is driven the same
-    // way (its mousedown bubbles to select+close, and also opens Manage).
+  it('manages the CLICKED profile, not the active one', async () => {
+    // Regression guard: the manage modal must open on the row the user clicked,
+    // even when it is not the active instance. The active switch is async, so
+    // the modal can't rely on activeInstance at open time — the clicked id must
+    // be passed explicitly via onManageInstance.
+    const onManageInstance = vi.fn();
+    const alt = instance({ id: 'inst-2', name: 'Other' });
+    render(Sidebar, {
+      props: {
+        ...baseProps,
+        onManageInstance,
+        instances: [instance(), alt], // active = inst-1
+        activeInstance: instance(),
+      },
+    });
+    // Open the profile dropdown, then press the NON-active row's manage icon.
+    // The Select commits option rows on mousedown, so the manage control is
+    // driven the same way (its mousedown bubbles to select+close the dropdown).
     await fireEvent.click(screen.getByRole('combobox', { name: /instance/i }));
-    await fireEvent.mouseDown(screen.getByTestId('sidebar-manage-instance-inst-1'));
-    expect(onOpenManage).toHaveBeenCalledTimes(1);
+    await fireEvent.mouseDown(screen.getByTestId('sidebar-manage-instance-inst-2'));
+    expect(onManageInstance).toHaveBeenCalledTimes(1);
+    expect(onManageInstance).toHaveBeenCalledWith('inst-2');
   });
 });

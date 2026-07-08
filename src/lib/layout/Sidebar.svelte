@@ -37,6 +37,7 @@
     onAddOffline,
     onSelectInstance,
     onOpenManage,
+    onManageInstance = () => {},
     onOpenMods,
     onOpenLogs,
     onOpenModpacks,
@@ -74,6 +75,10 @@
     onAddOffline: () => void;
     onSelectInstance: (id: string) => void;
     onOpenManage: () => void;
+    // Manage a specific profile (the per-row icon in the profile dropdown):
+    // seeds the manage modal's detail selection to this id, independent of the
+    // async active-instance switch. Defaults to a no-op.
+    onManageInstance?: (instanceId: string) => void;
     onOpenMods: () => void;
     onOpenLogs: () => void;
     // Open the global Modpacks browser (a full-screen modal). Modpacks aren't
@@ -351,9 +356,10 @@
         <!-- Per-row Manage inside the profile dropdown. Unlike the account
              trash (which stops its own mousedown so it does not commit the row),
              this deliberately lets the mousedown bubble to the option row's
-             commit: clicking it selects that profile (making it active, which
-             ManageInstancesModal is bound to) AND closes the dropdown, then
-             opens Manage for it. -->
+             commit — selecting that profile (making it active) AND closing the
+             dropdown. It opens Manage via onManageInstance(id) with the clicked
+             id, so the modal seeds its detail to THIS profile directly rather
+             than racing the async active-instance switch. -->
         {#snippet instanceTrailing(opt: SelectOption)}
           {@const inst = instances.find((x) => x.id === opt.value)}
           {#if inst}
@@ -365,7 +371,7 @@
               data-testid="sidebar-manage-instance-{inst.id}"
               aria-label={manageLabel}
               use:tooltip={{ text: manageLabel, describe: false }}
-              onmousedown={() => onOpenManage()}
+              onmousedown={() => onManageInstance(inst.id)}
             >
               <Icon name="sliders" size={14} />
             </button>
