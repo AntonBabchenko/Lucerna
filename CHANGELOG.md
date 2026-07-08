@@ -10,6 +10,18 @@ release is **0.9.0**.
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-07-09
+
+### Added
+
+- **Skin & Cape cosmetics for Microsoft accounts.** From a new "Skin & Cape"
+  button under your account, pick from the capes your account owns or hide the
+  active one, and upload a new skin (classic or slim) or reset it to the
+  default — all through the official Minecraft profile API. A rotatable 3D
+  preview shows your skin with the active cape; resetting the skin asks for
+  confirmation and offers a one-click restore of the previous one. English and
+  Russian.
+
 ## [0.16.0] — 2026-07-02
 
 A broad quality, accessibility, and security hardening pass across the launcher.
