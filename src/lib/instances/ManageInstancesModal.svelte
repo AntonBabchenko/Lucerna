@@ -9,6 +9,7 @@
     type ModCompat,
   } from '$lib/ipc/bindings';
   import IntegritySection from '$lib/instances/IntegritySection.svelte';
+  import { iconDialog } from '$lib/instances/instance-icon-dialog.svelte';
   import { displayLauncher } from '$lib/instances/launcher-display';
   import LoaderPicker from '$lib/instances/LoaderPicker.svelte';
   import MemorySlider from '$lib/instances/MemorySlider.svelte';
@@ -761,6 +762,17 @@
             oninput={() => clearSaved('name')}
             onblur={commitName}
           />
+
+          <div class="mb-3">
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              disabled={!selected}
+              onclick={() => selected && iconDialog.show(selected.id, selected.has_icon)}
+            >
+              {$t('instance.icon.changeBtn')}
+            </button>
+          </div>
 
           <label for="detail-mc-version" class="block text-xs text-secondary mb-1"
             >{$t('instance.manage.mcVersionLabel')}</label
