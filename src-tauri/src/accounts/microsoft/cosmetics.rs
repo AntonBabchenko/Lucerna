@@ -26,7 +26,9 @@ pub async fn set_active_cape(token: &str, cape_id: &str) -> Result<()> {
         .send()
         .await
         .map_err(|e| Error::network(&url, e))?;
-    ensure_success(resp, "set_active_cape").await
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    map_status(status, body, "set_active_cape")
 }
 
 /// DELETE the active cape (hide it).
@@ -39,7 +41,9 @@ pub async fn clear_active_cape(token: &str) -> Result<()> {
         .send()
         .await
         .map_err(|e| Error::network(&url, e))?;
-    ensure_success(resp, "clear_active_cape").await
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    map_status(status, body, "clear_active_cape")
 }
 
 /// POST a new skin (multipart: `variant` + `file`).
@@ -55,7 +59,9 @@ pub async fn upload_skin(token: &str, png: &[u8], variant: SkinVariant) -> Resul
         .send()
         .await
         .map_err(|e| Error::network(&url, e))?;
-    ensure_success(resp, "upload_skin").await
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    map_status(status, body, "upload_skin")
 }
 
 /// DELETE the active skin (reset to default).
@@ -68,7 +74,9 @@ pub async fn reset_skin(token: &str) -> Result<()> {
         .send()
         .await
         .map_err(|e| Error::network(&url, e))?;
-    ensure_success(resp, "reset_skin").await
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    map_status(status, body, "reset_skin")
 }
 
 /// Build a `multipart/form-data` body with the model variant and the PNG.
@@ -94,16 +102,15 @@ pub fn build_skin_multipart(variant: SkinVariant, png: &[u8]) -> (String, Vec<u8
     (format!("multipart/form-data; boundary={boundary}"), body)
 }
 
-async fn ensure_success(resp: reqwest::Response, stage: &str) -> Result<()> {
-    let status = resp.status();
-    if status.is_success() {
-        return Ok(());
+fn map_status(status: u16, body: String, stage: &str) -> Result<()> {
+    if (200..300).contains(&status) {
+        Ok(())
+    } else {
+        Err(Error::AuthFailed {
+            stage: stage.into(),
+            details: format!("HTTP {status}: {body}"),
+        })
     }
-    let text = resp.text().await.unwrap_or_default();
-    Err(Error::AuthFailed {
-        stage: stage.into(),
-        details: format!("HTTP {status}: {text}"),
-    })
 }
 
 #[cfg(test)]

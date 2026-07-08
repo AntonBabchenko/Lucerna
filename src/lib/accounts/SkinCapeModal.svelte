@@ -17,10 +17,28 @@
   let skinImg: HTMLImageElement | null = null;
   let skinCanvas = $state<HTMLCanvasElement | null>(null);
 
-  const activeCapeName = $derived(capes.find((c) => c.is_active)?.alias ?? null);
+  const activeCape = $derived(capes.find((c) => c.is_active) ?? null);
+  const activeCapeName = $derived(activeCape ? (activeCape.alias ?? activeCape.id) : null);
+  const noCapeActive = $derived(activeCape === null);
 
-  async function load() {
-    loading = true;
+  async function refreshSkin() {
+    const skinRes = await commands.accountSkin(account.uuid);
+    if (skinRes.status === 'ok' && skinRes.data) {
+      const img = new Image();
+      img.onload = () => {
+        skinImg = img;
+        renderSkin();
+      };
+      img.src = `data:image/png;base64,${skinRes.data.skin_png_base64}`;
+    } else {
+      skinImg = null;
+      const ctx = skinCanvas?.getContext('2d');
+      if (skinCanvas && ctx) ctx.clearRect(0, 0, skinCanvas.width, skinCanvas.height);
+    }
+  }
+
+  async function load(showLoading = true) {
+    if (showLoading) loading = true;
     loadError = false;
     const res = await commands.getCosmetics(account.id);
     if (res.status === 'error') {
@@ -31,15 +49,7 @@
     capes = res.data.capes;
     variant = res.data.active_variant;
     loading = false;
-    const skinRes = await commands.accountSkin(account.uuid);
-    if (skinRes.status === 'ok' && skinRes.data) {
-      const img = new Image();
-      img.onload = () => {
-        skinImg = img;
-        renderSkin();
-      };
-      img.src = `data:image/png;base64,${skinRes.data.skin_png_base64}`;
-    }
+    await refreshSkin();
   }
 
   function renderSkin() {
@@ -107,8 +117,13 @@
     busy = true;
     saveError = null;
     const res = await commands.resetSkin(account.id);
-    if (res.status === 'error') saveError = $t('cosmetics.saveError');
+    if (res.status === 'error') {
+      saveError = $t('cosmetics.saveError');
+      busy = false;
+      return;
+    }
     busy = false;
+    await load(false);
   }
 
   function setVariant(v: SkinVariant) {
@@ -143,7 +158,7 @@
     {:else if loadError}
       <div class="flex items-center gap-3">
         <p class="text-sm text-danger">{$t('cosmetics.loadError')}</p>
-        <button type="button" class="btn-secondary btn-xs" onclick={load}>{$t('cosmetics.retry')}</button>
+        <button type="button" class="btn-secondary btn-xs" onclick={() => load()}>{$t('cosmetics.retry')}</button>
       </div>
     {:else}
       <div class="flex items-baseline gap-2.5 mb-3">
@@ -166,7 +181,7 @@
         {/each}
         <button
           type="button"
-          class="flex flex-col items-center gap-1.5 rounded-[10px] border p-2 {activeCapeName === null
+          class="flex flex-col items-center gap-1.5 rounded-[10px] border p-2 {noCapeActive
             ? 'border-transparent outline outline-2 outline-accent'
             : 'border-border-subtle hover:border-border-emphasis'}"
           onclick={() => pickCape(null)}

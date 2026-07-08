@@ -25,4 +25,12 @@ describe('skin-render UV map', () => {
       expect(p.dst.w).toBeGreaterThan(0);
     }
   });
+
+  it('legacy 64x32 mirrors the right arm/leg into the left slots', () => {
+    const legacy = frontLayout('classic', 32);
+    expect(legacy.find((p) => p.name === 'leftArm')!.src).toEqual(SKIN_UV.rightArm);
+    expect(legacy.find((p) => p.name === 'leftLeg')!.src).toEqual(SKIN_UV.rightLeg);
+    const modern = frontLayout('classic', 64);
+    expect(modern.find((p) => p.name === 'leftArm')!.src).toEqual(SKIN_UV.leftArm);
+  });
 });

@@ -29,12 +29,10 @@ fn account_uuid(app: &tauri::AppHandle, account_id: &str) -> Option<String> {
         .map(|a| a.uuid.clone())
 }
 
-/// Load owned capes + the active skin variant for an account.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_cosmetics(app: tauri::AppHandle, account_id: String) -> Result<Cosmetics, Error> {
-    let token = cos::ensure_fresh_token(&app, &account_id).await?;
-    let profile = mc_services::fetch_profile(&token).await?;
+/// Pure projection of an MC profile into the modal's cosmetics snapshot.
+/// Split out from the async command so the branching (active-cape match,
+/// slim/classic default) is unit-testable without the auth/network chain.
+fn map_cosmetics(profile: &mc_services::ProfileResponse) -> Cosmetics {
     let capes = profile
         .capes
         .iter()
@@ -58,10 +56,19 @@ pub async fn get_cosmetics(app: tauri::AppHandle, account_id: String) -> Result<
             }
         })
         .unwrap_or(SkinVariant::Classic);
-    Ok(Cosmetics {
+    Cosmetics {
         capes,
         active_variant,
-    })
+    }
+}
+
+/// Load owned capes + the active skin variant for an account.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_cosmetics(app: tauri::AppHandle, account_id: String) -> Result<Cosmetics, Error> {
+    let token = cos::ensure_fresh_token(&app, &account_id).await?;
+    let profile = mc_services::fetch_profile(&token).await?;
+    Ok(map_cosmetics(&profile))
 }
 
 /// Cache-first cape texture as base64 PNG (None on cosmetic miss).
@@ -124,4 +131,68 @@ pub async fn reset_skin(app: tauri::AppHandle, account_id: String) -> Result<(),
         let _ = crate::accounts::skins::get_account_skin(&app, &uuid, true).await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::accounts::microsoft::mc_services::{CapeEntry, ProfileResponse, SkinEntry};
+
+    fn profile(capes: Vec<CapeEntry>, skins: Vec<SkinEntry>) -> ProfileResponse {
+        ProfileResponse {
+            id: "x".into(),
+            name: "n".into(),
+            capes,
+            skins,
+        }
+    }
+    fn cape(id: &str, state: &str, alias: Option<&str>) -> CapeEntry {
+        CapeEntry {
+            id: id.into(),
+            state: state.into(),
+            url: format!("https://textures.minecraft.net/texture/{id}"),
+            alias: alias.map(|s| s.to_string()),
+        }
+    }
+    fn skin(state: &str, variant: Option<&str>) -> SkinEntry {
+        SkinEntry {
+            id: "s".into(),
+            state: state.into(),
+            url: "u".into(),
+            variant: variant.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn active_cape_matched_case_insensitively() {
+        let c = map_cosmetics(&profile(
+            vec![
+                cape("c1", "INACTIVE", Some("A")),
+                cape("c2", "active", Some("B")),
+            ],
+            vec![],
+        ));
+        assert!(!c.capes[0].is_active);
+        assert!(c.capes[1].is_active);
+    }
+    #[test]
+    fn no_active_cape_when_all_inactive() {
+        let c = map_cosmetics(&profile(vec![cape("c1", "INACTIVE", None)], vec![]));
+        assert!(!c.capes[0].is_active);
+    }
+    #[test]
+    fn active_variant_slim() {
+        let c = map_cosmetics(&profile(vec![], vec![skin("ACTIVE", Some("SLIM"))]));
+        assert_eq!(c.active_variant, SkinVariant::Slim);
+    }
+    #[test]
+    fn active_variant_defaults_classic_when_variant_none() {
+        let c = map_cosmetics(&profile(vec![], vec![skin("ACTIVE", None)]));
+        assert_eq!(c.active_variant, SkinVariant::Classic);
+    }
+    #[test]
+    fn active_variant_defaults_classic_when_no_skins() {
+        let c = map_cosmetics(&profile(vec![], vec![]));
+        assert_eq!(c.active_variant, SkinVariant::Classic);
+    }
 }
