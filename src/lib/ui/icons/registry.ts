@@ -47,6 +47,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Shirt,
   Shrink,
   SlidersHorizontal,
   Square,
@@ -112,6 +113,7 @@ export const ICONS = {
   power: Power, // enable/disable toggle (mods only; RP/shaders have no toggle)
   user: User, // author marker in browse metadata
   userPlus: UserPlus, // add an offline account
+  shirt: Shirt, // skin & cape cosmetics entry point
   shrink: Shrink, // collapse window to mini mode
   expand: Expand, // restore window from mini mode
   globe: Globe, // join-server satellite (Quick Play)

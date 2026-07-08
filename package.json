@@ -31,7 +31,9 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
-    "svelte-i18n": "^4.0.1"
+    "skinview3d": "^3.4.2",
+    "svelte-i18n": "^4.0.1",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",

@@ -1,6 +1,7 @@
 //! Microsoft auth orchestrators: sign_in (full chain) and refresh
 //! (renew tokens with the refresh_token).
 
+pub mod cosmetics;
 pub mod mc_services;
 pub mod oauth;
 pub mod xbox;

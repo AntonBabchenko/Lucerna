@@ -35,6 +35,7 @@
     activeInstance,
     onSelectAccount,
     onRemoveAccount,
+    onOpenCosmetics,
     onAddOffline,
     onSelectInstance,
     onOpenManage,
@@ -70,6 +71,7 @@
     activeInstance: InstanceWithStatus | null;
     onSelectAccount: (id: string) => void;
     onRemoveAccount: (id: string) => void;
+    onOpenCosmetics: (account: Account) => void;
     // Open the add-offline-account dialog. The name entry + the actual
     // addOfflineAccount call live in that modal / the page handler, not here:
     // the inline field this used to reveal was too easy to miss.
@@ -303,6 +305,22 @@
           optionTrailing={accountTrailing}
           onDeleteOption={(opt) => onRemoveAccount(String(opt.value))}
         />
+      {/if}
+      <!--
+        Skin & cape cosmetics — a labeled, always-visible entry point for the
+        ACTIVE Microsoft account (offline accounts have no server-side cosmetics
+        to edit). Sits in the account action cluster so it reads as an
+        account-scoped action, next to Add / Sign in.
+      -->
+      {#if activeAccount?.kind === 'microsoft'}
+        <button
+          type="button"
+          class="btn-secondary btn-xs w-full flex items-center justify-center gap-1"
+          onclick={() => activeAccount && onOpenCosmetics(activeAccount)}
+        >
+          <Icon name="shirt" size={14} />
+          {$t('cosmetics.title')}
+        </button>
       {/if}
       <!--
         Force the account-add buttons visible when there are no accounts, even

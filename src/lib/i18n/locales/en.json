@@ -43,6 +43,29 @@
       "body": "A Microsoft sign-in tab should have opened. Finish there, then return to this window. Waiting up to 5 minutes."
     }
   },
+  "cosmetics": {
+    "title": "Skin and cape",
+    "capeHeading": "Cape",
+    "capeHint": "The cape your character wears in game",
+    "noCape": "No cape",
+    "activeCape": "Active cape: {name}",
+    "skinHeading": "Skin",
+    "skinHint": "Upload a 64×64 PNG, or reset to default",
+    "chooseFile": "Choose file…",
+    "model": "Model",
+    "modelClassic": "Classic",
+    "modelSlim": "Slim",
+    "resetSkin": "Reset to default",
+    "resetConfirm": "Reset your skin to the default? You can only get the current one back by uploading the file again.",
+    "resetConfirmYes": "Reset",
+    "restorePrevious": "Restore previous skin",
+    "currentSkin": "current skin",
+    "dragToRotate": "drag to rotate",
+    "loadError": "Couldn't load your cosmetics.",
+    "retry": "Retry",
+    "saveError": "That didn't go through. Try again.",
+    "invalidImage": "Pick a 64×64 or 64×32 PNG skin file."
+  },
   "browse": {
     "filter": {
       "sortLabel": "Sort:",
@@ -1338,6 +1361,7 @@
     "authFailed": "Microsoft sign-in failed at {stage}",
     "noMinecraftProfile": "You weren't signed in: this Microsoft account doesn't own Minecraft. Buy a copy and sign in again, or use an account that already owns one.",
     "authPendingApproval": "Microsoft hasn't approved Lucerna's app registration yet. This sign-in will work once approved. Use an offline account in the meantime.",
+    "cosmeticImageInvalid": "That image can't be used as a skin",
     "unknownVersion": "Version {id} not found in manifest",
     "unsupportedPlatform": "Unsupported platform: {os}/{arch}",
     "loaderUnavailable": "{loader} does not support Minecraft {mcVersion}",
