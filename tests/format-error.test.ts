@@ -317,6 +317,12 @@ describe('formatError', () => {
       world_in_use: { kind: 'world_in_use', folder_name: 'world' },
       world_path_invalid: { kind: 'world_path_invalid', name: 'world', reason: 'bad' },
       world_name_unresolvable: { kind: 'world_name_unresolvable', folder_name: 'world' },
+      screenshot_not_found: {
+        kind: 'screenshot_not_found',
+        instance_id: 'i1',
+        filename: 'shot.png',
+      },
+      screenshot_path_invalid: { kind: 'screenshot_path_invalid', name: '../x', reason: 'bad' },
       backup_not_found: {
         kind: 'backup_not_found',
         instance_id: 'i1',

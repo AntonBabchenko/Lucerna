@@ -371,7 +371,7 @@ describe('+page.svelte — missing-mods warning button (post-H7)', () => {
 // ── MainTabs — tab text-base size class (inventory line 75/89/104) ─────────
 
 describe('MainTabs — tab base structural classes', () => {
-  it('all three tabs have text-base px-3 py-2 border-b-2 -mb-px', () => {
+  it('all four tabs have text-base px-3 py-2 border-b-2 -mb-px', () => {
     render(MainTabs, { props: {} });
     const tabs = screen.getAllByRole('tab');
     for (const tab of tabs) {
@@ -423,7 +423,8 @@ describe('MainTabs — tablist role', () => {
   it('each tab has role="tab" and aria-selected', () => {
     render(MainTabs, { props: {} });
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(3);
+    // Overview, Add-ons, Worlds, Screenshots.
+    expect(tabs).toHaveLength(4);
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-selected')).not.toBeNull();
     }

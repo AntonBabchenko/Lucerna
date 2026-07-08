@@ -72,6 +72,7 @@ const OPENER_ALLOWLIST: &[&str] = &[
     "commands/servers_runtime.rs",
     "commands/instances.rs",
     "commands/worlds.rs",
+    "commands/screenshots.rs",
     "instances/mod.rs",
     // Microsoft sign-in — opens the auth URL in the default browser.
     "accounts/microsoft/mod.rs",

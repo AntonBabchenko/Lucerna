@@ -240,6 +240,22 @@ install: VersionRef | null } | null, Error>(__TAURI_INVOKE("build_repair_plan", 
 	 *  extract/copy off the IPC thread.
 	 */
 	worldImport: (instanceId: string, sourcePath: string) => typedError<World, Error>(__TAURI_INVOKE("world_import", { instanceId, sourcePath })),
+	listScreenshots: (instanceId: string) => typedError<Screenshot[], Error>(__TAURI_INVOKE("list_screenshots", { instanceId })),
+	listAllScreenshots: () => typedError<Screenshot[], Error>(__TAURI_INVOKE("list_all_screenshots")),
+	screenshotThumbnail: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("screenshot_thumbnail", { instanceId, fileName })),
+	screenshotPreview: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("screenshot_preview", { instanceId, fileName })),
+	deleteScreenshot: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("delete_screenshot", { instanceId, fileName })),
+	saveScreenshotCopy: (instanceId: string, fileName: string, dest: string) => typedError<null, Error>(__TAURI_INVOKE("save_screenshot_copy", { instanceId, fileName, dest })),
+	revealScreenshot: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("reveal_screenshot", { instanceId, fileName })),
+	openScreenshotsFolder: (instanceId: string) => typedError<null, Error>(__TAURI_INVOKE("open_screenshots_folder", { instanceId })),
+	copyScreenshotToClipboard: (instanceId: string, fileName: string) => typedError<null, Error>(__TAURI_INVOKE("copy_screenshot_to_clipboard", { instanceId, fileName })),
+	saveAnnotatedScreenshot: (instanceId: string, fileName: string, overlayPngBase64: string, crop: {
+	x: number | null,
+	y: number | null,
+	w: number | null,
+	h: number | null,
+} | null, dest: string) => typedError<null, Error>(__TAURI_INVOKE("save_annotated_screenshot", { instanceId, fileName, overlayPngBase64, crop, dest })),
+	annotatedDefaultPath: (instanceId: string, fileName: string) => typedError<string, Error>(__TAURI_INVOKE("annotated_default_path", { instanceId, fileName })),
 	/**
 	 *  List the instance's saved multiplayer servers (from `servers.dat`).
 	 *  Empty Vec when the file does not exist yet.
@@ -1507,6 +1523,17 @@ export type CrashReport = {
 	preview: string,
 };
 
+/**
+ *  A crop rectangle as fractions (0..1) of the image — resolution-independent,
+ *  so it maps onto the original regardless of the preview's size.
+ */
+export type CropFrac = {
+	x: number | null,
+	y: number | null,
+	w: number | null,
+	h: number | null,
+};
+
 export type DataLocationStatus = {
 	effective: string,
 	configured: string | null,
@@ -1659,7 +1686,7 @@ export type DownloadProgress = {
 
 export type EnvSupport = "required" | "optional" | "unsupported";
 
-export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
+export type Error = { kind: "network"; url: string; details: string } | { kind: "host_not_allowed"; url: string } | { kind: "update_check_failed"; details: string } | { kind: "update_verification_failed"; details: string } | { kind: "update_install_failed"; details: string } | { kind: "hash_mismatch"; path: string; expected: string; got: string } | { kind: "java_spawn"; details: string } | { kind: "already_running" } | { kind: "account_not_set" } | { kind: "instance_busy" } | { kind: "quick_play_address_invalid"; address: string; reason: string } | { kind: "auth_cancelled" } | { kind: "auth_failed"; stage: string; details: string } | { kind: "no_minecraft_profile" } | { kind: "auth_pending_approval" } | { kind: "unknown_version"; id: string } | { kind: "loader_unavailable"; loader: string; mc_version: string } | { kind: "unsupported_platform"; os: string; arch: string } | { kind: "io"; path: string; details: string } | { kind: "last_instance" } | { kind: "no_version_selected" } | { kind: "instance_not_found"; id: string } | { kind: "import_no_provenance"; id: string } | { kind: "import_source_missing"; path: string } | { kind: "forge_promotions_unavailable"; flavor: string } | { kind: "forge_maven_metadata_parse_failed"; details: string } | { kind: "forge_no_build_for"; mc: string; fv: string } | { kind: "forge_installer_corrupted"; mc: string; fv: string; details: string } | { kind: "forge_unsupported_processor"; coord: string } | { kind: "forge_patcher_failed"; processor: string; details: string } | { kind: "forge_mappings_missing"; mc: string } | { kind: "instance_name_empty" } | { kind: "instance_name_too_long"; max: number; actual: number } | { kind: "offline_name_invalid"; name: string; reason: OfflineNameRejection } | { kind: "mods_network"; url: string; details: string } | { kind: "mods_platform_unreachable"; url: string } | { kind: "mods_platform_auth"; kind_detail: ModsAuthKind } | { kind: "mods_distribution_disabled"; source: string; project_id: string } | { kind: "mods_not_found"; source: string } | { kind: "mods_platform_unsupported"; source: ModSource } | { kind: "mods_decode"; source: string; details: string } | { kind: "mods_sha1_unavailable" } | { kind: "mods_sha1_mismatch"; expected: string; got: string } | { kind: "mods_dependency_unresolvable"; project_ref: string } | { kind: "mods_filename_conflict"; filename: string; existing_sha: string; incoming_sha: string } | { kind: "mods_unsafe_filename"; filename: string } | { kind: "mods_cache_io"; details: string } | { kind: "mods_instance_path"; path: string; details: string } | { kind: "modpack_invalid_archive"; details: string } | { kind: "modpack_format_unknown" } | { kind: "modpack_manifest_invalid"; format: string; details: string } | { kind: "modpack_unsupported_manifest_version"; format: string; version: number } | { kind: "modpack_unsupported_loader"; format: string; loader_id: string } | { kind: "modpack_download_host_not_allowed"; host: string; file_path: string } | { kind: "modpack_sha1_unavailable"; mod_name: string } | { kind: "modpack_mod_distribution_disabled"; mod_name: string; project_url: string } | { kind: "modpack_overrides_path_escape"; entry: string } | { kind: "modpack_overrides_too_large"; entry: string; size: number | null; cap: number | null } | { kind: "modpack_no_files_selected" } | { kind: "modpack_instance_creation_failed"; details: string } | { kind: "modpack_partial_failure"; instance_id: string; failed: ([string, string])[] } | { kind: "modpack_bundled_no_url"; mod_name: string } | { kind: "modpack_cf_distribution_disabled"; pack_name: string } | { kind: "modpack_export_failed"; details: string } | { kind: "world_not_found"; instance_id: string; folder_name: string } | { kind: "world_in_use"; folder_name: string } | { kind: "world_path_invalid"; name: string; reason: string } | { kind: "world_name_unresolvable"; folder_name: string } | { kind: "screenshot_not_found"; instance_id: string; filename: string } | { kind: "screenshot_path_invalid"; name: string; reason: string } | { kind: "backup_not_found"; instance_id: string; world_folder: string; filename: string } | { kind: "backup_corrupt"; filename: string; details: string } | { kind: "world_import_not_a_world" } | { kind: "world_import_unsupported_source" } | { kind: "world_import_invalid_archive"; details: string } | { kind: "world_import_too_large"; size: number | null; cap: number | null } | { kind: "playtime_io"; details: string } | { kind: "tray_io"; details: string } | { kind: "window_io"; details: string } | { kind: "mc_logs_upload"; details: string } | { kind: "import_instance_unreadable"; launcher: string; details: string } | { kind: "import_unsupported_loader"; loader: string } | { kind: "import_source_unrecognized"; path: string } | { kind: "servers_dat_parse"; reason: string } | { kind: "saved_server_name_invalid"; name: string; reason: string } | { kind: "saved_server_list_changed" } | 
 /**  Курируемое поле server.properties не прошло валидацию. */
 { kind: "server_invalid_property"; key: string; value: string; reason: string } | 
 /**  Попытка собрать/запустить сервер без принятого EULA. */
@@ -3059,6 +3086,18 @@ export type RestoredWorld = {
 export type SavedServer = {
 	name: string,
 	address: string,
+};
+
+/**
+ *  One screenshot file, surfaced to the UI. `instance_name` is filled for both
+ *  the per-instance tab and the global gallery so the gallery can group/filter.
+ */
+export type Screenshot = {
+	instance_id: string,
+	instance_name: string,
+	file_name: string,
+	size_bytes: number | null,
+	modified_unix_ms: number | null,
 };
 
 /**

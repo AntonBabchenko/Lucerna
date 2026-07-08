@@ -29,6 +29,7 @@
   import ModpacksTab from '$lib/modpacks/ModpacksTab.svelte';
   import ModpacksModal from '$lib/modpacks/ModpacksModal.svelte';
   import ServersModal from '$lib/servers/ServersModal.svelte';
+  import ScreenshotsGallery from '$lib/screenshots/ScreenshotsGallery.svelte';
   import OperationsView from '$lib/ops/OperationsView.svelte';
   import {
     enqueueImport,
@@ -170,6 +171,7 @@
   let gateBusy = $state(false);
 
   let logsOpen = $state(false);
+  let screenshotsGalleryOpen = $state(false);
   let logsInitialPath = $state<string | null>(null);
   let crashReport = $state<CrashReport | null>(null);
   let modsError = $state<string | null>(null);
@@ -280,6 +282,7 @@
       modpacksModalOpen ||
       launcherImportOpen ||
       logsOpen ||
+      screenshotsGalleryOpen ||
       settingsOpen.value !== null ||
       exportDialogOpen ||
       msSigningIn;
@@ -750,6 +753,7 @@
       onToggleCompact={() => void toggleCompact()}
       onOpenModpacks={() => (modpacksModalOpen = true)}
       onOpenServers={() => (serversModalOpen = true)}
+      onOpenGallery={() => (screenshotsGalleryOpen = true)}
       onOpenLauncherImport={() => (launcherImportOpen = true)}
       onOpenQuickJoin={() => void openServersDialog()}
       {onSelectAccount}
@@ -965,6 +969,9 @@
       void onSelectInstance(id);
     }}
   />
+  {#if screenshotsGalleryOpen}
+    <ScreenshotsGallery onClose={() => (screenshotsGalleryOpen = false)} />
+  {/if}
   <!-- SettingsModal renders AFTER ModpacksModal on purpose. Both now use the
        shared Modal primitive, which fixes the backdrop at z-50, so relative
        stacking is decided by DOM order. Settings can be summoned from inside

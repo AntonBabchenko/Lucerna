@@ -51,6 +51,7 @@
     onToggleCompact = () => {},
     onOpenQuickJoin = () => {},
     onOpenServers = () => {},
+    onOpenGallery = () => {},
     playBlockedReason = null,
     createBlockedReason = null,
     launcherImportBlockedReason = null,
@@ -96,6 +97,7 @@
     onToggleCompact?: () => void;
     onOpenQuickJoin?: () => void;
     onOpenServers?: () => void;
+    onOpenGallery?: () => void;
     // Non-null while the configured data root is unavailable (§7 fallback
     // gating): disables Play/Install (with an explanatory tooltip) and the
     // empty-state "Create instance" shortcut. See data-root-gating.ts.
@@ -497,6 +499,15 @@
             testid="sidebar-servers-upload-badge"
           />
         {/if}
+      </button>
+      <button
+        type="button"
+        class="btn-secondary btn-sm flex items-center justify-center gap-1.5"
+        data-testid="sidebar-open-gallery"
+        onclick={onOpenGallery}
+      >
+        <Icon name="gallery" size={16} />
+        {$t('sidebar.gallery')}
       </button>
       <div class="flex gap-1">
         <button

@@ -6,6 +6,7 @@ import {
   ArrowRightLeft,
   ArrowUp,
   ArrowUpRight,
+  Ban,
   Blocks,
   Check,
   ChevronDown,
@@ -15,6 +16,8 @@ import {
   ChevronRight,
   ChevronUp,
   CircleX,
+  Copy,
+  Crop,
   Download,
   EllipsisVertical,
   Eraser,
@@ -24,7 +27,10 @@ import {
   EyeOff,
   FolderOpen,
   Globe,
+  Hand,
+  Highlighter,
   Image,
+  Images,
   Info,
   LayoutGrid,
   List,
@@ -45,11 +51,14 @@ import {
   Square,
   Trash2,
   TriangleAlert,
+  Undo2,
   Upload,
   User,
   UserPlus,
   Wrench,
   X,
+  ZoomIn,
+  ZoomOut,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -116,6 +125,15 @@ export const ICONS = {
   wrench: Wrench, // a one-click repair is available for a log issue (Logs badge + attention panel)
   eye: Eye, // reveal password / show secret
   eyeOff: EyeOff, // hide password / conceal secret
+  copy: Copy, // copy image to clipboard (screenshots lightbox)
+  gallery: Images, // screenshots gallery (sidebar entry + gallery header)
+  clear: Ban, // clear all annotations (distinct from trash = delete file)
+  crop: Crop, // crop tool (screenshot annotator)
+  hand: Hand, // pan tool (screenshot annotator)
+  marker: Highlighter, // freehand draw tool (screenshot annotator)
+  undo: Undo2, // undo last stroke (screenshot annotator)
+  zoomIn: ZoomIn, // zoom in (screenshot annotator)
+  zoomOut: ZoomOut, // zoom out (screenshot annotator)
 } satisfies Record<string, Component>;
 
 export type IconName = keyof typeof ICONS;
