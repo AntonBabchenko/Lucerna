@@ -1,6 +1,10 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { commands } from '$lib/ipc/bindings';
+  import { formatError } from '$lib/ipc/format-error';
   import { t } from '$lib/i18n';
+  import Modal from '$lib/ui/Modal.svelte';
+  import StatusMessage from '$lib/ui/StatusMessage.svelte';
   import { computeCropRect } from './crop';
   import { invalidateInstanceIcon } from './instance-icon-cache';
   import { iconDialog } from './instance-icon-dialog.svelte';
@@ -45,9 +49,14 @@
     resetState();
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    if (iconDialog.open && e.key === 'Escape') close();
-  }
+  // Switching the target instance (or reopening on a different one) must not
+  // leak the previous image/zoom/pan into the new session. `instanceId` only
+  // changes on show()/close() — not while the user is actively cropping — so
+  // this cannot wipe a freshly picked image mid-edit.
+  $effect(() => {
+    iconDialog.instanceId;
+    untrack(resetState);
+  });
 
   function onFile(e: Event) {
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
@@ -140,7 +149,7 @@
       onSaved();
       close();
     } else {
-      error = $t('instance.icon.errorSave');
+      error = formatError(res.error);
     }
   }
 
@@ -156,97 +165,84 @@
       onSaved();
       close();
     } else {
-      error = $t('instance.icon.errorSave');
+      error = formatError(res.error);
     }
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
-
 {#if iconDialog.open}
-  <div class="fixed inset-0 z-[60] flex items-center justify-center">
-    <button
-      type="button"
-      class="absolute inset-0 bg-black/50"
-      aria-label={$t('common.cancel')}
-      onclick={close}
-    ></button>
-    <div
-      class="relative z-10 w-[22rem] max-w-[90vw] rounded-xl border border-border-subtle bg-base p-5 shadow-xl"
-      role="dialog"
-      aria-modal="true"
-      aria-label={$t('instance.icon.dialogTitle')}
-    >
-      <h3 class="mb-3 text-base font-semibold text-primary">{$t('instance.icon.dialogTitle')}</h3>
+  <Modal
+    onClose={close}
+    ariaLabel={$t('instance.icon.dialogTitle')}
+    panelClass="w-[22rem] max-w-[90vw] p-5"
+  >
+    <h3 class="mb-3 text-base font-semibold text-primary">{$t('instance.icon.dialogTitle')}</h3>
 
-      {#if img}
-        <div class="flex flex-col items-center gap-3">
-          <div
-            class="relative overflow-hidden rounded-xl border border-border-subtle bg-base"
-            style="width:{FRAME}px;height:{FRAME}px;touch-action:none;cursor:grab"
-            onwheel={onWheel}
-            onpointerdown={onPointerDown}
-            onpointermove={onPointerMove}
-            onpointerup={onPointerUp}
-            onpointercancel={onPointerUp}
-            role="presentation"
-          >
-            <img
-              src={img.src}
-              alt=""
-              draggable="false"
-              class="absolute left-0 top-0 max-w-none select-none"
-              style="width:{imgW * scale}px;height:{imgH *
-                scale}px;transform:translate({offsetX}px,{offsetY}px)"
-            />
-          </div>
-          <input
-            type="range"
-            class="w-full"
-            min={minScale}
-            max={minScale * 8}
-            step="0.001"
-            value={scale}
-            aria-label={$t('instance.icon.zoom')}
-            oninput={(e) => zoomTo(Number((e.currentTarget as HTMLInputElement).value))}
+    {#if img}
+      <div class="flex flex-col items-center gap-3">
+        <div
+          class="relative overflow-hidden rounded-xl border border-border-subtle bg-base"
+          style="width:{FRAME}px;height:{FRAME}px;touch-action:none;cursor:grab"
+          onwheel={onWheel}
+          onpointerdown={onPointerDown}
+          onpointermove={onPointerMove}
+          onpointerup={onPointerUp}
+          onpointercancel={onPointerUp}
+          role="presentation"
+        >
+          <img
+            src={img.src}
+            alt=""
+            draggable="false"
+            class="absolute left-0 top-0 max-w-none select-none"
+            style="width:{imgW * scale}px;height:{imgH *
+              scale}px;transform:translate({offsetX}px,{offsetY}px)"
           />
-          <p class="text-xs text-secondary">{$t('instance.icon.hint')}</p>
         </div>
-      {:else}
-        <button type="button" class="btn-secondary w-full" onclick={() => fileInput?.click()}>
-          {$t('instance.icon.chooseFile')}
-        </button>
-      {/if}
-
-      {#if error}
-        <p class="mt-3 text-sm text-danger">{error}</p>
-      {/if}
-
-      <div class="mt-4 flex items-center justify-between">
-        <div>
-          {#if iconDialog.hasIcon}
-            <button type="button" class="btn-ghost-danger btn-sm" disabled={busy} onclick={remove}>
-              {$t('instance.icon.remove')}
-            </button>
-          {/if}
-        </div>
-        <div class="flex gap-2">
-          <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={close}>
-            {$t('common.cancel')}
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!img || busy} onclick={save}>
-            {$t('common.save')}
-          </button>
-        </div>
+        <input
+          type="range"
+          class="w-full"
+          min={minScale}
+          max={minScale * 8}
+          step="0.001"
+          value={scale}
+          aria-label={$t('instance.icon.zoom')}
+          oninput={(e) => zoomTo(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+        <p class="text-xs text-secondary">{$t('instance.icon.hint')}</p>
       </div>
+    {:else}
+      <button type="button" class="btn-secondary w-full" onclick={() => fileInput?.click()}>
+        {$t('instance.icon.chooseFile')}
+      </button>
+    {/if}
 
-      <input
-        bind:this={fileInput}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        class="hidden"
-        onchange={onFile}
-      />
+    <StatusMessage tone="danger" message={error} class="mt-3" />
+
+    <div class="mt-4 flex items-center justify-between">
+      <div>
+        {#if iconDialog.hasIcon}
+          <button type="button" class="btn-ghost-danger btn-sm" disabled={busy} onclick={remove}>
+            {$t('instance.icon.remove')}
+          </button>
+        {/if}
+      </div>
+      <div class="flex gap-2">
+        <button type="button" class="btn-secondary btn-sm" disabled={busy} onclick={close}>
+          {$t('common.cancel')}
+        </button>
+        <button type="button" class="btn-primary btn-sm" disabled={!img || busy} onclick={save}>
+          {$t('common.save')}
+        </button>
+      </div>
     </div>
-  </div>
+
+    <input
+      bind:this={fileInput}
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/gif"
+      class="hidden"
+      onchange={onFile}
+    />
+  </Modal>
 {/if}
